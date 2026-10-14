@@ -187,4 +187,5 @@ Test("native migration refuses unowned guard and backwall fluids", () =>
     Reject(() => NativeWorldBlob.Split(bytes, phases, 1));
     Reject(() => NativeWorldBlob.Split(NativeFixture(), phases, 4));
 });
+OwnershipTests.Run(Test, Check, Reject, NativeFixture, phases);
 Console.WriteLine($"{passed} managed/native integration tests passed");

@@ -30,7 +30,9 @@ namespace MixedAtmospheres.Core.Interop
     public sealed class NativeFluidMigration
     {
         private readonly byte[] data;
-        public ReadOnlyMemory<byte> NativeData => data;
+        // A span does not expose a mutable backing ArraySegment through
+        // MemoryMarshal.TryGetArray, unlike ReadOnlyMemory<byte>.
+        public ReadOnlySpan<byte> NativeData => data;
         public ReadOnlyCollection<CapturedFluidCell> Fluids { get; }
         public int Width { get; }
         public int Height { get; }

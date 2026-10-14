@@ -106,7 +106,18 @@ internal static unsafe class Program
                             index => (NativeMatterPhase)contract.Phases[index]);
                         var vacuumHash = BinaryPrimitives.ReadInt32LittleEndian(contract.Elements.AsSpan(4 + contract.Vacuum * 164));
                         var savedNative = sim.Save();
-                        migration = NativeWorldBlob.Split(savedNative, phases, vacuumHash);
+                        var framed = new byte[4 + savedNative.Length];
+                        BinaryPrimitives.WriteInt32LittleEndian(framed, savedNative.Length);
+                        savedNative.CopyTo(framed, 4);
+                        // Explicit bindings here describe captured harness
+                        // inventory, not production thermodynamic support.
+                        var bindings = phases.Where(pair => pair.Value is NativeMatterPhase.Gas or NativeMatterPhase.Liquid)
+                            .ToDictionary(pair => pair.Key, pair => new NativeFluidBinding("harness-capture:" + pair.Key, pair.Value));
+                        var staged = NativeColonyImport.StageNewColony(Width, Height,
+                            new[] { new NativeWorldPlacement(0, Width, Height, 0, 0) },
+                            new[] { new NativeWorldSource(0, framed) }, phases, bindings, vacuumHash);
+                        migration = staged.Worlds.Single().Migration;
+                        report["allWorldsStagedBeforeNativeLoad"] = true;
                         report["capturedFluidCells"] = migration.Fluids;
                         Require(migration.Width == Width && migration.Height == Height && migration.OffsetX == 0 && migration.OffsetY == 0,
                             "Native save geometry differs from public grid.");
@@ -304,33 +315,12 @@ internal static unsafe class Program
         public bool IsFluid(int index) => Phases[index] is 1 or 2;
         public int FilterFluidProduction(byte[] table)
         {
-            var changes = 0;
-            var hashToIndex = new Dictionary<int, int>();
-            for (var i = 0; i < Count; ++i) hashToIndex[BinaryPrimitives.ReadInt32LittleEndian(table.AsSpan(4 + i * 164))] = i;
-            for (var i = 0; i < Count; ++i)
-            {
-                var row = table.AsSpan(4 + i * 164, 164);
-                foreach (var offset in new[] { 4, 6, 84, 86 })
-                {
-                    var target = BinaryPrimitives.ReadUInt16LittleEndian(row[offset..]);
-                    if (target < Count && IsFluid(target))
-                    {
-                        BinaryPrimitives.WriteUInt16LittleEndian(row[offset..], ushort.MaxValue);
-                        if (offset == 4) BinaryPrimitives.WriteSingleLittleEndian(row[56..], -1e30f);
-                        if (offset == 6) BinaryPrimitives.WriteSingleLittleEndian(row[60..], 1e30f);
-                        if (offset == 84)
-                            foreach (var field in new[] { 124, 128, 132, 136 }) BinaryPrimitives.WriteSingleLittleEndian(row[field..], 0);
-                        ++changes;
-                    }
-                }
-                foreach (var offset in new[] { 68, 76 })
-                    if (hashToIndex.TryGetValue(BinaryPrimitives.ReadInt32LittleEndian(row[offset..]), out var target) && IsFluid(target))
-                    {
-                        BinaryPrimitives.WriteSingleLittleEndian(row[(offset + 4)..], 0);
-                        ++changes;
-                    }
-            }
-            return changes;
+            var phases = Enumerable.Range(0, Count).ToDictionary(
+                index => BinaryPrimitives.ReadInt32LittleEndian(Elements.AsSpan(4 + index * 164)),
+                index => (NativeMatterPhase)Phases[index]);
+            var result = NativeElementTable.SuppressFluidProduction(table, phases);
+            result.Data.CopyTo(table);
+            return result.Suppressed.Count;
         }
     }
 

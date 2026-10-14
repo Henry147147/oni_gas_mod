@@ -32,11 +32,19 @@ Modes:
 - `load-shadow`: validate and split a real native v15 save into captured fluid
   records and a sanitized native blob. Compare the transformed load against an
   actual unmodified native-load control, then verify native fluid absence and
-  continuing solid heat. This uses the shared `NativeWorldBlob` parser.
+  continuing solid heat. This uses the shared `NativeColonyImport` staging API
+  (including the outer length prefix) and `NativeWorldBlob` parser. The harness
+  binds captured identities for inspection; it does not claim material-model support.
 - `transition`: heat an ice cell above its transition threshold and verify the
   unmodified native definitions produce fluid. This is the positive control.
 - `filtered-transition`: suppress native fluid-producing element definitions,
   repeat that control, and check that the cell stays solid and no fluid appears.
+
+Filtering uses `NativeElementTable`, which validates all rows first and disables
+whole fluid-producing temperature/sublimation/conversion branches. The reported
+`filteredDefinitions` counts suppressed branches. This includes the case where
+only a transition byproduct is fluid; dropping that byproduct alone is not a
+conservation-consistent suppression policy.
 
 `run.ps1` starts one test process with a 45-second timeout and captures stdout,
 stderr and its JSON result. Its timeout kills only the process it starts.
