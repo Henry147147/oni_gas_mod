@@ -1,0 +1,41 @@
+/build*/
+**/bin/
+**/obj/
+/artifacts/
+/local/
+__pycache__/
+*.user
+*.suo
+*.log
+
+# Private licensed-game captures and inspection output, at any depth.
+**/game-contract-local/
+**/probe-evidence*/
+**/shadow-evidence*/
+**/inspection-artifacts/
+**/decompiled/
+integration-probe.json
+
+# Colony saves, crash dumps, and generated distribution packages.
+*.sav
+*.sav.*
+*.save
+*.save.*
+*.dmp
+core
+core.*
+*.zip
+*.tar
+*.tar.gz
+
+# Licensed binaries and local credentials must never be source artifacts.
+*.dll
+*.so
+*.so.*
+*.exe
+*.pdb
+*.mdb
+.env
+.env.*
+*.pem
+*.key

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
+    <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(OniManagedDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(OniManagedDir)/Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(OniManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="RequireGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="A licensed ONI installation is required. Set ONI_GAME_DIR or /p:OniGameDir to its root. Run tools/inspect_oni.py first." />
+  </Target>
+</Project>

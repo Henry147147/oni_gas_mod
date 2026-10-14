@@ -1,0 +1,33 @@
+name: Native and managed validation
+on: [push, pull_request]
+jobs:
+  standalone:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Build and test
+        run: python tools/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ runner.os }}
+          path: |
+            build/libmixed_atmospheres.so
+            build-windows/mixed_atmospheres.dll
+            managed/MixedAtmospheres.Core/bin/Release/netstandard2.1/MixedAtmospheres.Core.dll
+  sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native memory and undefined-behavior checks
+        run: python3 tools/build.py --native-only --sanitizers --build-dir build-sanitized
+# Game assemblies remain local. CI does not download or redistribute ONI.

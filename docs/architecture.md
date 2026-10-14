@@ -1,0 +1,267 @@
+# Physics and integration contract
+
+## Scope and units
+
+The public target is a complete replacement for gas and liquid physics, not a
+second composition table attached to vanilla fluid motion. All fluid-producing
+and fluid-consuming operations must use the authoritative mixture inventory.
+The initial supported configurations are the base game and Spaced Out!, on
+Windows and Linux, with new colonies only. Environmental fires and explosions,
+dissolved gases, and detailed solution chemistry are outside the agreed scope.
+
+Native calculations use kilograms, metres, seconds, kelvin, pascals, joules,
+and moles. The UI should show constituent and total mass in grams where useful:
+`grams = 1000 * kg`. A gas's breathing fraction is its mole fraction, not its
+mass fraction. Each cell has an explicit geometric volume; the reference grid
+uses 1 m × 1 m × 1 m cells by default.
+
+For gas constituents `i`:
+
+```
+n_i = m_i / M_i
+x_i = n_i / sum(n_j)
+V_gas = V_cell - sum(m_liquid / rho_liquid) - V_solid
+p = sum(n_i) R T / V_gas
+p_i = x_i p
+rho_gas = sum(m_i) / V_gas
+```
+
+Mass and energy are authoritative. Temperature is reconstructed from species
+internal energies. The current reference model uses constant heat capacities
+and formation energies; it does not average temperatures arithmetically.
+Inventories preserve trace quantities rather than deleting small species to
+make room for a fixed number of constituents.
+
+## Buoyancy, mixing, and liquids
+
+Gravity acts on the bulk mixture. Pressure gradients and density differences
+produce buoyancy; there must not be an arbitrary per-species upward/downward
+swap rule. At equal temperature and pressure a hydrogen-rich parcel has lower
+density than surrounding air. A warm air parcel can also rise. Gases diffuse
+and remain mixed; ordinary room air must not rapidly sort into pure oxygen and
+nitrogen layers. Hydrostatic equilibrium must remain stationary numerically.
+The current diffusion model is mixture-averaged Fick diffusion, without
+barodiffusion or thermal diffusion.
+
+The reference gas solver conserves species, momentum fluxes, and total energy
+including gravitational potential. It uses HLLC fluxes with an HLL fallback and
+hydrostatic reconstruction. Explicit acoustic time steps make it unsuitable
+for the intended colony scale. The production solver must treat pressure
+implicitly while preserving compressibility, vacuum behavior, energy, and
+positive constituent masses. Research precedent supports this direction but
+does not provide a ready-made multiphase implementation:
+[Tavelli and Dumbser, all-Mach staggered method](https://arxiv.org/abs/1612.08866)
+and [Dumbser and Casulli, conservative semi-implicit finite volume method](https://iris.unitn.it/handle/11572/148704).
+
+The sparse pressure component now solves a compressibility diagonal plus
+pairwise face conductances using preconditioned conjugate gradients. It rejects
+unanchored components and verifies the true equation residual before returning.
+Manufactured-solution and barrier tests pass. This component is not yet wired
+into conservative advection, pressure work, phase volume or the gas timestep.
+
+A frozen-coefficient acoustic step now couples cell pressure to face velocity.
+For each cell, its volume compliance is `C = V / (rho * c²)`; a zero value
+represents the incompressible limit. Each oriented face carries an inertia
+`M = rho_face * area * centre_distance`. Backward Euler solves
+`C * delta_p + dt * sum(outward_area * u_new) = 0` together with
+`M * (u_new - u_old) = dt * area * (p_left_new - p_right_new) + dt * M * acceleration`.
+Eliminating velocity produces the existing symmetric pressure operator.
+Pressure increments keep a balanced gravity/pressure gradient stationary.
+Closed incompressible components use a gauge, with the original volume
+continuity equations checked after solving.
+
+Tests cover an analytic two-cell acoustic mode beyond the acoustic CFL limit,
+hydrostatic balance, divergence removal with circulation retained, body-force
+work, and disconnected compartments. The step records quadratic acoustic
+energy, backward-Euler dissipation, and body-force work separately. This is a
+linearized subproblem: its energy is **not** thermodynamic total energy, and
+its stability does not establish nonlinear positivity, shock accuracy or
+colony performance. It still needs conservative transport, nonlinear material
+properties and pressure-work coupling before it can advance fluid inventories.
+
+A separate nonlinear material-volume pressure step now supplies a compatible
+pressure-work closure for constant-property mixtures. For a material cell,
+the constituent masses stay fixed, the liquid volume stays fixed, and gas and
+liquid share one temperature. Define `Q = Cv_total * T`,
+`k = n_gas * R / Cv_total`, and gas headspace `Vg`. Reversible compression gives
+`Q_new = Q_old * (Vg_old / Vg_new)^k`. The discrete work pressure is
+`p_work = -(Q_new - Q_old) / (V_new - V_old)`, with its analytic limit at zero
+volume change. A series expansion avoids cancellation for small changes.
+
+Face velocities use an implicit midpoint pressure force. The same face areas
+and midpoint velocities determine the change in material-cell volume. The
+pressure work then cancels staggered kinetic-energy change face by face,
+leaving only explicit body-force work. A damped nonlinear solve uses the
+positive secant-pressure derivative to build the existing symmetric pressure
+matrix. Completely filled incompressible cells retain their volume and solve
+for pressure; closed liquid compartments use a pressure gauge. The solver
+checks the volume residual, reconstructs the endpoint equation of state, and
+checks total energy before publishing. Unsupported vacuum, partial liquid
+fill without gas, fixed solids, liquid tension, inconsistent initial liquid
+velocity and insufficient floating-point headspace precision reject the step.
+
+Seven scenarios exercise nonlinear compression beyond an acoustic timestep,
+the small-amplitude midpoint acoustic limit, hydrostatic gas/liquid balance,
+force transmission through liquid, body-force work, reversible gas/liquid
+compression and invalid inputs. This is a reversible **material-volume
+substep**, not a complete moving-mesh or fixed-grid solver. Compatible mesh
+geometry and staggered momentum remapping remain unimplemented. It has no
+shock dissipation, vacuum or free-surface model, immiscible-phase separation,
+or phase changes; a large timestep conserves energy but does not resolve fast
+acoustic oscillations. Its equations are an explicit project derivation, not
+a claim to reproduce a published solver. The need to check both energy and
+entropy, rather than assuming one follows from an arbitrary energy update,
+is also discussed in [De Michele and Coppola's energy-discretization study](https://arxiv.org/abs/2210.01251).
+
+A shared donor-cell remap now transports gas and liquid inventories using
+caller-supplied face volumes. Every constituent, both momentum components and
+total energy use the same weights. The donor's total outgoing volume must fit
+its cell; all retained and incoming species masses remain nonnegative without
+clipping traces. Velocity mixing turns unresolved kinetic energy into internal
+energy. Condensed overfill and unsupported solid transport reject the operation
+before any input changes. A divergence-free volume-flux test preserves liquid
+volume-fraction bounds and uniform temperature/pressure across gas/water cells.
+
+The integrated liquid flow solver remains unimplemented. It requires occupied-volume fractions,
+a free-surface treatment, pressure coupling, and phase-specific inventories.
+Miscible liquids share a composition; immiscible liquids retain separate phase
+fractions and separate under gravity. Liquid volume cannot exceed cell volume
+by silently deleting mass. Phase density, thermal expansion, surface behavior,
+and real-fluid equations of state need an explicit supported property range.
+Adding a falling-cell rule to the gas reference solver would not meet this
+contract.
+
+Current closed-vessel phase helpers balance mass and energy and use vapor
+partial pressure. They reject unsupported temperatures and filled containers.
+They do not yet couple boiling, freezing, melting, or condensation to grid
+transport. Temperature-dependent properties and validated phase tables must
+replace the reference approximations before broad-temperature gameplay.
+[NIST Chemistry WebBook](https://www.nist.gov/programs-projects/nist-chemistry-webbook)
+and [NIST-JANAF](https://www.nist.gov/srd/chemistry) are property-data sources;
+individual properties must retain their source, units, and validity range.
+
+## Breathing and playability
+
+Defaults in the standalone model:
+
+| Setting | Default |
+| --- | --- |
+| Hard mode oxygen fraction | 15–35%, inclusive |
+| Easy mode oxygen fraction | At least 15% |
+| Minimum oxygen partial pressure | 15,000 Pa |
+| Maximum carbon dioxide fraction | 0.5% |
+| Maximum carbon dioxide partial pressure | 500 Pa |
+| Initial breathable air | 21% O₂ / 79% N₂ at 101,325 Pa and 293.15 K |
+
+All limits are gameplay parameters, not medical exposure guidance. Easy mode
+removes the upper oxygen-fraction bound while retaining pressure and
+contamination checks. Failure flags distinguish too little oxygen, excessive
+oxygen, thin air, carbon dioxide, and other contaminants. Species-specific
+hazard limits are currently placeholders requiring balance review.
+
+World generation must guarantee enough starting mixed air, inert-gas reserves,
+water, and early research materials. Required gameplay additions include:
+
+- A mixture sensor and overlay showing pressure, partial pressures, temperature,
+  constituent grams, and the reason air is unbreathable.
+- Accessible carbon-dioxide scrubbing with captured waste and regeneration costs.
+- Ventilation fans and pressure-aware vents, bulk mixture pumps, and proper
+  selective separators with electrical/thermal costs.
+- Nitrogen storage and generation sources, pressure regulation, and later air
+  separation. Nitrogen must never be a starting-map lottery.
+- Mixed-fluid pipes/reservoirs with constituent-preserving transport, explicit
+  phase compatibility, backpressure, and overpressure behavior.
+
+These are requirements, not currently registered ONI buildings.
+
+## Machines, metabolism, and energy
+
+Transfers are transactions. A full output must leave the input unchanged.
+Bulk pumps move the source mixture proportionally; filters remove selected
+species while retaining the remainder. The inventory transfer helper is a
+conservative bookkeeping primitive. Separate reference process models now
+quote gas compression using isentropic efficiency, incompressible liquid
+pumping using hydraulic efficiency, and isothermal selective gas separation.
+Streams carry enthalpy `H = U + pV`. Pump inefficiency heats their output.
+Separation uses the ideal-gas demixing entropy to calculate minimum work;
+actual work must be rejected as heat at the feed temperature. Tests check these
+energy and entropy balances, including trace-species separation. The models
+do not yet reserve electrical power, outlet capacity, or a heat sink in game.
+
+Example native reactions include water electrolysis, hydrogen/methane/carbon
+combustion, glucose-based metabolism, and photosynthesis. Every reaction is
+checked for elemental balance, and chemical formation energy participates in
+the energy ledger. Fuel generators consume oxidizer and produce accountable
+exhaust. Duplicant metabolism consumes stored food as well as O₂ and produces
+CO₂, water, and heat; breathing cannot turn O₂ into CO₂ without carbon input.
+All other conversions, including fictional ONI materials, need documented
+compositions or surrogate compositions and balanced routes.
+
+The current reaction API enforces the first law and available reagents. It
+does not yet enforce entropy production, equilibrium, reversible-work bounds,
+or machine efficiencies. It therefore cannot certify the absence of every
+thermodynamic exploit. Energy includes formation energy and may be negative;
+positive temperature and full-system conservation are the relevant checks.
+
+## Native ownership and compatibility
+
+ONI 744825's native simulator is a process-wide singleton. `Grid` contains
+pointers into arrays returned through `Sim.GameDataUpdate`. Cell mutations,
+component registration, consumers, emitters, temperatures, diseases, radiation,
+callbacks, saves, and conduit thermal services cross separate native paths.
+Most mutation calls bypass the managed `Sim.HandleMessage` wrapper.
+
+The game exposes no fluids-only disable switch. Full ownership therefore needs
+a complete audited replacement boundary or a proven separation of domains.
+Skipping all native frames also stops its other services. Updating cells after
+vanilla simulation cannot undo already emitted events. Calling native
+initialization a second time inside the game does not create an isolated world.
+
+The current probe runs only an independent `FluidWorld`, within thread-scoped
+patches around its own calls. A live colony is never bound to it. The full
+adapter must eventually publish correctly owned arrays, preserve all callback
+contracts, handle construction/digging/displacement atomically, and route every
+consumer/producer and transport system through the mixture backend.
+
+The main-menu probe has passed inside Windows ONI, and the same six scoped
+checks passed during Linux Unity startup. Linux exited before its main menu
+with no local Steam session. A separate process harness
+has passed narrow import/solid-heat checks using both Windows and Linux native
+libraries. It is investigating whether native solids/buildings can coexist
+with an entirely custom fluid domain by representing those fluids as native vacuum. That
+candidate requires suppressing every native fluid source, owning fluid-solid
+coupling, and publishing owned merged arrays. See the detailed
+[native contract and disposable-colony gate](interop-contract.md); scoped
+probe success alone does not validate this architecture.
+
+A constant-capacity thermal-network component now provides backward-Euler heat
+conduction with pairwise conservative energy transfers. Conductance uses the
+sum of the two half-cell thermal resistances. Vacuum has no artificial heat
+capacity or conductance. The solve uses temperatures relative to each connected
+component's equilibrium to avoid cancellation in stiff contacts, then verifies
+the maximum principle and closed-system entropy. The game adapter must still
+reserve and commit both endpoints and supply phase changes, geometry, radiation
+and appropriate convective boundary conditions. These standalone results do
+not themselves restore native fluid-solid or building heat exchange.
+
+Dominant-element projections may serve vanilla rendering, but must never
+become the physics source of truth. Unsupported game/mod services must fail
+before a new colony starts, with a clear compatibility message. Rendering,
+textures, sound, disease, and material-specific effects still need explicit
+mixture policies.
+
+## Saves and acceptance
+
+Native snapshots use stable species IDs, material-property compatibility
+checks, a version field, and corruption detection. A failed load is discarded
+before publishing a new world. Colony-level persistence must also save pipes,
+machine inventories, transport queues, breathing settings, reaction state,
+and conversion-version information. It must not silently load a mixture colony
+with vanilla fluid simulation or permit an old vanilla colony to be converted.
+
+Release requires measured conservation, positive states, hydrostatic stability,
+buoyant plumes, shock/rarefaction behavior, liquid settling and mixing,
+multiphase transitions, blocked machine outputs, saved-state continuation,
+all-material conversion audits, and representative colony performance on both
+platforms and both game configurations. Standalone tests alone do not pass the
+game integration gate.
