@@ -120,6 +120,8 @@ and native-boundary evidence are in [the environment report](tools/ONI_ENVIRONME
 - [Physics and integration contract](docs/architecture.md)
 - [Inspected native boundary and ownership gate](docs/interop-contract.md)
 - [Remaining work and release gates](docs/implementation-status.md)
+- [Accepted completion plan](docs/completion-plan.md)
+- [Ownership inventory and atomic cluster staging](docs/ownership-coverage.md)
 - [Steam Community concept draft](docs/steam-community-draft.bbcode)
 
 Native code is under `native/`; managed code is under `managed/`. No game

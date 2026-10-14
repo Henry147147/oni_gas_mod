@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import platform
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,6 +31,8 @@ def main() -> None:
     directory = (args.build_dir or ROOT / ("build-windows" if os.name == "nt" else "build")).resolve()
     if platform.system() not in ("Windows", "Linux"):
         parser.error("Only Windows and Linux are targeted at this milestone")
+    run([sys.executable, "tools/coverage_inventory.py", "validate"])
+    run([sys.executable, "-m", "unittest", "discover", "-s", "tools/tests", "-v"])
     run(["cmake", "-S", str(ROOT), "-B", str(directory), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
          "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF")])
     run(["cmake", "--build", str(directory), "--parallel", "8"])
