@@ -17,8 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 INVENTORY = ROOT / "docs/coverage-inventory.json"
 CONTRACT = ROOT / "docs/interop-contract.json"
 POLICY = ROOT / "docs/coverage-policy.json"
+RUNTIME = ROOT / "docs/runtime-identities.json"
 PACKS = ("Spaced Out!", "Frosty", "Bionic", "Prehistoric", "Aquatic")
 PLATFORMS = ("windows-x64", "linux-x64")
+ABSENCE_ELIGIBLE = ("material", "gameplay-system", "prefab", "prefab-converter", "recipe")
 
 
 def configurations() -> list[dict]:
@@ -58,13 +60,23 @@ def interface_entries(contract: dict, policy: dict) -> list[dict]:
     for item in policy["systems"]:
         add(f"system/{item['id']}", "gameplay-system", item["owner"], item["adapter"], item["acceptance"],
             {"description": item["description"]})
+    runtime = json.loads(RUNTIME.read_text(encoding="utf-8"))
+    if runtime["schema_version"] != 1 or runtime["oni_build"] != contract["scope"]["oniBuild"] or runtime["coverage_complete"] is not False:
+        raise ValueError("Invalid runtime discovery input")
+    adapters = {"prefab": ("PrefabFluidAdapters", "callsite-transaction"), "prefab-converter": ("ElementConverterAdapter", "conversion"),
+                "recipe": ("RecipeAdapters", "conversion")}
+    for item in runtime["entries"]:
+        adapter, acceptance = adapters[item["kind"]]
+        add(item["id"], item["kind"], "custom-fluid/native-nonfluid", adapter, acceptance,
+            {"runtime_identity": item["id"]})
+    if len({item["id"] for item in result}) != len(result): raise ValueError("Duplicate discovered interface/runtime identity")
     return result
 
 
 def generate(contract_path: Path, policy_path: Path, material_path: Path) -> dict:
-    contract = json.loads(contract_path.read_text())
-    policy = json.loads(policy_path.read_text())
-    captured = json.loads(material_path.read_text())
+    contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    captured = json.loads(material_path.read_text(encoding="utf-8"))
     if captured.get("OniBuild") != str(contract["scope"]["oniBuild"]):
         raise ValueError("Material identity capture and inspected game build differ")
     elements = captured["Elements"]
@@ -86,6 +98,7 @@ def generate(contract_path: Path, policy_path: Path, material_path: Path) -> dic
     inventory = {
         "schema_version": 1, "oni_build": contract["scope"]["oniBuild"],
         "source_hashes": {"interop_contract": digest(contract_path), "coverage_policy": digest(policy_path),
+                          "runtime_identities": digest(RUNTIME),
                           "private_material_identities": digest(material_path)},
         "assembly_hashes": {"windows-x64": contract["scope"]["assemblySha256"],
                             "linux-x64": contract["linuxContractEvidence"]["assemblySha256"]},
@@ -93,7 +106,7 @@ def generate(contract_path: Path, policy_path: Path, material_path: Path) -> dic
             "configurations": "Every entry must be verified in every configuration unless a runtime registry proves it absent.",
             "materials": "Identity inventory from one private Windows capture; properties and DLC applicability remain unverified.",
             "callsites": "Observed direct calls, not a complete dispatch graph; historic labels do not distinguish overloads.",
-            "runtime": "No prefab/recipe/storage registry completeness proof or in-game ownership acceptance exists yet.",
+            "runtime": "Observed prefab, converter and recipe identities are indexed separately; no registry completeness proof or in-game ownership acceptance exists yet.",
             "cosmetics": "Separate compatibility evidence is required before release."
         },
         "configurations": configurations(),
@@ -105,10 +118,10 @@ def generate(contract_path: Path, policy_path: Path, material_path: Path) -> dic
 
 
 def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path = POLICY) -> None:
-    contract = json.loads(contract_path.read_text()); policy = json.loads(policy_path.read_text())
+    contract = json.loads(contract_path.read_text(encoding="utf-8")); policy = json.loads(policy_path.read_text(encoding="utf-8"))
     if inventory.get("schema_version") != 1 or inventory.get("oni_build") != contract["scope"]["oniBuild"]:
         raise ValueError("Unsupported inventory schema or game build")
-    for key, path in (("interop_contract", contract_path), ("coverage_policy", policy_path)):
+    for key, path in (("interop_contract", contract_path), ("coverage_policy", policy_path), ("runtime_identities", RUNTIME)):
         if inventory["source_hashes"].get(key) != digest(path):
             raise ValueError(f"Stale inventory: {key} changed; regenerate and review")
     if inventory.get("assembly_hashes") != {"windows-x64": contract["scope"]["assemblySha256"],
@@ -187,7 +200,7 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
                 entry = by_id[item["entry"]]
                 if item.get("acceptance") != entry["acceptance"]:
                     raise ValueError("Evidence does not match its acceptance test")
-                if item["result"] == "absent" and entry["kind"] not in ("material", "gameplay-system"):
+                if item["result"] == "absent" and entry["kind"] not in ABSENCE_ELIGIBLE:
                     raise ValueError("Declared native interfaces and observed call sites cannot be waived as absent")
             elif item["result"] == "absent":
                 raise ValueError("Release requirements cannot be waived as absent")
@@ -210,7 +223,7 @@ def blockers(inventory: dict, policy: dict, release: bool = False) -> dict:
             # "Absent" requires a complete runtime capture which excludes the
             # identity. It is never inferred from a static DLC label.
             if (proof and proof["result"] == "absent" and capture and entry["id"] not in capture["entries"]
-                    and entry["kind"] in ("material", "gameplay-system")):
+                    and entry["kind"] in ABSENCE_ELIGIBLE):
                 continue
             if entry["status"] != "implemented": missing_adapters.add(entry["id"])
             if not proof or proof["result"] != "passed": missing_acceptance += 1
@@ -237,10 +250,10 @@ def main() -> int:
             if args.inventory.exists(): parser.error("Generate into a new file; review before replacing an inventory with evidence")
             inventory = generate(CONTRACT, POLICY, args.materials)
             validate(inventory)
-            args.inventory.write_text(json.dumps(inventory, indent=2) + "\n")
-        inventory = json.loads(args.inventory.read_text())
+            args.inventory.write_text(json.dumps(inventory, indent=2) + "\n", encoding="utf-8")
+        inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
         validate(inventory)
-        report = blockers(inventory, json.loads(POLICY.read_text()), args.release)
+        report = blockers(inventory, json.loads(POLICY.read_text(encoding="utf-8")), args.release)
         print(json.dumps(report, indent=2))
         return 1 if args.action == "gate" and not report["gate_passed"] else 0
     except (OSError, ValueError, KeyError, TypeError) as error:

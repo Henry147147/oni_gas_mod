@@ -9,7 +9,7 @@ __pycache__/
 *.log
 
 # Private licensed-game captures and inspection output, at any depth.
-**/game-contract-local/
+**/game-contract-local*/
 **/probe-evidence*/
 **/shadow-evidence*/
 **/inspection-artifacts/

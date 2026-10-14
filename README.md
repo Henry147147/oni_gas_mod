@@ -71,8 +71,9 @@ CI is configured for Windows/Linux standalone builds and Linux sanitizers.
 An authored CI workflow is not evidence of a completed hosted CI run.
 Current local verification: 56/56 native scenarios on Windows MSVC and Linux
 Release, plus Linux ASan/UBSan, without native compiler warnings.
-The managed/native interface, settings and native-save parser pass all twelve scenarios
-on both platforms.
+The managed/native interface, settings, native-save parser and all-world import
+staging pass all twenty scenarios on both platforms. Seventeen Python checks
+validate the coverage inventory and discovery pipeline on Linux.
 
 To inspect your licensed game and compile the developer probe:
 

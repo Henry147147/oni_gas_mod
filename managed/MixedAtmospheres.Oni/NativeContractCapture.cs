@@ -73,6 +73,7 @@ namespace MixedAtmospheres.Oni
             File.WriteAllText(Path.Combine(directory, "DO-NOT-REDISTRIBUTE.txt"),
                 "Derived data from the locally licensed ONI installation. For private native-interface experiments only.\n" +
                 "Do not commit, distribute, or include this directory in a Workshop package.\n");
+            RuntimeCoverageCapture.Export(directory);
             UnityEngine.Debug.Log("[Mixed Atmospheres] Native contract captured without native initialization: " + directory);
         }
     }

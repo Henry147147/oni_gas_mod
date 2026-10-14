@@ -6,9 +6,12 @@ The first public release remains gated on complete gas **and** liquid gameplay.
 The accepted [completion plan](completion-plan.md) is now checkpointed in a
 local Git repository on `main`. Initial milestone-A implementation adds
 all-world import staging, validated native definition filtering and an
-executable 590-entry ownership inventory. The new managed suite passes 20
-scenarios on Linux and Windows; 12 inventory regression checks pass; the six
-Linux isolated-native experiments pass with the shared implementation. See
+executable 3,042-entry ownership inventory including runtime prefab/converter
+and recipe discovery. The new managed suite passes 20 scenarios on Linux and
+Windows; 17 inventory regression checks pass; the six isolated-native
+experiments pass on both platforms with the shared implementation. The new
+Windows Unity probe also passes its six checks and captures the registries at
+the main menu without loading a colony. See
 [ownership coverage](ownership-coverage.md) for scope and current evidence.
 These changes do not enable live colony takeover or satisfy milestone A's exit.
 

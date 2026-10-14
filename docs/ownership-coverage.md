@@ -5,9 +5,10 @@ The [accepted completion plan](completion-plan.md) remains the execution target.
 
 ## Executable inventory
 
-`coverage-inventory.json` currently contains 590 entries: 212 material
+`coverage-inventory.json` currently contains 3,042 entries: 212 material
 identities, 62 native messages, 16 native imports, 47 snapshot/event/texture
-channels, 215 observed call sites and 38 required gameplay systems. Every entry
+channels, 215 observed call sites, 38 required gameplay systems, 2,143 prefab
+registrations, 34 prefab converters and 275 recipe registrations. Every entry
 names its intended owner, adapter and acceptance requirement. Adapter names
 with `unimplemented` status are planned responsibilities, not existing code.
 
@@ -15,8 +16,9 @@ The inventory is a conservative list of known work, not a completeness proof.
 Material identities came from one private Windows capture. The checked-in data
 contains identifiers and phase classifications, not game property tables or
 native payloads. Static call-site labels in the historic audit do not distinguish
-overloads, resolve indirect dispatch, enumerate prefabs/recipes, or establish
-DLC applicability. In particular, a repeated generic adapter name is not proof
+overloads, resolve indirect dispatch, or establish DLC applicability. Runtime
+identities are recorded in `runtime-identities.json`; the private numerical
+recipe/converter data stays outside Git. In particular, a repeated generic adapter name is not proof
 that each originating gameplay action has an atomic transaction.
 
 All 32 gameplay DLC masks are explicit on both operating systems. A passing
@@ -40,7 +42,20 @@ runs validation and regression tests, not the deliberately failing release
 gate. A ledger of artifact hashes is an audit index, not independent proof that
 the underlying in-game experiments passed; review the referenced private runs.
 
-To regenerate from an inspected private identity capture, write a new candidate
+To extract a new runtime identity source without copying numerical game data:
+
+```sh
+python3 tools/runtime_inventory.py --capture /private/game-contract-local/runtime-coverage.json \
+  --output /tmp/runtime-identities-candidate.json
+```
+
+Review and replace `docs/runtime-identities.json` before regenerating the main
+inventory. Duplicate names represent distinct registrations and retain separate
+occurrence identities. The observed registry has 18 repeated prefab names and
+24 repeated recipe names; silently deduplicating them would hide work. Occurrence
+identities are discovery labels, not permanent save or material identifiers.
+
+To regenerate from an inspected private material identity capture, write a new candidate
 and review it before replacing the checked-in inventory. Generation refuses to
 overwrite existing evidence:
 
@@ -90,15 +105,30 @@ captured test inventories, not production thermodynamic support.
   multiple worlds, a corrupted last world, overlapping/missing worlds, framing,
   unknown mappings, owned buffers, byproduct-only fluid transitions, conversion
   remnants, idempotence and malformed late element rows.
-- 12 Python regression checks pass for omitted interfaces/materials, source
+- 17 Python regression checks pass for omitted interfaces/materials, source
   drift, missing ownership/tests, DLC matrix corruption and invalid or
-  insufficient acceptance evidence.
-- All six isolated Linux native experiments pass with the shared staging and
+  insufficient acceptance evidence, runtime identities, duplicated registration
+  labels, uninitialized registries and exclusion of numerical game properties.
+- All six isolated Windows and Linux native experiments pass with the shared staging and
   filtering code. This includes the expected sanitation failure, plus actual
   native import, solid heat transfer and filtered/unfiltered ice controls.
   Private evidence: `/mnt/data/share/oni/mod-development/shadow-evidence-cluster-staging-v1`.
+  Windows evidence: `/mnt/data/share/oni/mod-development/ownership-validation-9baec3f8`.
 - Existing 56 native reference scenarios still pass. The ONI probe builds
   against the licensed assemblies with its two existing Unity reference warnings.
+- The updated Windows Unity probe passes its six scoped checks using the
+  native56 library and reaches the main menu through Steam. It captures 2,143
+  prefabs (2,125 distinct labels), 34 ElementConverters and 275 recipes (251
+  distinct labels), with no missing prefab components. Loaded content reported
+  only `EXPANSION1_ID`; this is not a colony's selected DLC mask and counts as
+  no gameplay-matrix acceptance. Its temporary mod is archived, no colony was
+  loaded, and mods/preferences were restored byte-for-byte. Evidence:
+  `/mnt/data/share/oni/mod-development/runtime-discovery-steam-e62f3081`.
+
+An earlier direct-executable launch failed Steam initialization before the menu.
+Steam's automatic restart also failed during native startup. Both task-owned
+processes were closed and settings restored before the successful Steam launch.
+Those attempts provide no registry or colony evidence.
 
 No disposable colony ownership, integrated multiphase solver, gameplay
 conversion or release gate has been certified by these checks.
