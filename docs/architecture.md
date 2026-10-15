@@ -238,7 +238,15 @@ native colours and native gameplay breathing. Appearance settings support colour
 and persisted contrast, default 0.04; replacing visual options does not change
 inventories or breathing policy. Weak inventory-key caches share immutable
 analysis; names, rows and warning text materialize lazily. Worker sampling and
-colour lookup allocate zero after publication. Entirely changed and cold frame
+colour lookup allocate zero after publication. The newer packed immutable mass
+map keeps the public dictionary contract while internal read-only spans avoid
+boxed enumeration. Initialization and update costs are reported together with
+capture so allocation reductions cannot hide work moved into inventory creation.
+Its standalone measurements are separate from the frozen V10 Unity evidence.
+V11 independently rechecks the packed Windows assembly's automated eighteen
+captures, six selected-container assertions and shutdown cleanup. It does not
+repeat V10's interactive menu/resume observations or establish Linux Unity.
+Entirely changed and cold frame
 capture costs, sustained publication backlog and retained game-state history
 remain performance acceptance requirements.
 

@@ -423,7 +423,7 @@ namespace MixedAtmospheres.Core
             var gasMoles = 0.0; var gasMass = 0.0; var liquidVolume = 0.0;
             var gasConstituentCount = 0; var index = 0;
             var cv = 0.0; var offset = 0.0; var minimumTemperature = 0.0; var maximumTemperature = double.MaxValue;
-            foreach (var entry in inventory.MassesKg)
+            foreach (var entry in inventory.MassEntries)
             {
                 if (!resolvedMaterials.TryGetValue(entry.Key, out var resolved)) throw new InvalidOperationException("Unsupported fluid material: " + entry.Key);
                 var material = resolved.Material; var moles = entry.Value / material.MolarMassKgPerMol;

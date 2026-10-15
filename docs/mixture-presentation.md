@@ -58,6 +58,14 @@ pass over the inventory. Differential tests compare its temperature, pressure
 and liquid fraction bit-for-bit with the canonical cell model and preserve
 offset, range, occupied-volume and unknown-material rejection behavior.
 
+The newer packed-storage revision owns a sorted mass-entry array behind the
+same read-only dictionary API. Hot internal loops consume a read-only span
+without allocating boxed dictionary enumerators; already owned maps can be
+shared safely by new immutable energy/revision values. Construction retains
+input-order total-mass summation, ordinal public enumeration, every positive
+trace and caller isolation. Four additional Core scenarios cover those
+properties, inaccurate source count hints, duplicates and concurrent readers.
+
 ## Appearance and game adapters
 
 Base colour is weighted by gas mole fraction **in linear RGB**, then encoded
@@ -143,33 +151,54 @@ correctness runs; benchmark output remains pure JSON. This prevents stale
 libraries beside test executables from overriding a new build. No game binaries belong
 in source control or the package.
 
-A Windows Release sample with ONI closed and an isolated WSL Linux sample on the shared host,
-with 100,000 21% O2/79% N2 cells, measured:
+A Windows Release sample and isolated WSL Linux sample of the packed-storage
+revision, each with ONI closed, use 100,000 21% O2/79% N2 cells. Allocations use
+decimal MB. Initialization includes native-format fixture construction/import
+and managed inventory injection; the all-changed update applies a distinct
+positive heat input to every cell and creates new inventory references and
+temperatures. Source snapshot construction is included in the measured work.
 
-| Work | Windows time | Linux time | Allocation |
-| --- | ---: | ---: | ---: |
-| Initial full capture | 112.2 ms | 122.3 ms | 58.7 MB |
-| Next revision, two changed cells | 8.0 ms | 12.6 ms | 7.84 MB |
-| Next revision, all 100,000 inventories changed | 95.7 ms | 72.4 ms | 58.7 MB |
-| 100,000 cached `Describe` calls | 24.1 ms | 24.8 ms | 8.00 MB |
-| 1,000,000 cell reads | 17.6 ms | 20.0 ms | 0 bytes |
-| 1,000,000 patterned colour reads | 105.0 ms | 69.9 ms | 0 bytes |
+| Work | Windows time | Linux time | Windows allocation | Linux allocation |
+| --- | ---: | ---: | ---: | ---: |
+| Fixture/inventory initialization | 755.4 ms | 938.0 ms | 359.7 MB | 362.6 MB |
+| Initial presentation capture | 76.5 ms | 165.0 ms | 46.7 MB | 46.7 MB |
+| Initialization plus capture | 831.9 ms | 1,103.0 ms | 406.4 MB | 409.3 MB |
+| Next revision, two changed cells, capture only | 17.5 ms | 15.4 ms | 7.84 MB | 7.84 MB |
+| All 100,000 inventories changed, update only | 71.8 ms | 134.7 ms | 33.9 MB | 33.9 MB |
+| All 100,000 inventories changed, capture only | 109.6 ms | 97.3 ms | 46.7 MB | 46.7 MB |
+| All changed, update plus capture | 181.4 ms | 231.9 ms | 80.6 MB | 80.6 MB |
+| 100,000 cached `Describe` calls | 25.0 ms | 24.7 ms | 8.00 MB | 8.00 MB |
+| 1,000,000 cell reads | 17.5 ms | 103.4 ms | 0 bytes | 0 bytes |
+| 1,000,000 patterned colour reads | 92.3 ms | 83.0 ms | 0 bytes | 0 bytes |
 
-These are individual host samples, not p50/p95 sustained game measurements.
-Private outputs are `local/mixture-presentation-benchmark.json` and
-`local/linux-presentation/presentation-benchmark.json`, with exact source hashes
-in the Linux result/refresh manifest. Both samples use Core source SHA256
-`a67fc2ee06c0a905e5c15f601a536278f266e9538b3ee9062672c9fcd3107c66`.
-The Windows sample records its timestamp, scope and test-assembly hash; an
-earlier run concurrent with ONI is excluded from this table.
-All-changed publication uses a distinct heat input and temperature in every
-cell, with entirely new inventory references. Cold/all-changed costs improve
-on the earlier eager 548-ms/260-MB and lazy 134-ms/90.7-MB captures, but cold
-capture remains above 0.1 seconds on both systems and both allocate a full-frame budget
-on repeated changes. The mostly unchanged result relies on inventory-reference
-reuse. Neither benchmark satisfies the separate native solver's 25-ms gate or
-proves an acceptable sustained game publication cadence, memory budget or
-absence of a growing backlog.
+These are individual shared-host samples, not p50/p95 sustained game
+measurements. Other background load was not profiled. Private outputs are
+`local/mixture-presentation-packed-idle-windows.json` and
+`local/linux-presentation/presentation-benchmark.json`, with timestamps,
+source/test-assembly hashes and the raw Linux JSON preserved. Both use
+presentation source SHA256
+`21240684d147a5cd27aede0be59548da2b34caebd176895e1ddc02db5834cf9b`
+and packed mass-storage source
+`4e9f0f1cf50e541d6bc6f0153b9b0152df71ac47759316d516bbb90e84aad1b9`.
+The pre-packed V10 sample, manifests, results and compiled artifacts are retained
+under `local/linux-presentation/history-pre-packed-v10`; the older Windows
+sample also remains in `local/mixture-presentation-benchmark.json`.
+
+Cold/all-changed capture allocation falls from 58.69 MB to 46.69 MB, saving
+12 MB per 100k-cell capture. Timing does not show an all-around speedup: the
+Windows cold sample improves, while its all-changed capture and the Linux
+cold/read samples are slower than their preceding single samples. The table
+therefore includes update and initialization costs instead of moving work
+outside capture's accounting. All-changed update plus capture still exceeds
+0.1 seconds on both systems before any production solver or Unity rendering.
+Mostly unchanged capture relies on inventory-reference reuse. Sustained
+publication cadence, retained memory and absence of a growing backlog remain
+unproved; the separate native solver also still fails its 25-ms gate.
+
+The V10 screenshots and game acceptance below belong to checkpoint `20c18bc`
+and their archived V10 binary hashes. V11 separately rechecks the newer packed
+Windows assembly through the automated fixture sequence; its scope is recorded
+below. Neither run establishes Linux Unity acceptance.
 
 The frozen Windows presentation-v7 run separately records twelve actual Unity
 screenshots: normal world, trace inspection, all four overlays, colour-only
@@ -227,6 +256,17 @@ absent. Exact file/binary hashes and PNG dimensions are recorded in
 colony persistence with presentation fixtures removed, not full-owned state
 save/load or production fluid gameplay.
 
+Windows v11 separately repeats the eighteen automatic captures and all six
+spawned selected-container checks with the packed assembly. The package's Core
+hash matches the current Windows build, and every package hash is verified.
+All container target, composition, warning priority and native-description
+assertions pass; the paused-hazard and machine screenshots were visually
+reviewed. Both actual shutdown observations clear provider/model/frame and
+bindings without errors. V11 has no interactive captures and does not repeat
+the same-process menu/resume sequence: that evidence remains attached to V10's
+pre-packed binaries. Frozen reports, PNG dimensions, source and package hashes
+are in `local/colony-runs/presentation-windows-v11/presentation-review.json`.
+
 The v7 paused 504-cell frame p50/p95 is 8.35/10.38 ms and p99 is 117.47 ms,
 including screenshot/UI work and without baseline subtraction. The maximum
 measured mixture texture batch is 3.35 ms. That scope does not establish 1x simulation,
@@ -234,7 +274,10 @@ measured mixture texture batch is 3.35 ms. That scope does not establish 1x simu
 7,151 texture batches, frame p50/p95/p99 of 8.41/10.21/113.08 ms and a maximum
 texture batch of 3.56 ms. It includes six spawned fixture panels, screenshots
 and UI changes; the surrounding native colony is mostly paused and no baseline
-is subtracted. Actual Linux Unity presentation
+is subtracted. V11's packed recheck records 7,275 batches, frame p50/p95/p99 of
+8.24/9.76/110.74 ms and a maximum batch of 3.14 ms under the same limited scope.
+Those are separate runs, without a comparative production-speed claim.
+Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
 Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.
 Linux Unity, production container transactions,

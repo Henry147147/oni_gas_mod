@@ -11,8 +11,10 @@ namespace MixedAtmospheres.Core
     /// <summary>Owned conserved quantities. Energy includes bulk kinetic energy; temperatures are derived from a catalog.</summary>
     public sealed class FluidInventory
     {
+        private readonly OrdinalFluidMasses massStorage;
         public static FluidInventory Empty { get; } = new FluidInventory(new Dictionary<string, double>(), 0);
-        public IReadOnlyDictionary<string, double> MassesKg { get; }
+        public IReadOnlyDictionary<string, double> MassesKg => massStorage;
+        internal ReadOnlySpan<KeyValuePair<string, double>> MassEntries => massStorage.Entries;
         public IReadOnlyDictionary<int, double> DiseaseCounts { get; }
         public double TotalMassKg { get; }
         public double TotalEnergyJoules { get; }
@@ -32,14 +34,7 @@ namespace MixedAtmospheres.Core
             double radiationQuantity = 0)
         {
             if (massesKg == null) throw new ArgumentNullException(nameof(massesKg));
-            var masses = new SortedDictionary<string, double>(StringComparer.Ordinal);
-            var mass = 0.0;
-            foreach (var entry in massesKg)
-            {
-                FluidChecks.Identity(entry.Key, nameof(massesKg)); FluidChecks.Nonnegative(entry.Value, nameof(massesKg));
-                if (entry.Value != 0) masses.Add(entry.Key, entry.Value);
-                mass += entry.Value;
-            }
+            massStorage = OrdinalFluidMasses.Create(massesKg, out var mass);
             FluidChecks.Nonnegative(mass, "total mass");
             FluidChecks.Finite(totalEnergyJoules, nameof(totalEnergyJoules));
             FluidChecks.Finite(momentumX, nameof(momentumX)); FluidChecks.Finite(momentumY, nameof(momentumY));
@@ -58,7 +53,6 @@ namespace MixedAtmospheres.Core
                         if (diseases.Count > FluidChecks.MaximumDiseaseKinds) throw new ArgumentException("Too many disease identities.");
                     }
                 }
-            MassesKg = new ReadOnlyDictionary<string, double>(masses);
             DiseaseCounts = new ReadOnlyDictionary<int, double>(diseases);
             TotalMassKg = mass; TotalEnergyJoules = totalEnergyJoules; MomentumX = momentumX; MomentumY = momentumY;
             RadiationQuantity = radiationQuantity;

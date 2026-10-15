@@ -20,7 +20,7 @@ and remaining acceptance obligations across the supported packs and platforms.
 | Gas finite-volume baseline | Hydrostatic, buoyancy, diffusion, pressure, vacuum and conservation tests | Gas only; explicit acoustic performance fails target |
 | Integrated gas/liquid prototype | 10 native integration cases, including a 10,000-step closed multiphase run; GNU Linux CTest passes both suites | Separate from the C ABI/runtime; rejects vacuum and partially filled pure-liquid free surfaces; no immiscible interfaces or coupled phase transitions |
 | Native and managed persistence | Native roundtrip/continuation checks, managed colony checkpoints, and a checksummed native/custom save envelope | Envelope is not integrated with actual manual saves, autosaves, restart or cross-platform colony loading |
-| Managed API, settings, native bootstrap, import and colony state | 50 managed/native scenarios pass on current GNU Linux, including staged transfers, trace metadata, geometry displacement, checkpoint continuation and lossless placement diagnostics | Tested transaction helpers do not route all gameplay actions |
+| Managed API, settings, native bootstrap, import and colony state | 54 managed/native scenarios pass on current GNU Linux, including four packed immutable mass-storage scenarios, staged transfers, trace metadata, geometry displacement, checkpoint continuation and lossless placement diagnostics | Tested transaction helpers do not route all gameplay actions |
 | Pump/separator reference processes | Enthalpy, shaft-work, entropy and trace-separation tests | No game power/storage/heat-sink transactions |
 | Implicit heat exchange | Analytic pair solution, stiff contacts, energy/entropy and insulation checks | Not yet connected to native solid/building transfers |
 | Native v15 fluid importer | All-world staging preserves fluid species, mass, temperature, radiation and disease before native Load | Real generated compressed/overfilled liquid cells reject the current constant-density custom model; no automatic existing-save conversion |
@@ -31,7 +31,7 @@ and remaining acceptance obligations across the supported packs and platforms.
 | Shared mixture presentation | 20 Linux scenarios cover assessments, mole fractions, pressure, tiny/zero-limit trace hazards, immutable frames, colour/pattern continuity, canonical thermodynamic parity and lazy thread-safe inspection | Read-only projection of explicitly supplied inventories; not gameplay breathing or a production material catalogue |
 | Cell/container inspection | 25 Linux declaration checks, five native-description checks and a V9 recorded-pipe replay pass; Windows v10 selects six actual spawned native objects and validates fixture warning/composition order plus preserved native descriptions | Conserved read-only fixture inventories; native packet flow and production transactions remain unproved; Linux tests do not draw Unity UI |
 | World appearance and overlays | Windows v10 completes 18 Unity captures plus six interactive captures, six spawned selected-container panels and same-save menu/resume with explicit no-provider composition legend/native F1 restoration; v7 also verifies appearance callbacks | 504 explicit fixture cells in a native colony; Linux Unity and sustained game-scale performance remain unverified |
-| Windows compilation | Current full build passes native 57, integrated-fluid 10, Core 50, presentation 20, owned-runtime 43, inspection 25 and native-description 5 | Full custom-colony behavior remains untested |
+| Windows compilation | Frozen V10 full build passes native 57, integrated-fluid 10, Core 50, presentation 20, owned-runtime 43, inspection 25 and native-description 5; packed Core 54 is separately validated on Linux and V11 rechecks its Windows fixture package | Full custom-colony behavior remains untested; V11 automated acceptance is separate from V10 interactive/resume evidence |
 | Actual ONI references | Compiled against licensed build 744825 | Two Unity dependency-version warnings |
 | ONI probe | Actual Windows and Linux Unity reports passed all six checks | Scoped loading/interception only; no colony simulation replacement |
 
@@ -40,7 +40,7 @@ native scenarios, including the seven nonlinear material-pressure checks.
 The current GNU Linux Release and Windows MSVC build pass all 57 plus the ten integrated-fluid
 cases. The earlier Windows native56 build is stored separately from the frozen
 game-tested packages. The current
-50-scenario managed/native suite also passes against the freshly built GNU
+54-scenario managed/native suite also passes against the freshly built GNU
 Linux library. Test binaries resolve that library through the local validation
 environment. Test-host resolvers explicitly pin the freshly built native
 library and print its SHA256 before correctness tests, preventing stale files
@@ -148,6 +148,16 @@ binary/file hashes are in `local/colony-runs/presentation-windows-v10`, includin
 successfully and restores the user's settings. Native save/resume is separate
 from the still-missing coherent full-owned colony save/load gate.
 
+Windows v11 re-verifies the packed assembly through eighteen automatic PNGs
+and all six spawned selected-container checks. All live warnings/composition,
+selection and native-description assertions pass; paused-hazard and machine
+PNGs were visually reviewed. The actual two shutdown observations clear the
+remaining provider/model/frame and bindings without errors. Package hashes
+match their manifest and the Core matches the current Windows build. Its
+`presentation-review.json` is under
+`local/colony-runs/presentation-windows-v11`. V11 performs no interactive or
+same-process resume acceptance; those observations remain separate V10 evidence.
+
 Presentation teardown now clears providers, the model, cached/worker frames,
 texture scheduling and persistent-prefab inspection bindings before native
 shutdown or game instance destruction. Texture recreation alone preserves
@@ -254,17 +264,25 @@ simulated seconds in approximately 428 ms in the recorded Windows Release
 sample and 326.5 ms in the current GNU WSL sample. Both fail the 25 ms target; neither
 is a production solver. See [the solver limits](../native/SOLVER.md).
 
-Presentation benchmarks separately measure cold capture, mostly unchanged and
-entirely changed 100k-cell revisions. Repeated cell sampling and patterned
-colour lookup allocate zero bytes after publication. The current WSL sample
-measures 122.3 ms for cold capture, 72.4 ms for all 100k inventories changed and
-12.6 ms for two changed cells; full capture allocates 58.7 MB. Cold capture still
-exceeds 0.1 seconds, and isolated timings do not establish a sustained game
-publication budget. Exact source hashes and timings are in the private result;
-[mixture presentation](mixture-presentation.md) explains the cache and limits.
-The aligned standalone Windows sample with ONI closed measures 112.2 ms cold,
-95.7 ms all changed and 8.0 ms for two changed cells against the same Core source
-as Linux. An earlier concurrent-game benchmark is excluded as an idle baseline.
+The newer packed-storage presentation revision keeps ordinal immutable mass
+maps behind the same API and removes hot-loop enumerator allocations. Current
+Linux validation passes Core 54/presentation 20/runtime 43/inspection 25/native
+description 5, with a successful full adapter compile. Sampling and patterned
+colour loops still allocate zero bytes. Cold/all-changed capture allocation
+falls from 58.69 MB to 46.69 MB, but single-sample timings vary: Windows/Linux
+cold capture is 76.5/165.0 ms and all-changed capture is 109.6/97.3 ms, without
+an all-around speedup. Two-changed-cell capture is 17.5/15.4 ms.
+
+Inventory creation/update costs are measured separately. Initialization plus
+capture costs 831.9/1,103.0 ms and 406.4/409.3 MB on Windows/Linux; all-changed
+update plus capture costs 181.4/231.9 ms and 80.6 MB. Both samples ran with ONI
+closed, exclude native solving/Unity rendering and do not establish sustained
+publication, backlog or memory acceptance. Exact hashes and the full table are
+in [mixture presentation](mixture-presentation.md). Historical V10 benchmarks,
+manifests and artifacts remain under
+`local/linux-presentation/history-pre-packed-v10`. V10's screenshots belong to
+its frozen pre-packed binary hashes, not this newer assembly; packed-build
+Windows Unity acceptance is now separately recorded by V11's automated fixtures.
 The paused Windows v7 504-cell fixture measured frame p50/p95 of 8.35/10.38 ms,
 including UI transitions and screenshot capture with no baseline subtraction.
 It does not measure sustained 1x, 100k custom cells, a publication backlog or
@@ -273,6 +291,8 @@ V10's same scoped sequence records 7,151 texture batches, frame p50/p95/p99 of
 8.41/10.21/113.08 ms and a maximum texture batch of 3.56 ms, including UI and
 screenshots in a mostly paused native colony. These remain fixture timings,
 with no native baseline subtraction or sustained simulation claim.
+V11 separately records 7,275 batches, frame p50/p95/p99 of
+8.24/9.76/110.74 ms and a 3.14-ms maximum batch under the same limited scope.
 
 ## Remaining release gates, in dependency order
 

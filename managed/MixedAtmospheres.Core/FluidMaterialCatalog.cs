@@ -118,7 +118,7 @@ namespace MixedAtmospheres.Core
         {
             var cv = 0.0; var offset = 0.0; var moles = 0.0; var liquidVolume = 0.0;
             string? dominant = null; var dominantMass = -1.0;
-            foreach (var entry in inventory.MassesKg)
+            foreach (var entry in inventory.MassEntries)
             {
                 var material = Get(entry.Key);
                 cv += entry.Value * material.SpecificHeatCvJoulesPerKgKelvin;
@@ -131,7 +131,7 @@ namespace MixedAtmospheres.Core
             if (inventory.TotalMassKg == 0) return default;
             var temperature = (inventory.InternalEnergyJoules - offset) / cv;
             FluidChecks.Positive(temperature, "reconstructed temperature");
-            foreach (var entry in inventory.MassesKg)
+            foreach (var entry in inventory.MassEntries)
             {
                 var material = Get(entry.Key);
                 if (temperature < material.MinimumTemperatureKelvin || temperature > material.MaximumTemperatureKelvin)

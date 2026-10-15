@@ -191,4 +191,5 @@ Test("native migration refuses unowned guard and backwall fluids", () =>
 OwnershipTests.Run(Test, Check, Reject, NativeFixture, phases);
 ColonyStateTests.Run(Test, Check, Reject, NativeFixture, phases);
 ColonyPlacementDiagnosticsTests.Run(Test, Check, Reject, NativeFixture, phases);
+FluidInventoryMassTests.Run(Test, Check, Reject);
 Console.WriteLine($"{passed} managed/native integration tests passed");

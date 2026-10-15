@@ -420,6 +420,7 @@ internal static class Program
         for (var i = 0; i < count; ++i) checksum += model.Describe(inventory, 1, 0, "benchmark").TotalPressurePa;
         watch.Stop(); var describeMs = watch.Elapsed.TotalMilliseconds; var describeAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         var initialOxygenMass = (float)(101325 * 0.21 * Catalog.Materials["oxygen"].MolarMassKgPerMol / (FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 300));
+        allocations = GC.GetAllocatedBytesForCurrentThread(); watch.Restart();
         var state = Fixture(500, 200, true, initialOxygenMass);
         var nitrogenMass = initialOxygenMass / Catalog.Materials["oxygen"].MolarMassKgPerMol * Catalog.Materials["nitrogen"].MolarMassKgPerMol * 0.79 / 0.21;
         var nitrogen = Catalog.CreateInventory(new Dictionary<string, double> { ["nitrogen"] = nitrogenMass }, 300);
@@ -430,6 +431,7 @@ internal static class Program
             transaction.Commit();
         }
         var snapshot = state.CaptureSnapshot();
+        watch.Stop(); var initializationMs = watch.Elapsed.TotalMilliseconds; var initializationAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         allocations = GC.GetAllocatedBytesForCurrentThread(); watch.Restart(); var frame = model.CaptureFrame(snapshot); watch.Stop();
         var captureMs = watch.Elapsed.TotalMilliseconds; var captureAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         using (var transaction = state.BeginTransaction())
@@ -437,12 +439,14 @@ internal static class Program
         allocations = GC.GetAllocatedBytesForCurrentThread(); watch.Restart(); var nextFrame = model.CaptureFrame(state.CaptureSnapshot()); watch.Stop();
         var unchangedCaptureMs = watch.Elapsed.TotalMilliseconds; var unchangedCaptureAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         Check(nextFrame.Revision == frame.Revision + 1 && ReferenceEquals(frame.SampleCell(3 + frame.Width).Constituents, nextFrame.SampleCell(3 + frame.Width).Constituents));
+        allocations = GC.GetAllocatedBytesForCurrentThread(); watch.Restart();
         using (var transaction = state.BeginTransaction())
         {
             for (var y = 1; y <= 200; ++y) for (var x = 1; x <= 500; ++x)
                 transaction.ApplyHeat(x + y * 502, 1 + (x + y * 502) * 0.00001, "benchmark-change-every-inventory");
             transaction.CommitFrame(2, 0.2);
         }
+        watch.Stop(); var changedUpdateMs = watch.Elapsed.TotalMilliseconds; var changedUpdateAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         allocations = GC.GetAllocatedBytesForCurrentThread(); watch.Restart(); var changedFrame = model.CaptureFrame(state.CaptureSnapshot()); watch.Stop();
         var allChangedCaptureMs = watch.Elapsed.TotalMilliseconds; var allChangedCaptureAllocations = GC.GetAllocatedBytesForCurrentThread() - allocations;
         Check(changedFrame.Revision == nextFrame.Revision + 1 && changedFrame.SampleCell(1 + frame.Width).TemperatureKelvin > nextFrame.SampleCell(1 + frame.Width).TemperatureKelvin);
@@ -466,9 +470,15 @@ internal static class Program
             kind = "mixture-presentation-benchmark", cells = count, readSamples = reads,
             cellMixture = "21% oxygen / 79% nitrogen by gas moles", patternContrast = 0.04,
             describeMilliseconds = describeMs, describeAllocatedBytes = describeAllocations,
+            initializationMilliseconds = initializationMs, initializationAllocatedBytes = initializationAllocations,
             captureFrameMilliseconds = captureMs, captureFrameAllocatedBytes = captureAllocations,
+            initializationAndCaptureMilliseconds = initializationMs + captureMs,
+            initializationAndCaptureAllocatedBytes = initializationAllocations + captureAllocations,
             changedCellsInNextFrame = 2, nextRevisionCaptureMilliseconds = unchangedCaptureMs, nextRevisionCaptureAllocatedBytes = unchangedCaptureAllocations,
             allChangedCells = count, allChangedRevisionCaptureMilliseconds = allChangedCaptureMs, allChangedRevisionCaptureAllocatedBytes = allChangedCaptureAllocations,
+            allChangedUpdateMilliseconds = changedUpdateMs, allChangedUpdateAllocatedBytes = changedUpdateAllocations,
+            allChangedUpdateAndCaptureMilliseconds = changedUpdateMs + allChangedCaptureMs,
+            allChangedUpdateAndCaptureAllocatedBytes = changedUpdateAllocations + allChangedCaptureAllocations,
             allChangedStateVariation = "distinct positive heat per cell; new inventory references and temperatures",
             readMilliseconds = readMs, readAllocatedBytes = readAllocations,
             colorMilliseconds = colorMs, colorAllocatedBytes = colorAllocations,
