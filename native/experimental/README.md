@@ -56,6 +56,107 @@ energy instead yields a lower temperature or an explicit unsupported state.
 These energy semantics must not be silently substituted for existing saves or ABI
 inventories. `evaluate_into` retains its previous output on any failed solve.
 
+## Isentropic volume and pressure-work reference
+
+`make_isentrope(cell)` validates a conserved cell and captures an immutable
+entropy reference bound to the complete model metadata. Another model instance
+with identical metadata can use that reference; changed profile/material data
+fail with `incompatible_entropy_reference`. No inventory or saved energy is
+changed by making or querying a reference, and vacuum remains exactly empty.
+
+For fixed masses, let `C=sum(m Cv)`, `G=n R`, `a=G/(C+G)` and `b=C/(C+G)`.
+Common pressure and temperature on the gas-containing isentrope satisfy:
+
+```
+T(p)  = T0 (p/p0)^a
+Vg(p) = Vg0 (p/p0)^(-b)
+V(p)  = sum_i [(m_i/rho0_i)/(1+p/K0_i)] + Vg(p)
+U(p)  = offset + C T(p) + elastic(p)
+-dV/dp = sum_i [V_i/(K0_i+p)] + b Vg/p > 0
+dT/dV = (a T/p) dp/dV
+dU/dV = -p
+```
+
+Gasless liquid has constant temperature in this zero-expansion surrogate. Its
+compressed branch ends at the nominal filled volume; larger volumes contain
+liquid plus vacuum at zero pressure and constant U. A release crossing that
+boundary retains the entire released elastic energy as pressure work. The
+ordinary pressure derivative has different one-sided limits at the nominal
+fill, so `isentropic_derivatives` reports `unsupported_derivative` there.
+Vacuum also has no physical temperature derivative. State and work queries
+remain available at both boundaries. The separate work-pressure derivative
+exists for nonzero steps ending at the liquid-fill kink; its zero-length
+two-sided limit at the kink is unsupported.
+
+`isentropic_at_volume(reference,V)` returns an endpoint on this curve.
+`isentropic_response(reference,deltaV)` also retains an explicitly supplied
+increment smaller than the ULP of the reference volume. Both return endpoint
+pressure separately from `work_pressure_pa=-deltaU/deltaV`. The zero-length
+limit is p0. Energy changes use relative exponential/logarithmic differences
+and the integrated liquid cold curve, excluding formation-energy cancellation.
+The work-pressure derivative uses stable second divided differences, including
+its ordinary zero-length limit `(dp/dV)/2`, rather than subtracting rounded
+endpoint pressures. Invalid roots and output queries retain their prior state.
+
+Finite double endpoints cannot represent every mathematical increment.
+`volume_change_m3` and `internal_energy_change_j` are the separately retained
+work ledger; `represented_volume_change_m3` and
+`represented_internal_energy_change_j` describe the actual rounded endpoint.
+The `endpoint_*_resolves_change` flags compare each pair using a 32-epsilon
+relative bound. A false flag explicitly means the endpoint does not faithfully
+represent that increment. Endpoint U is formed from its own thermal/elastic
+terms, so expansion toward vacuum does not cancel away its remaining heat.
+Callers must inspect these precision reports before treating a returned
+endpoint as a conservative numerical update. This prototype does not commit,
+project, floor, seed, or silently repair caller state.
+
+Tests compare ideal-gas analytic isentropes, liquid pressure-work quadrature,
+gas/two-liquid known roots, thermodynamic derivatives, independent work
+quadrature, reversible cycles, both sides of the fill kink, empty references,
+expansion toward vacuum, sub-ULP increments, genuine trace gas, model identity,
+and failure rollback. These are thermodynamic reference checks only.
+
+## Future vacuum/free-surface integration
+
+This section describes future work. No closed `FluidWorld` validation flag or
+production pressure/transport implementation is changed by these queries.
+The smallest next testable step is a separate one-dimensional material/vacuum
+Lagrange/remap reference with occupied intervals and traction-free boundaries.
+Two-dimensional use needs interface geometry as well as volume fraction: the
+same half-full inventory can wet different faces depending on its location.
+Geometric VOF reconstruction and consistent momentum transport are established
+examples in [Basilisk's VOF implementation](https://basilisk.fr/src/vof.h) and
+[its momentum implementation](https://basilisk.fr/src/momentum.h).
+
+The current closed integrator assumes every non-wall cell is occupied. It
+divides velocity and conductivity by cell mass, splits impulses between both
+neighbors, and uses whole moving-control-volume fractions for every remap.
+Allowing empty cells alone would leave zero-mass divisions, momentum in vacuum,
+and liquid flux across dry faces. A valid extension must distinguish geometric,
+occupied and true void volume; use physical zero-pressure boundary faces with
+one-sided material inertia; and transport occupied geometry, all constituent
+masses, momentum and total energy using consistent conservative face records.
+Empty pressure/heat unknowns are omitted without fictitious heat capacity or
+density. Wet-face traction and thermal contact areas follow actual geometry.
+
+For a gasless zero-tension surrogate the volume/pressure conditions are
+`p>=0`, `Vvoid=Vgeom-sum(m/rho(p))>=0`, `p Vvoid=0`. They need a coupled
+active-set/constraint treatment. Clamping a solved pressure afterward does not
+supply the missing displacement, geometry or released elastic work. External
+traction p=0 is also distinct from a compressed cell's time-discrete nonzero
+work pressure during release.
+
+Gas/vacuum adds an independent rarefaction acceptance gate: vacuum has zero
+pressure/density and undefined velocity, and gas expands into it through a
+rarefaction ([Clawpack's primary Euler chapter](https://www.clawpack.org/riemann_book/html/Euler.html#Riemann-problems-with-vacuum)).
+A finite occupied gas inventory at positive temperature cannot have its EOS
+pressure clamped to zero. Proposed first dynamical tests are a translating
+liquid plug in vacuum, a stationary hydrostatic column with zero surface
+traction, a released compressed liquid slab, a gas/vacuum rarefaction with
+grid convergence, creation/removal of cut cells, constituent/total-energy
+conservation and complete rollback of an excessive step. No such dynamical
+or performance gate is satisfied by the thermodynamic queries alone.
+
 The chosen water test (rho0=1000 kg/m3, K0=2.2 GPa) is illustrative, not material
 calibration. At rho/rho0=1.407 it predicts 895.4 MPa and 114.822 kJ/kg of elastic
 energy. Neither those parameters nor the density ratio certify a physically

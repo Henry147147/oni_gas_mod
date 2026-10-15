@@ -325,6 +325,254 @@ void invalid_states_and_rollback() {
     const ReferenceConservedCell insufficient{{1407, .01}, (1407 * 4184 + .01 * 660) * 220, 1};
     rejects([&] { (void)trapped_gas.evaluate(insufficient); }, ReferenceErrorCode::compression_outside_model);
 }
+
+template<class Function> double quadrature(Function function, double first, double last, int count = 1024) {
+    const double step = (last - first) / count;
+    double sum = 0;
+    for (int n = 0; n <= count; ++n)
+        sum += (n == 0 || n == count ? 1 : n % 2 == 0 ? 2 : 4) * function(first + step * n);
+    return sum * step / 3;
+}
+
+void isentropic_gas_analytic() {
+    const LiquidThermodynamicReference model("isentropic-ideal-gas-v1", {oxygen()});
+    const auto initialized = model.initialize_at_temperature(std::vector<double>{1}, 300, 1);
+    const auto anchor = model.make_isentrope(initialized.cell);
+    const double gamma = 1 + reference_gas_constant / (.032 * 660);
+    const double pressure = anchor.reference_state().mechanical_pressure_pa;
+    for (const double volume : {.6, .9, 1.0, 1.2, 1.7}) {
+        const auto result = model.isentropic_at_volume(anchor, volume);
+        near(result.state.mechanical_pressure_pa, pressure * std::pow(volume, -gamma), 2e-12);
+        near(result.state.temperature_k, 300 * std::pow(volume, 1 - gamma), 2e-12);
+        near(result.state.entropy_j_per_k, anchor.reference_state().entropy_j_per_k, 0, 2e-9);
+        const double integral = quadrature([&](double v) { return pressure * std::pow(v, -gamma); }, 1, volume);
+        near(result.internal_energy_change_j, -integral, 2e-11, 1e-10);
+        if (volume != 1) near(result.work_pressure_pa, integral / (volume - 1), 2e-11);
+        else require(result.internal_energy_change_j == 0 && result.work_pressure_pa == pressure,
+            "Zero gas displacement did not use the continuous work-pressure limit");
+        require(result.endpoint.masses_kg == initialized.cell.masses_kg && result.branch == ReferenceIsentropicBranch::gas,
+            "Isentropic gas query changed composition or branch");
+    }
+    require(anchor.reference_cell().internal_energy_j == initialized.cell.internal_energy_j,
+        "Isentropic query mutated its conserved reference");
+}
+
+void isentropic_liquid_release() {
+    const LiquidThermodynamicReference model("isentropic-liquid-v1", {water()});
+    const auto initialized = model.initialize_at_temperature(std::vector<double>{1407}, 300, 1);
+    const auto anchor = model.make_isentrope(initialized.cell);
+    const double nominal = 1.407;
+    for (const double volume : {.95, 1.1, 1.3, 1.407, 1.6, 2.0}) {
+        const auto result = model.isentropic_at_volume(anchor, volume);
+        const double endpoint_pressure = volume < nominal ? 2.2e9 * (nominal / volume - 1) : 0;
+        near(result.state.mechanical_pressure_pa, endpoint_pressure, 3e-12, 1e-6);
+        near(result.state.temperature_k, 300);
+        const double last_wet = std::min(volume, nominal);
+        const double integral = quadrature([&](double v) { return 2.2e9 * (nominal / v - 1); }, 1, last_wet, 4096);
+        near(result.internal_energy_change_j, -integral, 3e-11);
+        near(result.work_pressure_pa * result.volume_change_m3, integral, 3e-11);
+        if (volume >= nominal) {
+            near(result.internal_energy_change_j, -initialized.initialized_elastic_energy_j, 3e-12);
+            require(result.state.elastic_energy_j == 0 && result.state.gas_volume_m3 == 0 && !result.state.has_gas,
+                "Releasing compressed liquid clamped away work or invented gas");
+        }
+        if (volume < nominal) {
+            const auto derivative = model.isentropic_derivatives(anchor, volume - 1);
+            near(derivative.pressure_volume_derivative_pa_per_m3, -2.2e9 * nominal / (volume * volume), 3e-12);
+            near(derivative.energy_volume_derivative_pa, -endpoint_pressure, 3e-12);
+            require(derivative.temperature_volume_derivative_k_per_m3 == 0, "Zero-expansion liquid acquired adiabatic heating");
+        }
+    }
+    const auto underfilled = model.make_isentrope(model.initialize_at_temperature(std::vector<double>{500}, 300, 1).cell);
+    const auto compressed = model.isentropic_at_volume(underfilled, .4);
+    const double integral = quadrature([&](double v) { return 2.2e9 * (.5 / v - 1); }, .5, .4, 4096);
+    near(compressed.internal_energy_change_j, -integral, 3e-11);
+    near(compressed.work_pressure_pa, integral / -.6, 3e-11);
+    const double h = 1e-7;
+    near((model.isentropic_response(underfilled, -.6 + h).work_pressure_pa - model.isentropic_response(underfilled, -.6 - h).work_pressure_pa) / (2 * h),
+        model.isentropic_work_pressure_derivative(underfilled, -.6), 3e-7);
+    const auto free = model.isentropic_at_volume(underfilled, 2);
+    require(free.work_pressure_pa == 0 && free.internal_energy_change_j == 0 && free.state.vacuum_volume_m3 == 1.5,
+        "Underfilled liquid/vacuum branch performed pressure work");
+}
+
+void isentropic_mixture_known_roots() {
+    const auto model = mixed(); const std::vector<double> masses{800, 100, .3, .7};
+    const double p0 = 1e6, t0 = 400;
+    const auto initialized = model.initialize_at_temperature(masses, t0, volume_for(model.materials(), masses, p0, t0));
+    const auto anchor = model.make_isentrope(initialized.cell);
+    const double nr = (.3 / .032 + .7 / .028) * reference_gas_constant;
+    const double c = 800 * 4184 + 100 * 1200 + .3 * 660 + .7 * 740;
+    for (const double ratio : {.25, .5, 1.0, 2.0, 20.0, 200.0}) {
+        const double pressure = p0 * ratio, temperature = t0 * std::pow(ratio, nr / (c + nr));
+        const double volume = volume_for(model.materials(), masses, pressure, temperature);
+        const auto result = model.isentropic_at_volume(anchor, volume);
+        const auto independent = model.initialize_at_temperature(masses, temperature, volume);
+        near(result.state.mechanical_pressure_pa, pressure, 3e-10);
+        near(result.state.temperature_k, temperature, 3e-12);
+        near(result.endpoint.internal_energy_j, independent.cell.internal_energy_j, 3e-12);
+        near(result.state.entropy_j_per_k, anchor.reference_state().entropy_j_per_k, 0, 1e-6);
+        require(result.endpoint.masses_kg == masses, "Common-pressure isentrope changed a species mass");
+    }
+}
+
+void isentropic_derivatives_and_work() {
+    const auto model = mixed(); const std::vector<double> masses{800, 100, .3, .7};
+    const auto initialized = model.initialize_at_temperature(masses, 500, volume_for(model.materials(), masses, 2e7, 500));
+    const auto anchor = model.make_isentrope(initialized.cell);
+    const double volume = initialized.cell.volume_m3, h = volume * 1e-6, delta = volume * .001;
+    const auto derivatives = model.isentropic_derivatives(anchor, 0);
+    const auto minus = model.isentropic_response(anchor, -h), plus = model.isentropic_response(anchor, h);
+    near((plus.endpoint.internal_energy_j - minus.endpoint.internal_energy_j) / (2 * h), derivatives.energy_volume_derivative_pa, 3e-7);
+    near((plus.state.mechanical_pressure_pa - minus.state.mechanical_pressure_pa) / (2 * h), derivatives.pressure_volume_derivative_pa_per_m3, 3e-7);
+    near((plus.state.temperature_k - minus.state.temperature_k) / (2 * h), derivatives.temperature_volume_derivative_k_per_m3, 2e-5);
+    near(derivatives.work_pressure_volume_derivative_pa_per_m3, .5 * derivatives.pressure_volume_derivative_pa_per_m3, 2e-12);
+    const auto work_plus = model.isentropic_response(anchor, delta + h), work_minus = model.isentropic_response(anchor, delta - h);
+    near((work_plus.work_pressure_pa - work_minus.work_pressure_pa) / (2 * h),
+        model.isentropic_work_pressure_derivative(anchor, delta), 2e-6);
+    const auto result = model.isentropic_response(anchor, delta);
+    const double integral = quadrature([&](double v) { return model.isentropic_at_volume(anchor, v).state.mechanical_pressure_pa; }, volume, volume + delta, 256);
+    near(-result.internal_energy_change_j, integral, 3e-9);
+    require(derivatives.pressure_volume_derivative_pa_per_m3 < 0 && derivatives.work_pressure_volume_derivative_pa_per_m3 < 0,
+        "Isentropic response lost positive mechanical stiffness");
+}
+
+void isentropic_reversible_cycles() {
+    const auto model = mixed(); const std::vector<double> masses{800, 100, .3, .7};
+    const auto initial = model.initialize_at_temperature(masses, 400, volume_for(model.materials(), masses, 1e6, 400));
+    auto cell = initial.cell; double work_energy = 0;
+    for (const double ratio : {.92, 1.1, .96, 1.0}) {
+        const auto anchor = model.make_isentrope(cell);
+        const auto result = model.isentropic_at_volume(anchor, initial.cell.volume_m3 * ratio);
+        work_energy += result.internal_energy_change_j;
+        near(result.state.entropy_j_per_k, initial.state.entropy_j_per_k, 0, 2e-6);
+        cell = result.endpoint;
+    }
+    near(cell.internal_energy_j, initial.cell.internal_energy_j, 2e-13);
+    near(work_energy, 0, 0, 1e-4);
+    near(model.evaluate(cell).temperature_k, 400, 2e-12);
+    require(cell.masses_kg == initial.cell.masses_kg, "Reversible cycle changed conserved composition");
+}
+
+void isentropic_tiny_increments() {
+    const LiquidThermodynamicReference gas("tiny-gas-displacement-v1", {oxygen()});
+    const auto gas_anchor = gas.make_isentrope(gas.initialize_at_temperature(std::vector<double>{1}, 300, 1).cell);
+    const auto derivative = gas.isentropic_derivatives(gas_anchor, 0);
+    for (const double delta : {-1e-300, 1e-300, -1e-200, 1e-200, -1e-20, 1e-20, -1e-12, 1e-12}) {
+        const auto result = gas.isentropic_response(gas_anchor, delta);
+        near(result.work_pressure_pa, gas_anchor.reference_state().mechanical_pressure_pa, 3e-12);
+        near(result.internal_energy_change_j, -gas_anchor.reference_state().mechanical_pressure_pa * delta, 3e-12);
+        near(gas.isentropic_work_pressure_derivative(gas_anchor, delta), derivative.work_pressure_volume_derivative_pa_per_m3, 3e-12);
+        if (std::abs(delta) < 1e-16) require(!result.endpoint_volume_resolves_change && !result.endpoint_energy_resolves_change &&
+            result.represented_volume_change_m3 == 0 && result.represented_internal_energy_change_j == 0 && result.internal_energy_change_j != 0,
+            "Sub-ULP work was erased or falsely reported as an exact represented endpoint");
+    }
+    const LiquidThermodynamicReference liquid("tiny-liquid-displacement-v1", {water()});
+    const auto compressed = liquid.make_isentrope(liquid.initialize_at_temperature(std::vector<double>{1407}, 300, 1).cell);
+    const auto change = liquid.isentropic_response(compressed, 1e-20);
+    near(change.work_pressure_pa, compressed.reference_state().mechanical_pressure_pa, 3e-12);
+    require(!change.endpoint_volume_resolves_change && !change.endpoint_energy_resolves_change && change.internal_energy_change_j < 0,
+        "Compressed-liquid sub-ULP work precision was not reported");
+    const auto mixture = mixed(); const std::vector<double> mixture_masses{800, 100, .3, .7};
+    const auto mixture_anchor = mixture.make_isentrope(mixture.initialize_at_temperature(mixture_masses, 400,
+        volume_for(mixture.materials(), mixture_masses, 1e6, 400)).cell);
+    for (const auto& test : std::vector<std::pair<const LiquidThermodynamicReference*, const ReferenceIsentrope*>>{
+        {&gas, &gas_anchor}, {&liquid, &compressed}, {&mixture, &mixture_anchor}}) {
+        const double reference_volume = test.second->reference_cell().volume_m3;
+        for (const double endpoint : {std::nextafter(reference_volume, 0.0),
+            std::nextafter(reference_volume, std::numeric_limits<double>::infinity())}) {
+            const auto adjacent = test.first->isentropic_at_volume(*test.second, endpoint);
+            near(adjacent.work_pressure_pa, test.second->reference_state().mechanical_pressure_pa, 3e-12);
+            require(adjacent.endpoint_volume_resolves_change && adjacent.volume_change_m3 == endpoint - reference_volume &&
+                adjacent.internal_energy_change_j != 0, "Adjacent absolute-volume query lost or failed to resolve its real increment");
+        }
+    }
+    const auto filled = liquid.make_isentrope(liquid.initialize_at_temperature(std::vector<double>{1000}, 300, 1).cell);
+    const auto inward = liquid.isentropic_response(filled, -1e-20), outward = liquid.isentropic_response(filled, 1e-20);
+    near(inward.work_pressure_pa, 1.1e-11, 3e-12);
+    near(liquid.isentropic_work_pressure_derivative(filled, -1e-20), -1.1e9, 3e-12);
+    require(inward.branch == ReferenceIsentropicBranch::compressed_liquid && outward.branch == ReferenceIsentropicBranch::liquid_with_void &&
+        !inward.endpoint_volume_resolves_change && !outward.endpoint_volume_resolves_change && outward.work_pressure_pa == 0,
+        "Sub-ULP displacements incorrectly merged the liquid compression and void branches");
+    const LiquidThermodynamicReference trace("trace-isentrope-v1", {water(), oxygen()});
+    const auto trace_anchor = trace.make_isentrope(trace.initialize_at_temperature(std::vector<double>{1000, 1e-28}, 300, 1).cell);
+    const auto trace_step = trace.isentropic_response(trace_anchor, 1e-30);
+    require(trace_step.state.has_gas && trace_step.state.gas_volume_m3 > 0 && trace_step.endpoint.masses_kg[1] == 1e-28 && trace_step.work_pressure_pa > 0,
+        "Tiny isentropic displacement removed a genuine gas trace");
+    auto cold_gas = oxygen(); cold_gas.minimum_temperature_k = 1e-20; cold_gas.maximum_temperature_k = 2e-20;
+    const LiquidThermodynamicReference tiny_temperature("tiny-positive-isentrope-v1", {cold_gas});
+    const auto cold_anchor = tiny_temperature.make_isentrope(tiny_temperature.initialize_at_temperature(std::vector<double>{1}, 1.5e-20, 1).cell);
+    const auto cold_step = tiny_temperature.isentropic_response(cold_anchor, 1e-20);
+    require(cold_step.work_pressure_pa > 0 && cold_step.internal_energy_change_j < 0 && cold_step.state.temperature_k > 0,
+        "Tiny positive-temperature isentrope erased pressure work");
+    near(cold_step.work_pressure_pa, cold_anchor.reference_state().mechanical_pressure_pa, 3e-12);
+}
+
+void isentropic_kinks_empty_and_profiles() {
+    const LiquidThermodynamicReference model("kink-isentrope-v1", {water()});
+    const auto filled = model.make_isentrope(model.initialize_at_temperature(std::vector<double>{1000}, 300, 1).cell);
+    require(model.isentropic_response(filled, 0).branch == ReferenceIsentropicBranch::zero_pressure_fill,
+        "Zero-pressure fill kink was not exposed");
+    rejects([&] { (void)model.isentropic_derivatives(filled, 0); }, ReferenceErrorCode::unsupported_derivative);
+    rejects([&] { (void)model.isentropic_work_pressure_derivative(filled, 0); }, ReferenceErrorCode::unsupported_derivative);
+    const auto compressed = model.make_isentrope(model.initialize_at_temperature(std::vector<double>{1000}, 300, .75).cell);
+    const auto endpoint_kink = model.isentropic_response(compressed, .25);
+    require(endpoint_kink.branch == ReferenceIsentropicBranch::zero_pressure_fill && endpoint_kink.work_pressure_pa > 0,
+        "A release ending at the fill kink lost its elastic work");
+    rejects([&] { (void)model.isentropic_derivatives(compressed, .25); }, ReferenceErrorCode::unsupported_derivative);
+    near(model.isentropic_work_pressure_derivative(compressed, .25), -endpoint_kink.work_pressure_pa / .25, 3e-12);
+    const auto empty = model.make_isentrope({{0}, 0, 1});
+    const auto vacuum = model.isentropic_at_volume(empty, 2);
+    require(vacuum.state.temperature_k == 0 && vacuum.state.intrinsic_heat_capacity_j_per_k == 0 && vacuum.endpoint.internal_energy_j == 0 &&
+        vacuum.state.vacuum_volume_m3 == 2 && vacuum.work_pressure_pa == 0 && vacuum.branch == ReferenceIsentropicBranch::vacuum,
+        "Empty entropy reference invented temperature, heat capacity, energy or matter");
+    rejects([&] { (void)model.isentropic_derivatives(empty, 0); }, ReferenceErrorCode::unsupported_derivative);
+    require(model.isentropic_work_pressure_derivative(empty, .1) == 0, "Vacuum pressure work acquired a derivative");
+    const LiquidThermodynamicReference same("kink-isentrope-v1", {water()});
+    require(same.isentropic_response(filled, .1).state.mechanical_pressure_pa == 0, "Identical immutable model metadata did not validate the anchor");
+    const LiquidThermodynamicReference changed("changed-profile-v1", {water()});
+    rejects([&] { (void)changed.isentropic_response(filled, .1); }, ReferenceErrorCode::incompatible_entropy_reference);
+    auto changed_water = water(); changed_water.reference_bulk_modulus_pa *= 2;
+    const LiquidThermodynamicReference changed_eos("kink-isentrope-v1", {changed_water});
+    rejects([&] { (void)changed_eos.isentropic_response(filled, .1); }, ReferenceErrorCode::incompatible_entropy_reference);
+}
+
+void isentropic_vacuum_limits() {
+    auto material = oxygen(); material.minimum_temperature_k = 1e-100;
+    const LiquidThermodynamicReference model("gas-vacuum-limit-v1", {material});
+    const auto anchor = model.make_isentrope(model.initialize_at_temperature(std::vector<double>{1}, 300, 1).cell);
+    const double gamma = 1 + reference_gas_constant / (.032 * 660);
+    const auto expanded = model.isentropic_at_volume(anchor, 1e60);
+    near(expanded.state.temperature_k, 300 * std::pow(1e60, 1 - gamma), 3e-11);
+    require(expanded.state.has_gas && expanded.state.gas_pressure_pa > 0 && !expanded.state.has_vacuum && expanded.endpoint.masses_kg[0] == 1 &&
+        expanded.endpoint.internal_energy_j > 0 && expanded.state.temperature_k > 0,
+        "Finite-volume expansion toward vacuum deleted gas or erased its remaining heat");
+    const auto gasless = model.make_isentrope({{0}, 0, 1});
+    require(model.isentropic_at_volume(gasless, 1e60).state.gas_pressure_pa == 0, "True vacuum acquired seed gas");
+    const LiquidThermodynamicReference limited("finite-temperature-vacuum-limit-v1", {oxygen()});
+    const auto warm = limited.make_isentrope(limited.initialize_at_temperature(std::vector<double>{1}, 300, 1).cell);
+    rejects([&] { (void)limited.isentropic_at_volume(warm, 1e60); }, ReferenceErrorCode::temperature_outside_model);
+}
+
+void isentropic_domains_and_rollback() {
+    const LiquidThermodynamicReference model("rollback-isentrope-v1", {water(), oxygen()});
+    const auto initialized = model.initialize_at_temperature(std::vector<double>{800, .1}, 400, 1);
+    const auto anchor = model.make_isentrope(initialized.cell);
+    auto output = model.isentropic_response(anchor, .01); const auto original = output;
+    for (const double invalid : {-1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+        rejects([&] { model.isentropic_response_into(anchor, invalid, output); }, ReferenceErrorCode::invalid_inventory);
+        require(output.endpoint.internal_energy_j == original.endpoint.internal_energy_j && output.endpoint.masses_kg == original.endpoint.masses_kg &&
+            output.internal_energy_change_j == original.internal_energy_change_j && output.work_pressure_pa == original.work_pressure_pa,
+            "Invalid isentropic query changed the prior output");
+    }
+    auto options = ReferenceRootOptions{}; options.maximum_iterations = 1;
+    rejects([&] { model.isentropic_response_into(anchor, .01, output, options); }, ReferenceErrorCode::root_not_converged);
+    require(output.work_pressure_pa == original.work_pressure_pa && anchor.reference_cell().masses_kg == initialized.cell.masses_kg &&
+        anchor.reference_cell().internal_energy_j == initialized.cell.internal_energy_j, "Failed isentropic root changed its reference or prior output");
+    rejects([&] { (void)model.make_isentrope({{0, 0}, 1, 1}); }, ReferenceErrorCode::invalid_inventory);
+    rejects([&] { (void)model.make_isentrope({{-1, 0}, 0, 1}); }, ReferenceErrorCode::invalid_inventory);
+    rejects([&] { (void)model.isentropic_at_volume(anchor, .1); }, ReferenceErrorCode::compression_outside_model);
+}
 }
 
 int main() {
@@ -344,7 +592,16 @@ int main() {
         {"minimum representable compression bound and elastic-energy numerical range", minimum_compression_domain},
         {"finite cancelling energy references fail without changing conserved state", unrepresentable_reference_energy},
         {"versioned metadata/provenance and invalid model rejection", metadata_and_invalid_model},
-        {"domain/root failures preserve input and output", invalid_states_and_rollback}
+        {"domain/root failures preserve input and output", invalid_states_and_rollback},
+        {"isentropic ideal-gas analytic state and pressure-work quadrature", isentropic_gas_analytic},
+        {"gasless liquid release through zero pressure recovers all elastic work", isentropic_liquid_release},
+        {"common-pressure entropy-reference mixture volume queries", isentropic_mixture_known_roots},
+        {"isentropic endpoint/work derivatives and independent quadrature", isentropic_derivatives_and_work},
+        {"reversible isentropic volume cycle preserves composition and work", isentropic_reversible_cycles},
+        {"sub-ULP volume/work changes and explicit endpoint precision reports", isentropic_tiny_increments},
+        {"typed liquid-fill kinks, empty reference and immutable model identity", isentropic_kinks_empty_and_profiles},
+        {"finite-volume gas expansion toward vacuum without deleting matter", isentropic_vacuum_limits},
+        {"isentropic domain/root failures preserve reference and prior output", isentropic_domains_and_rollback}
     };
     int failed = 0;
     for (const auto& [name, test] : tests) {

@@ -16,7 +16,8 @@ inline constexpr const char* liquid_reference_eos_version = "ma-zero-expansion-e
 enum class ReferencePhase { ideal_gas, elastic_liquid };
 enum class ReferenceErrorCode {
     invalid_model, invalid_inventory, temperature_outside_model,
-    compression_outside_model, insufficient_thermal_energy, root_not_converged, numerical_range
+    compression_outside_model, insufficient_thermal_energy, root_not_converged, numerical_range,
+    unsupported_derivative, incompatible_entropy_reference
 };
 
 class ReferenceError final : public std::runtime_error {
@@ -95,6 +96,49 @@ struct ReferenceTemperatureInitialization {
     double initialized_elastic_energy_j = 0;
 };
 
+// An immutable, validated entropy reference, bound to the complete model
+// metadata. Relative thermodynamic changes retain precision that would be lost
+// by subtracting two large absolute entropy values or formation energies.
+class ReferenceIsentrope {
+public:
+    [[nodiscard]] const ReferenceConservedCell& reference_cell() const noexcept { return cell_; }
+    [[nodiscard]] const ReferenceEquilibriumState& reference_state() const noexcept { return state_; }
+    [[nodiscard]] const std::string& model_metadata() const noexcept { return metadata_; }
+private:
+    friend class LiquidThermodynamicReference;
+    ReferenceIsentrope(std::string metadata, ReferenceConservedCell cell, ReferenceEquilibriumState state);
+    std::string metadata_;
+    ReferenceConservedCell cell_;
+    ReferenceEquilibriumState state_;
+};
+
+enum class ReferenceIsentropicBranch { vacuum, gas, compressed_liquid, liquid_with_void, zero_pressure_fill };
+
+struct ReferenceIsentropicResponse {
+    ReferenceConservedCell endpoint;
+    ReferenceEquilibriumState state; // endpoint pressure, distinct from work pressure
+    double volume_change_m3 = 0;
+    // Explicit balanced change, retained even if adding it to a much larger
+    // stored absolute U rounds away the increment. No caller state is mutated.
+    double internal_energy_change_j = 0;
+    double work_pressure_pa = 0; // -deltaU/deltaV, continuous limit at deltaV=0
+    double represented_volume_change_m3 = 0;
+    double represented_internal_energy_change_j = 0;
+    // Compare represented increments with the mathematical changes using the
+    // same 32-epsilon relative policy. A false flag explicitly reports that a
+    // rounded endpoint is NOT an exact representation of the pressure work.
+    bool endpoint_volume_resolves_change = true;
+    bool endpoint_energy_resolves_change = true;
+    ReferenceIsentropicBranch branch = ReferenceIsentropicBranch::vacuum;
+};
+
+struct ReferenceIsentropicDerivatives {
+    double pressure_volume_derivative_pa_per_m3 = 0;
+    double temperature_volume_derivative_k_per_m3 = 0;
+    double energy_volume_derivative_pa = 0; // dU/dV = -p at constant entropy
+    double work_pressure_volume_derivative_pa_per_m3 = 0;
+};
+
 class LiquidThermodynamicReference {
 public:
     LiquidThermodynamicReference(std::string profile_version, std::vector<ReferenceMaterial> materials);
@@ -110,6 +154,26 @@ public:
         ReferenceRootOptions options = {}) const;
     [[nodiscard]] ReferenceTemperatureInitialization initialize_at_temperature(std::span<const double> masses_kg,
         double temperature_k, double volume_m3, ReferenceRootOptions options = {}) const;
+    [[nodiscard]] ReferenceIsentrope make_isentrope(const ReferenceConservedCell& cell,
+        ReferenceRootOptions options = {}) const;
+    [[nodiscard]] ReferenceIsentropicResponse isentropic_at_volume(const ReferenceIsentrope& entropy_reference,
+        double volume_m3, ReferenceRootOptions options = {}) const;
+    // This overload preserves deltaV below the ULP of the reference volume.
+    // The rounded endpoint.volume_m3 may then equal the reference volume;
+    // volume_change_m3 and internal_energy_change_j retain the actual change.
+    [[nodiscard]] ReferenceIsentropicResponse isentropic_response(const ReferenceIsentrope& entropy_reference,
+        double volume_change_m3, ReferenceRootOptions options = {}) const;
+    void isentropic_response_into(const ReferenceIsentrope& entropy_reference, double volume_change_m3,
+        ReferenceIsentropicResponse& output, ReferenceRootOptions options = {}) const;
+    // A zero-pressure liquid fill has a pressure-stiffness kink. Vacuum has
+    // no temperature derivative. These queries fail with a typed error there,
+    // while state and pressure-work queries remain valid.
+    [[nodiscard]] ReferenceIsentropicDerivatives isentropic_derivatives(const ReferenceIsentrope& entropy_reference,
+        double volume_change_m3, ReferenceRootOptions options = {}) const;
+    // This derivative still exists when a nonzero step ends at the fill kink.
+    // At a zero-length step starting at that kink it is two-sided undefined.
+    [[nodiscard]] double isentropic_work_pressure_derivative(const ReferenceIsentrope& entropy_reference,
+        double volume_change_m3, ReferenceRootOptions options = {}) const;
 private:
     std::string profile_version_;
     std::vector<ReferenceMaterial> materials_;

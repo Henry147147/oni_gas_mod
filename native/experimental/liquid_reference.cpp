@@ -41,10 +41,11 @@ Real compression_ratio(Real pressure, Real bulk) {
 }
 // scale*[log(1+q) - q/(1+q)]. Factor the small-q series before
 // multiplying: q*q may underflow even when the scaled energy is representable.
-Real elastic_energy(Real scale, Real q) {
+Real scaled_elastic_shape(Real scale, Real q) {
     if (q == 0) return 0;
     Real result;
-    if (q < 1e-3L) {
+    check(q > -1, ReferenceErrorCode::numerical_range, "Elastic divided difference left its logarithmic domain");
+    if (std::abs(q) < 1e-3L) {
         Real power = q, factor = .5L;
         for (int n = 3; n <= 12; ++n) {
             factor += ((n % 2) == 0 ? 1 : -1) * (static_cast<Real>(n - 1) / n) * power;
@@ -52,7 +53,13 @@ Real elastic_energy(Real scale, Real q) {
         }
         result = (scale * q) * (q * factor);
     } else result = scale * (std::log1p(q) - q / (1 + q));
-    check(std::isfinite(result) && result > 0, ReferenceErrorCode::numerical_range,
+    check(std::isfinite(result) && result >= 0, ReferenceErrorCode::numerical_range,
+        "Elastic divided difference is outside the numerical range");
+    return result;
+}
+Real elastic_energy(Real scale, Real q) {
+    const Real result = scaled_elastic_shape(scale, q);
+    check(q == 0 || result > 0, ReferenceErrorCode::numerical_range,
         "Positive liquid elastic energy is outside the numerical range");
     return result;
 }
@@ -327,5 +334,301 @@ ReferenceTemperatureInitialization LiquidThermodynamicReference::initialize_at_t
     result.initialized_elastic_energy_j = checked(elastic);
     result.state = finish(materials_, masses, stats, volume, pressure, stats.mass > 0 ? temperature : 0, result.cell.internal_energy_j, iterations, options);
     return result;
+}
+
+ReferenceIsentrope::ReferenceIsentrope(std::string metadata, ReferenceConservedCell cell, ReferenceEquilibriumState state)
+    : metadata_(std::move(metadata)), cell_(std::move(cell)), state_(std::move(state)) {}
+
+namespace {
+Real log_ratio(Real value, Real reference) {
+    const Real difference = value - reference;
+    return std::abs(difference) < reference / 2 ? std::log1p(difference / reference) : std::log(value) - std::log(reference);
+}
+Real scaled_exp(Real scale, Real exponent) {
+    const Real result = std::abs(exponent) < .5L ? scale * std::exp(exponent) : std::exp(std::log(scale) + exponent);
+    check(std::isfinite(result) && result > 0, ReferenceErrorCode::numerical_range, "Isentropic exponential is outside the numerical range");
+    return result;
+}
+Real scaled_expm1(Real scale, Real exponent) {
+    return std::abs(exponent) < .5L ? scale * std::expm1(exponent) : scaled_exp(scale, exponent) - scale;
+}
+struct IsentropicPoint {
+    Real pressure = 0, temperature = 0, gas_volume = 0;
+    Real delta_pressure = 0, delta_volume = 0, delta_energy = 0;
+};
+struct IsentropicCurve {
+    const std::vector<ReferenceMaterial>& definitions;
+    const ReferenceIsentrope& anchor;
+    Statistics stats;
+    Real p0, t0, vg0, gas_heat, a, b;
+    IsentropicCurve(const std::vector<ReferenceMaterial>& materials, const ReferenceIsentrope& reference)
+        : definitions(materials), anchor(reference),
+          stats(statistics(materials, reference.reference_cell().masses_kg, reference.reference_cell().volume_m3)),
+          p0(reference.reference_state().mechanical_pressure_pa), t0(reference.reference_state().temperature_k),
+          vg0(reference.reference_state().gas_volume_m3), gas_heat(stats.gas_moles * R),
+          a(stats.gas_moles > 0 ? gas_heat / (stats.cv + gas_heat) : 0),
+          b(stats.gas_moles > 0 ? stats.cv / (stats.cv + gas_heat) : 1) {
+        if (stats.gas_moles > 0) check(a > 0 && a < 1 && b > 0,
+            ReferenceErrorCode::numerical_range, "Isentropic gas exponent is not numerically resolved");
+    }
+    IsentropicPoint point(Real parameter) const {
+        IsentropicPoint result;
+        result.temperature = t0;
+        if (stats.gas_moles > 0) {
+            result.pressure = scaled_exp(p0, parameter);
+            result.delta_pressure = scaled_expm1(p0, parameter);
+            result.temperature = scaled_exp(t0, a * parameter);
+            result.gas_volume = scaled_exp(vg0, -b * parameter);
+        } else {
+            result.delta_pressure = parameter;
+            result.pressure = p0 + parameter;
+            check(result.pressure >= 0 && std::isfinite(result.pressure), ReferenceErrorCode::compression_outside_model,
+                "Isentropic liquid requires nonnegative finite pressure");
+        }
+        Sum volume, energy;
+        if (stats.gas_moles > 0) {
+            volume.add(scaled_expm1(vg0, -b * parameter));
+            energy.add(scaled_expm1(stats.cv * t0, a * parameter));
+        }
+        for (std::size_t i = 0; i < definitions.size(); ++i) {
+            const auto& material = definitions[i];
+            if (anchor.reference_cell().masses_kg[i] == 0 || material.phase != ReferencePhase::elastic_liquid) continue;
+            const Real nominal = static_cast<Real>(anchor.reference_cell().masses_kg[i]) / material.zero_pressure_density_kg_per_m3;
+            const Real bulk = material.reference_bulk_modulus_pa;
+            const Real previous_volume = nominal / (1 + p0 / bulk);
+            const Real relative = result.delta_pressure / (bulk + p0);
+            const Real fraction = result.delta_pressure / (bulk + result.pressure);
+            volume.add(-previous_volume * fraction);
+            // Difference of the integrated cold curve, with neither absolute
+            // formation energy nor two nearly equal elastic energies subtracted.
+            energy.add(scaled_elastic_shape(nominal * bulk, relative));
+            energy.add((nominal * bulk) * (p0 / (bulk + p0)) * fraction);
+        }
+        result.delta_volume = volume.get(); result.delta_energy = energy.get();
+        check(std::isfinite(result.delta_volume) && std::isfinite(result.delta_energy), ReferenceErrorCode::numerical_range,
+            "Isentropic change exceeds the numerical range");
+        return result;
+    }
+    Real compliance(const IsentropicPoint& point) const {
+        const Real liquid = compression(definitions, anchor.reference_cell().masses_kg, point.pressure).compliance;
+        const Real result = liquid + (stats.gas_moles > 0 ? b * point.gas_volume / point.pressure : 0);
+        check(std::isfinite(result) && result > 0, ReferenceErrorCode::numerical_range, "Isentropic compliance is not finite and positive");
+        return result;
+    }
+};
+
+template<class Residual> Real shifted_root(Residual residual, Real step, Real bound, int direction,
+    ReferenceErrorCode bound_error, const ReferenceRootOptions& options, bool logarithmic, std::size_t& iterations) {
+    check(std::isfinite(bound) && (direction > 0 ? bound > 0 : bound < 0), bound_error, "No supported isentropic volume interval remains");
+    const Real extent = std::abs(bound);
+    if (!std::isfinite(step)) step = logarithmic ? 1 : extent;
+    step = std::min(step, extent);
+    if (logarithmic) step = std::min(step, static_cast<Real>(1));
+    check(step > 0, ReferenceErrorCode::numerical_range, "Isentropic pressure increment underflowed");
+    Real near = 0, far = direction * step;
+    const auto sample = [&](Real parameter) {
+        if (iterations >= options.maximum_iterations) fail(ReferenceErrorCode::root_not_converged, "Isentropic pressure root exceeded its explicit iteration budget");
+        ++iterations;
+        const Real value = residual(parameter);
+        check(std::isfinite(value), ReferenceErrorCode::numerical_range, "Isentropic volume residual overflowed");
+        return value;
+    };
+    for (;;) {
+        const Real value = sample(far);
+        if (value == 0) return far;
+        if (direction * value < 0) break;
+        check(far != bound, bound_error, "Requested volume exceeds the isentrope's declared domain");
+        near = far;
+        step = std::min(extent, step * 2);
+        far = direction * step;
+    }
+    for (;;) {
+        const Real middle = near + (far - near) / 2;
+        if (middle == near || middle == far) return middle;
+        const Real value = sample(middle);
+        if (value == 0) return middle;
+        if (direction * value > 0) near = middle; else far = middle;
+        Real scale = std::max(std::abs(near), std::abs(far));
+        if (logarithmic) scale = std::min(scale, static_cast<Real>(1));
+        if (std::abs(far - near) <= options.relative_pressure_tolerance * scale) return near + (far - near) / 2;
+    }
+}
+struct IsentropicSolution {
+    ReferenceIsentropicResponse response;
+    IsentropicPoint point;
+    Real parameter = 0, initial_void = 0, target_fill_deficit = 0;
+};
+
+IsentropicSolution solve_isentrope(const std::vector<ReferenceMaterial>& definitions, const ReferenceIsentrope& anchor,
+    Real target_volume, Real delta, bool explicit_delta, const ReferenceRootOptions& options) {
+    validate_options(options);
+    check(std::isfinite(target_volume) && target_volume > 0 && std::isfinite(delta), ReferenceErrorCode::invalid_inventory,
+        "Isentropic target volume and increment must be finite with positive target volume");
+    const IsentropicCurve curve(definitions, anchor);
+    const auto& cell = anchor.reference_cell(); const auto& previous = anchor.reference_state();
+    IsentropicSolution solution;
+    auto& result = solution.response;
+    result.volume_change_m3 = checked(delta);
+    result.endpoint = {cell.masses_kg, cell.internal_energy_j, checked(target_volume)};
+    solution.initial_void = previous.vacuum_volume_m3;
+    solution.target_fill_deficit = explicit_delta ? (curve.stats.nominal_liquid_volume - cell.volume_m3) - delta
+        : curve.stats.nominal_liquid_volume - target_volume;
+    if (curve.stats.mass == 0) {
+        result.state = finish(definitions, cell.masses_kg, curve.stats, target_volume, 0, 0, 0, 0, options);
+        result.branch = ReferenceIsentropicBranch::vacuum;
+    } else if (delta == 0) {
+        result.state = previous;
+        result.work_pressure_pa = previous.mechanical_pressure_pa;
+        solution.point = {curve.p0, curve.t0, curve.vg0, 0, 0, 0};
+    } else {
+        std::size_t iterations = 0;
+        if (curve.stats.gas_moles == 0 && solution.target_fill_deficit <= 0) {
+            solution.parameter = -curve.p0;
+        } else {
+            const bool gas = curve.stats.gas_moles > 0;
+            const bool incremental = std::abs(delta) <= static_cast<Real>(cell.volume_m3) / 8 && solution.initial_void == 0;
+            const auto residual = [&](Real parameter) {
+                const auto point = curve.point(parameter);
+                if (incremental) return point.delta_volume - delta;
+                Sum sum; sum.add(solution.target_fill_deficit);
+                sum.add(-compression(definitions, cell.masses_kg, point.pressure).contracted_volume);
+                sum.add(point.gas_volume);
+                return sum.get();
+            };
+            const auto initial = curve.point(0);
+            Real scale = curve.compliance(initial);
+            Real bound;
+            ReferenceErrorCode bound_error = ReferenceErrorCode::compression_outside_model;
+            const int direction = gas || incremental ? (delta < 0 ? 1 : -1)
+                : (solution.target_fill_deficit > compression(definitions, cell.masses_kg, curve.p0).contracted_volume ? 1 : -1);
+            Real requested = delta;
+            if (gas) {
+                scale = curve.p0 * compression(definitions, cell.masses_kg, curve.p0).compliance + curve.b * curve.vg0;
+                const Real double_min = std::numeric_limits<double>::denorm_min(), double_max = std::numeric_limits<double>::max();
+                const Real minimum = curve.stats.minimum_temperature - boundary_roundoff(curve.stats.minimum_temperature, curve.stats.minimum_temperature);
+                const Real maximum = std::min(curve.stats.maximum_temperature + boundary_roundoff(curve.stats.maximum_temperature, curve.stats.maximum_temperature), double_max);
+                const Real thermal_bound = log_ratio(direction > 0 ? maximum : minimum, curve.t0) / curve.a;
+                const Real pressure_bound = log_ratio(direction > 0 ? std::min(curve.stats.maximum_pressure, double_max) : double_min, curve.p0);
+                if (direction > 0 ? thermal_bound < pressure_bound : thermal_bound > pressure_bound) {
+                    bound = thermal_bound; bound_error = ReferenceErrorCode::temperature_outside_model;
+                } else {
+                    bound = pressure_bound;
+                    if (direction < 0 || !curve.stats.has_liquid) bound_error = ReferenceErrorCode::numerical_range;
+                }
+            } else {
+                bound = direction > 0 ? curve.stats.maximum_pressure - curve.p0 : -curve.p0;
+                if (!incremental) requested = compression(definitions, cell.masses_kg, curve.p0).contracted_volume - solution.target_fill_deficit;
+            }
+            solution.parameter = shifted_root(residual, std::abs(requested) / scale, bound, direction, bound_error, options, gas, iterations);
+        }
+        solution.point = curve.point(solution.parameter);
+        check(solution.point.delta_energy == 0 || (solution.point.delta_energy > 0) == (delta < 0), ReferenceErrorCode::numerical_range,
+            "Isentropic work has an inconsistent sign");
+        check((solution.point.pressure == 0 && curve.p0 == 0) || solution.point.delta_energy != 0,
+            ReferenceErrorCode::numerical_range, "Nonzero isentropic work underflowed");
+        result.internal_energy_change_j = checked(solution.point.delta_energy);
+        result.work_pressure_pa = checked(-solution.point.delta_energy / delta);
+        // Form the endpoint independently, so expansion toward vacuum does
+        // not erase its small remaining heat through U0 + (-almost U0).
+        // The represented-increment fields below expose any mismatch with
+        // the separately retained work; no conservation equality is assumed.
+        Sum energy; energy.add(curve.stats.offset); energy.add(curve.stats.cv * solution.point.temperature);
+        energy.add(compression(definitions, cell.masses_kg, solution.point.pressure).energy);
+        result.endpoint.internal_energy_j = checked(energy.get());
+        result.state = finish(definitions, cell.masses_kg, curve.stats, target_volume, solution.point.pressure,
+            solution.point.temperature, result.endpoint.internal_energy_j, iterations, options);
+    }
+    if (curve.stats.mass > 0) result.branch = curve.stats.gas_moles > 0 ? ReferenceIsentropicBranch::gas
+        : solution.target_fill_deficit > 0 ? ReferenceIsentropicBranch::compressed_liquid
+        : solution.target_fill_deficit < 0 ? ReferenceIsentropicBranch::liquid_with_void : ReferenceIsentropicBranch::zero_pressure_fill;
+    const Real represented_volume = static_cast<Real>(result.endpoint.volume_m3) - cell.volume_m3;
+    const Real represented_energy = static_cast<Real>(result.endpoint.internal_energy_j) - cell.internal_energy_j;
+    result.represented_volume_change_m3 = checked(represented_volume);
+    result.represented_internal_energy_change_j = checked(represented_energy);
+    result.endpoint_volume_resolves_change = std::abs(represented_volume - delta) <= boundary_roundoff(represented_volume, delta);
+    result.endpoint_energy_resolves_change = std::abs(represented_energy - result.internal_energy_change_j) <=
+        boundary_roundoff(represented_energy, result.internal_energy_change_j);
+    return solution;
+}
+
+// (x-log(1+x))/x^2, retaining the finite limit without x*x.
+Real logarithmic_second_difference(Real x) {
+    if (std::abs(x) >= 1e-3L) return (1 - std::log1p(x) / x) / x;
+    Real power = 1, sum = .5L;
+    for (int n = 3; n <= 14; ++n) { power *= x; sum += (n % 2 == 0 ? 1 : -1) * power / n; }
+    return sum;
+}
+Real exprel(Real x) { return x == 0 ? 1 : std::expm1(x) / x; }
+// [expm1(l)-expm1(a*l)/a]/[(1-a)*l^2]. This divided
+// difference stays positive and finite at l=0 and when a is a tiny trace.
+Real gas_second_difference(Real logarithm, Real a, Real b) {
+    if (std::abs(logarithm) >= 1e-3L)
+        return (std::exp(a * logarithm) * exprel(b * logarithm) - exprel(a * logarithm)) / logarithm;
+    Real geometric = 1, power = 1, factorial = 2, sum = .5L;
+    for (int n = 3; n <= 16; ++n) {
+        geometric = 1 + a * geometric; power *= logarithm; factorial *= n;
+        sum += geometric * power / factorial;
+    }
+    return sum;
+}
+Real work_derivative(const IsentropicCurve& curve, const IsentropicSolution& solution) {
+    const Real delta = solution.response.volume_change_m3;
+    if (curve.stats.mass == 0) return 0;
+    if (delta == 0) {
+        check(solution.response.branch != ReferenceIsentropicBranch::zero_pressure_fill, ReferenceErrorCode::unsupported_derivative,
+            "Zero-pressure liquid fill has different one-sided work-pressure derivatives");
+        if (solution.response.branch == ReferenceIsentropicBranch::liquid_with_void) return 0;
+        return -.5L / curve.compliance(solution.point);
+    }
+    Sum derivative;
+    if (curve.stats.gas_moles > 0) {
+        const Real ratio = solution.parameter / delta;
+        derivative.add(-curve.gas_heat * curve.t0 * curve.b * ratio * ratio * gas_second_difference(solution.parameter, curve.a, curve.b));
+    }
+    for (std::size_t i = 0; i < curve.definitions.size(); ++i) {
+        const auto& material = curve.definitions[i];
+        if (curve.anchor.reference_cell().masses_kg[i] == 0 || material.phase != ReferencePhase::elastic_liquid) continue;
+        const Real nominal = static_cast<Real>(curve.anchor.reference_cell().masses_kg[i]) / material.zero_pressure_density_kg_per_m3;
+        const Real r = solution.point.delta_pressure / (material.reference_bulk_modulus_pa + curve.p0);
+        const Real ratio = r / delta;
+        derivative.add(-nominal * material.reference_bulk_modulus_pa * ratio * ratio * logarithmic_second_difference(r));
+    }
+    if (solution.initial_void > 0 && solution.point.pressure > 0)
+        derivative.add(-solution.point.pressure * (solution.initial_void / delta) / delta);
+    const Real result = derivative.get();
+    check(std::isfinite(result) && result <= 0, ReferenceErrorCode::numerical_range, "Isentropic work-pressure derivative is not finite and nonpositive");
+    return result;
+}
+}
+
+ReferenceIsentrope LiquidThermodynamicReference::make_isentrope(const ReferenceConservedCell& cell, ReferenceRootOptions options) const {
+    return {metadata(), cell, evaluate(cell, options)};
+}
+ReferenceIsentropicResponse LiquidThermodynamicReference::isentropic_at_volume(const ReferenceIsentrope& anchor, double volume, ReferenceRootOptions options) const {
+    check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
+    return solve_isentrope(materials_, anchor, volume, static_cast<Real>(volume) - anchor.reference_cell().volume_m3, false, options).response;
+}
+ReferenceIsentropicResponse LiquidThermodynamicReference::isentropic_response(const ReferenceIsentrope& anchor, double delta, ReferenceRootOptions options) const {
+    check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
+    return solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options).response;
+}
+void LiquidThermodynamicReference::isentropic_response_into(const ReferenceIsentrope& anchor, double delta, ReferenceIsentropicResponse& output, ReferenceRootOptions options) const {
+    auto next = isentropic_response(anchor, delta, options); output = std::move(next);
+}
+ReferenceIsentropicDerivatives LiquidThermodynamicReference::isentropic_derivatives(const ReferenceIsentrope& anchor, double delta, ReferenceRootOptions options) const {
+    check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
+    const auto solution = solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options);
+    check(solution.response.branch != ReferenceIsentropicBranch::vacuum && solution.response.branch != ReferenceIsentropicBranch::zero_pressure_fill,
+        ReferenceErrorCode::unsupported_derivative, "Vacuum temperature or zero-pressure fill stiffness has no two-sided derivative");
+    const IsentropicCurve curve(materials_, anchor);
+    if (solution.response.branch == ReferenceIsentropicBranch::liquid_with_void) return {0, 0, 0, checked(work_derivative(curve, solution))};
+    const Real pressure_derivative = -1 / curve.compliance(solution.point);
+    const Real temperature_derivative = curve.stats.gas_moles > 0 ? curve.a * solution.point.temperature / solution.point.pressure * pressure_derivative : 0;
+    return {checked(pressure_derivative), checked(temperature_derivative), checked(-solution.point.pressure), checked(work_derivative(curve, solution))};
+}
+double LiquidThermodynamicReference::isentropic_work_pressure_derivative(const ReferenceIsentrope& anchor, double delta, ReferenceRootOptions options) const {
+    check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
+    const auto solution = solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options);
+    return checked(work_derivative(IsentropicCurve(materials_, anchor), solution));
 }
 }
