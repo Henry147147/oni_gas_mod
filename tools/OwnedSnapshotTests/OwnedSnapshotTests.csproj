@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
+    <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureWorldRendering.cs" Link="MixtureWorldRendering.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationLifecycle.cs" Link="MixturePresentationLifecycle.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureOverlays.cs" Link="MixtureOverlays.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureAppearanceSettings.cs" Link="MixtureAppearanceSettings.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ReportJson.cs" Link="ReportJson.cs" />
+    <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(OniManagedDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Newtonsoft.Json"><HintPath>$(OniManagedDir)/Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(OniManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="RequireGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="Set ONI_GAME_DIR or /p:OniGameDir to the licensed inspected ONI root." />
+  </Target>
+</Project>

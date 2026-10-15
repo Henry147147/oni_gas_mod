@@ -44,10 +44,18 @@ def main() -> None:
     env = os.environ.copy()
     variable = "PATH" if os.name == "nt" else "LD_LIBRARY_PATH"
     env[variable] = str(directory) + os.pathsep + env.get(variable, "")
+    env["MA_TEST_NATIVE_LIBRARY"] = str(directory / ("mixed_atmospheres.dll" if os.name == "nt" else "libmixed_atmospheres.so"))
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Presentation.Tests", "-c", "Release"], env)
     if args.game_dir:
         run(["dotnet", "build", "managed/MixedAtmospheres.Oni", "-c", "Release", "--nologo",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve())])
+        run(["dotnet", "run", "--project", "tools/OwnedSnapshotTests", "-c", "Release",
+             "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
+        run(["dotnet", "run", "--project", "tools/MixtureInspectionTests", "-c", "Release",
+             "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
+        run(["dotnet", "run", "--project", "tools/NativeDescriptionTests", "-c", "Release",
+             "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
 
 
 if __name__ == "__main__":

@@ -52,8 +52,11 @@ def main() -> None:
         "Native libraries must remain under native/<platform>; the root DLLs are managed.\n"
         "At the main menu this private probe also exports game-contract-local.\n"
         "Those game-derived files are for local interface tests only: never redistribute them.\n"
-        "Do not load a colony for this probe. A successful report proves only the\n"
-        "listed scoped checks, not authoritative colony simulation replacement.\n",
+        "For colony checks, use tools/run_colony_validation.ps1 from the source\n"
+        "workspace. It creates a separate disposable colony and restores settings.\n"
+        "Never use an existing personal colony for development validation.\n"
+        "A successful report proves only its listed scoped checks, not\n"
+        "authoritative colony simulation replacement.\n",
         encoding="utf-8")
     manifest = {"kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
                 "files": {f.relative_to(output).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()

@@ -73,10 +73,15 @@ namespace MixedAtmospheres.Core.Interop
         private const long MaximumPayloadBytes = 640L * 1024 * 1024;
         public int Width { get; }
         public int Height { get; }
+        public int VacuumHash { get; }
+        public ReadOnlyCollection<int> SolidElementHashes { get; }
         public ReadOnlyCollection<StagedNativeWorld> Worlds { get; }
         public ReadOnlyCollection<ImportedFluidCell> Fluids { get; }
-        private NativeColonyImport(int width, int height, List<StagedNativeWorld> worlds, List<ImportedFluidCell> fluids)
-        { Width = width; Height = height; Worlds = worlds.AsReadOnly(); Fluids = fluids.AsReadOnly(); }
+        private NativeColonyImport(int width, int height, int vacuumHash, List<int> solidHashes, List<StagedNativeWorld> worlds, List<ImportedFluidCell> fluids)
+        {
+            Width = width; Height = height; VacuumHash = vacuumHash; SolidElementHashes = solidHashes.AsReadOnly();
+            Worlds = worlds.AsReadOnly(); Fluids = fluids.AsReadOnly();
+        }
 
         public static NativeColonyImport StageNewColony(int width, int height,
             IReadOnlyList<NativeWorldPlacement> expectedWorlds, IReadOnlyList<NativeWorldSource> sources,
@@ -138,7 +143,10 @@ namespace MixedAtmospheres.Core.Interop
                 }
                 staged.Add(new StagedNativeWorld(placement, migration));
             }
-            return new NativeColonyImport(width, height, staged, fluids);
+            var solidHashes = new List<int>();
+            foreach (var entry in phases) if (entry.Value == NativeMatterPhase.Solid) solidHashes.Add(entry.Key);
+            solidHashes.Sort();
+            return new NativeColonyImport(width, height, vacuumHash, solidHashes, staged, fluids);
         }
     }
 }

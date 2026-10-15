@@ -18,7 +18,11 @@ namespace MixedAtmospheres.Oni
                 DirectoryPath = path;
                 var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
                 NativeLibraryBootstrap.Load(path);
+                MixtureAppearanceSettings.Initialize();
+                MixtureOverlays.InitializeStrings();
+                ColonyRuntimeValidation.Initialize();
                 base.OnLoad(harmony);
+                MixtureWorldRendering.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
                 var destination = Path.Combine(path, "integration-probe.json");
                 File.WriteAllText(destination, report.ToJson());

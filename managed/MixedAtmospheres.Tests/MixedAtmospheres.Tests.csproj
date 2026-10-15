@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../MixedAtmospheres.Oni/NativeLibraryBootstrap.cs" Link="NativeLibraryBootstrap.cs" />
+    <Compile Include="../../tools/NativeTestLibrary.cs" Link="NativeTestLibrary.cs" />
   </ItemGroup>
 </Project>

@@ -94,8 +94,37 @@ and basic machines. Support breathing, bulk pumping, selective separation,
 ventilation, CO2 removal, fluid-solid heat exchange, construction displacement,
 and save/reload.
 
+The first playable gate also requires the shared mixture presentation described
+in [mixture presentation](mixture-presentation.md):
+
+- Normal world colours and a subtle, continuous 4-by-4-cell composition pattern;
+  colour-only mode and persisted contrast controls, defaulting to 0.04.
+- Cell hover, selected-cell details and owned pipe/reservoir/storage/bottle/suit/
+  vent inventories showing the same completed revision. Show gas mole
+  percentages, every constituent's mass and partial pressure, temperature,
+  gas density and total gas pressure; identify liquid rows separately.
+- Composition, gas-pressure, oxygen-partial-pressure and breathability overlays
+  with legends. Explain every configured breathing failure and retain harmful
+  traces even when their visual contribution is imperceptible. Native packet
+  fallbacks must remain labelled and must never be inferred to be mixtures.
+- Actual Windows **and** Linux Unity screenshots for normal rendering, hover,
+  full details, each overlay, owned/native container distinctions and the
+  colour-only/contrast controls. Exercise ordinary air, thin air, excessive O2,
+  CO2 fraction/pressure failures, trace contaminants and gas/liquid coexistence.
+  Record source revision, build, settings and fixture/owned-state status beside
+  the images; synthetic images and IL checks do not satisfy this gate.
+- Presentation performance evidence on both operating systems for 100,000 gas
+  cells: initial capture, mostly unchanged and entirely changed revisions,
+  repeated sampling/colour allocation counts, and actual game frame times with
+  overlays on/off. Repeated worker sampling and colour lookup must allocate
+  zero after publication. At sustained 1x there must be no growing publication
+  backlog or retained history; cold and entirely changed frames must fit the
+  measured publication budget. Report p50/p95 game costs and peak memory.
+  This supplements the separate production-solver performance gate.
+
 Exit: duplicants survive and operate for ten cycles with conservation
-diagnostics. This does not authorize public release.
+diagnostics, and the presentation, screenshot and performance criteria above
+pass on Windows and Linux. This does not authorize public release.
 
 ## E. Every fluid-related gameplay system
 

@@ -15,6 +15,11 @@
     <Reference Include="0Harmony"><HintPath>$(OniManagedDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Newtonsoft.Json"><HintPath>$(OniManagedDir)/Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(OniManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(OniManagedDir)/UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(OniManagedDir)/UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(OniManagedDir)/UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(OniManagedDir)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(OniManagedDir)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
   <Target Name="RequireGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(OniManagedDir)/Assembly-CSharp.dll')" Text="A licensed ONI installation is required. Set ONI_GAME_DIR or /p:OniGameDir to its root. Run tools/inspect_oni.py first." />

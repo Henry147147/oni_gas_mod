@@ -5,13 +5,16 @@
 The public target is a complete replacement for gas and liquid physics, not a
 second composition table attached to vanilla fluid motion. All fluid-producing
 and fluid-consuming operations must use the authoritative mixture inventory.
-The initial supported configurations are the base game and Spaced Out!, on
-Windows and Linux, with new colonies only. Environmental fires and explosions,
-dissolved gases, and detailed solution chemistry are outside the agreed scope.
+The release target covers the base game, Spaced Out! and all official gameplay
+packs on Windows and Linux, with new colonies only. Dissolved O2/CO2 and aquatic
+gas exchange are required by the [accepted completion plan](completion-plan.md)
+and remain unimplemented. Environmental fires/explosions, microscopic droplets,
+capillary effects and detailed solution chemistry are outside the agreed scope.
 
 Native calculations use kilograms, metres, seconds, kelvin, pascals, joules,
-and moles. The UI should show constituent and total mass in grams where useful:
-`grams = 1000 * kg`. A gas's breathing fraction is its mole fraction, not its
+and moles. Inspection shows kPa and degrees Celsius with Pa/K equivalents,
+constituent moles and kg/g masses where useful: `grams = 1000 * kg`. A gas's
+breathing fraction is its mole fraction, not its
 mass fraction. Each cell has an explicit geometric volume; the reference grid
 uses 1 m × 1 m × 1 m cells by default.
 
@@ -56,8 +59,9 @@ and [Dumbser and Casulli, conservative semi-implicit finite volume method](https
 The sparse pressure component now solves a compressibility diagonal plus
 pairwise face conductances using preconditioned conjugate gradients. It rejects
 unanchored components and verifies the true equation residual before returning.
-Manufactured-solution and barrier tests pass. This component is not yet wired
-into conservative advection, pressure work, phase volume or the gas timestep.
+Manufactured-solution and barrier tests pass. It supports the pressure-work
+components and separate integrated fluid prototype below; the public C ABI and
+game runtime still advance the earlier gas reference solver.
 
 A frozen-coefficient acoustic step now couples cell pressure to face velocity.
 For each cell, its volume compliance is `C = V / (rho * c²)`; a zero value
@@ -122,8 +126,21 @@ energy. Condensed overfill and unsupported solid transport reject the operation
 before any input changes. A divergence-free volume-flux test preserves liquid
 volume-fraction bounds and uniform temperature/pressure across gas/water cells.
 
-The integrated liquid flow solver remains unimplemented. It requires occupied-volume fractions,
-a free-surface treatment, pressure coupling, and phase-specific inventories.
+The separate native `FluidWorld` prototype now couples nonlinear material
+pressure work, common-weight gas/liquid remap, momentum/energy accounting,
+diffusion, viscosity and conduction. Candidate substeps publish atomically;
+failures retry smaller timesteps, and exhausting the budget rolls back the
+whole requested interval. Ten integration tests include hydrostatics, gas
+displacing a full-liquid slug and 10,000-step multiphase conservation.
+This prototype is separate from the C ABI, managed `FluidWorld` and ONI adapter;
+those still use `GasWorld`. Its 100k-cell performance fails the production gate.
+See [the implemented path and limits](../native/SOLVER.md).
+
+Production liquid flow remains incomplete. The prototype rejects vacuum and
+partially filled pure-liquid free surfaces, uses one velocity and temperature
+for its phases, and lacks reconstructed interface geometry,
+immiscible separation and grid-coupled phase transitions. It requires a
+validated free-surface treatment and phase-specific inventories.
 Miscible liquids share a composition; immiscible liquids retain separate phase
 fractions and separate under gravity. Liquid volume cannot exceed cell volume
 by silently deleting mass. Phase density, thermal expansion, surface behavior,
@@ -174,6 +191,82 @@ water, and early research materials. Required gameplay additions include:
 
 These are requirements, not currently registered ONI buildings.
 
+## Read-only mixture presentation
+
+`MixturePresentationModel` describes explicitly supplied immutable inventories;
+`CaptureFrame` projects a completed colony snapshot and same-revision container
+samples. Unknown catalogue bindings and stale container revisions reject.
+`MixturePresentationRuntime` publishes one immutable view per Unity frame and
+pins it across synchronous texture/overlay worker jobs. Provider callbacks run
+only on the presentation thread. No provider leaves native behavior intact;
+an explicit provider failure displays unavailable instead of silently inferring
+a mixture from a native dominant element or packet.
+Real simulator/game teardown retires the model, providers, pinned frames,
+texture schedules and prefab inspection bindings before native state is freed.
+Texture recreation alone does not retire providers. Session generations prevent
+an old worker lease from repinning a previous colony after restart.
+
+The shared numerical view supplies gas mole fractions, partial/total pressure,
+headspace density, temperature and independent breathing-failure flags. Names
+identify the leading meaningful species, mixture/traces and breathing status;
+selected headers stay on one line while their state/assessment remains visible
+below. Compact hover retains harmful trace contaminants; full details retain
+every positive constituent, with liquid rows excluded from gas percentages and
+partial pressures. Owned pipe/reservoir/storage/bottle/suit/vent bindings are
+explicit. Unregistered native inventories remain labelled single-material
+packets, without inventing container pressure or hidden mixed composition.
+Owned-container warnings and composition precede the native description while
+preserving its content and native rows' relative order; unowned fallback leaves
+the native ordering intact. Declaration tests exercise repeated cached refreshes
+and native link-formatting rules; actual Unity layouts need separate evidence.
+
+Normal rendering retains `TerrainBG`'s shipped gas shader, detail/flow inputs
+and Gas/GasFront passes. Only the existing gas colour, visual-density and
+danger property textures receive owned-cell overrides. Colours blend familiar
+constituent sRGB palettes in linear RGB; a stable world-anchored 4-by-4-cell
+pattern blends continuously with composition. Gas colour alpha is 255 and
+non-gas alpha is zero. The legacy gas-pressure byte texture controls opacity
+from gas density; actual pressure queries and overlays use double-precision Pa.
+The danger channel and warnings use numerical assessment independently of tint
+or texture visibility. Owned gas channels update each frame without vanilla
+temporal interpolation, preserving native fog, lighting and visibility masks.
+
+Four overlay modes expose composition, total pressure, oxygen partial pressure
+and breathability with legends and native oxygen status-item visibility. The
+native F1 legend limits mixture assessment to owned cells; unowned cells keep
+native colours and native gameplay breathing. Appearance settings support colour-only mode
+and persisted contrast, default 0.04; replacing visual options does not change
+inventories or breathing policy. Weak inventory-key caches share immutable
+analysis; names, rows and warning text materialize lazily. Worker sampling and
+colour lookup allocate zero after publication. Entirely changed and cold frame
+capture costs, sustained publication backlog and retained game-state history
+remain performance acceptance requirements.
+
+Windows fixtures have produced actual normal-view/overlay screenshots and
+registered-container resolver reports in a native-owned disposable colony.
+They are explicitly test-owned inventories, not production fluid transactions.
+The frozen v7 run also records actual trace hover, full-table scrolling through
+all three constituents, live native warning-row ordering, all four overlay
+icons/legends, the native F1 legend and persisted colour-only/contrast callbacks.
+Windows v10 also spawns and selects six actual native objects (pipe, reservoir,
+bottle, suit, vent and machine). Live label assertions preserve their native
+descriptions while placing fixture warnings/composition above them. All six
+panels and the full eighteen-capture fixture sequence pass. Their inventories
+remain separate conserved read-only fixtures, so production fluid transactions,
+native packet flow and equipped-suit behavior remain open. V10 additionally
+passes native Save And Quit/main menu/same-save resume in one process, with
+idempotent world/model/frame teardown after container adapters are removed.
+Post-resume screenshots record no world provider and zero inventory/binding
+counts; the composition legend explicitly reports no readings and native F1
+returns to its original oxygen categories. The earlier v9 scoped teardown pass
+and overall container-helper failure remain separate historical evidence.
+Neither establishes full-owned colony persistence. Sustained publication and
+long-run retained-memory acceptance remain open.
+Linux managed/IL tests run against actual Linux game
+declarations; actual Linux Unity presentation remains unverified. The full
+policy, implementation boundaries and evidence are in
+[mixture presentation](mixture-presentation.md).
+
 ## Machines, metabolism, and energy
 
 Transfers are transactions. A full output must leave the input unchanged.
@@ -217,9 +310,20 @@ Skipping all native frames also stops its other services. Updating cells after
 vanilla simulation cannot undo already emitted events. Calling native
 initialization a second time inside the game does not create an isolated world.
 
-The current probe runs only an independent `FluidWorld`, within thread-scoped
-patches around its own calls. A live colony is never bound to it. The full
-adapter must eventually publish correctly owned arrays, preserve all callback
+`ProbeScope` still runs only an independent gas reference world within scoped
+patches around its own calls. A live colony is never bound to that reference
+world. A separate opt-in validation mode copies all native snapshot buffers and
+returns byte-identical owned publications while native ONI keeps physics
+ownership. Windows staging validates all generated world blobs read only, but
+the current custom constant-density importer rejects real compressed/overfilled
+liquid cells; it does not clamp mass or invent gas headspace to proceed.
+
+Managed colony transactions provide accountable injection/extraction, selective
+transfers, heat, geometry displacement and deterministic checkpoints. An
+unhooked experimental router stages a small inspected subset of fluid messages
+and their callbacks, rejecting unsupported cases before publication. The
+native/custom save envelope is also a helper, not a live colony save adapter.
+The full adapter must publish custom merged arrays, preserve all callback
 contracts, handle construction/digging/displacement atomically, and route every
 consumer/producer and transport system through the mixture backend.
 
@@ -246,22 +350,35 @@ not themselves restore native fluid-solid or building heat exchange.
 
 Dominant-element projections may serve vanilla rendering, but must never
 become the physics source of truth. Unsupported game/mod services must fail
-before a new colony starts, with a clear compatibility message. Rendering,
-textures, sound, disease, and material-specific effects still need explicit
-mixture policies.
+before a new colony starts, with a clear compatibility message. Gas colours,
+inspection and overlays now have explicit read-only mixture policies. Sound,
+gameplay disease/radiation/thermal behavior, material-specific effects and
+production fluid transactions still require their own adapters.
 
 ## Saves and acceptance
 
-Native snapshots use stable species IDs, material-property compatibility
-checks, a version field, and corruption detection. A failed load is discarded
-before publishing a new world. Colony-level persistence must also save pipes,
-machine inventories, transport queues, breathing settings, reaction state,
+Standalone native saves and managed colony checkpoints use stable species IDs,
+material-property compatibility checks, versions and corruption detection.
+The new save-envelope helper stores native and custom payloads together with
+build/catalogue/frame metadata and a checksum; it rejects incompatible or
+incomplete input before publication. Actual colony manual/autosave/restart and
+cross-platform continuation are not connected to it. Colony-level persistence
+must also save pipes, machine inventories, transport queues, breathing settings, reaction state,
 and conversion-version information. It must not silently load a mixture colony
 with vanilla fluid simulation or permit an old vanilla colony to be converted.
+
+The first playable gate remains open: complete real new-colony imports and
+single fluid ownership; support the missing production phase/interface physics
+within budget; connect breathing, life-support machines, nitrogen/starter
+resources, native solid heat exchange and construction; integrate coherent
+save/reload; and run ten cycles with conservation diagnostics. Presentation
+also needs final Windows and Linux Unity acceptance, sustained 100k-cell
+publication/game timing, teardown and long-run memory evidence. A successful
+paused visual fixture or standalone model suite does not satisfy those gates.
 
 Release requires measured conservation, positive states, hydrostatic stability,
 buoyant plumes, shock/rarefaction behavior, liquid settling and mixing,
 multiphase transitions, blocked machine outputs, saved-state continuation,
 all-material conversion audits, and representative colony performance on both
-platforms and both game configurations. Standalone tests alone do not pass the
+platforms and all supported gameplay-pack configurations. Standalone tests alone do not pass the
 game integration gate.

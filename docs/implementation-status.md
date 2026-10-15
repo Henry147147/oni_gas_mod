@@ -3,42 +3,49 @@
 This is a private development milestone. The requested overhaul is incomplete.
 The first public release remains gated on complete gas **and** liquid gameplay.
 
-The accepted [completion plan](completion-plan.md) is now checkpointed in a
-local Git repository on `main`. Initial milestone-A implementation adds
-all-world import staging, validated native definition filtering and an
-executable 3,042-entry ownership inventory including runtime prefab/converter
-and recipe discovery. The new managed suite passes 20 scenarios on Linux and
-Windows; 17 inventory regression checks pass; the six isolated-native
-experiments pass on both platforms with the shared implementation. The new
-Windows Unity probe also passes its six checks and captures the registries at
-the main menu without loading a colony. See
-[ownership coverage](ownership-coverage.md) for scope and current evidence.
-These changes do not enable live colony takeover or satisfy milestone A's exit.
+The accepted [completion plan](completion-plan.md) remains the execution target.
+Current work adds managed colony transactions/checkpoints, owned native
+snapshot copies, a staged fluid-message router, an integrated gas/liquid solver
+prototype, and shared mixture presentation. Actual Windows disposable colonies
+have exercised snapshot copying and explicit presentation fixtures. Native ONI
+still owns their physics; no development or release gate is marked complete.
+The 3,042-entry [ownership inventory](ownership-coverage.md) records known work
+and remaining acceptance obligations across the supported packs and platforms.
 
 ## Implemented and exercised
 
 | Area | Evidence | Limits |
 | --- | --- | --- |
-| Native mixture/thermodynamic reference core | 56/56 native scenarios on Windows and Linux, plus Linux ASan/UBSan | Constant properties; incomplete material coverage |
+| Native mixture/thermodynamic reference core | 57/57 current GNU Linux scenarios, including tiny/zero-limit trace hazards; earlier 56-scenario Windows/Linux and Linux ASan/UBSan evidence is retained | Constant properties; incomplete material coverage |
 | Gas finite-volume baseline | Hydrostatic, buoyancy, diffusion, pressure, vacuum and conservation tests | Gas only; explicit acoustic performance fails target |
-| Native persistence | Roundtrip, continuation, corruption and registry-reordering tests | Not connected to colony saves |
-| Managed API, settings, native bootstrap and import parser | 12/12 scenarios on Linux and Windows | Game lifecycle still separate |
+| Integrated gas/liquid prototype | 10 native integration cases, including a 10,000-step closed multiphase run; GNU Linux CTest passes both suites | Separate from the C ABI/runtime; rejects vacuum and partially filled pure-liquid free surfaces; no immiscible interfaces or coupled phase transitions |
+| Native and managed persistence | Native roundtrip/continuation checks, managed colony checkpoints, and a checksummed native/custom save envelope | Envelope is not integrated with actual manual saves, autosaves, restart or cross-platform colony loading |
+| Managed API, settings, native bootstrap, import and colony state | 50 managed/native scenarios pass on current GNU Linux, including staged transfers, trace metadata, geometry displacement, checkpoint continuation and lossless placement diagnostics | Tested transaction helpers do not route all gameplay actions |
 | Pump/separator reference processes | Enthalpy, shaft-work, entropy and trace-separation tests | No game power/storage/heat-sink transactions |
 | Implicit heat exchange | Analytic pair solution, stiff contacts, energy/entropy and insulation checks | Not yet connected to native solid/building transfers |
-| Native v15 fluid importer | Extracts fluid species, mass, temperature, radiation and disease before native Load | Guard/backwall fluids and unknown elements reject; no automatic existing-save conversion |
-| Sparse pressure operator | Analytic and manufactured solutions, wall isolation, singularity checks | Not yet integrated into a fluid timestep |
-| Linear acoustic pressure/velocity step | Large-timestep pair mode, hydrostatic balance, incompressible projection, work/dissipation tests | Frozen coefficients; no nonlinear thermodynamic or advective coupling |
+| Native v15 fluid importer | All-world staging preserves fluid species, mass, temperature, radiation and disease before native Load | Real generated compressed/overfilled liquid cells reject the current constant-density custom model; no automatic existing-save conversion |
+| Sparse pressure operator and linear acoustic reference | Analytic/manufactured solutions, large-step pair mode, hydrostatics, incompressible projection and residual checks | Isolated reference components are not a finished production timestep |
 | Nonlinear material pressure work | Seven scenarios check volume/temperature/energy/entropy coupling, acoustic limit, liquid force transmission, gravity, reversibility and rejection | Moving material volumes only; no Eulerian remap, shocks, vacuum or phase changes |
-| Gas/liquid bulk remap | Constituent and trace preservation, bounded liquid fractions, momentum/energy and velocity-mixing heat tests | Prescribed face volumes; pressure/free surfaces/phase changes are not yet coupled |
-| Windows compilation | MSVC native build; 56 scenarios passed, zero compiler warnings | Full colony behavior remains untested |
+| Gas/liquid bulk remap | Common-weight constituent, momentum and energy transport; coupled to pressure work in the separate integrated prototype | Production interface geometry, immiscible separation, vacuum and phase transitions remain missing |
+| Owned snapshots and staged fluid messages | 43 snapshot/envelope/router/presentation-runtime tests against actual Linux declarations, including teardown/provider collection and stale worker leases; real Windows native snapshots copied byte-for-byte | Router remains opt-in and unhooked; copied vanilla snapshots do not establish custom-fluid ownership or complete callback coverage |
+| Shared mixture presentation | 20 Linux scenarios cover assessments, mole fractions, pressure, tiny/zero-limit trace hazards, immutable frames, colour/pattern continuity, canonical thermodynamic parity and lazy thread-safe inspection | Read-only projection of explicitly supplied inventories; not gameplay breathing or a production material catalogue |
+| Cell/container inspection | 25 Linux declaration checks, five native-description checks and a V9 recorded-pipe replay pass; Windows v10 selects six actual spawned native objects and validates fixture warning/composition order plus preserved native descriptions | Conserved read-only fixture inventories; native packet flow and production transactions remain unproved; Linux tests do not draw Unity UI |
+| World appearance and overlays | Windows v10 completes 18 Unity captures plus six interactive captures, six spawned selected-container panels and same-save menu/resume with explicit no-provider composition legend/native F1 restoration; v7 also verifies appearance callbacks | 504 explicit fixture cells in a native colony; Linux Unity and sustained game-scale performance remain unverified |
+| Windows compilation | Current full build passes native 57, integrated-fluid 10, Core 50, presentation 20, owned-runtime 43, inspection 25 and native-description 5 | Full custom-colony behavior remains untested |
 | Actual ONI references | Compiled against licensed build 744825 | Two Unity dependency-version warnings |
 | ONI probe | Actual Windows and Linux Unity reports passed all six checks | Scoped loading/interception only; no colony simulation replacement |
 
-Linux Release, Linux ASan/UBSan and Windows MSVC passed all 56 native scenarios,
-including the seven nonlinear material-pressure checks. The Windows native56
-build is stored separately from the frozen game-tested packages. The twelve
-managed/native/settings/parser tests also passed
-without placing the native library in the application or working folder.
+The earlier Linux Release, Linux ASan/UBSan and Windows MSVC runs passed all 56
+native scenarios, including the seven nonlinear material-pressure checks.
+The current GNU Linux Release and Windows MSVC build pass all 57 plus the ten integrated-fluid
+cases. The earlier Windows native56 build is stored separately from the frozen
+game-tested packages. The current
+50-scenario managed/native suite also passes against the freshly built GNU
+Linux library. Test binaries resolve that library through the local validation
+environment. Test-host resolvers explicitly pin the freshly built native
+library and print its SHA256 before correctness tests, preventing stale files
+beside test executables from overriding the selected build. Licensed game assemblies stay in the installation or ignored
+private evidence.
 The frozen `MixedAtmospheresProbe-windows-json49` and corresponding Linux
 package passed inside their actual Unity runtimes against the 49-scenario
 native builds. Windows DLL SHA256:
@@ -48,16 +55,10 @@ installing any patches.
 
 ## Current integration evidence
 
-The corrected Windows/WSL address, 192.168.1.202, is reachable. The licensed
-installation was downloaded through the user's Steam client and copied to the
-requested SMB share. The user confirmed they had read and agreed to ONI's
-first-launch license. It was accepted through Steam, and ONI reached its main
-menu. Steam remains open on the user's desktop.
-
-No colony was loaded. Original `mods.json` and `kplayerprefs.yaml` were restored
-byte-for-byte, and no ONI process remains from the test. Evidence is stored
-outside the repository under
-`/mnt/data/share/oni/mod-development/probe-evidence`.
+Earlier Windows main-menu tests used the user's licensed Steam installation
+and restored the original settings. Their private evidence remains under
+`/mnt/data/share/oni/mod-development/probe-evidence`. These historical scoped
+probe runs did not load a colony; the later disposable-colony tests below do.
 
 The expanded verified Unity report records 55 redirected native-message methods,
 successful native mixture roundtrip, frame/snapshot/direct-message interception,
@@ -76,6 +77,120 @@ reach ONI's native singleton. A capture-only scope exports private element and
 disease messages for the isolated native harness, without sending those
 messages to the game's simulator. Current ownership research and its explicit
 remaining proof obligations are in [the native contract](interop-contract.md).
+
+A Windows new-colony run staged nine generated worlds with 50,466 fluid cells
+and published 4,127 owned snapshots while native ONI continued to simulate the
+colony. All copied channels were byte-identical: 47 pointer channels and 29
+event channels, up to 12,830,560 owned bytes per snapshot. Its overall validation
+**failed** because the custom import rejected native liquid volume/pressure
+states unsupported by the surrogate constant-density catalogue. The staging
+and copy results therefore do not imply an authoritative custom-state roundtrip.
+Private evidence: `local/colony-runs/windows-new-world-v4`.
+
+A later read-only diagnostic of that capture uses the explicit nominal
+`maxMass`-per-cell liquid reference, rather than spawn mass. It identifies
+8,643 issue cells across 103 same-world pore components; 27 components cannot
+fit that declared reference, with a minimum aggregate deficit of 11.5257 m³.
+Hashes and inventories remain unchanged and publication still rejects. This is
+a necessary reference-volume bound, not a physical equation of state or proof
+that an aggregate-capacity check permits conservative placement. Private
+evidence: `local/colony-placement-v4-diagnostics.json`.
+
+A fresh Windows snapshot-copy v5 run verifies the nominal v2 placement
+diagnostic inside ONI before `PublishValidated`. It stages nine worlds with
+50,368 fluid cells and 16,205,286.3033 kg, then rejects the first unresolved
+compressed-liquid cell (world 0, global cell 2,952). The diagnostic records
+8,625 issue cells in 104 same-world pore components; 28 cannot fit the declared
+reference volume, with a minimum deficit of 11.8676 m³. This supersedes the
+v4-capture-only diagnostic as in-game integration evidence while retaining
+both runs. The catalogue fingerprint is
+`b31f26d8fc10a2894057ecbe7eb6f26012be898bb068485dce6bf146ca5afc66`.
+Native ONI continues to own physics, and no custom-fluid state is published or
+source world blob changed. Its 130 owned native snapshot copies across 127
+acknowledged frames are byte-identical over 47 pointer/29 event channels, up
+to 12,831,032 bytes and 9,477 events per snapshot. The overall result remains
+**failed** because custom-state publication/roundtrip is unsupported. Private
+evidence: `local/colony-runs/snapshot-windows-v5`.
+
+The frozen Windows presentation-v7 fixture report records twelve actual Unity
+screenshots, 504 explicitly registered test cells and six registered fixture
+inventory surfaces on actual game prefabs: pipe, reservoir, bottle, suit, vent
+and machine. These are conserved test inventories, not spawned production
+machines performing custom fluid transactions. V7 additionally records 1,353
+actual trace-hover draws and computer-use observations of the chlorine warning,
+scrolling through all three full constituent rows, all four overlay icons,
+the native F1 legend, and persisted colour-only/strong-contrast callbacks.
+Live native `DetailLabel` checks establish warning-row order. The earlier v6
+run's zero hover draws and harness-driven controls remain historical evidence;
+the failed v8/v9 container-helper runs remain recorded separately.
+`FirstPlayableColonyPassed` remains false. Private evidence:
+`local/colony-runs/presentation-windows-v7`.
+
+Windows v10 now completes the full private presentation fixture sequence with
+18 Unity PNGs: twelve world/cell/overlay/appearance views and six actual spawned,
+selected native objects (pipe, reservoir, bottle, suit, vent and machine).
+Each live selection report confirms the correct target and panel, complete
+labelled fixture composition, warnings before constituents, owned inspection
+before the native description, preserved native description, and no errors.
+All six container PNGs were also visually inspected across the review. All six
+inventories are separate, conserved read-only fixtures: this does not fill a
+native network, equip a duplicant or exercise production machine transactions.
+The fixture report is passed while `FirstPlayableColonyPassed` remains false.
+The archived v10 run also passes native Save And Quit/main menu/same-save resume
+in one process. Five teardown observations retire the remaining fixture
+world/model/frame without errors; container adapters had already been removed
+by their fixture cleanup. Actual post-resume captures record no world provider,
+zero inventory providers and zero inspection bindings. The composition legend
+explicitly says `No mixture readings available` and native F1 shows its original
+oxygen categories; fixture labels are absent. Evidence, PNG dimensions and
+binary/file hashes are in `local/colony-runs/presentation-windows-v10`, including
+`manual-ui-observations.json` and `presentation-review.json`. The runner exits
+successfully and restores the user's settings. Native save/resume is separate
+from the still-missing coherent full-owned colony save/load gate.
+
+Presentation teardown now clears providers, the model, cached/worker frames,
+texture scheduling and persistent-prefab inspection bindings before native
+shutdown or game instance destruction. Texture recreation alone preserves
+providers. Linux declaration tests cover retirement, closure collection and
+old-lease rejection; an opt-in private observer records actual shutdown state.
+Archived v9 evidence confirms Save And Quit to the main menu and same-process
+resume of the same disposable native save. Five teardown observations pass:
+the first clears the live model/world/frame and six inventory providers, all
+bindings clear, and subsequent shutdown/destroy calls are idempotent without
+errors. Manual native UI observations confirm normal gas without fixture
+labels, ordinary pipe details without fixture rows, and the native F1 legend.
+Evidence is in `local/colony-runs/presentation-windows-v9`, including
+`presentation-shutdown.json` under the archived mod, plus
+`manual-lifecycle-observations.json` and `lifecycle-review.json` at run root.
+The overall v9 fixture status remains **failed** at the spawned-pipe
+native-description comparison. This lifecycle pass does not establish custom
+colony persistence, production container transactions or long-run memory
+behavior. V10 subsequently verifies the no-provider custom-overlay legend as
+described above.
+Custom overlay
+status visibility is explicitly mapped to native oxygen visibility, and the
+native F1 mixture legend is scoped to owned cells.
+
+The latest isolated WSL managed run checks current presentation naming and
+inspection against the actual Linux game declarations. Its result and exact
+source hashes are recorded in `local/linux-presentation/result.json` and
+`managed-refresh-manifest.json`. The GNU library was rebuilt for the hazard
+fix, all native and managed suites rerun, and every current native input hash
+checked. Earlier GNU evidence is retained under `history-pre-trace-fix` with
+its original source/binary hashes. This is Linux execution of the model and adapters, not a Linux
+Unity presentation run. WSL has no authenticated Linux Steam session, default
+network route or DNS configuration. An invisible EGL context reports Mesa
+llvmpipe after a DRI3 device error. Linux screenshots and accelerated game
+performance remain unverified.
+
+The current full ONI adapter compiles against the Linux declarations with no
+errors and the same two Unity dependency-version warnings. Its 43 runtime,
+25 inspection and five native-description checks pass. A separate replay of
+V9's recorded Windows pipe description passes the corrected comparison against
+native text formatting; V9's archived overall failure remains unchanged. The
+updated owner-warning priority passes the live Windows v10 six-container
+assertions, and post-resume screenshots confirm the no-provider legend/context;
+none of this establishes Linux Unity.
 
 ## Isolated native ownership experiments
 
@@ -100,8 +215,8 @@ harness polls snapshots until a submitted frame is acknowledged.
 
 Evidence: `/mnt/data/share/oni/mod-development/shadow-evidence-v4`, `-v5` and
 `-v7`. The shared import parser is in `NativeWorldBlob.cs`; the native process
-harness is under `tools/NativeShadowProbe`. No test opened a colony or
-certifies live Grid projection, all callbacks, complete native source
+harness is under `tools/NativeShadowProbe`. Those isolated tests did not open a
+colony or certify live Grid projection, all callbacks, complete native source
 suppression, liquid transport or release readiness.
 
 The matching Linux base depot was downloaded through the authenticated Windows
@@ -134,16 +249,42 @@ close to the proposed 25 ms budget per 0.1 simulated seconds for 100,000 active
 cells. The benchmark is deliberately retained as a failing baseline; no
 real-time claim should be made from the small test scenarios.
 
+The separate integrated wet-air prototype advances 100,000 cells by 0.1
+simulated seconds in approximately 428 ms in the recorded Windows Release
+sample and 326.5 ms in the current GNU WSL sample. Both fail the 25 ms target; neither
+is a production solver. See [the solver limits](../native/SOLVER.md).
+
+Presentation benchmarks separately measure cold capture, mostly unchanged and
+entirely changed 100k-cell revisions. Repeated cell sampling and patterned
+colour lookup allocate zero bytes after publication. The current WSL sample
+measures 122.3 ms for cold capture, 72.4 ms for all 100k inventories changed and
+12.6 ms for two changed cells; full capture allocates 58.7 MB. Cold capture still
+exceeds 0.1 seconds, and isolated timings do not establish a sustained game
+publication budget. Exact source hashes and timings are in the private result;
+[mixture presentation](mixture-presentation.md) explains the cache and limits.
+The aligned standalone Windows sample with ONI closed measures 112.2 ms cold,
+95.7 ms all changed and 8.0 ms for two changed cells against the same Core source
+as Linux. An earlier concurrent-game benchmark is excluded as an idle baseline.
+The paused Windows v7 504-cell fixture measured frame p50/p95 of 8.35/10.38 ms,
+including UI transitions and screenshot capture with no baseline subtraction.
+It does not measure sustained 1x, 100k custom cells, a publication backlog or
+production game overhead.
+V10's same scoped sequence records 7,151 texture batches, frame p50/p95/p99 of
+8.41/10.21/113.08 ms and a maximum texture batch of 3.56 ms, including UI and
+screenshots in a mostly paused native colony. These remain fixture timings,
+with no native baseline subtraction or sustained simulation claim.
+
 ## Remaining release gates, in dependency order
 
 1. **Authoritative integration.** Audit and redirect every native mutation,
    snapshot, callback, save, and conduit service. Prove lifetime/ownership of
    native arrays and texture buffers, and prove that a disposable new colony
-   has exactly one owner for every simulated quantity. Initial scoped patch
-   interception is insufficient.
+   has exactly one owner for every simulated quantity. Resolve real generated
+   liquid imports without deleting excess mass or inventing headspace. Native
+   snapshot-copy and fixture-rendering success are insufficient.
 2. **Production fluid solver.** Implement and validate the efficient all-Mach
    coupling of pressure, conservative transport and thermodynamics, plus
-   liquid transport, miscibility/immiscibility, free
+   production liquid transport, miscibility/immiscibility, vacuum, free
    surfaces, displacement, and grid-coupled phase transitions. Preserve mass,
    momentum, energy and trace constituents across all paths.
 3. **Complete thermodynamic catalogue.** Cover every supported game material,
@@ -154,14 +295,18 @@ real-time claim should be made from the small test scenarios.
    and fluid-related disease/radiation/thermal behavior. No silent vanilla
    conversion path may remain.
 5. **Playable colony.** Register nitrogen and its relevant phases, starter
-   supplies, ventilation/scrubbing, sensors, overlays, research and recipes.
-   Apply configurable breathing rules to duplicants and suitable equipment.
+   supplies, ventilation/scrubbing, sensors, research and recipes. Connect the
+   implemented read-only presentation to completed authoritative state; finish
+   Windows and Linux UI/screenshot and sustained performance acceptance. Apply
+   configurable breathing rules to actual duplicants and suitable equipment,
+   then prove the ten-cycle development-colony gate.
 6. **Colony persistence and compatibility.** Save all mixture state; reject
    unsupported versions and incompatible mods before load. Validate restart,
    autosave, multi-asteroid transfer, and changed display settings.
-7. **Release validation.** Run representative long colonies for base game and
-   Spaced Out! on Windows and Linux; measure CPU time, allocations, memory,
-   conservation and stability. Review gameplay progression and all release
+7. **Release validation.** Run representative long colonies for base game,
+   Spaced Out! and every supported official gameplay pack on Windows and Linux;
+   measure CPU time, allocations, memory, conservation and stability. Review
+   gameplay progression and all release
    gates before creating a Workshop package.
 
 There is no release-packaging option. `tools/package_probe.py` produces only an

@@ -622,6 +622,30 @@ TEST(co2_and_toxic_traces_are_independently_checked) {
     rejects([&] { (void)ma::assess_atmosphere(r, contaminated, 1, invalid); });
 }
 
+TEST(ultra_trace_and_zero_limits_preserve_hazard_warnings) {
+    const auto standard = ma::SpeciesRegistry::standard();
+    for (const double limit : {0.0, 1e-20}) {
+        ma::SpeciesRegistry registry;
+        for (auto species : standard.all()) {
+            if (species.id == "chlorine") species.max_mole_fraction = limit;
+            registry.add(std::move(species));
+        }
+        auto mixture = ma::make_air(registry, 1, 300, 101325);
+        const auto chlorine = registry.index("chlorine");
+        const double trace_mass = limit == 0 ? std::numeric_limits<double>::denorm_min() :
+            mixture.gas_moles(registry) * 2e-20 * registry[chlorine].molar_mass;
+        mixture.add(registry, chlorine, trace_mass, 300);
+        CHECK(ma::assess_atmosphere(registry, mixture, 1).failures & static_cast<std::uint32_t>(ma::BreathingFailure::contaminant));
+    }
+    const auto registry = ma::SpeciesRegistry::standard();
+    auto mixture = ma::make_air(registry, 1, 300, 101325);
+    mixture.add(registry, registry.index("carbon_dioxide"), 1e-25, 300);
+    ma::AtmosphereSettings settings; settings.maximum_co2_fraction = 0; settings.maximum_co2_partial_pressure = 0;
+    const auto assessment = ma::assess_atmosphere(registry, mixture, 1, settings);
+    CHECK(assessment.failures & static_cast<std::uint32_t>(ma::BreathingFailure::carbon_dioxide_fraction_high));
+    CHECK(assessment.failures & static_cast<std::uint32_t>(ma::BreathingFailure::carbon_dioxide_partial_pressure_high));
+}
+
 TEST(all_standard_reactions_balance_atoms) {
     const auto r = ma::SpeciesRegistry::standard();
     for (const auto& reaction : ma::standard_reactions(r)) {

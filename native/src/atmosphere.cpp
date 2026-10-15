@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/atmosphere.hpp"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -31,15 +32,19 @@ Breathability assess_atmosphere(const SpeciesRegistry& r, const MixtureInventory
     result.co2_partial_pressure = result.co2_fraction * result.pressure;
     // Inclusive boundaries with a few ulps of arithmetic tolerance, not a
     // gameplay-sized relaxation of configured limits.
-    const auto below = [](double a, double b) { return a < b && b - a > 16 * std::numeric_limits<double>::epsilon() * std::max(1.0, std::abs(b)); };
+    // A unit-sized absolute tolerance would hide ultra-trace hazards. Keep
+    // arithmetic tolerance relative to the compared limits/measurements.
+    const auto below = [](double a, double b) { return a < b && b - a > 16 * std::numeric_limits<double>::epsilon() * std::max(std::abs(a), std::abs(b)); };
+    const auto exceeds = [&](double limit, double value, double present_mass) { return present_mass > 0 && (limit == 0 || below(limit, value)); };
     if (below(result.oxygen_fraction, s.minimum_oxygen_fraction)) fail(BreathingFailure::oxygen_fraction_low);
     if (s.hard_mode && below(s.maximum_oxygen_fraction, result.oxygen_fraction)) fail(BreathingFailure::oxygen_fraction_high);
     if (below(result.oxygen_partial_pressure, s.minimum_oxygen_partial_pressure)) fail(BreathingFailure::oxygen_partial_pressure_low);
-    if (below(s.maximum_co2_fraction, result.co2_fraction)) fail(BreathingFailure::carbon_dioxide_fraction_high);
-    if (below(s.maximum_co2_partial_pressure, result.co2_partial_pressure)) fail(BreathingFailure::carbon_dioxide_partial_pressure_high);
+    const double co2_mass = inventory.masses[r.index("carbon_dioxide")];
+    if (exceeds(s.maximum_co2_fraction, result.co2_fraction, co2_mass)) fail(BreathingFailure::carbon_dioxide_fraction_high);
+    if (exceeds(s.maximum_co2_partial_pressure, result.co2_partial_pressure, co2_mass)) fail(BreathingFailure::carbon_dioxide_partial_pressure_high);
     for (std::size_t i = 0; i < r.size(); ++i) {
         if (r[i].phase != Phase::gas || r[i].max_mole_fraction >= 1) continue;
-        if (below(r[i].max_mole_fraction, inventory.masses[i] / r[i].molar_mass / moles)) fail(BreathingFailure::contaminant);
+        if (exceeds(r[i].max_mole_fraction, inventory.masses[i] / r[i].molar_mass / moles, inventory.masses[i])) fail(BreathingFailure::contaminant);
     }
     return result;
 }

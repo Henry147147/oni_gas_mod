@@ -6,6 +6,7 @@ using System.Globalization;
 using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 
+if (args.Length == 0) NativeTestLibrary.PinFromEnvironment();
 if (args.Length != 0)
 {
     if (args.Length != 2 || args[0] != "--native-root") throw new ArgumentException("Usage: --native-root <staged mod folder>");
@@ -188,4 +189,6 @@ Test("native migration refuses unowned guard and backwall fluids", () =>
     Reject(() => NativeWorldBlob.Split(NativeFixture(), phases, 4));
 });
 OwnershipTests.Run(Test, Check, Reject, NativeFixture, phases);
+ColonyStateTests.Run(Test, Check, Reject, NativeFixture, phases);
+ColonyPlacementDiagnosticsTests.Run(Test, Check, Reject, NativeFixture, phases);
 Console.WriteLine($"{passed} managed/native integration tests passed");

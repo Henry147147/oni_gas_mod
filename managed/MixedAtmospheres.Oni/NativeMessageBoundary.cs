@@ -71,7 +71,11 @@ namespace MixedAtmospheres.Oni
         {
             if (NativeContractCapture.IsActive) return NativeContractCapture.Accept(message, length, (IntPtr)payload);
             var world = ProbeScope.World;
-            if (world == null) return Sim.SIM_HandleMessage(message, length, payload);
+            if (world == null)
+            {
+                var native = Sim.SIM_HandleMessage(message, length, payload);
+                return ColonyRuntimeValidation.AfterNativeMessage(message, native);
+            }
             if (length < 0 || (length != 0 && payload == null)) throw new ArgumentException("Invalid scoped message payload.");
             switch ((SimMessageHashes)message)
             {

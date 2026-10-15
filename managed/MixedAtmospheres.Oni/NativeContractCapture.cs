@@ -100,6 +100,7 @@ namespace MixedAtmospheres.Oni
         {
             try { NativeContractCapture.Export(); }
             catch (Exception error) { UnityEngine.Debug.LogError("[Mixed Atmospheres] Native contract export failed: " + error); }
+            ColonyRuntimeValidation.OnMainMenu(MainMenu.Instance);
         }
     }
 }
