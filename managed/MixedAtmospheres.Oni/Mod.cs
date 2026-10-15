@@ -24,6 +24,7 @@ namespace MixedAtmospheres.Oni
                 ColonyRuntimeValidation.Initialize();
                 base.OnLoad(harmony);
                 MixtureWorldRendering.Install(harmony);
+                OwnedReservoirOwnerMarker.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
                 var destination = Path.Combine(path, "integration-probe.json");
                 File.WriteAllText(destination, report.ToJson());

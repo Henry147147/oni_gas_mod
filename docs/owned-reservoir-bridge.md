@@ -146,9 +146,10 @@ Core writers and actor mutation while retaining completed readers. Native
 owners are revalidated through their exact captured components before and after
 Core serialization, with reentry and forced-cleanup guards. Disposal cannot
 release a successor reservation. This observation lease supplies no persistent
-owner token, native serializer permit or ordinary-save bypass. Geometry checks
-currently establish distinct valid anchors; full footprint occupancy and
-non-overlap must be validated before using these observations for native reload.
+owner token, native serializer permit or ordinary-save bypass. Its geometry
+checks establish distinct valid anchors. The separate copied-footprint validator
+below checks every occupied cell and both ports while this lease is held;
+captured observations do not extend the lease or authorize native reload.
 
 These tests use synthetic owned native buffers and controlled managed actor
 hosts; they do not run the Unity simulator or UI. The shipped Harmony's patch
@@ -215,8 +216,49 @@ a Core cell subsequently makes eligibility reject the world-recovery state.
 All 28 PNGs, the two idle checkpoints and final recovery checkpoint remain under
 `local/colony-runs/presentation-windows-v25-lease`, with frozen source/package
 hashes and bytewise restoration evidence. The native DLL remains the exact
-`77671261...` build used by v23/v24. Actual native save/load and persistent owner
-markers are still absent.
+`77671261...` build used by v23/v24. V25 has no persistent owner marker or actual
+owned-state native save/load.
+
+Windows v26-markers repeats this sequence and passes with 28 Unity screenshots.
+The completed GasReservoir prefab carries one inert, unassigned marker; preview
+and construction prefabs carry none. Both live owners remain unassigned.
+Seven private primitive fields have a strict interpretation: only complete
+empty defaults are unassigned, and partial or unsupported data is invalid.
+There is no production assignment, adoption or load activation API.
+
+While each idle lease is held, read-only capture checks all 15 building cells,
+world identities, definition and placement caches, component lifecycle, both
+utility caches, connection objects and absence of physical gas pipes. A separate
+neutral-shape enumeration agrees with the actual native building layer.
+Copied foreign occupants and stale utility caches reject without changing Grid
+or repairing the owners. Geometry-only validation explicitly reports
+`ManifestValidated=false`. These checks do not yet verify that each saved ID
+maps back to the same exact KPrefabID in the global tracker; that is required
+before assigned-owner persistence or activation.
+
+The actual game serializer round-trips default, privately assigned and invalid
+markers through a local template/mapping on two inactive fixture objects. The
+assigned fixture preserves a generation of 2^40 and rejects a stale handle;
+both live owners remain unchanged. No global serialization directory is reset.
+The report records the assertions and byte counts; raw marker/template bytes
+were not archived for independent byte reconstruction.
+
+V26 also captures the actual native `Sim.Save` section in memory for both idle
+states. Each section is 8,129,837 bytes, SIMSAVE v15, 738 by 306 cells. A checked
+MACOLONY envelope preserves that native payload, exact canonical Core bytes,
+catalogue fingerprint and completed frame. Its custom data is a Core checkpoint,
+not an owner manifest or full `.sav`. No Storage serialization permit or public
+save bypass is granted. An independent review checks the exported bytes and
+hashes, 72 frozen source files, package, baseline conservation and restoration
+of all 13 original user files. Private evidence is under
+`local/colony-runs/presentation-windows-v26-markers`; the native DLL remains
+the pinned `77671261...` game build.
+
+The focused `tools/OwnedReservoirMarkerTests` passes 30 checks on Windows and
+against Linux declarations, plus separate netstandard2.1 contract builds. It
+covers strict marker data, native serializer wiring, immutable observations,
+full footprint and port validation, overlaps and exact manifest/allocation
+coverage. These host checks do not instantiate a Unity colony or restore owners.
 
 The host suite's 51 checks also pass against licensed Linux declarations in
 isolated WSL. This does not draw Linux Unity, establish rendering performance,

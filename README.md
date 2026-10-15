@@ -86,9 +86,12 @@ A separate retained material-node experiment passes 17 groups on MSVC, GNU and
 ASan/UBSan. It has no remap, runtime mode or game activation; see
 [the retained-state scope](native/OCCUPIED_STAGGERED.md).
 Windows and isolated Linux managed checks pass Core 88, presentation 27,
-owned-runtime 97, reservoir protocol 51 and idle checkpoint codec 19 groups.
+owned-runtime 97, reservoir protocol 51, marker/footprint 30 and idle checkpoint
+codec 19 groups.
 The live idle lease pins exact acknowledged owners without permitting native
-saving; a separate staged-file helper retains unresolved promotion outcomes.
+saving. Windows v26 additionally checks both complete native footprints,
+inert marker serialization and exported native-section/Core envelopes;
+a separate staged-file helper retains unresolved promotion outcomes.
 Neither supplies integrated native save/load. Seventeen Python checks
 validate the coverage inventory and discovery pipeline. Linux managed checks
 do not establish Linux Unity rendering or game-scale performance.

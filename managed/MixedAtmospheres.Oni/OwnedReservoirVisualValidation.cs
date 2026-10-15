@@ -408,6 +408,8 @@ namespace MixedAtmospheres.Oni
                 Require(copied.SequenceEqual(checkpoint) && ColonyFluidState.Restore(copied, catalog).Save().SequenceEqual(checkpoint),
                     "Eligibility did not preserve exact canonical Core checkpoint bytes.");
                 File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-idle-core-" + label + ".bin"), copied);
+                CheckMarkerAndFootprints(lease, label);
+                CaptureNativeSimSection(lease, copied, label);
                 Require(ReferenceEquals(source, state.CapturePublication()) && checkpoint.SequenceEqual(state.Save()) &&
                     sourceEvents == eventsA && destinationEvents == eventsB && !session.HasPendingBatch && OwnedGasReservoirBridge.BindingCount == 2,
                     "Idle eligibility or a rejected operation changed Core/native ownership or emitted events.");
@@ -430,6 +432,174 @@ namespace MixedAtmospheres.Oni
                     "Old disposal released a successor eligibility reservation or resampled Core state.");
             }
             evidence.Add(new { Kind = "actual-native-idle-eligibility-successor-safe-disposal", Label = label, Passed = true });
+        }
+
+        private void CheckMarkerAndFootprints(OwnedReservoirIdleSaveLease lease, string label)
+        {
+            Require(OwnedReservoirOwnerMarker.Installed, "The inert completed-prefab marker hook is absent.");
+            var definition = Assets.GetBuildingDef(GasReservoirConfig.ID);
+            var prefabMarkers = definition.BuildingComplete.GetComponents<OwnedReservoirOwnerMarker>();
+            Require(prefabMarkers.Length == 1 && prefabMarkers[0].ReadRecord().State == OwnedReservoirMarkerState.Unassigned &&
+                definition.BuildingPreview.GetComponents<OwnedReservoirOwnerMarker>().Length == 0 &&
+                definition.BuildingUnderConstruction.GetComponents<OwnedReservoirOwnerMarker>().Length == 0,
+                "The marker is not inert and restricted to the completed reservoir prefab.");
+            lease.RevalidateNativeOwners();
+            var captures = new List<OwnedReservoirFootprintObservation>();
+            foreach (var pair in new[] { (storageA, a), (storageB, b) })
+            {
+                lease.EnsureCurrent();
+                var captured = OwnedReservoirFootprintCapture.Capture(pair.Item1, lease.Snapshot, pair.Item2);
+                lease.RevalidateNativeOwners();
+                Require(ReferenceEquals(captured.Source, lease.Snapshot) &&
+                    ReferenceEquals(captured.Allocation, lease.Snapshot.SampleContainer(pair.Item2)) &&
+                    captured.Marker.State == OwnedReservoirMarkerState.Unassigned && captured.Identity.Orientation == 0,
+                    "Native copied footprint changed source/allocation identity or adopted a marker.");
+                // Independent neutral-shape enumeration for the actual pair;
+                // do not use the production planner as its own geometry oracle.
+                var expected = new HashSet<int>();
+                var anchor = Grid.PosToCell(pair.Item1.gameObject);
+                for (var y = 0; y < 3; ++y)
+                    for (var x = -2; x <= 2; ++x)
+                    {
+                        var cellX = anchor % Grid.WidthInCells + x; var cellY = anchor / Grid.WidthInCells + y;
+                        Require(cellX >= 0 && cellX < Grid.WidthInCells && cellY >= 0 && cellY < Grid.HeightInCells,
+                            "Actual reservoir footprint wraps the native grid.");
+                        var cell = cellX + cellY * Grid.WidthInCells;
+                        Require(ReferenceEquals(Grid.Objects[cell, (int)ObjectLayer.Building], pair.Item1.gameObject) && !Grid.Solid[cell],
+                            "Actual native building footprint is foreign, missing or solid.");
+                        expected.Add(cell);
+                    }
+                Require(expected.Count == 15 && expected.SetEquals(captured.Cells.Select(cell => cell.Cell)),
+                    "Copied footprint differs from independent actual native cell enumeration.");
+                captures.Add(captured);
+            }
+            var validated = OwnedReservoirFootprintValidation.ValidatePair(captures);
+            Require(!validated.ManifestValidated && ReferenceEquals(validated.Owners[0], captures[0]) && ReferenceEquals(validated.Owners[1], captures[1]),
+                "Default-marker geometry proof claimed an assigned manifest or replaced its copied inputs.");
+            var first = captures[0];
+            OwnedReservoirFootprintObservation Copy(IReadOnlyList<OwnedReservoirFootprintCell> cells, IReadOnlyList<OwnedReservoirFootprintPort> ports)
+                => new OwnedReservoirFootprintObservation(first.Source, first.Allocation, first.Identity, first.Marker, first.DefinitionOffsets,
+                    first.BuildingCells, first.OccupyUnrotatedOffsets, first.OccupyRotatedOffsets, first.OccupyCachedCells, first.OccupyLayers,
+                    first.OccupyAppliesToCells, cells, ports, first.Components);
+            var badCells = first.Cells.ToArray(); var originalCell = badCells[0];
+            badCells[0] = new OwnedReservoirFootprintCell(originalCell.Cell, originalCell.NativeWorldId, originalCell.CoreWorldId,
+                originalCell.IsSolid, OwnedReservoirOccupant.Other);
+            Reject(() => OwnedReservoirFootprintValidation.ValidatePair(new[] { Copy(badCells, first.Ports), captures[1] }), "copied foreign footprint occupant");
+            var badPorts = first.Ports.ToArray(); var originalPort = badPorts[0];
+            badPorts[0] = new OwnedReservoirFootprintPort(originalPort.IsInput, originalPort.Cell, originalPort.CachedCell + 1,
+                originalPort.ConduitType, originalPort.ConnectionOccupant, originalPort.GasConduitPresent);
+            Reject(() => OwnedReservoirFootprintValidation.ValidatePair(new[] { Copy(first.Cells, badPorts), captures[1] }), "copied stale native utility cache");
+            lease.RevalidateNativeOwners();
+            evidence.Add(new { Kind = "actual-native-marker-and-complete-footprints", Label = label, Passed = true,
+                PrefabCompleteMarkers = prefabMarkers.Length, PreviewMarkers = 0, ConstructionMarkers = 0, ManifestValidated = false,
+                Owners = captures.Select(value => new { value.Identity.SavedInstanceId, value.Identity.NativeColonyId, value.Identity.PrefabId,
+                    value.Identity.DefinitionPrefabId, value.Identity.AnchorCell, value.Identity.WorldId, value.Identity.Orientation,
+                    value.Identity.DefinitionWidth, value.Identity.DefinitionHeight, value.Identity.ObjectLayer,
+                    value.Identity.ConstructionElementId, value.Identity.ConstructionMassKg, value.Identity.CapacityKg,
+                    MarkerState = value.Marker.State.ToString(), Handle = value.Allocation!.Handle,
+                    DefinitionOffsets = value.DefinitionOffsets.Select(offset => new { offset.X, offset.Y }).ToArray(),
+                    value.BuildingCells, OccupyUnrotatedOffsets = value.OccupyUnrotatedOffsets.Select(offset => new { offset.X, offset.Y }).ToArray(),
+                    OccupyRotatedOffsets = value.OccupyRotatedOffsets.Select(offset => new { offset.X, offset.Y }).ToArray(),
+                    value.OccupyCachedCells, value.OccupyLayers, value.OccupyAppliesToCells,
+                    Cells = value.Cells.Select(cell => new { cell.Cell, cell.NativeWorldId, cell.CoreWorldId, cell.IsSolid,
+                        BuildingOccupant = cell.BuildingOccupant.ToString() }).ToArray(),
+                    Ports = value.Ports.Select(port => new { port.IsInput, port.Cell, port.CachedCell, port.ConduitType,
+                        ConnectionOccupant = port.ConnectionOccupant.ToString(), port.GasConduitPresent }).ToArray(),
+                    Components = value.Components.Select(component => new { component.Role, component.Count, component.IsSpawned, component.Enabled }).ToArray() }).ToArray(),
+                Scope = "read-only exact-instance capture while eligibility held; no assigned markers, native save permit or load activation" });
+            if (label == "seeded-empty-destination") CheckNativeMarkerSerialization(storageA.GetComponent<OwnedReservoirOwnerMarker>());
+        }
+
+        private void CheckNativeMarkerSerialization(OwnedReservoirOwnerMarker actual)
+        {
+            var firstObject = new GameObject("MA private inactive marker serialization source"); firstObject.SetActive(false);
+            var secondObject = new GameObject("MA private inactive marker serialization target"); secondObject.SetActive(false);
+            try
+            {
+                var fixture = firstObject.AddComponent<OwnedReservoirOwnerMarker>();
+                var copy = secondObject.AddComponent<OwnedReservoirOwnerMarker>();
+                var type = typeof(OwnedReservoirOwnerMarker);
+                var template = KSerialization.Manager.GetSerializationTemplate(type);
+                Require(template.serializableFields.Count == 7 && template.serializableProperties.Count == 0 && KSerialization.Manager.GetType(type.ToString()) == type,
+                    "Actual native marker serialization template/type lookup differs from the primitive contract.");
+                using var templateBytes = new MemoryStream();
+                using (var writer = new BinaryWriter(templateBytes, Encoding.UTF8, true)) template.SerializeTemplate(writer);
+                var templateReader = new FastReader(templateBytes.ToArray());
+                var localTemplate = new KSerialization.DeserializationTemplate(type.ToString(), templateReader);
+                var mapping = new KSerialization.DeserializationMapping(localTemplate, template);
+                Require(templateReader.Position == templateBytes.Length, "Native local marker template has unconsumed bytes.");
+                int Roundtrip(OwnedReservoirOwnerMarker source, OwnedReservoirOwnerMarker destination)
+                {
+                    using var data = new MemoryStream();
+                    using (var writer = new BinaryWriter(data, Encoding.UTF8, true)) KSerialization.Serializer.SerializeTypeless(source, writer);
+                    var reader = new FastReader(data.ToArray());
+                    Require(mapping.Deserialize(destination, reader) && reader.Position == data.Length, "Native local marker mapping did not consume its complete data.");
+                    return checked((int)data.Length);
+                }
+                var defaultBytes = Roundtrip(actual, copy);
+                Require(actual.ReadRecord().State == OwnedReservoirMarkerState.Unassigned && copy.ReadRecord().State == OwnedReservoirMarkerState.Unassigned,
+                    "Default native marker was assigned or changed by serialization.");
+                void Field(string name, object value) => (type.GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new MissingFieldException(type.Name, name)).SetValue(fixture, value);
+                var fixtureOwnerToken = Guid.NewGuid(); const long fixtureGeneration = 1L << 40;
+                Field("schemaVersion", 1); Field("nativeColonyId", SaveLoader.Instance.GameInfo.colonyGuid.ToString("N"));
+                Field("persistentOwnerToken", fixtureOwnerToken.ToString("N")); Field("coreColonyId", a.ColonyId.ToString("N"));
+                Field("containerId", a.Id); Field("generation", fixtureGeneration); Field("allocationToken", a.AllocationToken.ToString("N"));
+                var assignedBytes = Roundtrip(fixture, copy); var assigned = copy.ReadRecord();
+                Require(assigned.State == OwnedReservoirMarkerState.Assigned && assigned.Generation == fixtureGeneration &&
+                    assigned.NativeColonyId == SaveLoader.Instance.GameInfo.colonyGuid && assigned.PersistentOwnerToken == fixtureOwnerToken &&
+                    assigned.CoreColonyId == a.ColonyId && assigned.ContainerId == a.Id && assigned.AllocationToken == a.AllocationToken && !assigned.Matches(a),
+                    "Private native marker roundtrip lost identities, Int64 precision or stale-generation rejection.");
+                Field("schemaVersion", 91); var invalidBytes = Roundtrip(fixture, copy);
+                Require(copy.ReadRecord().State == OwnedReservoirMarkerState.Invalid && actual.ReadRecord().State == OwnedReservoirMarkerState.Unassigned &&
+                    storageB.GetComponent<OwnedReservoirOwnerMarker>().ReadRecord().State == OwnedReservoirMarkerState.Unassigned &&
+                    !firstObject.activeInHierarchy && !secondObject.activeInHierarchy && OwnedGasReservoirBridge.SaveIsBlocked,
+                    "Private marker serialization repaired invalid data, changed native owners or permitted saving.");
+                evidence.Add(new { Kind = "actual-native-local-marker-serialization", Passed = true, Fields = 7,
+                    TemplateBytes = templateBytes.Length, DefaultBytes = defaultBytes, AssignedFixtureBytes = assignedBytes, InvalidFixtureBytes = invalidBytes,
+                    AssignedFixtureGeneration = assigned.Generation, AssignedFixtureToken = fixtureOwnerToken,
+                    ActualNativeOwnersRemainUnassigned = true, GlobalDirectoryReset = false,
+                    Scope = "local native template/mapping and two inactive private marker-only objects; no assigned world owner or native .sav" });
+            }
+            finally { UnityEngine.Object.Destroy(firstObject); UnityEngine.Object.Destroy(secondObject); }
+        }
+
+        private void CaptureNativeSimSection(OwnedReservoirIdleSaveLease lease, byte[] coreBytes, string label)
+        {
+            // Private framing proof only. This calls the same native world
+            // serializer as SaveLoader, without serializing any Storage,
+            // writing a .sav, permitting public Save, or inventing owner tokens.
+            Require(ProbeScope.World == null && !NativeContractCapture.IsActive, "Native-section evidence requires the actual unscoped native serializer.");
+            lease.RevalidateNativeOwners();
+            using var stream = new MemoryStream();
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, true)) Sim.Save(writer, 0, 0);
+            lease.RevalidateNativeOwners();
+            stream.Position = 0;
+            using var reader = new BinaryReader(stream, Encoding.UTF8, true);
+            var length = reader.ReadInt32();
+            Require(length > 0 && length <= ColonySaveEnvelope.MaximumPayloadBytes && stream.Length == (long)length + 4,
+                "Actual native Sim.Save framing is outside the bounded inspected contract.");
+            var nativeBytes = reader.ReadBytes(length);
+            Require(nativeBytes.Length == length && stream.Position == stream.Length, "Actual native Sim.Save section is incomplete.");
+            File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-idle-native-sim-" + label + ".bin"), nativeBytes);
+            var fingerprint = catalog.Fingerprint;
+            var catalogHash = Enumerable.Range(0, 32).Select(i => Convert.ToByte(fingerprint.Substring(i * 2, 2), 16)).ToArray();
+            var snapshot = lease.Snapshot;
+            const int envelopeMaterialModelVersion = 1;
+            var completedFrame = checked((ulong)snapshot.CompletedFrame);
+            var envelope = ColonySaveEnvelope.Create(744825, envelopeMaterialModelVersion, completedFrame,
+                catalogHash, nativeBytes, coreBytes);
+            var encoded = envelope.CopyEncodedData();
+            var parsed = ColonySaveEnvelope.Parse(encoded, 744825, envelopeMaterialModelVersion, catalogHash);
+            Require(parsed.NativeData.SequenceEqual(nativeBytes) && parsed.CustomData.SequenceEqual(coreBytes) &&
+                parsed.CompletedFrame == completedFrame && OwnedGasReservoirBridge.SaveIsBlocked,
+                "Native-section envelope changed bytes/frame identity or permitted ordinary saving.");
+            File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-idle-section-envelope-" + label + ".bin"), encoded);
+            evidence.Add(new { Kind = "actual-native-sim-section-envelope", Label = label, Passed = true, snapshot.Revision,
+                NativeBytes = nativeBytes.Length, CoreBytes = coreBytes.Length, EnvelopeBytes = encoded.Length,
+                snapshot.CompletedFrame, snapshot.MaterialModelVersion, snapshot.MaterialModelFingerprint, EnvelopeMaterialModelVersion = envelopeMaterialModelVersion,
+                NativeSaveStillBlocked = OwnedGasReservoirBridge.SaveIsBlocked, UnpatchedNativeLoadTested = false,
+                Scope = "in-memory native Sim section plus exact Core bytes only; no complete .sav, persistent owner manifest, Storage serialization permit or integrated reload" });
         }
 
         private void CheckFences()

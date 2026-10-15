@@ -9,6 +9,10 @@
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Standalone persistence experiment; include only after its separate review/runtime gate. -->
+    <Compile Remove="OwnedReservoirLocalRename.cs;OwnedReservoirRecoverableFilePromotion.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
