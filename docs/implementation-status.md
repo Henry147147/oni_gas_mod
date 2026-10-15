@@ -284,6 +284,12 @@ falls from 58.69 MB to 46.69 MB, but single-sample timings vary: Windows/Linux
 cold capture is 76.5/165.0 ms and all-changed capture is 109.6/97.3 ms, without
 an all-around speedup. Two-changed-cell capture is 17.5/15.4 ms.
 
+Later private Combine and ApplyHeat copy optimizations remain rejected or
+unintegrated. V41 passes its exact correctness and 27,770-record presentation
+comparison, but its first timed protected Combine control differs by 15,520 B
+and stops before any heat-benefit measurement. No cause or speedup is established;
+the live Core remains unchanged. See [the preserved negative results](mixture-presentation.md).
+
 Inventory creation/update costs are measured separately. Initialization plus
 capture costs 831.9/1,103.0 ms and 406.4/409.3 MB on Windows/Linux; all-changed
 update plus capture costs 181.4/231.9 ms and 80.6 MB. Both samples ran with ONI

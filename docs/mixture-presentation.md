@@ -435,6 +435,27 @@ but the broader workload did not justify the change. Exact evidence remains in
 `local/mixture-presentation-current-v34/independent-review`; this is no new
 performance gate pass.
 
+A later private Combine allocation candidate was also rejected. Its first
+protected pair increased infected Combine allocation from 114,400,000 to
+120,800,048 B and positive-disease-trace allocation from 108,800,000 to
+114,685,008 B. The required exact-allocation controls failed; no later phase or
+live integration followed. The original product Combine remains in place.
+
+The separate V41 owned-energy-copy candidate preserves the original public
+constructor and Combine. Its exact correctness corpora pass 6,259 constructor,
+12,521 Combine and 10,754 heat/transaction records. Its later untimed build
+passes 211 complete-report validator controls and identical 27,770-record
+presentation outputs. The first timed constructor pair nevertheless fails the
+protected right-only Combine allocation equality: 82,699,848 B baseline versus
+82,684,328 B candidate, a 15,520-B decrease. This control requires equality in
+both directions. Both children and frozen closures pass, but the experiment
+stops after that one pair; no stress, matrix or heat-benefit measurement runs.
+The cause is unresolved. V41 remains unintegrated and establishes no performance
+benefit. Earlier negative candidates, report-contract source failures and all
+criteria are preserved. Private evidence and independent negative review are
+under `local/applyheat-owned-copy-v41-measurement-r2` and its sibling review
+directories. Live Core retains the original implementation.
+
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
 Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.
