@@ -22,6 +22,8 @@ namespace MixedAtmospheres.Oni
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
+                if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
+                    OwnedReservoirLoadVisualValidation.Install(harmony);
                 base.OnLoad(harmony);
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);

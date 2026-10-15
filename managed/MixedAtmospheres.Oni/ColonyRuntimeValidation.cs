@@ -24,6 +24,7 @@ namespace MixedAtmospheres.Oni
             public bool ReuseGeneratedWorld = false;
             public bool IdleReservoirLeaseOnly = false;
             public string PrivateFileProtocolAssemblySha256 = "";
+            public bool PrivateOwnedLoadRejection = false;
             public bool QuitWhenComplete = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -77,7 +78,7 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
@@ -87,6 +88,9 @@ namespace MixedAtmospheres.Oni
                 (!configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 64 || fileProtocolHash.Any(value =>
                     !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))))
                 throw new InvalidDataException("Private file protocol validation requires an idle fixture and a pinned lowercase SHA256.");
+            if ((configuration.Mode == "load-rejection") != configuration.PrivateOwnedLoadRejection ||
+                (configuration.Mode == "load-rejection" && (configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 0)))
+                throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
             Directory.CreateDirectory(OutputDirectory);
             WriteReport();
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode + ". Colony physics remains native.");
@@ -191,6 +195,7 @@ namespace MixedAtmospheres.Oni
         internal static void OnMainMenu(MainMenu menu)
         {
             if (configuration == null || done) return;
+            if (configuration.Mode == "load-rejection" && OwnedReservoirLoadVisualValidation.ObserveMainMenu(menu)) return;
             var runner = new GameObject("Mixed Atmospheres private colony validation");
             UnityEngine.Object.DontDestroyOnLoad(runner);
             runner.AddComponent<ColonyValidationDriver>().Initialize(menu);
@@ -198,7 +203,14 @@ namespace MixedAtmospheres.Oni
 
         internal static void UpdateColony()
         {
-            if (configuration == null || done || Game.Instance == null) return;
+            if (configuration == null || done) return;
+            if (configuration.Mode == "load-rejection")
+            {
+                try { OwnedReservoirLoadVisualValidation.Tick(); }
+                catch (Exception error) { OwnedReservoirLoadVisualValidation.RecordFailure(error); Fail(error); }
+                return;
+            }
+            if (Game.Instance == null) return;
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
             if (configuration.Mode == "presentation")
@@ -235,6 +247,14 @@ namespace MixedAtmospheres.Oni
             Report.Width = Grid.WidthInCells; Report.Height = Grid.HeightInCells;
             Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
+            Report.Stage = "completed"; Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            done = true; WriteReport();
+        }
+        internal static void CompleteLoadRejection(int width, int height, int worldCount)
+        {
+            Report.Kind = "actual-game-owned-load-rejection-validation";
+            Report.Status = "passed"; Report.GameStarted = true;
+            Report.Width = width; Report.Height = height; Report.WorldCount = worldCount;
             Report.Stage = "completed"; Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             done = true; WriteReport();
         }
@@ -289,6 +309,7 @@ namespace MixedAtmospheres.Oni
             if (Time.realtimeSinceStartup - started > config.TimeoutSeconds)
             { ColonyRuntimeValidation.Fail(new TimeoutException("Disposable colony validation timed out.")); return; }
             ColonyRuntimeValidation.UpdateColony();
+            if (config.Mode == "load-rejection" && OwnedReservoirLoadVisualValidation.Started) return;
             if (Game.Instance != null && !Game.Instance.GameStarted() && Time.realtimeSinceStartup >= nextWaitingCapture)
             {
                 nextWaitingCapture = Time.realtimeSinceStartup + 10;
