@@ -98,9 +98,20 @@ The live idle lease pins exact acknowledged owners without permitting native
 saving. Windows v26 additionally checks both complete native footprints,
 inert marker serialization and exported native-section/Core envelopes;
 a separate staged-file helper retains unresolved promotion outcomes.
-Neither supplies integrated native save/load. Thirty-nine Python checks
-validate the coverage inventory, discovery and experimental evidence pipeline. Linux managed checks
+Neither supplies integrated native save/load. Ninety-nine Python checks
+validate the coverage inventory, discovery, experimental evidence pipeline and
+the Linux headless runner. Linux managed checks
 do not establish Linux Unity rendering or game-scale performance.
+
+On 2026-10-15 a clean native Linux (GCC 15) rebuild re-ran every configuration:
+Release, ASan/UBSan and the opt-in experiments all match the counts above, and
+the two documented failures (strict Cartesian 6/7, vacuum-front gate) reproduce
+exactly. Every managed test project passes against the Linux game declarations
+with the same counts as Windows, plus a seventh nitrogen registration check.
+The shipped Linux library now exports only the 15 `ma_*` entry points and links
+libstdc++ statically; built on this host it requires glibc 2.38 or newer, so
+release binaries for older distributions must be built on the oldest supported
+glibc.
 
 To inspect your licensed game and compile the developer probe:
 
@@ -142,6 +153,19 @@ local Steam session, so the native Linux harness still uses Windows-exported
 element/disease data. The Windows user's settings were restored byte-for-byte.
 Detailed acquisition, Windows toolchain,
 and native-boundary evidence are in [the environment report](tools/ONI_ENVIRONMENT.md).
+
+A repeatable [native Linux headless playtest runner](tools/ONI_HEADLESS.md) is
+now installed on this host. It provides a private rendered virtual desktop,
+Steam sign-in, isolated disposable profiles, UI input and captured runtime
+evidence. The current package passes all six Linux startup probe checks in the
+actual Linux game; the game then exits before the main menu because the private
+Steam client has no signed-in account, so main-menu and colony tests remain
+blocked on a one-time Steam sign-in through the runner's viewer. The runner now
+fails a menu run on any mod-originated error after the main-menu marker and lets
+the game see the running Steam client. The adapter's `OnLoad` removes its own
+Harmony patches on any failure, and the nitrogen elements register only while the
+adapter supplies their substance table, so a failed load leaves no partial state.
+The Windows Steam session cannot supply the Linux game's local client context.
 
 ## Implementation records
 

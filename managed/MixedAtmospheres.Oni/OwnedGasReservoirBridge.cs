@@ -330,6 +330,15 @@ namespace MixedAtmospheres.Oni
             try { UnbindEmpty(storage); return true; }
             catch (InvalidOperationException error) { Report("Owned reservoir deconstruction blocked: " + error.Message, true); return false; }
         }
+        // Native callers consume the returned list directly (for example
+        // CraftModuleInterface uses AddRange). A blocked destruction drops no
+        // construction materials, so it returns an empty list, never null.
+        internal static bool ForceDestroyPrefix(Deconstructable __instance, ref List<GameObject> __result)
+        {
+            if (DestroyPrefix(__instance)) return true;
+            __result = new List<GameObject>();
+            return false;
+        }
         internal static bool QueueDestroyPrefix(Storage __instance)
         {
             if (Owned(__instance) == null) return true;
@@ -377,7 +386,7 @@ namespace MixedAtmospheres.Oni
             Add(typeof(Storage), nameof(Storage.IsFull), nameof(FullPrefix));
             Add(typeof(Storage), "OnQueueDestroyObject", nameof(QueueDestroyPrefix));
             Add(typeof(Deconstructable), "OnCompleteWork", nameof(DestroyPrefix), new[] { typeof(WorkerBase) });
-            Add(typeof(Deconstructable), nameof(Deconstructable.ForceDestroyAndGetMaterials), nameof(DestroyPrefix));
+            Add(typeof(Deconstructable), nameof(Deconstructable.ForceDestroyAndGetMaterials), nameof(ForceDestroyPrefix));
             Add(typeof(SaveLoader), nameof(SaveLoader.Save), nameof(SavePrefix), new[] { typeof(string), typeof(bool), typeof(bool) });
             Add(typeof(Storage), nameof(Storage.Serialize), nameof(StorageSerializePrefix), new[] { typeof(BinaryWriter) });
             Add(typeof(Game), nameof(Game.StartDelayedSave), nameof(SaveUiPrefix), new[] { typeof(string), typeof(bool), typeof(bool) });

@@ -99,6 +99,9 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // Failed OnLoad teardown: Mod has already removed this owner's patches.
+        internal static void ResetAfterFailedLoad() => installedOwner = null;
+
         private static MethodInfo Require(Type type, string name, Type result, params Type[] parameters)
         {
             var method = AccessTools.Method(type, name, parameters);

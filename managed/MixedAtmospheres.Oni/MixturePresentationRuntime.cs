@@ -219,6 +219,12 @@ namespace MixedAtmospheres.Oni
             // publication without touching Unity Time or invoking adapters.
             var pinned = Volatile.Read(ref workerReadFrame);
             if (pinned != null) return pinned;
+            // Per-cell overlay workers reach this for every visible cell. With
+            // no provider (the inert default) answer without taking Sync. The
+            // reads are atomic; a racing registration on the presentation
+            // thread can only yield one "no readings" cell or fall through to
+            // the unchanged locked check below, never a frame.
+            if (Volatile.Read(ref world) == null && Volatile.Read(ref fixture) == null && Registrations.Count == 0) return null;
             // No Unity call at all when the mod has no explicit provider.
             if (!HasProvider) return null;
             lock (Sync)

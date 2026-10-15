@@ -17,6 +17,15 @@ namespace MixedAtmospheres.Oni
         internal const string LiquidId = "MixedAtmospheresLiquidNitrogen";
         internal const string SolidId = "MixedAtmospheresSolidNitrogen";
         internal const string ModelVersion = "ma-native-nitrogen-reference-v1";
+        // ONI loads the mod's elements/ folder as layerable files even when
+        // this DLL fails or its patches are removed, and ElementLoader would
+        // then manifest an empty Substance (no material/animation: the ground
+        // renderer errors on the solid phase), untranslated names and integer
+        // tags. The YAML therefore declares this private content key instead of
+        // the base-game "". ElementLoader.Load skips an entry whose key has no
+        // substance table, so the phases exist only while NitrogenContentGate
+        // supplies the key; afterwards each element carries VANILLA_ID again.
+        internal const string ContentGateKey = "MixedAtmospheres.AdapterLoaded";
         internal static readonly SimHashes Gas = (SimHashes)Hash.SDBMLower(GasId);
         internal static readonly SimHashes Liquid = (SimHashes)Hash.SDBMLower(LiquidId);
         internal static readonly SimHashes Solid = (SimHashes)Hash.SDBMLower(SolidId);
@@ -112,12 +121,36 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        internal static void OpenContentGate(Dictionary<string, SubstanceTable> tables)
+        {
+            if (tables == null) throw new ArgumentNullException("Native substance tables");
+            // Prepare (an earlier prefix) already required a live table; this
+            // reference check keeps the gate engine-independent for host tests.
+            if (!tables.TryGetValue(DlcManager.VANILLA_ID, out var table) || table is null)
+                throw new InvalidOperationException("The base-game substance table is unavailable for nitrogen registration.");
+            if (tables.TryGetValue(ContentGateKey, out var existing) && !ReferenceEquals(existing, table))
+                throw new InvalidOperationException("Nitrogen content gate collision: " + ContentGateKey);
+            // The phases resolve exactly the base-game table Prepare cloned into.
+            tables[ContentGateKey] = table;
+        }
+
+        internal static void CloseContentGate(Dictionary<string, SubstanceTable> tables)
+        {
+            tables?.Remove(ContentGateKey);
+            foreach (var item in Definitions)
+            {
+                var element = ElementLoader.FindElementByHash(item.Hash);
+                if (element != null && element.dlcId == ContentGateKey) element.dlcId = DlcManager.VANILLA_ID;
+            }
+        }
+
         internal static void ValidateLoaded()
         {
             foreach (var item in Definitions)
             {
                 var element = ElementLoader.FindElementByHash(item.Hash) ?? throw new InvalidDataException("Nitrogen YAML was not loaded: " + item.Id);
-                if (element.tag.ToString() != item.Id || element.name != item.Name || element.idx >= ElementLoader.elements.Count ||
+                if (element.tag.ToString() != item.Id || element.name != item.Name || element.dlcId != DlcManager.VANILLA_ID ||
+                    element.idx >= ElementLoader.elements.Count ||
                     !ReferenceEquals(ElementLoader.elements[element.idx], element) || element.substance == null ||
                     !SameColor(element.substance.colour, item.Color))
                     throw new InvalidDataException("Invalid native nitrogen element: " + item.Id);
@@ -143,6 +176,21 @@ namespace MixedAtmospheres.Oni
         private static void Prefix(Hashtable substanceList, Dictionary<string, SubstanceTable> substanceTablesByDlc)
             => OniNitrogenElements.Prepare(substanceList, substanceTablesByDlc);
         private static void Postfix() => OniNitrogenElements.ValidateLoaded();
+    }
+
+    // Opens the private YAML content key only around the native element load:
+    // the last prefix and first postfix, so other mods' prefixes/postfixes see
+    // neither the extra table key nor the private dlcId. Without this adapter
+    // (failed OnLoad, patches removed) ONI skips the three YAML phases.
+    [HarmonyPatch(typeof(ElementLoader), nameof(ElementLoader.Load))]
+    internal static class NitrogenContentGate
+    {
+        [HarmonyPriority(Priority.Last)]
+        private static void Prefix(Dictionary<string, SubstanceTable> substanceTablesByDlc)
+            => OniNitrogenElements.OpenContentGate(substanceTablesByDlc);
+        [HarmonyPriority(Priority.First)]
+        private static void Postfix(Dictionary<string, SubstanceTable> substanceTablesByDlc)
+            => OniNitrogenElements.CloseContentGate(substanceTablesByDlc);
     }
 
     // SimHashes is the shipped enum and cannot acquire new members. Native tag

@@ -756,6 +756,19 @@ namespace MixedAtmospheres.Oni
                 if (row.Key.StartsWith("Sim.LoadWorld(", StringComparison.Ordinal) || row.Key.StartsWith("Sim.Load(", StringComparison.Ordinal) || row.Key.StartsWith("Sim.Start(", StringComparison.Ordinal))
                     Require(row.Value == 0, "A forbidden managed native-dispatch antecedent ran during rejection: " + row.Key);
         }
+        // Mod.OnLoad failed after (part of) Install: Mod has already removed
+        // every Harmony patch. Detach the Unity/counter observers too and keep
+        // the explicit private report failed, as ObserveNativeError would.
+        internal static void AbandonFailedLoad(Exception error)
+        {
+            Application.quitting -= ObserveApplicationQuitting;
+            Application.logMessageReceived -= ObserveNativeError;
+            OwnedReservoirLoadValidationCounters.StorageSerializeBodyObserved -= ObserveSerialize;
+            failureRecorded = true; completedSuccessfully = false; finished = true;
+            evidence.Add(new { Kind = "mod-load-failed-hooks-removed", Error = error.ToString() });
+            try { Write("failed"); }
+            finally { ColonyRuntimeValidation.Fail(error); }
+        }
         internal static void RecordFailure(Exception error)
         {
             failureRecorded = true; completedSuccessfully = false; finished = true;

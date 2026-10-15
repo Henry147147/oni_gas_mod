@@ -7,8 +7,21 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def source_state() -> tuple[str, bool, list[str]]:
+    """Return the source tree revision, dirty flag and short status at packaging time.
+
+    This records the tree the package was assembled from; it does not prove the
+    copied binaries were rebuilt from that tree.
+    """
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    status = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"],
+                                     cwd=ROOT, text=True).splitlines()
+    return revision, bool(status), status
 
 
 def main() -> None:
@@ -33,6 +46,10 @@ def main() -> None:
     for file in files:
         if not file.is_file():
             parser.error(f"Build first; missing {file}")
+    try:
+        revision, dirty, status = source_state()
+    except (OSError, subprocess.CalledProcessError) as error:
+        parser.error(f"Cannot record the source git revision: {error}")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     if any(output.iterdir()):
@@ -73,6 +90,7 @@ def main() -> None:
         "authoritative colony simulation replacement.\n",
         encoding="utf-8")
     manifest = {"kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
+                "source_revision": revision, "source_dirty": dirty, "source_status": status,
                 "files": {f.relative_to(output).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
                           for f in sorted(output.rglob("*")) if f.is_file()}}
     (output / "package-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

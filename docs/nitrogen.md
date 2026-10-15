@@ -24,6 +24,23 @@ substance uses the renderer's normal fallback. Gas uses RGB (120,145,150),
 liquid (89,130,161), and solid (163,199,219). The mixture presentation obtains
 nitrogen's gas colour from this registered substance.
 
+## Loading only with the adapter
+
+ONI loads a mod's `elements/` folder as layerable files independently of its
+DLL. If the adapter's `OnLoad` fails, it removes every Harmony patch it owns,
+so the substance clones, `STRINGS` names and tag bridge would all be absent:
+ONI would manifest an empty `Substance` (no material or animation; the ground
+renderer reports an error for the solid phase on every colony load) with
+integer tag text. The YAML therefore declares `dlcId:
+MixedAtmospheres.AdapterLoaded` instead of the base-game `""`. ONI's
+`ElementLoader.Load` skips an entry whose content key has no substance table,
+and only the adapter's `NitrogenContentGate` supplies that key (the last
+prefix, mapped to the base-game table) and removes it again (the first
+postfix), restoring each element's `dlcId` to `""` before validation or any
+other consumer. A failed or removed adapter therefore registers no nitrogen at
+all rather than half-registered phases. A save that already contains these
+elements still requires the working adapter.
+
 The shipped `SimHashes` enum cannot acquire new members. Scoped patches to
 `GameTagExtensions.Create` and `CreateTag` resolve only these three hashes to
 their actual element tags; all native and unknown hashes pass through. This

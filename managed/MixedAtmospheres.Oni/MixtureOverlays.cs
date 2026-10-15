@@ -69,8 +69,20 @@ namespace MixedAtmospheres.Oni
             var map = ReadField<Dictionary<HashedString, StatusItem.StatusItemOverlays>>(typeof(StatusItem), "overlayBitfieldMap", null);
             // Native Oxygen and material views use None. Reuse that visibility
             // policy without inventing flags or changing a gameplay status.
+            statusOverlaysRegistered = true;
             foreach (MixtureOverlayKind kind in Enum.GetValues(typeof(MixtureOverlayKind)))
                 map[Id(kind)] = StatusItem.StatusItemOverlays.None;
+        }
+
+        // Failed OnLoad teardown: this static game registry outlives Harmony.
+        private static bool statusOverlaysRegistered;
+        internal static void UnregisterStatusItemOverlays()
+        {
+            if (!statusOverlaysRegistered) return;
+            var map = ReadField<Dictionary<HashedString, StatusItem.StatusItemOverlays>>(typeof(StatusItem), "overlayBitfieldMap", null);
+            foreach (MixtureOverlayKind kind in Enum.GetValues(typeof(MixtureOverlayKind)))
+                map.Remove(Id(kind));
+            statusOverlaysRegistered = false;
         }
 
         private static void ResetSessionLegend()

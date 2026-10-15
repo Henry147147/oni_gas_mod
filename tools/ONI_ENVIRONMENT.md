@@ -500,3 +500,27 @@ Windows .NET against the frozen native49 DLL; four transferred artifact hashes
 were verified before execution. Native49 was not rebuilt for this managed rerun.
 Neither actual Unity scoped success nor the standalone49/12 results certify the
 requested full game simulation replacement.
+
+## Reusable native Linux virtual desktop (2026-10-15)
+
+The local Steam-client absence is now resolved by a rootless private
+installation under `/home/henry/.local/share/oni-headless`; account sign-in is
+still pending. [ONI_HEADLESS.md](ONI_HEADLESS.md) documents the checked-in
+`oni_headless.py` setup/start/run/status/input/screenshot/stop workflow and
+loopback-only noVNC viewer. Its stop/restart path and 48 Python tests pass.
+No system packages or namespace/AppArmor policies were modified.
+
+The current sources were rebuilt against the Linux assemblies, packaged with
+the fresh GNU native library and launched inside actual Linux Unity. All six
+scoped checks passed, with 55 patched methods and the inspected 744825 layouts.
+The Steam API loaded the actual local `linux64/steamclient.so`, then rejected
+the unsigned-in global user. ONI exited 2 before the main menu; the runner
+correctly returned 3 (`blocked-steam-authentication`). No colony was loaded.
+Evidence is `/home/henry/.local/share/oni-headless/runs/20261015T122528Z-bf9a5b`.
+The UI inspection screenshot is `/tmp/oni-headless-restarted.png`.
+The desktop remains at Steam sign-in for later authentication.
+
+The existing WSL endpoint `henry@192.168.1.202:22` refused connections during
+this follow-up. Independently, a remote Windows client cannot provide the
+local same-OS-user Steamworks context required for native Linux ONI. This
+setup did not transfer credentials or authorize any new account session.

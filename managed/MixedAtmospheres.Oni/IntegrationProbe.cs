@@ -31,6 +31,10 @@ namespace MixedAtmospheres.Oni
         [DataMember] public bool NativeMixtureRoundtripPassed;
         [DataMember] public bool SettingsSerializationRoundtripPassed;
         [DataMember] public bool AuthoritativeColonySimulationReady = false;
+        // Once-per-process main-menu diagnostics: "pending-main-menu",
+        // "captured" or "failed". Never one of the integration checks above.
+        [DataMember] public string NativeContractCapture = "pending-main-menu";
+        [DataMember] public string NativeContractCaptureError = "";
         [DataMember] public string[] MissingRequirements =
         {
             "Intercept every relevant direct native message call, including saves and conduit thermal services",
@@ -45,8 +49,14 @@ namespace MixedAtmospheres.Oni
 
     internal static class IntegrationProbe
     {
+        private static string? verifiedAssemblySha256;
+
+        // The loaded assembly cannot change within a process, so the 14 MB hash
+        // and layout gate run once; later diagnostics reuse the verified value.
         internal static string VerifyContract()
         {
+            var cached = verifiedAssemblySha256;
+            if (cached != null) return cached;
             if (IntPtr.Size != 8) throw new PlatformNotSupportedException("The integration probe requires a 64-bit game.");
             string assemblyHash;
             using (var hash = SHA256.Create())
@@ -61,6 +71,7 @@ namespace MixedAtmospheres.Oni
                 Marshal.SizeOf<Sim.GameDataUpdate>() != 496 ||
                 typeof(Sim.GameDataUpdate).GetFields(BindingFlags.Public | BindingFlags.Instance).Length != 77)
                 throw new NotSupportedException("This private probe requires the inspected ONI 744825 assembly and layouts. No patches were installed.");
+            verifiedAssemblySha256 = assemblyHash;
             return assemblyHash;
         }
 

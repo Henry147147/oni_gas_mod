@@ -93,10 +93,24 @@ namespace MixedAtmospheres.Oni
             if (!Installed || installationThread != Thread.CurrentThread.ManagedThreadId)
                 throw new InvalidOperationException("Native marker/footprint inspection requires the installation thread and installed prefab marker contract.");
         }
+        // Failed OnLoad teardown: Mod has already removed this owner's patches.
+        internal static void ResetAfterFailedLoad() { Installed = false; installationThread = 0; }
+
         private static void AddToCompletePrefab(GameObject go)
         {
             RequireNativeThread();
-            if (go == null || go.GetComponent<KPrefabID>()?.PrefabTag.Name != GasReservoirConfig.ID || go.GetComponent<BuildingComplete>() == null)
+            // Another mod may subclass GasReservoirConfig and call this base
+            // method for its own building. That prefab is not the pinned
+            // GasReservoir contract: leave it untouched instead of aborting
+            // its registration. The exact GasReservoir prefab stays strict.
+            var prefab = go == null ? null : go.GetComponent<KPrefabID>();
+            if (prefab == null || prefab.PrefabTag.Name != GasReservoirConfig.ID)
+            {
+                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Owner marker skipped for non-GasReservoir prefab " +
+                    (prefab == null ? "<no KPrefabID>" : prefab.PrefabTag.Name) + " reached through GasReservoirConfig.DoPostConfigureComplete.");
+                return;
+            }
+            if (go!.GetComponent<BuildingComplete>() == null)
                 throw new InvalidOperationException("The marker hook received no completed GasReservoir prefab.");
             var markers = go.GetComponents<OwnedReservoirOwnerMarker>();
             if (markers.Length > 1) throw new InvalidOperationException("Duplicate reservoir owner markers on completed prefab.");
