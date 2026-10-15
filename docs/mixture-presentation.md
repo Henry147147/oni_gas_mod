@@ -130,8 +130,8 @@ limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
 
-Current Windows and isolated WSL Linux checks pass Core 82, presentation 24,
-owned snapshot/runtime 76 and inspection 27 scenarios. New coverage includes
+Current Windows and isolated WSL Linux checks pass Core 88, presentation 27,
+owned snapshot/runtime 94 and inspection 27 scenarios. New coverage includes
 same-frame cell/container agreement, checkpoint-preserved allocation identities,
 retired/replaced/foreign handles, provider collision in both registration orders,
 reentrant publication/teardown/liveness replacement, recursive capture and
@@ -140,7 +140,7 @@ licensed game declarations, without Linux Unity rendering.
 
 The ordinary managed build runs
 `managed/MixedAtmospheres.Presentation.Tests` even without a game directory.
-Its 24 scenarios include 39 assessments against the native reference, tiny/zero-limit
+Its 27 scenarios include 39 assessments against the native reference, tiny/zero-limit
 trace regressions, 100
 bit-exact canonical cell comparisons, trace
 formatting, phase separation, linear colour, pattern/tie continuity, copied
@@ -329,6 +329,17 @@ V18's mostly paused 504-cell/six-container sequence records 10,900 frames,
 p50/p95/p99 of 8.06/9.91/110.23 ms and a maximum stock-plus-mixture texture batch
 of 3.55 ms, including screenshots/UI transitions with no baseline subtraction.
 This is a scoped observation, not sustained 1x gameplay or a 100k-cell gate pass.
+
+Windows v23/v24 additionally exercise two actual native-empty owned gas
+reservoirs through conserved actor batches and the exact prepared presentation.
+The native meter, fullness, logic and selected panels agree with completed Core
+allocations; hazardous chlorine remains visible as a warning after transfer.
+V24's captured empty reservoir retains its owned vacuum reading before normal
+unbinding. Mutation/save fences and forced-cleanup recovery are checked in the
+same disposable colony. See [the reservoir bridge](owned-reservoir-bridge.md)
+for exact scope, frozen evidence and V23's earlier asynchronous capture limit.
+These checks do not establish pipe flow, equipped-suit gameplay or owned-state
+save/reload.
 
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated

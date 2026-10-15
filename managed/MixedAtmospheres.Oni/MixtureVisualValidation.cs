@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using HarmonyLib;
+using Klei.CustomSettings;
 using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 using UnityEngine;
@@ -40,6 +41,7 @@ namespace MixedAtmospheres.Oni
         private static MixtureContainerValidationReport? containers;
         private static MixtureContainerVisualValidation? spawnedContainers;
         private static NitrogenVisualValidation? nitrogenItems;
+        private static OwnedReservoirVisualValidation? ownedReservoirs;
         private static readonly Dictionary<string, FluidContainerHandle> OwnedHandles = new Dictionary<string, FluidContainerHandle>(StringComparer.Ordinal);
         private static readonly List<object> ContainerConservation = new List<object>();
         private static readonly List<object> ContainerCoreAgreement = new List<object>();
@@ -229,10 +231,52 @@ namespace MixedAtmospheres.Oni
                     WriteReport(); caption = "Native nitrogen phases · real pure-material items"; break;
                 case 67:
                     nitrogenItems!.RequireAllPassed();
-                    // An interactive run retains its native items so the same
-                    // disposable colony can exercise actual Save/Quit/Resume.
-                    if (ColonyRuntimeValidation.Settings?.QuitWhenComplete != false) nitrogenItems!.Dispose();
-                    WriteReport(); ColonyRuntimeValidation.CompletePresentation(); break;
+                    nitrogenItems.Dispose();
+                    caption = "Preparing actual isolated reservoir ownership"; WriteReport(); break;
+                case 68:
+                    if (ownedReservoirs == null)
+                    {
+                        var placements = new Dictionary<string, int>
+                        { ["reservoir-a"] = Grid.XYToCell(x0 + 8, y0 + 29), ["reservoir-b"] = Grid.XYToCell(x0 + 26, y0 + 29) };
+                        bool Clear(int cell)
+                        {
+                            if (Grid.Solid[cell]) return false;
+                            for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer) if (Grid.Objects[cell, layer] != null) return false;
+                            return true;
+                        }
+                        var candidates = new List<object>(); var foundPair = false;
+                        foreach (var columnA in Enumerable.Range(3, 35).OrderBy(column => Math.Abs(column - 8)))
+                        {
+                            placements["reservoir-a"] = Grid.XYToCell(x0 + columnA, y0 + 29);
+                            foreach (var columnB in Enumerable.Range(3, 35).OrderBy(column => Math.Abs(column - 26)))
+                            {
+                                if (Math.Abs(columnA - columnB) < 6) continue;
+                                placements["reservoir-b"] = Grid.XYToCell(x0 + columnB, y0 + 29);
+                                var required = MixtureContainerVisualValidation.RequiredReservoirPairCells(placements);
+                                var blockers = required.Values.SelectMany(cells => cells).Distinct().Where(cell => !Clear(cell)).ToArray();
+                                candidates.Add(new { ColumnA = columnA, ColumnB = columnB, Blockers = blockers.Select(cell => new
+                                { Cell = cell, X = cell % Grid.WidthInCells, Y = cell / Grid.WidthInCells, Solid = Grid.Solid[cell],
+                                    Element = Grid.Element[cell]?.id.ToString(), MassKg = Grid.Mass[cell],
+                                    Objects = Enumerable.Range(0, (int)ObjectLayer.NumLayers).Where(layer => Grid.Objects[cell, layer] != null)
+                                        .Select(layer => new { Layer = layer, Name = Grid.Objects[cell, layer].name, Instance = Grid.Objects[cell, layer].GetInstanceID() }).ToArray() }).ToArray() });
+                                if (blockers.Length != 0) continue;
+                                foundPair = true; break;
+                            }
+                            if (foundPair) break;
+                        }
+                        File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-reservoir-placement.json"), ReportJson.Serialize(
+                            new { Found = foundPair, Placements = placements, Candidates = candidates }));
+                        Require(foundPair, "No unoccupied native reservoir pair footprint is available; inspect owned-reservoir-placement.json.");
+                        ownedReservoirs = new OwnedReservoirVisualValidation(state!, catalog!, MixturePresentationRuntime.CurrentModel ?? model!, placements, Scenarios[4].Cells);
+                        var ownedCenter = Grid.CellToPosCCC(Grid.XYToCell(x0 + 20, y0 + 31), Grid.SceneLayer.Background);
+                        CameraController.Instance.SnapTo(ownedCenter); CameraController.Instance.SetTargetPos(ownedCenter, 20, false);
+                        CameraController.Instance.OrthographicSize = 13;
+                        --step; break;
+                    }
+                    var ownedDone = ownedReservoirs.Tick(); caption = ownedReservoirs.Caption;
+                    if (ownedDone) { WriteReport(); ColonyRuntimeValidation.CompletePresentation(); }
+                    else --step;
+                    break;
                 default:
                     if (phase >= 58 && phase < 67)
                     {
@@ -269,6 +313,11 @@ namespace MixedAtmospheres.Oni
         private static void Initialize()
         {
             initialized = true;
+            // This disposable development colony must not earn achievements
+            // from native factory calls or from its deliberately edited arena.
+            Game.Instance.debugWasUsed = true;
+            CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
+            Game.Instance.SandboxModeActive = true;
             MixturePresentationLifecycle.EnableShutdownObservation(ColonyRuntimeValidation.OutputDirectory,
                 () => ColonyRuntimeValidation.Settings?.Mode == "presentation", () => MixtureInspection.SessionBindingCount == 0);
             var start = SaveLoader.Instance.cachedGSD.baseStartPos + ClusterManager.Instance.GetStartWorld().WorldOffset;
@@ -334,11 +383,12 @@ namespace MixedAtmospheres.Oni
             // A separate supported strip is reserved before pausing. Existing
             // objects are never removed; native placement preflight later
             // rejects any occupied footprint or utility port.
-            for (var y = y0 + 20; y <= y0 + 26; ++y)
+            foreach (var lane in new[] { 20, 28 })
+            for (var y = y0 + lane; y <= y0 + lane + 6; ++y)
             for (var x = x0; x <= x0 + width; ++x)
             {
                 var cell = Grid.XYToCell(x, y); Grid.Visible[cell] = byte.MaxValue;
-                var wall = y == y0 + 20 || y == y0 + 26 || x == x0 || x == x0 + width;
+                var wall = y == y0 + lane || y == y0 + lane + 6 || x == x0 || x == x0 + width;
                 SimMessages.ReplaceElement(cell, wall ? SimHashes.Unobtanium : SimHashes.Oxygen, eventId, wall ? 20000 : 1.2f, 293.15f);
             }
             var raw = FixtureWorld(width, height, x0, y0);

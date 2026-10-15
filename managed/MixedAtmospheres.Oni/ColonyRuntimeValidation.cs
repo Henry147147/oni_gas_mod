@@ -87,6 +87,13 @@ namespace MixedAtmospheres.Oni
 
         internal static IntPtr AfterNativeMessage(int message, IntPtr result)
         {
+            if (configuration?.Mode == "presentation" && ObserveMessage && actualColonyActive && result != IntPtr.Zero &&
+                (message == -931446686 || message == 1078620451))
+            {
+                try { OwnedReservoirVisualValidation.ObserveNativeSnapshot((Sim.GameDataUpdate*)result); }
+                catch (Exception error) { Fail(error); }
+                return result;
+            }
             if (configuration?.Mode != "snapshot-copy" || !ObserveMessage || !actualColonyActive || result == IntPtr.Zero ||
                 (message != -931446686 && message != 1078620451)) return result;
             try

@@ -20,12 +20,13 @@ namespace MixedAtmospheres.Oni
             public string Kind { get; internal set; } = "";
             public int Cell { get; internal set; }
             public string InventoryId { get; internal set; } = "";
-            public string FixtureLabel => "[Read-only visual fixture] " + Kind;
+            public string FixtureLabel => OwnedLabel ?? "[Read-only visual fixture] " + Kind;
             public IReadOnlyList<int> Footprint { get; internal set; } = Array.Empty<int>();
             public IReadOnlyList<int> ReservedCells { get; internal set; } = Array.Empty<int>();
             public int InstanceId => Owner != null ? Owner.GetInstanceID() : 0;
             [JsonIgnore] internal FluidContainerHandle? ContainerHandle;
             [JsonIgnore] internal bool ExpectHazardousTrace = true;
+            [JsonIgnore] internal string? OwnedLabel;
             [JsonIgnore] public GameObject Owner { get; internal set; } = null!;
             [JsonIgnore] internal BuildingDef? Definition;
         }
@@ -131,6 +132,38 @@ namespace MixedAtmospheres.Oni
                 return session;
             }
             catch { session.Dispose(); throw; }
+        }
+
+        // Uses the same all-before-first-spawn footprint, port, construction
+        // and native placement checks as the inspection fixtures. Ownership is
+        // bound separately, after both native Storage components have spawned.
+        internal static MixtureContainerVisualValidation CreateEmptyReservoirPair(IReadOnlyDictionary<string, int> placements)
+        {
+            RequirePresentation();
+            var planned = Plan(placements, reservoirPair: true);
+            var session = new MixtureContainerVisualValidation(planned);
+            try
+            {
+                foreach (var surface in planned)
+                {
+                    surface.Owner = Spawn(surface);
+                    Require(surface.Owner != null, "Native factory did not create " + surface.Kind + ".");
+                }
+                return session;
+            }
+            catch { session.Dispose(); throw; }
+        }
+
+        internal static IReadOnlyDictionary<string, IReadOnlyList<int>> RequiredReservoirPairCells(IReadOnlyDictionary<string, int> placements)
+            => Plan(placements, requireClear: false, reservoirPair: true).ToDictionary(surface => surface.Kind, surface => surface.ReservedCells, StringComparer.Ordinal);
+
+        internal void ObserveReservoirBinding(string kind, FluidContainerHandle handle)
+        {
+            RequireUsable(); var surface = Find(kind);
+            Require(IsReady, PendingReason);
+            Require(MixtureInspection.TryResolveContainerBinding(MixturePresentationRuntime.AcquireFrame(), handle, out _, out var error),
+                "A completed owned reservoir view is required: " + error);
+            surface.ContainerHandle = handle; surface.InventoryId = handle.Id; surface.OwnedLabel = "Owned reservoir contents";
         }
 
         internal bool IsReady
@@ -287,15 +320,16 @@ namespace MixedAtmospheres.Oni
             Require(passed, "Retired owned binding did not show an explicit unavailable status or retained stale/native rows.");
         }
 
-        private static List<Surface> Plan(IReadOnlyDictionary<string, int> placements, bool requireClear = true)
+        private static List<Surface> Plan(IReadOnlyDictionary<string, int> placements, bool requireClear = true, bool reservoirPair = false)
         {
             RequirePresentation();
             if (placements == null) throw new ArgumentNullException(nameof(placements));
             Require(Game.Instance != null && ClusterManager.Instance != null && Grid.WidthInCells > 0 && Grid.HeightInCells > 0,
                 "A live initialized colony is required.");
-            Require(placements.Count == Kinds.Length && Kinds.All(placements.ContainsKey), "Exactly pipe/reservoir/bottle/suit/vent/machine placements are required.");
+            var kinds = reservoirPair ? new[] { "reservoir-a", "reservoir-b" } : Kinds;
+            Require(placements.Count == kinds.Length && kinds.All(placements.ContainsKey), "The complete explicitly requested native surface placements are required.");
             var planned = new List<Surface>(); var reserved = new HashSet<int>();
-            foreach (var kind in Kinds)
+            foreach (var kind in kinds)
             {
                 var surface = new Surface { Kind = kind, Cell = placements[kind] };
                 var footprint = new HashSet<int>(); var cells = new HashSet<int>();
@@ -307,7 +341,7 @@ namespace MixedAtmospheres.Oni
                     Require(Grid.IsValidBuildingCell(cell) && Grid.IsActiveWorld(cell), kind + " must be inside the active world's valid building cells.");
                     if (body) footprint.Add(cell); cells.Add(cell);
                 }
-                if (BuildingIds.TryGetValue(kind, out var id))
+                if (BuildingIds.TryGetValue(reservoirPair ? "reservoir" : kind, out var id))
                 {
                     var definition = Assets.GetBuildingDef(id);
                     Require(definition != null && definition.BuildingComplete != null, "Native building definition unavailable: " + id + ".");

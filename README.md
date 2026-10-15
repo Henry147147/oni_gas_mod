@@ -2,7 +2,7 @@
 
 **Development foundation, not a playable overhaul.** This repository contains a
 tested native mixture model, a managed API, and an explicitly labelled ONI
-integration probe. The probe leaves colony physics unchanged. The requested
+integration probe. The default probe leaves colony physics unchanged. The requested
 complete gas-and-liquid conversion is not ready for Workshop publication.
 
 The target is new colonies in the base game and Spaced Out!, on Windows and
@@ -40,9 +40,17 @@ machines, pipes, and metabolism must use the same conserved state.
 - An ONI 744825 developer probe for loading the native library, scoped Harmony
   interception of direct native message calls and the managed save entry point,
   and independent mixture save/restore.
+- Shared mixture names, complete trace inspection, mole-weighted ONI colours,
+  density-aware opacity and composition textures, plus composition, pressure,
+  oxygen partial-pressure and breathability overlays. Windows disposable
+  fixtures exercise changing mixtures, paused inspection, zoom and UI scaling.
+- An explicit two-reservoir ownership experiment with conserved transfers,
+  native-empty storage, native meter/logic queries, mutation fences and orphan
+  recovery. Windows Unity acceptance passes; native pipe/heat/power gameplay
+  and owned-state save/reload remain separate work.
 
 An integrated liquid **flow solver**, game-wide simulation ownership, building/conduit adapters,
-nitrogen world generation, overlays, and colony save integration are still
+nitrogen world generation, production presentation binding and colony save integration are still
 required. Constant material properties and reaction energy bookkeeping are
 reference models; they do not yet constitute full thermodynamic realism.
 
@@ -69,11 +77,16 @@ python3 tools/build.py --native-only --sanitizers --build-dir build-sanitized
 the native physics/ABI suite; the build script also runs managed interop tests.
 CI is configured for Windows/Linux standalone builds and Linux sanitizers.
 An authored CI workflow is not evidence of a completed hosted CI run.
-Current local verification: 56/56 native scenarios on Windows MSVC and Linux
-Release, plus Linux ASan/UBSan, without native compiler warnings.
-The managed/native interface, settings, native-save parser and all-world import
-staging pass all twenty scenarios on both platforms. Seventeen Python checks
-validate the coverage inventory and discovery pipeline on Linux.
+Reviewed native verification passes 57 physics/ABI scenarios, 10 closed-fluid
+groups, 24 occupied-1D groups and bounded gas/vacuum consistency checks on MSVC,
+strict GNU and Linux ASan/UBSan. The independent thermodynamic reference passes
+26 groups. The full vacuum-front convergence gate still fails; see
+[the measured limitation](native/GAS_VACUUM.md).
+Windows and isolated Linux managed checks pass Core 88, presentation 27,
+owned-runtime 94, reservoir protocol 34 and idle checkpoint codec 19 groups.
+The checkpoint codec supplies no native save/load hooks. Seventeen Python checks
+validate the coverage inventory and discovery pipeline. Linux managed checks
+do not establish Linux Unity rendering or game-scale performance.
 
 To inspect your licensed game and compile the developer probe:
 

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <OniGameDir Condition="'$(OniGameDir)' == ''">$(ONI_GAME_DIR)</OniGameDir>
+    <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedFluidActorOperations.cs" Link="OwnedFluidActorOperations.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGasReservoirBridge.cs" Link="OwnedGasReservoirBridge.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidFrameCoordinator.cs" Link="ExperimentalFluidFrameCoordinator.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/FluidBatchCommand.cs" Link="FluidBatchCommand.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(OniManagedDir)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(OniManagedDir)/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(OniManagedDir)/UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(OniManagedDir)/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
