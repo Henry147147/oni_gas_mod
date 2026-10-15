@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using HarmonyLib;
 using Klei.CustomSettings;
@@ -47,13 +48,38 @@ namespace MixedAtmospheres.Oni
         private static readonly List<object> ContainerCoreAgreement = new List<object>();
         private static ColonyFrameSnapshot? containerBaseline;
         private static FluidContainerHandle retiredBottle;
+        private static readonly List<object> AppearanceCases = new List<object>();
+        private static readonly List<MixtureWorldRendering.TextureProbeEvidence> TextureProbeEvidence = new List<MixtureWorldRendering.TextureProbeEvidence>();
+        private static readonly List<object> TextureProbeRearms = new List<object>();
+        private static readonly List<object> AppearanceComparisons = new List<object>();
+        private static MixtureWorldRendering.TextureProbeEvidence? equalMassTextureBefore;
+        private static int appearanceStep;
+        private static string appearanceCase = "";
+        private static BreathingFailure appearanceFailures;
+        private static bool appearanceLiquid;
+        private static FluidInventory? equalMassBefore, equalMassAfter;
+        private static string appearanceCheckpoint = "", appearanceCheckpointSha256 = "";
+        private static int appearanceNativeElement;
+        private static float appearanceNativeMass, appearanceNativeTemperature;
+        private static bool appearanceRestored;
 
         internal static void Tick()
+        {
+            try { TickCore(); }
+            catch { MixtureWorldRendering.DisableValidationProbes(); throw; }
+        }
+
+        private static void TickCore()
         {
             if (initialized) FrameMilliseconds.Add(Time.unscaledDeltaTime * 1000.0);
             if (Time.realtimeSinceStartup < next) return;
             next = Time.realtimeSinceStartup + 1.5f;
             if (!initialized) { Initialize(); return; }
+            // OnReset/reallocation invalidates the exact destination buffers.
+            // Re-arm only in this explicit private driver, before advancing its
+            // next phase, and wait for a fresh completed renderer batch.
+            if (step > 0 && step <= 25 && step != 16 && step != 23 && !MixtureWorldRendering.ValidationProbesActive)
+            { EnableTextureProbes("property-texture reset before phase " + step); return; }
             var phase = step++;
             switch (phase)
             {
@@ -62,6 +88,7 @@ namespace MixedAtmospheres.Oni
                     Focus();
                     Show(OverlayModes.None.ID, "Normal world · ONI colours and subtle composition texture");
                     Select(Scenarios[0].Center);
+                    EnableTextureProbes("initial known-cell acceptance");
                     break;
                 case 1:
                     ValidateReadings();
@@ -109,6 +136,7 @@ namespace MixedAtmospheres.Oni
                     Require(checkpoint.SequenceEqual(state.Save()), "Visual fixture save/reload changed conserved state.");
                     MixturePresentationRuntime.ResetProviders(); MixturePresentationRuntime.Configure(model!);
                     PublishFixture(); MixtureAppearanceSettings.SetContrast(0.04, false);
+                    EnableTextureProbes("exact checkpoint/provider restore");
                     Select(Scenarios[0].Center); caption = "Reloaded conserved state · normal air is breathable again"; break;
                 case 17:
                     ValidateReadings(); Capture("09-restored.png"); break;
@@ -129,9 +157,12 @@ namespace MixedAtmospheres.Oni
                     caption = "Asteroid switch · the publication retains global cell identities"; break;
                 case 23:
                     ClusterManager.Instance.SetActiveWorld(originalWorld); Focus();
+                    EnableTextureProbes("explicit return to original asteroid");
                     caption = "Returned to the starting asteroid · world texture bindings restored"; break;
                 case 24: ValidateReadings(); Capture("12-returned-world.png"); break;
                 case 25:
+                    if (!TickAdditionalAppearanceCases()) { --step; return; }
+                    MixtureWorldRendering.DisableValidationProbes();
                     Require(containers != null && containers.Passed, "A container presentation surface failed; inspect container-validation.json.");
                     Require(MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive, "Gas texture bindings are not active.");
                     Require(MixtureWorldRendering.ColourCellsWritten > 0 && MixtureWorldRendering.PressureCellsWritten > 0 &&
@@ -324,12 +355,15 @@ namespace MixedAtmospheres.Oni
             x0 = start.x - 20; y0 = start.y + 7;
             originalWorld = ClusterManager.Instance.activeWorldId;
             const int width = 40, height = 18;
-            catalog = new FluidMaterialCatalog("mixture-visual-fixtures-v1", new[]
+            catalog = new FluidMaterialCatalog("mixture-visual-fixtures-v2", new[]
             {
                 new FluidMaterial("oxygen", NativeMatterPhase.Gas, .0319988, 658),
                 new FluidMaterial("nitrogen", NativeMatterPhase.Gas, .0280134, 743),
                 new FluidMaterial("carbon_dioxide", NativeMatterPhase.Gas, .0440095, 655),
-                new FluidMaterial("chlorine", NativeMatterPhase.Gas, .070906, 361)
+                new FluidMaterial("chlorine", NativeMatterPhase.Gas, .070906, 361),
+                // Explicit constant-density display fixture only. This is no
+                // production water EOS or owned native liquid geometry.
+                new FluidMaterial("water", NativeMatterPhase.Liquid, .01801528, 4184, liquidDensityKgPerCubicMetre: 1000)
             });
             MixtureSpeciesStyle Style(string id, string name, SimHashes hash)
             {
@@ -343,7 +377,8 @@ namespace MixedAtmospheres.Oni
                 Style("oxygen", "Oxygen", SimHashes.Oxygen),
                 Style("nitrogen", "Nitrogen", OniNitrogenElements.Gas),
                 Style("carbon_dioxide", "Carbon dioxide", SimHashes.CarbonDioxide),
-                Style("chlorine", "Chlorine", SimHashes.ChlorineGas)
+                Style("chlorine", "Chlorine", SimHashes.ChlorineGas),
+                Style("water", "Water", SimHashes.Water)
             }, new AtmosphereSettings(), "oxygen", "carbon_dioxide", new Dictionary<string, double> { ["chlorine"] = 1e-6 },
                 MixtureAppearanceSettings.Options);
             FluidInventory Gas(double pressure, double oxygen = .21, double co2 = 0, double chlorine = 0)
@@ -432,6 +467,155 @@ namespace MixedAtmospheres.Oni
             foreach (var scenario in Scenarios)
                 foreach (var cell in scenario.Cells) Cells[cell] = frame.SampleCell(cell).Inventory;
             MixturePresentationRuntime.PublishConservedFixture(frame);
+        }
+
+        private static void EnableTextureProbes(string reason)
+        {
+            Require(TextureProbeRearms.Count < 12, "Repeated texture reallocation exceeded the private probe re-arm bound.");
+            var frame = MixturePresentationRuntime.AcquireFrame()!;
+            MixtureWorldRendering.EnableValidationProbes(frame, Scenarios.Select(scenario => scenario.Center).ToArray(), explicitPrivateOptIn: true);
+            TextureProbeRearms.Add(new { Reason = reason, frame.UnityFrame, frame.Revision, frame.PublicationGeneration,
+                ProbeEpoch = MixtureWorldRendering.ValidationProbeEpoch });
+        }
+
+        private static FluidInventory AdditionalGas(double pressure, double oxygen, double co2 = 0)
+        {
+            var moles = pressure / (FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 293.15);
+            return catalog!.CreateInventory(new Dictionary<string, double>
+            {
+                ["oxygen"] = moles * oxygen * catalog.Materials["oxygen"].MolarMassKgPerMol,
+                ["nitrogen"] = moles * (1 - oxygen - co2) * catalog.Materials["nitrogen"].MolarMassKgPerMol,
+                ["carbon_dioxide"] = moles * co2 * catalog.Materials["carbon_dioxide"].MolarMassKgPerMol
+            }, 293.15);
+        }
+
+        private static FluidInventory EqualMassComposition(FluidMaterialCatalog materials, FluidInventory before)
+        {
+            var mass = before.TotalMassKg;
+            var oxygenMass = mass * materials.Materials["oxygen"].MolarMassKgPerMol /
+                (materials.Materials["oxygen"].MolarMassKgPerMol + materials.Materials["nitrogen"].MolarMassKgPerMol);
+            var result = materials.CreateInventory(new Dictionary<string, double>
+            { ["oxygen"] = oxygenMass, ["nitrogen"] = mass - oxygenMass }, 293.15);
+            Require(result.TotalMassKg == mass, "Equal-mass fixture construction changed its total mass.");
+            return result;
+        }
+
+        private static FluidInventory GasLiquidProjection(FluidMaterialCatalog materials, FluidInventory air)
+        {
+            var entries = air.MassesKg.ToDictionary(entry => entry.Key, entry => entry.Value * .5, StringComparer.Ordinal);
+            entries.Add("water", 500); return materials.CreateInventory(entries, 293.15);
+        }
+
+        private static void SetAdditionalAppearanceCase(string key, string name, FluidInventory inventory, BreathingFailure failures, bool liquid = false)
+        {
+            var before = state!.CaptureSnapshot();
+            using (var transaction = state.BeginTransaction())
+            {
+                foreach (var cell in Scenarios[0].Cells)
+                {
+                    var previous = transaction.SampleCell(cell).Inventory;
+                    if (previous.TotalMassKg > 0) transaction.Extract(cell, previous.TotalMassKg, "appearance-fixture-replacement");
+                    transaction.Inject(cell, inventory, "appearance-fixture-input");
+                }
+                transaction.CommitFrame(before.CompletedFrame + 1, before.SimulationTimeSeconds + .2);
+            }
+            appearanceCase = name; appearanceFailures = failures; appearanceLiquid = liquid;
+            Scenarios[0].Name = name;
+            PublishFixture(); Show(OverlayModes.None.ID, name + (liquid ? " · reading-only fixture; native liquid surface unowned" : " · explicit conserved presentation fixture"));
+            Focus(); Select(Scenarios[0].Center);
+            var center = Scenarios[0].Center;
+            appearanceNativeElement = (int)Grid.Element[center].id; appearanceNativeMass = Grid.Mass[center]; appearanceNativeTemperature = Grid.Temperature[center];
+            var bytes = state.Save(); appearanceCheckpoint = "appearance-case-" + key + ".bin";
+            File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, appearanceCheckpoint), bytes);
+            using var hash = SHA256.Create(); appearanceCheckpointSha256 = BitConverter.ToString(hash.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+        }
+
+        private static bool TickAdditionalAppearanceCases()
+        {
+            // Repeat phase25 while this bounded six-capture sequence runs. All
+            // old arena coordinates, container phases and screenshot names are
+            // retained. Temporary inputs/outputs use the explicit fixture
+            // ledgers; these replacements are not an internal-transfer claim.
+            switch (appearanceStep++)
+            {
+                case 0:
+                    SetAdditionalAppearanceCase("oxygen-fraction-low", "Low oxygen fraction · adequate O2 partial pressure",
+                        AdditionalGas(200000, .10), BreathingFailure.OxygenFractionLow); break;
+                case 1: Capture("29-appearance-oxygen-fraction-low.png"); break;
+                case 2:
+                    SetAdditionalAppearanceCase("co2-fraction-only", "CO2 fraction failure only",
+                        AdditionalGas(55000, .30, .006), BreathingFailure.CarbonDioxideFractionHigh); break;
+                case 3: Capture("30-appearance-co2-fraction-only.png"); break;
+                case 4:
+                    SetAdditionalAppearanceCase("co2-pressure-only", "CO2 partial-pressure failure only",
+                        AdditionalGas(200000, .21, .004), BreathingFailure.CarbonDioxidePartialPressureHigh); break;
+                case 5: Capture("31-appearance-co2-pressure-only.png"); break;
+                case 6:
+                    equalMassBefore = Scenarios[0].Inventory;
+                    SetAdditionalAppearanceCase("equal-mass-before", "Equal mass composition · before",
+                        equalMassBefore, BreathingFailure.None); break;
+                case 7: Capture("32-appearance-equal-mass-before.png"); break;
+                case 8:
+                    equalMassAfter = EqualMassComposition(catalog!, equalMassBefore!);
+                    SetAdditionalAppearanceCase("equal-mass-after", "Equal mass composition · after, oxygen rich",
+                        equalMassAfter, BreathingFailure.OxygenFractionHigh); break;
+                case 9: Capture("33-appearance-equal-mass-after.png"); break;
+                case 10:
+                    SetAdditionalAppearanceCase("gas-liquid", "Gas + liquid · phase-separated readout",
+                        GasLiquidProjection(catalog!, Scenarios[0].Inventory), BreathingFailure.None, liquid: true); break;
+                case 11: Capture("34-appearance-gas-liquid.png"); break;
+                case 12:
+                    MixtureWorldRendering.DisableValidationProbes();
+                    state = ColonyFluidState.Restore(checkpoint, catalog!);
+                    Require(checkpoint.SequenceEqual(state.Save()), "Additional appearance sequence did not restore the exact fixture checkpoint.");
+                    appearanceRestored = true; appearanceCase = ""; Scenarios[0].Name = "Normal air";
+                    MixturePresentationRuntime.ResetProviders(); MixturePresentationRuntime.Configure(model!);
+                    PublishFixture(); MixtureAppearanceSettings.SetContrast(.04, false); EnableTextureProbes("additional appearance baseline/provider restore");
+                    Focus(); Select(Scenarios[0].Center); caption = "Original fixture restored · existing container acceptance follows";
+                    break;
+                default:
+                    Require(appearanceRestored && AppearanceCases.Count == 6, "Additional appearance acceptance did not complete all six cases.");
+                    ValidateReadings(); WriteReport(); return true;
+            }
+            return false;
+        }
+
+        private static object ValidateAdditionalAppearanceCase(RuntimeMixturePresentationFrame frame)
+        {
+            var source = state!.CaptureSnapshot(); var expected = source.SampleCell(Scenarios[0].Center);
+            Require(frame.TryGetCell(Scenarios[0].Center, out var actual) && actual != null, "Additional appearance reading is unavailable.");
+            var equalMass = !ReferenceEquals(equalMassBefore, null) && !ReferenceEquals(equalMassAfter, null) && equalMassBefore!.TotalMassKg == equalMassAfter!.TotalMassKg;
+            var passed = actual!.Revision == source.Revision && actual.TotalMassKg == expected.Inventory.TotalMassKg &&
+                actual.TemperatureKelvin == expected.TemperatureKelvin && actual.TotalPressurePa == expected.GasPressurePa &&
+                actual.Failures == appearanceFailures && actual.Constituents.Count == expected.Inventory.MassesKg.Count &&
+                actual.Constituents.All(row => expected.Inventory.MassesKg.TryGetValue(row.MaterialId, out var mass) && mass == row.MassKg);
+            var nativeCellUnchanged = (int)Grid.Element[Scenarios[0].Center].id == appearanceNativeElement &&
+                Grid.Mass[Scenarios[0].Center] == appearanceNativeMass && Grid.Temperature[Scenarios[0].Center] == appearanceNativeTemperature;
+            if (appearanceLiquid)
+            {
+                var water = actual.Constituents.Single(row => row.MaterialId == "water");
+                passed &= water.Phase == NativeMatterPhase.Liquid && water.GasMoleFraction == null && water.PartialPressurePa == null &&
+                    water.MassKg == 500 && actual.LiquidVolumeFraction == .5 && actual.GasVolumeCubicMetres == .5;
+            }
+            if (appearanceCase == "Equal mass composition · after, oxygen rich")
+                passed &= equalMass && !actual.IsBreathable;
+            var result = new
+            {
+                Name = appearanceCase, Cell = Scenarios[0].Center, frame.UnityFrame, frame.PublicationGeneration, frame.Revision,
+                ExpectedRevision = source.Revision, ExpectedFailures = appearanceFailures.ToString(), ActualFailures = actual.Failures.ToString(),
+                actual.TotalMassKg, actual.GasMassKg, actual.GasVolumeCubicMetres, actual.GasDensityKgPerCubicMetre,
+                actual.TemperatureKelvin, actual.TotalPressurePa, actual.LiquidVolumeFraction, actual.Warnings,
+                Constituents = actual.Constituents, CheckpointFile = appearanceCheckpoint, CheckpointSha256 = appearanceCheckpointSha256,
+                EqualMassBeforeKg = equalMassBefore?.TotalMassKg, EqualMassAfterKg = equalMassAfter?.TotalMassKg,
+                EqualMassPairExact = equalMass, NativeKnownCellUnchanged = nativeCellUnchanged,
+                NativeKnownElement = appearanceNativeElement, NativeKnownMassKg = appearanceNativeMass, NativeKnownTemperatureKelvin = appearanceNativeTemperature,
+                GasLiquidScope = appearanceLiquid ? "Read-only phase projection; native liquid geometry and fluid physics remain unowned." : "Gas-only presentation fixture.",
+                Passed = passed && nativeCellUnchanged
+            };
+            AppearanceCases.Add(result);
+            if (!result.Passed) WriteReport();
+            Require(result.Passed, "Additional appearance case differs from exact Core state or its isolated expected failure: " + appearanceCase);
+            return result;
         }
 
         private static void CheckContainerConservation(string stage)
@@ -554,6 +738,44 @@ namespace MixedAtmospheres.Oni
         {
             ColonyRuntimeValidation.CaptureScreenshot(name);
             var frame = MixturePresentationRuntime.AcquireFrame()!;
+            MixtureWorldRendering.TextureProbeEvidence? textureProof = null;
+            object? additionalAppearance = null;
+            var screenshotNumber = int.Parse(name.Substring(0, 2), CultureInfo.InvariantCulture);
+            if (screenshotNumber <= 12 || screenshotNumber >= 29 && screenshotNumber <= 34)
+            {
+                Require(selection != null, "Texture acceptance needs an actual selected known cell.");
+                textureProof = MixtureWorldRendering.CaptureValidationProbe(frame, selection!.SelectedCell);
+                Require(TextureProbeEvidence.Count < 32, "Bounded texture evidence is full.");
+                TextureProbeEvidence.Add(textureProof);
+                if (screenshotNumber >= 29) additionalAppearance = ValidateAdditionalAppearanceCase(frame);
+                if (screenshotNumber == 32) equalMassTextureBefore = textureProof;
+                if (screenshotNumber == 33 || screenshotNumber == 34)
+                {
+                    var before = equalMassTextureBefore ?? throw new InvalidOperationException("Equal-mass baseline texture observation is missing.");
+                    var colorBefore = before.Channels[0]; var colorAfter = textureProof.Channels[0];
+                    var sameColor = colorBefore.ReadBackBytes.SequenceEqual(colorAfter.ReadBackBytes);
+                    var sameOpacity = before.Channels[1].ReadBackBytes.SequenceEqual(textureProof.Channels[1].ReadBackBytes);
+                    var expectedDanger = screenshotNumber == 33 ? byte.MaxValue : (byte)0;
+                    var relation = new
+                    {
+                        Kind = screenshotNumber == 33 ? "equal-total-mass-composition-change" : "gas-liquid-gas-channel-separation",
+                        BeforeRevision = before.Revision, AfterRevision = textureProof.Revision,
+                        BeforeMassKg = colorBefore.TotalMassKg, AfterMassKg = colorAfter.TotalMassKg,
+                        BeforeGasDensity = colorBefore.GasDensityKgPerCubicMetre, AfterGasDensity = colorAfter.GasDensityKgPerCubicMetre,
+                        BeforePressurePa = colorBefore.PhysicalPressurePa, AfterPressurePa = colorAfter.PhysicalPressurePa,
+                        ColorUnchanged = sameColor, DensityOpacityUnchanged = sameOpacity,
+                        BeforeDanger = before.Channels[2].ReadBackBytes[0], AfterDanger = textureProof.Channels[2].ReadBackBytes[0],
+                        Passed = before.Passed && textureProof.Passed && sameOpacity && colorBefore.GasDensityKgPerCubicMetre == colorAfter.GasDensityKgPerCubicMetre &&
+                            before.Channels[2].ReadBackBytes[0] == 0 && textureProof.Channels[2].ReadBackBytes[0] == expectedDanger &&
+                            (screenshotNumber == 33
+                                ? colorBefore.TotalMassKg == colorAfter.TotalMassKg && !sameColor && colorBefore.PhysicalPressurePa != colorAfter.PhysicalPressurePa
+                                : sameColor && colorAfter.LiquidVolumeFraction == .5 && colorAfter.GasVolumeCubicMetres == .5)
+                    };
+                    AppearanceComparisons.Add(relation);
+                    if (!relation.Passed) WriteReport();
+                    Require(relation.Passed, "Actual texture relationships differ for " + relation.Kind);
+                }
+            }
             var labels = Resources.FindObjectsOfTypeAll<DetailLabel>()
                 .Where(label => label.gameObject.name.StartsWith("MixedAtmospheres.Cell.", StringComparison.Ordinal))
                 .OrderBy(label => label.transform.GetSiblingIndex())
@@ -572,31 +794,49 @@ namespace MixedAtmospheres.Oni
                         Height = rect?.rect.height ?? 0
                     };
                 }).ToArray();
+            object? warningLabelProof = null, liquidLabelProof = null;
+            var warningLabelsPassed = true; var liquidLabelsPassed = true;
             // Model checks alone cannot detect native cached-label ordering or
             // clipping. Inspect the actual active Unity labels after a layout
             // frame, including a safe -> hazardous transition and UI scaling.
             if (name == "02-trace-inspection.png" || name == "08-paused-change.png" ||
-                name == "10-zoom.png" || name == "11-ui-scale-125.png")
+                name == "10-zoom.png" || name == "11-ui-scale-125.png" || screenshotNumber >= 29 && screenshotNumber <= 34)
             {
                 MixturePresentation? selected = null;
-                Require(selection != null && frame.TryGetCell(selection.SelectedCell, out selected) && selected != null,
-                    "Selected mixture has no completed-frame reading.");
-                var density = labels.Single(label => label.Name == "MixedAtmospheres.Cell.GasDensity" && label.activeInHierarchy);
-                var composition = labels.Single(label => label.Name == "MixedAtmospheres.Cell.Composition" && label.activeInHierarchy);
-                for (var i = 0; i < selected!.Warnings.Count; ++i)
+                var resolved = selection != null && frame.TryGetCell(selection.SelectedCell, out selected) && selected != null;
+                var densities = labels.Where(label => label.Name == "MixedAtmospheres.Cell.GasDensity" && label.activeInHierarchy).ToArray();
+                var compositions = labels.Where(label => label.Name == "MixedAtmospheres.Cell.Composition" && label.activeInHierarchy).ToArray();
+                var warnings = labels.Where(label => label.Name.StartsWith("MixedAtmospheres.Cell.Warning.", StringComparison.Ordinal) && label.activeInHierarchy).ToArray();
+                warningLabelsPassed = resolved && densities.Length == 1 && compositions.Length == 1 && warnings.Length == selected!.Warnings.Count;
+                for (var i = 0; resolved && i < selected!.Warnings.Count; ++i)
                 {
-                    var warning = labels.SingleOrDefault(label => label.Name == "MixedAtmospheres.Cell.Warning." + i && label.activeInHierarchy);
-                    Require(warning != null && warning.Text == selected.Warnings[i] && warning.Height > 0 &&
-                        warning.Sibling < density.Sibling && warning.Sibling < composition.Sibling,
-                        "The live warning label is missing, stale or below the composition table.");
+                    warningLabelsPassed &= i < warnings.Length && warnings[i].Name == "MixedAtmospheres.Cell.Warning." + i &&
+                        warnings[i].Text == selected.Warnings[i] && warnings[i].Height > 0 &&
+                        (i == 0 || warnings[i - 1].Sibling < warnings[i].Sibling) && densities.Length == 1 && compositions.Length == 1 &&
+                        warnings[i].Sibling < densities[0].Sibling && warnings[i].Sibling < compositions[0].Sibling;
                 }
+                warningLabelProof = new { Resolved = resolved, ExpectedWarnings = selected?.Warnings, ActualWarnings = warnings,
+                    GasDensityLabels = densities.Length, CompositionLabels = compositions.Length, Passed = warningLabelsPassed };
+            }
+            if (screenshotNumber == 34)
+            {
+                var waters = labels.Where(label => label.Name == "MixedAtmospheres.Cell.Constituent.water" && label.activeInHierarchy).ToArray();
+                var volumes = labels.Where(label => label.Name == "MixedAtmospheres.Cell.LiquidVolume" && label.activeInHierarchy).ToArray();
+                liquidLabelsPassed = waters.Length == 1 && waters[0].Text.Contains("Liquid constituent") && waters[0].Text.Contains("not applicable") &&
+                    volumes.Length == 1 && volumes[0].Text.Contains("50%");
+                liquidLabelProof = new { WaterLabels = waters, LiquidVolumeLabels = volumes, Passed = liquidLabelsPassed };
             }
             Evidence.Add(new { Screenshot = name, UnityFrame = Time.frameCount, frame.PublicationGeneration, frame.Revision,
                 Paused = SpeedControlScreen.Instance.IsPaused, ActiveWorld = ClusterManager.Instance.activeWorldId,
                 Overlay = OverlayScreen.Instance.GetMode().ToString(), Contrast = frame.Model.VisualOptions.PatternContrast,
                 PatternEnabled = frame.Model.VisualOptions.PatternEnabled, ScreenWidth = Screen.width, ScreenHeight = Screen.height,
-                OrthographicSize = CameraController.Instance.OrthographicSize, DetailLabels = labels });
+                OrthographicSize = CameraController.Instance.OrthographicSize, DetailLabels = labels, TextureProof = textureProof,
+                AdditionalAppearance = additionalAppearance, WarningLabelProof = warningLabelProof, LiquidLabelProof = liquidLabelProof });
             WriteReport();
+            Require(textureProof == null || textureProof.Passed,
+                "Actual gas texture bytes, destination, pinned reading or completed-batch coherence differ for " + name);
+            Require(warningLabelsPassed, "The live warning labels are missing, stale, duplicated or below the composition table.");
+            Require(liquidLabelsPassed, "Actual gas/liquid UI omitted its separate liquid row, declared volume or invented liquid gas pressure.");
         }
         private static void WriteReport()
         {
@@ -612,11 +852,14 @@ namespace MixedAtmospheres.Oni
                 Evidence, Containers = containers, SpawnedContainerSurfaces = spawnedContainers?.Surfaces,
                 SpawnedContainerEvidence = spawnedContainers?.Evidence,
                 ContainerAllocationEvidence = spawnedContainers?.AllocationEvidence, ContainerConservation, ContainerCoreAgreement,
+                AppearanceCases, AppearanceComparisons, TextureProbeEvidence, TextureProbeRearms, AppearanceFixtureRestored = appearanceRestored,
+                AppearanceSettings = frame?.Model.VisualOptions, BreathingSettings = frame?.Model.BreathingSettings,
+                Styles = frame?.Model.Styles.Values,
                 MixtureWorldRendering.Installed, MixtureWorldRendering.SchedulingActive,
                 MixtureWorldRendering.TextureBatches, MixtureWorldRendering.TextureWrites, MixtureWorldRendering.MaximumTextureBatchMs,
                 MixtureWorldRendering.LastError, MixtureInspection.CellHoverHookReady, MixtureInspection.DetailsHookReady,
                 MixtureInspection.HoverDrawCount, MixtureInspection.DetailDrawCount,
-                PerformanceScope = "504 explicit conserved presentation cells and up to six owned containers; mostly paused native surrounding colony; includes screenshots and UI transitions; no baseline subtraction; not sustained 1x evidence",
+                PerformanceScope = "504 explicit conserved presentation cells and up to six owned containers; mostly paused native surrounding colony; includes private bounded CPU texture probes, screenshots and UI transitions; no baseline subtraction; not sustained 1x evidence",
                 FrameSamples = timings.Length, FrameP50Ms = Percentile(.5), FrameP95Ms = Percentile(.95), FrameP99Ms = Percentile(.99)
             }));
         }

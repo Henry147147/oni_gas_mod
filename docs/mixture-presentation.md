@@ -131,7 +131,7 @@ limits mixture assessment to owned cells; unowned cells retain native colours.
 ## Verification and limits
 
 Current Windows and isolated WSL Linux checks pass Core 88, presentation 27,
-owned snapshot/runtime 94 and inspection 27 scenarios. New coverage includes
+owned snapshot/runtime 97 and inspection 27 scenarios. New coverage includes
 same-frame cell/container agreement, checkpoint-preserved allocation identities,
 retired/replaced/foreign handles, provider collision in both registration orders,
 reentrant publication/teardown/liveness replacement, recursive capture and
@@ -349,6 +349,65 @@ refresh, visual options and worker-frame pinning, and reset it on retirement.
 The actual Windows run checks this separation at each reservoir reading and
 captures the destination trace warning and owned vacuum state. Its idle Core
 checkpoint exports do not establish native owned-state save/reload.
+
+Windows v34 adds six actual normal-world captures without changing the existing
+container sequence: low oxygen fraction with adequate oxygen partial pressure,
+isolated CO2 fraction and partial-pressure failures, a before/after composition
+change at exactly equal total mass, and gas/liquid coexistence. All six numerical
+assessments match their independently specified failure flags. The equal-mass
+pair changes gas colour, physical pressure and danger while density opacity
+stays fixed. Adding 500 kg of liquid to half the original gas in half the
+headspace preserves gas colour, gas density and opacity. Water has a separate
+liquid row with no invented gas mole percentage or partial pressure. These are
+explicit conserved display fixtures; native liquid geometry remains unowned.
+
+The private driver enables bounded renderer probes for six known cells. It
+records the actual successful `SetBytes` arguments and immediate CPU buffer
+readback for gas colour, pressure/opacity and danger. Eighteen captured records
+(54 channel observations at the selected air and trace cell positions) pass exact cell coordinates, padded page addressing,
+destination identity, pinned reading/model, completed frame, revision,
+publication generation and session epoch checks. These do not sample every
+declared probe cell or every write; vacuum has visual/model evidence rather
+than a captured CPU triple in this run. Writes may precede capture by
+at most two Unity frames. Property-texture reset, destruction, session retirement
+or batch errors invalidate the probes; this driver explicitly rearms them and
+waits for fresh writes. The ordinary inactive renderer keeps its original loops
+without per-cell probe work. This proves the hook's CPU writes, not GPU readback
+or a history with no transient diagnostic read failures.
+
+The complete v34 report passes with 34 numbered Unity screenshots, six exact
+Core fixture checkpoints, both relational comparisons and restored baseline
+fixture bytes before container testing. Live label checks and reviewed images
+show each hazard before density/composition rows and no stale warning in safe
+cases. PNG34 visibly shows the 50% liquid-volume header; its water constituent
+row is below the initial viewport. A scrolled actual UI capture remains required
+before claiming that row is visibly readable. Twenty-two focused host checks
+and the existing 97 runtime checks also pass against the frozen sources.
+
+The private archive is `local/colony-runs/presentation-windows-v34`. Its 66-file
+source manifest SHA256 is
+`075a0b445c19dc650b5efa77671875b0ea7b178863c6cf7d180dd6954e6884a9`;
+the actual Oni/Core assemblies are
+`e65700251488948cdc32f75c4ab68741e6542f035633da024fdcdf66294643f1` /
+`d01679044e744690b469d40dd678b4173075fab4e25cb0b8751786e08f246cda`.
+The native DLL remains the previously tested
+`77671261d559e60a2ea8a80b2a431d01064f416fa6540e27f4cddb7ac6dedf38`.
+After native Quit Without Saving, the log contains normal application cleanup
+and no exception/crash. All 13 original settings/worldgen files and all 283
+personal save files, including membership, match their prelaunch hashes.
+V34's mostly paused 504-cell sequence records frame p50/p95/p99 of
+5.81/6.83/22.71 ms and a maximum stock-plus-mixture texture batch of 2.59 ms,
+including private probes, screenshots and UI work, with no baseline subtraction.
+Those observations do not establish sustained 1x or 100k-cell performance.
+
+A separate copied-source composition-cache experiment was rejected and never
+applied to the product. Although repeated heat-only captures improved, its
+three-pair Windows medians regressed cold capture from 67.12 to 79.87 ms and
+real mass-changing capture from 45.74 to 78.50 ms. Mass-changing update plus
+capture regressed from 261.04 to 321.54 ms. Differential correctness was retained,
+but the broader workload did not justify the change. Exact evidence remains in
+`local/mixture-presentation-current-v34/independent-review`; this is no new
+performance gate pass.
 
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
