@@ -24,7 +24,7 @@ namespace MixedAtmospheres.Oni
             public bool Equals(Storage? x, Storage? y) => ReferenceEquals(x, y);
             public int GetHashCode(Storage value) => RuntimeHelpers.GetHashCode(value);
         }
-        private sealed class NativeHost : IOwnedFluidActorHost
+        private sealed class NativeHost : IOwnedFluidActorHost, IOwnedFluidActorSaveEligibilityHost
         {
             internal readonly Storage Storage;
             internal readonly KPrefabID Prefab;
@@ -33,12 +33,21 @@ namespace MixedAtmospheres.Oni
             internal readonly int NativeInstanceId;
             internal readonly SimHashes ConstructionElement;
             internal readonly float ConstructionMass;
+            internal readonly Reservoir Reservoir;
+            internal readonly SmartReservoir Smart;
+            internal readonly ConduitConsumer Consumer;
+            internal readonly ConduitDispenser Dispenser;
+            internal readonly Rotatable? OrientationComponent;
+            internal OwnedGasReservoirLifetime? Lifetime;
             internal OwnedFluidActorLease Lease;
             public string OwnerId { get; }
             internal NativeHost(Storage storage, KPrefabID prefab, PrimaryElement construction)
             {
                 Storage = storage; Prefab = prefab; Construction = construction; OwnerObject = storage.gameObject; NativeInstanceId = prefab.InstanceID;
                 ConstructionElement = construction.ElementID; ConstructionMass = construction.Mass;
+                Reservoir = OwnerObject.GetComponent<Reservoir>(); Smart = OwnerObject.GetComponent<SmartReservoir>();
+                Consumer = OwnerObject.GetComponent<ConduitConsumer>(); Dispenser = OwnerObject.GetComponent<ConduitDispenser>();
+                OrientationComponent = OwnerObject.GetComponent<Rotatable>();
                 OwnerId = "gas-reservoir:" + prefab.InstanceID.ToString(System.Globalization.CultureInfo.InvariantCulture);
             }
             public void ValidateNativeState(FluidContainerSnapshot allocation)
@@ -63,6 +72,48 @@ namespace MixedAtmospheres.Oni
                 RequireNativeOwnership(this);
                 Storage.GetComponent<SmartReservoir>()?.Sim200ms(0);
                 RequireNativeOwnership(this);
+            }
+            public OwnedReservoirNativeObservation CaptureIdleSaveObservation(FluidContainerSnapshot allocation, ColonyFrameSnapshot source)
+            {
+                RequireNativeOwnership(this); ValidateNativeState(allocation);
+                var go = OwnerObject;
+                if (go == null || !go.activeInHierarchy || !ReferenceEquals(Storage.gameObject, go) ||
+                    !ReferenceEquals(go.GetComponent<KPrefabID>(), Prefab) || !ReferenceEquals(go.GetComponent<PrimaryElement>(), Construction) ||
+                    Prefab.InstanceID < 0 || Prefab.PrefabTag.Name != GasReservoirConfig.ID || Hosts.Count != 2)
+                    throw new InvalidOperationException("Exact native reservoir identity or prefab changed before idle eligibility.");
+                var flags = new List<OwnedReservoirComponentObservation>(9);
+                RequireCapturedComponent(typeof(Storage), Storage, "storage", flags);
+                RequireCapturedComponent(typeof(KPrefabID), Prefab, "prefab", flags);
+                RequireCapturedComponent(typeof(PrimaryElement), Construction, "construction", flags);
+                RequireCapturedComponent(typeof(Reservoir), Reservoir, "reservoir", flags);
+                RequireCapturedComponent(typeof(SmartReservoir), Smart, "smart", flags);
+                RequireCapturedComponent(typeof(ConduitConsumer), Consumer, "consumer", flags);
+                RequireCapturedComponent(typeof(ConduitDispenser), Dispenser, "dispenser", flags);
+                RequireCapturedComponent(typeof(OwnedGasReservoirLifetime), Lifetime, "lifetime", flags);
+                if (Lifetime == null || !ReferenceEquals(Lifetime.Owner, Storage)) throw new InvalidOperationException("Native lifetime ownership changed.");
+                var rotations = go.GetComponents<Rotatable>();
+                if (ReferenceEquals(OrientationComponent, null))
+                { if (rotations.Length != 0) throw new InvalidOperationException("An orientation component was added after native binding."); }
+                else RequireCapturedComponent(typeof(Rotatable), OrientationComponent, "orientation", flags);
+                if (Consumer.conduitType != ConduitType.Gas || Dispenser.conduitType != ConduitType.Gas || Consumer.IsConnected || Dispenser.IsConnected ||
+                    Storage.capacityKg != 1000 || allocation.Definition.MaximumMassKg != 1000 || allocation.Definition.AllowedPhases != FluidContainerPhases.Gas)
+                    throw new InvalidOperationException("Idle eligibility requires isolated gas ports and exact 1000 kg admission.");
+                var anchor = Grid.PosToCell(go);
+                if (!Grid.IsValidCell(anchor) || !source.TrySampleCell(anchor, out var cell) || cell!.WorldId != Grid.WorldIdx[anchor])
+                    throw new InvalidOperationException("The native owner anchor differs from its supplied Core world geometry.");
+                var observation = new OwnedReservoirNativeObservation(Prefab.InstanceID, Prefab.PrefabTag.Name, cell.WorldId, anchor,
+                    OrientationComponent == null ? (int)Orientation.Neutral : (int)OrientationComponent.Orientation,
+                    (int)Construction.ElementID, Construction.Mass, Storage.capacityKg, flags);
+                RequireNativeOwnership(this); return observation;
+            }
+            private void RequireCapturedComponent(Type role, KMonoBehaviour? captured, string name, List<OwnedReservoirComponentObservation> flags)
+            {
+                var actual = OwnerObject.GetComponents(role);
+                if (captured == null || actual.Length != 1 || !ReferenceEquals(actual[0], captured) || !captured.isSpawned)
+                    throw new InvalidOperationException("Native component replaced, duplicated, destroyed or not yet spawned: " + name);
+                // Native components can disable Mono updates deliberately.
+                // Enabled is evidence, never an unsupported eligibility rule.
+                flags.Add(new OwnedReservoirComponentObservation(name, captured.enabled, captured.isSpawned));
             }
         }
 
@@ -93,6 +144,20 @@ namespace MixedAtmospheres.Oni
             active = new OwnedFluidActorSession(state, router, true); return active;
         }
 
+        internal static OwnedReservoirIdleSaveLease ReserveIdleSaveEligibility(ColonyFramePublication expected)
+        {
+            var session = active ?? throw new InvalidOperationException("No explicitly activated reservoir session.");
+            if (!installed || Hosts.Count != 2) throw new InvalidOperationException("Exactly two guarded native reservoir hosts are required.");
+            foreach (var pair in Hosts)
+            {
+                if (!ReferenceEquals(pair.Key, pair.Value.Storage)) throw new InvalidOperationException("Native storage registration identity changed.");
+                session.RequireExactHostBinding(pair.Value.Lease, pair.Value);
+            }
+            // The session installs its acquisition guard before any host/native
+            // validation. This never changes SaveIsBlocked or serializer guards.
+            return session.ReserveIdleSaveEligibility(expected);
+        }
+
         // Call only at a known idle post-load boundary, after native spawn and
         // the initial prepared publication have completed consumption. Starting
         // ownership during an already running native save is unsupported.
@@ -116,6 +181,7 @@ namespace MixedAtmospheres.Oni
             {
                 Hosts.Add(storage, host);
                 var lifetime = go.AddOrGet<OwnedGasReservoirLifetime>(); lifetime.Owner = storage;
+                host.Lifetime = lifetime;
                 MixtureInspection.RegisterContainerOwner(go, lease.Container, "Owned reservoir contents");
                 return lease;
             }
@@ -137,9 +203,13 @@ namespace MixedAtmospheres.Oni
         internal static void ForcedCleanup(Storage? storage, string reason)
         {
             if (ReferenceEquals(storage, null) || !Hosts.TryGetValue(storage, out var host)) return;
-            Hosts.Remove(storage);
-            active?.ForceDetach(host.Lease, reason);
-            MixtureInspection.UnregisterContainerOwner(host.OwnerObject, host.Lease.Container);
+            RequireCleanupReason(reason);
+            try { active?.ForceDetach(host.Lease, reason); }
+            finally
+            {
+                Hosts.Remove(storage);
+                MixtureInspection.UnregisterContainerOwner(host.OwnerObject, host.Lease.Container);
+            }
             // Unity may already consider the object destroyed; never ask for
             // its native properties here. Session reset clears weak UI tables.
             LastRejection = "Owned reservoir orphan retained: " + reason;
@@ -149,6 +219,7 @@ namespace MixedAtmospheres.Oni
         internal static void EndSession(string reason)
         {
             var session = active; if (session == null) return;
+            RequireCleanupReason(reason);
             try
             {
                 session.EndSession(reason);
@@ -156,6 +227,8 @@ namespace MixedAtmospheres.Oni
             }
             finally { lastEnded = session; active = null; Hosts.Clear(); }
         }
+        private static void RequireCleanupReason(string reason)
+        { if (string.IsNullOrWhiteSpace(reason) || reason.Length > 4096) throw new ArgumentException("A bounded explicit cleanup reason is required.", nameof(reason)); }
 
         internal static bool SaveIsBlocked => active != null || HasNonemptyRecovery();
         private static bool HasNonemptyRecovery()
@@ -195,6 +268,7 @@ namespace MixedAtmospheres.Oni
         {
             if (!Hosts.TryGetValue(host.Storage, out var actual) || !ReferenceEquals(actual, host))
                 throw new InvalidOperationException("Native reservoir ownership ended during notification.");
+            (active ?? throw new InvalidOperationException("Native owner session ended.")).RequireExactHostBinding(host.Lease, host);
             host.ValidateNativeState(Read(host)); // Full lease/session plus native liveness and construction validation.
         }
         private static void RejectMutation(Storage? storage, string method)

@@ -8,7 +8,7 @@ using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 using MixedAtmospheres.Oni;
 
-internal static unsafe class Program
+internal static unsafe partial class Program
 {
     private static int Main(string[] args)
     {
@@ -56,7 +56,24 @@ internal static unsafe class Program
             ("native mass capacity and emptiness queries use the completed full handle", CompletedQueries),
             ("binding lifetime uses forced cleanup without prefab-wide activation", LifetimeContract),
             ("native notification channels recheck ownership between every external call", NotificationChannelGuards),
-            ("every conditional prefix matches actual licensed method and injected parameter signatures", PrefixSignatures)
+            ("every conditional prefix matches actual licensed method and injected parameter signatures", PrefixSignatures),
+            ("idle save lease pins exact acknowledged Core bytes and immutable observations", IdleLeaseExact),
+            ("idle save lease blocks Core and actor writes without authorizing native saves", IdleLeaseExclusion),
+            ("idle save eligibility rejects stale foreign and unacknowledged publications", IdleLeaseSources),
+            ("idle save eligibility requires exactly two owners and complete containers-only domain", IdleLeaseDomain),
+            ("idle save eligibility rejects registered callbacks and a competing prepared writer", IdleLeaseWriterAndCallbacks),
+            ("idle save lease rejects equivalent but independently restored acknowledged allocations", IdleLeaseAcknowledgedIdentity),
+            ("idle native validator reentry cannot bind transfer unbind or recursively acquire", IdleLeaseReentry),
+            ("owner A retiring owner B stops validation before B and retains its allocation", IdleLeaseRetireDuringAcquire),
+            ("session end during revalidation aborts before native companion disposal", IdleLeaseEndDuringValidation),
+            ("forced native cleanup aborts eligibility and releases the managed reservation", IdleLeaseForcedCleanup),
+            ("native validation failure releases the reservation without a partial lease", IdleLeaseValidationFailure),
+            ("released save lease cannot validate or release a successor", IdleLeaseSuccessor),
+            ("idle lease native observations remain exact on revalidation", IdleLeaseObservationChanges),
+            ("idle lease operations require activation thread before native validation", IdleLeaseThread),
+            ("reentrant ordinary unbind validation cannot remove an eligibility-pinned owner", IdleLeaseUnbindReentry),
+            ("bridge eligibility rejects a native host table that differs from exact actor hosts", IdleLeaseBridgeIdentity),
+            ("actual native eligibility repeats prefab components ports lifetime and world checks", IdleLeaseNativeContract)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -448,15 +465,27 @@ internal static unsafe class Program
         Check(a.DiseaseCounts.Count == b.DiseaseCounts.Count && a.DiseaseCounts.All(entry => b.DiseaseCounts[entry.Key] == entry.Value));
     }
 
-    private sealed class Host : IOwnedFluidActorHost
+    private sealed class Host : IOwnedFluidActorHost, IOwnedFluidActorSaveEligibilityHost
     {
         public string OwnerId { get; }
         internal bool NativeEmpty = true;
         internal int Notifications;
         internal System.Action<OwnedFluidActorReceipt>? AfterNotification;
+        internal System.Action? BeforeEligibility;
+        internal System.Action? BeforeBasicValidation;
+        internal int EligibilityReads;
+        internal bool EligibilityValid = true;
+        internal OwnedReservoirNativeObservation? Observation;
         internal Host(string id) { OwnerId = id; }
-        public void ValidateNativeState(FluidContainerSnapshot allocation) { if (!NativeEmpty) throw new InvalidOperationException("native contents unexpectedly changed"); }
+        public void ValidateNativeState(FluidContainerSnapshot allocation)
+        { BeforeBasicValidation?.Invoke(); if (!NativeEmpty) throw new InvalidOperationException("native contents unexpectedly changed"); }
         public void NotifyChanged(OwnedFluidActorReceipt receipt) { ++Notifications; AfterNotification?.Invoke(receipt); }
+        public OwnedReservoirNativeObservation CaptureIdleSaveObservation(FluidContainerSnapshot allocation, ColonyFrameSnapshot source)
+        {
+            ++EligibilityReads; BeforeEligibility?.Invoke(); ValidateNativeState(allocation);
+            if (!EligibilityValid) throw new InvalidOperationException("controlled native eligibility violation");
+            return Observation ?? new OwnedReservoirNativeObservation(OwnerId == "a" ? 0 : 1, "GasReservoir", 0, OwnerId == "a" ? 0 : 1, 0, 4, 400.125, 1000);
+        }
     }
     private sealed class Fixture : IDisposable
     {
@@ -465,10 +494,10 @@ internal static unsafe class Program
         internal readonly MixturePresentationModel Model;
         internal readonly OwnedFluidActorSession Session;
         internal readonly NativeFixture Native = new();
-        internal readonly FluidContainerHandle A, B;
+        internal readonly FluidContainerHandle A, B, Extra;
         internal readonly Host HostA = new("a"), HostB = new("b");
         internal OwnedFluidActorLease LeaseA, LeaseB;
-        internal Fixture(bool initialize = true, double capacityB = 1000)
+        internal Fixture(bool initialize = true, double capacityB = 1000, bool extraEmptyRow = false, bool worldMetadata = false, bool unboundMetadata = false)
         {
             var phases = new Dictionary<int, NativeMatterPhase> { [1] = NativeMatterPhase.Vacuum };
             var raw = new byte[29 + 36 * 16]; System.Text.Encoding.ASCII.GetBytes("SIMSAVE\0").CopyTo(raw, 0);
@@ -484,7 +513,18 @@ internal static unsafe class Program
                 tx.Inject(0, Catalog.CreateInventory(new Dictionary<string, double> { ["oxygen"] = 3, ["carbon_dioxide"] = 1 }, 300,
                     2, 4, new Dictionary<int, double> { [1234] = 13 }, 5), "explicit owned test source");
                 A = tx.CreateContainer("a", new FluidContainerDefinition(1, 1000, FluidContainerPhases.Gas)); B = tx.CreateContainer("b", new FluidContainerDefinition(1, capacityB, FluidContainerPhases.Gas));
-                tx.TransferAllCellToContainer(0, A); tx.Commit();
+                tx.TransferAllCellToContainer(0, A);
+                if (extraEmptyRow) Extra = tx.CreateContainer("empty-unbound", new FluidContainerDefinition(.5, 2, FluidContainerPhases.Liquid));
+                if (worldMetadata || unboundMetadata)
+                {
+                    tx.Inject(2, new FluidInventory(new Dictionary<string, double>(), 0, radiationQuantity: 1e-200), "explicit metadata eligibility fixture");
+                    if (unboundMetadata)
+                    {
+                        Extra = tx.CreateContainer("unbound-metadata", new FluidContainerDefinition(1, 1000, FluidContainerPhases.Gas));
+                        tx.TransferAllCellToContainer(2, Extra);
+                    }
+                }
+                tx.Commit();
             }
             var router = new ExperimentalFluidMessageRouter(State, Catalog, new[] { new FluidMessageElementBinding(0, NativeMatterPhase.Vacuum), new FluidMessageElementBinding(1, NativeMatterPhase.Gas, "oxygen"), new FluidMessageElementBinding(2, NativeMatterPhase.Gas, "carbon_dioxide") }, new Dictionary<byte, int>());
             Model = new MixturePresentationModel(Catalog, Catalog.Materials.Keys.Select(id => new MixtureSpeciesStyle(id, id, new MixtureSrgbColor(.5, .5, .5))), new AtmosphereSettings(), "oxygen", "carbon_dioxide");

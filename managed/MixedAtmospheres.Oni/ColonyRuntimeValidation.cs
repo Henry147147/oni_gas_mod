@@ -22,6 +22,7 @@ namespace MixedAtmospheres.Oni
             public string Mode = "snapshot-copy";
             public bool AutoStartNewColony = false;
             public bool ReuseGeneratedWorld = false;
+            public bool IdleReservoirLeaseOnly = false;
             public bool QuitWhenComplete = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -78,6 +79,8 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
+                throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
             Directory.CreateDirectory(OutputDirectory);
             WriteReport();
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode + ". Colony physics remains native.");

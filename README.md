@@ -82,9 +82,14 @@ groups, 24 occupied-1D groups and bounded gas/vacuum consistency checks on MSVC,
 strict GNU and Linux ASan/UBSan. The independent thermodynamic reference passes
 26 groups. The full vacuum-front convergence gate still fails; see
 [the measured limitation](native/GAS_VACUUM.md).
+A separate retained material-node experiment passes 17 groups on MSVC, GNU and
+ASan/UBSan. It has no remap, runtime mode or game activation; see
+[the retained-state scope](native/OCCUPIED_STAGGERED.md).
 Windows and isolated Linux managed checks pass Core 88, presentation 27,
-owned-runtime 94, reservoir protocol 34 and idle checkpoint codec 19 groups.
-The checkpoint codec supplies no native save/load hooks. Seventeen Python checks
+owned-runtime 97, reservoir protocol 51 and idle checkpoint codec 19 groups.
+The live idle lease pins exact acknowledged owners without permitting native
+saving; a separate staged-file helper retains unresolved promotion outcomes.
+Neither supplies integrated native save/load. Seventeen Python checks
 validate the coverage inventory and discovery pipeline. Linux managed checks
 do not establish Linux Unity rendering or game-scale performance.
 

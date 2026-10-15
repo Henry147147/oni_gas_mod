@@ -127,7 +127,7 @@ session therefore cannot free buffers still in use by its outer consumer.
 ## Verification scope
 
 `tools/OwnedReservoirTests` compiles the production bridge/protocol against the
-installed licensed declarations. Its 34 host checks cover conserved mixed
+installed licensed declarations. Its 51 host checks cover conserved mixed
 transfers, fractional disease, immutable prepared views/receipts, independent
 acknowledgements, callback faults, stale/foreign leases, source retry, capacity
 and late-command rejection, forced cleanup during staging/callbacks, ordinary
@@ -139,6 +139,16 @@ property against the production source guard and verifies the prefix's actual
 component-resolution wiring. It also checks both endpoints of all five pinned
 transfer signatures before any native body runs. Native item transform/disease
 side effects still require the separate Unity acceptance.
+
+The idle eligibility lease pins the exact acknowledged Core publication,
+companion, prepared presentation and both allocations. It excludes competing
+Core writers and actor mutation while retaining completed readers. Native
+owners are revalidated through their exact captured components before and after
+Core serialization, with reentry and forced-cleanup guards. Disposal cannot
+release a successor reservation. This observation lease supplies no persistent
+owner token, native serializer permit or ordinary-save bypass. Geometry checks
+currently establish distinct valid anchors; full footprint occupancy and
+non-overlap must be validated before using these observations for native reload.
 
 These tests use synthetic owned native buffers and controlled managed actor
 hosts; they do not run the Unity simulator or UI. The shipped Harmony's patch
@@ -186,7 +196,29 @@ Their native DLL is pinned to SHA256
 `77671261d559e60a2ea8a80b2a431d01064f416fa6540e27f4cddb7ac6dedf38`;
 later dormant solver changes are not part of those game binaries.
 
-The host suite's 34 checks also pass against licensed Linux declarations in
+Windows v25-lease runs the same bridge sequence with a separate containers-only
+Core authority, rather than adopting the earlier world fixture. Explicit input
+is 79 kg nitrogen, 21 kg oxygen and 0.0005 kg chlorine, with disease quantity
+0.375 and radiation 0.125. A third empty unbound allocation is preserved. The
+quarter transfer places 25.000125 kg in the destination at 211.8307064 kPa and
+20 C; the selected panel displays the trace chlorine warning. PNG28 retains the
+owned vacuum reading before unbinding. The native atmosphere keeps its original
+world presentation: synthetic Core identity geometry supplies no world readings.
+
+Both the seeded/empty-destination and two-nonempty-owner states acquire and
+revalidate the live eligibility lease. The run checks exact native saved IDs,
+prefab, anchor/world/orientation, construction, capacity, volume and component
+diagnostics; exports exact canonical Core checkpoints; and rejects nested
+acquisition, writers, actor preparation, unbinding and native saving before
+mutation. Releasing an old lease cannot release its successor. Evacuation into
+a Core cell subsequently makes eligibility reject the world-recovery state.
+All 28 PNGs, the two idle checkpoints and final recovery checkpoint remain under
+`local/colony-runs/presentation-windows-v25-lease`, with frozen source/package
+hashes and bytewise restoration evidence. The native DLL remains the exact
+`77671261...` build used by v23/v24. Actual native save/load and persistent owner
+markers are still absent.
+
+The host suite's 51 checks also pass against licensed Linux declarations in
 isolated WSL. This does not draw Linux Unity, establish rendering performance,
 route native pipes, transfer native world fluids, provide heat/power gameplay,
 or save/reload the owned state. `FirstPlayableColonyPassed` remains false.

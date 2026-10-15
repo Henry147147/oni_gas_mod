@@ -5,11 +5,13 @@ param(
     [string]$Output,
     [switch]$ReuseGeneratedWorld,
     [switch]$Presentation,
+    [switch]$IdleReservoirLease,
     [switch]$KeepOpen,
     [int]$Frames = 30,
     [int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
+if ($IdleReservoirLease -and !$Presentation) { throw 'The idle reservoir lease check requires -Presentation.' }
 $oniWorkspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $oniPackagePath = (Resolve-Path -LiteralPath $Package).Path
 $oniRootPath = (Resolve-Path -LiteralPath $OniUserRoot).Path
@@ -72,11 +74,13 @@ $oniProcessIds = @()
 $oniExitCode = 1
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
-    @{
+    $oniValidationConfiguration = @{
         Mode = $(if ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
-    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniInstalledMod 'colony-validation.json') -Encoding utf8
+    }
+    if ($IdleReservoirLease) { $oniValidationConfiguration.IdleReservoirLeaseOnly = $true }
+    $oniValidationConfiguration | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniInstalledMod 'colony-validation.json') -Encoding utf8
     $oniModSettings = Get-Content -LiteralPath $oniModsPath -Raw | ConvertFrom-Json
     foreach ($oniMod in $oniModSettings.mods) { $oniMod.enabled = $false; $oniMod.enabledForDlc = @() }
     $oniModSettings.mods = @($oniModSettings.mods) + @([pscustomobject]@{

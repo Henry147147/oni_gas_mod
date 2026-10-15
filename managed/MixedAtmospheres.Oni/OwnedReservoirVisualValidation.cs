@@ -4,9 +4,11 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading;
 using HarmonyLib;
 using MixedAtmospheres.Core;
+using MixedAtmospheres.Core.Interop;
 using UnityEngine;
 
 namespace MixedAtmospheres.Oni
@@ -22,6 +24,7 @@ namespace MixedAtmospheres.Oni
         private static readonly Dictionary<MeterController, float> MeterValues = new Dictionary<MeterController, float>();
         private static readonly FieldInfo ReservoirMeter = AccessTools.Field(typeof(Reservoir), "meter");
         private readonly ColonyFluidState state;
+        private readonly bool containersOnly;
         private readonly FluidMaterialCatalog catalog;
         private readonly MixturePresentationModel model;
         private readonly int evacuationCell;
@@ -44,12 +47,15 @@ namespace MixedAtmospheres.Oni
             MixturePresentationRuntime.SessionEnding += ReleaseCapture;
         }
 
-        internal OwnedReservoirVisualValidation(ColonyFluidState state, FluidMaterialCatalog catalog, MixturePresentationModel model,
+        internal OwnedReservoirVisualValidation(ColonyFluidState fixtureState, FluidMaterialCatalog catalog, MixturePresentationModel model,
             IReadOnlyDictionary<string, int> placements, IReadOnlyList<int> sourceCells)
         {
             if (ColonyRuntimeValidation.Settings?.Mode != "presentation") throw new InvalidOperationException("Explicit private presentation mode is required.");
-            this.state = state; this.catalog = catalog; this.model = model;
-            Require(sourceCells.Count > 0, "An explicit owned Core source cell is required."); evacuationCell = sourceCells[0];
+            containersOnly = ColonyRuntimeValidation.Settings?.IdleReservoirLeaseOnly == true;
+            state = containersOnly ? CreateContainerOnlyAuthority(placements, catalog) : fixtureState;
+            this.catalog = catalog; this.model = model;
+            Require(sourceCells.Count > 0, "An explicit owned Core source cell is required.");
+            evacuationCell = containersOnly ? placements["reservoir-a"] : sourceCells[0];
             var harmony = new Harmony("MixedAtmospheres.PrivateOwnedReservoirValidation");
             OwnedGasReservoirBridge.Install(harmony);
             harmony.Patch(AccessTools.Method(typeof(MeterController), nameof(MeterController.SetPositionPercent)),
@@ -64,16 +70,60 @@ namespace MixedAtmospheres.Oni
                 // an independent mass limit; neither is inferred from pressure.
                 a = tx.CreateContainer("owned-native-reservoir:a", new FluidContainerDefinition(10, 1000, FluidContainerPhases.Gas));
                 b = tx.CreateContainer("owned-native-reservoir:b", new FluidContainerDefinition(10, 1000, FluidContainerPhases.Gas));
-                tx.Inject(evacuationCell, new FluidInventory(new Dictionary<string, double>(), 0,
-                    diseaseCounts: new Dictionary<int, double> { [1234567] = .375 }, radiationQuantity: .125), "explicit-owned-reservoir-metadata-fixture");
-                foreach (var cell in sourceCells) tx.TransferAllCellToContainer(cell, a);
+                if (containersOnly)
+                {
+                    // Explicit new experimental input, rather than adopting
+                    // the earlier read-only world fixture or native packets.
+                    var inventory = catalog.CreateInventory(new Dictionary<string, double>
+                        { ["nitrogen"] = 79, ["oxygen"] = 21, ["chlorine"] = .0005 }, 293.15,
+                        diseaseCounts: new Dictionary<int, double> { [1234567] = .375 }, radiationQuantity: .125);
+                    tx.Inject(evacuationCell, inventory, "explicit-containers-only-reservoir-input");
+                    tx.TransferAllCellToContainer(evacuationCell, a);
+                    tx.CreateContainer("owned-native-reservoir:empty-unbound", new FluidContainerDefinition(.5, 10, FluidContainerPhases.Gas));
+                }
+                else
+                {
+                    tx.Inject(evacuationCell, new FluidInventory(new Dictionary<string, double>(), 0,
+                        diseaseCounts: new Dictionary<int, double> { [1234567] = .375 }, radiationQuantity: .125), "explicit-owned-reservoir-metadata-fixture");
+                    foreach (var cell in sourceCells) tx.TransferAllCellToContainer(cell, a);
+                }
                 var prior = state.CaptureSnapshot(); tx.CommitFrame(prior.CompletedFrame + 1, prior.SimulationTimeSeconds + .2);
             }
             baseline = state.CaptureSnapshot();
+            if (containersOnly) Require(baseline.Inventories.Count == 0 && baseline.Containers.Count == 3,
+                "Containers-only eligibility fixture retained world inventory or lost an empty allocation.");
             Require(state.CaptureSnapshot().SampleContainer(a).Inventory.TotalMassKg > 0, "Reservoir source must contain conserved gas.");
             objects = MixtureContainerVisualValidation.CreateEmptyReservoirPair(placements);
             captureThread = Thread.CurrentThread.ManagedThreadId; snapshotRequested = true; started = Time.realtimeSinceStartup;
             WriteReport();
+        }
+
+        private static ColonyFluidState CreateContainerOnlyAuthority(IReadOnlyDictionary<string, int> placements, FluidMaterialCatalog catalog)
+        {
+            var anchors = placements.Values.ToArray();
+            Require(anchors.Length == 2 && anchors.All(Grid.IsValidCell), "Exactly two valid native anchors are required.");
+            var worldId = (int)Grid.WorldIdx[anchors[0]];
+            Require(anchors.All(cell => (int)Grid.WorldIdx[cell] == worldId), "Native owners must share one explicit world.");
+            var x = anchors.Min(cell => cell % Grid.WidthInCells) - 3;
+            var y = anchors.Min(cell => cell / Grid.WidthInCells) - 1;
+            var width = anchors.Max(cell => cell % Grid.WidthInCells) - x + 4;
+            var height = anchors.Max(cell => cell / Grid.WidthInCells) - y + 5;
+            Require(x >= 0 && y >= 0 && x + width <= Grid.WidthInCells && y + height <= Grid.HeightInCells,
+                "Container-only declared anchor geometry lies outside the native grid.");
+            var count = checked((width + 2) * (height + 2));
+            using var memory = new MemoryStream(); using var writer = new BinaryWriter(memory, Encoding.UTF8, true);
+            writer.Write(checked(29 + 36 * count)); writer.Write(new byte[] { 83, 73, 77, 83, 65, 86, 69, 0 }); writer.Write(15);
+            writer.Write(width + 2); writer.Write(height + 2); writer.Write(x); writer.Write(y); writer.Write((byte)0);
+            // Synthetic empty Core geometry only. This buffer is never sent to
+            // the native simulator and adopts no native world-fluid inventory.
+            for (var i = 0; i < count; ++i) { writer.Write((int)SimHashes.Vacuum); writer.Write(0f); writer.Write(0f); writer.Write(0f); }
+            for (var i = 0; i < count; ++i) { writer.Write(0); writer.Write(0); }
+            for (var i = 0; i < count; ++i) { writer.Write((int)SimHashes.Vacuum); writer.Write(0f); writer.Write(0f); }
+            var import = NativeColonyImport.StageNewColony(Grid.WidthInCells, Grid.HeightInCells,
+                new[] { new NativeWorldPlacement(worldId, width, height, x, y) }, new[] { new NativeWorldSource(worldId, memory.ToArray()) },
+                new Dictionary<int, MixedAtmospheres.Core.Interop.NativeMatterPhase> { [(int)SimHashes.Vacuum] = MixedAtmospheres.Core.Interop.NativeMatterPhase.Vacuum },
+                new Dictionary<int, NativeFluidBinding>(), (int)SimHashes.Vacuum);
+            return ColonyFluidState.Import(import, catalog);
         }
 
         // Called only immediately after a native completed snapshot message.
@@ -121,7 +171,7 @@ namespace MixedAtmospheres.Oni
                         new[] { new FluidMessageElementBinding(0, MixedAtmospheres.Core.Interop.NativeMatterPhase.Vacuum) }, new Dictionary<byte, int>());
                     session = OwnedGasReservoirBridge.BeginSession(state, router, true);
                     CompleteBatch(Array.Empty<OwnedContainerTransferOperation>(), false);
-                    MixturePresentationRuntime.BindCompletedSource(() => session.Current?.PreparedPresentation, true);
+                    MixturePresentationRuntime.BindCompletedSource(() => session.Current?.PreparedPresentation, true, includeWorldCells: !containersOnly);
                     leaseA = OwnedGasReservoirBridge.BindNativeEmptyReservoir(storageA, a);
                     leaseB = OwnedGasReservoirBridge.BindNativeEmptyReservoir(storageB, b);
                     storageA.Subscribe(-1697596308, _ => ++eventsA); storageB.Subscribe(-1697596308, _ => ++eventsB);
@@ -155,6 +205,7 @@ namespace MixedAtmospheres.Oni
                     break;
                 case 2:
                     ValidateCompleted("seeded", storageA, a); objects.ValidateSelected("reservoir-a"); Capture("26-owned-native-reservoir-source.png");
+                    if (containersOnly) CheckIdleSaveLease("seeded-empty-destination");
                     break;
                 case 3:
                     var sourceMass = state.CaptureSnapshot().SampleContainer(a).Inventory.TotalMassKg;
@@ -167,6 +218,7 @@ namespace MixedAtmospheres.Oni
                 case 4:
                     ValidateCompleted("after-transfer-source", storageA, a); ValidateCompleted("after-transfer-destination", storageB, b);
                     objects.ValidateSelected("reservoir-b"); Capture("27-owned-native-reservoir-destination.png");
+                    if (containersOnly) CheckIdleSaveLease("both-nonempty");
                     break;
                 case 5:
                     CheckFences(); CheckSaveBlocked("active owned reservoirs");
@@ -180,6 +232,12 @@ namespace MixedAtmospheres.Oni
                     break;
                 case 7:
                     ValidateCompleted("acknowledged-empty-source", storageA, a); objects.ValidateSelected("reservoir-a"); Capture("28-owned-native-reservoir-evacuated.png");
+                    if (containersOnly)
+                    {
+                        Reject(() => OwnedGasReservoirBridge.ReserveIdleSaveEligibility(state.CapturePublication()), "idle eligibility after owned world evacuation");
+                        evidence.Add(new { Kind = "actual-idle-eligibility-rejects-world-recovery", Passed = true, session!.WorldRecoveryRequired,
+                            WorldInventories = state.CaptureSnapshot().Inventories.Count });
+                    }
                     // ScreenCapture renders asynchronously. Keep this exact
                     // owned empty view alive through the capture frame.
                     Caption = "Owned reservoir empty · completed vacuum reading retained for capture";
@@ -266,6 +324,8 @@ namespace MixedAtmospheres.Oni
             var frame = MixturePresentationRuntime.AcquireFrame();
             Require(frame != null && frame.Revision == snapshot.Revision && frame.TryResolveInventory(handle, out var reading) &&
                 ReferenceEquals(reading, session!.Current!.PreparedPresentation!.Frame.SampleContainer(handle)), "Runtime does not use the exact completed actor view.");
+            if (containersOnly) Require(!MixturePresentationRuntime.HasWorldProvider && !frame!.HasWorld && !frame.TryGetCell(evacuationCell, out _),
+                "A containers-only authority replaced the native world with its synthetic vacuum geometry.");
             var expected = (float)allocation.Inventory.TotalMassKg;
             Require(storage.items.Count == 0 && storage.MassStored() == expected && storage.ExactMassStored() == expected &&
                 storage.IsEmpty() == (expected == 0) && storage.RemainingCapacity() == (float)(1000 - allocation.Inventory.TotalMassKg),
@@ -290,6 +350,86 @@ namespace MixedAtmospheres.Oni
             evidence.Add(new { Kind = "actual-completed-native-queries-and-meter", Label = label, Passed = true,
                 snapshot.Revision, Handle = handle, NativePacketCount = storage.items.Count, MassKg = expected, PercentFull = percent,
                 MeterInputFraction = observed, LogicOutput = LogicValue(storage), Allocation = allocation });
+        }
+
+        private void CheckIdleSaveLease(string label)
+        {
+            var source = state.CapturePublication(); var checkpoint = state.Save(); var sourceEvents = eventsA; var destinationEvents = eventsB;
+            Require(source.Snapshot.Inventories.Count == 0 && source.Snapshot.Containers.Count == 3,
+                "Idle lease proof must own containers only, including its empty unbound row.");
+            var lease = OwnedGasReservoirBridge.ReserveIdleSaveEligibility(source);
+            try
+            {
+                Require(ReferenceEquals(lease.Source, source) && ReferenceEquals(lease.Snapshot, source.Snapshot) && lease.Owners.Count == 2,
+                    "Eligibility did not retain the exact acknowledged source and both native owners.");
+                lease.EnsureCurrent(); lease.RevalidateNativeOwners();
+                foreach (var observation in lease.Owners)
+                {
+                    var isSource = observation.Owner.Container.Equals(a);
+                    Require(isSource || observation.Owner.Container.Equals(b), "Eligibility observed a different allocation.");
+                    var storage = isSource ? storageA : storageB;
+                    var rotatable = storage.GetComponent<Rotatable>();
+                    Require(observation.Owner.Equals(isSource ? leaseA : leaseB) &&
+                        ReferenceEquals(observation.Allocation, source.Snapshot.SampleContainer(observation.Owner.Container)) &&
+                        observation.Native.SavedInstanceId == storage.GetComponent<KPrefabID>().InstanceID && observation.Native.PrefabId == GasReservoirConfig.ID &&
+                        observation.Native.AnchorCell == objects.Surfaces[isSource ? 0 : 1].Cell &&
+                        observation.Native.WorldId == (int)Grid.WorldIdx[observation.Native.AnchorCell] &&
+                        observation.Native.Orientation == (rotatable == null ? (int)Orientation.Neutral : (int)rotatable.Orientation) &&
+                        observation.Native.ConstructionElementId == (int)storage.GetComponent<PrimaryElement>().ElementID &&
+                        observation.Native.ConstructionMassKg == (double)storage.GetComponent<PrimaryElement>().Mass &&
+                        observation.Native.CapacityKg == 1000 && observation.VolumeCubicMetres == 10,
+                        "Live eligibility observation differs from the exact native instance, construction or allocation.");
+                }
+                Reject(() => OwnedGasReservoirBridge.ReserveIdleSaveEligibility(source), "nested live save eligibility");
+                using (var tx = state.BeginTransaction()) Reject(() => tx.Commit(), "Core publication while live save eligibility is held");
+                using (var tx = state.BeginTransaction())
+                using (var prepared = tx.PrepareFrame(source.Snapshot.CompletedFrame + 1, source.Snapshot.SimulationTimeSeconds + .2))
+                    Reject(prepared.ReserveWriter, "Core prepared writer while live save eligibility is held");
+                Reject(() =>
+                {
+                    using var unexpected = session!.Prepare(Array.Empty<OwnedContainerTransferOperation>(),
+                        source.Snapshot.CompletedFrame + 1, source.Snapshot.SimulationTimeSeconds + .2, model);
+                }, "actor preparation while live save eligibility is held");
+                Reject(() => OwnedGasReservoirBridge.UnbindEmpty(storageB), "native unbind while live save eligibility is held");
+                Require(ReferenceEquals(session!.ReadCompleted(leaseA), source.Snapshot.SampleContainer(a)) &&
+                    storageA.items.Count == 0 && storageB.items.Count == 0 &&
+                    storageA.MassStored() == (float)source.Snapshot.SampleContainer(a).Inventory.TotalMassKg &&
+                    storageB.MassStored() == (float)source.Snapshot.SampleContainer(b).Inventory.TotalMassKg,
+                    "Eligibility blocked completed readers or changed native-empty ownership.");
+                CheckSaveBlocked("live eligibility prepares Core data only: " + label);
+                using (var stream = new MemoryStream())
+                using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
+                {
+                    var serialize = AccessTools.Method(typeof(Storage), nameof(Storage.Serialize), new[] { typeof(BinaryWriter) });
+                    Reject(() => serialize.Invoke(storageA, new object[] { writer }), "native Storage.Serialize while live save eligibility is held");
+                    Require(stream.Length == 0, "Eligibility accidentally permitted native storage serialization.");
+                }
+                var copied = lease.SaveCoreCheckpoint();
+                Require(copied.SequenceEqual(checkpoint) && ColonyFluidState.Restore(copied, catalog).Save().SequenceEqual(checkpoint),
+                    "Eligibility did not preserve exact canonical Core checkpoint bytes.");
+                File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-idle-core-" + label + ".bin"), copied);
+                Require(ReferenceEquals(source, state.CapturePublication()) && checkpoint.SequenceEqual(state.Save()) &&
+                    sourceEvents == eventsA && destinationEvents == eventsB && !session.HasPendingBatch && OwnedGasReservoirBridge.BindingCount == 2,
+                    "Idle eligibility or a rejected operation changed Core/native ownership or emitted events.");
+                evidence.Add(new { Kind = "actual-native-idle-save-eligibility", Label = label, Passed = true, source.Snapshot.Revision,
+                    SourceIdentityRetained = true, WorldInventories = source.Snapshot.Inventories.Count, CoreContainers = source.Snapshot.Containers.Count,
+                    CheckpointBytes = copied.Length, NativeSaveStillBlocked = OwnedGasReservoirBridge.SaveIsBlocked,
+                    Owners = lease.Owners.Select(observation => new { observation.Owner.OwnerId, Handle = observation.Owner.Container,
+                        observation.Allocation, observation.Native.SavedInstanceId, observation.Native.PrefabId, observation.Native.WorldId,
+                        observation.Native.AnchorCell, observation.Native.Orientation, observation.Native.ConstructionElementId,
+                        observation.Native.ConstructionMassKg, observation.Native.CapacityKg, observation.VolumeCubicMetres,
+                        Components = observation.Native.Components.Select(component => new { component.Role, component.Enabled, component.IsSpawned }).ToArray() }).ToArray(),
+                    Scope = "live eligibility and exact Core preparation only; no persistent owner marker, native save permit or integrated reload" });
+            }
+            finally { lease.Dispose(); }
+            Reject(lease.EnsureCurrent, "disposed live save eligibility");
+            using (var successor = OwnedGasReservoirBridge.ReserveIdleSaveEligibility(source))
+            {
+                lease.Dispose(); successor.EnsureCurrent(); successor.RevalidateNativeOwners();
+                Require(checkpoint.SequenceEqual(successor.SaveCoreCheckpoint()) && ReferenceEquals(source, state.CapturePublication()),
+                    "Old disposal released a successor eligibility reservation or resampled Core state.");
+            }
+            evidence.Add(new { Kind = "actual-native-idle-eligibility-successor-safe-disposal", Label = label, Passed = true });
         }
 
         private void CheckFences()
@@ -419,6 +559,7 @@ namespace MixedAtmospheres.Oni
         {
             Kind = "actual-Unity-isolated-native-empty-reservoir-ownership-proof", Passed = complete, FirstPlayableColonyPassed = false,
             Scope = "two actual isolated GasReservoir instances; Core conserved operations and shared views; private native snapshot equivalence; no pipe flow, native world projection, heat, power or integrated saves",
+            ContainersOnlyCoreDomain = containersOnly,
             Phase = phase, Evidence = evidence, Rejections = rejections, Objects = objects.Surfaces, SelectedObjectEvidence = objects.Evidence,
             OwnedGasReservoirBridge.Installed, OwnedGasReservoirBridge.BindingCount, OwnedGasReservoirBridge.SaveIsBlocked,
             OwnedGasReservoirBridge.RejectedMutationCount, OwnedGasReservoirBridge.BlockedPortCount, OwnedGasReservoirBridge.BlockedSaveCount,

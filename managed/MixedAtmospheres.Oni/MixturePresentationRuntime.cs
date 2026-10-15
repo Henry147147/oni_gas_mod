@@ -25,6 +25,7 @@ namespace MixedAtmospheres.Oni
         private static int? presentationThread;
         private static bool capturing;
         private static bool sourceIsFixture;
+        private static bool includeWorldCells = true;
         private static Func<MixturePresentationPublication?>? completedSource;
         private static MixturePresentationPublication? completedPublication;
         private static MixtureVisualOptions? visualOverride;
@@ -33,7 +34,7 @@ namespace MixedAtmospheres.Oni
 
         internal static MixturePresentationModel? CurrentModel { get { lock (Sync) return model; } }
         internal static bool HasProvider { get { lock (Sync) return world != null || fixture != null || Registrations.Count != 0; } }
-        internal static bool HasWorldProvider { get { lock (Sync) return world != null || fixture != null; } }
+        internal static bool HasWorldProvider { get { lock (Sync) return (world != null && includeWorldCells) || fixture != null; } }
         internal static int InventoryProviderCount { get { lock (Sync) return Registrations.Count; } }
         internal static bool HasCachedFrame { get { lock (Sync) return current != null || workerReadFrame != null; } }
         internal static bool IsActive => HasProvider;
@@ -70,7 +71,7 @@ namespace MixedAtmospheres.Oni
         // The callback returns a prepared immutable companion from one atomic
         // authority publication. It runs only on the presentation thread, once
         // per Unity frame; workers only see the pinned completed result.
-        internal static void BindCompletedSource(Func<MixturePresentationPublication?> capture, bool isFixture = false)
+        internal static void BindCompletedSource(Func<MixturePresentationPublication?> capture, bool isFixture = false, bool includeWorldCells = true)
         {
             if (capture == null) throw new ArgumentNullException(nameof(capture));
             lock (Sync)
@@ -88,6 +89,9 @@ namespace MixedAtmospheres.Oni
                         throw new InvalidOperationException("Presentation state changed during publication-source binding.");
                     completedSource = capture; completedPublication = initial; visualOverride = null;
                     source = initial.Source; model = initial.Model; world = initial.Frame; sourceIsFixture = isFixture;
+                    // A containers-only authority carries geometry for native
+                    // owner identity, without owning those native world cells.
+                    MixturePresentationRuntime.includeWorldCells = includeWorldCells;
                     presentationThread = Thread.CurrentThread.ManagedThreadId; ++generation;
                 }
                 finally { capturing = false; }
@@ -138,7 +142,7 @@ namespace MixedAtmospheres.Oni
                 foreach (var id in authoritative.Containers.Keys)
                     if (Registrations.ContainsKey(id)) throw new InvalidOperationException("An independent inventory adapter conflicts with owned container " + id + ".");
                 var prepared = model.CaptureFrame(authoritative);
-                source = authoritative; world = prepared; sourceIsFixture = isFixture; ++generation;
+                source = authoritative; world = prepared; sourceIsFixture = isFixture; includeWorldCells = true; ++generation;
             }
         }
 
@@ -163,6 +167,7 @@ namespace MixedAtmospheres.Oni
                     copy.Add(cell.Key, cell.Value);
                 }
                 fixture = new FixtureSource(width, height, copy, volumeCubicMetres, checked(generation + 1), model);
+                includeWorldCells = true;
                 ++generation;
             }
         }
@@ -177,6 +182,7 @@ namespace MixedAtmospheres.Oni
                 {
                     source = null; world = null; sourceIsFixture = false;
                     completedSource = null; completedPublication = null; visualOverride = null;
+                    includeWorldCells = true;
                 }
                 if (wasFixture) { current = null; Volatile.Write(ref workerReadFrame, null); ++resetEpoch; }
                 ++generation;
@@ -259,6 +265,7 @@ namespace MixedAtmospheres.Oni
                 // completed inputs, even if a newer publication arrives.
                 var capturedModel = model!; var capturedWorld = world; var capturedFixture = fixture; var capturedSource = source;
                 var capturedGeneration = generation; var capturedEpoch = resetEpoch; var capturedIsFixture = sourceIsFixture;
+                var capturedWorldCells = includeWorldCells;
                 var inventories = new Dictionary<string, MixturePresentation>(StringComparer.Ordinal);
                 var errors = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var registration in Registrations.Values.ToArray())
@@ -292,7 +299,7 @@ namespace MixedAtmospheres.Oni
                 if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
                 current = new RuntimeMixturePresentationFrame(unityFrame, capturedGeneration, capturedEpoch, capturedModel, capturedWorld,
                     capturedFixture?.Presentations, capturedFixture?.Width ?? capturedWorld?.Width ?? 0, capturedFixture?.Height ?? capturedWorld?.Height ?? 0,
-                    capturedFixture?.Revision ?? capturedWorld?.Revision ?? 0, capturedFixture != null || capturedIsFixture, inventories, errors);
+                    capturedFixture?.Revision ?? capturedWorld?.Revision ?? 0, capturedFixture != null || capturedIsFixture, inventories, errors, capturedWorldCells);
                 ++builds; return current;
                 }
                 finally { capturing = false; }
@@ -341,6 +348,7 @@ namespace MixedAtmospheres.Oni
                 source = null; world = null; fixture = null; current = null; Registrations.Clear();
                 sourceIsFixture = false;
                 completedSource = null; completedPublication = null; visualOverride = null;
+                includeWorldCells = true;
                 Volatile.Write(ref workerReadFrame, null);
                 presentationThread = null; ++generation; ++resetEpoch;
             }
@@ -418,6 +426,7 @@ namespace MixedAtmospheres.Oni
     internal sealed class RuntimeMixturePresentationFrame
     {
         private readonly MixturePresentationFrame? world;
+        private readonly bool includeWorldCells;
         private readonly IReadOnlyDictionary<int, MixturePresentation>? fixtures;
         internal int UnityFrame { get; }
         internal long PublicationGeneration { get; }
@@ -429,14 +438,15 @@ namespace MixedAtmospheres.Oni
         internal MixturePresentationModel Model { get; }
         internal IReadOnlyDictionary<string, MixturePresentation> Inventories { get; }
         internal IReadOnlyDictionary<string, string> InventoryErrors { get; }
-        internal bool HasWorld => world != null || fixtures != null;
+        internal bool HasWorld => (world != null && includeWorldCells) || fixtures != null;
 
         internal RuntimeMixturePresentationFrame(int unityFrame, long generation, long sessionEpoch, MixturePresentationModel model,
             MixturePresentationFrame? world, IReadOnlyDictionary<int, MixturePresentation>? fixtures, int width, int height,
-            long revision, bool fixture, Dictionary<string, MixturePresentation> inventories, Dictionary<string, string> errors)
+            long revision, bool fixture, Dictionary<string, MixturePresentation> inventories, Dictionary<string, string> errors, bool includeWorldCells = true)
         {
             UnityFrame = unityFrame; PublicationGeneration = generation; SessionEpoch = sessionEpoch; Model = model; this.world = world; this.fixtures = fixtures;
             Width = width; Height = height; Revision = revision; IsFixture = fixture;
+            this.includeWorldCells = includeWorldCells;
             Inventories = new ReadOnlyDictionary<string, MixturePresentation>(inventories);
             InventoryErrors = new ReadOnlyDictionary<string, string>(errors);
         }
@@ -444,7 +454,7 @@ namespace MixedAtmospheres.Oni
         internal bool TryGetCell(int globalCell, out MixturePresentation? reading)
         {
             if (fixtures != null) return fixtures.TryGetValue(globalCell, out reading);
-            if (world != null) return world.TrySampleCell(globalCell, out reading);
+            if (world != null && includeWorldCells) return world.TrySampleCell(globalCell, out reading);
             reading = null; return false;
         }
 

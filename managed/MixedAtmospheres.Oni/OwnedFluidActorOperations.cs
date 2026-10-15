@@ -112,7 +112,7 @@ namespace MixedAtmospheres.Oni
     /// bypassed through this API. Native flow, packet adoption and persistence
     /// are deliberately absent. Forced detachment never retires Core inventory.
     /// </summary>
-    internal sealed unsafe class OwnedFluidActorSession : IDisposable
+    internal sealed unsafe partial class OwnedFluidActorSession : IDisposable
     {
         private sealed class Binding
         {
@@ -166,16 +166,17 @@ namespace MixedAtmospheres.Oni
 
         internal OwnedFluidActorLease Bind(IOwnedFluidActorHost host, FluidContainerHandle handle)
         {
-            RequireReady();
+            RequireReady(); RequireNoIdleSaveLease();
             if (host == null) throw new ArgumentNullException(nameof(host));
-            if (string.IsNullOrWhiteSpace(host.OwnerId) || host.OwnerId.Length > 512) throw new ArgumentException("A bounded native owner identity is required.");
+            var ownerId = host.OwnerId;
+            if (string.IsNullOrWhiteSpace(ownerId) || ownerId.Length > 512) throw new ArgumentException("A bounded native owner identity is required.");
             if (pending != null || preparing || notifying || current == null) throw new InvalidOperationException("Acknowledge a completed publication outside staging/notification before binding actors.");
             var allocation = current.Snapshot.SampleContainer(handle);
             foreach (var binding in bindings.Values)
-                if (binding.Lease.OwnerId == host.OwnerId || binding.Lease.Container.Equals(handle)) throw new InvalidOperationException("Owner or allocation is already bound.");
+                if (binding.Lease.OwnerId == ownerId || binding.Lease.Container.Equals(handle)) throw new InvalidOperationException("Owner or allocation is already bound.");
             host.ValidateNativeState(allocation);
-            RequireReady();
-            var lease = new OwnedFluidActorLease(session, Guid.NewGuid(), host.OwnerId, handle);
+            RequireReady(); RequireNoIdleSaveLease();
+            var lease = new OwnedFluidActorLease(session, Guid.NewGuid(), ownerId, handle);
             bindings.Add(lease.Token, new Binding(lease, host, allocation)); return lease;
         }
 
@@ -188,7 +189,7 @@ namespace MixedAtmospheres.Oni
         internal OwnedFluidActorBatch Prepare(IEnumerable<OwnedContainerTransferOperation> operations, long completedFrame,
             double simulationTimeSeconds, MixturePresentationModel model)
         {
-            RequireReady();
+            RequireReady(); RequireNoIdleSaveLease();
             if (operations == null) throw new ArgumentNullException(nameof(operations));
             if (model == null) throw new ArgumentNullException(nameof(model));
             if (pending != null || preparing || notifying) throw new InvalidOperationException("Complete the previous actor batch first.");
@@ -315,9 +316,11 @@ namespace MixedAtmospheres.Oni
 
         internal void UnbindEmpty(OwnedFluidActorLease lease)
         {
-            RequireReady(); var binding = RequireLease(lease);
+            RequireReady(); RequireNoIdleSaveLease(); var binding = RequireLease(lease);
             if (pending != null || preparing || notifying) throw new InvalidOperationException("An actor batch is not acknowledged.");
             var allocation = ReadCompleted(lease); binding.Host.ValidateNativeState(allocation);
+            RequireReady(); RequireNoIdleSaveLease();
+            if (!ReferenceEquals(binding, RequireLease(lease))) throw new InvalidOperationException("Actor binding changed during unbind validation.");
             if (!Empty(allocation.Inventory) || !ReferenceEquals(binding.Acknowledged, allocation))
                 throw new InvalidOperationException("Conservative evacuation must be published and acknowledged before normal unbind.");
             bindings.Remove(lease.Token); // The existing empty Core allocation remains; no implicit retirement.
@@ -326,10 +329,15 @@ namespace MixedAtmospheres.Oni
         internal void ForceDetach(OwnedFluidActorLease lease, string reason)
         {
             CheckThread(); CheckOpen(); var binding = RequireLease(lease); reason = Reason(reason);
-            var orphan = new OwnedFluidActorOrphan(lease, reason, state.CaptureSnapshot());
-            orphans.Add(orphan); bindings.Remove(binding.Lease.Token); Fault = "A native owner detached; its Core allocation is retained for recovery: " + reason;
-            if (pending != null && pending.Published && pending.ConsumptionStarted && pending.Fault.Length == 0)
-            { pending.Fault = Fault; coordinator.ReportConsumptionFault(pending.Ticket, Fault); }
+            var save = AbortIdleSaveForCleanup(OwnedReservoirLeaseAbortReason.OwnerDetached);
+            try
+            {
+                var orphan = new OwnedFluidActorOrphan(lease, reason, state.CaptureSnapshot());
+                orphans.Add(orphan); bindings.Remove(binding.Lease.Token); Fault = "A native owner detached; its Core allocation is retained for recovery: " + reason;
+                if (pending != null && pending.Published && pending.ConsumptionStarted && pending.Fault.Length == 0)
+                { pending.Fault = Fault; coordinator.ReportConsumptionFault(pending.Ticket, Fault); }
+            }
+            finally { FinishIdleSaveCleanup(save); }
         }
 
         internal void Cancel(OwnedFluidActorBatch batch)
@@ -344,6 +352,7 @@ namespace MixedAtmospheres.Oni
         internal void EndSession(string reason)
         {
             CheckThread(); if (closed) return; reason = Reason(reason);
+            var save = AbortIdleSaveForCleanup(OwnedReservoirLeaseAbortReason.SessionEnded);
             // Record allocations before ending pointer/callback ownership. No
             // Core container is deleted, vented, refunded or silently retired.
             try
@@ -369,9 +378,13 @@ namespace MixedAtmospheres.Oni
                     UnresolvedConsumptionAtTeardown = true;
                     if (!pending.SnapshotAcknowledged) retainedReaders = pending;
                 }
-                if (retainedReaders == null) coordinator.Dispose();
-                if (pending != null) pending.Closed = true;
-                pending = null; pendingPrepared = null; closed = true;
+                try
+                {
+                    if (retainedReaders == null) coordinator.Dispose();
+                    if (pending != null) pending.Closed = true;
+                    pending = null; pendingPrepared = null; closed = true;
+                }
+                finally { FinishIdleSaveCleanup(save); }
             }
         }
         // Terminal reader attestation releases owned native memory only. It

@@ -341,6 +341,15 @@ for exact scope, frozen evidence and V23's earlier asynchronous capture limit.
 These checks do not establish pipe flow, equipped-suit gameplay or owned-state
 save/reload.
 
+V25-lease additionally binds that completed source with world-cell presentation
+disabled. Container readings still come from the exact prepared frame, model
+and revision, while its synthetic anchor geometry cannot replace native world
+gas with vacuum. Three runtime regressions preserve this scope through source
+refresh, visual options and worker-frame pinning, and reset it on retirement.
+The actual Windows run checks this separation at each reservoir reading and
+captures the destination trace warning and owned vacuum state. Its idle Core
+checkpoint exports do not establish native owned-state save/reload.
+
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
 Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.

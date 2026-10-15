@@ -29,3 +29,28 @@ that Mono-specific path, so this suite does not report a simulated hook install.
 
 See [the bridge contract](../../docs/owned-reservoir-bridge.md) for activation,
 independent acknowledgements, orphan recovery and save-blocking limits.
+
+The optional idle save eligibility lease pins the exact acknowledged Core
+publication and two actor/native owner identities. It preserves empty unbound
+allocations and rejects nonempty world cells, unbound mass or metadata,
+callbacks/outbox, pending/unacknowledged work and recovery obligations. Normal
+Core/actor writes and bind/unbind fail while held. Native callbacks and Unity
+getters run outside Core locks. Detachment and session end abort the lease
+before coordinator disposal and release its Core reservation in finally.
+
+Actual native eligibility repeats exact captured component and prefab
+identities, duplicate-role checks, lifetime/spawn, isolated gas ports, native
+packet emptiness, construction, capacity and world/anchor checks. Component
+Enabled flags are immutable diagnostics; disabled Mono updates alone do not
+invalidate an otherwise healthy native component. Native instance ID zero is
+valid. The focused host tests cover reentry that retires the second validator,
+ordinary-unbind reentry, successor-safe disposal, wrong threads, exact
+acknowledged allocation identity, observation changes and caller-owned copy
+lifetime. IL checks verify actual native wiring without executing Unity.
+
+`SaveCoreCheckpoint` returns only exact pinned Core bytes. The lease introduces
+no persistent owner token or borrowed native pointer, and does not retain an
+opaque companion's native resources independently. `SaveLoader.Save`, native
+Storage serialization, delayed saves and save-first quit stay blocked. This is
+eligibility/reservation only: no marker component, native save/load hook,
+serialization permit, file write, ordinary-save integration or crash recovery.

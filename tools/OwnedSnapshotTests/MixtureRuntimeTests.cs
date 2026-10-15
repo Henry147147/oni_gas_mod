@@ -74,6 +74,58 @@ internal static class MixtureRuntimeTests
             reject(() => Task.Run(() => MixturePresentationRuntime.AcquireFrameFor(24)).GetAwaiter().GetResult());
             check(calls == 3);
         });
+        test("container-only completed source keeps exact owned views without claiming native world cells", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("container-only:tank", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferAllCellToContainer(0, handle); tx.CommitFrame(1, .2); }
+            var prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            MixturePresentationRuntime.BindCompletedSource(() => prepared, includeWorldCells: false);
+            var frame = MixturePresentationRuntime.AcquireFrameFor(120)!;
+            check(MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasWorldProvider && !frame.HasWorld &&
+                frame.Revision == prepared.Source.Revision && ReferenceEquals(frame.Model, prepared.Model));
+            var resolved = frame.TryResolveInventory(handle, out var contents);
+            check(!frame.TryGetCell(0, out _) && !frame.TryGetCell(1, out _) &&
+                resolved && ReferenceEquals(contents, prepared.Frame.SampleContainer(handle)) &&
+                frame.TryResolveInventory(handle.Id, out var byId) && ReferenceEquals(contents, byId));
+            check(prepared.Frame.TrySampleCell(0, out var vacuum) && vacuum!.Failures == BreathingFailure.Vacuum && contents!.TotalMassKg == 1);
+        });
+        test("container-only scope survives publication appearance changes and worker frame pinning", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("container-only:moving", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferAllCellToContainer(0, handle); tx.CommitFrame(1, .2); }
+            var prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model); var calls = 0;
+            MixturePresentationRuntime.BindCompletedSource(() => { ++calls; return prepared; }, includeWorldCells: false);
+            var first = MixturePresentationRuntime.AcquireFrameFor(121)!;
+            using (var tx = state.BeginTransaction()) { tx.TransferContainerToCell(handle, 0, .25); tx.CommitFrame(2, .4); }
+            prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            MixturePresentationRuntime.Configure(setup.model.WithVisualOptions(new MixtureVisualOptions { PatternEnabled = false, PatternContrast = 0 }));
+            using (MixturePresentationRuntime.EnterWorkerBatch(first))
+                check(Task.Run(() => ReferenceEquals(first, MixturePresentationRuntime.AcquireFrame()) && !first.HasWorld &&
+                    !MixturePresentationRuntime.TryGetCell(0, out _) && first.TryResolveInventory(handle, out var old) && old!.TotalMassKg == 1).GetAwaiter().GetResult());
+            check(calls == 2);
+            var next = MixturePresentationRuntime.AcquireFrameFor(122)!;
+            check(calls == 3 && !next.HasWorld && !MixturePresentationRuntime.HasWorldProvider && !next.TryGetCell(0, out _) &&
+                next.TryResolveInventory(handle, out var changed) && changed!.TotalMassKg == .75 && !changed.PatternEnabled &&
+                next.Revision == prepared.Source.Revision && prepared.Frame.SampleCell(0).TotalMassKg == .25);
+        });
+        test("retiring container-only binding restores default world projection without reviving its worker frame", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog);
+            var prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            MixturePresentationRuntime.BindCompletedSource(() => prepared, isFixture: true, includeWorldCells: false);
+            var retired = MixturePresentationRuntime.AcquireFrameFor(123)!;
+            MixturePresentationRuntime.ClearFixtures();
+            check(!MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasWorldProvider);
+            MixturePresentationRuntime.Configure(setup.model); MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+            var direct = MixturePresentationRuntime.AcquireFrameFor(124)!;
+            check(direct.HasWorld && MixturePresentationRuntime.HasWorldProvider && direct.TryGetCell(0, out var oxygen) && oxygen!.TotalMassKg == 1);
+            reject(() => MixturePresentationRuntime.EnterWorkerBatch(retired));
+            MixturePresentationRuntime.ResetProviders();
+            MixturePresentationRuntime.BindCompletedSource(() => prepared);
+            check(MixturePresentationRuntime.HasWorldProvider && MixturePresentationRuntime.AcquireFrameFor(125)!.TryGetCell(0, out _));
+        });
         test("bound publication failures preserve the last completed view and reject independent writers", () =>
         {
             var setup = Setup(); var state = State(setup.catalog);

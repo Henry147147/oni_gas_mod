@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedFluidActorOperations.cs" Link="OwnedFluidActorOperations.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirIdleSaveLease.cs" Link="OwnedReservoirIdleSaveLease.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGasReservoirBridge.cs" Link="OwnedGasReservoirBridge.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidFrameCoordinator.cs" Link="ExperimentalFluidFrameCoordinator.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />
