@@ -53,11 +53,15 @@ namespace MixedAtmospheres.Oni
         internal OwnedGameDataSnapshot? Candidate;
         internal bool DispatchStarted, NativeAcknowledged, Published, Closed;
         internal FluidFrameTicket Ticket { get; }
+        internal int CommandCount { get; }
         internal ColonyFrameSnapshot Snapshot => Commit.Snapshot;
+        internal MixturePresentationPublication? PreparedPresentation { get; private set; }
+        internal MixturePresentationFrame? Presentation => PreparedPresentation?.Frame;
+        internal MixturePresentationModel? PresentationModel => PreparedPresentation?.Model;
         internal PreparedFluidBatch(ExperimentalFluidFrameCoordinator owner, PreparedFluidCommit commit, FluidFrameTicket ticket,
-            List<FluidMutationCommit> effects, List<FluidCallbackLease> leases, List<FluidNativeOperation> native)
+            List<FluidMutationCommit> effects, List<FluidCallbackLease> leases, List<FluidNativeOperation> native, int commandCount)
         {
-            Owner = owner; Commit = commit; Ticket = ticket;
+            Owner = owner; Commit = commit; Ticket = ticket; CommandCount = commandCount;
             Effects = new ReadOnlyCollection<FluidMutationCommit>(effects); Leases = new ReadOnlyCollection<FluidCallbackLease>(leases);
             NativeOperations = new ReadOnlyCollection<FluidNativeOperation>(native);
             var genericCount = 0; var consumedCount = 0; var emittedCount = 0;
@@ -77,6 +81,13 @@ namespace MixedAtmospheres.Oni
                 effect.ConsumedCallbacks.CopyTo(consumed.AsSpan(consumedOffset)); consumedOffset += effect.ConsumedCallbacks.Length;
                 effect.EmittedCallbacks.CopyTo(emitted.AsSpan(emittedOffset)); emittedOffset += effect.EmittedCallbacks.Length;
             }
+        }
+        internal void BuildPresentation(MixturePresentationModel model)
+        {
+            if (Closed || Published) throw new InvalidOperationException("Prepare presentation on an unpublished open batch.");
+            if (DispatchStarted) throw new InvalidOperationException("Prepare presentation before exposing native operations.");
+            if (PreparedPresentation != null) throw new InvalidOperationException("A presentation is already prepared.");
+            PreparedPresentation = MixturePresentationPublication.Prepare(Snapshot, model);
         }
         // One append per channel avoids repeatedly copying a growing native
         // event buffer. The same immutable outbox is reused on snapshot retry.
@@ -99,10 +110,16 @@ namespace MixedAtmospheres.Oni
         internal FluidFrameTicket Ticket { get; }
         internal ColonyFrameSnapshot Snapshot { get; }
         internal OwnedGameDataSnapshot NativeSnapshot { get; }
+        internal MixturePresentationPublication? PreparedPresentation { get; }
+        internal MixturePresentationFrame? Presentation => PreparedPresentation?.Frame;
+        internal MixturePresentationModel? PresentationModel => PreparedPresentation?.Model;
         internal IReadOnlyList<FluidMutationCommit> Effects { get; }
         internal FluidFramePublication(PreparedFluidBatch batch, OwnedGameDataSnapshot native)
         {
             Ticket = batch.Ticket; Snapshot = batch.Snapshot; NativeSnapshot = native;
+            PreparedPresentation = batch.PreparedPresentation;
+            if (PreparedPresentation != null && !ReferenceEquals(PreparedPresentation.Source, Snapshot))
+                throw new InvalidOperationException("Prepared presentation source differs from the complete owned frame.");
             var effects = new List<FluidMutationCommit>(batch.Effects.Count);
             foreach (var effect in batch.Effects) effects.Add(effect.ForPublication(Snapshot));
             Effects = new ReadOnlyCollection<FluidMutationCommit>(effects);
@@ -127,7 +144,7 @@ namespace MixedAtmospheres.Oni
         private long nextSequence, nextGeneration;
         private PreparedFluidBatch? pending;
         private FluidFramePublication? published;
-        private bool awaitingConsumption, consuming, buildingSnapshot, disposed;
+        private bool awaitingConsumption, consuming, buildingSnapshot, preparingCommands, disposed;
         private string consumptionFault = "", nativeFault = "";
         internal string ConsumptionFault { get { lock (sync) return consumptionFault; } }
         internal string NativeRecoveryRequired { get { lock (sync) return nativeFault; } }
@@ -167,34 +184,71 @@ namespace MixedAtmospheres.Oni
 
         internal PreparedFluidBatch PrepareBatch(IEnumerable<FluidBatchMessage> messages, long completedFrame, double simulationTimeSeconds)
         {
+            if (messages == null) throw new ArgumentNullException(nameof(messages));
+            return PrepareCommands(WrapMessages(messages), completedFrame, simulationTimeSeconds);
+        }
+
+        private static IEnumerable<FluidBatchCommand> WrapMessages(IEnumerable<FluidBatchMessage> messages)
+        { foreach (var message in messages) yield return FluidBatchCommand.NativeMessage(message); }
+
+        internal PreparedFluidBatch PrepareCommands(IEnumerable<FluidBatchCommand> commands, long completedFrame, double simulationTimeSeconds)
+        {
             lock (sync)
             {
                 RequireUsable();
-                if (messages == null) throw new ArgumentNullException(nameof(messages));
-                if (pending != null || awaitingConsumption) throw new InvalidOperationException("Finish or cancel the prior frame before preparing another.");
-                var effects = new List<FluidMutationCommit>(); var leases = new List<FluidCallbackLease>(); var native = new List<FluidNativeOperation>();
-                using var transaction = state.BeginTransaction();
-                foreach (var message in messages)
-                {
-                    if (message == null || effects.Count == 4096) throw new ArgumentException("Null message or experimental batch limit exceeded.");
-                    var effect = router.StageInto(transaction, message.Message, message.Payload, message.DisplacementCell);
-                    effects.Add(effect); if (effect.NativeOperation != null) native.Add(effect.NativeOperation);
-                    foreach (var callback in effect.Callbacks) leases.Add(FindLease(FluidCallbackKind.Generic, callback.callbackIdx));
-                    foreach (var callback in effect.ConsumedCallbacks) leases.Add(FindLease(FluidCallbackKind.Consumed, callback.callbackIdx));
-                    foreach (var callback in effect.EmittedCallbacks) leases.Add(FindLease(FluidCallbackKind.Emitted, callback.callbackIdx));
-                }
-                var once = new HashSet<(FluidCallbackKind, int)>();
-                foreach (var lease in leases)
-                    if (lease.Kind != FluidCallbackKind.Emitted && !once.Add((lease.Kind, lease.Index)))
-                        throw new InvalidOperationException("A one-shot callback registration was used more than once in the batch.");
-                var candidate = transaction.PrepareFrame(completedFrame, simulationTimeSeconds);
+                if (commands == null) throw new ArgumentNullException(nameof(commands));
+                if (pending != null || awaitingConsumption || preparingCommands) throw new InvalidOperationException("Finish or cancel the prior frame before preparing another; command enumeration cannot recursively prepare a frame.");
+                preparingCommands = true;
                 try
                 {
-                    candidate.ReserveWriter();
-                    pending = new PreparedFluidBatch(this, candidate, new FluidFrameTicket(session, checked(++nextSequence)), effects, leases, native);
-                    return pending;
+                    var effects = new List<FluidMutationCommit>(); var leases = new List<FluidCallbackLease>(); var native = new List<FluidNativeOperation>();
+                    var commandCount = 0;
+                    using var transaction = state.BeginTransaction();
+                    foreach (var command in commands)
+                    {
+                        if (command == null || commandCount == 4096) throw new ArgumentException("Null command or experimental batch limit exceeded.");
+                        ++commandCount;
+                        var effect = command.StageInto(transaction, router);
+                        if (effect == null) continue;
+                        effects.Add(effect); if (effect.NativeOperation != null) native.Add(effect.NativeOperation);
+                        foreach (var callback in effect.Callbacks) leases.Add(FindLease(FluidCallbackKind.Generic, callback.callbackIdx));
+                        foreach (var callback in effect.ConsumedCallbacks) leases.Add(FindLease(FluidCallbackKind.Consumed, callback.callbackIdx));
+                        foreach (var callback in effect.EmittedCallbacks) leases.Add(FindLease(FluidCallbackKind.Emitted, callback.callbackIdx));
+                    }
+                    // Enumeration is caller code. It may throw, dispose this
+                    // session or retire a lease, but cannot leave a reservation
+                    // or unpublished candidate behind after such a failure.
+                    RequireUsable();
+                    var once = new HashSet<(FluidCallbackKind, int)>();
+                    foreach (var lease in leases)
+                    {
+                        ValidateLease(lease);
+                        if (lease.Kind != FluidCallbackKind.Emitted && !once.Add((lease.Kind, lease.Index)))
+                            throw new InvalidOperationException("A one-shot callback registration was used more than once in the batch.");
+                    }
+                    var candidate = transaction.PrepareFrame(completedFrame, simulationTimeSeconds);
+                    try
+                    {
+                        candidate.ReserveWriter();
+                        pending = new PreparedFluidBatch(this, candidate, new FluidFrameTicket(session, checked(++nextSequence)), effects, leases, native, commandCount);
+                        return pending;
+                    }
+                    catch { candidate.Dispose(); throw; }
                 }
-                catch { candidate.Dispose(); throw; }
+                finally { preparingCommands = false; }
+            }
+        }
+
+        // Optional for legacy protocol callers; future actor publication must
+        // require this prepared view. Fallible frame capture occurs before
+        // external native dispatch, never as a post-commit rollback.
+        internal void PreparePresentation(PreparedFluidBatch batch, MixturePresentationModel model)
+        {
+            lock (sync)
+            {
+                RequirePending(batch); ValidateLeases(batch); batch.Commit.EnsureCurrent();
+                if (model == null) throw new ArgumentNullException(nameof(model));
+                batch.BuildPresentation(model);
             }
         }
 

@@ -14,6 +14,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidFrameCoordinator.cs" Link="ExperimentalFluidFrameCoordinator.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/FluidBatchCommand.cs" Link="FluidBatchCommand.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureWorldRendering.cs" Link="MixtureWorldRendering.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationLifecycle.cs" Link="MixturePresentationLifecycle.cs" />

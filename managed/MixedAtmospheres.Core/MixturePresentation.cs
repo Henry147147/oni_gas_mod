@@ -310,6 +310,9 @@ namespace MixedAtmospheres.Core
         private readonly AtmosphereSettings settings;
         private readonly MixtureVisualOptions options;
         private readonly string oxygenId, co2Id;
+        // Shared only by WithVisualOptions descendants. A new constructor has
+        // its own definitions identity even if some current readings coincide.
+        private object definitionsIdentity = new object();
         private readonly Dictionary<string, MixtureResolvedMaterial> resolvedMaterials = new Dictionary<string, MixtureResolvedMaterial>(StringComparer.Ordinal);
         private readonly ConditionalWeakTable<FluidInventory, CachedAnalysis> analysisCache = new ConditionalWeakTable<FluidInventory, CachedAnalysis>();
         private static readonly ConditionalWeakTable<FluidInventory, CachedAnalysis>.CreateValueCallback CreateAnalysisCache = _ => new CachedAnalysis();
@@ -368,8 +371,14 @@ namespace MixedAtmospheres.Core
         public MixturePresentationModel WithVisualOptions(MixtureVisualOptions visualOptions)
         {
             if (visualOptions == null) throw new ArgumentNullException(nameof(visualOptions));
-            return new MixturePresentationModel(catalog, styles.Values, settings, oxygenId, co2Id, contaminantLimits, visualOptions);
+            var variant = new MixturePresentationModel(catalog, styles.Values, settings, oxygenId, co2Id, contaminantLimits, visualOptions);
+            variant.definitionsIdentity = definitionsIdentity;
+            return variant;
         }
+
+        /// <summary>True only for models related through WithVisualOptions, which preserves all material, palette and assessment definitions.</summary>
+        public bool IsVisualVariantOf(MixturePresentationModel other)
+            => other != null && ReferenceEquals(definitionsIdentity, other.definitionsIdentity);
 
         internal void RequireCatalog(ColonyFrameSnapshot frame)
         {

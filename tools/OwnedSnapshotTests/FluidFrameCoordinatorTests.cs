@@ -12,7 +12,7 @@ using static FluidRouterTests;
 
 // Protocol tests use the licensed game's exact struct declarations and owned
 // synthetic buffers. They execute no simulator, Harmony hook, or actor callback.
-internal static unsafe class FluidFrameCoordinatorTests
+internal static unsafe partial class FluidFrameCoordinatorTests
 {
     internal static void Run(Action<string, System.Action> test, Action<bool> check, Action<System.Action> reject)
     {
@@ -330,6 +330,7 @@ internal static unsafe class FluidFrameCoordinatorTests
             check(batch.Candidate == null && batch.Closed && f.State.CaptureSnapshot().Revision == 0);
             var publication = f.PublishEmpty(1); f.Finish(publication);
         });
+        RunCommandTests(test, check, reject);
     }
 
     internal static void Benchmark()

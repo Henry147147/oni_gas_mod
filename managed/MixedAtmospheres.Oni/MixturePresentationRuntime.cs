@@ -25,6 +25,9 @@ namespace MixedAtmospheres.Oni
         private static int? presentationThread;
         private static bool capturing;
         private static bool sourceIsFixture;
+        private static Func<MixturePresentationPublication?>? completedSource;
+        private static MixturePresentationPublication? completedPublication;
+        private static MixtureVisualOptions? visualOverride;
         internal static event System.Action? SessionEnding;
         internal static string LastShutdownError { get; private set; } = "";
 
@@ -46,12 +49,67 @@ namespace MixedAtmospheres.Oni
             if (replacement == null) throw new ArgumentNullException(nameof(replacement));
             lock (Sync)
             {
+                if (completedSource != null)
+                {
+                    if (model == null || !replacement.IsVisualVariantOf(model))
+                        throw new InvalidOperationException("Material and breathing definitions must change through the completed publication source.");
+                    var options = replacement.VisualOptions;
+                    var variant = completedPublication!.Model.WithVisualOptions(options);
+                    var prepared = variant.CaptureFrame(completedPublication.Source);
+                    visualOverride = options; model = variant; world = prepared; ++generation;
+                    return;
+                }
                 var nextWorld = source == null ? null : replacement.CaptureFrame(source);
                 var nextFixture = fixture?.WithModel(replacement);
                 model = replacement; world = nextWorld; fixture = nextFixture;
                 if (!presentationThread.HasValue) presentationThread = Thread.CurrentThread.ManagedThreadId;
                 ++generation;
             }
+        }
+
+        // The callback returns a prepared immutable companion from one atomic
+        // authority publication. It runs only on the presentation thread, once
+        // per Unity frame; workers only see the pinned completed result.
+        internal static void BindCompletedSource(Func<MixturePresentationPublication?> capture, bool isFixture = false)
+        {
+            if (capture == null) throw new ArgumentNullException(nameof(capture));
+            lock (Sync)
+            {
+                if (capturing || source != null || fixture != null || current != null || workerReadFrame != null || Registrations.Count != 0 || completedSource != null)
+                    throw new InvalidOperationException("Reset existing providers before binding a completed publication source.");
+                if (presentationThread.HasValue && presentationThread != Thread.CurrentThread.ManagedThreadId)
+                    throw new InvalidOperationException("Only the presentation thread may bind completed publications.");
+                var epoch = resetEpoch; var observedGeneration = generation;
+                capturing = true;
+                try
+                {
+                    var initial = capture() ?? throw new InvalidOperationException("A completed prepared presentation is required before binding.");
+                    if (epoch != resetEpoch || observedGeneration != generation)
+                        throw new InvalidOperationException("Presentation state changed during publication-source binding.");
+                    completedSource = capture; completedPublication = initial; visualOverride = null;
+                    source = initial.Source; model = initial.Model; world = initial.Frame; sourceIsFixture = isFixture;
+                    presentationThread = Thread.CurrentThread.ManagedThreadId; ++generation;
+                }
+                finally { capturing = false; }
+            }
+        }
+
+        private static void RefreshCompletedSource()
+        {
+            var capture = completedSource; if (capture == null) return;
+            var epoch = resetEpoch; var observedGeneration = generation;
+            var next = capture() ?? throw new InvalidOperationException("The bound source has no completed prepared presentation.");
+            if (epoch != resetEpoch || observedGeneration != generation || !ReferenceEquals(capture, completedSource))
+                throw new InvalidOperationException("Presentation state changed while reading its completed publication source.");
+            if (ReferenceEquals(next, completedPublication)) return;
+            if (source != null && (next.Source.ColonyId != source.ColonyId || next.Source.Revision < source.Revision ||
+                next.Source.CompletedFrame < source.CompletedFrame))
+                throw new InvalidOperationException("A bound source cannot replace its colony or regress its completed frame.");
+            var nextModel = visualOverride == null ? next.Model : next.Model.WithVisualOptions(visualOverride);
+            var nextWorld = visualOverride == null ? next.Frame : nextModel.CaptureFrame(next.Source);
+            // All preparation succeeds before replacing this UI view. Nothing
+            // here commits or rolls back the authority/actor publication.
+            completedPublication = next; source = next.Source; model = nextModel; world = nextWorld; ++generation;
         }
 
         internal static void Publish(ColonyFrameSnapshot authoritative)
@@ -68,6 +126,7 @@ namespace MixedAtmospheres.Oni
             lock (Sync)
             {
                 if (model == null) throw new InvalidOperationException("Configure the mixture presentation model before publishing state.");
+                if (completedSource != null) throw new InvalidOperationException("The completed publication source owns presentation state.");
                 if (fixture != null) throw new InvalidOperationException("Clear visual fixtures before publishing authoritative colony state.");
                 if (source != null && sourceIsFixture != isFixture)
                     throw new InvalidOperationException("Reset the presentation session before changing fixture ownership.");
@@ -112,8 +171,14 @@ namespace MixedAtmospheres.Oni
         {
             lock (Sync)
             {
+                var wasFixture = fixture != null || sourceIsFixture;
                 fixture = null;
-                if (sourceIsFixture) { source = null; world = null; sourceIsFixture = false; }
+                if (sourceIsFixture)
+                {
+                    source = null; world = null; sourceIsFixture = false;
+                    completedSource = null; completedPublication = null; visualOverride = null;
+                }
+                if (wasFixture) { current = null; Volatile.Write(ref workerReadFrame, null); ++resetEpoch; }
                 ++generation;
             }
         }
@@ -124,6 +189,7 @@ namespace MixedAtmospheres.Oni
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
             lock (Sync)
             {
+                if (completedSource != null) throw new InvalidOperationException("Independent inventory adapters cannot join a completed publication source.");
                 if (world != null && world.OwnedContainerHandles.ContainsKey(id))
                     throw new InvalidOperationException("An independent adapter cannot replace owned container " + id + ".");
                 Registrations[id] = new InventoryRegistration(id, snapshot, isAlive); ++generation;
@@ -184,14 +250,15 @@ namespace MixedAtmospheres.Oni
                     throw new InvalidOperationException("Presentation frames and inventory adapters must be captured on one main thread.");
                 if (capturing) throw new InvalidOperationException("An inventory adapter cannot recursively capture a new presentation frame.");
                 presentationThread = thread;
-                // Adapters are external code and may reenter Publish/Configure.
-                // Every projection in this Unity frame retains these exact
-                // completed inputs, even if a newer publication arrives.
-                var capturedModel = model; var capturedWorld = world; var capturedFixture = fixture; var capturedSource = source;
-                var capturedGeneration = generation; var capturedEpoch = resetEpoch; var capturedIsFixture = sourceIsFixture;
                 capturing = true;
                 try
                 {
+                RefreshCompletedSource();
+                // Adapters are external code and may reenter Publish/Configure.
+                // Every projection in this Unity frame retains these exact
+                // completed inputs, even if a newer publication arrives.
+                var capturedModel = model!; var capturedWorld = world; var capturedFixture = fixture; var capturedSource = source;
+                var capturedGeneration = generation; var capturedEpoch = resetEpoch; var capturedIsFixture = sourceIsFixture;
                 var inventories = new Dictionary<string, MixturePresentation>(StringComparer.Ordinal);
                 var errors = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var registration in Registrations.Values.ToArray())
@@ -273,6 +340,7 @@ namespace MixedAtmospheres.Oni
             {
                 source = null; world = null; fixture = null; current = null; Registrations.Clear();
                 sourceIsFixture = false;
+                completedSource = null; completedPublication = null; visualOverride = null;
                 Volatile.Write(ref workerReadFrame, null);
                 presentationThread = null; ++generation; ++resetEpoch;
             }

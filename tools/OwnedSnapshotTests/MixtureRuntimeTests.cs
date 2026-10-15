@@ -47,6 +47,120 @@ internal static class MixtureRuntimeTests
             check(next.TryGetCell(0, out var reading) && !reading!.PatternEnabled);
             check(next.PublicationGeneration > first.PublicationGeneration);
         });
+        test("completed source pins its exact prepared views and refreshes only on the presentation thread", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("prepared:tank", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferCellToContainer(0, handle, .25); tx.CommitFrame(1, .2); }
+            var prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model); var calls = 0;
+            MixturePresentationRuntime.BindCompletedSource(() => { ++calls; return prepared; });
+            check(calls == 1 && MixturePresentationRuntime.InventoryProviderCount == 0);
+            var first = MixturePresentationRuntime.AcquireFrameFor(22)!;
+            check(calls == 2 && !first.IsFixture && ReferenceEquals(first.Model, prepared.Model) && first.Revision == prepared.Source.Revision &&
+                first.TryGetCell(0, out var cell) && ReferenceEquals(cell, prepared.Frame.SampleCell(0)) &&
+                first.TryResolveInventory(handle, out var contents) && ReferenceEquals(contents, prepared.Frame.SampleContainer(handle)));
+            var old = prepared;
+            using (var tx = state.BeginTransaction()) { tx.TransferCellToContainer(0, handle, .25); tx.CommitFrame(2, .4); }
+            prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            check(ReferenceEquals(first, MixturePresentationRuntime.AcquireFrameFor(22)) && calls == 2);
+            using (MixturePresentationRuntime.EnterWorkerBatch(first))
+                check(Task.Run(() => ReferenceEquals(first, MixturePresentationRuntime.AcquireFrame()) &&
+                    MixturePresentationRuntime.TryResolveInventory(handle, out var reading) && reading!.TotalMassKg == .25).GetAwaiter().GetResult());
+            check(calls == 2);
+            var next = MixturePresentationRuntime.AcquireFrameFor(23)!;
+            check(calls == 3 && next.TryResolveInventory(handle, out var changed) && changed!.TotalMassKg == .5 &&
+                ReferenceEquals(changed, prepared.Frame.SampleContainer(handle)) && old.Frame.SampleContainer(handle).TotalMassKg == .25 &&
+                next.Revision > first.Revision);
+            reject(() => Task.Run(() => MixturePresentationRuntime.AcquireFrameFor(24)).GetAwaiter().GetResult());
+            check(calls == 3);
+        });
+        test("bound publication failures preserve the last completed view and reject independent writers", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog);
+            var initial = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            using (var tx = state.BeginTransaction()) { tx.Transfer(0, 1, .25); tx.CommitFrame(2, .4); }
+            var newer = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            MixturePresentationPublication? supplied = newer;
+            MixturePresentationRuntime.BindCompletedSource(() => supplied);
+            var first = MixturePresentationRuntime.AcquireFrameFor(24)!;
+            supplied = null; reject(() => MixturePresentationRuntime.AcquireFrameFor(25));
+            check(ReferenceEquals(first, MixturePresentationRuntime.AcquireFrameFor(24)) && MixturePresentationRuntime.CurrentRevision == newer.Source.Revision);
+            supplied = initial; reject(() => MixturePresentationRuntime.AcquireFrameFor(25));
+            supplied = MixturePresentationPublication.Prepare(State(setup.catalog).CaptureSnapshot(), setup.model);
+            reject(() => MixturePresentationRuntime.AcquireFrameFor(25));
+            check(ReferenceEquals(first, MixturePresentationRuntime.AcquireFrameFor(24)));
+            reject(() => MixturePresentationRuntime.Publish(newer.Source));
+            reject(() => MixturePresentationRuntime.RegisterInventory("independent", () => Air(setup.catalog), 1));
+            reject(() => MixturePresentationRuntime.EnableFixtureFrame(2, 2, new Dictionary<int, FluidInventory>()));
+            reject(() => MixturePresentationRuntime.Configure(Model(setup.catalog)));
+            supplied = newer;
+            check(MixturePresentationRuntime.AcquireFrameFor(25)!.Revision == newer.Source.Revision && MixturePresentationRuntime.InventoryProviderCount == 0);
+        });
+        test("bound visual choices follow new authority policy without changing physical readings", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog);
+            var prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), setup.model);
+            MixturePresentationRuntime.BindCompletedSource(() => prepared);
+            var first = MixturePresentationRuntime.AcquireFrameFor(26)!;
+            check(first.TryGetCell(0, out var before) && !before!.IsBreathable && before.PatternEnabled);
+            var colourOnly = setup.model.WithVisualOptions(new MixtureVisualOptions { PatternEnabled = false, PatternContrast = 0 });
+            check(colourOnly.IsVisualVariantOf(setup.model) && !Model(setup.catalog).IsVisualVariantOf(setup.model));
+            MixturePresentationRuntime.Configure(colourOnly);
+            check(ReferenceEquals(first, MixturePresentationRuntime.AcquireFrameFor(26)));
+            var changed = MixturePresentationRuntime.AcquireFrameFor(27)!;
+            check(changed.TryGetCell(0, out var visual) && !visual!.PatternEnabled && visual.TotalPressurePa == before!.TotalPressurePa &&
+                visual.TotalMassKg == before.TotalMassKg && visual.TemperatureKelvin == before.TemperatureKelvin && visual.Failures == before.Failures);
+            var newPolicy = Model(setup.catalog, new AtmosphereSettings { HardMode = false });
+            prepared = MixturePresentationPublication.Prepare(state.CaptureSnapshot(), newPolicy);
+            var next = MixturePresentationRuntime.AcquireFrameFor(28)!;
+            check(next.TryGetCell(0, out var policyReading) && policyReading!.IsBreathable && !policyReading.PatternEnabled &&
+                policyReading.TotalPressurePa == before!.TotalPressurePa && next.Model.IsVisualVariantOf(newPolicy) && !next.Model.IsVisualVariantOf(setup.model));
+            reject(() => MixturePresentationRuntime.Configure(colourOnly));
+            check(first.TryGetCell(0, out var retained) && ReferenceEquals(retained, before) && !retained!.IsBreathable);
+        });
+        test("completed source cannot resurrect a reset session from a callback", () =>
+        {
+            var setup = Setup(); var publication = MixturePresentationPublication.Prepare(State(setup.catalog).CaptureSnapshot(), setup.model);
+            var reset = false;
+            MixturePresentationRuntime.BindCompletedSource(() => { if (reset) MixturePresentationRuntime.ResetProviders(); return publication; });
+            var first = MixturePresentationRuntime.AcquireFrameFor(29)!; reset = true;
+            reject(() => MixturePresentationRuntime.AcquireFrameFor(30));
+            check(!MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasCachedFrame && first.TryGetCell(0, out _));
+            reject(() => MixturePresentationRuntime.EnterWorkerBatch(first));
+            MixturePresentationRuntime.BindCompletedSource(() => publication);
+            check(MixturePresentationRuntime.AcquireFrameFor(30)!.HasWorld);
+        });
+        test("completed source binding validates before publishing and rejects recursive capture", () =>
+        {
+            var setup = Setup(); var publication = MixturePresentationPublication.Prepare(State(setup.catalog).CaptureSnapshot(), setup.model);
+            reject(() => MixturePresentationRuntime.BindCompletedSource(() => null));
+            reject(() => MixturePresentationRuntime.BindCompletedSource(() =>
+            { MixturePresentationRuntime.BindCompletedSource(() => publication); return publication; }));
+            reject(() => MixturePresentationRuntime.BindCompletedSource(() =>
+            { MixturePresentationRuntime.Configure(setup.model); return publication; }));
+            check(!MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasCachedFrame);
+            MixturePresentationRuntime.BindCompletedSource(() => publication, true);
+            var first = MixturePresentationRuntime.AcquireFrameFor(31)!;
+            reject(() => MixturePresentationRuntime.BindCompletedSource(() => publication));
+            check(first.IsFixture && MixturePresentationRuntime.IsFixture);
+            var lease = MixturePresentationRuntime.EnterWorkerBatch(first);
+            MixturePresentationRuntime.ClearFixtures(); lease.Dispose();
+            check(!MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasCachedFrame && MixturePresentationRuntime.AcquireFrameFor(31) == null);
+            reject(() => MixturePresentationRuntime.EnterWorkerBatch(first));
+        });
+        test("completed source requires a clean prior frame and releases its callback on reset", () =>
+        {
+            var setup = Setup(); var publication = MixturePresentationPublication.Prepare(State(setup.catalog).CaptureSnapshot(), setup.model);
+            MixturePresentationRuntime.RegisterInventory("old", () => Air(setup.catalog), 1);
+            var old = MixturePresentationRuntime.AcquireFrameFor(32)!; MixturePresentationRuntime.UnregisterInventory("old");
+            reject(() => MixturePresentationRuntime.BindCompletedSource(() => publication));
+            check(ReferenceEquals(old, MixturePresentationRuntime.AcquireFrameFor(32)));
+            MixturePresentationRuntime.ResetProviders();
+            var captured = BindCapturedCompletedSource(publication);
+            MixturePresentationRuntime.ResetProviders();
+            GC.Collect(); GC.WaitForPendingFinalizers(); GC.Collect();
+            check(!captured.IsAlive && !MixturePresentationRuntime.HasProvider && !MixturePresentationRuntime.HasCachedFrame);
+        });
         test("inventory adapters capture once per Unity frame with explicit failures", () =>
         {
             var setup = Setup(); var calls = 0; var alive = true;
@@ -433,6 +547,14 @@ internal static class MixtureRuntimeTests
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference BindCapturedCompletedSource(MixturePresentationPublication publication)
+    {
+        var token = new object(); var reference = new WeakReference(token);
+        MixturePresentationRuntime.BindCompletedSource(() => { GC.KeepAlive(token); return publication; });
+        return reference;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference RegisterCapturedProvider(FluidMaterialCatalog catalog)
     {
         var token = new object(); var reference = new WeakReference(token);
@@ -453,7 +575,7 @@ internal static class MixtureRuntimeTests
         });
         var model = Model(catalog); MixturePresentationRuntime.Configure(model); return (catalog, model);
     }
-    private static MixturePresentationModel Model(FluidMaterialCatalog catalog)
+    private static MixturePresentationModel Model(FluidMaterialCatalog catalog, AtmosphereSettings? settings = null)
         => new MixturePresentationModel(catalog, new[]
         {
             new MixtureSpeciesStyle("oxygen", "Oxygen", new MixtureSrgbColor(0.4, 0.75, 0.95)),
@@ -461,7 +583,7 @@ internal static class MixtureRuntimeTests
             new MixtureSpeciesStyle("co2", "Carbon dioxide", new MixtureSrgbColor(0.25, 0.25, 0.25)),
             new MixtureSpeciesStyle("chlorine", "Chlorine", new MixtureSrgbColor(0.65, 0.8, 0.3)),
             new MixtureSpeciesStyle("water", "Water", new MixtureSrgbColor(0.1, 0.3, 0.9))
-        }, new AtmosphereSettings(), "oxygen", "co2", new Dictionary<string, double> { ["chlorine"] = 1e-9 });
+        }, settings ?? new AtmosphereSettings(), "oxygen", "co2", new Dictionary<string, double> { ["chlorine"] = 1e-9 });
     private static FluidInventory Air(FluidMaterialCatalog catalog, double temperature = 300, double multiplier = 1)
         => catalog.CreateInventory(new Dictionary<string, double>
         { ["oxygen"] = 8.4 * 0.032 * multiplier, ["nitrogen"] = 31.6 * 0.028 * multiplier }, temperature);

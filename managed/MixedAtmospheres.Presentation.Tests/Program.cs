@@ -349,6 +349,7 @@ internal static class Program
 
         Test("managed presentation assessment matches native flags and boundary tolerance", NativeAssessmentParity);
         OwnedContainerPresentationTests.Run(Test, Check, Reject, () => Fixture(), () => Model(), Catalog);
+        PreparedPresentationPublicationTests.Run(Test, Check, Reject, () => Fixture(), () => Model(), Catalog);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
