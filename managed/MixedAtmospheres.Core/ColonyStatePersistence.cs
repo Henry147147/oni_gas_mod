@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -11,7 +12,7 @@ namespace MixedAtmospheres.Core
     public sealed partial class ColonyFluidState
     {
         private static readonly byte[] SaveMagic = Encoding.ASCII.GetBytes("MAFLUIDS");
-        public const int SaveFormatVersion = 2;
+        public const int SaveFormatVersion = 3;
         private const int MaximumSaveBytes = 640 * 1024 * 1024;
         private static readonly Encoding StrictUtf8 = new UTF8Encoding(false, true);
 
@@ -43,6 +44,15 @@ namespace MixedAtmospheres.Core
                 writer.Write(snapshot.Inventories.Count);
                 foreach (var entry in snapshot.Inventories.OrderBy(entry => entry.Key))
                 { writer.Write(entry.Key); WriteInventory(writer, entry.Value); }
+                writer.Write(snapshot.ColonyId.ToByteArray()); writer.Write(snapshot.NextContainerGeneration);
+                writer.Write(snapshot.Containers.Count);
+                foreach (var entry in snapshot.Containers.OrderBy(entry => entry.Key, StringComparer.Ordinal))
+                {
+                    var container = entry.Value;
+                    WriteIdentity(writer, entry.Key); writer.Write(container.Handle.Generation); writer.Write(container.Handle.AllocationToken.ToByteArray());
+                    writer.Write(container.Definition.VolumeCubicMetres); writer.Write(container.Definition.MaximumMassKg);
+                    writer.Write((int)container.Definition.AllowedPhases); WriteInventory(writer, container.Inventory);
+                }
                 if (stream.Length + 32 > MaximumSaveBytes) throw new InvalidOperationException("Custom colony checkpoint exceeds the size limit.");
             }
             var payload = stream.ToArray(); using var sha = SHA256.Create(); var checksum = sha.ComputeHash(payload);
@@ -102,8 +112,22 @@ namespace MixedAtmospheres.Core
                     if (inventory.IsEmpty) throw new InvalidDataException("Redundant empty checkpoint inventory.");
                     catalog.Describe(inventory, allowUnplaced ? double.MaxValue : geometry.CellVolume); inventories.Add(cell, inventory);
                 }
+                var colonyId = ReadAllocationToken(reader); var nextGeneration = reader.ReadInt64();
+                var containerCount = ReadCount(reader, FluidContainerSnapshot.MaximumContainers, "owned containers");
+                var containers = new Dictionary<string, FluidContainerSnapshot>(StringComparer.Ordinal);
+                for (var i = 0; i < containerCount; ++i)
+                {
+                    var id = ReadIdentity(reader); var generation = reader.ReadInt64(); var token = ReadAllocationToken(reader);
+                    var handle = new FluidContainerHandle(colonyId, id, generation, token);
+                    var definition = new FluidContainerDefinition(reader.ReadDouble(), reader.ReadDouble(), (FluidContainerPhases)reader.ReadInt32());
+                    var container = new FluidContainerSnapshot(handle, definition, ReadInventory(reader, catalog), catalog);
+                    if (containers.ContainsKey(id)) throw new InvalidDataException("Duplicate checkpoint container identity.");
+                    containers.Add(id, container);
+                }
+                FluidContainerSnapshot.ValidateSet(colonyId, nextGeneration, containers, catalog);
                 if (stream.Position != stream.Length) throw new InvalidDataException("Trailing custom colony checkpoint payload.");
-                var snapshot = new ColonyFrameSnapshot(geometry, catalog, revision, frame, time, inventories, initial, supplied, removed, heat);
+                var snapshot = new ColonyFrameSnapshot(geometry, catalog, revision, frame, time, inventories, initial, supplied, removed, heat,
+                    colonyId, new ReadOnlyDictionary<string, FluidContainerSnapshot>(containers), nextGeneration);
                 ValidateBalance(snapshot);
                 return snapshot;
             }
@@ -129,6 +153,13 @@ namespace MixedAtmospheres.Core
             var count = reader.ReadInt32();
             if (count < 0 || count > maximum) throw new InvalidDataException("Invalid checkpoint count for " + name);
             return count;
+        }
+
+        private static Guid ReadAllocationToken(BinaryReader reader)
+        {
+            var bytes = reader.ReadBytes(16); if (bytes.Length != 16) throw new EndOfStreamException();
+            var token = new Guid(bytes); if (token == Guid.Empty) throw new InvalidDataException("Empty colony/container allocation identity.");
+            return token;
         }
 
         private static void WriteInventory(BinaryWriter writer, FluidInventory inventory)

@@ -120,10 +120,13 @@ namespace MixedAtmospheres.Core
         public long Revision { get; }
         public long CompletedFrame { get; }
         public double SimulationTimeSeconds { get; }
+        public Guid ColonyId { get; }
         public string MaterialModelVersion => Catalog.Version;
         public string MaterialModelFingerprint => Catalog.Fingerprint;
         public IReadOnlyList<NativeWorldPlacement> Worlds => Geometry.Placements;
         public IReadOnlyDictionary<int, FluidInventory> Inventories { get; }
+        public IReadOnlyDictionary<string, FluidContainerSnapshot> Containers { get; }
+        internal long NextContainerGeneration { get; }
         public FluidInventory InitialInventory { get; }
         public FluidInventory SuppliedInventory { get; }
         public FluidInventory RemovedInventory { get; }
@@ -131,11 +134,15 @@ namespace MixedAtmospheres.Core
 
         internal ColonyFrameSnapshot(ColonyGeometry geometry, FluidMaterialCatalog catalog, long revision,
             long completedFrame, double simulationTime, Dictionary<int, FluidInventory> inventories,
-            FluidInventory initial, FluidInventory supplied, FluidInventory removed, double heat)
+            FluidInventory initial, FluidInventory supplied, FluidInventory removed, double heat,
+            Guid? colonyId = null, IReadOnlyDictionary<string, FluidContainerSnapshot>? containers = null, long nextContainerGeneration = 1)
         {
             Geometry = geometry; Catalog = catalog; Revision = revision; CompletedFrame = completedFrame; SimulationTimeSeconds = simulationTime;
             Inventories = new ReadOnlyDictionary<int, FluidInventory>(inventories);
             InitialInventory = initial; SuppliedInventory = supplied; RemovedInventory = removed; ExternalHeatJoules = heat;
+            ColonyId = colonyId ?? Guid.NewGuid();
+            if (ColonyId == Guid.Empty || nextContainerGeneration <= 0) throw new ArgumentException("Invalid colony/container allocation identity.");
+            Containers = containers ?? FluidContainerSnapshot.EmptyTable; NextContainerGeneration = nextContainerGeneration;
         }
 
         public FluidCellSnapshot SampleCell(int globalCellIndex)
@@ -156,10 +163,31 @@ namespace MixedAtmospheres.Core
 
         internal FluidInventory InventoryAt(int cell) => Inventories.TryGetValue(cell, out var inventory) ? inventory : FluidInventory.Empty;
 
-        public FluidInventory Totals()
+        public FluidContainerSnapshot SampleContainer(FluidContainerHandle handle)
+        {
+            if (!TrySampleContainer(handle, out var container)) throw new InvalidOperationException("Container handle is stale, foreign, retired or unpublished.");
+            return container!;
+        }
+
+        public bool TrySampleContainer(FluidContainerHandle handle, out FluidContainerSnapshot? container)
+        {
+            container = null;
+            if (handle.ColonyId != ColonyId || handle.Id == null || !Containers.TryGetValue(handle.Id, out var found) || !found.Handle.Equals(handle)) return false;
+            container = found; return true;
+        }
+
+        public FluidInventory WorldTotals()
         {
             var result = FluidInventory.Empty;
             foreach (var entry in Inventories.OrderBy(entry => entry.Key)) result = FluidInventory.Combine(result, entry.Value);
+            return result;
+        }
+
+        /// <summary>All conserved world-cell and owned-container inventories. Internal transfers do not enter external ledgers.</summary>
+        public FluidInventory Totals()
+        {
+            var result = WorldTotals();
+            foreach (var entry in Containers.OrderBy(entry => entry.Key, StringComparer.Ordinal)) result = FluidInventory.Combine(result, entry.Value.Inventory);
             return result;
         }
     }
@@ -307,7 +335,9 @@ namespace MixedAtmospheres.Core
         public FluidTransaction BeginTransaction() { lock (sync) return new FluidTransaction(this, current.Snapshot); }
 
         internal PreparedFluidCommit Prepare(ColonyFrameSnapshot basis,
-            Dictionary<int, FluidInventory> changes, Dictionary<int, int> geometryChanges, FluidInventory supplied, FluidInventory removed, double heat,
+            Dictionary<int, FluidInventory> changes, Dictionary<int, int> geometryChanges,
+            IReadOnlyDictionary<string, FluidContainerSnapshot?>? containerChanges, long nextContainerGeneration,
+            FluidInventory supplied, FluidInventory removed, double heat,
             long completedFrame, double simulationTime)
         {
             lock (sync)
@@ -330,8 +360,19 @@ namespace MixedAtmospheres.Core
                 var nextSupplied = FluidInventory.Combine(basis.SuppliedInventory, supplied);
                 var nextRemoved = FluidInventory.Combine(basis.RemovedInventory, removed);
                 var nextHeat = basis.ExternalHeatJoules + heat; FluidChecks.Finite(nextHeat, nameof(heat));
+                var containers = basis.Containers;
+                if (containerChanges != null)
+                {
+                    var merged = basis.Containers.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+                    foreach (var entry in containerChanges)
+                        if (entry.Value == null) merged.Remove(entry.Key); else merged[entry.Key] = entry.Value;
+                    FluidContainerSnapshot.ValidateSet(basis.ColonyId, nextContainerGeneration, merged, basis.Catalog);
+                    containers = new ReadOnlyDictionary<string, FluidContainerSnapshot>(merged);
+                }
+                if (nextContainerGeneration < basis.NextContainerGeneration) throw new InvalidOperationException("Container allocation generation cannot go backwards.");
                 var candidate = new ColonyFrameSnapshot(geometry, basis.Catalog, checked(basis.Revision + 1),
-                    completedFrame, simulationTime, inventories, basis.InitialInventory, nextSupplied, nextRemoved, nextHeat);
+                    completedFrame, simulationTime, inventories, basis.InitialInventory, nextSupplied, nextRemoved, nextHeat,
+                    basis.ColonyId, containers, nextContainerGeneration);
                 return new PreparedFluidCommit(this, basis, candidate);
             }
         }
@@ -403,8 +444,8 @@ namespace MixedAtmospheres.Core
         public void Dispose() { lock (sync) { owner.ReleaseWriter(this); closed = true; } }
     }
 
-    /// <summary>Optimistic, atomic changes. Callbacks and game side effects must run only after a successful commit.</summary>
-    public sealed class FluidTransaction : IDisposable
+    /// <summary>Optimistic, atomic changes. A staged-write failure closes the transaction; pre-write validation failures remain recoverable. Callbacks and game side effects must run only after a successful commit.</summary>
+    public sealed partial class FluidTransaction : IDisposable
     {
         private readonly ColonyFluidState owner;
         private readonly ColonyFrameSnapshot basis;
@@ -415,7 +456,8 @@ namespace MixedAtmospheres.Core
         private double heat;
         private bool closed;
         public ColonyFluidState Authority => owner;
-        internal FluidTransaction(ColonyFluidState owner, ColonyFrameSnapshot basis) { this.owner = owner; this.basis = basis; }
+        internal FluidTransaction(ColonyFluidState owner, ColonyFrameSnapshot basis)
+        { this.owner = owner; this.basis = basis; nextContainerGeneration = basis.NextContainerGeneration; activeContainerCount = basis.Containers.Count; }
         private void CheckOpen() { if (closed) throw new ObjectDisposedException(nameof(FluidTransaction)); }
         private int ElementAt(int cell)
         {
@@ -438,12 +480,15 @@ namespace MixedAtmospheres.Core
         }
 
         private FluidInventory SpeciesParcel(FluidInventory source, string materialId, double massKg)
+            => SpeciesParcel(source, materialId, massKg, basis.CellVolumeCubicMetres);
+
+        private FluidInventory SpeciesParcel(FluidInventory source, string materialId, double massKg, double sourceVolume)
         {
             FluidChecks.Positive(massKg, nameof(massKg)); basis.Catalog.Get(materialId);
             if (!source.MassesKg.TryGetValue(materialId, out var available) || massKg > available)
                 throw new InvalidOperationException("Insufficient selected constituent.");
             if (source.MassesKg.Count == 1 && massKg == available) return source;
-            var temperature = basis.Catalog.Describe(source, basis.CellVolumeCubicMetres).Temperature;
+            var temperature = basis.Catalog.Describe(source, sourceVolume).Temperature;
             var fraction = massKg / source.TotalMassKg;
             return basis.Catalog.CreateInventory(new Dictionary<string, double> { [materialId] = massKg }, temperature,
                 source.VelocityX, source.VelocityY, source.DiseaseCounts.ToDictionary(entry => entry.Key, entry => entry.Value * fraction),
@@ -466,7 +511,7 @@ namespace MixedAtmospheres.Core
             var source = Get(sourceCell); var destination = Get(destinationCell); var parcel = Parcel(source, massKg);
             var remainder = FluidInventory.Combine(source, parcel, true); var combined = FluidInventory.Combine(destination, parcel);
             Validate(remainder); Validate(combined);
-            changes[sourceCell] = remainder; changes[destinationCell] = combined;
+            StageCell(sourceCell, remainder); StageCell(destinationCell, combined);
         }
 
         public void TransferSpecies(int sourceCell, int destinationCell, string materialId, double massKg)
@@ -477,7 +522,7 @@ namespace MixedAtmospheres.Core
             // Reconstructing selected parcel energy uses the source's actual temperature.
             var remainder = FluidInventory.Combine(source, parcel, true); var combined = FluidInventory.Combine(destination, parcel);
             Validate(remainder); Validate(combined);
-            changes[sourceCell] = remainder; changes[destinationCell] = combined;
+            StageCell(sourceCell, remainder); StageCell(destinationCell, combined);
         }
 
         public void Inject(int destinationCell, FluidInventory parcel, string reason)
@@ -486,7 +531,7 @@ namespace MixedAtmospheres.Core
             var destination = Get(destinationCell); Validate(parcel);
             var combined = FluidInventory.Combine(destination, parcel); Validate(combined);
             var nextSupplied = FluidInventory.Combine(supplied, parcel);
-            changes[destinationCell] = combined; supplied = nextSupplied;
+            StageCell(destinationCell, combined); supplied = nextSupplied;
         }
 
         public FluidInventory Extract(int sourceCell, double massKg, string reason)
@@ -494,7 +539,7 @@ namespace MixedAtmospheres.Core
             CheckOpen(); Reason(reason); var source = Get(sourceCell); var parcel = Parcel(source, massKg);
             var remainder = FluidInventory.Combine(source, parcel, true); Validate(remainder);
             var nextRemoved = FluidInventory.Combine(removed, parcel);
-            changes[sourceCell] = remainder; removed = nextRemoved; return parcel;
+            StageCell(sourceCell, remainder); removed = nextRemoved; return parcel;
         }
 
         public FluidInventory ExtractSpecies(int sourceCell, string materialId, double massKg, string reason)
@@ -502,7 +547,7 @@ namespace MixedAtmospheres.Core
             CheckOpen(); Reason(reason); var source = Get(sourceCell); var parcel = SpeciesParcel(source, materialId, massKg);
             var remainder = FluidInventory.Combine(source, parcel, true); Validate(remainder);
             var nextRemoved = FluidInventory.Combine(removed, parcel);
-            changes[sourceCell] = remainder; removed = nextRemoved; return parcel;
+            StageCell(sourceCell, remainder); removed = nextRemoved; return parcel;
         }
 
         public void ApplyHeat(int cell, double joules, string reason)
@@ -510,13 +555,13 @@ namespace MixedAtmospheres.Core
             CheckOpen(); Reason(reason); FluidChecks.Finite(joules, nameof(joules)); var inventory = Get(cell);
             var updated = new FluidInventory(inventory.MassesKg, inventory.TotalEnergyJoules + joules, inventory.MomentumX,
                 inventory.MomentumY, inventory.DiseaseCounts, inventory.RadiationQuantity); Validate(updated);
-            var nextHeat = heat + joules; FluidChecks.Finite(nextHeat, "external heat"); changes[cell] = updated; heat = nextHeat;
+            var nextHeat = heat + joules; FluidChecks.Finite(nextHeat, "external heat"); StageCell(cell, updated); heat = nextHeat;
         }
 
         /// <summary>Opens a cell after a native solid removal. Coupling the native operation remains the adapter's responsibility.</summary>
         public void ClearSolid(int cell)
         {
-            CheckOpen(); ElementAt(cell); geometryChanges[cell] = basis.Geometry.VacuumHash;
+            CheckOpen(); ElementAt(cell); StageGeometry(cell, basis.Geometry.VacuumHash);
         }
 
         /// <summary>Places a known native solid only when no fluid mass or metadata would be lost.</summary>
@@ -525,7 +570,7 @@ namespace MixedAtmospheres.Core
             CheckOpen(); ElementAt(cell); basis.Geometry.RequireSolidHash(solidElementHash);
             var inventory = changes.TryGetValue(cell, out var changed) ? changed : basis.InventoryAt(cell);
             if (!inventory.IsEmpty) throw new InvalidOperationException("Solid placement requires conservative fluid displacement first.");
-            geometryChanges[cell] = solidElementHash;
+            StageGeometry(cell, solidElementHash);
         }
 
         /// <summary>Moves the entire inventory and metadata, then places a solid, with no partial changes on blocked output.</summary>
@@ -536,7 +581,7 @@ namespace MixedAtmospheres.Core
             basis.Geometry.RequireSolidHash(solidElementHash);
             var source = Get(cell); var destination = Get(destinationCell);
             var combined = FluidInventory.Combine(destination, source); Validate(combined);
-            changes[cell] = FluidInventory.Empty; changes[destinationCell] = combined; geometryChanges[cell] = solidElementHash;
+            StageCell(cell, FluidInventory.Empty); StageCell(destinationCell, combined); StageGeometry(cell, solidElementHash);
         }
 
         public ColonyFrameSnapshot Commit() => CommitFrame(basis.CompletedFrame, basis.SimulationTimeSeconds);
@@ -548,7 +593,8 @@ namespace MixedAtmospheres.Core
         public PreparedFluidCommit PrepareFrame(long completedFrame, double simulationTimeSeconds)
         {
             CheckOpen();
-            var candidate = owner.Prepare(basis, changes, geometryChanges, supplied, removed, heat, completedFrame, simulationTimeSeconds);
+            var candidate = owner.Prepare(basis, changes, geometryChanges, containerChanges, nextContainerGeneration,
+                supplied, removed, heat, completedFrame, simulationTimeSeconds);
             closed = true; return candidate;
         }
         public void Dispose() { closed = true; }

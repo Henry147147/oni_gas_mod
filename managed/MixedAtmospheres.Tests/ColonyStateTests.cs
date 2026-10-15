@@ -347,6 +347,8 @@ internal static class ColonyStateTests
             check(state.Save().SequenceEqual(ColonyFluidState.Restore(state.Save(), Catalog()).Save()));
         });
         PreparedFluidCommitTests.Run(test, check, reject, Create, gas, empty);
+        FluidContainerTests.Run(test, check, reject, Create, () => ColonyFluidState.Import(Import(true), Catalog()), () => Catalog(), gas, water, empty, solid);
+        TransactionStagingTests.Run(test, check, reject, Create, () => Catalog(), gas, empty, solid);
     }
 
     private static void Int(byte[] data, int offset, int value) => BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset, 4), value);
