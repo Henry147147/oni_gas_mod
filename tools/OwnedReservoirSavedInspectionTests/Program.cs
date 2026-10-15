@@ -235,14 +235,17 @@ internal static class Program
                 Require(report.Groups[0].Roots[0].Markers.Count == 0 && report.OpaqueComponentCount == 1 && !report.GeneralDescendantCoverageProven);
             });
 
+            passed += BodyPrefixTests.Run();
+
             object? actual = null;
             if (args.Length != 0)
             {
                 Require(args.Length == 4);
-                if (args[0] == "--actual-capture" && args[2] == "--ordinary-save")
+                if ((args[0] == "--actual-capture" || args[0] == "--derived-capture") && args[2] == "--ordinary-save")
                 {
-                    actual = ActualCapture(args[1], args[3]);
-                    passed++; Console.WriteLine("PASS actual v38 directory and KSAV native ranges, known layouts and untouched packet bytes");
+                    bool derive = args[0] == "--derived-capture";
+                    actual = ActualCapture(args[1], args[3], derive);
+                    passed++; Console.WriteLine(derive ? "PASS actual v38 body-zero derived KSAV and untouched packet bytes" : "PASS actual v38 directory and KSAV native ranges, known layouts and untouched packet bytes");
                 }
                 else
                 {
@@ -254,14 +257,14 @@ internal static class Program
             }
             Console.WriteLine(JsonSerializer.Serialize(new { Passed = true, Groups = passed,
                 ActualDirectory = args.Length == 4 && args[0] == "--ordinary-fixture" ? actual : null,
-                ActualCapture = args.Length == 4 && args[0] == "--actual-capture" ? actual : null,
+                ActualCapture = args.Length == 4 && (args[0] == "--actual-capture" || args[0] == "--derived-capture") ? actual : null,
                 OwnedRestorePermitted = false, WholeFilePreflightProven = false }));
             return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }
     }
 
-    private static object ActualCapture(string captureFolder, string ordinaryPath)
+    private static object ActualCapture(string captureFolder, string ordinaryPath, bool derivePrefix = false)
     {
         const string fileSha = "b165e67adf05765b0837826c09492d0d7ea0a0cd55f4dfbcccbb2d6a1ac3d7a8";
         const string bodySha = "aa16d9ee13d82bece7318dc7b55546cf9bca181cf602665f8300838af9708262";
@@ -339,10 +342,12 @@ internal static class Program
         Require(inflated.AsSpan().SequenceEqual(body));
         var directory = SavedDirectoryInspector.Inspect(SavedImage.CopyFrom(directoryImage), 398, 29965 - 398);
         Require(directory.Range.End == 29965);
-        // This is the first product KSAV parse for the actual captured body.
-        // The exact observed entry is supplied explicitly; no magic search or
-        // structural source-to-section derivation is claimed.
-        var report = SavedKsavInspector.Inspect(SavedImage.CopyFrom(body), 9472651, directory);
+        var bodyImage = SavedImage.CopyFrom(body);
+        SavedBodyPrefixReport? prefix = derivePrefix ? SavedBodyPrefixInspector.Inspect(bodyImage, directory) : null;
+        // The observed start is an external comparison only. In derived mode,
+        // no observed offset is passed to the prefix product API.
+        if (prefix != null) Require(prefix.KsavOffset == 9472651);
+        var report = SavedKsavInspector.Inspect(bodyImage, prefix?.KsavOffset ?? 9472651, directory);
         Require(report.Section.End == 10456036 && report.Section.Length == 983385 && report.UntouchedTail.Length == body.Length - 10456036);
         Require(report.SemanticIssues.Count == 0 && report.FramingComplete && report.RecognizedStorageTraversalComplete);
         Require(!report.WholeFilePreflightProven && !report.GeneralDescendantCoverageProven && !report.OwnedRestorePermitted);
@@ -381,8 +386,20 @@ internal static class Program
                 StoragePacketCount = 1, StoragePayload = Range(storageComponent.Payload), EntireRoot = Range(parent.Range) },
             Packet = new { SavedId = 247005, packet.PrefabTag, packet.StorageDepth, EntireRoot = Range(packet.Range), PrimaryElementOpaquePayload = Range(primary.Payload) },
             NativeScalarWitnesses = nativeScalars.Select(x => x.Clone()).ToArray(),
+            Prefix = prefix == null ? null : new
+            {
+                StartsAtBodyZero = true, KsavOffsetAuthority = "walked closed prefix and inline Sim envelope from body0",
+                prefix.KsavOffset, prefix.WidthInCells, prefix.HeightInCells, prefix.ClusterId, prefix.NextUniqueId, prefix.GameId,
+                SaveFileRootMembers = Range(prefix.SaveFileRootMembers), SettingsMembers = Range(prefix.SettingsMembers),
+                RequiredMods = Range(prefix.RequiredMods), StreamedDictionary = Range(prefix.StreamedDictionary), ActiveModsList = Range(prefix.ActiveModsList),
+                SimLengthField = Range(prefix.SimLengthField), SimPayload = Range(prefix.SimPayload),
+                Streamed = prefix.Streamed.Select(x => new { x.Key, x.IsNull, EncodedValue = Range(x.EncodedValue), Payload = Range(x.Payload), EncodedKey = Range(x.EncodedKey) }).ToArray(),
+                ActiveMods = prefix.ActiveMods.Select(x => new { x.DistributionPlatform, x.Id, x.Title, x.Version, Range = Range(x.Range) }).ToArray(),
+                prefix.NativeGridValidityProven, prefix.NativeSimValidityProven, prefix.NativeLoadPermitted, prefix.WriterPermission, prefix.QuarantineActivated
+            },
             PrimaryElementMassTemperatureDiseaseParsed = false, WholeFilePreflightProven = false, GeneralDescendantCoverageProven = false, OwnedRestorePermitted = false,
-            Scope = "Actual directory/KSAV sections from observed native offsets only; native scalar witnesses are separate from opaque PrimaryElement bytes; no native calls or restore"
+            Scope = derivePrefix ? "KSAV start structurally derived from immutable inflated body0 and closed saved layouts; outer file association is fixture calibration only; native scalar witnesses separate from opaque PrimaryElement bytes; no native calls or restore"
+                : "Actual directory/KSAV sections from observed native offsets only; native scalar witnesses are separate from opaque PrimaryElement bytes; no native calls or restore"
         };
     }
 

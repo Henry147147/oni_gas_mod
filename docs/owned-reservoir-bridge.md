@@ -434,7 +434,7 @@ directory descriptors and KSAV 7.38 object/component records. It reads marker,
 KPrefabID, Tag and inherited Storage fields in saved order and traverses recognized
 Storage packets. Unknown component payloads, prefix and tail remain opaque byte
 ranges. No native reader, type resolver, saved callback or prefab is invoked.
-The default build runs its 26 synthetic host groups; optional licensed fixture
+The default build runs its 43 synthetic host groups; optional licensed fixture
 checks are described in the [host tool](../tools/OwnedReservoirSavedInspectionTests/README.md).
 
 A separate Windows-v38 observer completes an ordinary native reservoir save,
@@ -464,8 +464,45 @@ the observer report SHA256 is
 Earlier test-only nullable compilation and framework-selection failures remain
 preserved beside the later successful Windows/Linux host evidence.
 
-This is section inspection at observed native offsets. Whole-file offset
-derivation, arbitrary custom-detail descendants, exact live-reader exclusion,
-checkpoint/owner reconciliation, quarantine before instantiation, atomic owned
-restore and save permission remain open. Every report explicitly denies those
-authorities. Linux host parsing does not establish Linux Unity behavior.
+The separate closed body-prefix inspector now walks immutable inflated-body
+bytes from zero. It validates the exact supported saved layouts for
+`Klei.SaveFileRoot`, `Game+Settings` and direct value-type `KMod.Label` rows,
+then derives the sole KSAV start from the bounded inline Sim envelope. It
+never searches for a marker or receives an observed section offset. Every
+collection length must equal independently walked consumption. Sim bytes stay
+opaque; recorded dimensions establish no native grid validity. Non-null
+`requiredMods` and the legacy streamed `Sim` branch remain unsupported.
+The 17 additional synthetic groups cover layout/order changes, malformed
+lengths, UTF-8, limits, copy isolation and typed rejection. Both Windows and
+Linux pass 43 synthetic groups plus the v38 derived-offset calibration.
+
+A separate fresh Windows-v39 disposable colony runs the exact same three
+product parsers inside ONI Mono 6.13 after the ordinary native save/menu/reload
+has returned. Its body-derived start 9472651 matches the independently observed
+native entry, and its section end 10445583 matches the normal native return.
+The unchanged parent/packet IDs 247005/247006 retain 12.5 kg oxygen, 310 K and native
+disease identity/count 12345 through all three scalar observation stages. The
+unassigned marker and complete stored native packet remain intact. Copied
+negative-length input rejects, caller-copy isolation passes, and archived
+images stay unchanged. The root inspected the reloaded reservoir in the native
+UI and closed ONI normally; all 13 settings/cache files and all 283 personal
+files and membership are checked after closure. Evidence is private under
+`local/colony-runs/derived-prefix-mono-windows-v39-fresh-2`.
+The actual Mono report SHA256 is
+`f1de59fa6114d77c423a7656f6cf9964b0b2ea88f5f08a575904dca8eaa6920b`;
+the independent closed-file audit is
+`25871fe4ddbf72d705903209230ecce3285ea4a6dc5b53f055a8b9511edbf22d`.
+
+The first v39 launch used cached-world startup and failed in native
+`SaveLoader.OnSpawn` before GameStarted, native save/load or any product parser
+execution. Its report, log and screenshot remain in the separate
+`derived-prefix-mono-windows-v39` evidence directory. The fresh second attempt
+uses the identical frozen package through normal New Game generation; it does
+not replace or relabel the failed first run.
+
+This establishes supported body-prefix derivation and section inspection.
+Outer header/directory/inflation association, arbitrary custom-detail
+descendants, exact live-reader exclusion, checkpoint/owner reconciliation,
+quarantine before instantiation, atomic owned restore and save permission
+remain open. Every report explicitly denies those authorities. Linux host
+parsing does not establish Linux Unity behavior.
