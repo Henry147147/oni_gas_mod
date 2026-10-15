@@ -85,6 +85,12 @@ strict GNU and Linux ASan/UBSan. The independent thermodynamic reference passes
 A separate retained material-node experiment passes 17 groups on MSVC, GNU and
 ASan/UBSan. It has no remap, runtime mode or game activation; see
 [the retained-state scope](native/OCCUPIED_STAGGERED.md).
+Additional Cartesian/hybrid remap experiments require the explicit
+`MA_BUILD_STAGGERED_EXPERIMENTS=ON` option. Bounded geometry, instantaneous
+transport, first-event and passive checks pass on MSVC/GNU/ASan, while the
+unchanged strict Cartesian test still fails six of seven groups. They stay
+outside the default build, runtime and game DLL; see
+[the opt-in evidence contract](native/STAGGERED_EXPERIMENTS.md).
 Windows and isolated Linux managed checks pass Core 88, presentation 27,
 owned-runtime 97, reservoir protocol 51, marker/footprint 31 and idle checkpoint
 codec 19 groups.
@@ -92,8 +98,8 @@ The live idle lease pins exact acknowledged owners without permitting native
 saving. Windows v26 additionally checks both complete native footprints,
 inert marker serialization and exported native-section/Core envelopes;
 a separate staged-file helper retains unresolved promotion outcomes.
-Neither supplies integrated native save/load. Seventeen Python checks
-validate the coverage inventory and discovery pipeline. Linux managed checks
+Neither supplies integrated native save/load. Thirty-nine Python checks
+validate the coverage inventory, discovery and experimental evidence pipeline. Linux managed checks
 do not establish Linux Unity rendering or game-scale performance.
 
 To inspect your licensed game and compile the developer probe:

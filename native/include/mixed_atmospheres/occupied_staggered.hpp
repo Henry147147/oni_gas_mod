@@ -8,6 +8,11 @@
 namespace ma::experimental {
 enum class StaggeredBoundary { traction_free, rigid_wall };
 enum class StaggeredInitializationEnergy { preserve_temperature, preserve_total_energy };
+struct StaggeredRezonePlan;
+struct StaggeredRemapCandidate;
+class HybridStaggeredState;
+class HybridRezonePlan;
+struct HybridRezoneCandidate;
 
 struct StaggeredInputCell {
     MixtureInventory mixture;
@@ -94,6 +99,8 @@ public:
 private:
     friend OccupiedStaggeredState initialize_occupied_staggered(const StaggeredInitialization&);
     friend StaggeredStepReport advance_occupied_staggered(OccupiedStaggeredState&, double, PressurePreconditioner);
+    friend StaggeredRemapCandidate rezone_occupied_staggered(const OccupiedStaggeredState&, const StaggeredRezonePlan&);
+    friend HybridRezoneCandidate rezone_hybrid_staggered(const HybridStaggeredState&, const HybridRezonePlan&);
     std::shared_ptr<const FluidThermodynamics> model_;
     std::string metadata_;
     std::vector<StaggeredCell> cells_;

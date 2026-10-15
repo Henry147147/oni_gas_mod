@@ -34,7 +34,7 @@ def main() -> None:
     run([sys.executable, "tools/coverage_inventory.py", "validate"])
     run([sys.executable, "-m", "unittest", "discover", "-s", "tools/tests", "-v"])
     run(["cmake", "-S", str(ROOT), "-B", str(directory), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-         "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF")])
+         "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF"), "-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF"])
     run(["cmake", "--build", str(directory), "--parallel", "8"])
     run(["ctest", "--test-dir", str(directory), "--output-on-failure"])
     if args.native_only:

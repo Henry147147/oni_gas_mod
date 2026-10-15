@@ -1,0 +1,89 @@
+name: Unfinished staggered experiment evidence
+on:
+  push:
+    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', '.github/workflows/staggered-experiments.yml']
+  pull_request:
+    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', '.github/workflows/staggered-experiments.yml']
+  workflow_dispatch:
+
+# A successful job means the evidence procedure succeeded. The unchanged
+# Cartesian strict numerical gate must still be reported FAILED, 6/7.
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - name: Test fail-closed evidence parser and fresh subprocess capture
+        run: python -m unittest discover -s tools/tests -p test_staggered_evidence.py -v
+      - name: Create fresh evidence root
+        run: python -c "from pathlib import Path; Path('staggered-evidence').mkdir()"
+      - name: Configure default seven-test build
+        run: cmake -S . -B build-staggered-default -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=OFF -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > staggered-evidence/default-configure.log 2>&1
+      - name: Build default targets
+        run: cmake --build build-staggered-default --parallel 4 --verbose > staggered-evidence/default-build.log 2>&1
+      - name: Configure isolated reference
+        run: cmake -S native/experimental -B build-staggered-reference -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > staggered-evidence/reference-configure.log 2>&1
+      - name: Build isolated reference
+        run: cmake --build build-staggered-reference --parallel 4 --verbose > staggered-evidence/reference-build.log 2>&1
+      - name: Verify default seven tests including retained-node17
+        run: python tools/validate_staggered_experiments.py --mode default --build-dir build-staggered-default --reference-build-dir build-staggered-reference --output-dir staggered-evidence/default
+      - name: Configure explicit unfinished experiments
+        run: cmake -S . -B build-staggered-opt-in -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > staggered-evidence/opt-in-configure.log 2>&1
+      - name: Build ordinary and opt-in targets
+        run: cmake --build build-staggered-opt-in --parallel 4 --verbose > staggered-evidence/opt-in-build.log 2>&1
+      - name: Verify eleven applicable passes and reproduce strict numerical failure
+        run: python tools/validate_staggered_experiments.py --mode experimental --build-dir build-staggered-opt-in --reference-build-dir build-staggered-reference --output-dir staggered-evidence/experimental
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staggered-evidence-${{ runner.os }}
+          path: staggered-evidence/
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test fail-closed evidence parser
+        run: python3 -m unittest discover -s tools/tests -p test_staggered_evidence.py -v
+      - name: Create fresh evidence root
+        run: python3 -c "from pathlib import Path; Path('staggered-evidence').mkdir()"
+      - name: Configure default sanitizer build
+        run: cmake -S . -B build-staggered-default-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=OFF -DMA_SANITIZERS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all" > staggered-evidence/default-configure.log 2>&1
+      - name: Build default sanitizer targets
+        run: cmake --build build-staggered-default-asan --parallel 4 --verbose > staggered-evidence/default-build.log 2>&1
+      - name: Configure isolated reference sanitizers
+        run: cmake -S native/experimental -B build-staggered-reference-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMA_REFERENCE_SANITIZERS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all" > staggered-evidence/reference-configure.log 2>&1
+      - name: Build isolated reference sanitizers
+        run: cmake --build build-staggered-reference-asan --parallel 4 --verbose > staggered-evidence/reference-build.log 2>&1
+      - name: Verify default seven under sanitizers
+        run: python3 tools/validate_staggered_experiments.py --mode default --build-dir build-staggered-default-asan --reference-build-dir build-staggered-reference-asan --output-dir staggered-evidence/default
+      - name: Configure opt-in sanitizer build
+        run: cmake -S . -B build-staggered-opt-in-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=ON -DMA_SANITIZERS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all" > staggered-evidence/opt-in-configure.log 2>&1
+      - name: Build opt-in sanitizer targets
+        run: cmake --build build-staggered-opt-in-asan --parallel 4 --verbose > staggered-evidence/opt-in-build.log 2>&1
+      - name: Verify applicable sanitizer passes and genuine strict failure
+        run: python3 tools/validate_staggered_experiments.py --mode experimental --build-dir build-staggered-opt-in-asan --reference-build-dir build-staggered-reference-asan --output-dir staggered-evidence/experimental
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: staggered-evidence-Linux-ASan-UBSan
+          path: staggered-evidence/

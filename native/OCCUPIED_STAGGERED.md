@@ -159,9 +159,11 @@ N=16/32/64 Windows velocity L1 errors are approximately
 `1.6359e-3 / 4.0939e-4 / 1.0240e-4`. Fixed N=16 timestep refinement is compared
 to a finer temporal reference on the same grid, isolating time dispersion.
 These establish the bounded material consistency gate, not a vacuum-front or
-general free-surface convergence result. Dual/primal remap and its separate
-local consistency gates remain the next unimplemented work in
-`STAGGERED_1D_DESIGN.md`.
+general free-surface convergence result. Separate opt-in Cartesian/hybrid
+remap experiments and their remaining failures are described in
+`STAGGERED_EXPERIMENTS.md`; they do not change this retained material-state
+API or add a composed physical timestep. The retained library and its
+17-group test remain in the default seven-test native build.
 
 Build in a private directory with `MA_BUILD_TESTS=ON`; build target
 `ma_occupied_staggered_tests`, then `ctest -R retained_occupied_staggered`.
