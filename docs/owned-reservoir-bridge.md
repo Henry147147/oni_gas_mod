@@ -289,3 +289,23 @@ The host suite's 51 checks also pass against licensed Linux declarations in
 isolated WSL. This does not draw Linux Unity, establish rendering performance,
 route native pipes, transfer native world fluids, provide heat/power gameplay,
 or save/reload the owned state. `FirstPlayableColonyPassed` remains false.
+
+The separately installed selected-load rejection boundary now passes 50
+Windows/Linux declaration checks. It reads a bounded native header, rejects
+every recognized owned declaration, verifies the actual selected reader header,
+and retains fatal state through the exact public call and successful matching
+scene teardown. It forces ignored inner/outer failures to remain failures,
+re-clears the selected pointer, stops deserialization callbacks from continuing,
+and fences the already-entered startup caller immediately after a false load.
+It never produces a valid owned header, assigns an owner, restores a checkpoint
+or grants serialization rights. Full component-table quarantine remains absent.
+
+Windows v29 attempted the private game acceptance package. Boundary installation
+was reached, but the separate counter installer rejected its incomplete native
+initialization-call map: the pinned assembly also calls SIM_Initialize from
+`ProcGenGame.WorldGenSimUtil.DoSettleSim`. The process closed before colony
+creation or any acceptance case. All 13 original user files were restored
+byte-for-byte. Frozen source/package/log evidence remains under
+`local/colony-runs/load-rejection-windows-v29`. This is a failed diagnostic
+installation, not a passed load test; the full call map and actual game
+acceptance are still being completed. The boundary remains inactive by default.
