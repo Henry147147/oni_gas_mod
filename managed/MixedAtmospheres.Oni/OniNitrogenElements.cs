@@ -1,0 +1,165 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using HarmonyLib;
+using UnityEngine;
+
+namespace MixedAtmospheres.Oni
+{
+    // Native identities and presentation assets only. These nominal pure-phase
+    // definitions do not supply the mixture EOS, latent heat or world ownership.
+    internal static class OniNitrogenElements
+    {
+        internal const string GasId = "MixedAtmospheresNitrogen";
+        internal const string LiquidId = "MixedAtmospheresLiquidNitrogen";
+        internal const string SolidId = "MixedAtmospheresSolidNitrogen";
+        internal const string ModelVersion = "ma-native-nitrogen-reference-v1";
+        internal static readonly SimHashes Gas = (SimHashes)Hash.SDBMLower(GasId);
+        internal static readonly SimHashes Liquid = (SimHashes)Hash.SDBMLower(LiquidId);
+        internal static readonly SimHashes Solid = (SimHashes)Hash.SDBMLower(SolidId);
+
+        private sealed class Definition
+        {
+            internal readonly string Id, Name, Description;
+            internal readonly SimHashes Hash, Template;
+            internal readonly Color32 Color;
+            internal Definition(string id, string name, string description, SimHashes template, Color32 color)
+            { Id = id; Name = name; Description = description; Hash = (SimHashes)global::Hash.SDBMLower(id); Template = template; Color = color; }
+        }
+        private static readonly Definition[] Definitions =
+        {
+            new Definition(GasId, "Nitrogen", "An inert atmospheric diluent. Nitrogen contributes gas pressure but supplies no breathable oxygen. Inspect the mixture's oxygen partial pressure and contaminant warnings.", SimHashes.Oxygen, new Color32(120, 145, 150, 255)),
+            new Definition(LiquidId, "Liquid nitrogen", "A cryogenic liquid that evaporates into nitrogen gas when warmed. It supplies no breathable oxygen.", SimHashes.LiquidOxygen, new Color32(89, 130, 161, 255)),
+            new Definition(SolidId, "Solid nitrogen", "Frozen nitrogen. Warming melts it into liquid nitrogen.", SimHashes.SolidOxygen, new Color32(163, 199, 219, 255))
+        };
+        private sealed class TemplateWitness
+        {
+            internal Substance Source = null!;
+            internal Substance Clone = null!;
+            internal Color32 Color, Ui, Conduit;
+            internal Gradient Gradient = null!;
+            internal GradientColorKey[] Colors = Array.Empty<GradientColorKey>();
+            internal GradientAlphaKey[] Alphas = Array.Empty<GradientAlphaKey>();
+        }
+        private static readonly Dictionary<SimHashes, TemplateWitness> Templates = new Dictionary<SimHashes, TemplateWitness>();
+
+        internal static string Identity(SimHashes id) => id == Gas ? GasId : id == Liquid ? LiquidId : id == Solid ? SolidId : id.ToString();
+        internal static bool TryIdentity(SimHashes id, out string identity)
+        {
+            if (id == Gas) identity = GasId;
+            else if (id == Liquid) identity = LiquidId;
+            else if (id == Solid) identity = SolidId;
+            else { identity = ""; return false; }
+            return true;
+        }
+        internal static void InitializeStrings()
+        {
+            foreach (var item in Definitions)
+            {
+                var prefix = "STRINGS.ELEMENTS." + item.Id.ToUpperInvariant();
+                Strings.Add(prefix + ".NAME", item.Name);
+                Strings.Add(prefix + ".DESC", item.Description);
+            }
+        }
+
+        internal static void Prepare(Hashtable substances, Dictionary<string, SubstanceTable> tables)
+        {
+            if (substances == null || tables == null) throw new ArgumentNullException("Native substance database");
+            if (!tables.TryGetValue(DlcManager.VANILLA_ID, out var table) || table == null)
+                throw new InvalidOperationException("The base-game substance table is unavailable for nitrogen registration.");
+            var list = table.GetList();
+            var cloneMethod = AccessTools.Method(typeof(object), "MemberwiseClone") ?? throw new MissingMethodException("MemberwiseClone");
+            var gradientField = AccessTools.Field(typeof(Substance), "gradient") ?? throw new MissingFieldException("Substance.gradient");
+            var propertyBlockField = AccessTools.Field(typeof(Substance), "propertyBlock") ?? throw new MissingFieldException("Substance.propertyBlock");
+            foreach (var item in Definitions)
+            {
+                // A duplicate is an explicit incompatibility, never an arbitrary
+                // override dependent on mod ordering. Reusing our exact previous
+                // table clone during database reload is supported.
+                var existing = list.SingleOrDefault(value => value.elementID == item.Hash);
+                if (existing != null)
+                {
+                    if (!Templates.TryGetValue(item.Hash, out var previous) || !ReferenceEquals(previous.Clone, existing))
+                        throw new InvalidOperationException("Nitrogen element identity collision: " + item.Id);
+                    if (substances.ContainsKey(item.Hash) && !ReferenceEquals(substances[item.Hash], existing))
+                        throw new InvalidOperationException("Conflicting nitrogen substance identity: " + item.Id);
+                    continue;
+                }
+                if (substances.ContainsKey(item.Hash)) throw new InvalidOperationException("Nitrogen substance identity collision: " + item.Id);
+                var source = substances[item.Template] as Substance ?? table.GetSubstance(item.Template);
+                if (source == null)
+                    throw new InvalidOperationException("Native nitrogen rendering template unavailable: " + item.Template);
+                var original = source.Gradient;
+                var witness = new TemplateWitness { Source = source, Color = source.colour, Ui = source.uiColour, Conduit = source.conduitColour,
+                    Gradient = original, Colors = original.colorKeys, Alphas = original.alphaKeys };
+                var colors = original.colorKeys;
+                for (var i = 0; i < colors.Length; ++i)
+                    colors[i] = new GradientColorKey((Color)item.Color, colors[i].time);
+                var gradient = new Gradient { mode = original.mode };
+                gradient.SetKeys(colors, original.alphaKeys);
+                var clone = (Substance)cloneMethod.Invoke(source, null)!;
+                witness.Clone = clone;
+                clone.elementID = item.Hash; clone.name = item.Name;
+                clone.colour = item.Color; clone.uiColour = item.Color; clone.conduitColour = item.Color;
+                gradientField.SetValue(clone, gradient);
+                // Materials/animations are shared, read-only references to the
+                // licensed installation. Mutable per-substance state is private.
+                propertyBlockField.SetValue(clone, null);
+                list.Add(clone); Templates[item.Hash] = witness;
+            }
+        }
+
+        internal static void ValidateLoaded()
+        {
+            foreach (var item in Definitions)
+            {
+                var element = ElementLoader.FindElementByHash(item.Hash) ?? throw new InvalidDataException("Nitrogen YAML was not loaded: " + item.Id);
+                if (element.tag.ToString() != item.Id || element.name != item.Name || element.idx >= ElementLoader.elements.Count ||
+                    !ReferenceEquals(ElementLoader.elements[element.idx], element) || element.substance == null ||
+                    !SameColor(element.substance.colour, item.Color))
+                    throw new InvalidDataException("Invalid native nitrogen element: " + item.Id);
+                if (!Templates.TryGetValue(item.Hash, out var witness) || ReferenceEquals(element.substance, witness.Source) ||
+                    !ReferenceEquals(element.substance.material, witness.Source.material) || !ReferenceEquals(element.substance.anim, witness.Source.anim) ||
+                    ReferenceEquals(element.substance.Gradient, witness.Gradient) || !SameColor(witness.Source.colour, witness.Color) ||
+                    !SameColor(witness.Source.uiColour, witness.Ui) || !SameColor(witness.Source.conduitColour, witness.Conduit) ||
+                    !witness.Colors.SequenceEqual(witness.Source.Gradient.colorKeys) || !witness.Alphas.SequenceEqual(witness.Source.Gradient.alphaKeys))
+                    throw new InvalidDataException("Native nitrogen registration changed its rendering template: " + item.Id);
+            }
+            var gas = ElementLoader.FindElementByHash(Gas); var liquid = ElementLoader.FindElementByHash(Liquid); var solid = ElementLoader.FindElementByHash(Solid);
+            if (!gas.IsGas || !liquid.IsLiquid || !solid.IsSolid || gas.lowTempTransition != liquid || liquid.highTempTransition != gas ||
+                liquid.lowTempTransition != solid || solid.highTempTransition != liquid || gas.materialCategory == GameTags.Breathable ||
+                gas.lowTemp != 77.355f || liquid.lowTemp != 63.15f || liquid.highTemp != 77.355f || solid.highTemp != 63.15f)
+                throw new InvalidDataException("Native nitrogen phase links or breathing category are invalid.");
+        }
+        private static bool SameColor(Color32 left, Color32 right) => left.r == right.r && left.g == right.g && left.b == right.b && left.a == right.a;
+    }
+
+    [HarmonyPatch(typeof(ElementLoader), nameof(ElementLoader.Load))]
+    internal static class NitrogenElementLoadPatch
+    {
+        private static void Prefix(Hashtable substanceList, Dictionary<string, SubstanceTable> substanceTablesByDlc)
+            => OniNitrogenElements.Prepare(substanceList, substanceTablesByDlc);
+        private static void Postfix() => OniNitrogenElements.ValidateLoaded();
+    }
+
+    // SimHashes is the shipped enum and cannot acquire new members. Native tag
+    // helpers otherwise stringify custom values as integers, breaking prefab
+    // lookup and SpawnResource. Only these three identities are intercepted.
+    [HarmonyPatch]
+    internal static class NitrogenElementTagPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods()
+        {
+            yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.Create));
+            yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.CreateTag));
+        }
+        internal static bool Prefix(SimHashes id, ref Tag __result)
+        {
+            if (!OniNitrogenElements.TryIdentity(id, out var identity)) return true;
+            __result = TagManager.Create(identity); return false;
+        }
+    }
+}

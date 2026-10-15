@@ -20,6 +20,7 @@ namespace MixedAtmospheres.Oni
                 NativeLibraryBootstrap.Load(path);
                 MixtureAppearanceSettings.Initialize();
                 MixtureOverlays.InitializeStrings();
+                OniNitrogenElements.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
                 base.OnLoad(harmony);
                 MixtureWorldRendering.Install(harmony);

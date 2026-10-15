@@ -1,0 +1,74 @@
+# Original nominal native definitions. Values mirror the versioned reference
+# species catalogue; these fixed transition temperatures do not implement the
+# pressure-dependent, energy-conserving mixture phase model. See docs/nitrogen.md.
+---
+elements:
+  - elementId: MixedAtmospheresNitrogen
+    state: Gas
+    localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESNITROGEN.NAME
+    description: STRINGS.ELEMENTS.MIXEDATMOSPHERESNITROGEN.DESC
+    dlcId: ""
+    specificHeatCapacity: 1.040
+    thermalConductivity: 0.0258
+    molarMass: 28.0134
+    solidSurfaceAreaMultiplier: 25
+    liquidSurfaceAreaMultiplier: 1
+    gasSurfaceAreaMultiplier: 1
+    flow: 0.12
+    lowTemp: 77.355
+    lowTempTransitionTarget: MixedAtmospheresLiquidNitrogen
+    defaultTemperature: 293.15
+    defaultPressure: 101.3
+    lightAbsorptionFactor: 0
+    radiationAbsorptionFactor: 0.08
+    materialCategory: Unbreathable
+    toxicity: 0
+    isDisabled: false
+  - elementId: MixedAtmospheresLiquidNitrogen
+    state: Liquid
+    localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESLIQUIDNITROGEN.NAME
+    description: STRINGS.ELEMENTS.MIXEDATMOSPHERESLIQUIDNITROGEN.DESC
+    dlcId: ""
+    specificHeatCapacity: 2.040
+    thermalConductivity: 0.14
+    molarMass: 28.0134
+    maxMass: 808
+    defaultMass: 500
+    defaultTemperature: 70
+    liquidCompression: 1.01
+    speed: 200
+    minHorizontalFlow: 0.01
+    minVerticalFlow: 0.01
+    solidSurfaceAreaMultiplier: 1
+    liquidSurfaceAreaMultiplier: 25
+    gasSurfaceAreaMultiplier: 1
+    lowTemp: 63.15
+    lowTempTransitionTarget: MixedAtmospheresSolidNitrogen
+    highTemp: 77.355
+    highTempTransitionTarget: MixedAtmospheresNitrogen
+    lightAbsorptionFactor: 0.1
+    radiationAbsorptionFactor: 0.82
+    toxicity: 0
+    isDisabled: false
+  - elementId: MixedAtmospheresSolidNitrogen
+    state: Solid
+    localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESSOLIDNITROGEN.NAME
+    description: STRINGS.ELEMENTS.MIXEDATMOSPHERESSOLIDNITROGEN.DESC
+    dlcId: ""
+    specificHeatCapacity: 1.500
+    thermalConductivity: 0.2
+    molarMass: 28.0134
+    maxMass: 1026
+    defaultMass: 500
+    defaultTemperature: 50
+    strength: 0.5
+    hardness: 2
+    solidSurfaceAreaMultiplier: 1
+    liquidSurfaceAreaMultiplier: 1
+    gasSurfaceAreaMultiplier: 1
+    highTemp: 63.15
+    highTempTransitionTarget: MixedAtmospheresLiquidNitrogen
+    lightAbsorptionFactor: 0.75
+    radiationAbsorptionFactor: 0.82
+    materialCategory: Liquifiable
+    isDisabled: false

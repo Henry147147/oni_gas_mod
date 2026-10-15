@@ -32,6 +32,9 @@ def main() -> None:
         parser.error("Output must be empty so a previous package cannot leave stale or game-owned DLLs")
     for file in files[:2]:
         shutil.copy2(file, output / file.name)
+    # Mod-owned YAML is loaded through ONI's virtual streaming-assets layer.
+    # Never copy data into the licensed game installation.
+    shutil.copytree(ROOT / "elements", output / "elements")
     rid = "win-x64" if args.native.suffix == ".dll" else "linux-x64"
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)

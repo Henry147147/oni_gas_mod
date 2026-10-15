@@ -39,6 +39,7 @@ namespace MixedAtmospheres.Oni
         private static CellSelectionObject? selection;
         private static MixtureContainerValidationReport? containers;
         private static MixtureContainerVisualValidation? spawnedContainers;
+        private static NitrogenVisualValidation? nitrogenItems;
 
         internal static void Tick()
         {
@@ -150,8 +151,23 @@ namespace MixedAtmospheres.Oni
                 case 46:
                     foreach (var surface in spawnedContainers!.Surfaces)
                         Require(!MixturePresentationRuntime.TryResolveInventory(surface.InventoryId, out _), "Destroyed container adapter remains published.");
+                    nitrogenItems = new NitrogenVisualValidation(x0 + 4, y0 + 21);
+                    WriteReport(); caption = "Native nitrogen phases · real pure-material items"; break;
+                case 56:
+                    nitrogenItems!.RequireAllPassed();
+                    // An interactive run retains its native items so the same
+                    // disposable colony can exercise actual Save/Quit/Resume.
+                    if (ColonyRuntimeValidation.Settings?.QuitWhenComplete != false) nitrogenItems!.Dispose();
                     WriteReport(); ColonyRuntimeValidation.CompletePresentation(); break;
                 default:
+                    if (phase >= 47 && phase < 56)
+                    {
+                        var nitrogenIndex = (phase - 47) / 3;
+                        if ((phase - 47) % 3 == 0) nitrogenItems!.Select(nitrogenIndex);
+                        else if ((phase - 47) % 3 == 1) Capture((19 + nitrogenIndex).ToString("00") + "-native-nitrogen-phase-" + nitrogenIndex + ".png");
+                        else nitrogenItems!.ValidateSelected(nitrogenIndex);
+                        break;
+                    }
                     if (phase < 27 || phase >= 45) break;
                     var surfaceIndex = (phase - 27) / 3;
                     var selectedSurface = spawnedContainers!.Surfaces[surfaceIndex];
@@ -202,7 +218,7 @@ namespace MixedAtmospheres.Oni
             model = new MixturePresentationModel(catalog, new[]
             {
                 Style("oxygen", "Oxygen", SimHashes.Oxygen),
-                new MixtureSpeciesStyle("nitrogen", "Nitrogen", new MixtureSrgbColor(.47, .57, .59)),
+                Style("nitrogen", "Nitrogen", OniNitrogenElements.Gas),
                 Style("carbon_dioxide", "Carbon dioxide", SimHashes.CarbonDioxide),
                 Style("chlorine", "Chlorine", SimHashes.ChlorineGas)
             }, new AtmosphereSettings(), "oxygen", "carbon_dioxide", new Dictionary<string, double> { ["chlorine"] = 1e-6 },
@@ -440,6 +456,7 @@ namespace MixedAtmospheres.Oni
             var style = new GUIStyle(GUI.skin.box) { fontSize = 18, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             GUI.Box(new Rect(Screen.width / 2f - 470, 100, 940, 56), "MIXTURE PRESENTATION TEST · disposable colony\n" + caption, style);
             style.fontSize = 16;
+            if (step >= 47) { GUI.color = previous; return; }
             if (spawnedContainers != null && step >= 27 && step <= 46)
             {
                 foreach (var surface in spawnedContainers.Surfaces)

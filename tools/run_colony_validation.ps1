@@ -140,7 +140,11 @@ finally {
         Move-Item -LiteralPath $oniInstalledMod -Destination (Join-Path $oniEvidence 'mod')
     }
     $oniFinalLog = Join-Path $env:USERPROFILE 'AppData\LocalLow\Klei\Oxygen Not Included\Player.log'
-    if (Test-Path -LiteralPath $oniFinalLog) { Copy-Item -LiteralPath $oniFinalLog -Destination (Join-Path $oniEvidence 'Player-final.log') }
+    # -logFile writes this invocation's authoritative log into its evidence
+    # directory. The normal Unity log can belong to an older unrelated run.
+    if ((Test-Path -LiteralPath $oniFinalLog) -and (Get-Item -LiteralPath $oniFinalLog).LastWriteTimeUtc -ge $oniLaunchUtc) {
+        Copy-Item -LiteralPath $oniFinalLog -Destination (Join-Path $oniEvidence 'Player-final.log')
+    }
     $oniGeneratedCache = Join-Path $oniEvidence 'generated-world-cache'
     New-Item -ItemType Directory -Path $oniGeneratedCache -Force | Out-Null
     Get-ChildItem -LiteralPath $oniRootPath -File | Where-Object Name -Like 'WorldGen*' | ForEach-Object {

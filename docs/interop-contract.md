@@ -153,6 +153,17 @@ The actual mod loader recognizes an `elements` directory at the mod content root
 
 ElementLoader.Load hashes each elementId with SDBMLower, registers tag/name/description, copies the YAML properties and manifests a Substance from the DLC-specific substance table. The relevant table key for base content is the actual empty string DlcManager.VANILLA_ID. FinaliseElementsTable sorts elements by phase/hash and assigns indices: resolve indices after that stage, do not assume a fixed appended index. A registration needs a valid gas Substance/gradient/material and localization; the native Sim.Element constructor reads Gradient before its later null check, so a missing substance is a startup failure. Add liquid/solid nitrogen identities and transitions if the full phase model exposes condensation/freezing; assigning pure-fluid defaults does not replace the custom mixture thermodynamics.
 
+The implementation now adds three namespaced nitrogen identities through this
+path; see [native nitrogen](nitrogen.md) for property scope and Windows game
+evidence. A valid gas substance may legitimately have null material/animation
+references and rely on the normal native fallback. Preserve those references
+when cloning; the live prefab and renderer paths establish validity. Both
+native `GameTagExtensions` hash-to-tag helpers need scoped custom identities,
+because an unknown `SimHashes` value otherwise stringifies as an integer.
+YAML also supplies explicit description keys: the installed default getter uses
+current-culture `ToUpper()`, which produces missing keys for these IDs under
+Turkish casing.
+
 A [maintained mod author's registration patches](https://github.com/Sgt-Imalas/Sgt_Imalas-Oni-Mods/blob/master/RonivansLegacy_ChemicalProcessing/Patches/ElementLoader_Patches.cs) register substances before ElementLoader.Load and adjust finalized elements afterward. Its [ModElements definitions](https://github.com/Sgt-Imalas/Sgt_Imalas-Oni-Mods/blob/master/RonivansLegacy_ChemicalProcessing/Content/ModDb/ModElements.cs) already add three nitrogen phases. This is community-authored implementation precedent; do not copy its code or numerical values as physical authority. The historical [VYaml mod-loading report](https://kleiforums.com/klei-bug-tracker/oni_beta/elementloader-yaml-loader-change-breaks-modded-element-loading-r52663/) concerns an earlier beta; the inspected current FileHandle loader uses its mod file source, so that report alone does not establish a present failure.
 
 ## Public source context

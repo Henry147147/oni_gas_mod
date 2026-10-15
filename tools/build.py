@@ -56,6 +56,8 @@ def main() -> None:
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
         run(["dotnet", "run", "--project", "tools/NativeDescriptionTests", "-c", "Release",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
+        run(["dotnet", "run", "--project", "tools/NitrogenRegistrationTests", "-c", "Release",
+             "-p:OniGameDir=" + str(Path(args.game_dir).resolve()), "--", str(Path(args.game_dir).resolve())])
 
 
 if __name__ == "__main__":

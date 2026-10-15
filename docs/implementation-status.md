@@ -332,6 +332,40 @@ persistence or full colony save/load integration. Disposal ends the session and
 does not claim native rollback or crash recovery. First playable and authoritative
 custom-colony readiness remain false.
 
+## Native nitrogen registration and Windows inspection
+
+Three namespaced nitrogen phases now load from original mod YAML, with native
+hash/tag/prefab identities, localized names/descriptions, phase links, isolated
+gradients and distinct world/UI/conduit colours. The mixture palette reads the
+registered gas colour. Native enum values retain their existing tag path;
+explicit description keys avoid the installed loader's Turkish-casing bug.
+See [nitrogen property scope and validation](nitrogen.md).
+
+Windows private run `presentation-windows-v15` passed 21 automatic Unity
+screenshots: the existing 18 mixture/container views plus three selected native
+nitrogen items. All six owned mixture fixture surfaces and all three native
+phase item inspections passed. Native Save/Quit/MainMenu/Resume then preserved
+the three visible item identities, 1000 g masses, consistent displayed
+temperatures and descriptions. Four post-resume Unity screenshots retain
+those panels and the restored native F1 overlay, with zero mixture providers
+and bindings. This proves native pure-material item inspection after resume;
+it does not prove mixture persistence or exact post-load binary scalar equality.
+Five teardown observations passed and runner settings restored byte for byte.
+The six standalone registration checks and Windows actual-game replay passed
+on both Windows and Linux. Independent review/hash manifests remain in
+`local/colony-runs/presentation-windows-v15/presentation-review.json` and
+`local/linux-presentation/nitrogen-v15/result.json`. The run's explicit log
+records the matching save/load; its stale ambient `Player-final.log` is excluded.
+Future runner invocations skip an ambient log older than their launch.
+
+This small, mostly paused run sampled 8,826 frames (p50 8.30 ms, p95 9.97 ms,
+p99 110.08 ms), including screenshots/UI transitions. Maximum measured texture
+batch wall time was 142.42 ms. It includes 504 explicit mixture fixture cells,
+up to six registered mixture inventories and three native nitrogen items;
+it is not a sustained 1x or 100k-cell performance result. Nitrogen resources,
+progression, conservative mixture phase changes and Linux Unity acceptance
+remain unimplemented/unverified. First playable remains false.
+
 ## Remaining release gates, in dependency order
 
 1. **Authoritative integration.** Audit and redirect every native mutation,
@@ -352,7 +386,7 @@ custom-colony readiness remain false.
    rockets, consumers, emitters, generators, plants, critters, geysers, waste,
    and fluid-related disease/radiation/thermal behavior. No silent vanilla
    conversion path may remain.
-5. **Playable colony.** Register nitrogen and its relevant phases, starter
+5. **Playable colony.** Finish nitrogen starting resources and starter
    supplies, ventilation/scrubbing, sensors, research and recipes. Connect the
    implemented read-only presentation to completed authoritative state; finish
    Windows and Linux UI/screenshot and sustained performance acceptance. Apply

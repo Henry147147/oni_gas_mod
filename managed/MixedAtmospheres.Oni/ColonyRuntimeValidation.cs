@@ -133,7 +133,7 @@ namespace MixedAtmospheres.Oni
                     File.WriteAllBytes(Path.Combine(OutputDirectory, "generated-world-" + index + ".bin"), worlds[index].Sim);
                 var phases = ElementLoader.elements.ToDictionary(element => (int)element.id, Phase);
                 var bindings = ElementLoader.elements.Where(element => element.IsGas || element.IsLiquid)
-                    .ToDictionary(element => (int)element.id, element => new NativeFluidBinding(element.id.ToString(), Phase(element)));
+                    .ToDictionary(element => (int)element.id, element => new NativeFluidBinding(OniNitrogenElements.Identity(element.id), Phase(element)));
                 var staged = NativeColonyImport.StageNewColony(cluster.size.x, cluster.size.y, placements, sources,
                     phases, bindings, (int)SimHashes.Vacuum);
                 Report.NewColonyStagingPassed = true;

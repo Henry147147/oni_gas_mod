@@ -65,7 +65,7 @@ namespace MixedAtmospheres.Oni
                 var element = elements[index];
                 report.Elements.Add(new CapturedElement
                 {
-                    Index = index, Id = (int)element.id, Name = element.id.ToString(),
+                    Index = index, Id = (int)element.id, Name = OniNitrogenElements.Identity(element.id),
                     Phase = element.IsGas ? "gas" : element.IsLiquid ? "liquid" : element.IsSolid ? "solid" : "vacuum"
                 });
             }
