@@ -426,6 +426,30 @@ records with the correct policy; sampled outcomes remain unchanged. Separate
 pure 14900/15000/15500-Pa calibration distinguishes the two policies. This was
 an audit-script correction, with no product or Unity acceptance change.
 
+The later Windows-v45 regression exercises the merged adapter and newly
+integrated layout helpers in a fresh nine-world, three-duplicant colony on
+build 744825/Unity 6000.3.5f2. Independent review accepts all 34 actual
+2560-by-1440 screenshots, the four labelled overlays, trace warnings, appearance
+controls, zoom/scaling, six native container selection surfaces, nominal
+nitrogen-phase items and the two isolated owned reservoirs. The six generic
+container surfaces remain read-only visual fixtures; they do not establish
+production pipe, suit, vent or machine mixture behavior. Native ONI still owns
+world physics.
+
+V45 records 18 CPU probes across two distinct cells and three texture channels;
+these establish captured CPU bytes, not GPU readback. Details rendering occurs,
+but `HoverDrawCount=0`, so this run does not establish custom mouse-hover
+drawing. Screenshot 23 has no expanded Details panel. The checkpoint views
+concern presentation-state restoration, not native save/reload of owned
+mixtures. Its timings cover only 504 cells and up to six containers in a mostly
+paused colony, including diagnostics: p50 5.529 ms, p95 6.410 ms and maximum
+texture batch 9.14 ms. They establish no controlled or 100,000-cell performance
+pass. Normal quit restores all 283 personal file identities/membership and all
+13 settings/backups. Evidence is
+`local/colony-runs/post-merge-presentation-windows-v45`; independent closed
+review `76f6013c7cf2c35c2934efa8e6ac1dbf14295d415784625ea603e5d9fdc9da96`
+is under `local/v45-independent-game-review`.
+
 A separate copied-source composition-cache experiment was rejected and never
 applied to the product. Although repeated heat-only captures improved, its
 three-pair Windows medians regressed cold capture from 67.12 to 79.87 ms and
@@ -466,9 +490,10 @@ original V41 rejection. Evidence remains under
 `local/applyheat-baseline-aa-source-only-v1` and
 `local/applyheat-baseline-aa-independent-result-review-r2`.
 
-Actual Linux Unity presentation
-screenshots remain unverified; the WSL test environment has no authenticated
-Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.
+Actual Linux Unity presentation screenshots remain unverified. The latest
+recorded dedicated Linux run passes startup checks but is blocked on Steam
+authentication before the main menu; see [the Linux harness evidence](../tools/ONI_HEADLESS.md).
+The separate WSL host correctness runs do not establish Linux Unity behavior.
 Linux Unity, production container transactions,
 long-run memory and coherent full-owned colony save/load remain open acceptance
 evidence under milestone D. `FirstPlayableColonyPassed` is false.
