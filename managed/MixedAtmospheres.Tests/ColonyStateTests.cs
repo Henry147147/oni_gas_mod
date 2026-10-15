@@ -347,6 +347,7 @@ internal static class ColonyStateTests
             check(state.Save().SequenceEqual(ColonyFluidState.Restore(state.Save(), Catalog()).Save()));
         });
         PreparedFluidCommitTests.Run(test, check, reject, Create, gas, empty);
+        ColonyPublicationReservationTests.Run(test, check, reject, Create, gas, empty);
         FluidContainerTests.Run(test, check, reject, Create, () => ColonyFluidState.Import(Import(true), Catalog()), () => Catalog(), gas, water, empty, solid);
         TransactionStagingTests.Run(test, check, reject, Create, () => Catalog(), gas, empty, solid);
     }

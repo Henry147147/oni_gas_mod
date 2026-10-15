@@ -283,6 +283,7 @@ namespace MixedAtmospheres.Core
         private readonly object sync = new object();
         private ColonyFramePublication current;
         private PreparedFluidCommit? reservedWriter;
+        private ColonyPublicationReservation? reservedPublication;
         internal ColonyFluidState(ColonyFrameSnapshot initial) { current = new ColonyFramePublication(initial, null); }
 
         public static ColonyFluidState Import(NativeColonyImport import, FluidMaterialCatalog catalog, double cellVolumeCubicMetres = 1)
@@ -388,6 +389,7 @@ namespace MixedAtmospheres.Core
             lock (sync)
             {
                 RequireCurrent(basis);
+                if (reservedPublication != null) throw new InvalidOperationException("A read/save reservation has pinned the colony publication.");
                 if (reservedWriter != null && !ReferenceEquals(reservedWriter, candidate)) throw new InvalidOperationException("Another prepared frame has reserved the colony writer.");
                 reservedWriter = candidate;
             }
@@ -403,6 +405,7 @@ namespace MixedAtmospheres.Core
             lock (sync)
             {
                 RequireCurrent(basis);
+                if (reservedPublication != null) throw new InvalidOperationException("A read/save reservation has pinned the colony publication.");
                 if (reservedWriter != null && !ReferenceEquals(reservedWriter, writer)) throw new InvalidOperationException("A prepared frame has reserved the colony writer.");
                 if (retainReservation && !ReferenceEquals(reservedWriter, writer)) throw new InvalidOperationException("Retaining a writer requires an existing reservation.");
                 current = publication;

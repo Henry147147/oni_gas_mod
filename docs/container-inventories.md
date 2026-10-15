@@ -74,8 +74,28 @@ before returning an authority. Version 2 is strictly rejected; old private
 evidence remains separate. The live snapshot companion/callback outbox and
 actual ONI manual-save/autosave envelope are not integrated by this format.
 
-Windows and isolated WSL Linux correctness evidence passes Core 82, presentation
-24, owned snapshot/runtime 76 and inspection 27 scenarios.
+`ReservePublication(expectedPublication)` pins one exact immutable publication
+without creating a fluid transaction, revision or companion. It excludes Core
+commits and prepared-writer reservations until disposal; readers and optimistic
+staging remain available. `SaveCheckpoint` serializes its pinned source and
+revalidates the lease before and after serialization. Releasing an old lease
+cannot release a successor. Companion/native-buffer lifetime remains the
+caller's responsibility.
+
+The original `OwnedReservoirCheckpointV1` data codec retains canonical Core v3
+bytes and exactly two declared GasReservoir owners, including empty owners.
+Every nonempty allocation must have an exact owner; empty unbound allocations
+are preserved. It rejects custom world-cell inventory and validates native/Core
+identities, catalogue/build contracts, construction values and the declared
+idle protocol. Its idle declaration does not establish live save eligibility.
+No native save/load hook or serialization permit is enabled by this codec.
+See the [checkpoint checks](../tools/OwnedReservoirCheckpointTests/README.md)
+for the binary contract and remaining persistence work. Windows and isolated
+WSL Linux checks pass 88 Core groups and 19 codec groups; six Core groups cover
+publication reservations. These Linux checks do not run Unity.
+
+Windows and isolated WSL Linux correctness evidence passes Core 88, presentation
+27, owned snapshot/runtime 94 and inspection 27 scenarios.
 New cases cover aborted/stale-handle ABA,
 cross-colony rejection, metadata-only evacuation, minimum-positive traces,
 fractional disease, capacity/phase/volume rollback, large-container selective
