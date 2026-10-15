@@ -647,7 +647,8 @@ namespace MixedAtmospheres.Oni
             dispense.Invoke(storageA.GetComponent<ConduitDispenser>(), new object[] { .2f });
             Require(OwnedGasReservoirBridge.BlockedPortCount == portCount + 2, "Native ports reached their bodies.");
             var destroy = AccessTools.Method(typeof(Deconstructable), nameof(Deconstructable.ForceDestroyAndGetMaterials));
-            destroy.Invoke(storageA.GetComponent<Deconstructable>(), Array.Empty<object>());
+            var materials = destroy.Invoke(storageA.GetComponent<Deconstructable>(), Array.Empty<object>()) as List<GameObject>;
+            Require(materials != null && materials.Count == 0, "Blocked forced deconstruction did not return an empty material list.");
             Require(storageA != null && construction.Mass == constructionMass && construction.ElementID == constructionElement &&
                 storageA.items.Count == 0 && storageA.MassStored() == mass && before.SequenceEqual(state.Save()), "Native fence test changed construction, gas or Core state.");
             evidence.Add(new { Kind = "actual-native-mutation-and-port-fences", Passed = true, NativeItems = storageA.items.Count,

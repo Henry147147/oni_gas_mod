@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text.Json;
@@ -28,7 +29,8 @@ internal static class Program
             ("custom tag adapter resolves the original string rather than an enum integer", CustomTags),
             ("localization keys remain stable under Turkish casing", LocalizedNames),
             ("explicit YAML descriptions bypass the native culture-dependent default", DescriptionMapping),
-            ("native tag bridge still exposes exactly the inspected signatures", BridgeContract)
+            ("native tag bridge still exposes exactly the inspected signatures", BridgeContract),
+            ("YAML phases load only through the adapter's private content gate", ContentGate)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -99,6 +101,45 @@ internal static class Program
             var method = typeof(GameTagExtensions).GetMethod(name, new[] { typeof(SimHashes) });
             Check(method != null && method.IsStatic && method.ReturnType == typeof(Tag), "Native tag helper signature changed.");
         }
+    }
+    private static void ContentGate()
+    {
+        // ONI loads elements/ even when the DLL fails; ElementLoader.Load skips
+        // an entry whose dlcId has no substance table. Only the adapter's gate
+        // supplies this key, so a failed adapter leaves no half-registered phase.
+        var key = OniNitrogenElements.ContentGateKey;
+        Check(!new[] { DlcManager.VANILLA_ID, DlcManager.EXPANSION1_ID, DlcManager.DLC2_ID, DlcManager.DLC3_ID, DlcManager.DLC4_ID,
+            DlcManager.DLC5_ID, DlcManager.COSMETIC1_ID }.Contains(key), "The content gate reuses a native content key.");
+        var yaml = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../elements/mixed_atmospheres_nitrogen.yaml"));
+        var gates = new Dictionary<string, string>(StringComparer.Ordinal);
+        var id = "";
+        foreach (var line in File.ReadLines(yaml))
+        {
+            if (line.StartsWith("  - elementId: ", StringComparison.Ordinal)) id = line.Substring("  - elementId: ".Length);
+            else if (line.StartsWith("    dlcId: ", StringComparison.Ordinal)) gates.Add(id, line.Substring("    dlcId: ".Length));
+        }
+        Check(gates.Count == 3 && Identities().All(item => gates.TryGetValue(item.id, out var value) && value == key),
+            "A nitrogen YAML phase can load without the adapter's content gate.");
+        var vanilla = (SubstanceTable)RuntimeHelpers.GetUninitializedObject(typeof(SubstanceTable));
+        var other = (SubstanceTable)RuntimeHelpers.GetUninitializedObject(typeof(SubstanceTable));
+        var tables = new Dictionary<string, SubstanceTable> { [DlcManager.VANILLA_ID] = vanilla, [DlcManager.EXPANSION1_ID] = other };
+        OniNitrogenElements.OpenContentGate(tables); OniNitrogenElements.OpenContentGate(tables);
+        Check(tables.Count == 3 && ReferenceEquals(tables[key], vanilla) && ReferenceEquals(tables[DlcManager.EXPANSION1_ID], other),
+            "The content gate must resolve exactly the base-game table and leave native keys unchanged.");
+        static bool Rejects(Dictionary<string, SubstanceTable> value)
+        {
+            try { OniNitrogenElements.OpenContentGate(value); return false; }
+            catch (InvalidOperationException) { return true; }
+        }
+        Check(Rejects(new Dictionary<string, SubstanceTable> { [DlcManager.VANILLA_ID] = vanilla, [key] = other }) &&
+            Rejects(new Dictionary<string, SubstanceTable> { [DlcManager.EXPANSION1_ID] = other }), "A conflicting or missing gate table was accepted.");
+        var patch = typeof(NitrogenContentGate);
+        var prefix = patch.GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!.GetCustomAttribute<HarmonyLib.HarmonyPriority>();
+        var postfix = patch.GetMethod("Postfix", BindingFlags.NonPublic | BindingFlags.Static)!.GetCustomAttribute<HarmonyLib.HarmonyPriority>();
+        var target = patch.GetCustomAttributes<HarmonyLib.HarmonyPatch>().Single().info;
+        Check(prefix?.info.priority == HarmonyLib.Priority.Last && postfix?.info.priority == HarmonyLib.Priority.First &&
+            target.declaringType == typeof(ElementLoader) && target.methodName == nameof(ElementLoader.Load),
+            "The content gate must open only around the native element load.");
     }
     private static void DescriptionMapping()
     {

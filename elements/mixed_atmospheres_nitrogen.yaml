@@ -1,13 +1,15 @@
 # Original nominal native definitions. Values mirror the versioned reference
 # species catalogue; these fixed transition temperatures do not implement the
 # pressure-dependent, energy-conserving mixture phase model. See docs/nitrogen.md.
+# dlcId is a private content key that only the loaded adapter supplies to
+# ElementLoader.Load; without the adapter ONI skips these entries.
 ---
 elements:
   - elementId: MixedAtmospheresNitrogen
     state: Gas
     localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESNITROGEN.NAME
     description: STRINGS.ELEMENTS.MIXEDATMOSPHERESNITROGEN.DESC
-    dlcId: ""
+    dlcId: MixedAtmospheres.AdapterLoaded
     specificHeatCapacity: 1.040
     thermalConductivity: 0.0258
     molarMass: 28.0134
@@ -28,7 +30,7 @@ elements:
     state: Liquid
     localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESLIQUIDNITROGEN.NAME
     description: STRINGS.ELEMENTS.MIXEDATMOSPHERESLIQUIDNITROGEN.DESC
-    dlcId: ""
+    dlcId: MixedAtmospheres.AdapterLoaded
     specificHeatCapacity: 2.040
     thermalConductivity: 0.14
     molarMass: 28.0134
@@ -54,7 +56,7 @@ elements:
     state: Solid
     localizationID: STRINGS.ELEMENTS.MIXEDATMOSPHERESSOLIDNITROGEN.NAME
     description: STRINGS.ELEMENTS.MIXEDATMOSPHERESSOLIDNITROGEN.DESC
-    dlcId: ""
+    dlcId: MixedAtmospheres.AdapterLoaded
     specificHeatCapacity: 1.500
     thermalConductivity: 0.2
     molarMass: 28.0134

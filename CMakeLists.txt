@@ -11,7 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Used only by the explicit experimental FluidWorld geometry/EOS mode. The
 # existing GasWorld/C ABI do not select it. Keep its independent test project.
 add_library(ma_fluid_reference STATIC native/experimental/liquid_reference.cpp)
-set_target_properties(ma_fluid_reference PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set_target_properties(ma_fluid_reference PROPERTIES POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 target_include_directories(ma_fluid_reference PUBLIC native/experimental)
 
 add_library(ma_core STATIC
@@ -30,7 +31,10 @@ add_library(ma_core STATIC
     native/src/fluid_world.cpp
     native/src/fluid_thermodynamics.cpp
     native/src/persistence.cpp)
-set_target_properties(ma_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# Hidden: these objects are linked into the shared library, which exports only
+# the C ABI. Static linking into tests/apps is unaffected.
+set_target_properties(ma_core PROPERTIES POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 target_include_directories(ma_core PUBLIC native/include)
 target_link_libraries(ma_core PUBLIC ma_fluid_reference)
 
@@ -39,6 +43,23 @@ target_link_libraries(mixed_atmospheres PRIVATE ma_core)
 target_include_directories(mixed_atmospheres PUBLIC native/include)
 target_compile_definitions(mixed_atmospheres PRIVATE MA_EXPORTS)
 set_target_properties(mixed_atmospheres PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
+    # Export only the extern "C" ma_* ABI. Archive members (ma_core,
+    # ma_fluid_reference and, below, the static C++ runtime) are never
+    # re-exported; the version script also hides std:: template instances
+    # emitted in api.cpp, which namespace std's default visibility keeps public.
+    set(ma_export_map "${CMAKE_CURRENT_BINARY_DIR}/mixed_atmospheres.map")
+    file(CONFIGURE OUTPUT "${ma_export_map}" CONTENT "{\n  global: ma_*;\n  local: *;\n};\n" @ONLY)
+    target_link_options(mixed_atmospheres PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--version-script=${ma_export_map}")
+    set_property(TARGET mixed_atmospheres APPEND PROPERTY LINK_DEPENDS "${ma_export_map}")
+    if(NOT MA_SANITIZERS)
+        # No libstdc++.so.6/GLIBCXX or libgcc_s dependency. The static runtime
+        # still binds glibc symbols at the build host's versions (GCC 15 on
+        # glibc 2.43 needs GLIBC_2.38), so build release binaries on the oldest
+        # supported glibc. Sanitizer builds keep dynamic runtimes.
+        target_link_options(mixed_atmospheres PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+endif()
 
 foreach(target ma_core ma_fluid_reference mixed_atmospheres)
     if(MSVC)
@@ -48,10 +69,12 @@ foreach(target ma_core ma_fluid_reference mixed_atmospheres)
     endif()
 endforeach()
 if(MA_SANITIZERS AND NOT MSVC)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    # UBSan otherwise reports and continues with exit 0, so CTest could pass
+    # with undefined behavior diagnostics. Make every sanitizer finding fatal.
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     foreach(target ma_core ma_fluid_reference mixed_atmospheres)
-        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
 endif()

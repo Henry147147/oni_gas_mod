@@ -96,11 +96,39 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(MainMenu), "OnSpawn")]
     internal static class MainMenuContractExportPatch
     {
+        private static bool captureAttempted;
         private static void Postfix()
         {
-            try { NativeContractCapture.Export(); }
-            catch (Exception error) { UnityEngine.Debug.LogError("[Mixed Atmospheres] Native contract export failed: " + error); }
+            // Diagnostics only, once per process: quit-to-menu never re-hashes,
+            // re-walks every prefab or rewrites the private contract files.
+            if (!captureAttempted)
+            {
+                captureAttempted = true;
+                CaptureDiagnostics();
+            }
             ColonyRuntimeValidation.OnMainMenu(MainMenu.Instance);
+        }
+
+        // A capture failure is not a gameplay requirement. It must not reach
+        // LogError (ONI's crash reporter offers to disable mods); it is a
+        // warning plus a recorded field in integration-probe.json. The six
+        // integration checks still fail through Mod.OnLoad's LogError.
+        private static void CaptureDiagnostics()
+        {
+            var status = "failed"; var detail = "";
+            try { NativeContractCapture.Export(); status = "captured"; }
+            catch (Exception error)
+            {
+                detail = error.ToString();
+                try { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Native contract diagnostics capture failed; gameplay is unaffected: " + error); }
+                catch { /* Logging must not turn a diagnostic into a menu failure. */ }
+            }
+            try { Mod.RecordNativeContractCapture(status, detail); }
+            catch (Exception error)
+            {
+                try { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Could not record the native contract capture outcome: " + error.Message); }
+                catch { /* Diagnostic reporting is best effort. */ }
+            }
         }
     }
 }
