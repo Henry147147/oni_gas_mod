@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <LayoutTargetFramework Condition="'$(LayoutTargetFramework)' == ''">net10.0</LayoutTargetFramework>
+    <TargetFramework>$(LayoutTargetFramework)</TargetFramework>
+    <OutputType Condition="'$(TargetFramework)' != 'netstandard2.1'">Exe</OutputType>
+    <OutputType Condition="'$(TargetFramework)' == 'netstandard2.1'">Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings Condition="'$(TargetFramework)' != 'netstandard2.1'">enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <UseAppHost>false</UseAppHost>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirLoadHeaderV1.cs" Link="OwnedReservoirLoadHeaderV1.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedLayout.cs" Link="OwnedReservoirSavedLayout.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedInflation.cs" Link="OwnedReservoirSavedInflation.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedDeflateStructure.cs" Link="OwnedReservoirSavedDeflateStructure.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirBodyPrefixInspection.cs" Link="OwnedReservoirBodyPrefixInspection.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirKsavInspection.cs" Link="OwnedReservoirKsavInspection.cs" />
+    <Compile Include="Program.cs;IndependentWire.cs;LayoutChecks.cs;LimitChecks.cs" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+  </ItemGroup>
+</Project>

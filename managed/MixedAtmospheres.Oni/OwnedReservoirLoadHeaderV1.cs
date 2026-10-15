@@ -175,6 +175,37 @@ namespace MixedAtmospheres.Oni
             { return Invalid(bytes, path, size, parser?.ReservedObserved ?? false, error.Message); }
         }
 
+        // Pure bounded header facts. This file remains independently linkable
+        // by the existing rejection-only header host and contract project.
+        internal static OwnedReservoirLayoutHeaderFacts InspectLayoutHeader(ReadOnlySpan<byte> completeHeaderBytes)
+        {
+            var inspection = Inspect(completeHeaderBytes);
+            if (inspection.Kind != OwnedReservoirLoadInputKind.Unmarked && inspection.Kind != OwnedReservoirLoadInputKind.OwnedHeader)
+                throw new InvalidDataException(inspection.Error);
+            var bytes = inspection.CopyHeaderBytes();
+            uint build = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+            uint version = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(8));
+            int compression = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
+            if (build != 744825 || version != 1 || compression != 1)
+                throw new NotSupportedException("Only the pinned build/v1 compressed layout is supported.");
+            try
+            {
+                // A bounded second use of the original strict parser reads
+                // facts without changing any existing header entry point.
+                var root = new JsonParser(StrictUtf8.GetString(bytes, 16, bytes.Length - 16)).Parse();
+                if (root.Kind != JsonKind.Object) throw new InvalidDataException("Header JSON must be an object.");
+                long major = Integer(root, "saveMajorVersion"), minor = Integer(root, "saveMinorVersion");
+                if (major != 7 || minor != 38)
+                    throw new NotSupportedException("Only native object-save version 7.38 is supported.");
+                string colonyText = Text(root, "colonyGuid");
+                if (!Guid.TryParseExact(colonyText, "D", out var colony) || colony == Guid.Empty || colony.ToString("D") != colonyText)
+                    throw new InvalidDataException("Expected a canonical nonempty native colony Guid.");
+                return new OwnedReservoirLayoutHeaderFacts(inspection, build, version, compression, (int)major, (int)minor, colony);
+            }
+            catch (Exception error) when (error is DecoderFallbackException || error is FormatException || error is OverflowException)
+            { throw new InvalidDataException(error.Message, error); }
+        }
+
         private static string Text(JsonValue value, string key)
         {
             if (!value.Members!.TryGetValue(key, out var field) || field.Kind != JsonKind.String)
@@ -308,6 +339,23 @@ namespace MixedAtmospheres.Oni
                 }
                 Fail("Unterminated JSON string."); return "";
             }
+        }
+    }
+
+    internal sealed class OwnedReservoirLayoutHeaderFacts
+    {
+        internal OwnedReservoirLoadHeaderInspection Inspection { get; }
+        internal uint OniBuild { get; }
+        internal uint HeaderVersion { get; }
+        internal int Compression { get; }
+        internal int SaveMajorVersion { get; }
+        internal int SaveMinorVersion { get; }
+        internal Guid NativeColonyId { get; }
+        internal OwnedReservoirLayoutHeaderFacts(OwnedReservoirLoadHeaderInspection inspection, uint build, uint version,
+            int compression, int major, int minor, Guid colony)
+        {
+            Inspection = inspection; OniBuild = build; HeaderVersion = version; Compression = compression;
+            SaveMajorVersion = major; SaveMinorVersion = minor; NativeColonyId = colony;
         }
     }
 

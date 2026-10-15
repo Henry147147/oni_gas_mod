@@ -602,9 +602,9 @@ preserve the failed Windows controls separately from the accepted child results.
 The portable original synthetic corpus is described in
 [the inflation test tool](../tools/OwnedReservoirInflationTests/README.md).
 
-### Private complete-source layout candidate
+### Complete-source layout inspection
 
-A separate, unintegrated `SavedColonyLayoutInspector` candidate starts from one
+The integrated `SavedColonyLayoutInspector` starts from one
 immutable complete source image. It derives the pinned native header, count-based
 template directory, exact compressed remainder, body prefix and KSAV section in
 order. Each report retains the same source/directory/body identities; callers
@@ -628,16 +628,52 @@ Windows closure is under
 Linux closure is under
 `local/saved-colony-layout-r2-linux-r2-managed-independent-completed-review-r2`
 (review `1e5f114c777cc1fc711b1d4ef07c1dbbbea299fb2cbb594e769350ed37bfd73d`).
-No target was rerun to replace a failed control or reviewer audit. Actual ONI
-Mono compatibility and product integration of this candidate remain pending.
+No target was rerun to replace a failed control or reviewer audit.
+
+Windows-v44 subsequently passes all 74 original groups in actual ONI
+744825/Mono 6.13. The seven exact helpers derive the complete layout from byte
+zero before comparison with the independently observed native readers. The
+ordinary source is 1,139,732 bytes (SHA256
+`681d9a31cc5c527d45025cd166d0e5972c4a022bedc90c80339f52caa24287e7`);
+the derived 10,551,795-byte body equals the native body byte-for-byte (SHA256
+`011e20e24ff24a70bfc2704e86e9bcdf2a7a10b5be08e5e8cd053e8482e51ecb`).
+Header, directory and compressed ranges are respectively [0,398),
+[398,30138) and [30138,1139732). Directory and SaveManager observations each
+have one original entry and normal return, matching reader, source and thread
+identities, and no exception. Native Storage retains the same unowned oxygen
+packet at 12.5 kg and 310 K before saving and after loading.
+
+The same run includes actual screenshots and live inspection, normal quit,
+runner exit zero, restored settings, and unchanged membership and hashes for
+all 283 personal save/retirement files. Independent completed review is under
+`local/saved-layout-mono-v44-managed-independent-game-review` (review
+`5910be926f25f60735a23a3c44384e2eadbe1d2bb4a229d34171a170c7cd4d18`).
+This establishes the bounded layout comparison on Windows Mono, without
+interpreting the opaque native Sim bytes.
+
+The original seven helpers and four synthetic test sources are now integrated
+with [the standalone public host](../tools/OwnedReservoirLayoutTests/README.md)
+and the default build command. The current public Windows and Linux hosts each
+pass all 74 original ordered groups and the exact twelve-field typed report.
+Both platforms' host and seven-helper .NET Standard builds have zero
+warnings/errors; the original 72-group Windows header regression still passes.
+The complete default Windows build succeeds, including the new host call and
+normal ONI adapter compilation with its two existing Unity dependency warnings.
+Public Windows receipts are under `local/post-merge-public-validation-v1`;
+Linux evidence is under `local/public-layout-linux-v1` (result
+`2a269e7aa1a3cee7b815ba05cd6d332705fd4d9bac11de31c54ccf2f437be8f9`).
+The first full-build wrapper failed before starting a product build because
+of Windows command quoting; its receipt remains separate from the corrected
+wrapper's successful invocation.
 Native Sim, arbitrary custom components and the terminal tail remain opaque;
 structural association grants no load/save, restore, writer or quarantine
 authority.
 
 The integrated helpers establish supported directory/body-prefix derivation
 and section inspection.
-Outer header/directory/inflation association, arbitrary custom-detail
-descendants, exact live-reader exclusion, checkpoint/owner reconciliation,
+Outer header/directory/inflation association is derived from one immutable
+complete source. Arbitrary custom-detail descendants, exact live-reader
+exclusion, checkpoint/owner reconciliation,
 quarantine before instantiation, atomic owned restore and save permission
 remain open. Every report explicitly denies those authorities. Linux host
 parsing does not establish Linux Unity behavior.

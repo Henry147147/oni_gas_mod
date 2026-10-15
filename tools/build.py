@@ -50,6 +50,7 @@ def main() -> None:
     run(["dotnet", "run", "--project", "tools/OwnedReservoirCheckpointTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirSavedInspectionTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirInflationTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/OwnedReservoirLayoutTests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirFilePromotionTests", "-c", "Release",
          "--", str(directory / "file-promotion-checks")], env)
     if args.game_dir:
