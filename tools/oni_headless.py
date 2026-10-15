@@ -115,14 +115,42 @@ def stop_process(record: dict | None) -> None:
             pass
 
 
+def _stop_unrecorded_child(process: subprocess.Popen) -> None:
+    """Clean up a fresh direct child before publishing its handle or identity."""
+    try:
+        process.terminate()
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+
+
 def spawn(arguments: list[str], log: Path, env: dict) -> dict:
-    with log.open("ab") as stream:
-        process = subprocess.Popen(arguments, stdout=stream, stderr=subprocess.STDOUT,
-                                   stdin=subprocess.DEVNULL, env=env, start_new_session=True)
-    CHILDREN[process.pid] = process
-    record = identity(process.pid)
-    record["log"] = str(log)
-    return record
+    process = None
+    try:
+        with log.open("ab") as stream:
+            process = subprocess.Popen(arguments, stdout=stream, stderr=subprocess.STDOUT,
+                                       stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+        record = identity(process.pid)
+        record["log"] = str(log)
+        CHILDREN[process.pid] = process
+        return record
+    except BaseException as error:
+        if process is not None:
+            if CHILDREN.get(process.pid) is process:
+                del CHILDREN[process.pid]
+            try:
+                _stop_unrecorded_child(process)
+            except BaseException as cleanup_error:
+                raise RuntimeError(f"Spawn failed ({error}); unrecorded child {process.pid} "
+                                   f"cleanup failed: {cleanup_error}") from error
+        raise
 
 
 def run_checked(arguments: list[str], **kwargs) -> None:
@@ -288,6 +316,14 @@ def verify_package(package: Path) -> dict:
            for p in package.iterdir()):
         raise ValueError("Use a clean package, without previous configuration or runtime reports.")
     return manifest
+
+
+def stage_package(package: Path, mod: Path, manifest: dict) -> None:
+    """Authenticate the launch copy against the already verified source manifest."""
+    shutil.copytree(package, mod, symlinks=True)
+    copied_manifest = verify_package(mod)
+    if copied_manifest != manifest:
+        raise ValueError("Copied package manifest differs from the verified source manifest.")
 
 
 def mono_label_version(value: str) -> int:
@@ -463,7 +499,7 @@ def playtest(args, state: Path, session: dict) -> int:
     profile = home / ".config/unity3d/Klei/Oxygen Not Included"
     name = "MA-Linux-" + run_id
     mod = profile / "mods/Dev" / name
-    shutil.copytree(package, mod)
+    stage_package(package, mod, manifest)
     write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
         "label": {"distribution_platform": "Dev", "id": name, "title": "Mixed Atmospheres - Integration Probe",
                   "version": mono_label_version(name)}, "status": 1, "enabled": True,
@@ -494,16 +530,16 @@ def playtest(args, state: Path, session: dict) -> int:
     arguments = sandbox_command(home, state, output, game, thin, args.keep_open)
     (output / "runtime").mkdir(mode=0o700)
     record = spawn(arguments, output / "console.log", env)
-    session.update(game=record, latest_run=str(output))
-    write_json(state / "session.json", session)
-    print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
-    deadline = time.monotonic() + args.timeout + 60
-    probe_file = mod / "integration-probe.json"
-    colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
-    timed_out = False
     retain = False
-    menu_seen = None
     try:
+        session.update(game=record, latest_run=str(output))
+        write_json(state / "session.json", session)
+        print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
+        deadline = time.monotonic() + args.timeout + 60
+        probe_file = mod / "integration-probe.json"
+        colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
+        timed_out = False
+        menu_seen = None
         while alive(record):
             log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
             if args.mode == "menu" and MAIN_MENU_MARKER in log:
@@ -530,7 +566,7 @@ def playtest(args, state: Path, session: dict) -> int:
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = CHILDREN[record["pid"]].poll()
         status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (name,))
-        retain = args.keep_open and code == 0
+        retain_on_success = args.keep_open and code == 0
         result = {
             "status": status, "exit_code": code, "mode": args.mode, "output": str(output),
             "observed_player_exit_code": player_exit, "timed_out": timed_out,
@@ -546,9 +582,10 @@ def playtest(args, state: Path, session: dict) -> int:
             "game_hashes": {p: digest(game / p) for p in (
                 "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
             **revision_fields(manifest),
-            "command": arguments, "retained_game": retain,
+            "command": arguments, "retained_game": retain_on_success,
         }
         write_json(output / "result.json", result)
+        retain = retain_on_success
         print(f"{status}: {output / 'result.json'}")
         return code
     finally:

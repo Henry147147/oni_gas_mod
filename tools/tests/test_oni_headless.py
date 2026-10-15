@@ -294,5 +294,239 @@ class PackageTests(unittest.TestCase):
             runner.verify_package(self.root)
 
 
+@contextlib.contextmanager
+def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
+    """Exercise only launch ownership/order with private files and mocked processes."""
+    with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+        root = Path(directory)
+        package = root / "package"
+        package.mkdir()
+        game = root / "game-source"
+        game.mkdir()
+        (game / "OxygenNotIncluded").write_bytes(b"\x7fELFunit fixture")
+        state = root / "state"
+        state.mkdir()
+        output = root / "evidence"
+        args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
+                         frames=1, timeout=30, keep_open=True)
+        steam = {"unit_role": "steam"}
+        xvfb = {"unit_role": "xvfb"}
+        session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}
+        record = {"pid": 987654321, "start_ticks": "unit"}
+        child = mock.Mock()
+        child.poll.return_value = 0
+        events = []
+        writes = []
+
+        def write(path, value):
+            events.append("write:" + path.name)
+            if (failure == "session" and path == state / "session.json") \
+                    or (failure == "result" and path == output / "result.json"):
+                raise OSError("unit " + failure + " persistence failed")
+            writes.append((path, value))
+
+        def stage(*unused_args):
+            events.append("stage")
+            if failure == "copy":
+                raise ValueError("unit copied payload rejected")
+
+        def spawn(*unused_args):
+            events.append("spawn")
+            return record
+
+        def digest(*unused_args):
+            events.append("digest")
+            if failure == "metadata":
+                raise OSError("unit game hash failed")
+            return "0" * 64
+
+        cleanup = mock.Mock(side_effect=lambda unused_record: events.append("cleanup"))
+        patches = (
+            mock.patch.object(runner, "verify_package", return_value={"unit": "manifest"}),
+            mock.patch.object(runner, "stage_package", side_effect=stage, create=True),
+            mock.patch.object(runner, "alive", side_effect=lambda value: value is steam or value is xvfb),
+            mock.patch.object(Path, "symlink_to", autospec=True, return_value=None),
+            mock.patch.object(runner, "write_json", side_effect=write),
+            mock.patch.object(runner, "desktop_env", return_value={}),
+            mock.patch.object(runner, "spawn", side_effect=spawn),
+            mock.patch.object(runner, "screenshot"),
+            mock.patch.object(runner, "classify", return_value=outcome),
+            mock.patch.object(runner, "digest", side_effect=digest),
+            mock.patch.object(runner, "revision_fields", return_value={}),
+            mock.patch.object(runner, "stop_process", cleanup),
+            mock.patch.dict(runner.CHILDREN, {record["pid"]: child}),
+        )
+        for patch in patches:
+            stack.enter_context(patch)
+        yield args, state, session, record, events, writes, cleanup
+
+
+class CopiedPayloadTests(unittest.TestCase):
+    write_manifest = PackageTests.write_manifest
+
+    def setUp(self):
+        PackageTests.setUp(self)
+        self.copy_temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.copy_temporary.cleanup)
+        self.copy_root = Path(self.copy_temporary.name)
+
+    def test_launch_copy_matches_the_verified_source_manifest(self):
+        pinned = runner.verify_package(self.root)
+        target = self.copy_root / "mod"
+        runner.stage_package(self.root, target, pinned)
+        self.assertEqual(runner.verify_package(target), pinned)
+        for relative in pinned["files"]:
+            self.assertEqual((target / relative).read_bytes(), (self.root / relative).read_bytes())
+
+    def test_copied_payload_or_inventory_tampering_is_rejected(self):
+        pinned = runner.verify_package(self.root)
+        copytree = runner.shutil.copytree
+        for variant in ("payload", "inventory"):
+            target = self.copy_root / variant
+
+            def tamper(source, destination, *args, **kwargs):
+                result = copytree(source, destination, *args, **kwargs)
+                if Path(source) == self.root:
+                    if variant == "payload":
+                        (Path(destination) / "MixedAtmospheres.Oni.dll").write_bytes(b"changed copy")
+                    else:
+                        (Path(destination) / "Unlisted.dll").write_bytes(b"unlisted copy")
+                return result
+
+            with mock.patch.object(runner.shutil, "copytree", side_effect=tamper):
+                with self.assertRaises(ValueError):
+                    runner.stage_package(self.root, target, pinned)
+        self.assertEqual(runner.verify_package(self.root), pinned)
+
+    def test_repinning_the_copy_does_not_replace_the_verified_source_manifest(self):
+        pinned = runner.verify_package(self.root)
+        target = self.copy_root / "repinned"
+        copytree = runner.shutil.copytree
+
+        def repin(source, destination, *args, **kwargs):
+            result = copytree(source, destination, *args, **kwargs)
+            if Path(source) == self.root:
+                changed = Path(destination) / "MixedAtmospheres.Oni.dll"
+                changed.write_bytes(b"different self-consistent copy")
+                manifest = json.loads(json.dumps(pinned))
+                manifest["files"]["MixedAtmospheres.Oni.dll"] = runner.digest(changed)
+                (Path(destination) / "package-manifest.json").write_text(json.dumps(manifest))
+            return result
+
+        with mock.patch.object(runner.shutil, "copytree", side_effect=repin):
+            with self.assertRaisesRegex(ValueError, "Copied package manifest"):
+                runner.stage_package(self.root, target, pinned)
+        self.assertEqual(runner.verify_package(self.root), pinned)
+
+    def test_playtest_copy_rejection_precedes_config_and_launch(self):
+        with _mock_playtest_case(failure="copy") as (args, state, session, record, events, writes, cleanup):
+            with self.assertRaisesRegex(ValueError, "copied payload rejected"):
+                runner.playtest(args, state, session)
+            self.assertEqual(events, ["stage"])
+            self.assertEqual(writes, [])
+            cleanup.assert_not_called()
+
+
+class LaunchLifetimeTests(unittest.TestCase):
+    def test_keep_open_failures_cleanup_after_spawn(self):
+        for failure in ("session", "metadata", "result"):
+            with _mock_playtest_case(failure=failure) as (args, state, session, record, events, writes, cleanup):
+                with self.assertRaises(OSError):
+                    runner.playtest(args, state, session)
+                cleanup.assert_called_once_with(record)
+                self.assertLess(events.index("spawn"), events.index("cleanup"))
+                self.assertFalse(any(path.name == "result.json" for path, value in writes))
+
+    def test_retention_commits_only_after_success_receipt(self):
+        for outcome in (("passed-scoped-main-menu", 0), ("failed-mod-log-errors", 2)):
+            with _mock_playtest_case(outcome=outcome) as (args, state, session, record, events, writes, cleanup):
+                self.assertEqual(runner.playtest(args, state, session), outcome[1])
+                saved = [value for path, value in writes if path.name == "result.json"]
+                self.assertEqual(len(saved), 1)
+                self.assertEqual(saved[0]["retained_game"], outcome[1] == 0)
+                if outcome[1] == 0:
+                    cleanup.assert_not_called()
+                else:
+                    cleanup.assert_called_once_with(record)
+                    self.assertLess(events.index("write:result.json"), events.index("cleanup"))
+
+
+class SpawnLifetimeTests(unittest.TestCase):
+    def child(self):
+        process = mock.Mock()
+        process.pid = 987654322
+        process.wait.return_value = 0
+        return process
+
+    def test_identity_failure_cleans_only_the_fresh_child(self):
+        process = self.child()
+        original = OSError("unit identity unavailable")
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(runner.subprocess, "Popen", return_value=process), \
+                mock.patch.object(runner, "identity", side_effect=original), \
+                mock.patch.dict(runner.CHILDREN, {}, clear=True):
+            with self.assertRaises(OSError) as raised:
+                runner.spawn(["unit-never-executed"], Path(directory) / "console.log", {})
+            self.assertIs(raised.exception, original)
+            process.terminate.assert_called_once_with()
+            process.wait.assert_called_once_with(timeout=5)
+            process.kill.assert_not_called()
+            self.assertNotIn(process.pid, runner.CHILDREN)
+
+    def test_unrecorded_child_cleanup_escalates_boundedly(self):
+        process = self.child()
+        process.wait.side_effect = [subprocess.TimeoutExpired("unit", 5), 0]
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(runner.subprocess, "Popen", return_value=process), \
+                mock.patch.object(runner, "identity", side_effect=OSError("unit identity unavailable")), \
+                mock.patch.dict(runner.CHILDREN, {}, clear=True):
+            with self.assertRaises(OSError):
+                runner.spawn(["unit-never-executed"], Path(directory) / "console.log", {})
+            process.terminate.assert_called_once_with()
+            process.kill.assert_called_once_with()
+            self.assertEqual(process.wait.call_args_list, [mock.call(timeout=5), mock.call(timeout=5)])
+            self.assertNotIn(process.pid, runner.CHILDREN)
+
+    def test_log_close_failure_after_popen_cleans_the_child(self):
+        process = self.child()
+        log = mock.MagicMock()
+        log.open.return_value.__exit__.side_effect = OSError("unit log close failed")
+        with mock.patch.object(runner.subprocess, "Popen", return_value=process), \
+                mock.patch.object(runner, "identity") as identity, \
+                mock.patch.dict(runner.CHILDREN, {}, clear=True):
+            with self.assertRaisesRegex(OSError, "log close failed"):
+                runner.spawn(["unit-never-executed"], log, {})
+            identity.assert_not_called()
+            process.terminate.assert_called_once_with()
+            process.wait.assert_called_once_with(timeout=5)
+            self.assertNotIn(process.pid, runner.CHILDREN)
+
+    def test_unrecorded_child_cleanup_failure_is_explicit(self):
+        process = self.child()
+        original = OSError("unit identity unavailable")
+        process.wait.side_effect = subprocess.TimeoutExpired("unit", 5)
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(runner.subprocess, "Popen", return_value=process), \
+                mock.patch.object(runner, "identity", side_effect=original), \
+                mock.patch.dict(runner.CHILDREN, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "Spawn failed.*identity unavailable.*cleanup failed") as raised:
+                runner.spawn(["unit-never-executed"], Path(directory) / "console.log", {})
+            self.assertIs(raised.exception.__cause__, original)
+            process.terminate.assert_called_once_with()
+            process.kill.assert_called_once_with()
+            self.assertEqual(process.wait.call_count, 2)
+            self.assertNotIn(process.pid, runner.CHILDREN)
+
+    def test_popen_constructor_failure_has_no_child_to_signal(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(runner.subprocess, "Popen", side_effect=OSError("unit constructor failed")), \
+                mock.patch.object(runner, "_stop_unrecorded_child", create=True) as cleanup, \
+                mock.patch.dict(runner.CHILDREN, {}, clear=True):
+            with self.assertRaisesRegex(OSError, "constructor failed"):
+                runner.spawn(["unit-never-executed"], Path(directory) / "console.log", {})
+            cleanup.assert_not_called()
+            self.assertEqual(runner.CHILDREN, {})
+
+
 if __name__ == "__main__":
     unittest.main()

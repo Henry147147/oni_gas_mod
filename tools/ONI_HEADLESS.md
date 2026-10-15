@@ -157,10 +157,18 @@ do not fail a run. An adjacent abort cannot suppress an explicit mod/Harmony
 failure or an independently attributed exception.
 
 The unit module runs on Linux; other platforms skip it before importing the
-Linux-only runner. The current Linux discovery passes 102 tests, including all
-23 headless checks. Windows discovery passes with the Linux module explicitly
+Linux-only runner. The current Linux discovery passes 113 tests, including all
+34 headless checks. Windows discovery passes with the Linux module explicitly
 skipped. Regression cases retain real failures beside shutdown aborts, their
 priority over Steam blocks, and the known worker-abort noise handling.
+
+The copied launch package is verified against the original manifest before
+configuration is added or a game is launched. Post-spawn bookkeeping and
+evidence-write failures enter cleanup; `--keep-open` commits retention only
+after writing the result. A failure to record a freshly spawned child's
+identity also attempts bounded direct-child cleanup and reports incomplete
+cleanup explicitly. These checks have mocked fault coverage; they do not
+establish complete descendant-process containment.
 
 Exit status is 0 for the requested scoped gate, 2 for failure/timeout, and 3 for
 a Steam authentication block. A mod failure or a present-but-failing
@@ -190,7 +198,9 @@ python3 tools/oni_headless.py stop
 Screenshots default to temporary PNGs and may use `--output /path/image.png`.
 `input` forwards arguments to the private desktop's xdotool. Stop commands
 signal only recorded process groups after checking PID creation identity; a
-process that has already exited is not an error. Profiles, Steam
+process that has already exited is not an error. The current stop check
+authenticates the recorded leader; leader termination alone does not verify
+termination of surviving group descendants. Profiles, Steam
 authentication and evidence remain available. `setup`, `start`, `stop`,
 `stop-game` and `run` share one lock (`<state>/runner.lock`) and read
 `session.json` only while holding it; while a run is active they refuse with
