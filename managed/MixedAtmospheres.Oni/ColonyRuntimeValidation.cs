@@ -23,6 +23,7 @@ namespace MixedAtmospheres.Oni
             public bool AutoStartNewColony = false;
             public bool ReuseGeneratedWorld = false;
             public bool IdleReservoirLeaseOnly = false;
+            public string PrivateFileProtocolAssemblySha256 = "";
             public bool QuitWhenComplete = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -81,6 +82,11 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
                 throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
+            var fileProtocolHash = configuration.PrivateFileProtocolAssemblySha256;
+            if (fileProtocolHash == null || (fileProtocolHash.Length != 0 &&
+                (!configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 64 || fileProtocolHash.Any(value =>
+                    !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))))
+                throw new InvalidDataException("Private file protocol validation requires an idle fixture and a pinned lowercase SHA256.");
             Directory.CreateDirectory(OutputDirectory);
             WriteReport();
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode + ". Colony physics remains native.");

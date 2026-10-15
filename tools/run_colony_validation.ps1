@@ -6,12 +6,14 @@ param(
     [switch]$ReuseGeneratedWorld,
     [switch]$Presentation,
     [switch]$IdleReservoirLease,
+    [switch]$PrivateFileProtocol,
     [switch]$KeepOpen,
     [int]$Frames = 30,
     [int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
 if ($IdleReservoirLease -and !$Presentation) { throw 'The idle reservoir lease check requires -Presentation.' }
+if ($PrivateFileProtocol -and !$IdleReservoirLease) { throw 'Private file protocol validation requires -IdleReservoirLease.' }
 $oniWorkspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $oniPackagePath = (Resolve-Path -LiteralPath $Package).Path
 $oniRootPath = (Resolve-Path -LiteralPath $OniUserRoot).Path
@@ -25,6 +27,8 @@ foreach ($oniEntry in $oniManifest.files.PSObject.Properties) {
         throw "Package hash mismatch: $($oniEntry.Name)"
     }
 }
+$oniFileProtocolEntry = $oniManifest.files.PSObject.Properties['private-validation/GameMonoFileProtocolValidation.dll']
+if ($PrivateFileProtocol -and !$oniFileProtocolEntry) { throw 'The package does not contain the pinned private file protocol assembly.' }
 $oniRunId = [guid]::NewGuid().ToString('N')
 if (!$Output) { $Output = Join-Path $oniWorkspace "local\colony-runs\$oniRunId" }
 $oniEvidence = [IO.Path]::GetFullPath($Output)
@@ -80,6 +84,7 @@ try {
         ColonyName = $oniColonyName
     }
     if ($IdleReservoirLease) { $oniValidationConfiguration.IdleReservoirLeaseOnly = $true }
+    if ($PrivateFileProtocol) { $oniValidationConfiguration.PrivateFileProtocolAssemblySha256 = $oniFileProtocolEntry.Value }
     $oniValidationConfiguration | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniInstalledMod 'colony-validation.json') -Encoding utf8
     $oniModSettings = Get-Content -LiteralPath $oniModsPath -Raw | ConvertFrom-Json
     foreach ($oniMod in $oniModSettings.mods) { $oniMod.enabled = $false; $oniMod.enabledForDlc = @() }

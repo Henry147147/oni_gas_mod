@@ -232,9 +232,8 @@ utility caches, connection objects and absence of physical gas pipes. A separate
 neutral-shape enumeration agrees with the actual native building layer.
 Copied foreign occupants and stale utility caches reject without changing Grid
 or repairing the owners. Geometry-only validation explicitly reports
-`ManifestValidated=false`. These checks do not yet verify that each saved ID
-maps back to the same exact KPrefabID in the global tracker; that is required
-before assigned-owner persistence or activation.
+`ManifestValidated=false`. V26 predates the subsequent exact global saved-ID
+tracker checks; it does not establish that part of future restore eligibility.
 
 The actual game serializer round-trips default, privately assigned and invalid
 markers through a local template/mapping on two inactive fixture objects. The
@@ -254,11 +253,37 @@ of all 13 original user files. Private evidence is under
 `local/colony-runs/presentation-windows-v26-markers`; the native DLL remains
 the pinned `77671261...` game build.
 
-The focused `tools/OwnedReservoirMarkerTests` passes 30 checks on Windows and
+The focused `tools/OwnedReservoirMarkerTests` now passes 31 checks on Windows and
 against Linux declarations, plus separate netstandard2.1 contract builds. It
 covers strict marker data, native serializer wiring, immutable observations,
 full footprint and port validation, overlaps and exact manifest/allocation
-coverage. These host checks do not instantiate a Unity colony or restore owners.
+coverage. Capture now peeks the existing native tracker without initializing
+it, pins its exact reference and saved ID, and requires the ID to resolve to
+the exact KPrefabID before and after observation. Copied tracker agreement
+defaults false and is required by validation. A licensed-method host regression
+rejects a different object with the same saved ID even when neither conflict
+flag is set, without repairing the mapping. These host checks do not instantiate
+a Unity colony or restore owners.
+
+Windows v28 passes the full 28-screenshot sequence with those tracker checks
+for both actual owners in both idle states. It also runs a separate normal
+netstandard2.1 file-protocol assembly inside ONI's Mono 6.13 runtime. All nine
+checks pass, including new/replacement/equal/zero-byte/Unicode streams,
+share-delete readers, deny-delete error 32 with retained recovery data, and
+strict read-only intent inspection. The driver verifies the assembly SHA256
+before loading its bytes. The helper remains excluded from the normal mod and
+supplies no native-save permit.
+
+The preceding v27 run remains failed: its longer private fixture paths prevented
+stage/backup creation before any native rename. V28 uses the exact same
+Oni/Core/native binaries and helper source; only the separate validation
+assembly's fixture names and path budget change. Derived paths are at most
+239 UTF16 characters. This proves that bounded runtime path only; future
+product integration still needs an explicit artifact/path eligibility check.
+Both runs close cleanly and restore all 13 original user files byte-for-byte.
+Private evidence is under `local/colony-runs/presentation-windows-v27-mono`
+and `presentation-windows-v28-mono`. The reproducible source-only validation
+tool is documented [here](../tools/OwnedReservoirGameMonoValidation/README.md).
 
 The host suite's 51 checks also pass against licensed Linux declarations in
 isolated WSL. This does not draw Linux Unity, establish rendering performance,

@@ -496,6 +496,7 @@ namespace MixedAtmospheres.Oni
                     value.Identity.DefinitionPrefabId, value.Identity.AnchorCell, value.Identity.WorldId, value.Identity.Orientation,
                     value.Identity.DefinitionWidth, value.Identity.DefinitionHeight, value.Identity.ObjectLayer,
                     value.Identity.ConstructionElementId, value.Identity.ConstructionMassKg, value.Identity.CapacityKg,
+                    value.Identity.GlobalTrackerMatches,
                     MarkerState = value.Marker.State.ToString(), Handle = value.Allocation!.Handle,
                     DefinitionOffsets = value.DefinitionOffsets.Select(offset => new { offset.X, offset.Y }).ToArray(),
                     value.BuildingCells, OccupyUnrotatedOffsets = value.OccupyUnrotatedOffsets.Select(offset => new { offset.X, offset.Y }).ToArray(),
@@ -507,7 +508,34 @@ namespace MixedAtmospheres.Oni
                         ConnectionOccupant = port.ConnectionOccupant.ToString(), port.GasConduitPresent }).ToArray(),
                     Components = value.Components.Select(component => new { component.Role, component.Count, component.IsSpawned, component.Enabled }).ToArray() }).ToArray(),
                 Scope = "read-only exact-instance capture while eligibility held; no assigned markers, native save permit or load activation" });
-            if (label == "seeded-empty-destination") CheckNativeMarkerSerialization(storageA.GetComponent<OwnedReservoirOwnerMarker>());
+            if (label == "seeded-empty-destination")
+            {
+                CheckNativeMarkerSerialization(storageA.GetComponent<OwnedReservoirOwnerMarker>());
+                CheckPrivateFileProtocol();
+            }
+        }
+
+        private void CheckPrivateFileProtocol()
+        {
+            var expectedHash = ColonyRuntimeValidation.Settings!.PrivateFileProtocolAssemblySha256;
+            if (expectedHash.Length == 0) return;
+            var path = Path.Combine(Mod.DirectoryPath, "private-validation", "GameMonoFileProtocolValidation.dll");
+            var bytes = File.ReadAllBytes(path);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var actualHash = BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+            Require(actualHash == expectedHash, "The private normal-source file protocol assembly does not match its configured SHA256.");
+            var assembly = Assembly.Load(bytes);
+            var type = assembly.GetType("MixedAtmospheres.Validation.GameMonoFileProtocolValidation", true)!;
+            var run = type.GetMethod("Run", BindingFlags.Public | BindingFlags.Static, null, new[] { typeof(string) }, null);
+            Require(run != null && run.ReturnType == typeof(string), "The private file protocol entry point differs from the pinned validation contract.");
+            var json = (string)run!.Invoke(null, new object[] { ColonyRuntimeValidation.OutputDirectory })!;
+            File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "private-file-protocol-mono.json"), json);
+            var report = Newtonsoft.Json.Linq.JObject.Parse(json);
+            Require(report.Value<bool>("Passed") && report.Value<bool>("MonoRuntimeDetected") &&
+                report.Value<int>("ChecksPassed") == 9 && report.Value<bool>("ReportFileWriteVerified"),
+                "Actual game Mono file protocol validation did not pass its pinned runtime/report contract.");
+            evidence.Add(new { Kind = "actual-game-mono-private-file-protocol", Passed = true, AssemblySha256 = actualHash,
+                Report = report, Scope = "separate normal-source assembly in explicit private fixture; no native colony save or publication permission" });
         }
 
         private void CheckNativeMarkerSerialization(OwnedReservoirOwnerMarker actual)

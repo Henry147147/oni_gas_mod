@@ -86,7 +86,7 @@ A separate retained material-node experiment passes 17 groups on MSVC, GNU and
 ASan/UBSan. It has no remap, runtime mode or game activation; see
 [the retained-state scope](native/OCCUPIED_STAGGERED.md).
 Windows and isolated Linux managed checks pass Core 88, presentation 27,
-owned-runtime 97, reservoir protocol 51, marker/footprint 30 and idle checkpoint
+owned-runtime 97, reservoir protocol 51, marker/footprint 31 and idle checkpoint
 codec 19 groups.
 The live idle lease pins exact acknowledged owners without permitting native
 saving. Windows v26 additionally checks both complete native footprints,

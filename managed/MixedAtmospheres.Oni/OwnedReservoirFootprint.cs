@@ -67,6 +67,7 @@ namespace MixedAtmospheres.Oni
         internal bool Conflicted { get; }
         internal bool EndOfLife { get; }
         internal bool NativeItemsEmpty { get; }
+        internal bool GlobalTrackerMatches { get; }
         internal OwnedReservoirOffset InputOffset { get; }
         internal OwnedReservoirOffset OutputOffset { get; }
         internal int DefinitionInputConduitType { get; }
@@ -75,12 +76,14 @@ namespace MixedAtmospheres.Oni
             int anchorCell, int worldId, int orientation, int definitionWidth, int definitionHeight, int objectLayer,
             int constructionElementId, double constructionMassKg, double capacityKg, bool active, bool pendingDestruction,
             bool conflicted, bool endOfLife, bool nativeItemsEmpty, OwnedReservoirOffset inputOffset, OwnedReservoirOffset outputOffset,
-            int definitionInputConduitType = (int)ConduitType.Gas, int definitionOutputConduitType = (int)ConduitType.Gas)
+            int definitionInputConduitType = (int)ConduitType.Gas, int definitionOutputConduitType = (int)ConduitType.Gas,
+            bool globalTrackerMatches = false)
         {
             NativeColonyId = nativeColonyId; SavedInstanceId = savedInstanceId; PrefabId = prefabId; DefinitionPrefabId = definitionPrefabId;
             AnchorCell = anchorCell; WorldId = worldId; Orientation = orientation; DefinitionWidth = definitionWidth; DefinitionHeight = definitionHeight;
             ObjectLayer = objectLayer; ConstructionElementId = constructionElementId; ConstructionMassKg = constructionMassKg; CapacityKg = capacityKg;
             Active = active; PendingDestruction = pendingDestruction; Conflicted = conflicted; EndOfLife = endOfLife; NativeItemsEmpty = nativeItemsEmpty;
+            GlobalTrackerMatches = globalTrackerMatches;
             InputOffset = inputOffset; OutputOffset = outputOffset;
             DefinitionInputConduitType = definitionInputConduitType; DefinitionOutputConduitType = definitionOutputConduitType;
         }
@@ -190,7 +193,7 @@ namespace MixedAtmospheres.Oni
             var id = value.Identity;
             if (id.NativeColonyId == Guid.Empty || id.SavedInstanceId < 0 || id.PrefabId != "GasReservoir" || id.DefinitionPrefabId != "GasReservoir" ||
                 id.WorldId < 0 || id.DefinitionWidth != 5 || id.DefinitionHeight != 3 || id.ObjectLayer != (int)ObjectLayer.Building ||
-                !id.Active || id.PendingDestruction || id.Conflicted || id.EndOfLife || !id.NativeItemsEmpty || id.CapacityKg != 1000 ||
+                !id.Active || id.PendingDestruction || id.Conflicted || id.EndOfLife || !id.NativeItemsEmpty || !id.GlobalTrackerMatches || id.CapacityKg != 1000 ||
                 !Finite(id.ConstructionMassKg) || id.ConstructionMassKg < 0 || (double)(float)id.ConstructionMassKg != id.ConstructionMassKg ||
                 id.DefinitionInputConduitType != (int)ConduitType.Gas || id.DefinitionOutputConduitType != (int)ConduitType.Gas ||
                 !id.InputOffset.Equals(new OwnedReservoirOffset(1, 2)) || !id.OutputOffset.Equals(new OwnedReservoirOffset(0, 0)) ||
@@ -267,6 +270,9 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo BuildingCache = RequireField(typeof(Building), "placementCells", typeof(int[]));
         private static readonly FieldInfo ConsumerCell = RequireField(typeof(ConduitConsumer), "utilityCell", typeof(int));
         private static readonly FieldInfo DispenserCell = RequireField(typeof(ConduitDispenser), "utilityCell", typeof(int));
+        private static readonly FieldInfo TrackerInstance = typeof(KPrefabIDTracker).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic)
+            is FieldInfo field && field.FieldType == typeof(KPrefabIDTracker) ? field
+            : throw new NotSupportedException("Pinned native saved-ID tracker singleton is unavailable.");
         internal static OwnedReservoirFootprintObservation Capture(Storage storage, ColonyFrameSnapshot source, FluidContainerHandle? container = null)
         {
             OwnedReservoirOwnerMarker.RequireNativeThread();
@@ -280,6 +286,8 @@ namespace MixedAtmospheres.Oni
             }
             if (!ReferenceEquals(Required<Storage>("storage"), storage)) throw new InvalidOperationException("Passed native Storage is not the exact owner component.");
             var prefab = Required<KPrefabID>("prefab"); var construction = Required<PrimaryElement>("construction");
+            var savedInstanceId = prefab.InstanceID;
+            var tracker = RequireTrackedOwner(prefab, savedInstanceId);
             var building = Required<BuildingComplete>("building"); var occupy = Required<OccupyArea>("occupy-area");
             Required<Reservoir>("reservoir"); Required<SmartReservoir>("smart");
             var consumer = Required<ConduitConsumer>("consumer"); var dispenser = Required<ConduitDispenser>("dispenser"); var marker = Required<OwnedReservoirOwnerMarker>("marker");
@@ -290,11 +298,12 @@ namespace MixedAtmospheres.Oni
             var def = building.Def; var anchor = Grid.PosToCell(go);
             if (def == null || !Grid.IsValidCell(anchor) || source.Width != Grid.WidthInCells || source.Height != Grid.HeightInCells)
                 throw new InvalidOperationException("Native footprint definition/anchor/grid differs from the supplied immutable geometry.");
-            var identity = new OwnedReservoirFootprintIdentity(SaveLoader.Instance.GameInfo.colonyGuid, prefab.InstanceID, prefab.PrefabTag.Name, def.PrefabID,
+            var identity = new OwnedReservoirFootprintIdentity(SaveLoader.Instance.GameInfo.colonyGuid, savedInstanceId, prefab.PrefabTag.Name, def.PrefabID,
                 anchor, Grid.WorldIdx[anchor], orientation, def.WidthInCells, def.HeightInCells, (int)def.ObjectLayer, (int)construction.ElementID,
                 construction.Mass, storage.capacityKg, go.activeInHierarchy, prefab.pendingDestruction, prefab.conflicted, storage.IsEndOfLife(),
                 storage.items != null && storage.items.Count == 0, new OwnedReservoirOffset(def.UtilityInputOffset.x, def.UtilityInputOffset.y),
-                new OwnedReservoirOffset(def.UtilityOutputOffset.x, def.UtilityOutputOffset.y), (int)def.InputConduitType, (int)def.OutputConduitType);
+                new OwnedReservoirOffset(def.UtilityOutputOffset.x, def.UtilityOutputOffset.y), (int)def.InputConduitType, (int)def.OutputConduitType,
+                globalTrackerMatches: true);
             var cells = new List<OwnedReservoirFootprintCell>();
             foreach (var offset in OwnedReservoirFootprintValidation.PinnedOffsets())
             {
@@ -325,7 +334,19 @@ namespace MixedAtmospheres.Oni
                 Grid.PosToCell(go) != anchor || (int)building.Orientation != orientation ||
                 (rotations.Length == 0 ? 0 : (int)rotations[0].Orientation) != orientation)
                 throw new InvalidOperationException("Native geometry changed during read-only footprint capture.");
+            if (!ReferenceEquals(RequireTrackedOwner(prefab, savedInstanceId), tracker))
+                throw new InvalidOperationException("Native saved-ID tracker changed during read-only footprint capture.");
             return result;
+        }
+        private static KPrefabIDTracker RequireTrackedOwner(KPrefabID prefab, int savedInstanceId)
+        {
+            // The native Get() method creates an absent singleton. Read its
+            // pinned field instead, so failed inspection cannot initialize it.
+            var tracker = TrackerInstance.GetValue(null) as KPrefabIDTracker;
+            if (tracker == null || ReferenceEquals(prefab, null) || savedInstanceId < 0 || prefab.InstanceID != savedInstanceId ||
+                !ReferenceEquals(tracker.GetInstance(savedInstanceId), prefab))
+                throw new InvalidOperationException("Native saved ID does not resolve to the exact observed owner.");
+            return tracker;
         }
         private static IReadOnlyList<OwnedReservoirOffset> Offsets(CellOffset[] offsets)
         {

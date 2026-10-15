@@ -43,6 +43,7 @@ internal static class Program
             ("both utility caches connections and physical gas pipes must agree", Ports),
             ("required role duplicates and spawn failures reject while enabled is diagnostic", Components),
             ("definition lifecycle native packets capacity and construction contract reject changes", IdentityContract),
+            ("global saved IDs resolve to exact owners without creating or repairing a tracker", TrackerIdentity),
             ("observation and validated-pair collections are owned immutable copies", Immutable),
             ("assigned manifest validates exact allocations and retains empty unbound rows", ManifestExact),
             ("default markers never satisfy assigned-manifest validation", ManifestRequiresMarkers),
@@ -263,6 +264,40 @@ internal static class Program
         Reject(()=>((IList<OwnedReservoirFootprintCell>)copy.Cells)[0]=copy.Cells[1]);
         Reject(()=>((IList<OwnedReservoirFootprintObservation>)proof.Owners)[0]=proof.Owners[1]);
     }
+    private static void TrackerIdentity()
+    {
+        var f = new Fixture(); var a = f.Observe(false);
+        Reject(() => Validate(Copy(a, identity: Identity(a.Identity, trackerMatches: false)), f.Observe(true)));
+        var singleton = typeof(KPrefabIDTracker).GetField("Instance", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var previous = singleton.GetValue(null);
+        var lookupMethod = typeof(OwnedReservoirFootprintCapture).GetMethod("RequireTrackedOwner", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var lookup = lookupMethod.CreateDelegate<Func<KPrefabID, int, KPrefabIDTracker>>();
+        var owner = (KPrefabID)RuntimeHelpers.GetUninitializedObject(typeof(KPrefabID)); owner.InstanceID = 42;
+        var other = (KPrefabID)RuntimeHelpers.GetUninitializedObject(typeof(KPrefabID)); other.InstanceID = 42;
+        var tracker = new KPrefabIDTracker();
+        var map = (Dictionary<int, KPrefabID>)typeof(KPrefabIDTracker).GetField("prefabIdMap", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
+        try
+        {
+            singleton.SetValue(null, null);
+            Reject(() => lookup(owner, 42)); Check(singleton.GetValue(null) == null);
+            singleton.SetValue(null, tracker);
+            Reject(() => lookup(owner, 42)); Check(map.Count == 0);
+            map.Add(42, owner); Check(ReferenceEquals(lookup(owner, 42), tracker));
+            map[42] = other;
+            Check(!owner.conflicted && !other.conflicted && owner.InstanceID == other.InstanceID);
+            Reject(() => lookup(owner, 42)); Check(ReferenceEquals(map[42], other));
+            map[42] = owner; owner.InstanceID = 43;
+            Reject(() => lookup(owner, 42)); Reject(() => lookup(owner, -1));
+            Check(ReferenceEquals(map[42], owner) && !map.ContainsKey(43));
+        }
+        finally { singleton.SetValue(null, previous); }
+        var lookupCalls = PatchProcessor.GetOriginalInstructions(lookupMethod).Where(i => i.operand is MethodBase)
+            .Select(i => (MethodBase)i.operand).ToArray();
+        Check(lookupCalls.Any(m => m.DeclaringType == typeof(KPrefabIDTracker) && m.Name == "GetInstance"));
+        Check(!lookupCalls.Any(m => m.DeclaringType == typeof(KPrefabIDTracker) && m.Name is "Get" or "Register" or "Unregister" or "DestroyInstance"));
+        var capture = typeof(OwnedReservoirFootprintCapture).GetMethod("Capture", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Check(PatchProcessor.GetOriginalInstructions(capture).Count(i => i.operand is MethodBase m && m.Name == "RequireTrackedOwner") == 2);
+    }
     private static void ManifestExact()
     {
         var f=new Fixture(); var before=f.State.Save();
@@ -336,10 +371,12 @@ internal static class Program
         => new(a.Source,allocation??a.Allocation,identity??a.Identity,marker??a.Marker,a.DefinitionOffsets,clearBuilding?null:building??a.BuildingCells,
             a.OccupyUnrotatedOffsets,rotated??a.OccupyRotatedOffsets,occupied??a.OccupyCachedCells,layers??a.OccupyLayers,applies??a.OccupyAppliesToCells,cells??a.Cells,ports??a.Ports,components??a.Components);
     private static OwnedReservoirFootprintIdentity Identity(OwnedReservoirFootprintIdentity a,int? savedId=null,string? prefab=null,int? width=null,int? layer=null,
-        double? mass=null,double? capacity=null,bool? active=null,bool? pending=null,bool? conflicted=null,bool? end=null,bool? empty=null,int? inputType=null)
+        double? mass=null,double? capacity=null,bool? active=null,bool? pending=null,bool? conflicted=null,bool? end=null,bool? empty=null,int? inputType=null,
+        bool? trackerMatches=null)
         =>new(a.NativeColonyId,savedId??a.SavedInstanceId,prefab??a.PrefabId,a.DefinitionPrefabId,a.AnchorCell,a.WorldId,a.Orientation,width??a.DefinitionWidth,a.DefinitionHeight,
             layer??a.ObjectLayer,a.ConstructionElementId,mass??a.ConstructionMassKg,capacity??a.CapacityKg,active??a.Active,pending??a.PendingDestruction,conflicted??a.Conflicted,
-            end??a.EndOfLife,empty??a.NativeItemsEmpty,a.InputOffset,a.OutputOffset,inputType??a.DefinitionInputConduitType,a.DefinitionOutputConduitType);
+            end??a.EndOfLife,empty??a.NativeItemsEmpty,a.InputOffset,a.OutputOffset,inputType??a.DefinitionInputConduitType,a.DefinitionOutputConduitType,
+            trackerMatches??a.GlobalTrackerMatches);
 
     private sealed class Fixture
     {
@@ -374,7 +411,7 @@ internal static class Program
             for(var y=0;y<3;++y)for(var x=-2;x<=2;++x){shape.Add(new(x,y));rotated.Add(Transform(x,y));cells.Add(new(Cell(Transform(x,y)),7,7,false,OwnedReservoirOccupant.SameOwner));}
             var roles=new List<OwnedReservoirFootprintComponent>();foreach(var role in new[]{"storage","prefab","construction","building","occupy-area","reservoir","smart","consumer","dispenser","marker"})roles.Add(new(role,1,true,true));
             if(orientation!=0)roles.Add(new("orientation",1,true,true));
-            var identity=new OwnedReservoirFootprintIdentity(NativeColony,second?1:0,"GasReservoir","GasReservoir",location,7,orientation,5,3,(int)ObjectLayer.Building,4,400.125,1000,true,false,false,false,true,new(1,2),new(0,0));
+            var identity=new OwnedReservoirFootprintIdentity(NativeColony,second?1:0,"GasReservoir","GasReservoir",location,7,orientation,5,3,(int)ObjectLayer.Building,4,400.125,1000,true,false,false,false,true,new(1,2),new(0,0),globalTrackerMatches:true);
             var input=Cell(Transform(1,2));var output=Cell(Transform(0,0));
             return new(source,source.SampleContainer(handle),identity,assigned?Assigned(this,handle,ownerToken):Parse(),shape,cells.Select(c=>c.Cell).ToArray(),shape,rotated,null,Array.Empty<int>(),true,cells,
                 new[]{new OwnedReservoirFootprintPort(true,input,input,(int)ConduitType.Gas,OwnedReservoirOccupant.SameOwner,false),new(false,output,output,(int)ConduitType.Gas,OwnedReservoirOccupant.SameOwner,false)},roles);

@@ -16,11 +16,18 @@ def main() -> None:
     parser.add_argument("--native", type=Path, required=True, help="libmixed_atmospheres.so or mixed_atmospheres.dll")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
+    parser.add_argument("--private-file-protocol-validator", type=Path,
+                        help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
     args = parser.parse_args()
     if args.oni_build != 744825:
         parser.error("This probe was inspected against ONI 744825. Reinspect and update the contract before packaging another build.")
     if args.native.name not in ("libmixed_atmospheres.so", "mixed_atmospheres.dll") or not args.native.is_file():
         parser.error("Supply a built Linux or Windows native library")
+    validator = args.private_file_protocol_validator
+    if validator is not None and (args.native.suffix != ".dll" or not validator.is_file() or
+                                  validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
+                                                         "GameMonoFileProtocolValidation.dll")):
+        parser.error("Supply the built Windows private GameMono file protocol validation DLL")
     managed = ROOT / "managed/MixedAtmospheres.Oni/bin/Release/netstandard2.1"
     files = [managed / "MixedAtmospheres.Oni.dll", managed / "MixedAtmospheres.Core.dll", args.native.resolve()]
     for file in files:
@@ -39,6 +46,10 @@ def main() -> None:
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)
     shutil.copy2(files[2], native_directory / files[2].name)
+    if validator is not None:
+        private_directory = output / "private-validation"
+        private_directory.mkdir()
+        shutil.copy2(validator.resolve(), private_directory / "GameMonoFileProtocolValidation.dll")
     (output / "mod.yaml").write_text(
         'title: "Mixed Atmospheres - Integration Probe"\n'
         'description: "Developer probe only. Validates native loading and scoped simulation hooks; does not change colony physics."\n'
