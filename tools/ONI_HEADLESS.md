@@ -152,7 +152,15 @@ together with fail/error/exception, a Harmony `Patching exception` /
 `HarmonyException`, or an exception whose stack contains a mod,
 `HarmonyLib` or Harmony-patched (`DMD<...>`) frame. Game-only errors and
 warnings such as `Missing Anim`, DPI, `kGfxThreadingMode` and the game's YAML
-worker `Thread was being aborted` at exit do not fail a run.
+worker exception whose own header contains `Thread was being aborted` at exit
+do not fail a run. An adjacent abort cannot suppress an explicit mod/Harmony
+failure or an independently attributed exception.
+
+The unit module runs on Linux; other platforms skip it before importing the
+Linux-only runner. The current Linux discovery passes 102 tests, including all
+23 headless checks. Windows discovery passes with the Linux module explicitly
+skipped. Regression cases retain real failures beside shutdown aborts, their
+priority over Steam blocks, and the known worker-abort noise handling.
 
 Exit status is 0 for the requested scoped gate, 2 for failure/timeout, and 3 for
 a Steam authentication block. A mod failure or a present-but-failing

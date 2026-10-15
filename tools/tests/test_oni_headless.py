@@ -11,6 +11,9 @@ import tempfile
 import unittest
 from unittest import mock
 
+if not sys.platform.startswith("linux"):
+    raise unittest.SkipTest("The headless ONI runner requires Linux.")
+
 SPEC = importlib.util.spec_from_file_location("oni_headless", Path(__file__).parents[1] / "oni_headless.py")
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
@@ -125,6 +128,55 @@ class EvidenceTests(unittest.TestCase):
             self.assertNotEqual(runner.classify("presentation", self.log, self.probe, report, False)[1], 0)
         self.assertEqual(runner.classify("presentation", self.log, self.probe,
                                        {"Status": "passed", "GameStarted": True}, False)[1], 0)
+
+
+    def test_named_failures_survive_nearby_shutdown_abort(self):
+        failures = (
+            "[Mixed Atmospheres] Private input observation failed: InvalidOperationException: sentinel",
+            "HarmonyLib.HarmonyException: Patching exception in method System.Void SimMessages::Dig()",
+            "[ERROR] MA-Linux-unit error: sentinel",
+        )
+        for failure in failures:
+            for shutdown in (
+                failure + "\nThread was being aborted.\n",
+                failure + "\nworker cleanup\nThread was being aborted.\n",
+                "Thread was being aborted.\n" + failure + "\n",
+                failure + " Thread was being aborted.\n",
+            ):
+                for steam in ("", "Steam not initialized in time.\n"):
+                    log = self.log + steam + shutdown
+                    lines = runner.mod_failure_lines(log, ("MA-Linux-unit",))
+                    self.assertTrue(any(failure in line for line in lines), log)
+                    self.assertEqual(runner.classify("menu", log, self.probe, None, False, 0,
+                                                     ("MA-Linux-unit",)),
+                                     ("failed-mod-log-errors", 2), log)
+
+    def test_mod_stack_exception_survives_following_shutdown_abort(self):
+        header = "NullReferenceException: sentinel before worker shutdown"
+        for frame in (
+            "  at MixedAtmospheres.Oni.UnitProbe.Read () [0x0] in <a>:0",
+            "  at HarmonyLib.PatchFunctions.UpdateWrapper () [0x0] in <a>:0",
+            "  at (wrapper dynamic-method) MainMenu.DMD<MainMenu::OnSpawn>(MainMenu)",
+        ):
+            log = self.log + header + "\n" + frame + "\nThread was being aborted.\n"
+            self.assertIn(header, runner.mod_failure_lines(log), log)
+            self.assertEqual(runner.classify("menu", log, self.probe, None, False, 0),
+                             ("failed-mod-log-errors", 2), log)
+
+    def test_worker_thread_abort_exception_stack_remains_ignored(self):
+        for prefix in ("", "[ERROR] Fatal parse error in /x/game/templates/worker.yaml\n"
+                            "Exception during deserialization\n"):
+            for frame in (
+                "  at Klei.YamlIO.Load () [0x0] in <a>:0",
+                "  at MixedAtmospheres.Oni.UnitProbe.Read () [0x0] in <a>:0",
+                "  at HarmonyLib.PatchFunctions.UpdateWrapper () [0x0] in <a>:0",
+                "  at (wrapper dynamic-method) MainMenu.DMD<MainMenu::OnSpawn>(MainMenu)",
+            ):
+                log = (self.log + prefix + "System.Threading.ThreadAbortException: Thread was being aborted.\n"
+                       + frame + "\n")
+                self.assertEqual(runner.mod_failure_lines(log), [], log)
+                self.assertEqual(runner.classify("menu", log, self.probe, None, False, 0),
+                                 ("passed-scoped-main-menu", 0), log)
 
 
 class SandboxTests(unittest.TestCase):

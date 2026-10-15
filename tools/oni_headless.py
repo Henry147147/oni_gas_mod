@@ -327,29 +327,23 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
     A line fails when it names the mod and says fail/error/exception, or is a
     Harmony patching exception. An exception header fails when its stack has a
     mod, Harmony or Harmony-patched (DMD<...>) frame. Game-only lines are
-    ignored, as is the game's worker abort ("Thread was being aborted") at exit.
+    ignored, as is a worker exception whose own header says "Thread was being
+    aborted". A nearby abort never suppresses a mod or Harmony failure.
     """
     names = MOD_IDENTIFIERS + tuple(name for name in identifiers if name)
     lines = log.splitlines()
-    aborted = {index for index, line in enumerate(lines) if SHUTDOWN_ABORT in line}
     found: dict[int, str] = {}
     header = None
     attributed: set[int] = set()
-    skipped: set[int] = set()
     for index, line in enumerate(lines):
-        # The game's abort message follows its own error header by one or two lines.
-        shutdown = any(other in aborted for other in range(index, index + 3))
         if STACK_FRAME.match(line):
             if (header is not None and header not in attributed and MOD_FRAME.search(line)
-                    and "exception" in lines[header].lower() and header not in skipped):
+                    and "exception" in lines[header].lower() and SHUTDOWN_ABORT not in lines[header]):
                 attributed.add(header)
                 found[header] = lines[header]
                 found[index] = line
             continue
         header = index
-        if shutdown:
-            skipped.add(index)
-            continue
         if HARMONY_FAILURE.search(line) or (any(name in line for name in names) and FAILURE_WORDS.search(line)):
             found[index] = line
     return [found[index].strip()[:500] for index in sorted(found)]
