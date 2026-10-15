@@ -7,6 +7,10 @@ EOS profiles, exact exterior vacuum, typed topology failures and whole-call
 rollback. Default closed mode, `GasWorld`, C ABI and game ownership stay outside
 the change. No front-speed clamp or pressure/density floor is proposed.
 
+The first retained material-state/pressure gate is now implemented separately
+from `FluidWorld`; see [its equations, tests and limits](OCCUPIED_STAGGERED.md).
+The dual/subcell remap, runtime mode and later gates below remain proposals.
+
 ## Why a state extension
 
 The current incremental correction removes unconditional PIC drag, but still
