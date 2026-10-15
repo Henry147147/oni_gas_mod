@@ -70,6 +70,30 @@ from signed arithmetic ledgers; no exact-conservation claim follows from
 the finite-tolerance checks. The full-front gate in `GAS_VACUUM.md` remains
 false. There are no performance or gameplay claims here.
 
+Follow-on private exact-rational work tests a different consistent corner-mass
+representation. Six constant/affine/hat and reflected cases retain four
+mechanical corners and two homogeneous material-energy owners each. A
+simultaneous three-face solve gives common traces, preserves momentum,
+translated first momentum and total energy, and assigns each corner its own
+nonnegative unresolved kinetic-energy increment. Constant and affine states
+stay unchanged. Both hat controls reject a once-through scalar sweep as a
+continuity solution. A separate fixed virtual midpoint displacement satisfies
+the proposed `A=Z*D` potential's exact secant-work identities; omitting that
+stress leaves a nonzero local defect in both hats.
+
+The first finite run and an independent serialized-record review pass, covering
+24 corners at each stage, 12 actual material-energy owners and 18 faces.
+The independent checker completes 28,788 exact checks without
+rerunning the original solve, EOS, entropy or density routines. The hats change
+the fragment's outer traces, so full-cap and omitted-neighbor compatibility
+remain unresolved. This is a representation/constitutive hypothesis and a
+virtual-work control, not a time step or a selected production model. Moving
+primal-volume work, actual entropy guards, nonlinear accuracy and performance
+remain unproved; no native gate or earlier counterexample changes. Frozen
+original sources/results and the independent review remain under
+`local/occupied-staggered-validation/canonical-moment-face-exact-v1` and
+`canonical-moment-face-exact-v1-managed-independent-review-r2`.
+
 ## Reproducing standalone evidence
 
 Use separate fresh build and output directories. A default build contains
