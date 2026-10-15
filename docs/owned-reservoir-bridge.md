@@ -426,3 +426,46 @@ The exact source manifest is `77d273a430ea7786ab3e5f81dc64083723b3cc32b7070b83ac
 This verifies dormant Windows cancellation only. It does not authorize owned
 restore, a native/custom writer, ordinary owned saves, Linux Unity behavior or
 first-playable acceptance.
+
+## Saved-template and object-section inspection
+
+The original pure managed inspector parses bounded immutable copies of saved
+directory descriptors and KSAV 7.38 object/component records. It reads marker,
+KPrefabID, Tag and inherited Storage fields in saved order and traverses recognized
+Storage packets. Unknown component payloads, prefix and tail remain opaque byte
+ranges. No native reader, type resolver, saved callback or prefab is invoked.
+The default build runs its 26 synthetic host groups; optional licensed fixture
+checks are described in the [host tool](../tools/OwnedReservoirSavedInspectionTests/README.md).
+
+A separate Windows-v38 observer completes an ordinary native reservoir save,
+menu transition and reload on ONI 744825/Mono 6.13. Before saving, in the actual
+Storage.Serialize body and after loading, the same parent/packet IDs 247004/247005
+retain 12.5 kg oxygen, 310 K, disease count 12345 and an unassigned marker. The
+actual directory and SaveManager.Load bodies each enter and return once without
+errors; their captured readers retain the same backing arrays and bytes.
+
+Independent bounded inflation of the 1,139,745-byte ordinary save equals the
+10,552,251-byte captured body. The same unchanged parsers pass the capture on
+Windows and Linux: directory bytes 398..29965 contain 360 templates; KSAV bytes
+9472651..10456036 contain 45 groups, 177 top-level roots, 179 recognized roots,
+2,497 components and two native Storage packets. There are zero semantic
+conflicts. The selected reservoir's default marker is 32 bytes; its complete
+390-byte oxygen packet and 414-byte Storage payload remain unchanged. All
+2,294 opaque components and the 96,215-byte tail are preserved. PrimaryElement's
+24-byte payload remains opaque; the separate native observations supply its
+mass/temperature/disease expectations.
+
+The observer exits through native Windows close and Game.OnApplicationQuit.
+The runner and an independent inventory verify restoration of all 13 original
+settings/world-generation files and all 283 personal save files and membership.
+Private evidence is `local/colony-runs/ordinary-ksav-observer-windows-v38`;
+the observer report SHA256 is
+`56b0e087bcd75272a9127906742795f3c0c74905f17546a906e842c5c09ee423`.
+Earlier test-only nullable compilation and framework-selection failures remain
+preserved beside the later successful Windows/Linux host evidence.
+
+This is section inspection at observed native offsets. Whole-file offset
+derivation, arbitrary custom-detail descendants, exact live-reader exclusion,
+checkpoint/owner reconciliation, quarantine before instantiation, atomic owned
+restore and save permission remain open. Every report explicitly denies those
+authorities. Linux host parsing does not establish Linux Unity behavior.
