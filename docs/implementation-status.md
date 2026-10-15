@@ -402,6 +402,20 @@ and independent review are under
 SHA256 is `6b575db721d51c621949935255693b0588a580688764b0aaedfd54d070c37ba7`.
 This supplies no normal-closure, physics or first-playable acceptance.
 
+A separately instrumented Windows V49 run records `App.QuitCode(1)` from
+`ReportErrorDialog.OnDestroy`, followed by unsigned Windows process exit 1
+on the same authenticated retained handle. The request precedes the final
+menu witness, so V49's fixed automatic-quit diagnostic also remains
+**rejected**. All five teardown witnesses eventually complete, and all 283
+personal files plus 13 settings/backups restore exactly. No screenshot or
+manual quit is claimed. A bounded static read finds that this dialog method
+calls `App.QuitCode(1)` when `KCrashReporter.terminateOnError` is true; it does
+not establish who destroyed the dialog or configured that policy. These new
+scoped observations do not assign a caller retrospectively to V46. Evidence
+is `local/colony-runs/failed-onload-quit-windows-v49`, with independent review
+`9253cae782841d7d8c7a9fbedf62f653126db5028761975a24831515d4f96b8e`
+under `local/failed-onload-quit-windows-v49-completed-negative-review`.
+
 Windows V48 independently closes the merged presentation fixture's actual
 hover, expanded-table visibility and sampled GPU texture gaps. All original
 34 screenshots and three added inspection captures pass; both manual holds
