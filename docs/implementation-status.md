@@ -288,7 +288,9 @@ Later private Combine and ApplyHeat copy optimizations remain rejected or
 unintegrated. V41 passes its exact correctness and 27,770-record presentation
 comparison, but its first timed protected Combine control differs by 15,520 B
 and stops before any heat-benefit measurement. No cause or speedup is established;
-the live Core remains unchanged. See [the preserved negative results](mixture-presentation.md).
+the live Core remains unchanged. A separate same-baseline pair also fails to
+reproduce exact right-only Combine allocation equality; this does not reclassify
+V41 or establish a cause. See [the preserved negative results](mixture-presentation.md).
 
 Inventory creation/update costs are measured separately. Initialization plus
 capture costs 831.9/1,103.0 ms and 406.4/409.3 MB on Windows/Linux; all-changed

@@ -456,6 +456,16 @@ criteria are preserved. Private evidence and independent negative review are
 under `local/applyheat-owned-copy-v41-measurement-r2` and its sibling review
 directories. Live Core retains the original implementation.
 
+A distinct same-baseline diagnostic then runs that frozen baseline assembly
+twice, with unchanged inputs, warmup and runtime settings. Both complete reports
+validate and all twelve checksums agree, but right-only Combine allocations differ:
+82,471,912 B versus 82,692,360 B. The other 23 protected operation/array readings
+match. Independent closure confirms this pair did not reproduce exact byte
+equality. It establishes no cause or candidate benefit and does not change the
+original V41 rejection. Evidence remains under
+`local/applyheat-baseline-aa-source-only-v1` and
+`local/applyheat-baseline-aa-independent-result-review-r2`.
+
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
 Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.
