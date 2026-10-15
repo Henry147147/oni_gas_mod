@@ -13,6 +13,6 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirKsavInspection.cs" Link="OwnedReservoirKsavInspection.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirBodyPrefixInspection.cs" Link="OwnedReservoirBodyPrefixInspection.cs" />
-    <Compile Remove="Program.cs;BodyPrefixTests.cs" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
+    <Compile Remove="Program.cs;BodyPrefixTests.cs;DirectoryPrefixTests.cs" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
   </ItemGroup>
 </Project>

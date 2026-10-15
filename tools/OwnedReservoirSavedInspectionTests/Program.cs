@@ -236,6 +236,7 @@ internal static class Program
             });
 
             passed += BodyPrefixTests.Run();
+            passed += DirectoryPrefixTests.Run();
 
             object? actual = null;
             if (args.Length != 0)
@@ -245,7 +246,7 @@ internal static class Program
                 {
                     bool derive = args[0] == "--derived-capture";
                     actual = ActualCapture(args[1], args[3], derive);
-                    passed++; Console.WriteLine(derive ? "PASS actual v38 body-zero derived KSAV and untouched packet bytes" : "PASS actual v38 directory and KSAV native ranges, known layouts and untouched packet bytes");
+                    passed++; Console.WriteLine(derive ? "PASS actual v38 count-derived directory, body-zero derived KSAV and untouched packet bytes" : "PASS actual v38 directory and KSAV native ranges, known layouts and untouched packet bytes");
                 }
                 else
                 {
@@ -327,8 +328,15 @@ internal static class Program
         Require(sectionEntry.GetProperty("RawLength").GetInt32() == body.Length && sectionEntry.GetProperty("RawSha256").GetString() == bodySha);
         Require(BitConverter.IsLittleEndian && BitConverter.ToUInt32(ordinary, 0) == 744825 && BitConverter.ToUInt32(ordinary, 8) == 1 &&
             BitConverter.ToInt32(ordinary, 12) == 1 && checked(16 + BitConverter.ToInt32(ordinary, 4)) == 398);
+        int directoryStart = checked(16 + BitConverter.ToInt32(ordinary, 4));
+        var directoryBytes = SavedImage.CopyFrom(directoryImage);
+        var directory = derivePrefix ? SavedDirectoryInspector.InspectPrefix(directoryBytes, directoryStart)
+            : SavedDirectoryInspector.Inspect(directoryBytes, directoryStart, 29965 - directoryStart);
+        // Only the fixture assertion receives the native observed directory end.
+        // The prefix API receives the header-derived start and immutable image.
+        Require(directory.Range.Offset == 398 && directory.Range.End == 29965);
         var inflated = new byte[body.Length];
-        using (var compressed = new MemoryStream(ordinary, 29965, ordinary.Length - 29965, false))
+        using (var compressed = new MemoryStream(ordinary, directory.Range.End, ordinary.Length - directory.Range.End, false))
         using (var zlib = new ZLibStream(compressed, CompressionMode.Decompress))
         {
             int position = 0;
@@ -340,8 +348,6 @@ internal static class Program
             Require(zlib.ReadByte() == -1);
         }
         Require(inflated.AsSpan().SequenceEqual(body));
-        var directory = SavedDirectoryInspector.Inspect(SavedImage.CopyFrom(directoryImage), 398, 29965 - 398);
-        Require(directory.Range.End == 29965);
         var bodyImage = SavedImage.CopyFrom(body);
         SavedBodyPrefixReport? prefix = derivePrefix ? SavedBodyPrefixInspector.Inspect(bodyImage, directory) : null;
         // The observed start is an external comparison only. In derived mode,
@@ -376,7 +382,10 @@ internal static class Program
         {
             Fixture = "actual-ordinary-Windows-v38", SourceSha256 = fileSha, ObservationsSha256 = observationsSha,
             ExactBoundedIndependentInflation = true,
-            Directory = new { directory.Range.Offset, directory.Range.Length, directory.Range.End, directory.Sha256, Templates = directory.Templates.Count },
+            Directory = new { directory.Range.Offset, directory.Range.Length, directory.Range.End, directory.Sha256, Templates = directory.Templates.Count,
+                OffsetAuthority = "fixed pinned v1 header length in fixture wrapper",
+                EndAuthority = derivePrefix ? "walked saved template/member/descriptor counts" : "observed native normal return",
+                NativeObservedEndComparedExternally = derivePrefix },
             Ksav = new { report.Section.Offset, report.Section.Length, report.Section.End, ImageBytes = body.Length, ImageSha256 = bodySha,
                 Groups = report.Groups.Count, TopLevelRoots = report.Groups.Sum(x => x.Roots.Count), RecognizedRoots = report.AllRecognizedRoots.Count,
                 Components = components, PayloadBytesIncludingNestedRecords = payloadBytes, report.OpaqueComponentCount, SemanticIssues = report.SemanticIssues.Count,
@@ -398,7 +407,7 @@ internal static class Program
                 prefix.NativeGridValidityProven, prefix.NativeSimValidityProven, prefix.NativeLoadPermitted, prefix.WriterPermission, prefix.QuarantineActivated
             },
             PrimaryElementMassTemperatureDiseaseParsed = false, WholeFilePreflightProven = false, GeneralDescendantCoverageProven = false, OwnedRestorePermitted = false,
-            Scope = derivePrefix ? "KSAV start structurally derived from immutable inflated body0 and closed saved layouts; outer file association is fixture calibration only; native scalar witnesses separate from opaque PrimaryElement bytes; no native calls or restore"
+            Scope = derivePrefix ? "Directory end derived from saved counts at the header-derived start; KSAV start structurally derived from immutable inflated body0 and closed saved layouts; outer file association and inflation are fixture calibration only; native scalar witnesses separate from opaque PrimaryElement bytes; no native calls or restore"
                 : "Actual directory/KSAV sections from observed native offsets only; native scalar witnesses are separate from opaque PrimaryElement bytes; no native calls or restore"
         };
     }

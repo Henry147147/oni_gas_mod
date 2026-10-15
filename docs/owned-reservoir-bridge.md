@@ -434,7 +434,7 @@ directory descriptors and KSAV 7.38 object/component records. It reads marker,
 KPrefabID, Tag and inherited Storage fields in saved order and traverses recognized
 Storage packets. Unknown component payloads, prefix and tail remain opaque byte
 ranges. No native reader, type resolver, saved callback or prefab is invoked.
-The default build runs its 43 synthetic host groups; optional licensed fixture
+The default build runs its 63 synthetic host groups; optional licensed fixture
 checks are described in the [host tool](../tools/OwnedReservoirSavedInspectionTests/README.md).
 
 A separate Windows-v38 observer completes an ordinary native reservoir save,
@@ -476,7 +476,7 @@ The 17 additional synthetic groups cover layout/order changes, malformed
 lengths, UTF-8, limits, copy isolation and typed rejection. Both Windows and
 Linux pass 43 synthetic groups plus the v38 derived-offset calibration.
 
-A separate fresh Windows-v39 disposable colony runs the exact same three
+A separate fresh Windows-v39 disposable colony runs the earlier frozen three
 product parsers inside ONI Mono 6.13 after the ordinary native save/menu/reload
 has returned. Its body-derived start 9472651 matches the independently observed
 native entry, and its section end 10445583 matches the normal native return.
@@ -500,7 +500,29 @@ execution. Its report, log and screenshot remain in the separate
 uses the identical frozen package through normal New Game generation; it does
 not replace or relabel the failed first run.
 
-This establishes supported body-prefix derivation and section inspection.
+The directory-prefix API subsequently removes the caller-supplied directory
+end. `InspectPrefix` walks declared template/member/descriptor counts from a
+supplied start, using the exact API's decoder and a separate consumed-byte
+budget. Physical bounds and count minima are checked before dependent record
+allocation; the returned range/hash excludes the untouched suffix. The older
+exact API retains its closure and failure ordering. No saved CLR type is
+resolved and no alternative offset is searched.
+
+Its 20 new synthetic groups preserve the preceding 43. Frozen Windows and Linux
+hosts pass 63 synthetic groups and 64 each with the observed and derived v38
+captures; all three complete summaries match across platforms. Both separate
+.NET Standard 2.1 builds have zero warnings/errors. In derived mode, the pinned
+header wrapper supplies start 398; the API derives end 29965 before an external
+comparison to the native witness. Body-prefix inspection then derives KSAV
+9472651. Independent source/evidence review accepts this bounded host slice:
+`local/directory-prefix-inspection-r2/independent-review/REVIEW.md`, SHA256
+`3352143e5fa3d4de2b35f85751fe658f144ff9b6947302fe747502aa9df89ee9`.
+The first Linux preparation's missing reference-pack path failed before dotnet
+and remains preserved; the fresh preparation fixes only that private setup.
+The new directory-prefix API has not yet run in actual ONI Mono or Linux Unity;
+the v39 game evidence above belongs to its earlier exact-directory revision.
+
+This establishes supported directory/body-prefix derivation and section inspection.
 Outer header/directory/inflation association, arbitrary custom-detail
 descendants, exact live-reader exclusion, checkpoint/owner reconciliation,
 quarantine before instantiation, atomic owned restore and save permission

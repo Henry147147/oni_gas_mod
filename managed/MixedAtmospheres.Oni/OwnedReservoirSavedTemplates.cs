@@ -151,22 +151,39 @@ namespace MixedAtmospheres.Oni
 
     internal sealed class SavedBoundedCursor
     {
+        private readonly int start;
+        private readonly int? maximumConsumedBytes;
         internal SavedImage Image { get; }
         internal int Position { get; private set; }
         internal int End { get; }
         internal int Remaining => End - Position;
         internal string Path { get; }
-        internal SavedBoundedCursor(SavedImage image, int offset, int length, string path)
+        internal SavedBoundedCursor(SavedImage image, int offset, int length, string path, int? maximumConsumedBytes = null)
         {
             Image = image ?? throw new ArgumentNullException(nameof(image)); Path = path;
             if (offset < 0 || length < 0 || (long)offset + length > image.Length)
                 throw new SavedInspectionException(SavedInspectionFailureKind.Malformed, Math.Max(0, offset), path, "Section is outside the copied image");
-            Position = offset; End = offset + length;
+            Position = offset; start = offset; End = offset + length;
+            this.maximumConsumedBytes = maximumConsumedBytes;
         }
         internal SavedInspectionException Fail(string message, SavedInspectionFailureKind kind = SavedInspectionFailureKind.Malformed)
             => new SavedInspectionException(kind, Position, Path, message);
         internal void Need(int length)
-        { if (length < 0 || length > Remaining) throw Fail("Truncated or crossing record"); }
+        {
+            if (length < 0 || length > Remaining) throw Fail("Truncated or crossing record");
+            NeedBudget(length, 1);
+        }
+        internal void NeedBudget(int count, int minimumRecordBytes)
+        {
+            if (maximumConsumedBytes.HasValue && count > (maximumConsumedBytes.Value - (Position - start)) / minimumRecordBytes)
+                throw Fail("Directory byte budget exceeded", SavedInspectionFailureKind.LimitExceeded);
+        }
+        internal void PrefixRecords(int count, int minimumRecordBytes)
+        {
+            if (!maximumConsumedBytes.HasValue) return;
+            if (count > Remaining / minimumRecordBytes) throw Fail("Type arguments cannot fit the directory");
+            NeedBudget(count, minimumRecordBytes);
+        }
         internal byte ReadByte() { Need(1); return Image.ByteAt(Position++); }
         internal uint ReadUInt32()
         {
@@ -184,6 +201,7 @@ namespace MixedAtmospheres.Oni
             if (count < 0) throw Fail("Negative " + label);
             if (count > maximum) throw Fail(label + " exceeds its limit", SavedInspectionFailureKind.LimitExceeded);
             if (minimumRecordBytes > 0 && count > Remaining / minimumRecordBytes) throw Fail(label + " cannot fit the enclosing bytes");
+            if (minimumRecordBytes > 0) NeedBudget(count, minimumRecordBytes);
             return count;
         }
         internal string? String(int maximumBytes, bool required, bool name)
@@ -213,6 +231,28 @@ namespace MixedAtmospheres.Oni
             if (image.Length > limits.MaximumImageBytes || exactLength > limits.MaximumDirectoryBytes)
                 throw new SavedInspectionException(SavedInspectionFailureKind.LimitExceeded, Math.Max(0, offset), "directory", "Input exceeds its byte limit");
             var cursor = new SavedBoundedCursor(image, offset, exactLength, "directory");
+            var templates = ReadDirectory(cursor, limits);
+            cursor.RequireEnd();
+            return new SavedDirectory(image, new SavedByteRange(offset, exactLength), templates);
+        }
+
+        internal static SavedDirectory InspectPrefix(SavedImage image, int offset, SavedInspectionLimits? limits = null)
+        {
+            if (image == null) throw new ArgumentNullException(nameof(image));
+            limits ??= new SavedInspectionLimits();
+            if (image.Length > limits.MaximumImageBytes)
+                throw new SavedInspectionException(SavedInspectionFailureKind.LimitExceeded, Math.Max(0, offset), "directory", "Input exceeds its byte limit");
+            if (offset < 0 || offset > image.Length)
+                throw new SavedInspectionException(SavedInspectionFailureKind.Malformed, Math.Max(0, offset), "directory", "Section is outside the copied image");
+            // The physical end and the consumed-byte budget are independent: a real
+            // truncation must not be relabelled as an imposed byte-budget failure.
+            var cursor = new SavedBoundedCursor(image, offset, image.Length - offset, "directory", limits.MaximumDirectoryBytes);
+            var templates = ReadDirectory(cursor, limits);
+            return new SavedDirectory(image, new SavedByteRange(offset, cursor.Position - offset), templates);
+        }
+
+        private static Dictionary<string, SavedTemplateDescriptor> ReadDirectory(SavedBoundedCursor cursor, SavedInspectionLimits limits)
+        {
             int count = cursor.Count(limits.MaximumTemplates, 13, "template count"), membersUsed = 0, nodesUsed = 0;
             var templates = new Dictionary<string, SavedTemplateDescriptor>(StringComparer.Ordinal);
             for (int i = 0; i < count; i++)
@@ -224,6 +264,7 @@ namespace MixedAtmospheres.Oni
                 int properties = cursor.Count(limits.MaximumMembers - membersUsed - fields, 0, "property count");
                 int total = fields + properties;
                 if (total > cursor.Remaining / 6) throw cursor.Fail("Members cannot fit the directory");
+                cursor.NeedBudget(total, 6);
                 membersUsed += total;
                 var members = new List<SavedMemberDescriptor>();
                 var names = new HashSet<string>(StringComparer.Ordinal);
@@ -236,8 +277,7 @@ namespace MixedAtmospheres.Oni
                 }
                 templates.Add(name, new SavedTemplateDescriptor(name, members, new SavedByteRange(start, cursor.Position - start)));
             }
-            cursor.RequireEnd();
-            return new SavedDirectory(image, new SavedByteRange(offset, exactLength), templates);
+            return templates;
         }
 
         private static SavedTypeDescriptor ReadType(SavedBoundedCursor cursor, SavedInspectionLimits limits, int depth, ref int nodes)
@@ -259,13 +299,18 @@ namespace MixedAtmospheres.Oni
                 int arity = cursor.ReadByte();
                 int expected = kind == 18 || kind == 19 ? 2 : (kind >= 20 && kind <= 22 ? 1 : 0);
                 if (arity == 0 || arity > 32 || (expected != 0 && arity != expected)) throw cursor.Fail("Invalid generic arity", SavedInspectionFailureKind.Unsupported);
+                cursor.PrefixRecords(arity, 1);
                 for (int i = 0; i < arity; i++) children.Add(ReadType(cursor, limits, depth + 1, ref nodes));
             }
             else
             {
                 if (kind >= 18 && kind <= 22) throw cursor.Fail("Generic kind is missing its flag", SavedInspectionFailureKind.Unsupported);
                 if (kind == 0 || kind == 13) name = cursor.String(limits.MaximumTypeNameBytes, true, true);
-                if (kind == 17) children.Add(ReadType(cursor, limits, depth + 1, ref nodes));
+                if (kind == 17)
+                {
+                    cursor.PrefixRecords(1, 1);
+                    children.Add(ReadType(cursor, limits, depth + 1, ref nodes));
+                }
             }
             return new SavedTypeDescriptor(encoding, name, children, new SavedByteRange(start, cursor.Position - start));
         }
