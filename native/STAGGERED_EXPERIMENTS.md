@@ -158,6 +158,32 @@ This is a finite nesting/work identity result. Representation selection,
 thermodynamic closure, a physical update, moving geometry, native integration
 and performance remain open. The prior cap-incompatibility result is unchanged.
 
+### Moving reference measure: finite pressure-work certificate
+
+A subsequent six-case exact-rational certificate owns reference profiles,
+reference endpoints, one assembled consistent mass matrix and nodal momentum.
+It pushes all 88 pieces into moving geometry with positive fine Jacobians,
+retaining 264 constituent measures and exactly 42 primal thermodynamic owners.
+Compatible pressure/material work, explicit exterior work, canonical energy
+and moment balances, reflection, roundtrips and parent retirement all pass.
+Five typed negative controls reject stale physical density, incorrect owner
+incidence, omitted exterior work, fine-node crossing despite positive owner
+volumes, and duplicate coarse kinetic variance. Each immediately preserves
+both retained state and preexisting output bytes.
+
+This is an algebraic certificate with the artificial potential
+`U=Uref+Theta*V0/V` and manufactured nodal loads. It supplies no actual-EOS
+pressure solve, physical trajectory, entropy gate or production integration.
+The one R2 attempt uses 56,753 of 100,000 work units and at most 256 of 12,288
+Fraction bits. Report SHA256 is
+`396e475f29171418bcc32ceafb9fbd1d4d195089adeefe4a3bd95701b1c4846c`.
+Independent completed review is
+`481621f0dca2f451094fd7ab2fd8102e18d78d1dffa735979674b71a0ea6e403`
+under `canonical-reference-pushforward-work-r2-independent-result-review-r2`
+in the private validation directory. The original unexecuted source lifecycle
+rejection and a reviewer-only name-shadowing failure remain preserved. No
+target rerun or change to earlier remap, vacuum or performance gates follows.
+
 ## Reproducing standalone evidence
 
 Use separate fresh build and output directories. A default build contains

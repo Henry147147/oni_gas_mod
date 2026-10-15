@@ -42,7 +42,7 @@ and remaining acceptance obligations across the supported packs and platforms.
 | Shared mixture presentation | 27 scenarios pass on Windows and WSL Linux, including owned containers from one completed snapshot, assessments, tiny/zero-limit traces, immutable frames, thermodynamic parity and lazy thread-safe inspection | Read-only projection; gameplay respiration and a production material catalogue remain missing |
 | Cell/container inspection | 27 licensed-declaration checks pass on Windows and WSL Linux; Windows v17 selects six real native objects bound to full owned handles, transfers oxygen, reloads a custom checkpoint, and verifies retired/replacement bindings with 25 Unity captures | Conserved read-only fixtures; native packet flow, equipped suits and production machine transactions remain unproved; Linux declaration tests do not draw Unity UI |
 | Native nitrogen phases | Namespaced gas/liquid/solid YAML and cloned native substances; six Windows/Linux registration checks and Windows v15/v17 item inspection plus native save/menu/resume | Fixed native phase temperatures and explicit constant-property surrogates; not a complete pressure-dependent material model or world generation |
-| World appearance and overlays | Windows v34 passes 34 numbered Unity captures, six additional breathing/phase cases, 18 exact CPU texture-write records and equal-mass/gas-headspace comparisons. Separate v35 actual native scrolling exposes the full water row and tooltip at the same completed publication. V10 retains its separate interactive controls and same-save menu/resume evidence | 504 explicit fixture cells in a native colony; no GPU readback or native liquid ownership. Linux Unity and sustained game-scale performance remain unverified. See [presentation evidence](mixture-presentation.md) |
+| World appearance and overlays | Windows V48 passes all 34 original captures plus three actual hover/table captures, four labelled overlays, appearance controls and 18 GPU readbacks from the bound colour/pressure/danger textures. Native scrolling exposes the complete liquid constituent row at the inspected publication | 504 explicit fixture cells in a mostly paused colony; sampled texture bytes do not establish every pixel or shader result. Native liquid ownership, Linux Unity and sustained game-scale performance remain unverified. See [presentation evidence](mixture-presentation.md) |
 | Windows compilation | Reviewed full build passes seven native CTests, Core 88, presentation 27, checkpoint 19, file-promotion 39 with two explicit optional/platform skips, owned-runtime 97, reservoir 51, inspection 27, native-description 5 and nitrogen-registration 6 checks. Later targeted marker 31 and game assembly builds pass | Two known Unity dependency warnings; the earlier full build predates the new marker checks and experimental remap. V23 through V28 retain their exact earlier native DLL and game-package hashes |
 | Actual ONI references | Compiled against licensed build 744825 | Two Unity dependency-version warnings |
 | ONI probe | Actual Windows and Linux Unity reports passed all six checks | Scoped loading/interception only; no colony simulation replacement |
@@ -401,6 +401,22 @@ and independent review are under
 `local/failed-onload-windows-v46-managed-completed-negative-review`; review
 SHA256 is `6b575db721d51c621949935255693b0588a580688764b0aaedfd54d070c37ba7`.
 This supplies no normal-closure, physics or first-playable acceptance.
+
+Windows V48 independently closes the merged presentation fixture's actual
+hover, expanded-table visibility and sampled GPU texture gaps. All original
+34 screenshots and three added inspection captures pass; both manual holds
+retain the correct completed snapshot. Normal application quit restores all
+283 personal files and all 13 settings/backups. The preceding V47 attempt
+remains rejected after its second inspection hold expired. These results do
+not establish production container flow, owned mixture save/reload, Linux
+rendering or performance. See [the precise scope](mixture-presentation.md).
+
+A separate finite reference-pushforward certificate now passes moving fine
+geometry, constant consistent inertia and compatible material/pressure work
+identities. It uses an artificial potential and manufactured loads; an actual
+thermodynamic pressure step remains unimplemented/unaccepted. The existing
+remap, vacuum-front and performance failures are unchanged. See
+[the solver experiment evidence](../native/STAGGERED_EXPERIMENTS.md).
 
 ## Remaining release gates, in dependency order
 

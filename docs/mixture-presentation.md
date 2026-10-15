@@ -450,6 +450,38 @@ pass. Normal quit restores all 283 personal file identities/membership and all
 review `76f6013c7cf2c35c2934efa8e6ac1dbf14295d415784625ea603e5d9fdc9da96`
 is under `local/v45-independent-game-review`.
 
+Windows V48 closes those actual-hover and sampled-GPU gaps using a private
+observer around the unchanged merged renderer, inspection and Core sources.
+All 34 original numbered screenshots and three additional inspection captures
+pass independent review. Actual mouse hover shows the trace chlorine warning
+at 0.0002% against its 0.0001% limit. In the gas/liquid case, native wheel input
+and a scrollbar drag expose the complete water row: 500 kg, 27754.218 mol,
+liquid constituent, gas partial pressure not applicable. Both holds preserve
+their completed revision/publication/session identities until explicit
+continuation. Appearance controls, all four labelled overlays, changing and
+paused mixtures, checkpoint presentation, zoom and 125% UI scaling also pass.
+
+Eighteen asynchronous GPU callbacks independently match the actual bound
+colour, pressure and danger resources for air, trace-contaminated air and
+vacuum across two snapshots. All requests complete with no pending callback.
+This establishes the sampled texture bytes on Windows D3D11/Gamma; it does
+not sample every pixel or certify every device, shader result or lighting
+condition. The six generic container surfaces remain read-only selection
+fixtures. The later two-reservoir protocol exercises owned transfer and
+evacuation, native meters/logic and fences, but denies both attempted saves
+before file side effects. It supplies no owned mixture save/reload acceptance.
+
+V48 completes and exits through a normal application quit. All 283 personal
+file identities/membership and 13 settings/backups restore exactly. Evidence is
+`local/colony-runs/presentation-hover-gpu-windows-v48`; independent completed
+review is `local/presentation-hover-gpu-v48-completed-review`, SHA256
+`9fd6f894d014e01064ddcaab58ed230eea5eb46f529c162421c50e2869ec0a21`.
+The preceding V47 attempt remains rejected: its second 240-second manual hold
+expired before the full water-row observation and continuation. Its later
+input cannot count retroactively. V48 is a separately declared fresh manual
+attempt with the same binary, payloads and criteria. Neither mostly paused
+504-cell run establishes sustained performance or first-playable acceptance.
+
 A separate copied-source composition-cache experiment was rejected and never
 applied to the product. Although repeated heat-only captures improved, its
 three-pair Windows medians regressed cold capture from 67.12 to 79.87 ms and
