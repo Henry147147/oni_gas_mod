@@ -290,7 +290,7 @@ isolated WSL. This does not draw Linux Unity, establish rendering performance,
 route native pipes, transfer native world fluids, provide heat/power gameplay,
 or save/reload the owned state. `FirstPlayableColonyPassed` remains false.
 
-The separately installed selected-load rejection boundary now passes 50
+The separately installed selected-load rejection boundary now passes 56
 Windows/Linux declaration checks. It reads a bounded native header, rejects
 every recognized owned declaration, verifies the actual selected reader header,
 and retains fatal state through the exact public call and successful matching
@@ -307,5 +307,65 @@ initialization-call map: the pinned assembly also calls SIM_Initialize from
 creation or any acceptance case. All 13 original user files were restored
 byte-for-byte. Frozen source/package/log evidence remains under
 `local/colony-runs/load-rejection-windows-v29`. This is a failed diagnostic
-installation, not a passed load test; the full call map and actual game
-acceptance are still being completed. The boundary remains inactive by default.
+installation, not a passed load test. The corrected private map observes all
+four initialization callers, 41 managed targets, 15 native callsite keys and
+four managed dispatch antecedents. Declaration preflight does not install
+Harmony or invoke native code.
+
+Windows v30 installed that corrected map, but startup from the cached generated
+world failed in `SaveLoader.LoadFromWorldGen` before the ordinary control. Its
+exact null reference remains unresolved. The error screen was captured with
+computer use and closed manually; engine shutdown subsequently logged a crash.
+File restoration passed, but clean engine shutdown did not. Evidence is retained
+under `local/colony-runs/load-rejection-windows-v30`.
+
+Windows v31 used the same package with fresh world generation. Its ordinary
+unowned native reservoir passed a real save, frontend transition and reload:
+12.5 kg oxygen, 310 K and disease identity/count 12345 matched bit-for-bit.
+Actual original bodies and native dispatch calibrated the complete counter map
+with no observation errors. Direct rejection of the copied schema-99 header
+then returned false without entering the selected load body or any measured
+native initialize/load/start/save call. The selected path cleared and the stored
+packet remained exact. All five frozen save-directory files remained unchanged.
+
+V31 nevertheless failed the required stable-frontend gate. During transition,
+`AmbienceManager.LateUpdate` read the stale grid view after native shutdown
+cleared its mass pointer and before later grid cleanup cleared `CellCount`.
+The process exited before complete teardown/stable frontend could be accepted;
+the early-OnSpawn and caught-false cases were not reached. No user input closed
+that process, and its quit origin was not observed. An independent review
+verifies the scoped control and rejection evidence under
+`local/colony-runs/load-rejection-windows-v31-fresh-world`. All 13 original user
+files were restored exactly in both runs. These results do not establish owned
+restore, ordinary owned saves, first-playable acceptance or Linux Unity behavior.
+The boundary remains inactive by default.
+
+The subsequent v5b correction retires only the exact failed Game's managed
+view before requesting frontend: its field-only `SetIsLoading` call is checked,
+then only `Grid.CellCount` is zeroed. Dimensions, native arrays and stored
+contents are not repaired. Exact attempt, thread and current owner are checked
+again after the call to exclude foreign callback reentry. Missing and foreign
+owners are distinguished; a foreign current Game blocks the scene request.
+This observation is separate from actual native teardown and grants no
+initialization or shutdown inference. All 56 declaration checks pass on both
+Windows and Linux; installation still requires the pinned Windows assemblies.
+
+Fresh Windows v32 passes the ordinary native control and the full direct
+rejection epoch. It observes the exact owner/view retirement, unchanged packet
+and dimensions, zero native initialize/load/start/save dispatch, one frontend
+request, actual clean matching `Game.DestroyInstances` completion and a stable
+frontend for more than two seconds. It therefore verifies the v31 cleanup
+correction for an existing Game.
+
+V32 remains failed overall. In the early-OnSpawn case, SaveLoader rejects the
+header before any Game instance exists, so no `Game.DestroyInstances` can
+complete that fatal attempt. Native initialize/load/start/save calls remain
+zero, but the pending attempt is not released. The partial backend transition
+also raises a divide-by-zero in `KBatchedAnimUpdater.CleanUp`; that prevents
+accepting this abort as clean. The caught-false case is not reached. Computer
+use captures the error screen and explicitly selects Quit to Desktop; private
+quit observers preserve failed status and record that UI call stack. All 13
+original files restore exactly. Frozen source/package/report/screenshots remain
+under `local/colony-runs/load-rejection-windows-v32`. A correct pre-Game loader
+and scene teardown protocol is still required; zero cell count is not proof of
+native teardown.

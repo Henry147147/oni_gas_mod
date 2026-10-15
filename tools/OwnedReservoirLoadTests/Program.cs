@@ -51,6 +51,12 @@ internal static class Program
             ("valid ordinary inputs cannot acquire fatal attempts", NoFalseAttempt),
             ("attempt observations are immutable and fatal remains sticky", Sticky),
             ("frontend request is once-only and safe across callback reentry", FrontendReentry),
+            ("native view retirement requires exact fatal owner thread and once-latched request", ViewRetirementDecision),
+            ("stale successor and entering teardown cannot retire another native view", ViewRetirementLifetime),
+            ("SetIsLoading reentry must revalidate identity owner and teardown before retirement", ViewRetirementReentry),
+            ("pinned Game.SetIsLoading only assigns its exact managed field", ViewRetirementContract),
+            ("view retirement precedes frontend and only invalidates CellCount after the decision", ViewRetirementWiring),
+            ("native view retirement observations retain immutable exact references and dimensions", ViewRetirementObservation),
             ("reentrant selected loads cannot replace a fatal attempt", ReentrantSelection),
             ("selected inner and outer false results latch before fatal gating", SelectedFalseResults),
             ("early rejected selected calls stay held across synchronous teardown", EarlyRejectedInvocation),
@@ -176,6 +182,138 @@ internal static class Program
     {var t=new OwnedReservoirLoadAttemptTracker();var old=t.Reject("outer",Invalid());t.Record(old,"inner:false","caught");t.Record(old,"exception","swallowed");Check(t.IsFatal && old.Observations.Count==1 && t.Current!.Observations.Count==3 && t.Current.Id==old.Id && t.Current.Fatal);}
     private static void FrontendReentry()
     {var t=new OwnedReservoirLoadAttemptTracker();var a=t.Reject("outer",Invalid());Check(t.TryRequestFrontend(a));Check(!t.TryRequestFrontend(a));var token=t.BeginTeardown(a);Check(token!=null);Check(t.CompleteTeardown(token!,null));Check(!t.Record(a,"callback-return","must not resurrect"));Check(!t.IsFatal && t.Last!.TeardownCompleted && t.Last.FrontendRequested);}
+    private static string ViewDecision(OwnedReservoirLoadAttempt expected, OwnedReservoirLoadAttempt? current,
+        Game? expectedOwner, Game? observedOwner, bool installed = true, int expectedThread = 17, int observedThread = 17)
+        => InvokeBoundary("DecideViewRetirement", installed, expectedThread, observedThread, expected, current, expectedOwner, observedOwner)!.ToString()!;
+    private static void ViewRetirementDecision()
+    {
+        var tracker=new OwnedReservoirLoadAttemptTracker();var attempt=tracker.Reject("selected",Invalid());
+        var owner=ManagedShell<Game>();var foreign=ManagedShell<Game>();
+        Check(ViewDecision(attempt,tracker.Current,owner,owner)=="NotCurrentAttempt","No retirement before once-only frontend latch");
+        Check(tracker.TryRequestFrontend(attempt));var current=tracker.Current!;
+        Check(ViewDecision(attempt,current,owner,owner)=="Retire");
+        Check(ViewDecision(attempt,current,owner,owner,installed:false)=="NotCurrentAttempt");
+        Check(ViewDecision(attempt,current,owner,owner,observedThread:18)=="NotCurrentAttempt");
+        Check(ViewDecision(attempt,null,owner,owner)=="NotCurrentAttempt");
+        Check(ViewDecision(attempt,current,owner,foreign)=="ForeignOwner");
+        Check(ViewDecision(attempt,current,null,null)=="NoCurrentOwner");
+        Check(ViewDecision(attempt,current,null,owner)=="ForeignOwner");
+        Check(ViewDecision(attempt,current,owner,null)=="NoCurrentOwner");
+        var code=PatchProcessor.GetOriginalInstructions(BoundaryMethod("DecideViewRetirement")).ToArray();
+        Check(!code.Any(i=>i.operand is FieldInfo f && f.DeclaringType==typeof(Grid)),"Pure decision must not initialize Grid");
+        Check(!code.Any(i=>i.operand is MethodBase m && m.DeclaringType==typeof(UnityEngine.Object)),"Unity overloaded equality is unsafe on retired references");
+    }
+    private static void ViewRetirementLifetime()
+    {
+        var tracker=new OwnedReservoirLoadAttemptTracker();var owner=ManagedShell<Game>();
+        var old=tracker.Reject("old",Invalid());Check(tracker.TryRequestFrontend(old));
+        var begun=tracker.BeginTeardown(old)!;
+        Check(ViewDecision(old,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(tracker.CompleteTeardown(begun,null));
+        Check(ViewDecision(old,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        var successor=tracker.Reject("successor",Invalid());Check(tracker.TryRequestFrontend(successor));
+        Check(ViewDecision(old,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(ViewDecision(successor,tracker.Current,owner,owner)=="Retire");
+        var otherTracker=new OwnedReservoirLoadAttemptTracker();var foreign=otherTracker.Reject("foreign",Invalid());
+        Check(otherTracker.TryRequestFrontend(foreign));
+        Check(ViewDecision(successor,otherTracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(tracker.Current!.Id==successor.Id && tracker.Current.FrontendRequested && !tracker.Current.TeardownStarted);
+    }
+    private static void ViewRetirementReentry()
+    {
+        var tracker=new OwnedReservoirLoadAttemptTracker();var owner=ManagedShell<Game>();var replacement=ManagedShell<Game>();
+        var before=tracker.Reject("selected",Invalid(),selectedCallPending:true);Check(tracker.TryRequestFrontend(before));
+        var beforeCallback=tracker.Current!;Check(ViewDecision(before,beforeCallback,owner,owner)=="Retire");
+        tracker.Record(before,"foreign patch callback","same identity may create a new immutable observation");
+        Check(!ReferenceEquals(beforeCallback,tracker.Current) && ViewDecision(before,tracker.Current,owner,owner)=="Retire");
+        Check(ViewDecision(before,tracker.Current,owner,replacement)=="ForeignOwner");
+        Check(ViewDecision(before,tracker.Current,owner,null)=="NoCurrentOwner");
+        Check(ViewDecision(before,tracker.Current,owner,owner,observedThread:18)=="NotCurrentAttempt");
+        var teardown=tracker.BeginTeardown(before)!;Check(ViewDecision(before,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(!tracker.CompleteTeardown(teardown,null) && ViewDecision(before,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(tracker.ReleaseSelectedCall(before) && ViewDecision(before,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        var successor=tracker.Reject("reentrant successor",Invalid());Check(tracker.TryRequestFrontend(successor));
+        Check(ViewDecision(before,tracker.Current,owner,owner)=="NotCurrentAttempt");
+        Check(ViewDecision(successor,tracker.Current,replacement,replacement)=="Retire");
+        // These are pure before/after-call decisions, not execution of Unity or
+        // the Grid-mutating preparation method on the managed host.
+    }
+    private static void ViewRetirementContract()
+    {
+        InvokeBoundary("RequireViewRetirementContract");
+        var method=typeof(Game).GetMethod("SetIsLoading",BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance,Type.EmptyTypes)!;
+        var field=typeof(Game).GetField("isLoading",BindingFlags.NonPublic|BindingFlags.Instance)!;
+        var body=method.GetMethodBody()!;var il=body.GetILAsByteArray()!;
+        Check(!method.IsStatic && method.ReturnType==typeof(void) && field.FieldType==typeof(bool) && !field.IsStatic);
+        Check(body.ExceptionHandlingClauses.Count==0 && il.Length==8);
+        Check(il[0]==0x02 && il[1]==0x17 && il[2]==0x7d && BitConverter.ToInt32(il,3)==field.MetadataToken && il[7]==0x2a);
+        var instructions=PatchProcessor.GetOriginalInstructions(method).ToArray();
+        Check(instructions.Length==4 && instructions[2].opcode==System.Reflection.Emit.OpCodes.Stfld && Equals(instructions[2].operand,field));
+        var contracts=PatchProcessor.GetOriginalInstructions(typeof(OwnedReservoirLoadBoundary).GetMethod("GuardContracts",BindingFlags.NonPublic|BindingFlags.Static)!).ToArray();
+        Check(Calls(contracts.First(i=>i.opcode!=System.Reflection.Emit.OpCodes.Nop),typeof(OwnedReservoirLoadBoundary),"RequireViewRetirementContract"),"Validate the field-only contract before any hook installation");
+        // No invocation of the game method, Grid, or their type initializers.
+    }
+    private static void ViewRetirementWiring()
+    {
+        var request=PatchProcessor.GetOriginalInstructions(BoundaryMethod("RequestFrontend")).ToArray();
+        var latch=Array.FindIndex(request,i=>Calls(i,typeof(OwnedReservoirLoadAttemptTracker),"TryRequestFrontend"));
+        var retire=Array.FindIndex(request,i=>Calls(i,typeof(OwnedReservoirLoadBoundary),"RetireNativeViewBeforeFrontend"));
+        var clear=Array.FindIndex(request,i=>Calls(i,typeof(SaveLoader),"SetActiveSaveFilePath"));
+        var scene=Array.FindIndex(request,i=>Calls(i,typeof(App),"LoadScene"));
+        Check(latch>=0 && latch<retire && retire<clear && clear<scene);
+        Check(request.Skip(retire+1).Take(clear-retire-1).Any(i=>i.opcode.FlowControl==System.Reflection.Emit.FlowControl.Cond_Branch),"A stale attempt must stop the frontend request");
+        var prep=PatchProcessor.GetOriginalInstructions(BoundaryMethod("RetireNativeViewBeforeFrontend")).ToArray();
+        var thread=Array.FindIndex(prep,i=>Calls(i,typeof(OwnedReservoirLoadBoundary),"RequireActivationThread"));
+        var owner=Array.FindIndex(prep,i=>Calls(i,typeof(Game),"get_Instance"));
+        var decision=Array.FindIndex(prep,i=>Calls(i,typeof(OwnedReservoirLoadBoundary),"DecideViewRetirement"));
+        var grid=Array.FindIndex(prep,i=>i.operand is FieldInfo f && f.DeclaringType==typeof(Grid));
+        var loading=Array.FindIndex(prep,i=>Calls(i,typeof(Game),"SetIsLoading"));
+        var writes=prep.Select((instruction,index)=>(instruction,index)).Where(p=>p.instruction.opcode==System.Reflection.Emit.OpCodes.Stsfld && p.instruction.operand is FieldInfo f && f.DeclaringType==typeof(Grid)).ToArray();
+        Check(thread>=0 && thread<owner && owner<decision && decision<grid && grid<loading);
+        Check(writes.Length==1 && ((FieldInfo)writes[0].instruction.operand).Name=="CellCount" && loading<writes[0].index);
+        Check(prep[writes[0].index-1].opcode==System.Reflection.Emit.OpCodes.Ldc_I4_0);
+        var postThread=Array.FindIndex(prep,loading+1,i=>Calls(i,typeof(OwnedReservoirLoadBoundary),"RequireActivationThread"));
+        var postAttempt=Array.FindIndex(prep,loading+1,i=>Calls(i,typeof(OwnedReservoirLoadAttemptTracker),"get_Current"));
+        var postOwner=Array.FindIndex(prep,loading+1,i=>Calls(i,typeof(Game),"get_Instance"));
+        var postDecision=Array.FindIndex(prep,loading+1,i=>Calls(i,typeof(OwnedReservoirLoadBoundary),"DecideViewRetirement"));
+        Check(loading<postThread && postThread<postAttempt && postAttempt<postOwner && postOwner<postDecision && postDecision<writes[0].index,
+            "Foreign Harmony callbacks require thread, current attempt and exact owner revalidation after SetIsLoading");
+        Check(!prep.Skip(loading+1).Take(postDecision-loading-1).Any(i=>i.operand is FieldInfo f && f.DeclaringType==typeof(Grid)),
+            "No global Grid read or write before post-call validation");
+        var lastGrid=Array.FindLastIndex(prep,i=>i.operand is FieldInfo f && f.DeclaringType==typeof(Grid));
+        var skipExits=prep.Skip(decision+1).Take(grid-decision-1).Count(i=>
+            i.opcode==System.Reflection.Emit.OpCodes.Ret ||
+            (i.opcode.FlowControl==System.Reflection.Emit.FlowControl.Branch &&
+                prep.Skip(lastGrid+1).Any(target=>InstructionLabels(target).Contains(i.operand))));
+        Check(skipExits>=2,"Stale and no-exact-owner paths must exit without reaching any Grid access (including Debug shared returns)");
+        Check(prep.Skip(postDecision+1).Take(writes[0].index-postDecision-1).Any(i=>
+            i.opcode==System.Reflection.Emit.OpCodes.Ret ||
+            (i.opcode.FlowControl==System.Reflection.Emit.FlowControl.Branch &&
+                prep.Skip(lastGrid+1).Any(target=>InstructionLabels(target).Contains(i.operand)))),
+            "Changed post-call decision exits past all Grid accesses and prevents the frontend request");
+        Check(prep.Count(i=>i.opcode==System.Reflection.Emit.OpCodes.Ldstr && Equals(i.operand,"native-view-retired"))==1
+            && prep.Any(i=>i.opcode==System.Reflection.Emit.OpCodes.Ldstr && Equals(i.operand,"native-view-retirement:skipped")));
+        foreach(var method in typeof(OwnedReservoirLoadBoundary).GetMethods(BindingFlags.NonPublic|BindingFlags.Static))
+            foreach(var instruction in PatchProcessor.GetOriginalInstructions(method))
+            {
+                if(instruction.opcode==System.Reflection.Emit.OpCodes.Stsfld && instruction.operand is FieldInfo f && f.DeclaringType==typeof(Grid))
+                    Check(method==BoundaryMethod("RetireNativeViewBeforeFrontend") && f.Name=="CellCount","No dimensions/arrays or other Grid stores");
+                if(instruction.operand is MethodBase called)Check(!(called.DeclaringType==typeof(Sim)&&called.Name=="Shutdown"));
+            }
+    }
+    private static void ViewRetirementObservation()
+    {
+        var tracker=new OwnedReservoirLoadAttemptTracker();var attempt=tracker.Reject("selected",Invalid());
+        var game=ManagedShell<Game>();var observation=new OwnedReservoirNativeViewRetirement(attempt,17,17,true,game,game,true,"retired",1024,0,32,32,32,32);
+        Check(ReferenceEquals(observation.AttemptIdentity,attempt.Identity) && observation.AttemptId==attempt.Id);
+        Check(ReferenceEquals(observation.ExpectedOwner,game) && ReferenceEquals(observation.ObservedOwner,game) && observation.OwnerMatches && observation.AttemptMatches);
+        Check(observation.ActivationThreadId==17 && observation.ObservedThreadId==17 && observation.Retired);
+        Check(observation.PriorCellCount==1024 && observation.CellCount==0 && observation.PriorWidth==observation.WidthInCells && observation.PriorHeight==observation.HeightInCells);
+        Check(typeof(OwnedReservoirNativeViewRetirement).GetProperties(BindingFlags.NonPublic|BindingFlags.Instance).All(p=>p.SetMethod==null));
+        tracker.Record(attempt,"after","unchanged observation");Check(observation.Reason=="retired" && observation.PriorCellCount==1024);
+        var skipped=new OwnedReservoirNativeViewRetirement(attempt,17,17,true,null,game,false,"no exact owner");
+        Check(!skipped.OwnerMatches && !skipped.Retired && skipped.PriorCellCount==null && skipped.CellCount==null && skipped.WidthInCells==null);
+    }
     private static void ReentrantSelection()
     {var t=new OwnedReservoirLoadAttemptTracker();var a=t.Reject("first",Invalid());var b=t.Reject("reentry",OwnedReservoirLoadHeaderV1.Inspect(Header(OwnedJson())));Check(a.Id==b.Id && b.Sequence==1 && b.Input.Kind==OwnedReservoirLoadInputKind.InvalidHeader && t.IsFatal);}
     private static OwnedReservoirSelectedCall Selected() => new OwnedReservoirSelectedCall("private selected save.sav");

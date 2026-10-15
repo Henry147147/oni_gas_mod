@@ -23,6 +23,40 @@ namespace MixedAtmospheres.Oni
         { Target = target; Prefix = prefix; Postfix = postfix; Finalizer = finalizer; Transpiler = transpiler; }
     }
 
+    // A bounded managed diagnostic, not an ownership token or evidence of native
+    // shutdown. Do not serialize the Game references through Unity properties.
+    internal sealed class OwnedReservoirNativeViewRetirement
+    {
+        internal object AttemptIdentity { get; }
+        internal Guid AttemptId { get; }
+        internal int ActivationThreadId { get; }
+        internal int ObservedThreadId { get; }
+        internal bool AttemptMatches { get; }
+        internal Game? ExpectedOwner { get; }
+        internal Game? ObservedOwner { get; }
+        internal bool OwnerMatches { get; }
+        internal bool Retired { get; }
+        internal int? PriorCellCount { get; }
+        internal int? CellCount { get; }
+        internal int? PriorWidth { get; }
+        internal int? PriorHeight { get; }
+        internal int? WidthInCells { get; }
+        internal int? HeightInCells { get; }
+        internal string Reason { get; }
+        internal OwnedReservoirNativeViewRetirement(OwnedReservoirLoadAttempt attempt, int activationThreadId, int observedThreadId,
+            bool attemptMatches, Game? expectedOwner, Game? observedOwner, bool retired, string reason,
+            int? priorCellCount = null, int? cellCount = null, int? priorWidth = null, int? priorHeight = null,
+            int? widthInCells = null, int? heightInCells = null)
+        {
+            AttemptIdentity = attempt.Identity; AttemptId = attempt.Id;
+            ActivationThreadId = activationThreadId; ObservedThreadId = observedThreadId; AttemptMatches = attemptMatches;
+            ExpectedOwner = expectedOwner; ObservedOwner = observedOwner;
+            OwnerMatches = !ReferenceEquals(expectedOwner, null) && ReferenceEquals(expectedOwner, observedOwner);
+            Retired = retired; Reason = reason; PriorCellCount = priorCellCount; CellCount = cellCount;
+            PriorWidth = priorWidth; PriorHeight = priorHeight; WidthInCells = widthInCells; HeightInCells = heightInCells;
+        }
+    }
+
     // Manual Install only: no HarmonyPatch attribute or automatic PatchAll
     // discovery. This adds rejection, never successful loading or save rights.
     internal static class OwnedReservoirLoadBoundary
@@ -47,6 +81,7 @@ namespace MixedAtmospheres.Oni
         internal static OwnedReservoirLoadAttempt? CurrentAttempt => attempts.Current;
         internal static OwnedReservoirLoadAttempt? LastAttempt => attempts.Last;
         internal static IReadOnlyList<OwnedReservoirLoadAttempt> CompletedAttempts => attempts.Completed;
+        internal static OwnedReservoirNativeViewRetirement? LastNativeViewRetirement { get; private set; }
 
         internal static void Install(Harmony harmony)
         {
@@ -113,6 +148,7 @@ namespace MixedAtmospheres.Oni
 
         internal static IReadOnlyList<OwnedReservoirLoadHook> GuardContracts()
         {
+            RequireViewRetirementContract();
             var hooks = new List<OwnedReservoirLoadHook>();
             void Add(Type type, string name, Type result, bool isStatic, string prefix, Type[] parameters, string? postfix = null, string? finalizer = null, string? transpiler = null)
                 => hooks.Add(new OwnedReservoirLoadHook(Method(type, name, result, isStatic, parameters), Patch(prefix),
@@ -141,6 +177,20 @@ namespace MixedAtmospheres.Oni
             Add(typeof(Game), "DestroyInstances", typeof(void), false, nameof(TeardownPrefix), Type.EmptyTypes, finalizer: nameof(TeardownFinalizer));
             hooks.Add(new OwnedReservoirLoadHook(Method(typeof(Sim), "Shutdown", typeof(void), true), null, Patch(nameof(ShutdownPostfix))));
             return new ReadOnlyCollection<OwnedReservoirLoadHook>(hooks);
+        }
+
+        private static void RequireViewRetirementContract()
+        {
+            // The inspected original call must remain a managed field
+            // assignment. Foreign Harmony callbacks are revalidated separately.
+            var method = Method(typeof(Game), "SetIsLoading", typeof(void), false);
+            var field = AccessTools.DeclaredField(typeof(Game), "isLoading");
+            var body = method.GetMethodBody()!;
+            var il = body.GetILAsByteArray();
+            if (field == null || field.IsStatic || field.FieldType != typeof(bool) || body.ExceptionHandlingClauses.Count != 0 ||
+                il == null || il.Length != 8 || il[0] != 0x02 || il[1] != 0x17 || il[2] != 0x7d || il[7] != 0x2a ||
+                BitConverter.ToInt32(il, 3) != field.MetadataToken)
+                throw new NotSupportedException("Pinned Game.SetIsLoading must only assign its exact managed isLoading field to true.");
         }
 
         private static void RequireActivationThread()
@@ -190,8 +240,75 @@ namespace MixedAtmospheres.Oni
             if (!attempts.TryRequestFrontend(attempt)) return;
             // The flag is set before any reentrant scene callback. No native
             // Sim.Shutdown call is made, and no alternative file is loaded.
-            try { KMonoBehaviour.isLoadingScene = true; SaveLoader.SetActiveSaveFilePath(null); App.LoadScene("frontend"); }
+            try
+            {
+                if (!RetireNativeViewBeforeFrontend(attempt)) return;
+                KMonoBehaviour.isLoadingScene = true; SaveLoader.SetActiveSaveFilePath(null); App.LoadScene("frontend");
+            }
             catch (Exception error) { attempts.Record(attempt, "frontend-request:failed", error.GetType().Name + ": " + error.Message); }
+        }
+        private enum ViewRetirementDecision { NotCurrentAttempt, NoCurrentOwner, ForeignOwner, Retire }
+        private static ViewRetirementDecision DecideViewRetirement(bool installed, int expectedThread, int observedThread,
+            OwnedReservoirLoadAttempt expected, OwnedReservoirLoadAttempt? current, Game? expectedOwner, Game? observedOwner)
+        {
+            if (!installed || expectedThread != observedThread || current == null ||
+                !ReferenceEquals(expected.Identity, current.Identity) || !current.FrontendRequested || current.TeardownStarted)
+                return ViewRetirementDecision.NotCurrentAttempt;
+            if (ReferenceEquals(observedOwner, null)) return ViewRetirementDecision.NoCurrentOwner;
+            return ReferenceEquals(expectedOwner, null) || !ReferenceEquals(expectedOwner, observedOwner)
+                ? ViewRetirementDecision.ForeignOwner : ViewRetirementDecision.Retire;
+        }
+        private static bool RetireNativeViewBeforeFrontend(OwnedReservoirLoadAttempt attempt)
+        {
+            RequireActivationThread();
+            var observedThread = Thread.CurrentThread.ManagedThreadId;
+            var current = attempts.Current;
+            var expectedOwner = ownerGame;
+            var observedOwner = Game.Instance;
+            var decision = DecideViewRetirement(Installed, activationThread, observedThread, attempt, current, expectedOwner, observedOwner);
+            if (decision != ViewRetirementDecision.Retire)
+            {
+                // A missing or foreign owner never permits reading or writing
+                // global Grid state. A stale attempt cannot request a successor
+                // scene transition or replace the successor's observation.
+                if (decision == ViewRetirementDecision.NotCurrentAttempt) return false;
+                LastNativeViewRetirement = new OwnedReservoirNativeViewRetirement(attempt, activationThread, observedThread,
+                    true, expectedOwner, observedOwner, false, decision == ViewRetirementDecision.ForeignOwner
+                        ? "Current Game is foreign to the fatal attempt; Grid and frontend scene untouched."
+                        : "No current Game owner; Grid untouched before frontend request.");
+                attempts.Record(attempt, "native-view-retirement:skipped", LastNativeViewRetirement.Reason);
+                return decision == ViewRetirementDecision.NoCurrentOwner;
+            }
+            var priorCellCount = Grid.CellCount;
+            var priorWidth = Grid.WidthInCells;
+            var priorHeight = Grid.HeightInCells;
+            // The original method is verified field-only, but a foreign Harmony
+            // prefix/postfix may still reenter. Revalidate all authority after
+            // the call before touching global Grid state or requesting a scene.
+            expectedOwner!.SetIsLoading();
+            RequireActivationThread();
+            observedThread = Thread.CurrentThread.ManagedThreadId;
+            current = attempts.Current;
+            observedOwner = Game.Instance;
+            var confirmed = DecideViewRetirement(Installed, activationThread, observedThread, attempt, current, expectedOwner, observedOwner);
+            if (confirmed != ViewRetirementDecision.Retire)
+            {
+                if (current != null && ReferenceEquals(attempt.Identity, current.Identity))
+                {
+                    LastNativeViewRetirement = new OwnedReservoirNativeViewRetirement(attempt, activationThread, observedThread,
+                        true, expectedOwner, observedOwner, false, "SetIsLoading reentry changed the current retirement decision to " + confirmed + "; no subsequent Grid access or frontend request.",
+                        priorCellCount: priorCellCount, priorWidth: priorWidth, priorHeight: priorHeight);
+                    attempts.Record(attempt, "native-view-retirement:skipped-after-loading", LastNativeViewRetirement.Reason);
+                }
+                return false;
+            }
+            Grid.CellCount = 0;
+            LastNativeViewRetirement = new OwnedReservoirNativeViewRetirement(attempt, activationThread, observedThread,
+                true, expectedOwner, observedOwner, true, "Managed cell views retired before frontend/native StopBE.",
+                priorCellCount, Grid.CellCount, priorWidth, priorHeight, Grid.WidthInCells, Grid.HeightInCells);
+            attempts.Record(attempt, "native-view-retired", "priorCellCount=" + priorCellCount + "; cellCount=" + Grid.CellCount +
+                "; widthInCells=" + Grid.WidthInCells + "; heightInCells=" + Grid.HeightInCells + "; exactOwner=true; exactAttempt=true; activationThread=" + observedThread);
+            return true;
         }
         private static bool OnSpawnPrefix(SaveLoader __instance)
         {

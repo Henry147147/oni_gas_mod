@@ -105,7 +105,34 @@ While fatal, exact native world-load/start, saved-root creation, worldgen fallba
 Game spawn/update and native/game save entry points are fenced. Save fences throw
 before the original body, rather than returning a fabricated saved path. The
 helper never calls Sim.Shutdown or guesses native initialization from Grid data.
-It requests frontend and leaves actual native cleanup to the game's lifecycle.
+Before requesting frontend, it retires managed cell views only for the exact
+current fatal attempt, activation thread and non-null managed Game reference
+still equal by ReferenceEquals to Game.Instance. Installation verifies that the
+pinned Game.SetIsLoading method consists only of assigning its private managed
+isLoading bool. After the once-only frontend latch, that method runs before
+setting Grid.CellCount to0. No array, width, height, native initialization flag
+or loaded-success flag is changed; no shutdown call is added. This follows the
+managed preparation used by native ForceStopGame without duplicating native
+shutdown. In pinned744825, AmbienceManager's cell sampling has no Game loading
+predicate, so the loading bool alone does not close the stale native-array view.
+Actual StopBE/DestroyInstances still belong to the game's lifecycle.
+
+Missing current Game records a skip without reading or writing Grid; frontend
+may still be requested. A non-null foreign Game records a skip and prevents the
+scene request, so neither its Grid nor its scene is changed. A stale attempt or
+one whose teardown has begun cannot retire a successor's view or request its
+scene transition. The immutable LastNativeViewRetirement observation records
+the exact attempt/owner/thread references and prior/current counts/dimensions;
+native-view-retired is separate from actual Game.DestroyInstances completion.
+Grid.CellCount0 proves only view retirement, not native shutdown, teardown or a
+stable frontend. Diagnostics for skipped retirement contain no Grid readings.
+The original field-only IL does not exclude foreign Harmony callbacks. The
+boundary therefore rechecks activation thread, exact current attempt and
+ReferenceEquals(Game.Instance, expectedOwner) immediately after SetIsLoading,
+before any further Grid access. A changed decision stops both the Grid write and
+frontend request; a skip is recorded only if the same attempt remains current.
+That post-call diagnostic can retain prior readings captured before the call,
+but contains no current Grid readings. A successor observation is never replaced.
 SaveManager.Load cannot report success if fatal was raised during a saved-root
 callback. The exact Game.Load(Deserializer) entry and exit throw while fatal,
 including fatal raised by its Game.OnLoad callback, before the caller continues
@@ -138,6 +165,14 @@ composed early-return site rather than assume the original return count.
 * `OwnedReservoirLoadBoundary.Install`, Installed, RejectionOnly, IsFatal,
   CurrentAttempt, LastAttempt and CompletedAttempts expose status. GuardContracts
   exposes exact target/prefix/postfix/finalizer methods for review.
+* `LastNativeViewRetirement` returns an immutable
+  `OwnedReservoirNativeViewRetirement` with AttemptIdentity/AttemptId,
+  ActivationThreadId/ObservedThreadId, AttemptMatches, ExpectedOwner/ObservedOwner,
+  OwnerMatches, Retired, nullable PriorCellCount/CellCount,
+  PriorWidth/PriorHeight/WidthInCells/HeightInCells and Reason. Compare the Game
+  references with ReferenceEquals; project those comparisons into JSON rather
+  than serializing Unity objects. The single retained diagnostic is not a lease
+  or a promise that the owner is alive; always match its exact attempt identity.
 * Attempt fields include Id, Sequence, Origin, Input, Fatal, FrontendRequested,
   TeardownStarted/Completed/Failed, SelectedCallPending, DroppedObservations and immutable
   Observations(Boundary/Detail/RecordedUtc). Internal properties need explicit
@@ -161,7 +196,7 @@ input assertions and frontend observation. Full KSerialization/KSAV parsing,
 pre-instantiation quarantine, all-owner restore/activation, ordinary owned saves,
 crash recovery and Linux Unity remain unimplemented/unverified.
 
-The current50 host checks cover pure result/lifetime decisions and inspect the
+The current56 host checks cover pure result/lifetime decisions and inspect the
 real patch IL, including early call acquisition, frontend decision order,
 SaveManager/Game.Load continuation fences, exact-pointer clearing and matching
 prefix/finalizer token signatures. A few real patch methods run only against
@@ -173,6 +208,19 @@ the host: the shipped Harmony patching path uses BinaryFormatter, unavailable on
 .NET10. No workaround or production testing bypass is added. Actual first-false
 frontend, direct/autosave path clearing and synchronous Unity teardown behavior
 remain Mono game acceptance requirements.
+
+The six view-retirement checks additionally exercise pure thread/attempt/owner
+decisions, old/successor/teardown exclusion, exact field-only licensed IL,
+once-latch/preparation/frontend ordering, the sole allowed Grid.CellCount store
+and immutable observations. They never execute the retirement method,
+Game.SetIsLoading, Grid's type initializer, App.LoadScene or native cleanup.
+Their IL checks handle Debug shared-return branches as well as Release returns.
+The view-retirement change awaits actual Unity frontend/teardown acceptance.
+The reentry check models a callback replacing the Game, beginning/completing
+teardown or admitting a successor, and separately permits a new immutable
+observation of the same attempt identity. IL checks require the post-call
+thread/attempt/owner decision before the sole Grid write; no Harmony callback is
+installed or executed on the host.
 
 The four additional continuation checks build/inspect transformed IL without
 executing it or installing Harmony. They verify preserved original instructions
