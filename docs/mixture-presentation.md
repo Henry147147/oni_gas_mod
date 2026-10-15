@@ -21,6 +21,50 @@ common temperature comes from conserved energy; gas density and ideal-gas
 pressure use the remaining headspace. Liquid mechanical pressure is not
 invented by this projection.
 
+`Describe(MixtureThermodynamicReading)` is a separate, read-only input for
+supplied actual-EOS facts. The reading owns copied constituent records, their
+canonical molar masses/moles and actual partial volumes, stored internal energy,
+resolved kinetic energy, bulk momentum, actual temperature, gas/mechanical
+pressures, phase volumes, and source/revision/profile identity. This overload
+uses the catalog for species identity, phase, style and assessment definitions;
+it uses the reading's molar masses even when they differ from the legacy
+catalog. It never constructs a `FluidInventory`, subtracts bulk kinetic energy
+from total energy, or derives temperature/liquid volume from the legacy model.
+
+The supported reading contract is common-temperature ideal gases and elastic
+liquids. Its finite scalar checks include gas mole/pressure/headspace and
+per-species partial-volume consistency, mass closure, and resolved kinetic
+energy at least bulk kinetic energy within a local arithmetic bound. Phase
+volume closure accepts a declared relative tolerance up to `2e-10` and retains
+signed residuals; this is EOS root precision, not a geometric conservation
+gate. Stored U may include negative formation-reference energy. Gas partial
+volumes are thermodynamic shares, while liquid partial volumes are actual
+compressed volumes. Positive constituents are never removed by rounding.
+Scalar products use exponent scaling so a tiny intermediate mole fraction does
+not erase a representable partial volume or pressure. Rows, breathing assessment
+and warning text share those partial pressures. A positive value below binary64
+range is labelled explicitly rather than displayed as an absent constituent.
+
+The resulting view retains the immutable `ThermodynamicReading` and each
+constituent's `ThermodynamicPartialVolumeCubicMetres`. `GasPressurePa` and
+`TotalPressurePa` remain gas-only; nullable `MechanicalPressurePa` is available
+for this input, including compressed gasless liquid. The reading's actual EOS
+profile identity is separate from the presentation catalog's existing
+`MaterialModelVersion`/`MaterialModelFingerprint`. Legacy views have no supplied
+thermodynamic reading or claimed liquid mechanical pressure.
+
+This API does not run an EOS equilibrium solve, prove the supplied caloric/elastic state, own or
+advance a simulation, or establish completed-frame/save authority. The current
+frame/publication/runtime and all save formats still accept their existing
+legacy sources. Binding actual readings into a colony requires a future owner
+that pairs world geometry, container allocations and all readings from one
+completed source. The focused managed controls run with
+`dotnet run --project managed/MixedAtmospheres.Presentation.Tests -c Release -- --thermodynamic-readings`;
+that selection does not load or invoke the native reference solver.
+All 14 focused groups pass on Windows and Linux .NET 10. The combined 41-group
+Windows presentation suite also passes against the pinned native assessment
+library; it does not advance physical simulation or establish Unity rendering.
+
 Names join the two leading meaningful gases with an en dash (default threshold
 1% by moles), identify them as a mixture, and retain an explicit traces/other-gases
 suffix. A second short line reports `Breathable`, `Unsafe atmosphere`, or

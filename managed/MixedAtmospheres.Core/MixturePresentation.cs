@@ -66,6 +66,8 @@ namespace MixedAtmospheres.Core
         /// <summary>Fraction of gas-phase moles. Condensed constituents have no gas fraction or partial pressure.</summary>
         public double? GasMoleFraction { get; }
         public double? PartialPressurePa { get; }
+        /// <summary>Supplied EOS partial volume; gas entries are thermodynamic shares, not separate spatial phases.</summary>
+        public double? ThermodynamicPartialVolumeCubicMetres { get; }
         public double? ContaminantMoleFractionLimit { get; }
         public bool IsTrace { get; }
         public bool IsContaminant { get; }
@@ -75,12 +77,14 @@ namespace MixedAtmospheres.Core
         public string MolesText => MixturePresentationText.PositiveNumber(Moles, MassKg > 0) + " mol";
         public string PartialPressureText => PartialPressurePa.HasValue ? MixturePresentationText.PositiveNumber(PartialPressurePa.Value, MassKg > 0) + " Pa" : "not a gas";
         internal MixtureConstituentPresentation(string id, string name, NativeMatterPhase phase, double mass,
-            double moles, double? fraction, double? partialPressure, double? limit, bool trace, bool contaminant, bool otherGases)
+            double moles, double? fraction, double? partialPressure, double? limit, bool trace, bool contaminant, bool otherGases,
+            double? thermodynamicPartialVolume = null)
         {
             MaterialId = id; DisplayName = name; Phase = phase; MassKg = mass; Moles = moles;
             GasMoleFraction = fraction; PartialPressurePa = partialPressure; ContaminantMoleFractionLimit = limit;
             IsTrace = trace; IsContaminant = contaminant;
             otherGasConstituentsPresent = otherGases;
+            ThermodynamicPartialVolumeCubicMetres = thermodynamicPartialVolume;
         }
     }
 
@@ -101,7 +105,7 @@ namespace MixedAtmospheres.Core
     internal sealed class MixturePresentationData
     {
         private readonly MixturePresentationModel model;
-        internal FluidInventory Inventory { get; }
+        internal MixtureThermodynamicReading? ThermodynamicReading { get; }
         internal MixtureConstituentValue[] Values { get; }
         internal int GasConstituentCount { get; }
         private readonly bool patternEnabled;
@@ -137,7 +141,7 @@ namespace MixedAtmospheres.Core
                 return Interlocked.CompareExchange(ref gasConstituents, created, null) ?? created;
             }
         }
-        public double TotalMassKg => Inventory.TotalMassKg;
+        public double TotalMassKg { get; }
         public double GasMassKg { get; }
         public double GasMoles { get; }
         public double TemperatureKelvin { get; }
@@ -159,7 +163,7 @@ namespace MixedAtmospheres.Core
             {
                 if (Failures == BreathingFailure.None) return Array.Empty<string>();
                 var existing = Volatile.Read(ref warnings); if (existing != null) return existing;
-                IReadOnlyList<string> created = new ReadOnlyCollection<string>(model.Warnings(Failures, OxygenMoleFraction, Co2MoleFraction, TotalPressurePa, Constituents));
+                IReadOnlyList<string> created = new ReadOnlyCollection<string>(model.Warnings(Failures, OxygenMoleFraction, Co2MoleFraction, OxygenPartialPressurePa, Co2PartialPressurePa, Constituents));
                 return Interlocked.CompareExchange(ref warnings, created, null) ?? created;
             }
         }
@@ -167,18 +171,20 @@ namespace MixedAtmospheres.Core
         public bool PatternEnabled => patternEnabled;
         public double PatternContrast => patternContrast;
 
-        internal MixturePresentationData(MixturePresentationModel model, FluidInventory inventory,
+        internal MixturePresentationData(MixturePresentationModel model, double totalMass,
             double gasMass, double gasMoles, FluidProperties properties,
             double gasVolume, double oxygen, double co2, BreathingFailure failures,
-            MixtureConstituentValue[] values, int gasConstituentCount, MixtureVisualOptions options)
+            MixtureConstituentValue[] values, int gasConstituentCount, MixtureVisualOptions options,
+            MixtureThermodynamicReading? thermodynamicReading = null,
+            double? oxygenPartialPressure = null, double? co2PartialPressure = null)
         {
-            this.model = model; Inventory = inventory;
+            this.model = model; TotalMassKg = totalMass; ThermodynamicReading = thermodynamicReading;
             GasMassKg = gasMass; GasMoles = gasMoles; TemperatureKelvin = properties.Temperature;
             TotalPressurePa = properties.GasPressure; LiquidVolumeFraction = properties.LiquidFraction; GasVolumeCubicMetres = gasVolume;
             GasDensityKgPerCubicMetre = gasMass == 0 ? 0 : gasMass / gasVolume;
             FluidChecks.Nonnegative(GasDensityKgPerCubicMetre, nameof(GasDensityKgPerCubicMetre));
-            OxygenMoleFraction = oxygen; OxygenPartialPressurePa = oxygen * TotalPressurePa;
-            Co2MoleFraction = co2; Co2PartialPressurePa = co2 * TotalPressurePa;
+            OxygenMoleFraction = oxygen; OxygenPartialPressurePa = oxygenPartialPressure ?? oxygen * TotalPressurePa;
+            Co2MoleFraction = co2; Co2PartialPressurePa = co2PartialPressure ?? co2 * TotalPressurePa;
             Failures = failures;
             Values = values; GasConstituentCount = gasConstituentCount;
             patternEnabled = options.PatternEnabled; patternContrast = options.PatternContrast;
@@ -224,6 +230,9 @@ namespace MixedAtmospheres.Core
         public bool IsReadOnly => true;
         public string MaterialModelVersion => data.MaterialModelVersion;
         public string MaterialModelFingerprint => data.MaterialModelFingerprint;
+        /// <summary>Supplied actual-EOS facts, if this view came from Describe(reading); no completed-frame authority is implied.</summary>
+        public MixtureThermodynamicReading? ThermodynamicReading => data.ThermodynamicReading;
+        public double? MechanicalPressurePa => data.ThermodynamicReading?.MechanicalPressurePa;
         public string DisplayName => data.DisplayName;
         public IReadOnlyList<MixtureConstituentPresentation> Constituents => data.Constituents;
         public IReadOnlyList<MixtureConstituentPresentation> GasConstituents => data.GasConstituents;
@@ -298,8 +307,14 @@ namespace MixedAtmospheres.Core
         internal double MassKg { get; }
         internal double Moles { get; }
         internal double GasFraction { get; }
-        internal MixtureConstituentValue(MixtureResolvedMaterial definition, double mass, double moles, double fraction = 0)
-        { Definition = definition; MassKg = mass; Moles = moles; GasFraction = fraction; }
+        internal double? ThermodynamicPartialVolume { get; }
+        internal double? SuppliedPartialPressure { get; }
+        internal MixtureConstituentValue(MixtureResolvedMaterial definition, double mass, double moles, double fraction = 0,
+            double? thermodynamicPartialVolume = null, double? suppliedPartialPressure = null)
+        {
+            Definition = definition; MassKg = mass; Moles = moles; GasFraction = fraction;
+            ThermodynamicPartialVolume = thermodynamicPartialVolume; SuppliedPartialPressure = suppliedPartialPressure;
+        }
     }
 
     public sealed class MixturePresentationModel
@@ -394,6 +409,40 @@ namespace MixedAtmospheres.Core
             return new MixturePresentation(analysisCache.GetValue(inventory, CreateAnalysisCache).Get(this, inventory, volumeCubicMetres), revision, sourceId);
         }
 
+        /// <summary>Uses supplied actual-EOS facts without reconstructing heat, pressure or liquid volume from a bulk inventory.</summary>
+        public MixturePresentation Describe(MixtureThermodynamicReading reading)
+        {
+            if (reading == null) throw new ArgumentNullException(nameof(reading));
+            var values = new MixtureConstituentValue[reading.Constituents.Count];
+            var oxygen = 0.0; var co2 = 0.0; var hasContaminant = false; var hasCo2 = false;
+            var oxygenPressure = 0.0; var co2Pressure = 0.0;
+            var gasConstituentCount = 0; var index = 0;
+            foreach (var entry in reading.Constituents)
+            {
+                if (!resolvedMaterials.TryGetValue(entry.MaterialId, out var resolved))
+                    throw new InvalidOperationException("Unsupported fluid material: " + entry.MaterialId);
+                if (resolved.Material.Phase != entry.Phase)
+                    throw new InvalidOperationException("Thermodynamic constituent phase differs from its presentation definition: " + entry.MaterialId);
+                // Moles use the canonical reading's M, which may intentionally differ
+                // from the legacy catalog. The catalog supplies only ID/phase/style.
+                var gas = entry.Phase == NativeMatterPhase.Gas;
+                var fraction = gas ? entry.Moles / reading.GasMoles : 0;
+                double? partialPressure = gas ? reading.GasPartialPressure(entry) : (double?)null;
+                values[index++] = new MixtureConstituentValue(resolved, entry.MassKg, entry.Moles, fraction, entry.PartialVolumeCubicMetres, partialPressure);
+                if (!gas) continue;
+                ++gasConstituentCount;
+                if (resolved.ContaminantLimit.HasValue && ExceedsLimit(resolved.ContaminantLimit.Value, fraction, true)) hasContaminant = true;
+                if (resolved.IsOxygen) { oxygen = fraction; oxygenPressure = partialPressure!.Value; }
+                if (resolved.IsCo2) { co2 = fraction; co2Pressure = partialPressure!.Value; hasCo2 = true; }
+            }
+            var failures = Assess(reading.GasMoles, oxygen, co2, hasContaminant, hasCo2, oxygenPressure, co2Pressure);
+            var properties = new FluidProperties(reading.TemperatureKelvin, reading.GasPressurePa,
+                reading.LiquidVolumeCubicMetres / reading.VolumeCubicMetres, null, NativeMatterPhase.Vacuum);
+            var data = new MixturePresentationData(this, reading.TotalMassKg, reading.GasMassKg, reading.GasMoles,
+                properties, reading.GasVolumeCubicMetres, oxygen, co2, failures, values, gasConstituentCount, options, reading, oxygenPressure, co2Pressure);
+            return new MixturePresentation(data, reading.Revision, reading.SourceId);
+        }
+
         private sealed class CachedAnalysis
         {
             private long firstVolume;
@@ -470,9 +519,9 @@ namespace MixedAtmospheres.Core
                 if (resolved.IsOxygen) oxygen = fraction;
                 if (resolved.IsCo2) { co2 = fraction; hasCo2 = value.MassKg > 0; }
             }
-            var failures = Assess(gasMoles, oxygen, co2, pressure, hasContaminant, hasCo2);
+            var failures = Assess(gasMoles, oxygen, co2, hasContaminant, hasCo2, oxygen * pressure, co2 * pressure);
             var properties = new FluidProperties(temperature, pressure, liquidVolume / volumeCubicMetres, null, NativeMatterPhase.Vacuum);
-            return new MixturePresentationData(this, inventory, gasMass, gasMoles,
+            return new MixturePresentationData(this, inventory.TotalMassKg, gasMass, gasMoles,
                 properties, gasVolume, oxygen, co2, failures, values, gasConstituentCount, options);
         }
 
@@ -484,8 +533,9 @@ namespace MixedAtmospheres.Core
                 var resolved = value.Definition; var material = resolved.Material; var isGas = material.Phase == NativeMatterPhase.Gas;
                 var limit = resolved.ContaminantLimit; var contaminant = isGas && limit.HasValue && ExceedsLimit(limit.Value, value.GasFraction, value.MassKg > 0);
                 rows.Add(new MixtureConstituentPresentation(material.Id, resolved.Style.DisplayName, material.Phase, value.MassKg, value.Moles,
-                    isGas ? value.GasFraction : (double?)null, isGas ? value.GasFraction * data.TotalPressurePa : (double?)null,
-                    limit, isGas && value.GasFraction < options.MeaningfulGasMoleFraction, contaminant, data.GasConstituentCount > 1));
+                    isGas ? value.GasFraction : (double?)null, isGas ? value.SuppliedPartialPressure ?? value.GasFraction * data.TotalPressurePa : (double?)null,
+                    limit, isGas && value.GasFraction < options.MeaningfulGasMoleFraction, contaminant, data.GasConstituentCount > 1,
+                    value.ThermodynamicPartialVolume));
             }
             rows.Sort((left, right) =>
             {
@@ -502,29 +552,33 @@ namespace MixedAtmospheres.Core
         private static bool Below(double a, double b) => a < b && b - a > 16 * 2.2204460492503131e-16 * Math.Max(Math.Abs(a), Math.Abs(b));
         private static bool ExceedsLimit(double limit, double value, bool knownPresent) => knownPresent && (limit == 0 || Below(limit, value));
 
-        private BreathingFailure Assess(double gasMoles, double oxygen, double co2, double pressure, bool hasContaminant, bool hasCo2)
+        private BreathingFailure Assess(double gasMoles, double oxygen, double co2, bool hasContaminant, bool hasCo2,
+            double oxygenPartialPressure, double co2PartialPressure)
         {
             if (gasMoles == 0) return BreathingFailure.Vacuum;
             var result = BreathingFailure.None;
             if (Below(oxygen, settings.MinimumOxygenFraction)) result |= BreathingFailure.OxygenFractionLow;
             if (settings.HardMode && Below(settings.MaximumOxygenFraction, oxygen)) result |= BreathingFailure.OxygenFractionHigh;
-            if (Below(oxygen * pressure, settings.MinimumOxygenPartialPressurePa)) result |= BreathingFailure.OxygenPartialPressureLow;
+            if (Below(oxygenPartialPressure, settings.MinimumOxygenPartialPressurePa)) result |= BreathingFailure.OxygenPartialPressureLow;
             if (ExceedsLimit(settings.MaximumCo2Fraction, co2, hasCo2)) result |= BreathingFailure.CarbonDioxideFractionHigh;
-            if (ExceedsLimit(settings.MaximumCo2PartialPressurePa, co2 * pressure, hasCo2)) result |= BreathingFailure.CarbonDioxidePartialPressureHigh;
+            if (ExceedsLimit(settings.MaximumCo2PartialPressurePa, co2PartialPressure, hasCo2)) result |= BreathingFailure.CarbonDioxidePartialPressureHigh;
             if (hasContaminant) result |= BreathingFailure.Contaminant;
             return result;
         }
 
-        internal List<string> Warnings(BreathingFailure failures, double oxygen, double co2, double pressure, IReadOnlyList<MixtureConstituentPresentation> rows)
+        internal List<string> Warnings(BreathingFailure failures, double oxygen, double co2, double oxygenPartialPressure,
+            double co2PartialPressure, IReadOnlyList<MixtureConstituentPresentation> rows)
         {
             var result = new List<string>();
             bool Has(BreathingFailure flag) => (failures & flag) != 0;
+            var oxygenPresent = rows.Any(row => row.MaterialId == oxygenId && row.MassKg > 0);
+            var co2Present = rows.Any(row => row.MaterialId == co2Id && row.MassKg > 0);
             if (Has(BreathingFailure.Vacuum)) result.Add("No gas is present; there is no breathable atmosphere.");
-            if (Has(BreathingFailure.OxygenFractionLow)) result.Add("Oxygen fraction is too low: " + MixturePresentationText.Percent(oxygen) + "; minimum " + MixturePresentationText.Percent(settings.MinimumOxygenFraction) + ".");
-            if (Has(BreathingFailure.OxygenFractionHigh)) result.Add("Oxygen fraction is too high: " + MixturePresentationText.Percent(oxygen) + "; maximum " + MixturePresentationText.Percent(settings.MaximumOxygenFraction) + ".");
-            if (Has(BreathingFailure.OxygenPartialPressureLow)) result.Add("Oxygen partial pressure is too low: " + Number(oxygen * pressure) + " Pa; minimum " + Number(settings.MinimumOxygenPartialPressurePa) + " Pa.");
-            if (Has(BreathingFailure.CarbonDioxideFractionHigh)) result.Add("Carbon dioxide fraction exceeds its limit: " + MixturePresentationText.Percent(co2) + "; maximum " + MixturePresentationText.Percent(settings.MaximumCo2Fraction) + ".");
-            if (Has(BreathingFailure.CarbonDioxidePartialPressureHigh)) result.Add("Carbon dioxide partial pressure exceeds its limit: " + Number(co2 * pressure) + " Pa; maximum " + Number(settings.MaximumCo2PartialPressurePa) + " Pa.");
+            if (Has(BreathingFailure.OxygenFractionLow)) result.Add("Oxygen fraction is too low: " + MixturePresentationText.Percent(oxygen, oxygenPresent) + "; minimum " + MixturePresentationText.Percent(settings.MinimumOxygenFraction) + ".");
+            if (Has(BreathingFailure.OxygenFractionHigh)) result.Add("Oxygen fraction is too high: " + MixturePresentationText.Percent(oxygen, oxygenPresent) + "; maximum " + MixturePresentationText.Percent(settings.MaximumOxygenFraction) + ".");
+            if (Has(BreathingFailure.OxygenPartialPressureLow)) result.Add("Oxygen partial pressure is too low: " + MixturePresentationText.PositiveNumber(oxygenPartialPressure, oxygenPresent) + " Pa; minimum " + Number(settings.MinimumOxygenPartialPressurePa) + " Pa.");
+            if (Has(BreathingFailure.CarbonDioxideFractionHigh)) result.Add("Carbon dioxide fraction exceeds its limit: " + MixturePresentationText.Percent(co2, co2Present) + "; maximum " + MixturePresentationText.Percent(settings.MaximumCo2Fraction) + ".");
+            if (Has(BreathingFailure.CarbonDioxidePartialPressureHigh)) result.Add("Carbon dioxide partial pressure exceeds its limit: " + MixturePresentationText.PositiveNumber(co2PartialPressure, co2Present) + " Pa; maximum " + Number(settings.MaximumCo2PartialPressurePa) + " Pa.");
             foreach (var row in rows.Where(row => row.IsContaminant))
                 result.Add("Contaminant limit exceeded: " + row.DisplayName + " " + row.MolePercentText + "; maximum " + MixturePresentationText.Percent(row.ContaminantMoleFractionLimit!.Value) + ".");
             return result;

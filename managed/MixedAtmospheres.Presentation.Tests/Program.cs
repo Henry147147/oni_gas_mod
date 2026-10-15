@@ -34,10 +34,15 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--thermodynamic-readings")
+        {
+            ThermodynamicReadingTests.Run(Test, Check, Reject, () => Model(), Catalog);
+            Console.WriteLine($"{passed} thermodynamic reading presentation tests passed"); return 0;
+        }
         if (args.Length == 0) NativeTestLibrary.PinFromEnvironment();
         if (args.Length != 0)
         {
-            if (args.Length != 1 || args[0] != "--presentation-benchmark") throw new ArgumentException("Usage: --presentation-benchmark");
+            if (args.Length != 1 || args[0] != "--presentation-benchmark") throw new ArgumentException("Usage: [--thermodynamic-readings | --presentation-benchmark]");
             Benchmark(); return 0;
         }
         CorrectnessTests();
@@ -350,6 +355,7 @@ internal static class Program
         Test("managed presentation assessment matches native flags and boundary tolerance", NativeAssessmentParity);
         OwnedContainerPresentationTests.Run(Test, Check, Reject, () => Fixture(), () => Model(), Catalog);
         PreparedPresentationPublicationTests.Run(Test, Check, Reject, () => Fixture(), () => Model(), Catalog);
+        ThermodynamicReadingTests.Run(Test, Check, Reject, () => Model(), Catalog);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
