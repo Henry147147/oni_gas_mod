@@ -253,8 +253,9 @@ namespace MixedAtmospheres.Core
     public sealed partial class ColonyFluidState
     {
         private readonly object sync = new object();
-        private ColonyFrameSnapshot current;
-        internal ColonyFluidState(ColonyFrameSnapshot initial) { current = initial; }
+        private ColonyFramePublication current;
+        private PreparedFluidCommit? reservedWriter;
+        internal ColonyFluidState(ColonyFrameSnapshot initial) { current = new ColonyFramePublication(initial, null); }
 
         public static ColonyFluidState Import(NativeColonyImport import, FluidMaterialCatalog catalog, double cellVolumeCubicMetres = 1)
             => StageImport(import, catalog, cellVolumeCubicMetres).PublishValidated();
@@ -301,16 +302,17 @@ namespace MixedAtmospheres.Core
                 initial, FluidInventory.Empty, FluidInventory.Empty, 0);
         }
 
-        public ColonyFrameSnapshot CaptureSnapshot() { lock (sync) return current; }
-        public FluidTransaction BeginTransaction() { lock (sync) return new FluidTransaction(this, current); }
+        public ColonyFrameSnapshot CaptureSnapshot() { lock (sync) return current.Snapshot; }
+        public ColonyFramePublication CapturePublication() { lock (sync) return current; }
+        public FluidTransaction BeginTransaction() { lock (sync) return new FluidTransaction(this, current.Snapshot); }
 
-        internal ColonyFrameSnapshot Publish(ColonyFrameSnapshot basis,
+        internal PreparedFluidCommit Prepare(ColonyFrameSnapshot basis,
             Dictionary<int, FluidInventory> changes, Dictionary<int, int> geometryChanges, FluidInventory supplied, FluidInventory removed, double heat,
             long completedFrame, double simulationTime)
         {
             lock (sync)
             {
-                if (!ReferenceEquals(basis, current)) throw new InvalidOperationException("Transaction is stale; the colony already published another revision.");
+                RequireCurrent(basis);
                 if (completedFrame < basis.CompletedFrame || simulationTime < basis.SimulationTimeSeconds)
                     throw new InvalidOperationException("Completed frame and simulation time cannot go backwards.");
                 FluidChecks.Nonnegative(simulationTime, nameof(simulationTime));
@@ -328,11 +330,77 @@ namespace MixedAtmospheres.Core
                 var nextSupplied = FluidInventory.Combine(basis.SuppliedInventory, supplied);
                 var nextRemoved = FluidInventory.Combine(basis.RemovedInventory, removed);
                 var nextHeat = basis.ExternalHeatJoules + heat; FluidChecks.Finite(nextHeat, nameof(heat));
-                current = new ColonyFrameSnapshot(geometry, basis.Catalog, checked(basis.Revision + 1),
+                var candidate = new ColonyFrameSnapshot(geometry, basis.Catalog, checked(basis.Revision + 1),
                     completedFrame, simulationTime, inventories, basis.InitialInventory, nextSupplied, nextRemoved, nextHeat);
-                return current;
+                return new PreparedFluidCommit(this, basis, candidate);
             }
         }
+
+        internal void RequireCurrent(ColonyFrameSnapshot basis)
+        {
+            lock (sync)
+                if (!ReferenceEquals(basis, current.Snapshot)) throw new InvalidOperationException("Transaction is stale; the colony already published another revision.");
+        }
+
+        internal void ReserveWriter(PreparedFluidCommit candidate, ColonyFrameSnapshot basis)
+        {
+            lock (sync)
+            {
+                RequireCurrent(basis);
+                if (reservedWriter != null && !ReferenceEquals(reservedWriter, candidate)) throw new InvalidOperationException("Another prepared frame has reserved the colony writer.");
+                reservedWriter = candidate;
+            }
+        }
+        internal void ReleaseWriter(PreparedFluidCommit candidate)
+        { lock (sync) if (ReferenceEquals(reservedWriter, candidate)) reservedWriter = null; }
+
+        internal ColonyFramePublication PublishPrepared(PreparedFluidCommit writer, ColonyFrameSnapshot basis, ColonyFrameSnapshot candidate, object? companion, bool retainReservation)
+        {
+            // Allocate before the publication point. No external delegate runs
+            // between validation and this single paired reference replacement.
+            var publication = new ColonyFramePublication(candidate, companion);
+            lock (sync)
+            {
+                RequireCurrent(basis);
+                if (reservedWriter != null && !ReferenceEquals(reservedWriter, writer)) throw new InvalidOperationException("A prepared frame has reserved the colony writer.");
+                if (retainReservation && !ReferenceEquals(reservedWriter, writer)) throw new InvalidOperationException("Retaining a writer requires an existing reservation.");
+                current = publication;
+                if (!retainReservation && ReferenceEquals(reservedWriter, writer)) reservedWriter = null;
+                return publication;
+            }
+        }
+    }
+
+    /// <summary>One atomic publication of custom state and an optional caller-owned companion. The companion is not persisted.</summary>
+    public sealed class ColonyFramePublication
+    {
+        public ColonyFrameSnapshot Snapshot { get; }
+        public object? Companion { get; }
+        internal ColonyFramePublication(ColonyFrameSnapshot snapshot, object? companion) { Snapshot = snapshot; Companion = companion; }
+    }
+
+    /// <summary>A validated, unpublished candidate. Disposing or a stale commit never publishes it.</summary>
+    public sealed class PreparedFluidCommit : IDisposable
+    {
+        private readonly object sync = new object();
+        private readonly ColonyFluidState owner;
+        private readonly ColonyFrameSnapshot basis;
+        private bool closed;
+        public ColonyFrameSnapshot Snapshot { get; }
+        internal PreparedFluidCommit(ColonyFluidState owner, ColonyFrameSnapshot basis, ColonyFrameSnapshot candidate)
+        { this.owner = owner; this.basis = basis; Snapshot = candidate; }
+        public void EnsureCurrent() { lock (sync) { CheckOpen(); owner.RequireCurrent(basis); } }
+        /// <summary>Opt-in exclusive writer reservation. Commit normally releases it; an explicitly retained reservation requires Dispose after consumption. Readers remain available.</summary>
+        public void ReserveWriter() { lock (sync) { CheckOpen(); owner.ReserveWriter(this, basis); } }
+        public ColonyFramePublication Commit(object? companion = null, bool retainReservationUntilDisposed = false)
+        {
+            lock (sync)
+            {
+                CheckOpen(); var result = owner.PublishPrepared(this, basis, Snapshot, companion, retainReservationUntilDisposed); closed = true; return result;
+            }
+        }
+        private void CheckOpen() { if (closed) throw new ObjectDisposedException(nameof(PreparedFluidCommit)); }
+        public void Dispose() { lock (sync) { owner.ReleaseWriter(this); closed = true; } }
     }
 
     /// <summary>Optimistic, atomic changes. Callbacks and game side effects must run only after a successful commit.</summary>
@@ -346,6 +414,7 @@ namespace MixedAtmospheres.Core
         private FluidInventory removed = FluidInventory.Empty;
         private double heat;
         private bool closed;
+        public ColonyFluidState Authority => owner;
         internal FluidTransaction(ColonyFluidState owner, ColonyFrameSnapshot basis) { this.owner = owner; this.basis = basis; }
         private void CheckOpen() { if (closed) throw new ObjectDisposedException(nameof(FluidTransaction)); }
         private int ElementAt(int cell)
@@ -473,9 +542,14 @@ namespace MixedAtmospheres.Core
         public ColonyFrameSnapshot Commit() => CommitFrame(basis.CompletedFrame, basis.SimulationTimeSeconds);
         public ColonyFrameSnapshot CommitFrame(long completedFrame, double simulationTimeSeconds)
         {
+            using var candidate = PrepareFrame(completedFrame, simulationTimeSeconds);
+            return candidate.Commit().Snapshot;
+        }
+        public PreparedFluidCommit PrepareFrame(long completedFrame, double simulationTimeSeconds)
+        {
             CheckOpen();
-            var result = owner.Publish(basis, changes, geometryChanges, supplied, removed, heat, completedFrame, simulationTimeSeconds);
-            closed = true; return result;
+            var candidate = owner.Prepare(basis, changes, geometryChanges, supplied, removed, heat, completedFrame, simulationTimeSeconds);
+            closed = true; return candidate;
         }
         public void Dispose() { closed = true; }
     }

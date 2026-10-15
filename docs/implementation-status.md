@@ -294,6 +294,44 @@ with no native baseline subtraction or sustained simulation claim.
 V11 separately records 7,275 batches, frame p50/p95/p99 of
 8.24/9.76/110.74 ms and a 3.14-ms maximum batch under the same limited scope.
 
+## Unhooked frame coordinator checkpoint
+
+The managed router now stages an ordered batch into one caller-owned transaction.
+A prepared Core frame reserves the custom writer before exposing native intents
+and retains that reservation through native acknowledgement, paired custom/native
+snapshot publication, and explicit consumption acknowledgement. Snapshot failure
+keeps the old publication and retries the same immutable callback outbox. Native
+geometry changes require explicit acknowledgement; blocked displacement rejects
+the whole batch. Session/sequence tickets and callback registration generations
+reject duplicate publication, stale handles and duplicate consumption. An external
+callback that changes an actor and throws remains ambiguous and needs explicit
+resolution; it is never automatically replayed.
+
+Frozen Windows source passes Core 58, presentation 20 and owned-snapshot 65
+scenarios against the pinned native library and actual licensed ONI declarations.
+The private `local/frame-coordinator-windows-evidence.json` records source/library
+hashes; `local/frame-coordinator-windows-idle.log` records the final idle protocol
+tests. These cover late batch failure, ordered emit/consume, immutable paired
+publication, competing writers, geometry rollback, trace/energy/disease/radiation
+preservation, snapshot retry, callback retirement and native/callback fault paths.
+
+The recorded idle protocol benchmark averages 5.84 ms and 2.84 MB of managed
+allocations per frame over 64 frames, with 1,024 messages and 1,024 callback
+records per frame. An earlier concurrent-ONI sample measured 7.16 ms and 2.82 MB.
+This is a four-cell synthetic protocol test, excluding
+native dispatch, actor execution, fluid solving and colony-scale copying; it does
+not satisfy the 25 ms engine gate. One publication and one retained emitter
+registration remain after the run. Native memory survives acknowledgement until
+the next publication or coordinator disposal; acknowledgement attests old readers
+have finished. Native source freshness and exclusive native dispatch remain
+caller requirements, since `numFramesProcessed` is not a unique source epoch.
+
+The coordinator is opt-in and unhooked. It adds no production message activation,
+actor/container conservation boundary, native source suppression, outbox
+persistence or full colony save/load integration. Disposal ends the session and
+does not claim native rollback or crash recovery. First playable and authoritative
+custom-colony readiness remain false.
+
 ## Remaining release gates, in dependency order
 
 1. **Authoritative integration.** Audit and redirect every native mutation,

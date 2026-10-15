@@ -9,7 +9,7 @@ using MixedAtmospheres.Oni;
 
 internal static class FluidRouterTests
 {
-    private const int ModifyCell = -1252920804, ModifyEnergy = 818320644, ConsumeMass = 1727657959, EmitMass = 797274363;
+    internal const int ModifyCell = -1252920804, ModifyEnergy = 818320644, ConsumeMass = 1727657959, EmitMass = 797274363;
     internal static void Run(Action<string, System.Action> test, Action<bool> check, Action<System.Action> reject)
     {
         test("router stages fluid injection and generic callback without publication", () =>
@@ -113,12 +113,12 @@ internal static class FluidRouterTests
             reject(() => fixture.router.TryStage(123456, Array.Empty<byte>(), out _));
             check(saved.SequenceEqual(fixture.state.Save()));
         });
-        test("native nonfluid routes leave custom revision untouched", () =>
+        test("legacy nonfluid heat passes through but geometry requires reserved acknowledgement", () =>
         {
             var fixture = Create(); var saved = fixture.state.Save();
             check(!fixture.router.TryStage(ModifyEnergy, Heat(3, 1, 400), out var heat) && heat == null);
-            check(!fixture.router.TryStage(ModifyCell, Modification(3, 0, 0, 0, replacement: 1), out var dig) && dig == null);
-            check(!fixture.router.TryStage(ModifyCell, Modification(2, 3, 1000, 300, replacement: 1), out var build) && build == null);
+            reject(() => fixture.router.TryStage(ModifyCell, Modification(3, 0, 0, 0, replacement: 1), out _));
+            reject(() => fixture.router.TryStage(ModifyCell, Modification(2, 3, 1000, 300, replacement: 1), out _));
             check(saved.SequenceEqual(fixture.state.Save()));
         });
         test("fractional disease and unrepresentable callbacks retain authoritative input", () =>
@@ -147,7 +147,7 @@ internal static class FluidRouterTests
         });
     }
 
-    private static (ColonyFluidState state, FluidMaterialCatalog catalog, ExperimentalFluidMessageRouter router) Create()
+    internal static (ColonyFluidState state, FluidMaterialCatalog catalog, ExperimentalFluidMessageRouter router) Create()
     {
         var phases = new Dictionary<int, NativeMatterPhase>
         { [1] = NativeMatterPhase.Vacuum, [2] = NativeMatterPhase.Gas, [3] = NativeMatterPhase.Liquid, [4] = NativeMatterPhase.Solid };
@@ -175,27 +175,27 @@ internal static class FluidRouterTests
             new FluidMessageElementBinding(0, NativeMatterPhase.Vacuum),
             new FluidMessageElementBinding(1, NativeMatterPhase.Gas, "oxygen"),
             new FluidMessageElementBinding(2, NativeMatterPhase.Liquid, "water"),
-            new FluidMessageElementBinding(3, NativeMatterPhase.Solid),
+            new FluidMessageElementBinding(3, NativeMatterPhase.Solid, nativeElementHash: 4),
             new FluidMessageElementBinding(4, NativeMatterPhase.Gas, "nitrogen")
         }, new Dictionary<byte, int> { [0] = 1234 });
         return (state, catalog, router);
     }
 
-    private static byte[] Modification(int cell, ushort element, float mass, float temperature, int callback = -1, byte replacement = 0)
+    internal static byte[] Modification(int cell, ushort element, float mass, float temperature, int callback = -1, byte replacement = 0)
     {
         var result = new byte[28]; Int(result, 0, cell); Int(result, 4, callback); Float(result, 8, temperature); Float(result, 12, mass);
         UShort(result, 20, element); result[22] = replacement; result[23] = byte.MaxValue; result[24] = 1; return result;
     }
-    private static byte[] Consumption(int cell, ushort element, float mass, int callback, byte radius = 0)
+    internal static byte[] Consumption(int cell, ushort element, float mass, int callback, byte radius = 0)
     {
         var result = new byte[16]; Int(result, 0, cell); Int(result, 4, callback); Float(result, 8, mass); UShort(result, 12, element); result[14] = radius; return result;
     }
-    private static byte[] Emission(int cell, ushort element, float mass, float temperature, int callback, byte diseaseIndex = byte.MaxValue, int diseaseCount = 0)
+    internal static byte[] Emission(int cell, ushort element, float mass, float temperature, int callback, byte diseaseIndex = byte.MaxValue, int diseaseCount = 0)
     {
         var result = new byte[24]; Int(result, 0, cell); Int(result, 4, callback); Float(result, 8, mass); Float(result, 12, temperature);
         Int(result, 16, diseaseCount); UShort(result, 20, element); result[22] = diseaseIndex; return result;
     }
-    private static byte[] Heat(int cell, float kilojoules, float maximumTemperature)
+    internal static byte[] Heat(int cell, float kilojoules, float maximumTemperature)
     {
         var result = new byte[16]; Int(result, 0, cell); Float(result, 4, kilojoules); Float(result, 8, maximumTemperature); Int(result, 12, 1000); return result;
     }

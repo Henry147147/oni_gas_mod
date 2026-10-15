@@ -15,18 +15,19 @@ internal static unsafe class Program
     private static int passed;
     private static int Main(string[] args)
     {
-        if (args.Length != 1) throw new ArgumentException("Usage: OwnedSnapshotTests <licensed ONI root>");
+        if (args.Length is < 1 or > 2 || (args.Length == 2 && args[1] != "--frame-coordinator-benchmark"))
+            throw new ArgumentException("Usage: OwnedSnapshotTests <licensed ONI root> [--frame-coordinator-benchmark]");
         var managed = Path.Combine(Path.GetFullPath(args[0]), "OxygenNotIncluded_Data", "Managed");
         AssemblyLoadContext.Default.Resolving += (_, name) =>
         {
             var candidate = Path.Combine(managed, name.Name + ".dll");
             return File.Exists(candidate) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(candidate) : null;
         };
-        return Run();
+        return Run(args.Length == 2);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static int Run()
+    private static int Run(bool benchmark)
     {
         Test("all actual game channels are deep copied", () =>
         {
@@ -210,7 +211,9 @@ internal static unsafe class Program
             Reject(() => ColonySaveEnvelope.ReadLengthPrefixed(reader, 744825, 1, CatalogHash()));
         });
         FluidRouterTests.Run(Test, Check, Reject);
+        FluidFrameCoordinatorTests.Run(Test, Check, Reject);
         MixtureRuntimeTests.Run(Test, Check, Reject);
+        if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");
         return 0;
     }
@@ -241,7 +244,7 @@ internal static unsafe class Program
         return native;
     }
 
-    private sealed class NativeFixture : IDisposable
+    internal sealed class NativeFixture : IDisposable
     {
         private readonly List<(IntPtr pointer, int bytes)> buffers = new();
         private IntPtr snapshot;

@@ -14,12 +14,13 @@ namespace MixedAtmospheres.Oni
         internal ushort ElementIndex { get; }
         internal NativeMatterPhase Phase { get; }
         internal string? MaterialId { get; }
-        internal FluidMessageElementBinding(ushort index, NativeMatterPhase phase, string? materialId = null)
-        { ElementIndex = index; Phase = phase; MaterialId = materialId; }
+        internal int? NativeElementHash { get; }
+        internal FluidMessageElementBinding(ushort index, NativeMatterPhase phase, string? materialId = null, int? nativeElementHash = null)
+        { ElementIndex = index; Phase = phase; MaterialId = materialId; NativeElementHash = nativeElementHash; }
     }
 
     // A deliberately unhooked, fail-closed first adapter. It does not claim
-    // ownership of emitter/consumer registries, displacement, pipes, reactions,
+    // ownership of emitter/consumer registries, automatic displacement, pipes, reactions,
     // radius searches or native fluid-solid exchanges. A coordinator must not
     // enable colony takeover just because these four message families work.
     internal sealed class ExperimentalFluidMessageRouter
@@ -77,32 +78,42 @@ namespace MixedAtmospheres.Oni
             pending = null;
             using var failureGuard = new TransactionGuard(state.BeginTransaction());
             var transaction = failureGuard.Transaction;
+            var effects = StageInto(transaction, message, payload);
+            if (effects.NativeOperation != null)
+            {
+                if (effects.NativeOperation.ExpectedElementIndex.HasValue)
+                    throw new NotSupportedException("Native geometry requires a reserved frame coordinator and native acknowledgement.");
+                return false;
+            }
+            pending = new StagedFluidMutation(transaction, effects);
+            failureGuard.Detach(); return true;
+        }
+
+        // The caller must discard the WHOLE transaction if any message fails.
+        // Returning effects never publishes state or dispatches native work.
+        internal FluidMutationCommit StageInto(FluidTransaction transaction, int message, ReadOnlySpan<byte> payload, int? displacementCell = null)
+        {
+            if (transaction == null || !ReferenceEquals(transaction.Authority, state)) throw new ArgumentException("A transaction from this router's authority is required.");
             switch (message)
             {
                 case ModifyCell:
                     RequireLength(payload, 28);
-                    pending = StageModification(transaction, payload);
-                    break;
+                    return StageModification(transaction, payload, displacementCell);
                 case ModifyEnergy:
                     RequireLength(payload, 16);
-                    pending = StageHeat(transaction, payload);
-                    break;
+                    return StageHeat(transaction, payload);
                 case ConsumeMass:
                     RequireLength(payload, 16);
-                    pending = StageConsumption(transaction, payload);
-                    break;
+                    return StageConsumption(transaction, payload);
                 case EmitMass:
                     RequireLength(payload, 24);
-                    pending = StageEmission(transaction, payload);
-                    break;
+                    return StageEmission(transaction, payload);
                 default:
                     throw new NotSupportedException("Custom fluid message adapter is not implemented: " + message);
             }
-            if (pending == null) return false;
-            failureGuard.Detach(); return true;
         }
 
-        private StagedFluidMutation? StageModification(FluidTransaction transaction, ReadOnlySpan<byte> payload)
+        private FluidMutationCommit StageModification(FluidTransaction transaction, ReadOnlySpan<byte> payload, int? displacementCell)
         {
             var cell = Int(payload, 0); var callback = Callback(payload, 4); var temperature = Float(payload, 8);
             var mass = Float(payload, 12); var diseaseCount = Int(payload, 16);
@@ -112,12 +123,23 @@ namespace MixedAtmospheres.Oni
             var before = transaction.SampleCell(cell);
             if (element.Phase == NativeMatterPhase.Solid)
             {
-                if (before.Inventory.TotalMassKg != 0) throw new NotSupportedException("Native solid placement requires coupled custom-fluid displacement.");
-                return null;
+                if (replace == 0 || mass < 0 || diseaseCount != 0) throw new NotSupportedException("Only explicit nonnegative solid replacement without fluid disease is supported.");
+                if (!element.NativeElementHash.HasValue) throw new NotSupportedException("Solid placement needs an explicit native hash binding.");
+                if (before.Inventory.MassesKg.Count != 0 || before.Inventory.DiseaseCounts.Count != 0 || before.Inventory.RadiationQuantity != 0)
+                {
+                    if (replace != 2 || !displacementCell.HasValue) throw new NotSupportedException("Solid placement requires an explicitly reserved displacement destination.");
+                    transaction.DisplaceAndSetSolid(cell, element.NativeElementHash.Value, displacementCell.Value);
+                }
+                else transaction.SetSolid(cell, element.NativeElementHash.Value);
+                return NativeEffects(ModifyCell, payload, cell, callback, element.ElementIndex);
             }
             if (before.IsSolid)
             {
-                if (element.Phase == NativeMatterPhase.Vacuum) return null;
+                if (element.Phase == NativeMatterPhase.Vacuum && replace == 1 && mass == 0 && diseaseCount == 0)
+                {
+                    transaction.ClearSolid(cell);
+                    return NativeEffects(ModifyCell, payload, cell, callback, element.ElementIndex);
+                }
                 throw new NotSupportedException("Fluid placement cannot replace or displace a native solid in this adapter.");
             }
             if (replace == 2 && before.Inventory.TotalMassKg != 0)
@@ -148,27 +170,27 @@ namespace MixedAtmospheres.Oni
                 var actual = Math.Min(-(double)mass, available);
                 if (actual > 0) transaction.ExtractSpecies(cell, material.Id, actual, "oni-modify-selected-mass");
             }
-            return new StagedFluidMutation(transaction, cell, callback < 0 ? Array.Empty<Sim.CallbackInfo>() :
+            return new FluidMutationCommit(cell, callback < 0 ? Array.Empty<Sim.CallbackInfo>() :
                 new[] { new Sim.CallbackInfo { callbackIdx = callback } });
         }
 
-        private StagedFluidMutation? StageHeat(FluidTransaction transaction, ReadOnlySpan<byte> payload)
+        private FluidMutationCommit StageHeat(FluidTransaction transaction, ReadOnlySpan<byte> payload)
         {
             var cell = Int(payload, 0); var joules = (double)Float(payload, 4) * 1000;
             var maximumTemperature = Float(payload, 8); var source = Int(payload, 12);
             if (maximumTemperature <= 0) throw new InvalidDataException("Cell heating needs a positive temperature limit.");
             var before = transaction.SampleCell(cell);
-            if (before.IsSolid) return null;
+            if (before.IsSolid) return NativeEffects(ModifyEnergy, payload, cell, -1, null);
             if (before.Inventory.TotalMassKg == 0 && joules != 0)
                 throw new NotSupportedException("Vacuum cannot accept fluid energy; the source must retain unapplied heat.");
             var heatCapacity = before.Inventory.MassesKg.Sum(pair => catalog.Materials[pair.Key].SpecificHeatCvJoulesPerKgKelvin * pair.Value);
             if (joules > 0 && before.TemperatureKelvin + joules / heatCapacity > maximumTemperature)
                 throw new NotSupportedException("Temperature-limited heat requires reserving and returning unapplied energy.");
             transaction.ApplyHeat(cell, joules, "oni-cell-energy-source-" + source.ToString(CultureInfo.InvariantCulture));
-            return new StagedFluidMutation(transaction, cell);
+            return new FluidMutationCommit(cell);
         }
 
-        private StagedFluidMutation? StageConsumption(FluidTransaction transaction, ReadOnlySpan<byte> payload)
+        private FluidMutationCommit StageConsumption(FluidTransaction transaction, ReadOnlySpan<byte> payload)
         {
             var cell = Int(payload, 0); var callback = Callback(payload, 4); var mass = Float(payload, 8);
             var element = Element(UShort(payload, 12)); Nonnegative(mass, "consumption mass");
@@ -177,8 +199,7 @@ namespace MixedAtmospheres.Oni
             var before = transaction.SampleCell(cell);
             if (!IsFluid(element.Phase))
             {
-                if (before.Inventory.TotalMassKg == 0) return null;
-                throw new NotSupportedException("A nonfluid consumer cannot debit a custom mixture.");
+                throw new NotSupportedException("Nonfluid consumption needs its own native geometry/result adapter.");
             }
             if (before.IsSolid) throw new NotSupportedException("Fluid consumption target is a native solid.");
             var material = Modeled(element);
@@ -196,10 +217,10 @@ namespace MixedAtmospheres.Oni
                     temperature = ExactFloat(temperature, "consumed temperature"), diseaseIdx = disease.index, diseaseCount = disease.count
                 } };
             }
-            return new StagedFluidMutation(transaction, cell, consumed: callbacks);
+            return new FluidMutationCommit(cell, consumed: callbacks, removedParcel: parcel);
         }
 
-        private StagedFluidMutation? StageEmission(FluidTransaction transaction, ReadOnlySpan<byte> payload)
+        private FluidMutationCommit StageEmission(FluidTransaction transaction, ReadOnlySpan<byte> payload)
         {
             var cell = Int(payload, 0); var callback = Callback(payload, 4); var mass = Float(payload, 8);
             var temperature = Float(payload, 12); var diseaseCount = Int(payload, 16);
@@ -208,8 +229,7 @@ namespace MixedAtmospheres.Oni
             var before = transaction.SampleCell(cell);
             if (!IsFluid(element.Phase))
             {
-                if (before.Inventory.TotalMassKg == 0) return null;
-                throw new NotSupportedException("Nonfluid emission requires native/custom displacement coordination.");
+                throw new NotSupportedException("Nonfluid emission requires an explicit native placement adapter.");
             }
             if (before.IsSolid) throw new NotSupportedException("Emission into native solids requires displacement support.");
             if (mass == 0 && diseaseCount != 0) throw new NotSupportedException("Massless disease emission needs a metadata adapter.");
@@ -219,7 +239,17 @@ namespace MixedAtmospheres.Oni
                 callbackIdx = callback, elemIdx = element.ElementIndex, suceeded = 1, mass = mass,
                 temperature = temperature, diseaseIdx = diseaseCount == 0 ? byte.MaxValue : diseaseIndex, diseaseCount = diseaseCount
             } };
-            return new StagedFluidMutation(transaction, cell, emitted: callbacks);
+            return new FluidMutationCommit(cell, emitted: callbacks);
+        }
+
+        private static FluidMutationCommit NativeEffects(int message, ReadOnlySpan<byte> payload, int cell, int callback, ushort? expectedElement)
+        {
+            var dispatch = payload.ToArray();
+            // The coordinator owns generic callback delivery after native ack.
+            // Native must not emit another copy of that callback.
+            if (message == ModifyCell) BinaryPrimitives.WriteInt32LittleEndian(dispatch.AsSpan(4), -1);
+            return new FluidMutationCommit(cell, callback < 0 ? Array.Empty<Sim.CallbackInfo>() : new[] { new Sim.CallbackInfo { callbackIdx = callback } },
+                nativeOperation: new FluidNativeOperation(message, dispatch, cell, expectedElement));
         }
 
         private FluidInventory Parcel(FluidMessageElementBinding element, double mass, double temperature, byte diseaseIndex, int diseaseCount)
@@ -290,13 +320,7 @@ namespace MixedAtmospheres.Oni
     {
         private FluidTransaction? transaction;
         private readonly FluidMutationCommit result;
-        internal StagedFluidMutation(FluidTransaction transaction, int cell, Sim.CallbackInfo[]? callbacks = null,
-            Sim.MassConsumedCallback[]? consumed = null, Sim.MassEmittedCallback[]? emitted = null)
-        {
-            this.transaction = transaction;
-            result = new FluidMutationCommit(cell, callbacks ?? Array.Empty<Sim.CallbackInfo>(),
-                consumed ?? Array.Empty<Sim.MassConsumedCallback>(), emitted ?? Array.Empty<Sim.MassEmittedCallback>());
-        }
+        internal StagedFluidMutation(FluidTransaction transaction, FluidMutationCommit result) { this.transaction = transaction; this.result = result; }
         internal FluidMutationCommit Commit()
         {
             if (transaction == null) throw new ObjectDisposedException(nameof(StagedFluidMutation));
@@ -312,22 +336,46 @@ namespace MixedAtmospheres.Oni
         private readonly Sim.CallbackInfo[] callbacks;
         private readonly Sim.MassConsumedCallback[] consumed;
         private readonly Sim.MassEmittedCallback[] emitted;
+        internal FluidNativeOperation? NativeOperation { get; }
+        internal FluidInventory RemovedParcel { get; }
         internal int CellIndex { get; }
         internal ColonyFrameSnapshot Snapshot => snapshot ?? throw new InvalidOperationException("Fluid mutation has not committed.");
         internal ReadOnlySpan<Sim.CallbackInfo> Callbacks => callbacks;
         internal ReadOnlySpan<Sim.MassConsumedCallback> ConsumedCallbacks => consumed;
         internal ReadOnlySpan<Sim.MassEmittedCallback> EmittedCallbacks => emitted;
-        internal FluidMutationCommit(int cell, Sim.CallbackInfo[] callbacks, Sim.MassConsumedCallback[] consumed, Sim.MassEmittedCallback[] emitted)
-        { CellIndex = cell; this.callbacks = callbacks; this.consumed = consumed; this.emitted = emitted; }
+        internal FluidMutationCommit(int cell, Sim.CallbackInfo[]? callbacks = null, Sim.MassConsumedCallback[]? consumed = null, Sim.MassEmittedCallback[]? emitted = null,
+            FluidNativeOperation? nativeOperation = null, FluidInventory? removedParcel = null)
+        { CellIndex = cell; this.callbacks = callbacks ?? Array.Empty<Sim.CallbackInfo>(); this.consumed = consumed ?? Array.Empty<Sim.MassConsumedCallback>();
+            this.emitted = emitted ?? Array.Empty<Sim.MassEmittedCallback>(); NativeOperation = nativeOperation; RemovedParcel = removedParcel ?? FluidInventory.Empty; }
         internal void MarkCommitted(ColonyFrameSnapshot completed) { snapshot = completed; }
+        internal FluidMutationCommit ForPublication(ColonyFrameSnapshot completed)
+        {
+            var result = new FluidMutationCommit(CellIndex, callbacks, consumed, emitted, NativeOperation, RemovedParcel);
+            result.MarkCommitted(completed); return result;
+        }
         // The coordinator must append this batch exactly once to a completed
         // publication and retain it across any failed publication attempt.
         internal void AppendCallbacks(OwnedSnapshotOverlay overlay)
         {
             _ = Snapshot;
+            AppendPreparedCallbacks(overlay);
+        }
+        internal void AppendPreparedCallbacks(OwnedSnapshotOverlay overlay)
+        {
             overlay.AppendEvents<Sim.CallbackInfo>(SnapshotEventChannel.CallbackInfo, callbacks);
             overlay.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, consumed);
             overlay.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted);
         }
+    }
+
+    internal sealed class FluidNativeOperation
+    {
+        private readonly byte[] payload;
+        internal int Message { get; }
+        internal int CellIndex { get; }
+        internal ushort? ExpectedElementIndex { get; }
+        internal ReadOnlySpan<byte> Payload => payload;
+        internal FluidNativeOperation(int message, byte[] ownedPayload, int cell, ushort? expectedElement)
+        { Message = message; payload = ownedPayload; CellIndex = cell; ExpectedElementIndex = expectedElement; }
     }
 }

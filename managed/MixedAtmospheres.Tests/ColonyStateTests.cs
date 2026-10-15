@@ -346,6 +346,7 @@ internal static class ColonyStateTests
             Near(state.CaptureSnapshot().Totals().MassesKg["nitrogen"], 1e-16, 1e-8);
             check(state.Save().SequenceEqual(ColonyFluidState.Restore(state.Save(), Catalog()).Save()));
         });
+        PreparedFluidCommitTests.Run(test, check, reject, Create, gas, empty);
     }
 
     private static void Int(byte[] data, int offset, int value) => BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(offset, 4), value);
