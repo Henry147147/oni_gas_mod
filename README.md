@@ -98,9 +98,10 @@ The live idle lease pins exact acknowledged owners without permitting native
 saving. Windows v26 additionally checks both complete native footprints,
 inert marker serialization and exported native-section/Core envelopes;
 a separate staged-file helper retains unresolved promotion outcomes.
-Neither supplies integrated native save/load. Ninety-nine Python checks
-validate the coverage inventory, discovery, experimental evidence pipeline and
-the Linux headless runner. Linux managed checks
+Neither supplies integrated native save/load. The Linux Python suite passes
+113 checks for the coverage inventory, discovery, experimental evidence pipeline
+and headless runner; Windows executes 79 checks and skips the Linux-only module.
+Linux managed checks
 do not establish Linux Unity rendering or game-scale performance.
 
 On 2026-10-15 a clean native Linux (GCC 15) rebuild re-ran every configuration:

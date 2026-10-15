@@ -386,6 +386,22 @@ it is not a sustained 1x or 100k-cell performance result. Nitrogen resources,
 progression, conservative mixture phase changes and Linux Unity acceptance
 remain unimplemented/unverified. First playable remains false.
 
+The separate Windows V46 intentional-OnLoad-failure diagnostic remains
+**rejected**. Five actual callbacks observe removal of the main Harmony owner,
+survival of the foreign witness, reset renderer/marker observers, and exclusion
+of all three nitrogen phases despite their definitions appearing in the actual
+YAML collection. These are scoped teardown observations before any colony;
+populated render-state cleanup is untested. ONI then exits before a menu
+screenshot or manual quit. The initiating caller and OS exit code remain
+unknown; the later background YAML thread-abort message occurs after shutdown
+begins and does not establish the cause. Runner exit 1 is a separate result.
+All 283 personal files and 13 settings restore exactly. The preserved negative
+and independent review are under
+`local/colony-runs/failed-onload-windows-v46` and
+`local/failed-onload-windows-v46-managed-completed-negative-review`; review
+SHA256 is `6b575db721d51c621949935255693b0588a580688764b0aaedfd54d070c37ba7`.
+This supplies no normal-closure, physics or first-playable acceptance.
+
 ## Remaining release gates, in dependency order
 
 1. **Authoritative integration.** Audit and redirect every native mutation,
