@@ -94,6 +94,38 @@ original sources/results and the independent review remain under
 `local/occupied-staggered-validation/canonical-moment-face-exact-v1` and
 `canonical-moment-face-exact-v1-managed-independent-review-r2`.
 
+A subsequent full-domain diagnostic closes that cap question negatively for
+the unchanged representation. It retains all fourteen mechanical corners,
+seven actual material-energy owners and thirteen internal joins in each of
+the six cases. Exact substitution verifies the supplied simultaneous solves,
+all ninety assembled momentum equations, local signed work and nonnegative
+mechanical-Z increments, global P/R/H, separate material U+H, species/traces
+and reflection. Constant and affine states remain unchanged. Both localized
+hat cases nevertheless change both complete required cap supports and all
+four required cap traces. The recorded verdict is
+`FINITE_IDENTITIES_WITH_INTERNAL_JOIN_CAP_INCOMPATIBILITY`; initializer and
+mechanics acceptance remain false.
+
+This obstruction cannot be repaired by choosing another internal impulse or
+retained Z while keeping the same constraints. At fixed positive-definite
+local mass matrices, full continuity and every assembled nodal momentum fix
+one continuous velocity through the assembled positive-definite system. That
+unique hat velocity changes the caps. A richer source-compatible velocity
+field or a separately justified change to remap momentum constraints would
+require a new representation and new work/thermodynamic obligations.
+
+The one finite attempt uses 83,800 of 100,000 arithmetic work units and at most
+1,714 of 12,288 Fraction bits, without a physical timestep, EOS call, native
+execution or benchmark. Its report is
+`866848d8237527aa59e7c15aa7d9294083a2b7984896375f5e030552d5d9902c`.
+Independent serialized-arithmetic and closed-evidence review is
+`2ca356141d8769f6c329e69244a0931bd301b1f8c6f2c099001059fe346045f1`
+under `local/occupied-staggered-validation/` in
+`canonical-moment-face-full-domain-v1-managed-independent-review-final-r2`.
+Reviewer-only metadata failures remain preserved; their corrections did not
+repeat the original diagnostic or its arithmetic. No earlier numerical,
+entropy, performance or native gate is promoted by this result.
+
 ## Reproducing standalone evidence
 
 Use separate fresh build and output directories. A default build contains
