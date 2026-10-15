@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using MixedAtmospheres.Core.Interop;
+using MixedAtmospheres.Oni;
 
 // Original interface harness for the user's local licensed Windows/Linux ONI build.
 // It runs in a separate OS process and never shares Unity's native singleton.
@@ -18,9 +19,9 @@ internal static unsafe class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length != 4 || args[2] is not ("baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition"))
+        if (args.Length != 4 || args[2] is not ("baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
         {
-            Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <baseline|sanitize|rebuild-shadow|load-shadow|transition|filtered-transition> <report.json>");
+            Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <baseline|sanitize|rebuild-shadow|load-shadow|transition|filtered-transition|reject-custom-envelope> <report.json>");
             return 2;
         }
         var report = new Dictionary<string, object?>
@@ -62,12 +63,15 @@ internal static unsafe class Program
                 report["initial"] = initial;
                 Require(initial.Elements[ColdCell] == contract.Granite && initial.Elements[HotCell] == contract.Granite,
                     "Native solid initialization differs from input.");
-                if (args[2] is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow")
+                if (args[2] is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope")
                 {
                     Require(initial.Elements[OxygenCell] == contract.Oxygen && initial.Elements[WaterCell] == contract.Water,
                         "Native fluid initialization differs from input.");
                     Require(initial.FluidCells == 2, "Unexpected initial native fluids.");
                 }
+                if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
+                else
+                {
                 if (args[2] == "baseline")
                 {
                     Stage("export-initial-native-save");
@@ -179,6 +183,7 @@ internal static unsafe class Program
                 if (args[2] == "transition") Require(trace.Any(item => item.FluidCells > 0), "Unfiltered melting control did not produce fluid.");
                 if (args[2] == "filtered-transition") Require(trace.All(item => item.TransitionElement == contract.Ice), "Filtered ice did not remain solid.");
                 Require(sim.Diagnostics.Count == 0, "Native simulator reported diagnostic errors.");
+                }
                 Stage("shutdown");
             }
             report["passed"] = true;
@@ -199,6 +204,38 @@ internal static unsafe class Program
 
     private static void Stage(string value) { Console.WriteLine(value); Console.Out.Flush(); }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
+    private static void VerifyCustomEnvelopeRejection(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report)
+    {
+        Stage("unmodified-native-load-positive-control");
+        var native = sim.Save();
+        var control = sim.RestartAndLoad(contract, contract.Elements, native);
+        Require(control.FluidMass == initial.FluidMass && control.TotalMass == initial.TotalMass && control.FluidCells == 2 && sim.Diagnostics.Count == 0,
+            "Unmodified native save/load control failed before the envelope rejection probe.");
+        report["unmodifiedLoadControl"] = control;
+        // A real compact native section and valid outer checksum, with an
+        // explicitly opaque diagnostic custom payload. No game object or
+        // owned reservoir save is constructed by this isolated test.
+        var envelope = ColonySaveEnvelope.Create(744825, 1, 0, new byte[32], native, new byte[] { 1, 2, 3 });
+        var encoded = envelope.CopyEncodedData();
+        var parsed = ColonySaveEnvelope.Parse(encoded, 744825, 1, new byte[32]);
+        Require(parsed.NativeData.SequenceEqual(native), "Diagnostic envelope changed its real native section.");
+        report["nativePayloadBytes"] = native.Length;
+        report["nativePayloadSha256"] = Convert.ToHexStringLower(SHA256.HashData(native));
+        report["envelopeBytes"] = encoded.Length;
+        report["envelopeSha256"] = Convert.ToHexStringLower(SHA256.HashData(encoded));
+        report["customPayloadKind"] = "opaque diagnostic bytes; no Core checkpoint or owner manifest";
+        Stage("unpatched-native-load-custom-envelope");
+        sim.RestartForLoad(contract, contract.Elements);
+        var result = sim.Send(-672538170, encoded);
+        report["unpatchedNativeLoadReturnedNull"] = result == IntPtr.Zero;
+        report["unityOrSavedObjectsLoaded"] = false;
+        report["frontendAbortVerified"] = false;
+        report["nativeStateAfterRejectionInspected"] = false;
+        Require(result == IntPtr.Zero, "Unpatched native loader accepted a MACOLONY envelope.");
+        Require(sim.Diagnostics.Count == 0, "Native envelope rejection reported diagnostic errors.");
+        // Shutdown the isolated owner without starting or inspecting a failed
+        // load. This does not attest Unity's outer-load/fallback behavior.
+    }
     private static byte[] WritePayload(System.Action<BinaryWriter> write)
     {
         using var stream = new MemoryStream();
@@ -218,7 +255,7 @@ internal static unsafe class Program
             float mass = border ? 20000 : 0, temperature = border ? 293.15f : 0;
             if (cell == ColdCell || cell == HotCell)
             { element = contract.Granite; mass = 1000; temperature = cell == ColdCell ? 300 : 600; }
-            if (mode is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow")
+            if (mode is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope")
             {
                 if (cell == OxygenCell) { element = contract.Oxygen; mass = 2; temperature = 293.15f; }
                 if (cell == WaterCell) { element = contract.Water; mass = 100; temperature = 293.15f; }
@@ -432,6 +469,12 @@ internal static unsafe class Program
         }
         public Snapshot RestartAndLoad(Contract contract, byte[] table, byte[] saved)
         {
+            RestartForLoad(contract, table);
+            Require(Send(-672538170, saved) != IntPtr.Zero, "Native loader rejected blob.");
+            return Snapshot.Read(Send(-931446686, []), contract);
+        }
+        public void RestartForLoad(Contract contract, byte[] table)
+        {
             Restart();
             Send(1108437482, table);
             Send(825301935, contract.Diseases);
@@ -439,8 +482,6 @@ internal static unsafe class Program
             { writer.Write(Width); writer.Write(Height); writer.Write(false); writer.Write(true); }));
             Send(-895846551, WritePayload(writer =>
             { writer.Write(1); writer.Write(0); writer.Write(0); writer.Write(Width); writer.Write(Height); }));
-            Require(Send(-672538170, saved) != IntPtr.Zero, "Native loader rejected blob.");
-            return Snapshot.Read(Send(-931446686, []), contract);
         }
         public IntPtr Send(int id, byte[] bytes) { fixed (byte* data = bytes) return message(id, bytes.Length, data); }
         public byte[] Save()

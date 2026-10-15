@@ -13,7 +13,7 @@ import resource
 import subprocess
 import sys
 
-MODES = ("baseline", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize")
+MODES = ("baseline", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 
 
 def no_core_dump() -> None:
@@ -43,7 +43,7 @@ def main() -> int:
         report_path = output / f"{mode}.json"
         command = [args.dotnet, str(args.probe.resolve()), str(args.native.resolve()),
                    str(args.contract.resolve()), mode, str(report_path)]
-        item = {"mode": mode, "expectedNegativeControl": mode == "sanitize", "passed": False}
+        item = {"mode": mode, "expectedNegativeControl": mode in ("sanitize", "reject-custom-envelope"), "passed": False}
         try:
             with (output / f"{mode}.log").open("w") as log:
                 child = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=45,

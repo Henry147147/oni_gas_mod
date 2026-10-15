@@ -10,5 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
   </ItemGroup>
 </Project>

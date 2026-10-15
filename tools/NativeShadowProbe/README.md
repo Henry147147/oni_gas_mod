@@ -39,6 +39,11 @@ Modes:
   unmodified native definitions produce fluid. This is the positive control.
 - `filtered-transition`: suppress native fluid-producing element definitions,
   repeat that control, and check that the cell stays solid and no fluid appears.
+- `reject-custom-envelope`: first load an ordinary saved native world as a
+  positive control, then pass a valid MACOLONY envelope to a fresh unpatched
+  native loader. Require a null rejection result and shut down without starting
+  or inspecting the failed load. Its custom payload is explicitly opaque
+  diagnostic data, with no owned-reservoir or full colony save.
 
 Filtering uses `NativeElementTable`, which validates all rows first and disables
 whole fluid-producing temperature/sublimation/conversion branches. The reported
@@ -53,7 +58,7 @@ Windows may refuse loading them directly from SMB. The native library can
 crash on an invalid contract; isolation is intentional. Submitted frames are
 asynchronous: snapshot polling must observe their completion before assertions.
 
-On Linux, `run.py` runs all six modes in separate processes, each with a
+On Linux, `run.py` runs the selected modes in separate processes, each with a
 45-second timeout and core dumps disabled. Its summary counts only the exact
 expected sanitize failure as a successful negative control; other failures,
 missing reports, crashes and timeouts fail the suite. Use a new evidence folder:
@@ -70,6 +75,16 @@ load-shadow passes. The sanitize experiment fails as expected: without a
 frame, the edits do not become visible. Keep that failure as evidence against
 using this activation path. Do not reinterpret a zero-frame snapshot as an
 acknowledgement of queued cell mutations.
+
+The new seven-mode Windows matrix also passes `reject-custom-envelope`: the
+ordinary native-load control preserves both fluid cells and their 102 kg,
+and the actual unpatched native API rejects the envelope with no diagnostic
+errors or process crash. This establishes the native section's magic boundary
+only. It does not run Unity's outer SaveLoader, saved objects, frontend abort or
+world-generation fallback. The new rejection case has not run on Linux; the
+earlier six-mode Linux results remain separate evidence. Private Windows
+sources/binaries, table hashes and reports are under
+`local/native-envelope-suite-windows-v4`.
 
 The Linux test used the element/disease payloads exported by the Windows Unity
 probe. Both platforms produced byte-identical initial native saves. The managed

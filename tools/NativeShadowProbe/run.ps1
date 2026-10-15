@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope')][string]$Mode = 'baseline',
     [string]$Dotnet = 'dotnet.exe'
 )
 $ErrorActionPreference = 'Stop'
@@ -44,4 +44,4 @@ Get-Content $stdout
 Get-Content $stderr
 if (Test-Path $report) { Get-Content $report }
 if (!$finished) { throw "Isolated probe exceeded 45 seconds; killed only probe PID $($process.Id)." }
-if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+exit $process.ExitCode
