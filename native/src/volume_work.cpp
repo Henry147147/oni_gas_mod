@@ -51,7 +51,8 @@ Response response(const Closure& state, double volume_change) {
 }
 
 MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
-    std::span<const MaterialCell> cells, std::span<const AcousticFace> faces, double dt) {
+    std::span<const MaterialCell> cells, std::span<const AcousticFace> faces, double dt,
+    bool project_incompressible_velocity) {
     require_finite(dt, "material pressure timestep");
     if (dt < 0 || cells.empty()) throw std::invalid_argument("Invalid material pressure domain or timestep");
     const auto count = cells.size();
@@ -115,7 +116,8 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
     for (std::size_t i = 0; i < count; ++i) {
         require_finite(initial_outflow[i], "material initial outflow");
         require_finite(initial_flow_scale[i], "material initial volume flux scale");
-        if (closures[i].free_volume == 0 && std::abs(initial_outflow[i]) > 1e-12 + 1e-10 * initial_flow_scale[i])
+        if (!project_incompressible_velocity && closures[i].free_volume == 0 &&
+            std::abs(initial_outflow[i]) > 1e-12 + 1e-10 * initial_flow_scale[i])
             throw std::domain_error("Initial velocity violates incompressible volume continuity");
     }
     std::vector<bool> compressible(count, false);
@@ -203,12 +205,14 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
                 throw std::domain_error("Insufficient precision for material headspace or thermal energy");
             result.endpoint_pressures_pa[i] = local.endpoint_pressure;
             energy_change += static_cast<long double>(cell.mixture.energy) - cells[i].mixture.energy;
-            energy_scale += std::abs(cells[i].mixture.energy) + closures[i].thermal_energy;
+            // Formation energies can dwarf sensible energy; using their
+            // magnitude would conceal pressure-work errors in liquid water.
+            energy_scale += closures[i].thermal_energy;
         } else {
             if (work[i] < 0) throw std::domain_error("Liquid tension requires a cavitation model");
             cell.incompressible_pressure_pa = work[i];
             result.endpoint_pressures_pa[i] = work[i];
-            energy_scale += std::abs(cells[i].mixture.energy);
+            energy_scale += cells[i].mixture.heat_capacity(registry) * cells[i].mixture.temperature(registry);
         }
         cell.mixture.validate(registry);
         result.maximum_volume_residual_m3 = std::max(result.maximum_volume_residual_m3, std::abs(residual[i]));

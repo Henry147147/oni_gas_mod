@@ -30,16 +30,26 @@ void validate(const SpeciesRegistry& registry, const TransportCell& cell) {
 }
 }
 
-std::vector<TransportCell> advect_mixtures(const SpeciesRegistry& registry,
-                                          std::span<const TransportCell> cells,
-                                          std::span<const SweptFace> faces) {
+namespace {
+std::vector<TransportCell> remap(const SpeciesRegistry& registry,
+                               std::span<const TransportCell> cells,
+                               std::span<const SweptFace> faces,
+                               std::span<const double> target_volumes,
+                               std::span<const double> potentials) {
     if (cells.empty() || registry.size() == 0) throw std::invalid_argument("Empty mixture transport domain");
     const auto count = cells.size();
-    std::vector<long double> outgoing(count, 0);
+    if ((!target_volumes.empty() && target_volumes.size() != count) ||
+        (!potentials.empty() && potentials.size() != count))
+        throw std::invalid_argument("Remap geometry size mismatch");
+    std::vector<long double> outgoing(count, 0), incoming(count, 0);
     std::vector<double> total_energy(count), updated_energy(count);
     for (std::size_t i = 0; i < count; ++i) {
         validate(registry, cells[i]);
         total_energy[i] = cells[i].mixture.energy + cells[i].kinetic_energy();
+        if (!potentials.empty()) {
+            require_finite(potentials[i], "remap cell potential");
+            total_energy[i] += cells[i].mixture.mass() * potentials[i];
+        }
         require_finite(total_energy[i], "transport total energy");
     }
     for (const auto& face : faces) {
@@ -47,15 +57,25 @@ std::vector<TransportCell> advect_mixtures(const SpeciesRegistry& registry,
         if (face.left >= count || face.right >= count || face.left == face.right)
             throw std::invalid_argument("Invalid transport face");
         const auto donor = face.volume_m3 >= 0 ? face.left : face.right;
+        const auto receiver = face.volume_m3 >= 0 ? face.right : face.left;
         outgoing[donor] += std::abs(face.volume_m3);
+        incoming[receiver] += std::abs(face.volume_m3);
     }
     std::vector<TransportCell> result;
     result.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
         if (outgoing[i] > cells[i].volume_m3)
             throw std::domain_error("Transport CFL exceeded; retry with a smaller timestep");
+        double target = cells[i].volume_m3;
+        if (!target_volumes.empty()) {
+            target = target_volumes[i];
+            require_finite(target, "remap target volume");
+            const long double expected = cells[i].volume_m3 - outgoing[i] + incoming[i];
+            if (target <= 0 || std::abs(expected - target) > 5e-12L * std::max(target, cells[i].volume_m3))
+                throw std::domain_error("Remap violates geometric volume conservation");
+        }
         const double retained = static_cast<double>(1 - outgoing[i] / cells[i].volume_m3);
-        result.push_back({MixtureInventory(registry.size()), cells[i].volume_m3,
+        result.push_back({MixtureInventory(registry.size()), target,
                           retained * cells[i].momentum_x, retained * cells[i].momentum_y});
         auto& next = result.back();
         for (std::size_t s = 0; s < registry.size(); ++s)
@@ -78,8 +98,23 @@ std::vector<TransportCell> advect_mixtures(const SpeciesRegistry& registry,
     }
     for (std::size_t i = 0; i < count; ++i) {
         result[i].mixture.energy = updated_energy[i] - result[i].kinetic_energy();
+        if (!potentials.empty()) result[i].mixture.energy -= result[i].mixture.mass() * potentials[i];
         validate(registry, result[i]);
     }
     return result;
+}
+}
+
+std::vector<TransportCell> advect_mixtures(const SpeciesRegistry& registry,
+                                          std::span<const TransportCell> cells,
+                                          std::span<const SweptFace> faces) {
+    return remap(registry, cells, faces, {}, {});
+}
+
+std::vector<TransportCell> remap_material_mixtures(const SpeciesRegistry& registry,
+    std::span<const TransportCell> cells, std::span<const SweptFace> faces,
+    std::span<const double> target_volumes, std::span<const double> potentials) {
+    if (target_volumes.empty()) throw std::invalid_argument("Missing remap target volumes");
+    return remap(registry, cells, faces, target_volumes, potentials);
 }
 }

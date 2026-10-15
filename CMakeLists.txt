@@ -20,6 +20,7 @@ add_library(ma_core STATIC
     native/src/phase_change.cpp
     native/src/atmosphere.cpp
     native/src/grid.cpp
+    native/src/fluid_world.cpp
     native/src/persistence.cpp)
 set_target_properties(ma_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(ma_core PUBLIC native/include)
@@ -54,6 +55,12 @@ if(MA_BUILD_TESTS)
     add_executable(ma_tests native/tests/tests.cpp)
     target_link_libraries(ma_tests PRIVATE ma_core mixed_atmospheres)
     add_test(NAME physics_and_abi COMMAND ma_tests)
+    add_executable(ma_fluid_tests native/tests/fluid_world_tests.cpp)
+    target_link_libraries(ma_fluid_tests PRIVATE ma_core)
+    add_test(NAME integrated_fluid_world COMMAND ma_fluid_tests)
 endif()
+
+add_executable(ma_fluid_benchmark native/apps/fluid_benchmark.cpp)
+target_link_libraries(ma_fluid_benchmark PRIVATE ma_core)
 
 install(TARGETS mixed_atmospheres RUNTIME DESTINATION . LIBRARY DESTINATION .)

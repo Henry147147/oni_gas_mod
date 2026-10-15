@@ -28,4 +28,15 @@ struct SweptFace {
 [[nodiscard]] std::vector<TransportCell> advect_mixtures(const SpeciesRegistry& registry,
                                                         std::span<const TransportCell> cells,
                                                         std::span<const SweptFace> faces);
+
+// Remap moving material volumes onto an Eulerian mesh. Unlike advect_mixtures,
+// the target volume must equal old volume minus outgoing plus incoming swept
+// volume. This geometric conservation law preserves bounds on liquid volume
+// fractions, including a completely filled incompressible donor/receiver.
+// Optional cell potentials [J/kg] are included in transported total energy;
+// conversion between potential, kinetic and thermal energy stays conservative.
+[[nodiscard]] std::vector<TransportCell> remap_material_mixtures(
+    const SpeciesRegistry& registry, std::span<const TransportCell> cells,
+    std::span<const SweptFace> faces, std::span<const double> target_volumes_m3,
+    std::span<const double> potentials_j_per_kg = {});
 }

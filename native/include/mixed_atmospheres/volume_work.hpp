@@ -33,7 +33,13 @@ struct MaterialPressureStep {
 // staggered momentum, shocks/dissipation, vacuum, free surfaces, phase change,
 // and immiscible separation remain the caller's responsibility. Faces must
 // have compatible areas and fixed material inertias. Failure changes no input.
+// project_incompressible_velocity admits non-solenoidal initial face velocity
+// and enforces zero MIDPOINT divergence. It is used by the Eulerian remap
+// integrator, where cell-to-face reconstruction need not be solenoidal; it is
+// a reflecting midpoint projection, not dissipative backward-Euler projection.
+// The default retains the stricter standalone material-state validation.
 [[nodiscard]] MaterialPressureStep advance_material_pressure(
     const SpeciesRegistry& registry, std::span<const MaterialCell> cells,
-    std::span<const AcousticFace> faces, double seconds);
+    std::span<const AcousticFace> faces, double seconds,
+    bool project_incompressible_velocity = false);
 }
