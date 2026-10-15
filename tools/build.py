@@ -48,6 +48,8 @@ def main() -> None:
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "managed/MixedAtmospheres.Presentation.Tests", "-c", "Release"], env)
     run(["dotnet", "run", "--project", "tools/OwnedReservoirCheckpointTests", "-c", "Release"], env)
+    run(["dotnet", "run", "--project", "tools/OwnedReservoirFilePromotionTests", "-c", "Release",
+         "--", str(directory / "file-promotion-checks")], env)
     if args.game_dir:
         run(["dotnet", "build", "managed/MixedAtmospheres.Oni", "-c", "Release", "--nologo",
              "-p:OniGameDir=" + str(Path(args.game_dir).resolve())])

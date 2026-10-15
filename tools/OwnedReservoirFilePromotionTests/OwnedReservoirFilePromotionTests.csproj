@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DefineConstants>$(DefineConstants);MIXED_ATMOSPHERES_ATOMIC_FILE_TESTS</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirFilePromotion.cs" Link="OwnedReservoirFilePromotion.cs" />
+  </ItemGroup>
+</Project>
