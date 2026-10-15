@@ -5,6 +5,13 @@ using System.Threading;
 
 namespace MixedAtmospheres.Oni
 {
+    internal enum OwnedReservoirLoadCompletionKind { None, ActualGameDestroyInstances, PreGameLoaderScene }
+    internal enum OwnedReservoirLoadBodyKind { GameDestroyInstances, LoaderOnDestroy, SceneUnloaded }
+
+    internal sealed class OwnedReservoirOnSpawnCall
+    {
+        internal object Identity { get; } = new object();
+    }
     // Exists before any nonempty selected-path inspection/callback. The public
     // invocation must unwind even when its header is rejected before native load.
     internal sealed class OwnedReservoirSelectedCall
@@ -54,7 +61,9 @@ namespace MixedAtmospheres.Oni
     internal sealed class OwnedReservoirLoadTeardown
     {
         internal object AttemptIdentity { get; }
-        internal OwnedReservoirLoadTeardown(object attemptIdentity) { AttemptIdentity = attemptIdentity; }
+        internal OwnedReservoirLoadBodyKind BodyKind { get; }
+        internal OwnedReservoirLoadTeardown(object attemptIdentity, OwnedReservoirLoadBodyKind bodyKind = OwnedReservoirLoadBodyKind.GameDestroyInstances)
+        { AttemptIdentity = attemptIdentity; BodyKind = bodyKind; }
     }
 
     // Every instance is immutable. Updated observations share an opaque attempt
@@ -72,25 +81,38 @@ namespace MixedAtmospheres.Oni
         internal bool TeardownCompleted { get; }
         internal bool TeardownFailed { get; }
         internal bool SelectedCallPending { get; }
+        internal bool OnSpawnCallPending { get; }
+        internal OwnedReservoirLoadCompletionKind CompletionKind { get; }
+        internal bool LoaderDestroyCompleted { get; }
+        internal bool SceneUnloadCompleted { get; }
+        internal bool PreGameInvalidated { get; }
+        internal bool OwnerReferenceCleared { get; }
         internal int DroppedObservations { get; }
         internal IReadOnlyList<OwnedReservoirLoadObservation> Observations { get; }
         private OwnedReservoirLoadAttempt(object identity, Guid id, long sequence, string origin,
             OwnedReservoirLoadHeaderInspection input, bool frontend, bool teardown, bool completed,
-            int dropped, OwnedReservoirLoadObservation[] observations, bool selectedCallPending, bool teardownFailed)
+            int dropped, OwnedReservoirLoadObservation[] observations, bool selectedCallPending, bool teardownFailed,
+            OwnedReservoirLoadCompletionKind completionKind, bool onSpawnCallPending = false, bool loaderDestroyCompleted = false,
+            bool sceneUnloadCompleted = false, bool preGameInvalidated = false, bool ownerReferenceCleared = false)
         {
             Identity = identity; Id = id; Sequence = sequence; Origin = origin; Input = input;
             FrontendRequested = frontend; TeardownStarted = teardown; TeardownCompleted = completed;
             DroppedObservations = dropped; Observations = new ReadOnlyCollection<OwnedReservoirLoadObservation>(observations);
             SelectedCallPending = selectedCallPending;
             TeardownFailed = teardownFailed;
+            CompletionKind = completionKind; OnSpawnCallPending = onSpawnCallPending; LoaderDestroyCompleted = loaderDestroyCompleted;
+            SceneUnloadCompleted = sceneUnloadCompleted; PreGameInvalidated = preGameInvalidated; OwnerReferenceCleared = ownerReferenceCleared;
         }
-        internal static OwnedReservoirLoadAttempt Reject(long sequence, string origin, OwnedReservoirLoadHeaderInspection input, bool selectedCallPending)
+        internal static OwnedReservoirLoadAttempt Reject(long sequence, string origin, OwnedReservoirLoadHeaderInspection input, bool selectedCallPending,
+            OwnedReservoirLoadCompletionKind completionKind, bool onSpawnCallPending)
         {
             if (!input.MustReject) throw new ArgumentException("A valid unmarked/no-selection input must not acquire a fatal load attempt.", nameof(input));
             return new OwnedReservoirLoadAttempt(new object(), Guid.NewGuid(), sequence, origin, input, false, false, false, 0,
-                new[] { new OwnedReservoirLoadObservation(origin, input.Kind + ": " + input.Error) }, selectedCallPending, false);
+                new[] { new OwnedReservoirLoadObservation(origin, input.Kind + ": " + input.Error) }, selectedCallPending, false, completionKind, onSpawnCallPending);
         }
-        internal OwnedReservoirLoadAttempt Record(string boundary, string detail, bool? frontend = null, bool? teardown = null, bool? completed = null, bool? selectedCallPending = null, bool? teardownFailed = null)
+        internal OwnedReservoirLoadAttempt Record(string boundary, string detail, bool? frontend = null, bool? teardown = null, bool? completed = null, bool? selectedCallPending = null, bool? teardownFailed = null,
+            bool? onSpawnCallPending = null, bool? loaderDestroyCompleted = null, bool? sceneUnloadCompleted = null,
+            bool? preGameInvalidated = null, bool? ownerReferenceCleared = null)
         {
             var count = Math.Min(Observations.Count + 1, 128);
             var values = new OwnedReservoirLoadObservation[count];
@@ -99,7 +121,9 @@ namespace MixedAtmospheres.Oni
             values[count - 1] = new OwnedReservoirLoadObservation(boundary, detail);
             return new OwnedReservoirLoadAttempt(Identity, Id, Sequence, Origin, Input,
                 FrontendRequested || frontend == true, TeardownStarted || teardown == true, TeardownCompleted || completed == true,
-                checked(DroppedObservations + skip), values, selectedCallPending ?? SelectedCallPending, TeardownFailed || teardownFailed == true);
+                checked(DroppedObservations + skip), values, selectedCallPending ?? SelectedCallPending, TeardownFailed || teardownFailed == true,
+                CompletionKind, onSpawnCallPending ?? OnSpawnCallPending, LoaderDestroyCompleted || loaderDestroyCompleted == true,
+                SceneUnloadCompleted || sceneUnloadCompleted == true, PreGameInvalidated || preGameInvalidated == true, OwnerReferenceCleared || ownerReferenceCleared == true);
         }
     }
 
@@ -112,6 +136,8 @@ namespace MixedAtmospheres.Oni
         private long sequence;
         private OwnedReservoirLoadAttempt? current, last;
         private OwnedReservoirLoadTeardown? activeTeardown;
+        private OwnedReservoirLoadTeardown? activeLoaderDestruction, activeSceneUnload;
+        private bool loaderDestructionBegun, sceneUnloadBegun;
         private IReadOnlyList<OwnedReservoirLoadAttempt> completed = Array.Empty<OwnedReservoirLoadAttempt>();
         internal OwnedReservoirLoadAttempt? Current { get { lock (gate) return current; } }
         internal OwnedReservoirLoadAttempt? Last { get { lock (gate) return last; } }
@@ -119,7 +145,8 @@ namespace MixedAtmospheres.Oni
         internal bool IsFatal { get { lock (gate) return current != null; } }
         private void RequireThread()
         { if (Thread.CurrentThread.ManagedThreadId != thread) throw new InvalidOperationException("Load lifecycle mutation requires its activation thread."); }
-        internal OwnedReservoirLoadAttempt Reject(string origin, OwnedReservoirLoadHeaderInspection input, bool selectedCallPending = false)
+        internal OwnedReservoirLoadAttempt Reject(string origin, OwnedReservoirLoadHeaderInspection input, bool selectedCallPending = false,
+            OwnedReservoirLoadCompletionKind completionKind = OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances, bool onSpawnCallPending = false)
         {
             RequireThread();
             if (!input.MustReject) throw new ArgumentException("Ordinary/new-colony input cannot become a fatal attempt.", nameof(input));
@@ -130,18 +157,21 @@ namespace MixedAtmospheres.Oni
                     current = current.Record("reentrant-load-rejected", origin + ": " + input.SelectedPath);
                     last = current; return current;
                 }
-                var created = OwnedReservoirLoadAttempt.Reject(checked(sequence + 1), origin, input, selectedCallPending);
+                if (!Enum.IsDefined(typeof(OwnedReservoirLoadCompletionKind), completionKind)) throw new ArgumentOutOfRangeException(nameof(completionKind));
+                var created = OwnedReservoirLoadAttempt.Reject(checked(sequence + 1), origin, input, selectedCallPending, completionKind, onSpawnCallPending);
+                loaderDestructionBegun = sceneUnloadBegun = false; activeLoaderDestruction = activeSceneUnload = null;
                 sequence = created.Sequence; current = last = created; return created;
             }
         }
-        internal OwnedReservoirLoadAttempt? ObserveSelectedResult(OwnedReservoirSelectedCall? selected, string origin, bool result)
+        internal OwnedReservoirLoadAttempt? ObserveSelectedResult(OwnedReservoirSelectedCall? selected, string origin, bool result,
+            OwnedReservoirLoadCompletionKind completionKind = OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances, bool onSpawnCallPending = false)
         {
             RequireThread();
             if (selected == null || result) return Current;
             var input = new OwnedReservoirLoadHeaderInspection(OwnedReservoirLoadInputKind.ReadError,
                 selected.SelectedPath, -1, false,
                 "Selected native loader returned false at " + origin + ".", null, Array.Empty<byte>());
-            return Reject(origin + ":false-result", input, selectedCallPending: true);
+            return Reject(origin + ":false-result", input, selectedCallPending: true, completionKind: completionKind, onSpawnCallPending: onSpawnCallPending);
         }
         internal OwnedReservoirLoadAttempt HoldSelectedCall(OwnedReservoirLoadAttempt expected)
         {
@@ -177,7 +207,8 @@ namespace MixedAtmospheres.Oni
             RequireThread();
             lock (gate)
             {
-                if (current == null || !ReferenceEquals(current.Identity, expected.Identity) || current.TeardownStarted) return null;
+                if (current == null || !ReferenceEquals(current.Identity, expected.Identity) || current.TeardownStarted ||
+                    current.CompletionKind != OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances) return null;
                 var token = new OwnedReservoirLoadTeardown(current.Identity);
                 current = current.Record("Game.DestroyInstances:begin", "Fatal gates stay active throughout actual teardown.", teardown: true);
                 activeTeardown = token;
@@ -193,14 +224,14 @@ namespace MixedAtmospheres.Oni
                 // One completion only, including failure. No stale successful
                 // finalizer can change a failed outer teardown into success.
                 activeTeardown = null;
-                if (error != null)
+                if (error != null || current.TeardownFailed)
                 {
-                    current = current.Record("Game.DestroyInstances:failed", error.GetType().Name + ": " + error.Message, teardownFailed: true);
+                    current = current.Record("Game.DestroyInstances:failed", error == null ? "A nested cleanup already failed." : error.GetType().Name + ": " + error.Message, teardownFailed: true);
                     last = current; return false;
                 }
                 current = current.Record("Game.DestroyInstances:complete", "Actual teardown completed; any outstanding selected call must still unwind.", completed: true);
                 last = current;
-                if (current.SelectedCallPending) return false;
+                if (current.SelectedCallPending || current.OnSpawnCallPending) return false;
                 Finish(); return true;
             }
         }
@@ -212,10 +243,96 @@ namespace MixedAtmospheres.Oni
                 if (current == null || !ReferenceEquals(current.Identity, expected.Identity) || !current.SelectedCallPending) return false;
                 current = current.Record("selected-load:unwound", "The exact original selected call has returned/finalized.", selectedCallPending: false);
                 last = current;
-                if (!current.TeardownCompleted || current.TeardownFailed) return false;
+                if (!current.TeardownCompleted || current.TeardownFailed || current.OnSpawnCallPending) return false;
                 Finish(); return true;
             }
         }
+        internal bool HoldOnSpawnCall(OwnedReservoirLoadAttempt expected)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!Matches(expected)) return false;
+                current = current!.Record("SaveLoader.OnSpawn:held", "The exact OnSpawn invocation must unwind.", onSpawnCallPending: true);
+                last = current; return true;
+            }
+        }
+        internal bool ReleaseOnSpawnCall(OwnedReservoirLoadAttempt expected)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!Matches(expected) || !current!.OnSpawnCallPending) return false;
+                current = current.Record("SaveLoader.OnSpawn:unwound", "Exact OnSpawn invocation finalized.", onSpawnCallPending: false); last = current;
+                if (!current.TeardownCompleted || current.TeardownFailed || current.SelectedCallPending) return false;
+                Finish(); return true;
+            }
+        }
+        internal OwnedReservoirLoadTeardown? BeginPreGameBody(OwnedReservoirLoadAttempt expected, OwnedReservoirLoadBodyKind kind)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!Matches(expected) || current!.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene ||
+                    current.TeardownFailed || current.PreGameInvalidated || !current.FrontendRequested) return null;
+                if (kind == OwnedReservoirLoadBodyKind.LoaderOnDestroy)
+                { if (loaderDestructionBegun) return null; loaderDestructionBegun = true; }
+                else if (kind == OwnedReservoirLoadBodyKind.SceneUnloaded)
+                { if (sceneUnloadBegun) return null; sceneUnloadBegun = true; }
+                else return null;
+                var token = new OwnedReservoirLoadTeardown(current.Identity, kind);
+                if (kind == OwnedReservoirLoadBodyKind.LoaderOnDestroy) activeLoaderDestruction = token; else activeSceneUnload = token;
+                current = current.Record(kind + ":begin", "Exact pre-Game owner/scene body observation began.", teardown: true); last = current; return token;
+            }
+        }
+        internal bool CompletePreGameBody(OwnedReservoirLoadTeardown token, bool entered, bool returned, Exception? error)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (current == null || !ReferenceEquals(current.Identity, token.AttemptIdentity) || current.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene) return false;
+                if (token.BodyKind == OwnedReservoirLoadBodyKind.LoaderOnDestroy)
+                { if (!ReferenceEquals(activeLoaderDestruction, token)) return false; activeLoaderDestruction = null; }
+                else if (token.BodyKind == OwnedReservoirLoadBodyKind.SceneUnloaded)
+                { if (!ReferenceEquals(activeSceneUnload, token)) return false; activeSceneUnload = null; }
+                else return false;
+                if (!entered || !returned || error != null || current.TeardownFailed || current.PreGameInvalidated)
+                {
+                    current = current.Record(token.BodyKind + ":failed", "Original entered=" + entered + "; returned=" + returned + "; error=" + (error?.GetType().Name ?? "none"), teardownFailed: true); last = current; return false;
+                }
+                current = current.Record(token.BodyKind + ":complete", "Exact original body returned normally before its finalizer.",
+                    loaderDestroyCompleted: token.BodyKind == OwnedReservoirLoadBodyKind.LoaderOnDestroy,
+                    sceneUnloadCompleted: token.BodyKind == OwnedReservoirLoadBodyKind.SceneUnloaded); last = current; return true;
+            }
+        }
+        internal bool ReadyToClearOwnerReference(OwnedReservoirLoadAttempt expected)
+        {
+            lock (gate) return Matches(expected) && current!.CompletionKind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene &&
+                current.LoaderDestroyCompleted && current.SceneUnloadCompleted && !current.SelectedCallPending && !current.OnSpawnCallPending &&
+                !current.TeardownFailed && !current.PreGameInvalidated && !current.OwnerReferenceCleared;
+        }
+        internal bool CompletePreGameOwnerReference(OwnedReservoirLoadAttempt expected)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!ReadyToClearOwnerReference(expected)) return false;
+                current = current!.Record("PreGameLoaderScene:complete", "Exact loader destruction, exact scene unload, all calls unwound and exact dead-owner reference cleared.", completed: true, ownerReferenceCleared: true);
+                last = current; Finish(); return true;
+            }
+        }
+        internal void InvalidatePreGame(OwnedReservoirLoadAttempt expected, string reason)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!Matches(expected)) return;
+                current = current!.Record("PreGameLoaderScene:invalidated", reason, teardownFailed: true, preGameInvalidated: true); last = current;
+            }
+        }
+        internal void FailBodyWitness(OwnedReservoirLoadAttempt expected, string reason)
+        {
+            RequireThread(); lock (gate)
+            {
+                if (!Matches(expected)) return;
+                current = current!.Record("original-body-witness:failed", reason, teardownFailed: true); last = current;
+            }
+        }
+        private bool Matches(OwnedReservoirLoadAttempt expected) => current != null && ReferenceEquals(current.Identity, expected.Identity);
         private void Finish()
         {
                 var finished = current!;

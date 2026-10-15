@@ -26,6 +26,7 @@ namespace MixedAtmospheres.Oni
         }
         private static readonly List<object> evidence = new List<object>();
         private static int phase, phaseFrame, stableMenuFrames, anchor, savedId, width, height, worlds;
+        private static int normalAnimationReadyFrame = -1;
         private static float next, menuReadyAt;
         private static MainMenu? menu;
         private static Game? oldGame;
@@ -36,11 +37,13 @@ namespace MixedAtmospheres.Oni
         private static int serializedCount, directoryEnd;
         private static string ordinaryPath = "", malformedPath = "", failedBodyPath = "", ordinaryHash = "", malformedHash = "", failedBodyHash = "";
         private static long ordinaryLength, malformedLength, failedBodyLength;
+        private static long emptyAnimationGuardBaseline;
         private static string directoryObservationError = "";
         private static IReadOnlyDictionary<string, string>? rejectionFileInventory;
-        private static bool finished, completedSuccessfully, failureRecorded;
+        private static bool finished, completedSuccessfully, failureRecorded, nativeErrorObserved;
         private static bool contractRecorded;
         private static OwnedReservoirLoadCounterSnapshot? baseline;
+        private static OwnedReservoirLoadCounterSnapshot? normalAnimationBaseline;
         internal static bool Started { get; private set; }
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-load-rejection.json");
 
@@ -50,7 +53,7 @@ namespace MixedAtmospheres.Oni
             Require(settings?.Mode == "load-rejection" && settings.PrivateOwnedLoadRejection,
                 "Load rejection hooks require the explicit private experiment.");
             var preflight = OwnedReservoirLoadValidationCounters.InspectContracts();
-            Require(preflight.ExpectedMethodCount == 41 && preflight.ExpectedNativeSiteSpecifications == 12 &&
+            Require(preflight.ExpectedMethodCount == 45 && preflight.ExpectedNativeSiteSpecifications == 12 &&
                 preflight.ExpectedNativeMapKeyCount == 15 && preflight.ExpectedManagedAntecedentKeyCount == 4 && preflight.InitializationCallerKeys.Count == 4,
                 "Private load instrumentation preflight has an incomplete original-IL contract.");
             evidence.Add(new { Kind = "pure-original-il-preflight-before-private-hooks", Contract = preflight });
@@ -67,6 +70,7 @@ namespace MixedAtmospheres.Oni
                 "Private quit observation requires the pinned App.QuitCode contract.");
             harmony.Patch(quit, prefix: new HarmonyMethod(typeof(OwnedReservoirLoadVisualValidation), nameof(ObserveQuitCode)) { priority = Priority.First });
             Application.quitting += ObserveApplicationQuitting;
+            Application.logMessageReceived += ObserveNativeError;
             var directory = AccessTools.DeclaredMethod(typeof(KSerialization.Manager), "DeserializeDirectory", new[] { typeof(IReader) });
             Require(directory != null && directory.ReturnType == typeof(void) && directory.IsStatic && directory.GetMethodBody() != null,
                 "Private directory observation requires the exact native managed contract.");
@@ -185,6 +189,13 @@ namespace MixedAtmospheres.Oni
                     if (Game.Instance == null || !Game.Instance.GameStarted() || SaveLoader.Instance == null || !SaveLoader.Instance.loadedFromSave) return;
                     Require(!OwnedReservoirLoadBoundary.IsFatal, "Ordinary unmarked native load was incorrectly rejected.");
                     SpeedControlScreen.Instance.Pause(false);
+                    if (normalAnimationReadyFrame < 0)
+                    {
+                        normalAnimationBaseline = CaptureCounters();
+                        normalAnimationReadyFrame = Time.frameCount;
+                        next = Time.realtimeSinceStartup + 0.25f;
+                        return;
+                    }
                     var matches = UnityEngine.Object.FindObjectsByType<KPrefabID>(FindObjectsSortMode.None)
                         .Where(value => value.InstanceID == savedId && value.PrefabTag.Name == GasReservoirConfig.ID).ToArray();
                     Require(matches.Length == 1 && !ReferenceEquals(matches[0].gameObject, reservoir), "Native save did not reconstruct the exact ordinary owner.");
@@ -207,6 +218,24 @@ namespace MixedAtmospheres.Oni
                         "Positive control did not observe real native deserializing Storage.Store.");
                     Require(NativeTotal(loadDelta, "SIM_Initialize(") > 0 && NativeLoadDispatches(loadDelta) > 0 && NativeStartDispatches(loadDelta) > 0,
                         "Positive native initialization/load/start dispatch was not observed.");
+                    var animationKey = OwnedReservoirLoadValidationCounters.Key(typeof(KBatchedAnimUpdater), "DoGridProcessing");
+                    var normalAnimationDelta = OwnedReservoirLoadValidationCounters.Delta(normalAnimationBaseline!, CaptureCounters());
+                    Require(normalAnimationDelta.CompleteContractVerified && normalAnimationDelta.ObservationFailures == 0 &&
+                        normalAnimationDelta.ObserverErrorCount == 0, "Ordinary animation control lost its complete counter contract.");
+                    Require(normalAnimationDelta.Counts.TryGetValue(animationKey, out var normalAnimation) && normalAnimation.OriginalBodyEntries > 0 &&
+                        normalAnimation.OriginalBodyReturns > 0 && normalAnimation.FinalizerExceptions == 0,
+                        "Ordinary native animation grid processing did not execute and return through its actual body.");
+                    var normalUpdater = Singleton<KBatchedAnimUpdater>.Instance;
+                    var normalAnimationGrid = AccessTools.DeclaredField(typeof(KBatchedAnimUpdater), "controllerGrid")?.GetValue(normalUpdater) as Array;
+                    Require(normalUpdater != null && normalAnimationGrid != null && normalAnimationGrid.Rank == 2 &&
+                        normalAnimationGrid.GetLength(0) > 0 && normalAnimationGrid.GetLength(1) > 0 &&
+                        Camera.main != null && Time.frameCount > normalAnimationReadyFrame &&
+                        OwnedReservoirLoadBoundary.EmptyAnimationGridSuppressionCount == 0,
+                        "Ordinary animation control lacks its positive native grid or was suppressed outside a failed attempt.");
+                    evidence.Add(new { Kind = "ordinary-native-animation-control", Passed = true, Counters = normalAnimation,
+                        GridRows = normalAnimationGrid.GetLength(0), GridColumns = normalAnimationGrid.GetLength(1),
+                        ObservedFramesAfterGameStarted = Time.frameCount - normalAnimationReadyFrame,
+                        OwnedReservoirLoadBoundary.EmptyAnimationGridSuppressionCount });
                     evidence.Add(new { Kind = "ordinary-native-load", Passed = Equal(savedPacket!, afterLoad), savedId, Anchor = anchor,
                         Expected = savedPacket, Actual = afterLoad, Counters = loadDelta, Paused = SpeedControlScreen.Instance.IsPaused });
                     Write("pending");
@@ -273,6 +302,7 @@ namespace MixedAtmospheres.Oni
                     break;
                 case 8:
                     VerifyFiles(); FreezeRejectionFiles("early-backend-onspawn"); baseline = CaptureCounters();
+                    emptyAnimationGuardBaseline = OwnedReservoirLoadBoundary.EmptyAnimationGridSuppressionCount;
                     menu = null; stableMenuFrames = 0; menuReadyAt = 0;
                     Stage(9, "early-onspawn-header-rejection", 0);
                     LoadingOverlay.Load(() => LoadScreen.DoLoad(malformedPath));
@@ -285,6 +315,7 @@ namespace MixedAtmospheres.Oni
                     break;
                 case 10:
                     VerifyFiles(); FreezeRejectionFiles("caught-native-false"); baseline = CaptureCounters();
+                    emptyAnimationGuardBaseline = OwnedReservoirLoadBoundary.EmptyAnimationGridSuppressionCount;
                     menu = null; stableMenuFrames = 0; menuReadyAt = 0;
                     Stage(11, "caught-native-load-failure", 0);
                     LoadingOverlay.Load(() => LoadScreen.DoLoad(failedBodyPath));
@@ -325,7 +356,7 @@ namespace MixedAtmospheres.Oni
             VerifyFiles(); VerifyRejectionFiles();
             var delta = CounterDelta();
             var attempt = OwnedReservoirLoadBoundary.LastAttempt;
-            evidence.Add(new { Kind = "completed-rejection-epoch", Name = name, Counters = delta, Attempt = DescribeAttempt(attempt),
+            evidence.Add(new { Kind = "rejection-epoch-observed", Name = name, Counters = delta, Attempt = DescribeAttempt(attempt),
                 FatalStillActive = OwnedReservoirLoadBoundary.IsFatal, Completed = OwnedReservoirLoadBoundary.CompletedAttempts.Count,
                 ActivePath = SaveLoader.GetActiveSaveFilePath(), Scene = App.GetCurrentSceneName(), NativeGridCells = Grid.CellCount,
                 StableFrontendFrames = stableMenuFrames, StableFrontendSeconds = Time.realtimeSinceStartup - menuReadyAt,
@@ -333,14 +364,20 @@ namespace MixedAtmospheres.Oni
             Write("pending");
             Require(attempt != null && attempt.Sequence == expectedSequence && attempt.Input.SelectedPath == malformedPath &&
                 attempt.Input.ReservedNamespaceObserved && attempt.FrontendRequested && attempt.TeardownStarted && attempt.TeardownCompleted &&
-                !attempt.TeardownFailed && !attempt.SelectedCallPending && !OwnedReservoirLoadBoundary.IsFatal &&
+                !attempt.TeardownFailed && !attempt.SelectedCallPending && !attempt.OnSpawnCallPending && !OwnedReservoirLoadBoundary.IsFatal &&
                 OwnedReservoirLoadBoundary.CompletedAttempts.Count == expectedSequence,
                 "Actual failed load did not complete its held native scene teardown.");
             Require(SaveLoader.GetActiveSaveFilePath() == null && OwnedGasReservoirBridge.BindingCount == 0,
                 "Completed rejection retained a save selection or acquired fluid ownership.");
+            Require(attempt.CompletionKind == (early ? OwnedReservoirLoadCompletionKind.PreGameLoaderScene : OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances),
+                "Rejected load completed through the wrong native lifecycle kind.");
+            if (early) VerifyPreGameCompletion(attempt);
+            Require(NativeTotal(delta, "SIM_Shutdown(") == (early ? 0 : 1),
+                "The rejection epoch performed an unexpected native shutdown count.");
             RequireRejectedBodiesZero(delta, early);
-            RequireBody(delta, typeof(Game), "DestroyInstances");
-            RequireCleanTeardownAndFrontendRequest(delta);
+            RequireCleanTeardownAndFrontendRequest(delta, preGame: early);
+            evidence.Add(new { Kind = "rejection-epoch-passed", Name = name, Sequence = expectedSequence });
+            Write("pending");
         }
 
         private static void SpawnReservoir()
@@ -421,6 +458,33 @@ namespace MixedAtmospheres.Oni
         }
         private static void ObserveQuitCode(int exitCode) => ObserveQuit("App.QuitCode", exitCode);
         private static void ObserveApplicationQuitting() => ObserveQuit("Application.quitting", null);
+        private static void ObserveNativeError(string condition, string stackTrace, LogType type)
+        {
+            if (nativeErrorObserved || (type != LogType.Exception && type != LogType.Error && type != LogType.Assert)) return;
+            // Native exceptions can reach Unity without escaping Tick. Latch
+            // the first error even after completion, so a delayed error dialog
+            // cannot leave this isolated run reported as passed. Warning logs
+            // from the deliberately invalid zlib control are not exceptions.
+            nativeErrorObserved = true;
+            var error = new InvalidOperationException("Unity reported " + type + " during the private load experiment: " + condition);
+            try
+            {
+                evidence.Add(new { Kind = "native-unity-error", Phase = phase, Frame = Time.frameCount,
+                    Type = type.ToString(), Condition = condition, Stack = stackTrace });
+                RecordFailure(error);
+            }
+            catch
+            {
+                failureRecorded = true; completedSuccessfully = false; finished = true;
+                try { Write("failed"); } catch { /* Never replace a native logging failure. */ }
+            }
+            finally
+            {
+                // Private report/screenshot failure cannot skip the primary
+                // report's late-error downgrade.
+                try { ColonyRuntimeValidation.Fail(error); } catch { }
+            }
+        }
         private static void ObserveQuit(string origin, int? exitCode)
         {
             // Diagnostic only: never cancel or replace a native quit. Capture
@@ -432,7 +496,7 @@ namespace MixedAtmospheres.Oni
                 catch (Exception error) { counterError = error.ToString(); }
                 var stack = Environment.StackTrace;
                 evidence.Add(new { Kind = "quit-observed", Origin = origin, ExitCode = exitCode, Phase = phase, Finished = finished,
-                    CompletedSuccessfully = completedSuccessfully, FailureRecorded = failureRecorded,
+                    CompletedSuccessfully = completedSuccessfully, FailureRecorded = failureRecorded, NativeErrorObserved = nativeErrorObserved,
                     Frame = Time.frameCount, Scene = App.GetCurrentSceneName(), App.isLoading, Stack = stack, Counters = counters, CounterError = counterError,
                     CurrentAttempt = DescribeAttempt(OwnedReservoirLoadBoundary.CurrentAttempt), LastAttempt = DescribeAttempt(OwnedReservoirLoadBoundary.LastAttempt),
                     GenericGameSettings.instance.devBootSmoke, GenericGameSettings.instance.devBootModReport,
@@ -514,7 +578,7 @@ namespace MixedAtmospheres.Oni
             VerifyFiles(); VerifyRejectionFiles();
             var delta = CounterDelta();
             var attempt = OwnedReservoirLoadBoundary.LastAttempt;
-            evidence.Add(new { Kind = "completed-caught-native-false-epoch", Counters = delta, Attempt = DescribeAttempt(attempt),
+            evidence.Add(new { Kind = "caught-native-false-epoch-observed", Counters = delta, Attempt = DescribeAttempt(attempt),
                 FatalStillActive = OwnedReservoirLoadBoundary.IsFatal, Completed = OwnedReservoirLoadBoundary.CompletedAttempts.Count,
                 ActivePath = SaveLoader.GetActiveSaveFilePath(), Scene = App.GetCurrentSceneName(), NativeGridCells = Grid.CellCount,
                 StableFrontendFrames = stableMenuFrames, StableFrontendSeconds = Time.realtimeSinceStartup - menuReadyAt,
@@ -522,20 +586,66 @@ namespace MixedAtmospheres.Oni
             Write("pending");
             Require(attempt != null && attempt.Sequence == 3 && attempt.Input.SelectedPath == failedBodyPath &&
                 !attempt.Input.ReservedNamespaceObserved && attempt.Origin.Contains("false-result") && attempt.FrontendRequested &&
-                attempt.TeardownCompleted && !attempt.TeardownFailed && !attempt.SelectedCallPending &&
+                attempt.TeardownCompleted && !attempt.TeardownFailed && !attempt.SelectedCallPending && !attempt.OnSpawnCallPending &&
                 !OwnedReservoirLoadBoundary.IsFatal && OwnedReservoirLoadBoundary.CompletedAttempts.Count == 3,
                 "Real caught native false result did not fail and finish actual startup teardown.");
             Require(SaveLoader.GetActiveSaveFilePath() == null && OwnedGasReservoirBridge.BindingCount == 0,
                 "Caught false result retained a selected path or ownership.");
+            Require(attempt.CompletionKind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene,
+                "Caught startup failure did not use its actual pre-Game lifecycle.");
+            VerifyPreGameCompletion(attempt);
             RequireBody(delta, typeof(SaveLoader), "OnSpawn");
             RequireBody(delta, typeof(SaveLoader), "Load", typeof(string));
             RequireBody(delta, typeof(KSerialization.Manager), "DeserializeDirectory", typeof(IReader));
-            RequireBody(delta, typeof(Game), "DestroyInstances");
-            Require(NativeTotal(delta, "SIM_Initialize(") > 0, "Real failed startup did not exercise native initialization before its selected load.");
-            RequireCleanTeardownAndFrontendRequest(delta);
+            Require(NativeTotal(delta, "SIM_Initialize(") == 1 && NativeTotal(delta, "SIM_Shutdown(") == 1,
+                "Real failed startup did not exercise exactly one native initialization and its catch's shutdown.");
+            RequireCleanTeardownAndFrontendRequest(delta, preGame: true);
             // These two permitted originals establish the real failure; all
             // inner-world/start/object/save/fallback continuations stay absent.
             RequireRejectedBodiesZero(delta, early: false, allowFailedOuter: true);
+            evidence.Add(new { Kind = "caught-native-false-epoch-passed", Sequence = 3 });
+            Write("pending");
+        }
+        private static void VerifyPreGameCompletion(OwnedReservoirLoadAttempt attempt)
+        {
+            var capture = OwnedReservoirLoadBoundary.LastPreGameSceneCapture;
+            var suppression = OwnedReservoirLoadBoundary.LastEmptyAnimationGridSuppression;
+            var suppressionCount = OwnedReservoirLoadBoundary.EmptyAnimationGridSuppressionCount;
+            evidence.Add(new { Kind = "pre-game-lifecycle-observed", AttemptId = attempt.Id,
+                attempt.LoaderDestroyCompleted, attempt.SceneUnloadCompleted, attempt.OnSpawnCallPending,
+                attempt.PreGameInvalidated, attempt.OwnerReferenceCleared,
+                LoaderClrNull = ReferenceEquals(SaveLoader.Instance, null), GameClrNull = ReferenceEquals(Game.Instance, null),
+                Capture = DescribePreGameCapture(attempt),
+                Suppression = suppression == null ? null : new {
+                    suppression.AttemptId, AttemptIdentityMatches = ReferenceEquals(suppression.AttemptIdentity, attempt.Identity),
+                    UpdaterMatches = ReferenceEquals(suppression.CapturedUpdater, suppression.ObservedUpdater),
+                    UpdaterMatchesCapture = capture != null && ReferenceEquals(suppression.CapturedUpdater, capture.CapturedUpdater),
+                    InitialGridMatches = capture != null && ReferenceEquals(suppression.ControllerGrid, capture.InitialControllerGrid),
+                    suppression.GridRows, suppression.GridColumns, GridLength = suppression.ControllerGrid.Length,
+                    suppression.ActivationThreadId, suppression.ObservedThreadId, suppression.Count },
+                SuppressionBaseline = emptyAnimationGuardBaseline, SuppressionCount = suppressionCount });
+            Write("pending");
+            Require(attempt.LoaderDestroyCompleted && attempt.SceneUnloadCompleted && !attempt.PreGameInvalidated &&
+                attempt.OwnerReferenceCleared && !attempt.OnSpawnCallPending && !attempt.SelectedCallPending &&
+                capture != null && capture.AttemptId == attempt.Id && ReferenceEquals(capture.AttemptIdentity, attempt.Identity) &&
+                !ReferenceEquals(capture.OwnerLoader, null) && capture.OwnerLoader == null && capture.SceneName == "backend" &&
+                ReferenceEquals(SaveLoader.Instance, null) && ReferenceEquals(Game.Instance, null),
+                "Pre-Game rejection lacks its exact destroyed loader, unloaded backend scene, held-call completion or cleared owner reference.");
+            Require(suppression != null && suppression.AttemptId == attempt.Id && ReferenceEquals(suppression.AttemptIdentity, attempt.Identity) &&
+                ReferenceEquals(suppression.CapturedUpdater, suppression.ObservedUpdater) && ReferenceEquals(suppression.CapturedUpdater, capture.CapturedUpdater) &&
+                suppression.ControllerGrid.Length == 0 && suppression.ActivationThreadId == suppression.ObservedThreadId &&
+                suppressionCount > emptyAnimationGuardBaseline && suppression.Count == suppressionCount,
+                "Pre-Game acceptance did not exercise its exact existing empty-animation-grid guard.");
+        }
+        private static object? DescribePreGameCapture(OwnedReservoirLoadAttempt attempt)
+        {
+            var capture = OwnedReservoirLoadBoundary.LastPreGameSceneCapture;
+            return capture == null ? null : new {
+                capture.AttemptId, AttemptIdentityMatches = ReferenceEquals(capture.AttemptIdentity, attempt.Identity),
+                capture.SceneHandle, capture.SceneName, capture.ScenePath, capture.SceneBuildIndex,
+                LoaderClrNull = ReferenceEquals(capture.OwnerLoader, null), LoaderUnityNull = capture.OwnerLoader == null,
+                UpdaterClrNull = ReferenceEquals(capture.CapturedUpdater, null),
+                capture.InitialGridRows, capture.InitialGridColumns, InitialGridLength = capture.InitialControllerGrid?.Length };
         }
         private static string HashFile(string path) { using var stream = File.OpenRead(path); using var sha = SHA256.Create(); return Hex(sha.ComputeHash(stream)); }
         private static string Hash(byte[] bytes) { using var sha = SHA256.Create(); return Hex(sha.ComputeHash(bytes)); }
@@ -571,7 +681,7 @@ namespace MixedAtmospheres.Oni
         {
             var value = OwnedReservoirLoadValidationCounters.Capture();
             Require(value.Installed && !value.Saturated && value.ObservationFailures == 0 && value.ObserverErrorCount == 0 && value.ObserverErrorsDropped == 0 &&
-                value.Counts.Count == value.ExpectedMethodCount && value.ExpectedMethodCount == 41 && value.ExpectedNativeCallsiteKeyCount == 15 &&
+                value.Counts.Count == value.ExpectedMethodCount && value.ExpectedMethodCount == 45 && value.ExpectedNativeCallsiteKeyCount == 15 &&
                 value.ExpectedManagedAntecedentKeyCount == 4, "Private counter contract is incomplete or has dropped/failed observations.");
             if (!contractRecorded)
             {
@@ -596,11 +706,24 @@ namespace MixedAtmospheres.Oni
         private static long NativeStartDispatches(OwnedReservoirLoadCounterDelta delta)
             => delta.NativeCallsiteEntries.Where(row => row.Key.EndsWith(" [message=-931446686]", StringComparison.Ordinal) ||
                 (row.Key.StartsWith("Sim.Start(", StringComparison.Ordinal) && row.Key.Contains(" => Sim.SIM_HandleMessage("))).Sum(row => row.Value);
-        private static void RequireCleanTeardownAndFrontendRequest(OwnedReservoirLoadCounterDelta delta)
+        private static void RequireCleanTeardownAndFrontendRequest(OwnedReservoirLoadCounterDelta delta, bool preGame)
         {
             var key = OwnedReservoirLoadValidationCounters.Key(typeof(Game), "DestroyInstances");
-            Require(delta.Counts.TryGetValue(key, out var teardown) && teardown.CleanTeardownCompletions > 0 && teardown.FinalizerExceptions == 0,
-                "Matching native teardown did not return cleanly through its actual body.");
+            Require(delta.Counts.TryGetValue(key, out var teardown), "Native Game teardown counter is missing.");
+            if (!preGame)
+                Require(teardown!.CleanTeardownCompletions == 1 && teardown.FinalizerExceptions == 0,
+                    "Matching native Game teardown did not return cleanly through its actual body.");
+            else
+            {
+                Require(teardown!.OriginalBodyEntries == 0 && teardown.CleanTeardownCompletions == 0,
+                    "A pre-Game rejection unexpectedly used Game teardown.");
+                foreach (var body in new[] {
+                    OwnedReservoirLoadValidationCounters.Key(typeof(KMonoBehaviour), "OnDestroy"),
+                    OwnedReservoirLoadValidationCounters.Key(typeof(UnityEngine.SceneManagement.SceneManager), "Internal_SceneUnloaded", typeof(UnityEngine.SceneManagement.Scene)) })
+                    Require(delta.Counts.TryGetValue(body, out var completed) && completed.OriginalBodyEntries > 0 &&
+                        completed.OriginalBodyReturns > 0 && completed.FinalizerExceptions == 0,
+                        "Native loader/scene lifetime body did not return cleanly: " + body);
+            }
             Require(delta.OriginalBodySceneRequests.TryGetValue("frontend", out var requests) && requests == 1,
                 "Rejected load must request exactly one actual frontend transition.");
         }
@@ -619,7 +742,7 @@ namespace MixedAtmospheres.Oni
                     key.StartsWith("Sim.Load", StringComparison.Ordinal) || key.StartsWith("Sim.Start(", StringComparison.Ordinal) || key.StartsWith("Sim.Save(", StringComparison.Ordinal) ||
                     key.StartsWith("SaveManager.Load(", StringComparison.Ordinal) || key.StartsWith("SaveManager.Save(", StringComparison.Ordinal) || key.StartsWith("SaveManager.ClearScene(", StringComparison.Ordinal) ||
                     key.StartsWith("SaveLoadRoot.Load", StringComparison.Ordinal) || key.StartsWith("Storage.Serialize(", StringComparison.Ordinal) || key.StartsWith("Storage.Deserialize(", StringComparison.Ordinal) ||
-                    key.StartsWith("Game.Load(", StringComparison.Ordinal) || key.StartsWith("Game.Save(", StringComparison.Ordinal) || key.StartsWith("Game.StartDelayed", StringComparison.Ordinal) ||
+                    key.StartsWith("Game.Load(", StringComparison.Ordinal) || key.StartsWith("Game.Save(", StringComparison.Ordinal) || key.StartsWith("Game.OnPrefabInit(", StringComparison.Ordinal) || key.StartsWith("Game.StartDelayed", StringComparison.Ordinal) ||
                     key.Contains("DelayedInitialSave>") || key.Contains("DelayedSave>") || key.StartsWith("KSerialization.Manager.Clear(", StringComparison.Ordinal) ||
                     key.StartsWith("KSerialization.Manager.DeserializeDirectory(", StringComparison.Ordinal) || (early && key.StartsWith("SaveLoader.OnSpawn(", StringComparison.Ordinal)) || key.StartsWith("Game.OnSpawn(", StringComparison.Ordinal);
                 var permittedOuterFailure = allowFailedOuter && (key == OwnedReservoirLoadValidationCounters.Key(typeof(SaveLoader), "Load", typeof(string)) ||
@@ -644,6 +767,8 @@ namespace MixedAtmospheres.Oni
         {
             value.Id, value.Sequence, value.Origin, value.Fatal, value.FrontendRequested, value.TeardownStarted, value.TeardownCompleted,
             value.TeardownFailed, value.SelectedCallPending, value.DroppedObservations,
+            CompletionKind = value.CompletionKind.ToString(), value.LoaderDestroyCompleted, value.SceneUnloadCompleted,
+            value.OnSpawnCallPending, value.PreGameInvalidated, value.OwnerReferenceCleared,
             Input = new { Kind = value.Input.Kind.ToString(), value.Input.SelectedPath, value.Input.ReservedNamespaceObserved, value.Input.Error },
             Observations = value.Observations.Select(row => new { row.Boundary, row.Detail, row.RecordedUtc }).ToArray()
         };

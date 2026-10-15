@@ -16,6 +16,9 @@ AssemblyLoadContext.Default.Resolving+=(_,name)=>
 var assemblyPath=Path.Combine(game,"Assembly-CSharp.dll");
 var assemblyHash=Hash(assemblyPath);
 Check(assemblyHash=="a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599","Wrong licensed Windows assembly.");
+var corePath=Path.Combine(game,"UnityEngine.CoreModule.dll");
+var coreHash=Hash(corePath);
+Check(coreHash=="a9613c2b0f1258ac7f7d9323181f816f5849beb24114e4a7665037fd11ddd488","Wrong licensed Unity scene/animation declaration module.");
 var assembly=AssemblyLoadContext.Default.LoadFromAssemblyPath(assemblyPath);
 var sim=assembly.GetType("Sim",true)!;
 var initialize=sim.GetMethods(BindingFlags.Public|BindingFlags.Static|BindingFlags.DeclaredOnly).Single(m=>m.Name=="SIM_Initialize");
@@ -60,16 +63,32 @@ if(oni!=null)
     var preflight=inspect!.Invoke(null,null)!;
     var type=preflight.GetType();
     T Read<T>(string name)=>(T)type.GetProperty(name,BindingFlags.Public|BindingFlags.Instance)!.GetValue(preflight)!;
-    Check(Read<int>("ExpectedMethodCount")==41 && Read<int>("ExpectedNativeMapKeyCount")==15
+    Check(Read<int>("ExpectedMethodCount")==45 && Read<int>("ExpectedNativeMapKeyCount")==15
         && Read<int>("ExpectedManagedAntecedentKeyCount")==4 && Read<int>("ExpectedNativeSiteSpecifications")==12,"Incomplete exact contract cardinality.");
     var keys=Read<IReadOnlyList<string>>("MethodKeys");var initKeys=Read<IReadOnlyList<string>>("InitializationCallerKeys");
-    Check(keys.Count==41 && keys.Distinct(StringComparer.Ordinal).Count()==41 && initKeys.Count==4,"Missing/duplicate contract keys.");
+    Check(keys.Count==45 && keys.Distinct(StringComparer.Ordinal).Count()==45 && initKeys.Count==4,"Missing/duplicate contract keys.");
     var key=helper.GetMethod("Key",BindingFlags.NonPublic|BindingFlags.Static)!;
     foreach(var caller in callers)
     {
         var actual=(string)key.Invoke(null,new object?[]{caller.method.DeclaringType,caller.method.Name,caller.method.GetParameters().Select(p=>p.ParameterType).ToArray()})!;
         Check(initKeys.Contains(actual) && keys.Contains(actual),"Independent initialization caller not instrumented: "+actual);
     }
+    var core=AssemblyLoadContext.Default.LoadFromAssemblyPath(corePath);
+    var firstpass=AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(game,"Assembly-CSharp-firstpass.dll"));
+    foreach(var expectedTarget in new[]{
+        (type:assembly.GetType("Game",true)!,name:"OnPrefabInit",parameters:Type.EmptyTypes,isStatic:false,result:typeof(void)),
+        (type:firstpass.GetType("KMonoBehaviour",true)!,name:"OnDestroy",parameters:Type.EmptyTypes,isStatic:false,result:typeof(void)),
+        (type:core.GetType("UnityEngine.SceneManagement.SceneManager",true)!,name:"Internal_SceneUnloaded",parameters:new[]{core.GetType("UnityEngine.SceneManagement.Scene",true)!},isStatic:true,result:typeof(void)),
+        (type:assembly.GetType("KBatchedAnimUpdater",true)!,name:"DoGridProcessing",parameters:Type.EmptyTypes,isStatic:false,result:typeof(bool))})
+    {
+        var method=expectedTarget.type.GetMethod(expectedTarget.name,BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance|BindingFlags.Static|BindingFlags.DeclaredOnly,expectedTarget.parameters)!;
+        Check(method!=null && method.ReturnType==expectedTarget.result && method.IsStatic==expectedTarget.isStatic && method.GetMethodBody()!=null,"Missing exact lifecycle/animation original body.");
+        var actual=(string)key.Invoke(null,new object?[]{expectedTarget.type,expectedTarget.name,expectedTarget.parameters})!;
+        Check(keys.Contains(actual),"Uninstrumented lifecycle/animation body: "+actual);
+        var returnCounts=Read<IReadOnlyDictionary<string,int>>("OriginalReturnSiteCounts");
+        Check(returnCounts[actual]>0,"Lifecycle/animation body has no instrumented normal return.");
+    }
+    Console.WriteLine("PASS independent exact loader/scene/Game/animation bodies are included without invocation");
     var native=Read<IReadOnlyDictionary<string,int>>("NativeSiteCounts");Check(native.Count==12 && native.Values.All(n=>n==1),"Native-site preflight incomplete.");
     var installed=helper.GetProperty("Installed",BindingFlags.NonPublic|BindingFlags.Static)!;
     Check(installed.GetValue(null) is false,"Pure inspection installed hooks.");
@@ -82,6 +101,7 @@ if(oni!=null)
     Console.WriteLine("PASS repeated immutable preflight leaves installation and runtime registries untouched");
 }
 Check(Hash(assemblyPath)==assemblyHash,"Licensed assembly changed.");
+Check(Hash(corePath)==coreHash,"Licensed Unity scene/animation module changed.");
 return 0;
 
 static void Check(bool condition,string message){if(!condition)throw new InvalidOperationException(message);}

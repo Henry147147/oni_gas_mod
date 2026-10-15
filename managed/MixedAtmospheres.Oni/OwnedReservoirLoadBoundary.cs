@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using HarmonyLib;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MixedAtmospheres.Oni
 {
@@ -57,6 +58,58 @@ namespace MixedAtmospheres.Oni
         }
     }
 
+    internal sealed class OwnedReservoirPreGameSceneCapture
+    {
+        public object AttemptIdentity { get; }
+        public Guid AttemptId { get; }
+        public SaveLoader OwnerLoader { get; }
+        public int SceneHandle { get; }
+        public string SceneName { get; }
+        public string ScenePath { get; }
+        public int SceneBuildIndex { get; }
+        public KBatchedAnimUpdater CapturedUpdater { get; }
+        public Array? InitialControllerGrid { get; }
+        public int? InitialGridRows { get; }
+        public int? InitialGridColumns { get; }
+        internal OwnedReservoirPreGameSceneCapture(OwnedReservoirLoadAttempt attempt, SaveLoader loader, int handle, string name,
+            string path, int buildIndex, KBatchedAnimUpdater updater, Array? grid)
+        {
+            AttemptIdentity = attempt.Identity; AttemptId = attempt.Id; OwnerLoader = loader; SceneHandle = handle;
+            SceneName = name; ScenePath = path; SceneBuildIndex = buildIndex; CapturedUpdater = updater; InitialControllerGrid = grid;
+            InitialGridRows = grid?.GetLength(0); InitialGridColumns = grid?.GetLength(1);
+        }
+    }
+    internal sealed class OwnedReservoirEmptyAnimationGridSuppression
+    {
+        public object AttemptIdentity { get; }
+        public Guid AttemptId { get; }
+        public KBatchedAnimUpdater CapturedUpdater { get; }
+        public KBatchedAnimUpdater ObservedUpdater { get; }
+        public Array ControllerGrid { get; }
+        public int GridRows { get; }
+        public int GridColumns { get; }
+        public int ActivationThreadId { get; }
+        public int ObservedThreadId { get; }
+        public long Count { get; }
+        internal OwnedReservoirEmptyAnimationGridSuppression(OwnedReservoirLoadAttempt attempt, KBatchedAnimUpdater captured,
+            KBatchedAnimUpdater observed, Array grid, int expectedThread, int observedThread, long count)
+        {
+            AttemptIdentity = attempt.Identity; AttemptId = attempt.Id; CapturedUpdater = captured; ObservedUpdater = observed;
+            ControllerGrid = grid; GridRows = grid.GetLength(0); GridColumns = grid.GetLength(1);
+            ActivationThreadId = expectedThread; ObservedThreadId = observedThread; Count = count;
+        }
+    }
+    internal sealed class OwnedReservoirLoadBodyInvocation
+    {
+        internal OwnedReservoirLoadAttempt Attempt { get; }
+        internal OwnedReservoirLoadBodyKind Kind { get; }
+        internal object Owner { get; }
+        internal OwnedReservoirLoadTeardown? Completion { get; }
+        internal bool Entered, Returned, NormalPathCertified, Closed, Faulted;
+        internal OwnedReservoirLoadBodyInvocation(OwnedReservoirLoadAttempt attempt, OwnedReservoirLoadBodyKind kind, object owner, OwnedReservoirLoadTeardown? completion)
+        { Attempt = attempt; Kind = kind; Owner = owner; Completion = completion; }
+    }
+
     // Manual Install only: no HarmonyPatch attribute or automatic PatchAll
     // discovery. This adds rejection, never successful loading or save rights.
     internal static class OwnedReservoirLoadBoundary
@@ -71,6 +124,18 @@ namespace MixedAtmospheres.Oni
         private static OwnedReservoirLoadAttempt? selectedFailure;
         private static int activationThread;
         private static string? installedOwner;
+        private static OwnedReservoirOnSpawnCall? onSpawnCall;
+        private static SaveLoader? onSpawnLoader;
+        private static readonly List<OwnedReservoirLoadBodyInvocation> bodyInvocations = new List<OwnedReservoirLoadBodyInvocation>();
+        private static AccessTools.FieldRef<SaveLoader?>? loaderInstanceReference;
+        private static readonly FieldInfo LoaderInstanceField = AccessTools.DeclaredField(typeof(SaveLoader), "<Instance>k__BackingField")
+            ?? throw new NotSupportedException("Pinned SaveLoader singleton field is absent.");
+        private static readonly FieldInfo ControllerGridField = AccessTools.DeclaredField(typeof(KBatchedAnimUpdater), "controllerGrid")
+            ?? throw new NotSupportedException("Pinned animation controller grid is absent.");
+        private static readonly FieldInfo UpdaterInstanceField = AccessTools.DeclaredField(typeof(Singleton<KBatchedAnimUpdater>), "_instance")
+            ?? throw new NotSupportedException("Pinned existing animation updater field is absent.");
+        private const string UnityCoreModuleSha256 = "a9613c2b0f1258ac7f7d9323181f816f5849beb24114e4a7665037fd11ddd488";
+        private const string HarmonySha256 = "aec7446028fe31d00dfecc684e40011c4208bb036e82617b8de32002a8e55b53";
         private static readonly FieldInfo RestartField = RequireField("mustRestartOnFail");
         private static readonly FieldInfo CorruptField = RequireField("saveFileCorrupt");
         private static readonly MethodInfo LoadedSetter = AccessTools.PropertySetter(typeof(SaveLoader), "loadedFromSave")
@@ -82,6 +147,9 @@ namespace MixedAtmospheres.Oni
         internal static OwnedReservoirLoadAttempt? LastAttempt => attempts.Last;
         internal static IReadOnlyList<OwnedReservoirLoadAttempt> CompletedAttempts => attempts.Completed;
         internal static OwnedReservoirNativeViewRetirement? LastNativeViewRetirement { get; private set; }
+        internal static OwnedReservoirPreGameSceneCapture? LastPreGameSceneCapture { get; private set; }
+        internal static long EmptyAnimationGridSuppressionCount { get; private set; }
+        internal static OwnedReservoirEmptyAnimationGridSuppression? LastEmptyAnimationGridSuppression { get; private set; }
 
         internal static void Install(Harmony harmony)
         {
@@ -94,7 +162,10 @@ namespace MixedAtmospheres.Oni
             }
             RequireHash(typeof(SaveLoader).Assembly, OwnedReservoirLoadHeaderV1.AssemblyCSharpSha256);
             RequireHash(typeof(IReader).Assembly, OwnedReservoirLoadHeaderV1.FirstpassSha256);
+            RequireHash(typeof(SceneManager).Assembly, UnityCoreModuleSha256);
+            RequireHash(typeof(Harmony).Assembly, HarmonySha256);
             var hooks = GuardContracts();
+            loaderInstanceReference = AccessTools.StaticFieldRefAccess<SaveLoader?>(LoaderInstanceField);
             var patched = new List<OwnedReservoirLoadHook>();
             try
             {
@@ -149,11 +220,12 @@ namespace MixedAtmospheres.Oni
         internal static IReadOnlyList<OwnedReservoirLoadHook> GuardContracts()
         {
             RequireViewRetirementContract();
+            RequirePreGameContracts();
             var hooks = new List<OwnedReservoirLoadHook>();
             void Add(Type type, string name, Type result, bool isStatic, string prefix, Type[] parameters, string? postfix = null, string? finalizer = null, string? transpiler = null)
                 => hooks.Add(new OwnedReservoirLoadHook(Method(type, name, result, isStatic, parameters), Patch(prefix),
                     postfix == null ? null : Patch(postfix), finalizer == null ? null : Patch(finalizer), transpiler == null ? null : Patch(transpiler)));
-            Add(typeof(SaveLoader), "OnSpawn", typeof(void), false, nameof(OnSpawnPrefix), Type.EmptyTypes, transpiler: nameof(OnSpawnContinuationTranspiler));
+            Add(typeof(SaveLoader), "OnSpawn", typeof(void), false, nameof(OnSpawnPrefix), Type.EmptyTypes, finalizer: nameof(OnSpawnFinalizer), transpiler: nameof(OnSpawnContinuationTranspiler));
             Add(typeof(SaveLoader), "Load", typeof(bool), false, nameof(LoadFilePrefix), new[] { typeof(string) }, nameof(LoadFilePostfix), nameof(LoadFileFinalizer));
             Add(typeof(SaveLoader), "Load", typeof(bool), false, nameof(RejectBoolPrefix), new[] { typeof(IReader) }, nameof(LoadResultPostfix), nameof(LoadFinalizer));
             Add(typeof(SaveGame), "GetHeader", typeof(SaveGame.GameInfo), true, nameof(ActualHeaderPrefix),
@@ -174,7 +246,11 @@ namespace MixedAtmospheres.Oni
             Add(typeof(Game), "StartDelayedSave", typeof(void), false, nameof(RejectSavePrefix), new[] { typeof(string), typeof(bool), typeof(bool) });
             Add(typeof(Game), "Save", typeof(void), false, nameof(RejectSavePrefix), new[] { typeof(BinaryWriter) });
             Add(typeof(Game), "Load", typeof(void), false, nameof(RejectLoadContinuation), new[] { typeof(KSerialization.Deserializer) }, nameof(RejectLoadContinuation));
-            Add(typeof(Game), "DestroyInstances", typeof(void), false, nameof(TeardownPrefix), Type.EmptyTypes, finalizer: nameof(TeardownFinalizer));
+            Add(typeof(Game), "DestroyInstances", typeof(void), false, nameof(TeardownPrefix), Type.EmptyTypes, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
+            Add(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false, nameof(LoaderDestroyPrefix), Type.EmptyTypes, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
+            Add(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, nameof(SceneUnloadPrefix), new[] { typeof(Scene) }, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
+            Add(typeof(KBatchedAnimUpdater), "DoGridProcessing", typeof(bool), false, nameof(EmptyAnimationGridPrefix), Type.EmptyTypes);
+            Add(typeof(Game), "OnPrefabInit", typeof(void), false, nameof(LateGamePrefabPrefix), Type.EmptyTypes);
             hooks.Add(new OwnedReservoirLoadHook(Method(typeof(Sim), "Shutdown", typeof(void), true), null, Patch(nameof(ShutdownPostfix))));
             return new ReadOnlyCollection<OwnedReservoirLoadHook>(hooks);
         }
@@ -191,6 +267,107 @@ namespace MixedAtmospheres.Oni
                 il == null || il.Length != 8 || il[0] != 0x02 || il[1] != 0x17 || il[2] != 0x7d || il[7] != 0x2a ||
                 BitConverter.ToInt32(il, 3) != field.MetadataToken)
                 throw new NotSupportedException("Pinned Game.SetIsLoading must only assign its exact managed isLoading field to true.");
+        }
+        private static void RequirePreGameContracts()
+        {
+            if (!LoaderInstanceField.IsStatic || LoaderInstanceField.FieldType != typeof(SaveLoader) || !LoaderInstanceField.IsPrivate ||
+                ControllerGridField.IsStatic || ControllerGridField.FieldType != typeof(Dictionary<int, KBatchedAnimController>[,]) ||
+                !UpdaterInstanceField.IsStatic || UpdaterInstanceField.FieldType != typeof(KBatchedAnimUpdater))
+                throw new NotSupportedException("Pinned loader singleton or animation-grid field differs.");
+            var getter = Method(typeof(SaveLoader), "get_Instance", typeof(SaveLoader), true);
+            var setter = Method(typeof(SaveLoader), "set_Instance", typeof(void), true, typeof(SaveLoader));
+            var destroy = Method(typeof(SaveLoader), "DestroyInstance", typeof(void), true);
+            var g = getter.GetMethodBody()!.GetILAsByteArray()!;
+            var s = setter.GetMethodBody()!.GetILAsByteArray()!;
+            var d = destroy.GetMethodBody()!.GetILAsByteArray()!;
+            if (g.Length != 6 || g[0] != 0x7e || BitConverter.ToInt32(g, 1) != LoaderInstanceField.MetadataToken || g[5] != 0x2a ||
+                s.Length != 7 || s[0] != 0x02 || s[1] != 0x80 || BitConverter.ToInt32(s, 2) != LoaderInstanceField.MetadataToken || s[6] != 0x2a ||
+                d.Length != 7 || d[0] != 0x14 || d[1] != 0x28 || BitConverter.ToInt32(d, 2) != setter.MetadataToken || d[6] != 0x2a)
+                throw new NotSupportedException("Pinned SaveLoader singleton access/reset must only read or assign its exact managed field.");
+            foreach (var method in new[] { getter, setter, destroy, Method(typeof(Game), "DestroyInstances", typeof(void), false),
+                Method(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false), Method(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, typeof(Scene)) })
+                if (method.GetMethodBody()!.ExceptionHandlingClauses.Count != 0)
+                    throw new NotSupportedException("Body witness does not support exception regions: " + method.Name);
+            var handle = AccessTools.PropertyGetter(typeof(Scene), "handle") ?? throw new NotSupportedException("Scene.handle is absent.");
+            var sceneField = AccessTools.DeclaredField(typeof(Scene), "m_Handle") ?? throw new NotSupportedException("Scene handle field is absent.");
+            var h = handle.GetMethodBody()?.GetILAsByteArray();
+            var releaseHandle = h != null && h.Length == 7 && h[0] == 0x02 && h[1] == 0x7b &&
+                BitConverter.ToInt32(h, 2) == sceneField.MetadataToken && h[6] == 0x2a;
+            var debugHandle = h != null && h.Length == 12 && h[0] == 0x00 && h[1] == 0x02 && h[2] == 0x7b &&
+                BitConverter.ToInt32(h, 3) == sceneField.MetadataToken && h[7] == 0x0a && h[8] == 0x2b && h[9] == 0 && h[10] == 0x06 && h[11] == 0x2a;
+            if (handle.ReturnType != sceneField.FieldType || (!releaseHandle && !debugHandle))
+                throw new NotSupportedException("Scene.handle must only read its exact managed handle field.");
+        }
+
+        private sealed class FailureOwner
+        {
+            internal readonly SaveLoader Loader;
+            internal readonly Game? Game;
+            internal readonly OwnedReservoirLoadCompletionKind Kind;
+            internal readonly int Handle, BuildIndex;
+            internal readonly string Name = "", Path = "", Error = "";
+            internal readonly KBatchedAnimUpdater? Updater;
+            internal readonly Array? Grid;
+            internal FailureOwner(FailureOwner original, string error)
+            { Loader = original.Loader; Game = original.Game; Kind = OwnedReservoirLoadCompletionKind.None; Error = error; }
+            internal FailureOwner(SaveLoader loader, Game? game)
+            {
+                Loader = loader; Game = game;
+                if (!ReferenceEquals(game, null)) { Kind = OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances; return; }
+                try
+                {
+                    if (loader == null) throw new InvalidOperationException("A live native SaveLoader is required.");
+                    var scene = loader.gameObject.scene;
+                    if (!scene.IsValid() || !scene.isLoaded || scene.name != "backend")
+                        throw new InvalidOperationException("No-Game cancellation requires the loader's exact live backend scene.");
+                    Handle = scene.handle; Name = scene.name; Path = scene.path; BuildIndex = scene.buildIndex;
+                    Updater = Singleton<KBatchedAnimUpdater>.Instance ?? throw new InvalidOperationException("No existing animation updater.");
+                    Grid = (Array?)ControllerGridField.GetValue(Updater);
+                    Kind = OwnedReservoirLoadCompletionKind.PreGameLoaderScene;
+                }
+                catch (Exception error) { Error = error.GetType().Name + ": " + error.Message; Kind = OwnedReservoirLoadCompletionKind.None; }
+            }
+        }
+        private static void AttachFailureOwner(OwnedReservoirLoadAttempt attempt, FailureOwner owner)
+        {
+            ownerGame = owner.Game; ownerLoader = owner.Loader;
+            if (owner.Kind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene)
+                LastPreGameSceneCapture = new OwnedReservoirPreGameSceneCapture(attempt, owner.Loader, owner.Handle, owner.Name, owner.Path,
+                    owner.BuildIndex, owner.Updater!, owner.Grid);
+            else if (owner.Kind == OwnedReservoirLoadCompletionKind.None)
+                attempts.InvalidatePreGame(attempt, "Cannot capture an exact first-failure owner: " + owner.Error);
+        }
+        private static bool HasOnSpawnHold(SaveLoader? loader)
+            => onSpawnCall != null && ReferenceEquals(onSpawnLoader, loader);
+        private static bool SameFailureCapture(OwnedReservoirSelectedCall? expectedSelected, OwnedReservoirSelectedCall? observedSelected,
+            OwnedReservoirOnSpawnCall? expectedSpawn, OwnedReservoirOnSpawnCall? observedSpawn, Game? expectedGame, Game? observedGame,
+            SaveLoader expectedLoader, SaveLoader? observedLoader, KBatchedAnimUpdater? expectedUpdater, object? observedUpdater)
+            => ReferenceEquals(expectedSelected, observedSelected) && ReferenceEquals(expectedSpawn, observedSpawn) &&
+                ReferenceEquals(expectedGame, observedGame) && ReferenceEquals(expectedLoader, observedLoader) && ReferenceEquals(expectedUpdater, observedUpdater);
+        private static FailureOwner? CaptureFailureOwner(SaveLoader loader)
+        {
+            var expectedSelected = selectedCall; var expectedSpawn = onSpawnCall;
+            var game = Game.Instance;
+            var owner = new FailureOwner(loader, game);
+            var observedGame = Game.Instance;
+            var observedLoader = SaveLoader.Instance;
+            var observedUpdater = UpdaterInstanceField.GetValue(null);
+            // All possibly patched/native getters have returned before this
+            // final check. Reentry may establish its own first fatal context.
+            if (attempts.Current != null) return null;
+            if (!SameFailureCapture(expectedSelected, selectedCall, expectedSpawn, onSpawnCall, game, observedGame, loader, observedLoader,
+                owner.Updater, owner.Kind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene ? observedUpdater : null))
+                return new FailureOwner(owner, "First-failure owner or active invocation changed during native capture.");
+            return owner;
+        }
+        private static OwnedReservoirLoadAttempt BeginFailure(SaveLoader loader, OwnedReservoirLoadHeaderInspection input, string origin)
+        {
+            var existing = attempts.Current;
+            if (existing != null) return existing;
+            var owner = CaptureFailureOwner(loader);
+            if (owner == null) return attempts.Current ?? throw new InvalidOperationException("A reentrant first-failure owner disappeared.");
+            var attempt = attempts.Reject(origin, input, selectedCallPending: selectedCall != null, completionKind: owner.Kind, onSpawnCallPending: HasOnSpawnHold(loader));
+            AttachFailureOwner(attempt, owner); return attempt;
         }
 
         private static void RequireActivationThread()
@@ -230,8 +407,7 @@ namespace MixedAtmospheres.Oni
             if (!inspection.MustReject) return true;
             // Associate the actual invocation/scene, never a saved ID or a
             // native pointer. No successful restore is available in this slice.
-            ownerGame = Game.Instance; ownerLoader = loader;
-            var attempt = attempts.Reject(origin, inspection, selectedCallPending: selectedCall != null);
+            var attempt = BeginFailure(loader, inspection, origin);
             if (selectedCall != null) selectedFailure = attempt;
             SetFailureFields(loader, attempt); RequestFrontend(attempt); return false;
         }
@@ -261,10 +437,10 @@ namespace MixedAtmospheres.Oni
         private static bool RetireNativeViewBeforeFrontend(OwnedReservoirLoadAttempt attempt)
         {
             RequireActivationThread();
-            var observedThread = Thread.CurrentThread.ManagedThreadId;
-            var current = attempts.Current;
             var expectedOwner = ownerGame;
             var observedOwner = Game.Instance;
+            var observedThread = Thread.CurrentThread.ManagedThreadId;
+            var current = attempts.Current;
             var decision = DecideViewRetirement(Installed, activationThread, observedThread, attempt, current, expectedOwner, observedOwner);
             if (decision != ViewRetirementDecision.Retire)
             {
@@ -277,7 +453,10 @@ namespace MixedAtmospheres.Oni
                         ? "Current Game is foreign to the fatal attempt; Grid and frontend scene untouched."
                         : "No current Game owner; Grid untouched before frontend request.");
                 attempts.Record(attempt, "native-view-retirement:skipped", LastNativeViewRetirement.Reason);
-                return decision == ViewRetirementDecision.NoCurrentOwner;
+                if (decision != ViewRetirementDecision.NoCurrentOwner || current!.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene) return false;
+                var capture = LastPreGameSceneCapture;
+                return capture != null && ReferenceEquals(current.Identity, capture.AttemptIdentity) && ReferenceEquals(ownerLoader, capture.OwnerLoader) &&
+                    loaderInstanceReference != null && ReferenceEquals(loaderInstanceReference(), capture.OwnerLoader);
             }
             var priorCellCount = Grid.CellCount;
             var priorWidth = Grid.WidthInCells;
@@ -287,9 +466,9 @@ namespace MixedAtmospheres.Oni
             // the call before touching global Grid state or requesting a scene.
             expectedOwner!.SetIsLoading();
             RequireActivationThread();
+            observedOwner = Game.Instance;
             observedThread = Thread.CurrentThread.ManagedThreadId;
             current = attempts.Current;
-            observedOwner = Game.Instance;
             var confirmed = DecideViewRetirement(Installed, activationThread, observedThread, attempt, current, expectedOwner, observedOwner);
             if (confirmed != ViewRetirementDecision.Retire)
             {
@@ -310,21 +489,49 @@ namespace MixedAtmospheres.Oni
                 "; widthInCells=" + Grid.WidthInCells + "; heightInCells=" + Grid.HeightInCells + "; exactOwner=true; exactAttempt=true; activationThread=" + observedThread);
             return true;
         }
-        private static bool OnSpawnPrefix(SaveLoader __instance)
+        private static bool OnSpawnPrefix(SaveLoader __instance, out OwnedReservoirOnSpawnCall? __state)
         {
+            __state = null;
             if (!Installed) return true;
-            if (attempts.IsFatal) return InspectSelection(__instance, null, "SaveLoader.OnSpawn");
+            RequireActivationThread();
+            if (onSpawnCall != null)
+            {
+                var reentrant = BeginFailure(onSpawnLoader ?? __instance, Failure(OwnedReservoirLoadInputKind.ReadError, "Recursive OnSpawn loading is unsupported."), "SaveLoader.OnSpawn:reentrant");
+                attempts.HoldOnSpawnCall(reentrant);
+                attempts.FailBodyWitness(reentrant, "Recursive/foreign OnSpawn cannot authorize a successful abort completion.");
+                if (reentrant.CompletionKind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene)
+                    attempts.InvalidatePreGame(reentrant, "Recursive OnSpawn retained the outer invocation hold and invalidated completion.");
+                return false;
+            }
+            __state = onSpawnCall = new OwnedReservoirOnSpawnCall(); onSpawnLoader = __instance;
+            if (attempts.IsFatal)
+            {
+                if (ReferenceEquals(ownerLoader, __instance)) attempts.HoldOnSpawnCall(attempts.Current!);
+                return InspectSelection(__instance, null, "SaveLoader.OnSpawn");
+            }
             string? path;
             try { path = SaveLoader.GetActiveSaveFilePath(); }
             catch (Exception error)
             {
-                RequireActivationThread(); ownerGame = Game.Instance; ownerLoader = __instance;
                 var input = new OwnedReservoirLoadHeaderInspection(OwnedReservoirLoadInputKind.ReadError, "<active-save-path unavailable>", -1,
                     false, error.GetType().Name + ": " + error.Message, null, Array.Empty<byte>());
-                var attempt = attempts.Reject("SaveLoader.OnSpawn", input);
+                var attempt = BeginFailure(__instance, input, "SaveLoader.OnSpawn");
                 SetFailureFields(__instance, attempt); RequestFrontend(attempt); return false;
             }
             return InspectSelection(__instance, path, "SaveLoader.OnSpawn");
+        }
+        private static Exception? OnSpawnFinalizer(OwnedReservoirOnSpawnCall? __state, Exception? __exception)
+        {
+            if (__state == null || !ReferenceEquals(__state, onSpawnCall)) return __exception;
+            var attempt = attempts.Current;
+            if (attempt != null && ReferenceEquals(ownerLoader, onSpawnLoader))
+            {
+                if (__exception != null) attempts.FailBodyWitness(attempt, "OnSpawn escaped: " + __exception.GetType().Name);
+                if (attempts.ReleaseOnSpawnCall(attempt)) { ownerGame = null; ownerLoader = null; }
+            }
+            onSpawnCall = null; onSpawnLoader = null;
+            TryCompletePreGameScene();
+            return __exception;
         }
         private static bool StopFailedOnSpawnContinuation(SaveLoader loader)
             => Installed && !loader.loadedFromSave;
@@ -404,8 +611,9 @@ namespace MixedAtmospheres.Oni
         private static void RejectSelected(OwnedReservoirLoadHeaderInspection input, string origin, bool requestFrontend = true)
         {
             RequireActivationThread();
-            if (attempts.Current == null) { ownerGame = selectedGame; ownerLoader = selectedLoader; }
-            var attempt = attempts.Reject(origin, input, selectedCallPending: selectedCall != null);
+            var attempt = attempts.Current ?? (ReferenceEquals(selectedLoader, null)
+                ? attempts.Reject(origin, input, selectedCallPending: selectedCall != null, completionKind: OwnedReservoirLoadCompletionKind.None)
+                : BeginFailure(selectedLoader, input, origin));
             selectedFailure = attempt;
             if (!ReferenceEquals(ownerLoader, null)) SetFailureFields(ownerLoader!, attempt);
             if (requestFrontend) RequestFrontend(attempt);
@@ -443,6 +651,7 @@ namespace MixedAtmospheres.Oni
             var failure = selectedFailure;
             selectedCall = null; selected = null; selectedLoader = null; selectedGame = null; selectedFailure = null;
             if (failure != null && attempts.ReleaseSelectedCall(failure)) { ownerGame = null; ownerLoader = null; }
+            TryCompletePreGameScene();
         }
         private static OwnedReservoirLoadAttempt? ExactFailedSelection(SaveLoader loader, OwnedReservoirSelectedCall? scope)
         {
@@ -495,10 +704,13 @@ namespace MixedAtmospheres.Oni
             // native false result must establish failure before checking for an
             // already-fatal attempt, including a caught outer-load failure.
             var wasFatal = attempts.IsFatal;
-            var attempt = attempts.ObserveSelectedResult(selectedCall, Name(__originalMethod) + " " + __originalMethod, __result);
+            var firstOwner = !wasFatal && !__result && selectedCall != null && !ReferenceEquals(selectedLoader, null)
+                ? CaptureFailureOwner(selectedLoader!) : null;
+            var attempt = attempts.ObserveSelectedResult(selectedCall, Name(__originalMethod) + " " + __originalMethod, __result,
+                firstOwner?.Kind ?? OwnedReservoirLoadCompletionKind.ActualGameDestroyInstances, firstOwner != null && HasOnSpawnHold(firstOwner.Loader));
+            if (firstOwner != null && attempt != null) AttachFailureOwner(attempt, firstOwner);
             if (!__result && selectedCall != null && attempt != null)
             {
-                if (!wasFatal) { ownerGame = selectedGame; ownerLoader = selectedLoader; }
                 selectedFailure = attempt;
                 if (!ReferenceEquals(ownerLoader, null)) SetFailureFields(ownerLoader!, attempt);
                 RequestFrontend(attempt);
@@ -550,7 +762,7 @@ namespace MixedAtmospheres.Oni
         private static bool RejectVoidPrefix(MethodBase __originalMethod) => !Blocked(__originalMethod);
         private static void RejectSavePrefix(MethodBase __originalMethod)
         { if (Blocked(__originalMethod)) throw new InvalidOperationException("Save/serialization is prohibited during a fatal selected-load attempt."); }
-        private static void TeardownPrefix(Game __instance, out OwnedReservoirLoadTeardown? __state)
+        private static void TeardownPrefix(Game __instance, out OwnedReservoirLoadBodyInvocation? __state)
         {
             __state = null;
             if (Installed && selectedCall != null && ReferenceEquals(__instance, selectedGame) && !attempts.IsFatal)
@@ -558,12 +770,209 @@ namespace MixedAtmospheres.Oni
             if (!Installed || !ReferenceEquals(__instance, ownerGame)) return;
             var attempt = attempts.Current;
             if (attempt == null) return;
-            __state = attempts.BeginTeardown(attempt);
+            __state = BeginBodyWitness(attempt, OwnedReservoirLoadBodyKind.GameDestroyInstances, __instance);
         }
-        private static Exception? TeardownFinalizer(OwnedReservoirLoadTeardown? __state, Exception? __exception)
+        private static OwnedReservoirLoadBodyInvocation? BeginBodyWitness(OwnedReservoirLoadAttempt attempt, OwnedReservoirLoadBodyKind kind, object owner)
         {
-            if (__state != null && attempts.CompleteTeardown(__state, __exception)) { ownerGame = null; ownerLoader = null; }
+            RequireActivationThread();
+            if (bodyInvocations.Count >= 64) { attempts.FailBodyWitness(attempt, "Body invocation stack exceeded its bound."); return null; }
+            var completion = kind == OwnedReservoirLoadBodyKind.GameDestroyInstances ? attempts.BeginTeardown(attempt) : attempts.BeginPreGameBody(attempt, kind);
+            var witness = new OwnedReservoirLoadBodyInvocation(attempt, kind, owner, completion);
+            bodyInvocations.Add(witness); return witness;
+        }
+        private static void LoaderDestroyPrefix(KMonoBehaviour __instance, out OwnedReservoirLoadBodyInvocation? __state)
+        {
+            __state = null;
+            var capture = LastPreGameSceneCapture;
+            var attempt = Installed ? attempts.Current : null;
+            if (attempt == null || capture == null || attempt.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene ||
+                !ReferenceEquals(attempt.Identity, capture.AttemptIdentity) || !ReferenceEquals(__instance, capture.OwnerLoader)) return;
+            __state = BeginBodyWitness(attempt, OwnedReservoirLoadBodyKind.LoaderOnDestroy, capture.OwnerLoader);
+        }
+        private static void SceneUnloadPrefix(Scene scene, out OwnedReservoirLoadBodyInvocation? __state)
+        {
+            __state = null;
+            var handle = scene.handle;
+            var capture = LastPreGameSceneCapture;
+            var attempt = Installed ? attempts.Current : null;
+            if (attempt == null || capture == null || attempt.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene ||
+                !ReferenceEquals(attempt.Identity, capture.AttemptIdentity) || handle != capture.SceneHandle) return;
+            __state = BeginBodyWitness(attempt, OwnedReservoirLoadBodyKind.SceneUnloaded, capture);
+        }
+        private static void ObserveBody(OwnedReservoirLoadBodyKind kind, object owner, bool returned)
+        {
+            // Instrumentation never replaces an original return or exception.
+            // Ordinary bodies have no witness and remain entirely native.
+            try
+            {
+                if (bodyInvocations.Count == 0) return;
+                var witness = bodyInvocations[bodyInvocations.Count - 1];
+                if (witness.Kind != kind || !ReferenceEquals(witness.Owner, owner)) return;
+                RequireActivationThread();
+                if (witness.Closed || (returned && !witness.Entered))
+                { attempts.FailBodyWitness(witness.Attempt, "Invalid original-body entry/return sequence."); return; }
+                if (returned) witness.Returned = true;
+                else if (witness.Entered) attempts.FailBodyWitness(witness.Attempt, "Original body entered more than once for one invocation.");
+                else witness.Entered = true;
+            }
+            catch (Exception)
+            {
+                // A failed witness cannot authorize completion. Never replace
+                // an original body exception with bookkeeping/thread failure.
+                if (bodyInvocations.Count != 0) bodyInvocations[bodyInvocations.Count - 1].Faulted = true;
+            }
+        }
+        private static void GameBodyEntry(Game owner) => ObserveBody(OwnedReservoirLoadBodyKind.GameDestroyInstances, owner, false);
+        private static void GameBodyReturn(Game owner) => ObserveBody(OwnedReservoirLoadBodyKind.GameDestroyInstances, owner, true);
+        private static void LoaderBodyEntry(KMonoBehaviour owner) => ObserveBody(OwnedReservoirLoadBodyKind.LoaderOnDestroy, owner, false);
+        private static void LoaderBodyReturn(KMonoBehaviour owner) => ObserveBody(OwnedReservoirLoadBodyKind.LoaderOnDestroy, owner, true);
+        private static void SceneBodyEntry(Scene scene)
+        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == scene.handle) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, false); }
+        private static void SceneBodyReturn(Scene scene)
+        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == scene.handle) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, true); }
+        private static IEnumerable<CodeInstruction> BodyWitnessTranspiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
+        {
+            string entry, returned;
+            if (original == Method(typeof(Game), "DestroyInstances", typeof(void), false)) { entry = nameof(GameBodyEntry); returned = nameof(GameBodyReturn); }
+            else if (original == Method(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false)) { entry = nameof(LoaderBodyEntry); returned = nameof(LoaderBodyReturn); }
+            else if (original == Method(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, typeof(Scene))) { entry = nameof(SceneBodyEntry); returned = nameof(SceneBodyReturn); }
+            else throw new NotSupportedException("Unsupported original-body witness target.");
+            if (original.GetMethodBody()!.ExceptionHandlingClauses.Count != 0) throw new NotSupportedException("Body witness does not accept exception regions.");
+            var source = new List<CodeInstruction>(instructions);
+            if (source.Count == 0) throw new NotSupportedException("Empty original body.");
+            var count = 0;
+            foreach (var item in source)
+            {
+                if (item.blocks.Count != 0 || item.opcode == OpCodes.Tailcall) throw new NotSupportedException("Unsupported body-witness composition.");
+                if (item.operand is MethodInfo called && called.DeclaringType == typeof(OwnedReservoirLoadBoundary) &&
+                    (called.Name == entry || called.Name == returned)) throw new NotSupportedException("Original body witness is already present.");
+                if (item.opcode == OpCodes.Ret) ++count;
+            }
+            if (count == 0) throw new NotSupportedException("Original body has no normal return.");
+            var result = new List<CodeInstruction> { new CodeInstruction(OpCodes.Ldarg_0), new CodeInstruction(OpCodes.Call, Patch(entry)) };
+            foreach (var item in source)
+            {
+                var clone = new CodeInstruction(item.opcode, item.operand);
+                foreach (var label in Labels(item)) Labels(clone).Add(label);
+                if (item.opcode == OpCodes.Ret)
+                {
+                    var load = new CodeInstruction(OpCodes.Ldarg_0);
+                    foreach (var label in Labels(clone)) Labels(load).Add(label);
+                    Labels(clone).Clear(); result.Add(load); result.Add(new CodeInstruction(OpCodes.Call, Patch(returned)));
+                }
+                result.Add(clone);
+            }
+            return result;
+        }
+        private static void BodyPostfix(OwnedReservoirLoadBodyInvocation? __state, bool __runOriginal)
+        {
+            // In the pinned Harmony emitter only the normal original/skip join
+            // reaches postfixes. Exception-path finalizers never replay them.
+            // A pre-ret marker alone cannot certify a later transpiler throw.
+            if (__state == null || __state.Closed) return;
+            try
+            {
+                RequireActivationThread();
+                if (bodyInvocations.Count == 0 || !ReferenceEquals(bodyInvocations[bodyInvocations.Count - 1], __state) || __state.NormalPathCertified)
+                { __state.Faulted = true; attempts.FailBodyWitness(__state.Attempt, "Invalid normal-path certificate invocation."); return; }
+                if (__runOriginal && __state.Entered && __state.Returned && !__state.Faulted) __state.NormalPathCertified = true;
+            }
+            catch (Exception) { __state.Faulted = true; }
+        }
+        private static Exception? BodyFinalizer(OwnedReservoirLoadBodyInvocation? __state, Exception? __exception)
+        {
+            if (__state == null || __state.Closed) return __exception;
+            if (Thread.CurrentThread.ManagedThreadId != activationThread) { __state.Faulted = true; return __exception; }
+            if (bodyInvocations.Count == 0 || !ReferenceEquals(bodyInvocations[bodyInvocations.Count - 1], __state))
+            { attempts.FailBodyWitness(__state.Attempt, "Foreign or out-of-order original-body finalizer."); return __exception; }
+            bodyInvocations.RemoveAt(bodyInvocations.Count - 1); __state.Closed = true;
+            var error = __exception;
+            if (error == null && (!__state.Entered || !__state.Returned || !__state.NormalPathCertified || __state.Faulted)) error = new InvalidOperationException("Original teardown body was skipped, faulted or did not reach the normal-path certificate.");
+            attempts.Record(__state.Attempt, __state.Kind + ":body-witness", "Entered=" + __state.Entered + "; returned=" + __state.Returned + "; normal-path-certified=" + __state.NormalPathCertified + "; exception=" + (__exception?.GetType().Name ?? "none"));
+            if (__state.Completion == null)
+            { if (error != null) attempts.FailBodyWitness(__state.Attempt, "Nested original teardown failed: " + error.GetType().Name); }
+            else if (__state.Kind == OwnedReservoirLoadBodyKind.GameDestroyInstances)
+            { if (attempts.CompleteTeardown(__state.Completion, error)) { ownerGame = null; ownerLoader = null; } }
+            else attempts.CompletePreGameBody(__state.Completion, __state.Entered, __state.Returned, error);
+            TryCompletePreGameScene();
             return __exception;
+        }
+        private static bool LateGamePrefabPrefix(Game __instance)
+        {
+            var attempt = Installed ? attempts.Current : null;
+            if (attempt == null) return true;
+            RequireActivationThread();
+            if (attempt.CompletionKind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene)
+                attempts.InvalidatePreGame(attempt, "Unexpected Game.OnPrefabInit was blocked; no owner was adopted.");
+            attempts.Record(attempt, "Game.OnPrefabInit:blocked", "Original body did not run while fatal."); return false;
+        }
+        private static bool ShouldFenceEmptyAnimationGrid(bool installed, int expectedThread, int observedThread,
+            OwnedReservoirLoadAttempt? attempt, OwnedReservoirPreGameSceneCapture? capture,
+            KBatchedAnimUpdater instance, KBatchedAnimUpdater? singleton, Array? grid)
+            => installed && expectedThread == observedThread && attempt != null && capture != null &&
+                attempt.CompletionKind == OwnedReservoirLoadCompletionKind.PreGameLoaderScene && attempt.FrontendRequested &&
+                ReferenceEquals(attempt.Identity, capture.AttemptIdentity) && ReferenceEquals(instance, capture.CapturedUpdater) &&
+                ReferenceEquals(singleton, capture.CapturedUpdater) && grid != null && grid.Rank == 2 && grid.Length == 0;
+        private static bool EmptyAnimationGridPrefix(KBatchedAnimUpdater __instance, ref bool __result)
+        {
+            var attempt = Installed ? attempts.Current : null;
+            var capture = LastPreGameSceneCapture;
+            if (attempt == null || capture == null || !ReferenceEquals(attempt.Identity, capture.AttemptIdentity) ||
+                !ReferenceEquals(__instance, capture.CapturedUpdater)) return true;
+            RequireActivationThread();
+            var singleton = Singleton<KBatchedAnimUpdater>.Instance;
+            var grid = (Array?)ControllerGridField.GetValue(__instance);
+            var observedThread = Thread.CurrentThread.ManagedThreadId;
+            var currentAttempt = attempts.Current;
+            var currentCapture = LastPreGameSceneCapture;
+            if (!ReferenceEquals(currentCapture, capture) || currentAttempt == null || !ReferenceEquals(currentAttempt.Identity, attempt.Identity) ||
+                !ReferenceEquals(ownerLoader, capture.OwnerLoader) || !ReferenceEquals(UpdaterInstanceField.GetValue(null), singleton) ||
+                !ShouldFenceEmptyAnimationGrid(Installed, activationThread, observedThread, currentAttempt, currentCapture, __instance, singleton, grid)) return true;
+            if (EmptyAnimationGridSuppressionCount != long.MaxValue) ++EmptyAnimationGridSuppressionCount;
+            LastEmptyAnimationGridSuppression = new OwnedReservoirEmptyAnimationGridSuppression(attempt, capture.CapturedUpdater,
+                __instance, grid!, activationThread, observedThread, EmptyAnimationGridSuppressionCount);
+            __result = false; return false;
+        }
+        private enum LoaderReferenceClearResult { Cleared, AlreadyNull, Foreign }
+        private static LoaderReferenceClearResult ClearExactLoaderReference(ref SaveLoader? location, SaveLoader expected)
+        {
+            var old = Interlocked.CompareExchange(ref location, null, expected);
+            return ReferenceEquals(old, expected) ? LoaderReferenceClearResult.Cleared : ReferenceEquals(old, null) ? LoaderReferenceClearResult.AlreadyNull : LoaderReferenceClearResult.Foreign;
+        }
+        private static bool SamePreGameFinalizationAuthority(bool installed, int expectedThread, int observedThread,
+            OwnedReservoirLoadAttempt expected, OwnedReservoirLoadAttempt? current,
+            OwnedReservoirPreGameSceneCapture capture, OwnedReservoirPreGameSceneCapture? currentCapture,
+            SaveLoader? currentOwner, Game? observedGame, bool appIsExiting)
+            => installed && expectedThread == observedThread && current != null &&
+                ReferenceEquals(expected.Identity, current.Identity) && ReferenceEquals(capture, currentCapture) &&
+                ReferenceEquals(current.Identity, capture.AttemptIdentity) && ReferenceEquals(currentOwner, capture.OwnerLoader) &&
+                ReferenceEquals(observedGame, null) && !appIsExiting;
+        private static void TryCompletePreGameScene()
+        {
+            var attempt = attempts.Current;
+            var capture = LastPreGameSceneCapture;
+            if (attempt == null || capture == null || !ReferenceEquals(attempt.Identity, capture.AttemptIdentity) || !attempts.ReadyToClearOwnerReference(attempt)) return;
+            RequireActivationThread();
+            // These getters can be patched. Observe them before revalidating
+            // all authority and holds; no callback follows that check before CAS.
+            var observedGame = Game.Instance;
+            var exiting = App.IsExiting;
+            var current = attempts.Current;
+            if (loaderInstanceReference == null ||
+                !SamePreGameFinalizationAuthority(Installed, activationThread, Thread.CurrentThread.ManagedThreadId,
+                    attempt, current, capture, LastPreGameSceneCapture, ownerLoader, observedGame, exiting) ||
+                !attempts.ReadyToClearOwnerReference(attempt))
+            {
+                if (current != null && ReferenceEquals(current.Identity, attempt.Identity))
+                    attempts.InvalidatePreGame(attempt, "Exact no-Game owner authority changed before dead-loader reference cleanup.");
+                return;
+            }
+            var result = ClearExactLoaderReference(ref loaderInstanceReference(), capture.OwnerLoader);
+            attempts.Record(attempt, "SaveLoader:dead-owner-reference", "Exact backing-field CAS outcome=" + result + "; no native reset helper was invoked.");
+            if (result == LoaderReferenceClearResult.Foreign || !ReferenceEquals(loaderInstanceReference(), null))
+            { attempts.InvalidatePreGame(attempt, "A foreign/successor loader reference was preserved."); return; }
+            if (!attempts.ReadyToClearOwnerReference(attempt)) return;
+            if (attempts.CompletePreGameOwnerReference(attempt)) { ownerGame = null; ownerLoader = null; }
         }
         private static void ShutdownPostfix()
         {

@@ -268,7 +268,9 @@ namespace MixedAtmospheres.Oni
         }
         internal static void Fail(Exception error)
         {
-            if (done) return;
+            // A Unity error may arrive after the private load driver's final
+            // frame. Preserve that failure in the runner's primary report too.
+            if (done && (configuration?.Mode != "load-rejection" || Report.Status != "passed")) return;
             done = true; Report.Status = "failed"; Report.Error = error.ToString();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             WriteReport();

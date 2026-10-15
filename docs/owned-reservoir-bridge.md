@@ -366,6 +366,63 @@ accepting this abort as clean. The caught-false case is not reached. Computer
 use captures the error screen and explicitly selects Quit to Desktop; private
 quit observers preserve failed status and record that UI call stack. All 13
 original files restore exactly. Frozen source/package/report/screenshots remain
-under `local/colony-runs/load-rejection-windows-v32`. A correct pre-Game loader
-and scene teardown protocol is still required; zero cell count is not proof of
-native teardown.
+under `local/colony-runs/load-rejection-windows-v32`. V32 does not establish a
+correct pre-Game loader and scene teardown protocol; zero cell count is not
+proof of native teardown.
+
+The v6 correction chooses one completion kind at the first failure. An existing
+Game requires its exact `Game.DestroyInstances` body. A pre-Game failure instead
+captures the live SaveLoader, its backend scene handle and the existing animation
+updater. It requires both that loader's actual inherited `KMonoBehaviour.OnDestroy`
+and the matching `SceneManager.Internal_SceneUnloaded` body to return normally,
+with no outstanding selected-load or OnSpawn invocation. Each body has entry,
+return and normal-path postfix witnesses plus a one-use finalizer token. A fresh
+authority check precedes a backing-field compare/exchange that clears only the
+exact dead loader reference. A late Game, failed cleanup or foreign/successor
+reference invalidates completion. The completion kind never falls back when an
+existing Game disappears.
+
+Only the authenticated pending pre-Game attempt can skip `DoGridProcessing` on
+its captured updater's actual zero-sized controller grid. It returns false from
+that query while retaining the rest of native animation processing. It does not
+clear/reinitialize controllers, initialize Grid or call native shutdown. The
+original Game retirement path remains separate. All 72 Windows and Linux
+host/declaration checks pass; those checks do not invoke Unity lifecycle or
+install Harmony. Installation also pins the inspected Unity Core and Harmony
+assemblies. One older private shutdown diagnostic still says "actual Game
+teardown"; the typed fields above determine the actual completion protocol.
+
+Fresh Windows v33 passes the complete private rejection-only gate on actual
+ONI 744825/Mono 6.13. The ordinary unmarked native save reconstructs the exact
+unowned reservoir and preserves 12.5 kg oxygen, 310 K and native disease
+identity/count 12345 bit-for-bit. Its separate paused animation interval executes
+and returns from `DoGridProcessing` three times on a positive 35-by-15 grid,
+with zero suppressions. The complete 45-method, 15-native-key and four-antecedent
+counter maps calibrate against real original bodies/dispatch without observation
+errors.
+
+The existing-Game direct schema-99 rejection observes exact view retirement,
+unchanged stored packet/dimensions, no selected-load or native initialize/load/
+start/save dispatch, one frontend request and clean actual Game teardown with
+one natural shutdown. The early OnSpawn rejection performs no native
+initialization/shutdown/load/start/save and completes through its exact loader
+and backend scene. The ordinary-header/invalid-zlib candidate reaches one native
+initialization and the outer loader's own caught-failure shutdown, while inner
+world/object/start/save/fallback continuations remain absent. Both pre-Game
+epochs observe their exact original bodies, normal-path certificates, released
+call holds and cleared dead singleton; the empty-grid guard runs three times
+per epoch. Each of the three completed attempts releases fatal state and reaches
+the real frontend for more than two seconds.
+
+All frozen test save files remain unchanged. There are no Unity errors or native
+crash markers, including the later observed frontend interval and manual native
+MainMenu Quit. The runner exits zero and restores all 13 settings/world-generation
+files; a separate before/after inventory verifies all 283 personal save files
+and membership. Source, package, native call evidence and five actual Unity PNGs
+remain private under `local/colony-runs/load-rejection-windows-v33`; the final
+rejection report SHA256 is
+`8386b595bd4a089b9d3a03ad296cfb0116ee0622b682a3a05e01078fefa11864`.
+The exact source manifest is `77d273a430ea7786ab3e5f81dc64083723b3cc32b7070b83acb8057508e5140c`.
+This verifies dormant Windows cancellation only. It does not authorize owned
+restore, a native/custom writer, ordinary owned saves, Linux Unity behavior or
+first-playable acceptance.

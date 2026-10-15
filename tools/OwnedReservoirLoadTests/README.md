@@ -8,11 +8,13 @@ they never initialize Unity or invoke native SimDLL.
 The product files are `OwnedReservoirLoadHeaderV1.cs`,
 `OwnedReservoirLoadAttempt.cs` and `OwnedReservoirLoadBoundary.cs`. There are no
 HarmonyPatch discovery attributes. `base.OnLoad(harmony)`/PatchAll does not
-install these hooks. Only an explicit later root integration call to
+install these hooks. Only an explicit integration call to
 `OwnedReservoirLoadBoundary.Install(harmony)` can install them. Mod.cs has not
-been changed by this slice. Installation checks both exact licensed assembly
-SHA256 values before patching23 exact managed overloads, and rolls back only its
-own patch methods if installation fails.
+been changed by this slice. Installation checks exact Assembly-CSharp,
+firstpass, UnityEngine.CoreModule and Harmony SHA256 values before patching27
+exact managed overloads, and rolls back only its own patch methods if
+installation fails. The Unity and Harmony pins authenticate the scene callback
+and normal-path callback emission used by the cleanup witnesses.
 
 ## Deliberate input behavior
 
@@ -84,14 +86,39 @@ checks stay inactive, including new-world generation.
 the tracker retains at most16 completed attempts. No callbacks run under its lock.
 Fatal has no Dispose/reset/success bypass. A frontend request is marked before its
 external callback and issued once. Inner false results, swallowed exceptions,
-native shutdown or stale teardown handles cannot clear it. Actual matching
-Game.DestroyInstances must complete successfully, and any active original
-selected call must unwind, before a successor may begin. A failed teardown keeps
-the latch permanently for that attempt. Only the outer invocation that actually
-began teardown receives its opaque one-use completion token. Nested teardown
-gets no token; success or failure consumes the outer token, so a stale later
-success cannot convert failed cleanup into completion. Attempt/call/token
-identities prevent stale or foreign release.
+native shutdown or stale teardown handles cannot clear it. The completion kind
+is fixed at the first failure. An existing exact Game requires its actual
+Game.DestroyInstances body. A failure before Game creation qualifies for
+PreGameLoaderScene only after capturing the exact live backend SaveLoader,
+scene handle and existing animation updater. It requires both that loader's
+inherited KMonoBehaviour.OnDestroy and that scene's
+SceneManager.Internal_SceneUnloaded original bodies. There is no fallback from
+failed Game cleanup to a later no-Game observation. Missing or unauthenticated
+owner context remains fatal with completion kind None.
+
+All three bodies have an entry callback, callbacks before each normal return,
+and a normal-path postfix certificate requiring Harmony's __runOriginal flag.
+The pinned Harmony emitter invokes postfixes after the normal original/skip
+join; its exception handler invokes only finalizers. A throw inserted after the
+pre-return marker cannot acquire the certificate even if another finalizer
+suppresses it. The finalizer also requires a null exception and the exact
+per-invocation state. This certifies that the composed original reached this
+postfix; it does not certify later foreign postfix/finalizer completion. Missing,
+skipped, faulted or out-of-order witnesses keep fatal latched. A one-use token
+belongs only to the first actual matching cleanup invocation. Nested invocations
+get their own body witness but cannot complete the outer token. Closed states
+also tolerate Harmony reentering finalizers after a finalizer exception.
+
+Both the exact public Load(string) call and any active original OnSpawn must
+unwind before completion. PreGame additionally requires the two successful
+witnesses to join before clearing a stale managed SaveLoader singleton
+reference. The boundary checks the pinned getter/setter/DestroyInstance IL and
+uses a compare-and-exchange against the exact private backing field; it never
+calls the reset helper. Null is observed explicitly; a foreign successor is
+preserved and fails completion. Game/App getters run before a fresh exact
+attempt/capture/owner/thread and readiness check immediately before CAS. A
+changed attempt, newly acquired hold or invalidation prevents the write. The
+reference clear is not native shutdown or a fabricated Game teardown.
 Unexpected teardown inside an active ordinary selected load latches failure
 without requesting another frontend transition from the entering teardown
 prefix; once teardown has begun, the tracker rejects further frontend requests.
@@ -118,7 +145,8 @@ predicate, so the loading bool alone does not close the stale native-array view.
 Actual StopBE/DestroyInstances still belong to the game's lifecycle.
 
 Missing current Game records a skip without reading or writing Grid; frontend
-may still be requested. A non-null foreign Game records a skip and prevents the
+may be requested only for the authenticated PreGameLoaderScene capture with the
+exact current loader reference. A non-null foreign Game records a skip and prevents the
 scene request, so neither its Grid nor its scene is changed. A stale attempt or
 one whose teardown has begun cannot retire a successor's view or request its
 scene transition. The immutable LastNativeViewRetirement observation records
@@ -129,7 +157,8 @@ stable frontend. Diagnostics for skipped retirement contain no Grid readings.
 The original field-only IL does not exclude foreign Harmony callbacks. The
 boundary therefore rechecks activation thread, exact current attempt and
 ReferenceEquals(Game.Instance, expectedOwner) immediately after SetIsLoading,
-before any further Grid access. A changed decision stops both the Grid write and
+before any further Grid access. Both retirement decisions sample the current
+attempt after the possibly patched Game.Instance getter has returned. A changed decision stops both the Grid write and
 frontend request; a skip is recorded only if the same attempt remains current.
 That post-call diagnostic can retain prior readings captured before the call,
 but contains no current Grid readings. A successor observation is never replaced.
@@ -138,7 +167,23 @@ callback. The exact Game.Load(Deserializer) entry and exit throw while fatal,
 including fatal raised by its Game.OnLoad callback, before the caller continues
 Camera, WorldGrid and native offset restoration. Earlier native/object effects
 are not rolled back by these rejection checks.
-This separation still needs actual early-OnSpawn/direct-load Unity acceptance.
+The v32 Windows run proved the native positive control and direct-load rejection
+through actual Game.DestroyInstances and stable frontend. Its early-OnSpawn
+case failed: no Game existed to complete teardown, and a zero-sized animation
+grid caused a native DivideByZeroException. Those are preserved failed-run
+observations, not a passing full rejection gate. The new PreGame protocol still
+requires actual Unity acceptance.
+
+While that exact PreGame attempt is pending, the DoGridProcessing prefix returns
+false only for the captured existing KBatchedAnimUpdater, the still-matching
+singleton, and an actual non-null rank-two controllerGrid with zero total
+length. It revalidates the attempt/capture after the singleton getter. Null,
+nonempty, foreign, ordinary and wrong-thread decisions preserve native grid
+processing. No updater is created, Clear/InitializeGrid is not called, and no
+controller grid, cell array or dimension is repaired. An unexpected late
+Game.OnPrefabInit is blocked and permanently invalidates PreGame completion.
+Neither no Game nor an empty animation grid attests native initialization or
+shutdown; the caught native load-failure path may already have done both.
 
 An explicit Priority.First transpiler additionally fences an already-entered
 SaveLoader.OnSpawn continuation. It matches the unique direct Load(string) call
@@ -173,8 +218,16 @@ composed early-return site rather than assume the original return count.
   references with ReferenceEquals; project those comparisons into JSON rather
   than serializing Unity objects. The single retained diagnostic is not a lease
   or a promise that the owner is alive; always match its exact attempt identity.
+* `LastPreGameSceneCapture` exposes immutable exact loader/updater references,
+  AttemptIdentity/AttemptId, SceneHandle/Name/Path/BuildIndex and the initial
+  controller-grid reference/shape. `LastEmptyAnimationGridSuppression` exposes
+  the attempt, captured/observed updater, actual grid/shape, thread IDs and
+  monotonic Count. `EmptyAnimationGridSuppressionCount` has no reset. Project
+  reference comparisons into private JSON; do not serialize Unity objects.
 * Attempt fields include Id, Sequence, Origin, Input, Fatal, FrontendRequested,
-  TeardownStarted/Completed/Failed, SelectedCallPending, DroppedObservations and immutable
+  CompletionKind, TeardownStarted/Completed/Failed, SelectedCallPending,
+  OnSpawnCallPending, LoaderDestroyCompleted, SceneUnloadCompleted,
+  PreGameInvalidated, OwnerReferenceCleared, DroppedObservations and immutable
   Observations(Boundary/Detail/RecordedUtc). Internal properties need explicit
   projection into private JSON evidence; they are not a production UI or writer.
 
@@ -196,7 +249,7 @@ input assertions and frontend observation. Full KSerialization/KSAV parsing,
 pre-instantiation quarantine, all-owner restore/activation, ordinary owned saves,
 crash recovery and Linux Unity remain unimplemented/unverified.
 
-The current56 host checks cover pure result/lifetime decisions and inspect the
+The current72 host checks cover pure result/lifetime decisions and inspect the
 real patch IL, including early call acquisition, frontend decision order,
 SaveManager/Game.Load continuation fences, exact-pointer clearing and matching
 prefix/finalizer token signatures. A few real patch methods run only against
@@ -209,13 +262,26 @@ the host: the shipped Harmony patching path uses BinaryFormatter, unavailable on
 frontend, direct/autosave path clearing and synchronous Unity teardown behavior
 remain Mono game acceptance requirements.
 
+The v6 additions exercise both witness join orders, all public-call holds,
+terminal/stale/nested/skipped cleanup, a swallowed failure after the pre-return
+marker, skip-original postfix rejection, duplicate and one-use certificates,
+exact loader CAS and callback reentry decisions. The real three witness bodies
+and transformed return labels are inspected without executing their native
+effects. One default Scene value uses only its inspected managed handle getter
+and conversions; no scene name, validity or unload API is invoked on the host.
+CAS tests mutate local managed reference slots, not the game's static singleton.
+No actual animation updater or Grid static initializer runs. Exact getter/field
+contracts and the new Unity/Harmony assembly pins are independently checked.
+
 The six view-retirement checks additionally exercise pure thread/attempt/owner
 decisions, old/successor/teardown exclusion, exact field-only licensed IL,
 once-latch/preparation/frontend ordering, the sole allowed Grid.CellCount store
 and immutable observations. They never execute the retirement method,
 Game.SetIsLoading, Grid's type initializer, App.LoadScene or native cleanup.
 Their IL checks handle Debug shared-return branches as well as Release returns.
-The view-retirement change awaits actual Unity frontend/teardown acceptance.
+The separate Windows v32 run verified existing-Game retirement/teardown. The
+later Windows v33 run verifies that path plus the typed pre-Game protocol below;
+these host checks themselves do not execute either native lifecycle.
 The reentry check models a callback replacing the Game, beginning/completing
 teardown or admitting a successor, and separately permits a new immutable
 observation of the same attempt identity. IL checks require the post-call
@@ -236,3 +302,18 @@ Linux host/contract runs use the separately pinned licensed Linux declarations
 compatibility currently requires the exact Windows hashes above and is not
 enabled by those Linux checks. No Linux boundary installation or native/game
 invocation is performed or implied.
+
+Actual Windows v33 passes ordinary unmarked native reservoir save/reload and a
+separate positive animation interval, followed by all three rejection epochs:
+direct selected schema-99 on an existing Game, early schema-99 in backend OnSpawn
+before Game creation, and ordinary-header/invalid-zlib caught native load false.
+The latter two observe exact loader and backend scene body witnesses and normal
+postfix certificates, all invocation holds released, dead owner reference
+cleared and the narrow empty-grid guard exercised three times each. Each epoch
+returns to a stable frontend; no Unity error or engine crash marker appears
+through the later native menu quit. All frozen input files remain unchanged,
+13 original settings/world-generation files restore, and all 283 personal save
+files/membership match their prelaunch inventory. The private report, source
+manifest, counters and actual Unity screenshots are retained under
+`local/colony-runs/load-rejection-windows-v33`. This is Windows rejection-only
+acceptance; owned restore, ordinary owned saves and first playable remain false.

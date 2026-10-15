@@ -307,6 +307,7 @@ namespace MixedAtmospheres.Oni
             RequireHash(typeof(SaveLoader).Assembly, OwnedReservoirLoadHeaderV1.AssemblyCSharpSha256);
             RequireHash(typeof(IReader).Assembly, OwnedReservoirLoadHeaderV1.FirstpassSha256);
             RequireHash(typeof(Harmony).Assembly, "aec7446028fe31d00dfecc684e40011c4208bb036e82617b8de32002a8e55b53");
+            RequireHash(typeof(UnityEngine.SceneManagement.SceneManager).Assembly, "a9613c2b0f1258ac7f7d9323181f816f5849beb24114e4a7665037fd11ddd488");
             var contracts = BuildContracts(); var methods = new List<string>(); var initializers = new List<string>();
             var sites = new Dictionary<string, int>(StringComparer.Ordinal); var returns = new Dictionary<string, int>(StringComparer.Ordinal);
             var initialize = Import(typeof(Sim), "SIM_Initialize", typeof(void), typeof(Sim.GAME_MessageHandler));
@@ -367,6 +368,7 @@ namespace MixedAtmospheres.Oni
             RequireHash(typeof(SaveLoader).Assembly, OwnedReservoirLoadHeaderV1.AssemblyCSharpSha256);
             RequireHash(typeof(IReader).Assembly, OwnedReservoirLoadHeaderV1.FirstpassSha256);
             RequireHash(typeof(Harmony).Assembly, "aec7446028fe31d00dfecc684e40011c4208bb036e82617b8de32002a8e55b53");
+            RequireHash(typeof(UnityEngine.SceneManagement.SceneManager).Assembly, "a9613c2b0f1258ac7f7d9323181f816f5849beb24114e4a7665037fd11ddd488");
             // This exact shipped Harmony declares InjectionType.RunOriginal;
             // MethodCreator allocates/initializes it, AddPrefixes runs void
             // state/MethodBase/value-bool observers even after skip-original,
@@ -481,7 +483,7 @@ namespace MixedAtmospheres.Oni
                     if (count != 1) throw new NotSupportedException("Expected exactly one native call site: " + site.Key + "; got " + count);
                 }
             }
-            if (values.Count != 41) throw new NotSupportedException("Expected exactly41 private managed counter targets.");
+            if (values.Count != 45) throw new NotSupportedException("Expected exactly45 private managed counter targets.");
             values.Sort((a, b) => StringComparer.Ordinal.Compare(a.Key, b.Key)); return values;
         }
 
