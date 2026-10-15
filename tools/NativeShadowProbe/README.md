@@ -76,15 +76,22 @@ frame, the edits do not become visible. Keep that failure as evidence against
 using this activation path. Do not reinterpret a zero-frame snapshot as an
 acknowledgement of queued cell mutations.
 
-The new seven-mode Windows matrix also passes `reject-custom-envelope`: the
-ordinary native-load control preserves both fluid cells and their 102 kg,
-and the actual unpatched native API rejects the envelope with no diagnostic
-errors or process crash. This establishes the native section's magic boundary
-only. It does not run Unity's outer SaveLoader, saved objects, frontend abort or
-world-generation fallback. The new rejection case has not run on Linux; the
-earlier six-mode Linux results remain separate evidence. Private Windows
-sources/binaries, table hashes and reports are under
-`local/native-envelope-suite-windows-v4`.
+The frozen Windows-v4 and isolated Linux-v5 seven-mode matrices both exercise
+`reject-custom-envelope`. In each, an ordinary native-load control preserves
+the two fluid cells and their 102 kg; the unpatched native API then returns null
+for a valid MACOLONY envelope, with no native diagnostics and normal child
+completion after owner disposal. Linux reuses the exact Windows-v4 managed
+IL/Core/runtime files and Windows-exported element/disease tables against the
+pinned licensed Linux `libSimDLL.so`, without a rebuild or Unity/Steam launch.
+Its real native payload and complete envelope bytes match Windows exactly;
+an independent decoder reconstructs all 4,096 public cells and the envelope
+checksum. The custom payload is opaque diagnostic data, not an owned
+Core/reservoir save. Neither matrix verifies Unity's outer SaveLoader, saved
+objects, frontend abort, world-generation fallback or post-rejection native
+state. Evidence remains under `local/native-envelope-suite-windows-v4` and
+`local/native-envelope-suite-linux-v5`. Linux's six successful child modes
+exit zero; sanitation still exits one with its exact documented failed
+zero-frame observation. Suite acceptance does not mean sanitation succeeded.
 
 The Linux test used the element/disease payloads exported by the Windows Unity
 probe. Both platforms produced byte-identical initial native saves. The managed

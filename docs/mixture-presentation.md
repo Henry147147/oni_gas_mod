@@ -400,6 +400,32 @@ V34's mostly paused 504-cell sequence records frame p50/p95/p99 of
 including private probes, screenshots and UI work, with no baseline subtraction.
 Those observations do not establish sustained 1x or 100k-cell performance.
 
+The separate Windows v35 run closes that water-row visibility gap. A private
+copy of the v34 driver holds its existing gas/liquid case while actual native
+wheel input and a scrollbar drag expose the full table. The renderer,
+inspection and Core sources are unchanged. Both the actual Unity
+`interactive-03-inspection-scroll.png` and computer-use screenshot show all
+three constituent rows, the 50% liquid-volume header, and the water tooltip:
+500 kg, 27754.218 mol, liquid constituent, gas partial pressure not applicable.
+The input report and held checkpoint retain revision 7/publication 39 throughout
+all three scroll captures. Explicit continuation then restores the exact
+baseline and completes the full fixture sequence. Normal quit and independent
+rehashing confirm all 13 originals and 283 personal files/membership restored.
+Evidence is `local/colony-runs/presentation-scroll-windows-v35`; its source
+manifest is `07c7deee3e76ef007d5aca29bf29574e61cc2d56a329ec617c81881d67b6716d`
+and independent verification is
+`9dcae30ecb1c95bf434c6d54edb8bf55caa27bc74bc98689d79609112b813d29`.
+V34's original unscrolled image remains unchanged. V35 also independently
+recomputes the held palette's RGB/pattern bytes for its 18 captured CPU records.
+Its longer inspection hold is not a performance sample.
+
+The v34 private audit initially used 16000 Pa in its independent oxygen
+partial-pressure oracle. The actual configured/product minimum is 15000 Pa.
+A preserved erratum rechecks all 2,940 checkpoint inventories and 18 sampled
+records with the correct policy; sampled outcomes remain unchanged. Separate
+pure 14900/15000/15500-Pa calibration distinguishes the two policies. This was
+an audit-script correction, with no product or Unity acceptance change.
+
 A separate copied-source composition-cache experiment was rejected and never
 applied to the product. Although repeated heat-only captures improved, its
 three-pair Windows medians regressed cold capture from 67.12 to 79.87 ms and
