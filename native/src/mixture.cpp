@@ -9,32 +9,38 @@ double MixtureInventory::mass() const { return std::accumulate(masses.begin(), m
 
 double MixtureInventory::heat_capacity(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
+    const auto& definitions = registry.all();
     double result = 0;
-    for (std::size_t i = 0; i < masses.size(); ++i) result += masses[i] * registry[i].cv();
+    // Registry properties are validated at registration. Skip only exact zero;
+    // every positive trace still contributes in the original species order.
+    for (std::size_t i = 0; i < masses.size(); ++i) if (masses[i] != 0) result += masses[i] * definitions[i].cv();
     return result;
 }
 
 double MixtureInventory::temperature(const SpeciesRegistry& registry) const {
     const double capacity = heat_capacity(registry);
     if (capacity == 0) return 0;
+    const auto& definitions = registry.all();
     double zero_energy = 0;
-    for (std::size_t i = 0; i < masses.size(); ++i) zero_energy += masses[i] * registry[i].internal_energy(0);
+    for (std::size_t i = 0; i < masses.size(); ++i) if (masses[i] != 0) zero_energy += masses[i] * definitions[i].internal_energy(0);
     return (energy - zero_energy) / capacity;
 }
 
 double MixtureInventory::condensed_volume(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
+    const auto& definitions = registry.all();
     double result = 0;
     for (std::size_t i = 0; i < masses.size(); ++i)
-        if (registry[i].phase != Phase::gas) result += masses[i] / registry[i].density;
+        if (masses[i] != 0 && definitions[i].phase != Phase::gas) result += masses[i] / definitions[i].density;
     return result;
 }
 
 double MixtureInventory::gas_moles(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
+    const auto& definitions = registry.all();
     double result = 0;
     for (std::size_t i = 0; i < masses.size(); ++i)
-        if (registry[i].phase == Phase::gas) result += masses[i] / registry[i].molar_mass;
+        if (masses[i] != 0 && definitions[i].phase == Phase::gas) result += masses[i] / definitions[i].molar_mass;
     return result;
 }
 
@@ -51,6 +57,8 @@ double MixtureInventory::pressure(const SpeciesRegistry& registry, double volume
 void MixtureInventory::validate(const SpeciesRegistry& registry) const {
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
     require_finite(energy, "inventory energy");
+    // Property arithmetic skips exact zeros, but validation examines every
+    // entry, including zero, negative and nonfinite component values.
     for (double m : masses) {
         require_finite(m, "component mass");
         if (m < 0) throw std::invalid_argument("Negative component mass");
@@ -69,8 +77,9 @@ void MixtureInventory::set_temperature(const SpeciesRegistry& registry, double t
     require_finite(t, "temperature");
     if (t <= 0) throw std::invalid_argument("Temperature must be positive");
     if (masses.size() != registry.size()) throw std::invalid_argument("Registry/inventory size mismatch");
+    const auto& definitions = registry.all();
     double next = 0;
-    for (std::size_t i = 0; i < masses.size(); ++i) next += masses[i] * registry[i].internal_energy(t);
+    for (std::size_t i = 0; i < masses.size(); ++i) next += masses[i] * definitions[i].internal_energy(t);
     require_finite(next, "inventory energy");
     energy = next;
 }
@@ -109,11 +118,12 @@ MixtureInventory MixtureInventory::extract(const SpeciesRegistry& registry, doub
     const double fraction = amount / available;
     const double t = temperature(registry);
     auto next = *this;
+    const auto& definitions = registry.all();
     for (std::size_t i = 0; i < masses.size(); ++i) {
         if (selection == registry.size() || selection == i) {
             parcel.masses[i] = amount == available ? masses[i] : masses[i] * fraction;
             next.masses[i] -= parcel.masses[i];
-            parcel.energy += parcel.masses[i] * registry[i].internal_energy(t);
+            parcel.energy += parcel.masses[i] * definitions[i].internal_energy(t);
         }
     }
     next.energy -= parcel.energy;

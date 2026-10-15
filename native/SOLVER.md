@@ -216,3 +216,43 @@ test logs, the six uninstrumented JSON runs, and four independent profile JSON
 runs. `quiet-measurement-window.json` records the serial measurement interval.
 Private profile/driver adaptation scripts are kept there; no profiling hooks
 or allocator overrides are compiled into the production library.
+
+## Property-only follow-on checkpoint, 2026-10-15
+
+The approved `mixture.cpp` change uses a read-only registry view after the
+existing size checks and skips property arithmetic only for exactly zero mass.
+Every positive trace retains its term in the original species order. Public
+APIs, storage, species formulas, reduction order, every-entry inventory
+validation and pressure tolerances remain unchanged.
+
+`mixture_property_compatibility` checks **120,340 bit-exact scalar results and
+exception outcomes**, including dense/sparse mixtures, phase reference energies,
+signed zeros, minimum positive traces, invalid inputs and direct public-field
+mutations. Windows MSVC Release, Linux GCC 15 Release, and Linux ASan/UBSan with
+libstdc++ assertions pass this and the existing physics/ABI, fluid and pressure
+suites against the frozen integrator.
+
+The comparison freezes the world/pressure/remap code at `0f938f9` and changes
+only property calculations. It uses the same 400x250 wet-air, 0.1-second case
+with four occupied species out of sixteen. Five independently initialized
+identical states run per process: first timed step / median of the remaining
+four. Executables run serially with ONI closed, using MSVC 19.51 and GCC 15
+under Ubuntu 26.04 WSL on the same Ryzen 9 9950X.
+
+| Complete 100k-cell step | Windows first / steady median | Linux first / steady median |
+| --- | ---: | ---: |
+| Frozen baseline | 303.94 / 322.15 ms | 343.58 / 253.93 ms |
+| Baseline repeated after candidates | 294.56 / 295.78 ms | 299.99 / 252.71 ms |
+| Approved property-only change | 209.93 / 224.20 ms | 226.90 / 184.85 ms |
+
+The repeat guard shows visible host/order variation, particularly on Windows;
+these short samples are not a Ryzen 5900X or sustained Unity measurement. Every
+sample retains 34 CG iterations, two nonlinear iterations, unchanged printed
+residuals and zero printed constituent/energy drift. Allocations remain
+**300,159 / 161.17 MB** on Windows and **300,123 / 159.54 MB** on Linux per
+instrumented step; bytes are cumulative, not peak memory. The **25 ms gate
+still fails**. These results do not validate newer interface/phase models.
+
+Ignored evidence, exact source/binary hashes, counter profiles, repeat guards
+and test logs are in `local/native-properties/result.json` and its accompanying
+manifests.
