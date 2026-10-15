@@ -184,6 +184,37 @@ in the private validation directory. The original unexecuted source lifecycle
 rejection and a reviewer-only name-shadowing failure remain preserved. No
 target rerun or change to earlier remap, vacuum or performance gates follows.
 
+### Actual-EOS consistent-mass step: first native result rejected
+
+A subsequent private prototype uses the unchanged `FluidThermodynamics` and
+`LiquidThermodynamicReference`, fourteen reference pieces, fifteen fine nodes,
+seven thermodynamic owners and a full consistent mass matrix. Its R2 Windows
+build completes with no C++ warning or error diagnostics. The earlier V1
+configure failed on its explicit MSVC version selector; R2 changes only that
+selector and the build paths, preserving the C++ and physical criteria.
+
+The first native invocation rejects the prescribed-boundary case C7 with
+`Unrepresented canonical impulse`. It completes seven cases C0–C6, attempts
+eight pressure calls, and reaches none of the twelve failure controls or
+remaining cases. The failure label covers an absent, wrong-sign or nonfinite
+update; the rejected candidate's node and operands were not recorded. A
+source-level cancellation mechanism is not an observed numerical cause.
+The eight partial diagnostic files total 323,405 bytes within the fixed caps;
+complete raw streams and unchanged source/predecessor records are retained.
+
+The private source freeze is
+`a6d7c325b99752274fc8d544b814e6dd8fcc2864c6fe621cda385a8bc0bb480f`.
+The negative native receipt is
+`314453e13770ea1005f580a5086922b67789d893cb694bfb7b6ac5c42b5aac22`
+under `canonical-actual-eos-consistent-mass-native-r2/run-first` in the private
+validation directory. The complete gate is rejected. No threshold change,
+target retry, production integration or earlier-gate reclassification follows.
+Independent negative-capture review is
+`2db9fd890e4d97a4b9b130888b449161e7e5f86e43893b5397cc98fd9019aeb3`
+under `canonical-actual-eos-consistent-mass-native-r2-independent-native-negative-review`.
+It authenticates the failure archive, without independently accepting the
+seven partial cases' physical arithmetic.
+
 ## Reproducing standalone evidence
 
 Use separate fresh build and output directories. A default build contains

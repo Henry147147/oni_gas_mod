@@ -427,9 +427,13 @@ rendering or performance. See [the precise scope](mixture-presentation.md).
 
 A separate finite reference-pushforward certificate now passes moving fine
 geometry, constant consistent inertia and compatible material/pressure work
-identities. It uses an artificial potential and manufactured loads; an actual
-thermodynamic pressure step remains unimplemented/unaccepted. The existing
-remap, vacuum-front and performance failures are unchanged. See
+identities. It uses an artificial potential and manufactured loads. A new
+private actual-EOS consistent-mass prototype builds cleanly on Windows, but
+its first physical run rejects C7 at the canonical-impulse representation
+check after completing C0–C6. The remaining positive cases and all twelve
+failure controls were not reached; the complete physical gate remains
+unaccepted. The existing remap, vacuum-front and performance failures are
+unchanged. See
 [the solver experiment evidence](../native/STAGGERED_EXPERIMENTS.md).
 
 ## Remaining release gates, in dependency order
