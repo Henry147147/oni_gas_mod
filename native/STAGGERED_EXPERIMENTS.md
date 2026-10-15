@@ -126,6 +126,38 @@ Reviewer-only metadata failures remain preserved; their corrections did not
 repeat the original diagnostic or its arithmetic. No earlier numerical,
 entropy, performance or native gate is promoted by this result.
 
+### Retaining source kinks: finite nesting and material work
+
+A separate six-case exact-rational control retains the original piecewise
+linear velocity field, adding only its missing source kinks to the target
+partition. It passes with 88 base pieces and 176 harmlessly subdivided pieces,
+at most 32 per state. Both versions recover all 84 coarse moment records,
+90 assembled momenta, 42 actual material owners and both complete boundary
+caps in every case. The hat fields retain four nonzero differences between
+physical traces and the coarse projected endpoint values. Derived coarse Z
+is a projection diagnostic; it is not added to the already resolved fine
+kinetic energy.
+
+The same control authenticates a seven-owner volume incidence against actual
+material geometry. Symbolic pressure forces and material work cancel with
+explicit exterior terms. Omitted and duplicate owner controls reject even
+when their incorrect force/work formulas remain mutually adjoint. Canonical
+roundtrips, input/parent retirement, positive trace retention, reflection and
+atomic rejection of unsupported piece growth also pass.
+
+The single attempt uses 98,911 of 100,000 arithmetic units and at most 268 of
+12,288 Fraction bits. Its report is 1,236,710 bytes, within the unchanged
+2 MB limit; SHA256 is
+`e24b8d13c7af3d59dd2d017f6bb07338c153eb382986b864d33bda8b3100da93`.
+Independent completed review is
+`8c514c7f6e53ec54d7714bc5a150b5988a412998752417d2b5a4a1588df1b1b2`
+under the private `canonical-source-kink-nesting-v1-independent-result-review`.
+Its earlier static work estimate understated the actual count by 440; the
+review corrects that estimate without changing a limit or repeating the run.
+This is a finite nesting/work identity result. Representation selection,
+thermodynamic closure, a physical update, moving geometry, native integration
+and performance remain open. The prior cap-incompatibility result is unchanged.
+
 ## Reproducing standalone evidence
 
 Use separate fresh build and output directories. A default build contains
