@@ -52,7 +52,7 @@ Response response(const Closure& state, double volume_change) {
 
 MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
     std::span<const MaterialCell> cells, std::span<const AcousticFace> faces, double dt,
-    bool project_incompressible_velocity) {
+    bool project_incompressible_velocity, PressurePreconditioner preconditioner) {
     require_finite(dt, "material pressure timestep");
     if (dt < 0 || cells.empty()) throw std::invalid_argument("Invalid material pressure domain or timestep");
     const auto count = cells.size();
@@ -163,9 +163,17 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
         auto diagonal = compliance;
         for (std::size_t i = 0; i < count; ++i) if (root(i) == i && !compressible[i])
             diagonal[i] = gauge_scale[i] > 0 ? gauge_scale[i] : 1;
-        const PressureSystem matrix(std::move(diagonal), matrix_faces);
+        const PressureSystem matrix(std::move(diagonal), matrix_faces, preconditioner);
         const auto solved = matrix.solve(residual, std::vector<double>(count), 1e-12, 1e-15);
         result.pressure_iterations += solved.iterations;
+        result.maximum_linear_residual_norm = std::max(result.maximum_linear_residual_norm, solved.residual_norm);
+        result.maximum_linear_residual_ratio = std::max(result.maximum_linear_residual_ratio,
+            solved.residual_norm / solved.residual_threshold);
+        if (solved.iterations > 0) {
+            if (solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky) ++result.incomplete_cholesky_solves;
+            else ++result.jacobi_solves;
+        }
+        if (solved.preconditioner_fallback) ++result.preconditioner_fallbacks;
         double fraction = 1;
         for (std::size_t i = 0; i < count; ++i) if (closures[i].free_volume > 0) {
             const double change = -compliance[i] * solved.pressure[i];

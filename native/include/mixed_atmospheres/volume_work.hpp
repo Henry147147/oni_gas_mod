@@ -1,6 +1,7 @@
 #pragma once
 #include "acoustics.hpp"
 #include "mixture.hpp"
+#include "pressure.hpp"
 
 namespace ma {
 struct MaterialCell {
@@ -21,6 +22,9 @@ struct MaterialPressureStep {
     double maximum_volume_residual_m3 = 0;
     std::size_t nonlinear_iterations = 0;
     std::size_t pressure_iterations = 0;
+    double maximum_linear_residual_norm = 0;
+    double maximum_linear_residual_ratio = 0;
+    std::size_t incomplete_cholesky_solves = 0, jacobi_solves = 0, preconditioner_fallbacks = 0;
 };
 
 // Reversible pressure-work substep on material (moving-volume) cells, with
@@ -41,5 +45,6 @@ struct MaterialPressureStep {
 [[nodiscard]] MaterialPressureStep advance_material_pressure(
     const SpeciesRegistry& registry, std::span<const MaterialCell> cells,
     std::span<const AcousticFace> faces, double seconds,
-    bool project_incompressible_velocity = false);
+    bool project_incompressible_velocity = false,
+    PressurePreconditioner preconditioner = PressurePreconditioner::automatic);
 }

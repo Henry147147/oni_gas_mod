@@ -1,5 +1,6 @@
 #pragma once
 #include "grid.hpp"
+#include "pressure.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -16,6 +17,7 @@ struct FluidSolverSettings {
     double maximum_timestep_s = 0.1;
     double maximum_outgoing_fraction = 0.45;
     bool conduction = true;
+    PressurePreconditioner pressure_preconditioner = PressurePreconditioner::automatic;
     void validate() const;
 };
 
@@ -26,6 +28,8 @@ struct FluidStepResult {
     std::size_t pressure_iterations = 0;
     std::size_t nonlinear_iterations = 0;
     std::size_t thermal_iterations = 0;
+    double maximum_linear_residual_norm = 0, maximum_linear_residual_ratio = 0, maximum_volume_residual_m3 = 0;
+    std::size_t incomplete_cholesky_solves = 0, jacobi_solves = 0, preconditioner_fallbacks = 0;
 };
 
 // Experimental, CLOSED-domain Lagrange/remap gas/liquid world. Nonlinear
@@ -65,6 +69,8 @@ private:
     struct Candidate {
         std::vector<FluidCell> cells;
         std::size_t pressure_iterations = 0, nonlinear_iterations = 0, thermal_iterations = 0;
+        double maximum_linear_residual_norm = 0, maximum_linear_residual_ratio = 0, maximum_volume_residual_m3 = 0;
+        std::size_t incomplete_cholesky_solves = 0, jacobi_solves = 0, preconditioner_fallbacks = 0;
     };
     SpeciesRegistry registry_;
     std::size_t width_, height_;

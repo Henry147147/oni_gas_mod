@@ -25,7 +25,10 @@ void FluidSolverSettings::validate() const {
         require_finite(value, "fluid solver setting");
     if (gravity < 0 || diffusivity_m2_per_s < 0 || viscosity_m2_per_s < 0 ||
         maximum_timestep_s <= 0 || maximum_timestep_s > 10 ||
-        maximum_outgoing_fraction <= 0 || maximum_outgoing_fraction > 0.5)
+        maximum_outgoing_fraction <= 0 || maximum_outgoing_fraction > 0.5 ||
+        (pressure_preconditioner != PressurePreconditioner::automatic &&
+         pressure_preconditioner != PressurePreconditioner::jacobi &&
+         pressure_preconditioner != PressurePreconditioner::incomplete_cholesky))
         throw std::invalid_argument("Invalid fluid solver settings");
 }
 
@@ -129,16 +132,24 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
         if (x + 1 < width_) add_face(i, i + 1, 0);
         if (y + 1 < height_) add_face(i, i + width_, 1);
     }
-    const auto pressure = advance_material_pressure(registry_, material, faces, dt, true);
+    auto pressure = advance_material_pressure(registry_, material, faces, dt, true, settings_.pressure_preconditioner);
     result.pressure_iterations = pressure.pressure_iterations;
     result.nonlinear_iterations = pressure.nonlinear_iterations;
+    result.maximum_linear_residual_norm = pressure.maximum_linear_residual_norm;
+    result.maximum_linear_residual_ratio = pressure.maximum_linear_residual_ratio;
+    result.maximum_volume_residual_m3 = pressure.maximum_volume_residual_m3;
+    result.incomplete_cholesky_solves = pressure.incomplete_cholesky_solves;
+    result.jacobi_solves = pressure.jacobi_solves;
+    result.preconditioner_fallbacks = pressure.preconditioner_fallbacks;
     std::vector<SweptFace> sweeps;
     std::vector<double> outgoing(active.size(), 0), mechanical(active.size(), 0);
     std::vector<TransportCell> moving;
     moving.reserve(active.size()); sweeps.reserve(faces.size());
     for (std::size_t i = 0; i < active.size(); ++i) {
         const auto& c = cells_[active[i]];
-        moving.push_back({pressure.cells[i].mixture, pressure.cells[i].volume_m3, c.momentum_x, c.momentum_y});
+        // These material inventories are consumed only by remap from here on;
+        // endpoint pressures/volumes remain separately available for publish.
+        moving.push_back({std::move(pressure.cells[i].mixture), pressure.cells[i].volume_m3, c.momentum_x, c.momentum_y});
         mechanical[i] = c.kinetic_energy();
     }
     for (std::size_t f = 0; f < faces.size(); ++f) {
@@ -222,7 +233,10 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
             for (std::size_t i = 0; i < remapped.size(); ++i) remapped[i].mixture.energy += heat.energy_changes_j[i];
         }
     }
-    result.cells = cells_;
+    // Every active inventory is replaced below. Only walls need an old-state
+    // copy; preserve their metadata and correctly sized empty species vector.
+    result.cells.resize(cells_.size());
+    for (std::size_t i = 0; i < cells_.size(); ++i) if (cells_[i].wall) result.cells[i] = cells_[i];
     for (std::size_t i = 0; i < active.size(); ++i) {
         auto& c = result.cells[active[i]];
         c.mixture = std::move(remapped[i].mixture);
@@ -239,7 +253,12 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
     if (seconds < 0 || seconds > 10 || budget == 0) throw std::invalid_argument("Invalid fluid step duration or budget");
     if (seconds == 0) return {};
     for (const auto& c : cells_) validate_cell(c, true);
-    auto backup = cells_;
+    // advance() does not mutate this world. Move the original allocation aside
+    // at the first validated commit, retaining it for whole-call rollback.
+    // Failure before that commit already leaves the original cells untouched.
+    std::vector<FluidCell> backup;
+    static_assert(noexcept(cells_ = std::move(backup)), "Whole-call rollback requires noexcept cell ownership transfer");
+    bool published = false;
     FluidStepResult result;
     std::uint64_t attempts = 0;
     double dt = std::min(seconds, settings_.maximum_timestep_s);
@@ -250,10 +269,17 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
             if (++attempts > budget) throw std::runtime_error("Fluid attempt budget exceeded; whole step rolled back");
             try {
                 auto candidate = advance(dt);
+                if (!published) { backup = std::move(cells_); published = true; }
                 cells_ = std::move(candidate.cells);
                 result.pressure_iterations += candidate.pressure_iterations;
                 result.nonlinear_iterations += candidate.nonlinear_iterations;
                 result.thermal_iterations += candidate.thermal_iterations;
+                result.maximum_linear_residual_norm = std::max(result.maximum_linear_residual_norm, candidate.maximum_linear_residual_norm);
+                result.maximum_linear_residual_ratio = std::max(result.maximum_linear_residual_ratio, candidate.maximum_linear_residual_ratio);
+                result.maximum_volume_residual_m3 = std::max(result.maximum_volume_residual_m3, candidate.maximum_volume_residual_m3);
+                result.incomplete_cholesky_solves += candidate.incomplete_cholesky_solves;
+                result.jacobi_solves += candidate.jacobi_solves;
+                result.preconditioner_fallbacks += candidate.preconditioner_fallbacks;
             } catch (const std::domain_error&) {
                 ++result.rejected_substeps; dt *= 0.5; continue;
             } catch (const std::runtime_error&) {
@@ -265,7 +291,7 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
         require_finite(time_ + seconds, "fluid simulation time");
         time_ += seconds;
     } catch (...) {
-        cells_ = std::move(backup);
+        if (published) cells_ = std::move(backup);
         throw;
     }
     return result;
