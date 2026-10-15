@@ -2,6 +2,9 @@
 #include "acoustics.hpp"
 #include "mixture.hpp"
 #include "pressure.hpp"
+#include "fluid_thermodynamics.hpp"
+#include <limits>
+#include <cstdint>
 
 namespace ma {
 struct MaterialCell {
@@ -47,4 +50,32 @@ struct MaterialPressureStep {
     std::span<const AcousticFace> faces, double seconds,
     bool project_incompressible_velocity = false,
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic);
+
+inline constexpr std::size_t no_material_cell = std::numeric_limits<std::size_t>::max();
+// Oriented 1-D material node. Missing left/right material is exact vacuum.
+// A wall has one material neighbor, fixed_zero_velocity=true, and supplies a
+// reaction impulse. Every node's inertia is its adjacent half-cell masses.
+struct OccupiedMaterialNode {
+    std::size_t left = no_material_cell, right = no_material_cell;
+    double area_m2 = 1, inertia_kg = 0, velocity_m_per_s = 0, acceleration_m_per_s2 = 0;
+    bool fixed_zero_velocity = false;
+};
+struct OccupiedMaterialPressureStep : MaterialPressureStep {
+    std::vector<double> volume_changes_m3;
+    std::vector<double> volume_residuals_m3;
+    double wall_reaction_impulse_kg_m_per_s = 0, body_impulse_kg_m_per_s = 0;
+    double pressure_work_roundoff_j = 0;
+    double maximum_volume_roundoff_m3 = 0;
+    std::size_t unresolved_energy_updates = 0, unresolved_volume_updates = 0;
+    std::vector<std::uint8_t> zero_work_substituted;
+    std::size_t zero_work_substitutions = 0;
+    double maximum_omitted_pressure_pa = 0, omitted_elastic_work_bound_j = 0;
+};
+// Explicit model-aware overload: no legacy caloric/nominal-volume validation,
+// no vacuum unknowns, and no fake material beyond a traction-free boundary.
+[[nodiscard]] OccupiedMaterialPressureStep advance_occupied_material_pressure(
+    const FluidThermodynamics& thermodynamics, std::span<const MaterialCell> cells,
+    std::span<const OccupiedMaterialNode> nodes, double seconds,
+    PressurePreconditioner preconditioner = PressurePreconditioner::automatic,
+    LiquidFillRoundoffPolicy liquid_fill_roundoff = LiquidFillRoundoffPolicy::strict_eos);
 }

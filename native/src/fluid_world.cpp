@@ -43,6 +43,22 @@ FluidWorld::FluidWorld(std::size_t width, std::size_t height, double dx, double 
     cells_.assign(width * height, FluidCell(registry_.size()));
 }
 
+FluidWorld::FluidWorld(std::size_t width, std::size_t height, double dx, double depth,
+    FluidSolverSettings settings, SpeciesRegistry registry, FluidGeometry1D geometry)
+    : FluidWorld(width, height, dx, depth, settings, std::move(registry)) {
+    if (!geometry.thermodynamics ||
+        (geometry.axis != FluidAxis::x && geometry.axis != FluidAxis::y) ||
+        (geometry.axis == FluidAxis::x ? height != 1 : width != 1) ||
+        (geometry.axis == FluidAxis::x && settings.gravity != 0) ||
+        settings.conduction || settings.diffusivity_m2_per_s != 0 || settings.viscosity_m2_per_s != 0)
+        throw std::invalid_argument("Occupied 1-D mode requires an EOS profile, one axis, and disabled diffusion/viscosity/conduction");
+    if (geometry.liquid_fill_roundoff != LiquidFillRoundoffPolicy::strict_eos &&
+        geometry.liquid_fill_roundoff != LiquidFillRoundoffPolicy::balanced_local_roundoff)
+        throw std::invalid_argument("Invalid liquid fill representability policy");
+    geometry.thermodynamics->validate_registry(registry_);
+    geometry_ = std::move(geometry);
+}
+
 std::size_t FluidWorld::offset(std::size_t x, std::size_t y) const {
     if (x >= width_ || y >= height_) throw std::out_of_range("Fluid cell coordinates");
     return y * width_ + x;
@@ -51,13 +67,54 @@ const FluidCell& FluidWorld::cell(std::size_t x, std::size_t y) const { return c
 double FluidWorld::pressure(std::size_t x, std::size_t y) const {
     const auto& c = cell(x, y);
     if (c.wall || c.mixture.mass() == 0) return 0;
+    if (geometry_) return thermodynamic_state(x, y).mechanical_pressure_pa;
     return c.mixture.gas_moles(registry_) == 0 ? c.liquid_pressure_pa : c.mixture.pressure(registry_, volume());
 }
 double FluidWorld::liquid_fraction(std::size_t x, std::size_t y) const {
+    if (geometry_) return thermodynamic_state(x, y).liquid_volume_m3 / volume();
     return cell(x, y).mixture.condensed_volume(registry_) / volume();
 }
 
+double FluidWorld::occupied_volume(std::size_t x, std::size_t y) const {
+    const auto& c = cell(x, y);
+    if (c.wall || c.mixture.mass() == 0) return 0;
+    return geometry_ ? (c.occupied_end_m - c.occupied_begin_m) * dx_ * depth_ : volume();
+}
+
+experimental::ReferenceEquilibriumState FluidWorld::thermodynamic_state(std::size_t x, std::size_t y) const {
+    if (!geometry_) throw std::invalid_argument("Thermodynamic profile reading requires occupied geometry mode");
+    const auto& c = cell(x, y);
+    if (c.wall || c.mixture.mass() == 0) {
+        experimental::ReferenceEquilibriumState empty;
+        empty.vacuum_volume_m3 = volume(); empty.has_vacuum = true;
+        return empty; // T=0 is an absent-temperature sentinel, never a heat body.
+    }
+    return geometry_->thermodynamics->evaluate(c.mixture, occupied_volume(x, y));
+}
+
 void FluidWorld::validate_cell(const FluidCell& c, bool require_filled) const {
+    if (geometry_) {
+        geometry_->thermodynamics->validate_inventory(c.mixture);
+        require_finite(c.momentum_x, "occupied x momentum"); require_finite(c.momentum_y, "occupied y momentum");
+        require_finite(c.occupied_begin_m, "occupied interval beginning");
+        require_finite(c.occupied_end_m, "occupied interval end");
+        if (c.wall || c.mixture.mass() == 0) {
+            if (c.mixture.mass() != 0 || c.mixture.energy != 0 || c.momentum_x != 0 || c.momentum_y != 0 ||
+                c.occupied_begin_m != 0 || c.occupied_end_m != 0)
+                throw std::invalid_argument("Occupied-mode wall/vacuum must be exactly empty");
+            return;
+        }
+        if (c.occupied_begin_m < 0 || c.occupied_end_m > dx_ || c.occupied_begin_m >= c.occupied_end_m ||
+            (geometry_->axis == FluidAxis::x ? c.momentum_y != 0 : c.momentum_x != 0))
+            throw std::invalid_argument("Invalid 1-D occupied interval or transverse momentum");
+        require_finite(c.kinetic_energy(), "occupied kinetic energy");
+        const double occupied = (c.occupied_end_m - c.occupied_begin_m) * dx_ * depth_;
+        const auto state = geometry_->thermodynamics->evaluate(c.mixture, occupied);
+        if (state.vacuum_volume_m3 > 32 * std::numeric_limits<double>::epsilon() * occupied)
+            throw FluidFatalError(FluidFatalCode::unsupported_topology,
+                "Internal liquid void requires cavitation/interface topology support; occupied volume excludes exterior vacuum");
+        return;
+    }
     c.mixture.validate(registry_);
     require_finite(c.momentum_x, "fluid x momentum"); require_finite(c.momentum_y, "fluid y momentum");
     require_finite(c.liquid_pressure_pa, "liquid pressure");
@@ -84,6 +141,7 @@ void FluidWorld::validate_cell(const FluidCell& c, bool require_filled) const {
 
 void FluidWorld::set_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                           double ux, double uy, double liquid_pressure) {
+    if (geometry_) throw std::invalid_argument("Use set_occupied_cell with explicit geometry and conserved elastic energy");
     const auto index = offset(x, y);
     if (cells_[index].wall) throw std::invalid_argument("Displace wall before placing fluid");
     require_finite(ux, "fluid x velocity"); require_finite(uy, "fluid y velocity");
@@ -93,13 +151,216 @@ void FluidWorld::set_cell(std::size_t x, std::size_t y, const MixtureInventory& 
     validate_cell(next, false);
     cells_[index] = std::move(next);
 }
+
+void FluidWorld::set_occupied_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
+    double begin, double end, double velocity) {
+    if (!geometry_) throw std::invalid_argument("Occupied setter requires explicit 1-D geometry mode");
+    const auto index = offset(x, y);
+    if (cells_[index].wall) throw std::invalid_argument("Displace wall before placing occupied fluid");
+    require_finite(velocity, "occupied axial velocity");
+    FluidCell next(registry_.size()); next.mixture = mixture;
+    next.occupied_begin_m = begin; next.occupied_end_m = end;
+    auto& momentum = geometry_->axis == FluidAxis::x ? next.momentum_x : next.momentum_y;
+    momentum = mixture.mass() * velocity;
+    if (velocity != 0 && mixture.mass() > 0 && momentum == 0)
+        throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied momentum is unrepresentable");
+    validate_cell(next, false);
+    cells_[index] = std::move(next);
+}
 void FluidWorld::set_wall(std::size_t x, std::size_t y, bool wall) {
     auto& c = cells_[offset(x, y)];
     if (wall && c.mixture.mass() != 0) throw std::invalid_argument("Displace fluid before constructing a wall");
     c.wall = wall;
 }
 
+void FluidWorld::validate_occupied_geometry() const {
+    std::optional<std::size_t> previous;
+    for (std::size_t i = 0; i < cells_.size(); ++i) {
+        validate_cell(cells_[i], false);
+        if (cells_[i].mixture.mass() == 0) continue;
+        if (previous && (i != *previous + 1 || cells_[*previous].occupied_end_m != dx_ || cells_[i].occupied_begin_m != 0))
+            throw FluidFatalError(FluidFatalCode::unsupported_topology, "Occupied 1-D mode currently requires one connected material interval");
+        previous = i;
+    }
+}
+
+FluidWorld::Candidate FluidWorld::advance_occupied(double dt) const {
+    const auto& model = *geometry_->thermodynamics;
+    const double area = dx_ * depth_, acceleration = geometry_->axis == FluidAxis::y ? -settings_.gravity : 0;
+    const double potential_gradient = geometry_->axis == FluidAxis::y ? settings_.gravity : 0;
+    std::vector<std::size_t> active;
+    std::vector<double> masses, velocities;
+    std::vector<MaterialCell> material;
+    for (std::size_t i = 0; i < cells_.size(); ++i) if (cells_[i].mixture.mass() > 0) {
+        active.push_back(i);
+        masses.push_back(cells_[i].mixture.mass());
+        velocities.push_back((geometry_->axis == FluidAxis::x ? cells_[i].momentum_x : cells_[i].momentum_y) / masses.back());
+        const double occupied = (cells_[i].occupied_end_m - cells_[i].occupied_begin_m) * dx_ * depth_;
+        material.push_back({cells_[i].mixture, occupied, 0});
+    }
+    Candidate result;
+    if (active.empty()) { result.cells = cells_; return result; }
+    std::vector<OccupiedMaterialNode> nodes;
+    std::vector<OccupiedMeshPosition> positions;
+    nodes.reserve(active.size() + 1); positions.reserve(active.size() + 1);
+    for (std::size_t j = 0; j <= active.size(); ++j) {
+        const bool left = j > 0, right = j < active.size();
+        const auto i = left ? active[j - 1] : active.front();
+        const bool fixed = !left ? (cells_[i].occupied_begin_m == 0 && (i == 0 || cells_[i - 1].wall)) :
+            !right && cells_[i].occupied_end_m == dx_ && (i + 1 == cells_.size() || cells_[i + 1].wall);
+        const double ml = left ? masses[j - 1] : 0, mr = right ? masses[j] : 0;
+        const double inertia = 0.5 * ml + 0.5 * mr;
+        const double velocity = fixed ? 0 : ((left ? 0.5 * ml * velocities[j - 1] : 0) +
+            (right ? 0.5 * mr * velocities[j] : 0)) / inertia;
+        nodes.push_back({left ? j - 1 : no_material_cell, right ? j : no_material_cell,
+                         area, inertia, velocity, acceleration, fixed});
+        const OccupiedMeshPosition position = !left ? OccupiedMeshPosition{i, cells_[i].occupied_begin_m} :
+            right ? OccupiedMeshPosition{active[j], 0} : OccupiedMeshPosition{i, cells_[i].occupied_end_m};
+        positions.push_back(position);
+        for (const auto local : {nodes.back().left, nodes.back().right}) if (local != no_material_cell) {
+            const double difference = velocities[local] - velocity;
+            const double heat = 0.25 * masses[local] * difference * difference;
+            require_finite(heat, "initial compatible projection heat");
+            const double previous_energy = material[local].mixture.energy;
+            material[local].mixture.energy += heat;
+            const double rounding = (material[local].mixture.energy - previous_energy) - heat;
+            result.projection_heat_roundoff_j += rounding;
+            if (std::abs(rounding) > 32 * std::numeric_limits<double>::epsilon() * heat) ++result.unresolved_energy_updates;
+            result.initial_projection_heat_j += heat;
+            if (fixed) result.wall_reaction_impulse_kg_m_per_s += 0.5 * masses[local] * (velocity - velocities[local]);
+        }
+    }
+    auto pressure = advance_occupied_material_pressure(model, material, nodes, dt, settings_.pressure_preconditioner,
+        geometry_->liquid_fill_roundoff);
+    result.pressure_iterations = pressure.pressure_iterations; result.nonlinear_iterations = pressure.nonlinear_iterations;
+    result.maximum_linear_residual_norm = pressure.maximum_linear_residual_norm;
+    result.maximum_linear_residual_ratio = pressure.maximum_linear_residual_ratio;
+    result.maximum_volume_residual_m3 = pressure.maximum_volume_residual_m3;
+    result.incomplete_cholesky_solves = pressure.incomplete_cholesky_solves;
+    result.jacobi_solves = pressure.jacobi_solves; result.preconditioner_fallbacks = pressure.preconditioner_fallbacks;
+    result.wall_reaction_impulse_kg_m_per_s += pressure.wall_reaction_impulse_kg_m_per_s;
+    result.body_impulse_kg_m_per_s = pressure.body_impulse_kg_m_per_s;
+    result.pressure_work_roundoff_j = pressure.pressure_work_roundoff_j;
+    result.unresolved_energy_updates += pressure.unresolved_energy_updates;
+    result.unresolved_volume_updates = pressure.unresolved_volume_updates;
+    result.maximum_volume_roundoff_m3 = pressure.maximum_volume_roundoff_m3;
+    result.zero_work_substitutions = pressure.zero_work_substitutions;
+    result.maximum_omitted_pressure_pa = pressure.maximum_omitted_pressure_pa;
+    result.omitted_elastic_work_bound_j = pressure.omitted_elastic_work_bound_j;
+    auto next_positions = positions;
+    bool moved = false;
+    for (std::size_t j = 0; j < nodes.size(); ++j) {
+        const double delta = dt * (0.5 * nodes[j].velocity_m_per_s + 0.5 * pressure.velocities_m_per_s[j]);
+        if (std::abs(delta) > settings_.maximum_outgoing_fraction * dx_)
+            throw std::domain_error("Occupied node displacement exceeded grid-spacing CFL; retry smaller timestep");
+        next_positions[j].offset_m += delta;
+        require_finite(next_positions[j].offset_m, "occupied node position");
+        const double position_roundoff = std::abs((next_positions[j].offset_m - positions[j].offset_m) - delta);
+        result.maximum_position_roundoff_m = std::max(result.maximum_position_roundoff_m, position_roundoff);
+        if (position_roundoff > 32 * std::numeric_limits<double>::epsilon() * dx_)
+            throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied node position rounding exceeds local grid resolution");
+        if (position_roundoff > 32 * std::numeric_limits<double>::epsilon() * std::abs(delta)) ++result.unresolved_position_updates;
+        moved = moved || next_positions[j].offset_m != positions[j].offset_m;
+    }
+    std::vector<OccupiedTransportCell> moving;
+    moving.reserve(active.size());
+    long double energy_scale = 0;
+    for (std::size_t i = 0; i < active.size(); ++i) {
+        const double ul = pressure.velocities_m_per_s[i], ur = pressure.velocities_m_per_s[i + 1];
+        const double difference = ur - ul;
+        const double heat = 0.125 * masses[i] * difference * difference;
+        result.final_projection_heat_j += heat;
+        auto& mixture = pressure.cells[i].mixture; const double previous_energy = mixture.energy; mixture.energy += heat;
+        const double rounding = (mixture.energy - previous_energy) - heat;
+        result.projection_heat_roundoff_j += rounding;
+        if (std::abs(rounding) > 32 * std::numeric_limits<double>::epsilon() * heat) ++result.unresolved_energy_updates;
+        require_finite(heat, "final compatible projection heat");
+        const double momentum = masses[i] * (0.5 * ul + 0.5 * ur);
+        if (occupied_interval_length(next_positions[i], next_positions[i + 1], dx_) <= 0)
+            throw FluidFatalError(FluidFatalCode::numerical_precision, "Positive pressure endpoint has nonpositive represented occupied geometry");
+        const double represented_volume = area * occupied_interval_length(next_positions[i], next_positions[i + 1], dx_);
+        const double geometry_roundoff = std::abs((represented_volume - pressure.cells[i].volume_m3) + pressure.volume_residuals_m3[i]);
+        result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, geometry_roundoff);
+        if (geometry_roundoff > 32 * std::numeric_limits<double>::epsilon() * std::min(material[i].volume_m3, pressure.cells[i].volume_m3))
+            throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied endpoint rounding materially changes its local material volume");
+        if (pressure.zero_work_substituted[i]) {
+            const auto anchor = model.reference().make_isentrope(model.to_reference(material[i].mixture, material[i].volume_m3));
+            auto represented = anchor.reference_cell(); represented.volume_m3 = represented_volume;
+            if (!model.liquid_fill_resolution(represented).within_roundoff)
+                throw FluidFatalError(FluidFatalCode::numerical_precision, "Represented liquid endpoint left the explicit fill-roundoff policy domain");
+            const auto represented_response = model.reference().isentropic_at_volume(anchor, represented_volume);
+            const auto requested_response = model.reference().isentropic_response(anchor, pressure.volume_changes_m3[i]);
+            const double bound = std::max(std::abs(represented_response.internal_energy_change_j),
+                std::abs(requested_response.internal_energy_change_j));
+            const double local_scale = anchor.reference_state().thermal_energy_j + anchor.reference_state().elastic_energy_j;
+            if (bound > 64 * std::numeric_limits<double>::epsilon() * local_scale)
+                throw FluidFatalError(FluidFatalCode::numerical_precision, "Represented fill-roundoff approximation has material local elastic work");
+            // Pressure already included the requested endpoint's bound. Replace
+            // it with the larger requested/represented bound, never subtract
+            // away a positive uncertainty when geometry rounded differently.
+            result.omitted_elastic_work_bound_j += bound - std::abs(requested_response.internal_energy_change_j);
+            result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa,
+                std::max(represented_response.work_pressure_pa, represented_response.state.mechanical_pressure_pa));
+        }
+        moving.push_back({std::move(mixture), next_positions[i], next_positions[i + 1], momentum});
+        const auto before = model.evaluate(cells_[active[i]].mixture, material[i].volume_m3);
+        energy_scale += before.thermal_energy_j + before.elastic_energy_j + cells_[active[i]].kinetic_energy() +
+            std::abs(cells_[active[i]].mixture.mass() * potential_gradient *
+                (static_cast<double>(positions[i].grid_line) * dx_ + positions[i].offset_m +
+                    0.5 * occupied_interval_length(positions[i], positions[i + 1], dx_)));
+    }
+    // Avoid an unnecessary absolute/local coordinate round trip when a state
+    // has exactly zero material displacement and no projection/work change.
+    if (!moved && result.initial_projection_heat_j == 0 && result.final_projection_heat_j == 0) {
+        bool unchanged = true;
+        for (std::size_t i = 0; i < active.size(); ++i) unchanged = unchanged &&
+            moving[i].mixture.energy == cells_[active[i]].mixture.energy &&
+            moving[i].momentum_kg_m_per_s == (geometry_->axis == FluidAxis::x ? cells_[active[i]].momentum_x : cells_[active[i]].momentum_y);
+        if (unchanged) { result.cells = cells_; return result; }
+    }
+    std::vector<std::uint8_t> walls;
+    walls.reserve(cells_.size()); for (const auto& c : cells_) walls.push_back(c.wall ? 1 : 0);
+    auto remapped = remap_occupied_mixtures(model, moving, walls, dx_, area, potential_gradient);
+    result.cells.assign(cells_.size(), FluidCell(registry_.size()));
+    AccurateSum energy_change, old_momentum, new_momentum;
+    long double momentum_scale = std::abs(result.wall_reaction_impulse_kg_m_per_s) + std::abs(result.body_impulse_kg_m_per_s);
+    for (std::size_t i = 0; i < cells_.size(); ++i) {
+        const auto& old = cells_[i]; auto& next = result.cells[i];
+        if (old.wall) { next = old; continue; }
+        auto& source = remapped[i]; next.mixture = std::move(source.mixture);
+        if (next.mixture.mass() > 0) {
+            next.occupied_begin_m = source.begin.offset_m;
+            next.occupied_end_m = source.end.offset_m;
+            (geometry_->axis == FluidAxis::x ? next.momentum_x : next.momentum_y) = source.momentum_kg_m_per_s;
+            const double occupied = area * (next.occupied_end_m - next.occupied_begin_m);
+            next.liquid_pressure_pa = model.evaluate(next.mixture, occupied).mechanical_pressure_pa;
+        }
+        validate_cell(next, false);
+        const double old_height = geometry_->axis == FluidAxis::y ? static_cast<double>(i) * dx_ +
+            0.5 * (old.occupied_begin_m + old.occupied_end_m) : 0;
+        const double new_height = geometry_->axis == FluidAxis::y ? static_cast<double>(i) * dx_ +
+            0.5 * (next.occupied_begin_m + next.occupied_end_m) : 0;
+        // Accumulate changes by cell, before summing large formation references.
+        energy_change.add(next.mixture.energy - old.mixture.energy);
+        energy_change.add(next.kinetic_energy() - old.kinetic_energy());
+        energy_change.add(next.mixture.mass() * settings_.gravity * new_height - old.mixture.mass() * settings_.gravity * old_height);
+        const double po = geometry_->axis == FluidAxis::x ? old.momentum_x : old.momentum_y;
+        const double pn = geometry_->axis == FluidAxis::x ? next.momentum_x : next.momentum_y;
+        old_momentum.add(po); new_momentum.add(pn); momentum_scale += std::abs(po) + std::abs(pn);
+    }
+    const double error = energy_change.value();
+    result.maximum_conservation_error_j = std::abs(error);
+    if (!std::isfinite(error) || std::abs(error) > 2e-10L * energy_scale)
+        throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied world failed represented total-energy balance");
+    const double momentum_error = new_momentum.value() - old_momentum.value() -
+        result.wall_reaction_impulse_kg_m_per_s - result.body_impulse_kg_m_per_s;
+    if (!std::isfinite(momentum_error) || std::abs(momentum_error) > 128 * std::numeric_limits<double>::epsilon() * momentum_scale)
+        throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied world failed total-momentum balance");
+    return result;
+}
+
 FluidWorld::Candidate FluidWorld::advance(double dt) const {
+    if (geometry_) return advance_occupied(dt);
     const auto none = cells_.size();
     const double area = dx_ * depth_, vol = volume();
     std::vector<std::size_t> active, local(cells_.size(), none);
@@ -251,8 +512,13 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
 FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
     require_finite(seconds, "fluid step duration");
     if (seconds < 0 || seconds > 10 || budget == 0) throw std::invalid_argument("Invalid fluid step duration or budget");
-    if (seconds == 0) return {};
-    for (const auto& c : cells_) validate_cell(c, true);
+    if (seconds == 0) {
+        FluidStepResult empty;
+        empty.cumulative_omitted_elastic_work_bound_j = cumulative_omitted_elastic_work_bound_j_;
+        return empty;
+    }
+    if (geometry_) validate_occupied_geometry();
+    else for (const auto& c : cells_) validate_cell(c, true);
     // advance() does not mutate this world. Move the original allocation aside
     // at the first validated commit, retaining it for whole-call rollback.
     // Failure before that commit already leaves the original cells untouched.
@@ -280,6 +546,23 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
                 result.incomplete_cholesky_solves += candidate.incomplete_cholesky_solves;
                 result.jacobi_solves += candidate.jacobi_solves;
                 result.preconditioner_fallbacks += candidate.preconditioner_fallbacks;
+                result.initial_projection_heat_j += candidate.initial_projection_heat_j;
+                result.final_projection_heat_j += candidate.final_projection_heat_j;
+                result.projection_heat_roundoff_j += candidate.projection_heat_roundoff_j;
+                result.wall_reaction_impulse_kg_m_per_s += candidate.wall_reaction_impulse_kg_m_per_s;
+                result.body_impulse_kg_m_per_s += candidate.body_impulse_kg_m_per_s;
+                result.maximum_conservation_error_j = std::max(result.maximum_conservation_error_j, candidate.maximum_conservation_error_j);
+                result.pressure_work_roundoff_j += candidate.pressure_work_roundoff_j;
+                result.unresolved_energy_updates += candidate.unresolved_energy_updates;
+                result.unresolved_volume_updates += candidate.unresolved_volume_updates;
+                result.unresolved_position_updates += candidate.unresolved_position_updates;
+                result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, candidate.maximum_volume_roundoff_m3);
+                result.maximum_position_roundoff_m = std::max(result.maximum_position_roundoff_m, candidate.maximum_position_roundoff_m);
+                result.zero_work_substitutions += candidate.zero_work_substitutions;
+                result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa, candidate.maximum_omitted_pressure_pa);
+                result.omitted_elastic_work_bound_j += candidate.omitted_elastic_work_bound_j;
+            } catch (const FluidFatalError&) {
+                throw; // Unsupported topology/precision is not repaired by endless dt retries.
             } catch (const std::domain_error&) {
                 ++result.rejected_substeps; dt *= 0.5; continue;
             } catch (const std::runtime_error&) {
@@ -289,7 +572,10 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
             dt = std::min(settings_.maximum_timestep_s, 1.5 * dt);
         }
         require_finite(time_ + seconds, "fluid simulation time");
+        require_finite(cumulative_omitted_elastic_work_bound_j_ + result.omitted_elastic_work_bound_j, "cumulative omitted elastic work bound");
         time_ += seconds;
+        cumulative_omitted_elastic_work_bound_j_ += result.omitted_elastic_work_bound_j;
+        result.cumulative_omitted_elastic_work_bound_j = cumulative_omitted_elastic_work_bound_j_;
     } catch (...) {
         if (published) cells_ = std::move(backup);
         throw;
@@ -305,7 +591,10 @@ ConservationTotals FluidWorld::totals() const {
         const auto& c = cells_[i];
         for (std::size_t s = 0; s < registry_.size(); ++s) masses[s].add(c.mixture.masses[s]);
         internal.add(c.mixture.energy); kinetic.add(c.kinetic_energy());
-        potential.add(c.mixture.mass() * settings_.gravity * (static_cast<double>(i / width_) + 0.5) * dx_);
+        const double height = geometry_ ? (geometry_->axis == FluidAxis::y ?
+            static_cast<double>(i) * dx_ + 0.5 * (c.occupied_begin_m + c.occupied_end_m) : 0) :
+            (static_cast<double>(i / width_) + 0.5) * dx_;
+        potential.add(c.mixture.mass() * settings_.gravity * height);
     }
     for (std::size_t s = 0; s < registry_.size(); ++s) result.masses[s] = masses[s].value();
     result.internal_energy = internal.value(); result.kinetic_energy = kinetic.value();

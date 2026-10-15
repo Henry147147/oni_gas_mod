@@ -1,8 +1,11 @@
 # Compressed-liquid thermodynamic reference
 
-This directory is a standalone prototype. Production `GasWorld`, `FluidWorld`,
-`SpeciesRegistry`, managed catalogs/importers, the C ABI, and root CMake targets
-do not use it. It has no timestep, transport, interface, or game ownership code.
+This directory supplies a standalone thermodynamic prototype and its independent
+tests. Root CMake also links it through the explicit experimental
+`FluidGeometry1D`/`FluidThermodynamics` path in `FluidWorld`; see
+[the bounded interface integration](../FREE_SURFACES.md). Default closed
+`FluidWorld`, `GasWorld`, managed catalogs/importers and the C ABI do not select
+that model. The reference itself has no timestep or game ownership code.
 
 The explicit surrogate has zero thermal expansion, positive constant intrinsic
 Cv, zero tension, and a constant liquid sound speed. Its zero-pressure reference
@@ -118,10 +121,11 @@ and failure rollback. These are thermodynamic reference checks only.
 
 ## Future vacuum/free-surface integration
 
-This section describes future work. No closed `FluidWorld` validation flag or
-production pressure/transport implementation is changed by these queries.
-The smallest next testable step is a separate one-dimensional material/vacuum
-Lagrange/remap reference with occupied intervals and traction-free boundaries.
+The explicit `FluidWorld` geometry mode now supplies the first bounded 1-D
+liquid/interface pressure-remap slice described in [FREE_SURFACES.md](../FREE_SURFACES.md).
+The default closed mode retains its prior validation. The remaining discussion
+describes the wider interface work and acceptance gates; it does not imply that
+gas/vacuum rarefaction, cavitation or 2-D dynamics have passed.
 Two-dimensional use needs interface geometry as well as volume fraction: the
 same half-full inventory can wet different faces depending on its location.
 Geometric VOF reconstruction and consistent momentum transport are established

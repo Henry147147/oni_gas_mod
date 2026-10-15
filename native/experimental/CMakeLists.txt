@@ -6,7 +6,8 @@ if(MA_REFERENCE_SANITIZERS AND (MSVC OR NOT CMAKE_CXX_COMPILER_ID MATCHES "^(GNU
   message(FATAL_ERROR "MA_REFERENCE_SANITIZERS requires GCC or Clang with address/undefined sanitizer support; MSVC is unsupported")
 endif()
 
-# Independent opt-in project; root CMake and production binaries do not link it.
+# Independent thermodynamic test project. Root CMake separately links the
+# implementation for its explicit experimental FluidWorld geometry mode.
 add_library(liquid_thermodynamic_reference STATIC liquid_reference.cpp)
 target_compile_features(liquid_thermodynamic_reference PUBLIC cxx_std_20)
 target_include_directories(liquid_thermodynamic_reference PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

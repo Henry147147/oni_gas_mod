@@ -4,6 +4,9 @@
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
+#include <limits>
+#include <sstream>
+#include <iomanip>
 
 namespace ma {
 namespace {
@@ -245,6 +248,199 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
     require_finite(static_cast<double>(energy_scale), "material energy scale");
     if (std::abs(energy_change - body_work) > 1e-8L + 2e-11L * energy_scale)
         throw std::runtime_error("Material pressure failed total-energy balance");
+    return result;
+}
+
+OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
+    std::span<const MaterialCell> cells, std::span<const OccupiedMaterialNode> nodes, double dt,
+    PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy) {
+    require_finite(dt, "occupied material timestep");
+    if (dt <= 0 || cells.empty()) throw std::invalid_argument("Occupied material pressure requires cells and positive time");
+    if (roundoff_policy != LiquidFillRoundoffPolicy::strict_eos && roundoff_policy != LiquidFillRoundoffPolicy::balanced_local_roundoff)
+        throw std::invalid_argument("Invalid liquid fill representability policy");
+    const auto count = cells.size();
+    std::vector<experimental::ReferenceIsentrope> anchors;
+    std::vector<bool> roundoff_anchor;
+    anchors.reserve(count);
+    for (const auto& cell : cells) {
+        if (cell.mixture.mass() <= 0) throw std::invalid_argument("Vacuum has no pressure unknown");
+        anchors.push_back(model.reference().make_isentrope(model.to_reference(cell.mixture, cell.volume_m3)));
+        roundoff_anchor.push_back(roundoff_policy == LiquidFillRoundoffPolicy::balanced_local_roundoff &&
+            model.liquid_fill_resolution(anchors.back().reference_cell()).within_roundoff);
+    }
+    std::vector<PressureFace> edges;
+    std::vector<double> boundary_diagonal(count, 0);
+    for (const auto& node : nodes) {
+        const bool left = node.left != no_material_cell, right = node.right != no_material_cell;
+        for (const double value : {node.area_m2, node.inertia_kg, node.velocity_m_per_s, node.acceleration_m_per_s2})
+            require_finite(value, "occupied node input");
+        if ((!left && !right) || (left && node.left >= count) || (right && node.right >= count) ||
+            (left && right && node.left == node.right) || node.area_m2 <= 0 || node.inertia_kg <= 0 ||
+            (node.fixed_zero_velocity && ((left && right) || node.velocity_m_per_s != 0)))
+            throw std::invalid_argument("Invalid occupied material node");
+        if (node.fixed_zero_velocity) continue;
+        const double weight = 0.5 * dt * node.area_m2 * (dt * node.area_m2 / node.inertia_kg);
+        if (!std::isfinite(weight) || weight <= 0)
+            throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied pressure coefficient is unrepresentable");
+        if (left && right) edges.push_back({node.left, node.right, weight});
+        else boundary_diagonal[left ? node.left : node.right] += weight;
+    }
+    struct TrialVoid final : std::domain_error { TrialVoid() : std::domain_error("Occupied trial creates internal liquid void") {} };
+    bool saw_void = false;
+    std::vector<double> changes(count, 0), work(count), compliance(count), residual(count);
+    std::vector<bool> roundoff_trial(count, false);
+    const auto void_message = [&] {
+        std::ostringstream message; message << std::setprecision(17) << "Occupied pressure root requires internal cavitation/gap creation";
+        for (std::size_t i = 0; i < count; ++i) if (!anchors[i].reference_state().has_gas)
+            message << "; cell=" << i << " p0=" << anchors[i].reference_state().mechanical_pressure_pa <<
+                " V0=" << cells[i].volume_m3 << " dV=" << changes[i] << " residual=" << residual[i];
+        return message.str();
+    };
+    const auto evaluate = [&](const std::vector<double>& delta, std::vector<double>& pressures,
+                              std::vector<double>& capacities, std::vector<double>& errors) {
+        double norm = 0;
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto response = model.reference().isentropic_response(anchors[i], delta[i]);
+            const double void_budget = 32 * std::numeric_limits<double>::epsilon() * response.endpoint.volume_m3;
+            if (response.state.vacuum_volume_m3 > void_budget) { saw_void = true; throw TrialVoid(); }
+            const bool roundoff_fill = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
+            roundoff_trial[i] = roundoff_fill;
+            pressures[i] = roundoff_fill ? 0 : response.work_pressure_pa;
+            double derivative;
+            if (delta[i] == 0 || (!response.state.has_gas && response.work_pressure_pa == 0))
+                derivative = -0.5 / model.compression_compliance(anchors[i]);
+            else derivative = model.reference().isentropic_work_pressure_derivative(anchors[i], delta[i]);
+            capacities[i] = -1 / derivative;
+            if (!std::isfinite(capacities[i]) || capacities[i] <= 0)
+                throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied work compliance is unrepresentable");
+            errors[i] = delta[i];
+        }
+        for (const auto& node : nodes) {
+            if (node.fixed_zero_velocity) continue;
+            const double pl = node.left == no_material_cell ? 0 : pressures[node.left];
+            const double pr = node.right == no_material_cell ? 0 : pressures[node.right];
+            const double force = node.area_m2 * (pl - pr) + node.inertia_kg * node.acceleration_m_per_s2;
+            const double swept = dt * node.area_m2 * (node.velocity_m_per_s + 0.5 * dt * force / node.inertia_kg);
+            require_finite(swept, "occupied swept volume");
+            if (node.left != no_material_cell) errors[node.left] -= swept;
+            if (node.right != no_material_cell) errors[node.right] += swept;
+        }
+        for (std::size_t i = 0; i < count; ++i) {
+            const double accuracy = roundoff_trial[i] ? 5e-13 / (2 * std::numeric_limits<double>::epsilon()) : 1;
+            norm = std::max(norm, std::abs(errors[i]) / cells[i].volume_m3 * accuracy);
+        }
+        require_finite(norm, "occupied volume residual");
+        return norm;
+    };
+    OccupiedMaterialPressureStep result;
+    constexpr double tolerance = 5e-13;
+    double norm = evaluate(changes, work, compliance, residual);
+    while (norm > tolerance) {
+        if (result.nonlinear_iterations == 80) {
+            if (saw_void) throw FluidFatalError(FluidFatalCode::unsupported_topology, void_message());
+            throw std::domain_error("Occupied pressure root did not converge; retry smaller timestep");
+        }
+        auto diagonal = compliance;
+        for (std::size_t i = 0; i < count; ++i) diagonal[i] += boundary_diagonal[i];
+        const PressureSystem matrix(std::move(diagonal), edges, preconditioner);
+        const auto solved = matrix.solve(residual, std::vector<double>(count), 1e-12, 0);
+        result.pressure_iterations += solved.iterations;
+        result.maximum_linear_residual_norm = std::max(result.maximum_linear_residual_norm, solved.residual_norm);
+        if (solved.residual_threshold > 0) result.maximum_linear_residual_ratio = std::max(result.maximum_linear_residual_ratio,
+            solved.residual_norm / solved.residual_threshold);
+        if (solved.iterations > 0) {
+            if (solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky) ++result.incomplete_cholesky_solves;
+            else ++result.jacobi_solves;
+        }
+        if (solved.preconditioner_fallback) ++result.preconditioner_fallbacks;
+        bool accepted = false;
+        double fraction = 1;
+        for (int attempt = 0; attempt < 48; ++attempt) {
+            auto next_changes = changes;
+            std::vector<double> next_work(count), next_compliance(count), next_residual(count);
+            for (std::size_t i = 0; i < count; ++i) next_changes[i] -= fraction * compliance[i] * solved.pressure[i];
+            try {
+                const double next_norm = evaluate(next_changes, next_work, next_compliance, next_residual);
+                if (next_norm <= tolerance || next_norm < norm * (1 - 1e-4 * fraction)) {
+                    changes = std::move(next_changes); work = std::move(next_work);
+                    compliance = std::move(next_compliance); residual = std::move(next_residual);
+                    norm = next_norm; accepted = true; break;
+                }
+            } catch (const TrialVoid&) {
+                // A trial may overstep the physical branch. Backtrack before
+                // declaring that the actual root needs unsupported topology.
+            } catch (const experimental::ReferenceError& error) {
+                if (error.code() == experimental::ReferenceErrorCode::numerical_range ||
+                    error.code() == experimental::ReferenceErrorCode::incompatible_entropy_reference ||
+                    error.code() == experimental::ReferenceErrorCode::invalid_model ||
+                    error.code() == experimental::ReferenceErrorCode::unsupported_derivative)
+                    throw FluidFatalError(FluidFatalCode::numerical_precision, error.what());
+            }
+            fraction *= 0.5;
+        }
+        if (!accepted) {
+            if (saw_void) throw FluidFatalError(FluidFatalCode::unsupported_topology, void_message());
+            throw std::domain_error("Occupied pressure line search failed; retry smaller timestep");
+        }
+        ++result.nonlinear_iterations;
+    }
+    result.cells.assign(cells.begin(), cells.end());
+    result.work_pressures_pa = work; result.volume_changes_m3 = changes; result.volume_residuals_m3 = residual;
+    result.endpoint_pressures_pa.resize(count);
+    result.zero_work_substituted.resize(count, 0);
+    long double energy_change = 0, scale = 0, body_work = 0, work_roundoff = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto response = model.reference().isentropic_response(anchors[i], changes[i]);
+        const bool substituted = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
+        auto& cell = result.cells[i];
+        cell.volume_m3 = response.endpoint.volume_m3;
+        const double energy_update = substituted ? 0 : response.internal_energy_change_j;
+        cell.mixture.energy += energy_update;
+        if (substituted) {
+            result.zero_work_substituted[i] = 1; ++result.zero_work_substitutions;
+            result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa,
+                std::max(anchors[i].reference_state().mechanical_pressure_pa,
+                    std::max(response.work_pressure_pa, response.state.mechanical_pressure_pa)));
+            const double bound = std::abs(response.internal_energy_change_j);
+            const double local_scale = anchors[i].reference_state().thermal_energy_j + anchors[i].reference_state().elastic_energy_j;
+            if (bound > 64 * std::numeric_limits<double>::epsilon() * local_scale)
+                throw FluidFatalError(FluidFatalCode::numerical_precision, "Liquid fill roundoff approximation has material local elastic work");
+            result.omitted_elastic_work_bound_j += bound;
+        }
+        const auto state = model.evaluate(cell.mixture, cell.volume_m3);
+        result.endpoint_pressures_pa[i] = state.mechanical_pressure_pa;
+        const long double actual = static_cast<long double>(cell.mixture.energy) - cells[i].mixture.energy;
+        energy_change += actual; work_roundoff += actual - energy_update;
+        if (!response.endpoint_energy_resolves_change) ++result.unresolved_energy_updates;
+        if (!response.endpoint_volume_resolves_change) ++result.unresolved_volume_updates;
+        const double volume_roundoff = std::abs(response.represented_volume_change_m3 - response.volume_change_m3);
+        result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, volume_roundoff);
+        if (volume_roundoff > 32 * std::numeric_limits<double>::epsilon() * cells[i].volume_m3)
+            throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied pressure volume rounding exceeds local geometric resolution");
+        scale += anchors[i].reference_state().thermal_energy_j + state.thermal_energy_j +
+            anchors[i].reference_state().elastic_energy_j + state.elastic_energy_j;
+        result.maximum_volume_residual_m3 = std::max(result.maximum_volume_residual_m3, std::abs(residual[i]));
+    }
+    for (const auto& node : nodes) {
+        const double pl = node.left == no_material_cell ? 0 : work[node.left];
+        const double pr = node.right == no_material_cell ? 0 : work[node.right];
+        const double force = node.area_m2 * (pl - pr) + node.inertia_kg * node.acceleration_m_per_s2;
+        const double next = node.fixed_zero_velocity ? 0 : node.velocity_m_per_s + dt * force / node.inertia_kg;
+        require_finite(next, "occupied updated node velocity");
+        result.velocities_m_per_s.push_back(next);
+        const long double mean = 0.5L * (static_cast<long double>(next) + node.velocity_m_per_s);
+        energy_change += node.inertia_kg * (static_cast<long double>(next) - node.velocity_m_per_s) * mean;
+        body_work += dt * node.inertia_kg * node.acceleration_m_per_s2 * mean;
+        result.body_impulse_kg_m_per_s += dt * node.inertia_kg * node.acceleration_m_per_s2;
+        if (node.fixed_zero_velocity) result.wall_reaction_impulse_kg_m_per_s -= dt * force;
+        scale += node.inertia_kg * (static_cast<long double>(next) * next +
+            static_cast<long double>(node.velocity_m_per_s) * node.velocity_m_per_s);
+    }
+    result.body_force_work_j = static_cast<double>(body_work);
+    result.energy_balance_error_j = static_cast<double>(energy_change - body_work);
+    result.pressure_work_roundoff_j = static_cast<double>(work_roundoff);
+    if (!std::isfinite(result.energy_balance_error_j) || std::abs(energy_change - body_work) > 2e-11L * scale)
+        throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied pressure failed represented total-energy balance");
     return result;
 }
 }

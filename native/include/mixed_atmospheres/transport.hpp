@@ -1,5 +1,7 @@
 #pragma once
 #include "mixture.hpp"
+#include "fluid_thermodynamics.hpp"
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -39,4 +41,28 @@ struct SweptFace {
     const SpeciesRegistry& registry, std::span<const TransportCell> cells,
     std::span<const SweptFace> faces, std::span<const double> target_volumes_m3,
     std::span<const double> potentials_j_per_kg = {});
+
+struct OccupiedMeshPosition {
+    std::size_t grid_line = 0;
+    double offset_m = 0; // local offset; not added to a large absolute position
+};
+[[nodiscard]] inline double occupied_position_relative_to(OccupiedMeshPosition position, std::size_t grid_line, double dx) {
+    return (static_cast<double>(position.grid_line) - static_cast<double>(grid_line)) * dx + position.offset_m;
+}
+[[nodiscard]] inline double occupied_interval_length(OccupiedMeshPosition begin, OccupiedMeshPosition end, double dx) {
+    return (static_cast<double>(end.grid_line) - static_cast<double>(begin.grid_line)) * dx + (end.offset_m - begin.offset_m);
+}
+struct OccupiedTransportCell {
+    MixtureInventory mixture;
+    OccupiedMeshPosition begin, end; // endpoints share exact node coordinates
+    double momentum_kg_m_per_s = 0;
+};
+// Geometric interval-overlap remap. Entire donors may leave a fixed cell;
+// there is no cut-volume outgoing-fraction cutoff. One uniform connected slab
+// is represented per cell. Potential first moments, species, momentum and
+// internal/kinetic energy all follow the same occupied overlaps.
+[[nodiscard]] std::vector<OccupiedTransportCell> remap_occupied_mixtures(
+    const FluidThermodynamics& thermodynamics, std::span<const OccupiedTransportCell> moving,
+    std::span<const std::uint8_t> walls, double cell_size_m, double cross_section_m2,
+    double gravitational_potential_gradient_j_per_kg_m = 0);
 }

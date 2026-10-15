@@ -6,8 +6,9 @@
 #include <string>
 #include <vector>
 
-// Standalone thermodynamic prototype. No production inventory, world or ABI
-// includes this header. All energies below exclude bulk kinetic energy.
+// Thermodynamic prototype, tested standalone and used through the explicit
+// experimental FluidWorld bridge. GasWorld and the C ABI do not select it.
+// All energies below exclude bulk kinetic energy.
 namespace ma::experimental {
 inline constexpr double reference_gas_constant = 8.31446261815324;
 inline constexpr double entropy_reference_temperature_k = 298.15;
