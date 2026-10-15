@@ -17,6 +17,12 @@ jobs:
           arch: x64
       - name: Build and test
         run: python tools/build.py
+      - name: Configure isolated liquid thermodynamic reference
+        run: cmake -S native/experimental -B build-liquid-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build isolated liquid thermodynamic reference
+        run: cmake --build build-liquid-reference --parallel 4
+      - name: Test isolated liquid thermodynamic reference
+        run: ctest --test-dir build-liquid-reference --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: standalone-${{ runner.os }}
@@ -30,4 +36,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Native memory and undefined-behavior checks
         run: python3 tools/build.py --native-only --sanitizers --build-dir build-sanitized
+      - name: Configure isolated reference sanitizers
+        run: cmake -S native/experimental -B build-liquid-reference-sanitized -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMA_REFERENCE_SANITIZERS=ON
+      - name: Build isolated reference sanitizers
+        run: cmake --build build-liquid-reference-sanitized --parallel 4
+      - name: Test isolated reference sanitizers
+        run: ctest --test-dir build-liquid-reference-sanitized --output-on-failure
 # Game assemblies remain local. CI does not download or redistribute ONI.
