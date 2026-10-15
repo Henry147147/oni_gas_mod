@@ -66,6 +66,8 @@ struct OccupiedMaterialPressureStep : MaterialPressureStep {
     double wall_reaction_impulse_kg_m_per_s = 0, body_impulse_kg_m_per_s = 0;
     double pressure_work_roundoff_j = 0;
     double maximum_volume_roundoff_m3 = 0;
+    double maximum_volume_addition_roundoff_m3 = 0, maximum_root_arithmetic_roundoff_m3 = 0;
+    double maximum_endpoint_relative_volume_residual = 0;
     std::size_t unresolved_energy_updates = 0, unresolved_volume_updates = 0;
     std::vector<std::uint8_t> zero_work_substituted;
     std::size_t zero_work_substitutions = 0;

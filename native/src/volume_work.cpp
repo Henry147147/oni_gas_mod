@@ -16,6 +16,22 @@ struct Closure {
 struct Response {
     double work_pressure, endpoint_pressure, compliance, energy_change;
 };
+// Error-free TwoSum for finite additions (gradual underflow), followed by a
+// compensated reduction. The residual contains three terms per 1-D cell;
+// the bound covers rounding in its correction and final addition, without a
+// unit floor or a bound proportional to mutually cancelling face sweeps.
+struct VolumeSum {
+    double sum = 0, correction = 0, error_magnitudes = 0;
+    void add(double value) {
+        const double next = sum + value, recovered = next - sum;
+        const double error = (sum - (next - recovered)) + (value - recovered);
+        sum = next; correction += error; error_magnitudes += std::abs(error);
+    }
+    [[nodiscard]] double value() const { return sum + correction; }
+    [[nodiscard]] double roundoff_bound() const {
+        return 4 * std::numeric_limits<double>::epsilon() * (error_magnitudes + std::abs(value()));
+    }
+};
 
 Response response(const Closure& state, double volume_change) {
     const double x = volume_change / state.free_volume;
@@ -288,6 +304,7 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
     struct TrialVoid final : std::domain_error { TrialVoid() : std::domain_error("Occupied trial creates internal liquid void") {} };
     bool saw_void = false;
     std::vector<double> changes(count, 0), work(count), compliance(count), residual(count);
+    std::vector<double> endpoint_volumes(count), root_arithmetic_roundoff(count);
     std::vector<bool> roundoff_trial(count, false);
     const auto void_message = [&] {
         std::ostringstream message; message << std::setprecision(17) << "Occupied pressure root requires internal cavitation/gap creation";
@@ -299,8 +316,10 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
     const auto evaluate = [&](const std::vector<double>& delta, std::vector<double>& pressures,
                               std::vector<double>& capacities, std::vector<double>& errors) {
         double norm = 0;
+        std::vector<VolumeSum> sums(count);
         for (std::size_t i = 0; i < count; ++i) {
             const auto response = model.reference().isentropic_response(anchors[i], delta[i]);
+            endpoint_volumes[i] = response.endpoint.volume_m3;
             const double void_budget = 32 * std::numeric_limits<double>::epsilon() * response.endpoint.volume_m3;
             if (response.state.vacuum_volume_m3 > void_budget) { saw_void = true; throw TrialVoid(); }
             const bool roundoff_fill = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
@@ -313,21 +332,27 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
             capacities[i] = -1 / derivative;
             if (!std::isfinite(capacities[i]) || capacities[i] <= 0)
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied work compliance is unrepresentable");
-            errors[i] = delta[i];
+            sums[i].add(delta[i]);
         }
         for (const auto& node : nodes) {
             if (node.fixed_zero_velocity) continue;
             const double pl = node.left == no_material_cell ? 0 : pressures[node.left];
             const double pr = node.right == no_material_cell ? 0 : pressures[node.right];
             const double force = node.area_m2 * (pl - pr) + node.inertia_kg * node.acceleration_m_per_s2;
-            const double swept = dt * node.area_m2 * (node.velocity_m_per_s + 0.5 * dt * force / node.inertia_kg);
+            // Use the same represented endpoint velocity and midpoint
+            // displacement as FluidWorld's geometry update. Algebraically
+            // u0 + dt*force/(2I) is equivalent, but a different rounding path
+            // can dominate the local volume budget of a rapidly growing cut.
+            const double next = node.velocity_m_per_s + dt * force / node.inertia_kg;
+            const double swept = node.area_m2 * (dt * (0.5 * node.velocity_m_per_s + 0.5 * next));
             require_finite(swept, "occupied swept volume");
-            if (node.left != no_material_cell) errors[node.left] -= swept;
-            if (node.right != no_material_cell) errors[node.right] += swept;
+            if (node.left != no_material_cell) sums[node.left].add(-swept);
+            if (node.right != no_material_cell) sums[node.right].add(swept);
         }
         for (std::size_t i = 0; i < count; ++i) {
+            errors[i] = sums[i].value(); root_arithmetic_roundoff[i] = sums[i].roundoff_bound();
             const double accuracy = roundoff_trial[i] ? 5e-13 / (2 * std::numeric_limits<double>::epsilon()) : 1;
-            norm = std::max(norm, std::abs(errors[i]) / cells[i].volume_m3 * accuracy);
+            norm = std::max(norm, std::abs(errors[i]) / endpoint_volumes[i] * accuracy);
         }
         require_finite(norm, "occupied volume residual");
         return norm;
@@ -415,7 +440,14 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
         if (!response.endpoint_volume_resolves_change) ++result.unresolved_volume_updates;
         const double volume_roundoff = std::abs(response.represented_volume_change_m3 - response.volume_change_m3);
         result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, volume_roundoff);
-        if (volume_roundoff > 32 * std::numeric_limits<double>::epsilon() * cells[i].volume_m3)
+        VolumeSum addition; addition.add(cells[i].volume_m3); addition.add(changes[i]); addition.add(-cell.volume_m3);
+        const double addition_roundoff = std::abs(addition.value());
+        result.maximum_volume_addition_roundoff_m3 = std::max(result.maximum_volume_addition_roundoff_m3, addition_roundoff);
+        result.maximum_root_arithmetic_roundoff_m3 = std::max(result.maximum_root_arithmetic_roundoff_m3, root_arithmetic_roundoff[i]);
+        result.maximum_endpoint_relative_volume_residual = std::max(result.maximum_endpoint_relative_volume_residual,
+            std::abs(residual[i]) / cell.volume_m3);
+        const double endpoint_budget = 32 * std::numeric_limits<double>::epsilon() * cell.volume_m3;
+        if (volume_roundoff > endpoint_budget || addition_roundoff > endpoint_budget || root_arithmetic_roundoff[i] > endpoint_budget)
             throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied pressure volume rounding exceeds local geometric resolution");
         scale += anchors[i].reference_state().thermal_energy_j + state.thermal_energy_j +
             anchors[i].reference_state().elastic_energy_j + state.elastic_energy_j;

@@ -6,6 +6,8 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <sstream>
+#include <iomanip>
 
 namespace ma {
 namespace {
@@ -210,25 +212,15 @@ FluidWorld::Candidate FluidWorld::advance_occupied(double dt) const {
             !right && cells_[i].occupied_end_m == dx_ && (i + 1 == cells_.size() || cells_[i + 1].wall);
         const double ml = left ? masses[j - 1] : 0, mr = right ? masses[j] : 0;
         const double inertia = 0.5 * ml + 0.5 * mr;
-        const double velocity = fixed ? 0 : ((left ? 0.5 * ml * velocities[j - 1] : 0) +
-            (right ? 0.5 * mr * velocities[j] : 0)) / inertia;
+        // Difference form preserves an exactly uniform velocity without a
+        // multiply/add/divide round trip, including unequal cut-cell masses.
+        const double velocity = fixed ? 0 : !left ? velocities[j] : !right ? velocities[j - 1] :
+            velocities[j - 1] + (0.5 * mr / inertia) * (velocities[j] - velocities[j - 1]);
         nodes.push_back({left ? j - 1 : no_material_cell, right ? j : no_material_cell,
                          area, inertia, velocity, acceleration, fixed});
         const OccupiedMeshPosition position = !left ? OccupiedMeshPosition{i, cells_[i].occupied_begin_m} :
             right ? OccupiedMeshPosition{active[j], 0} : OccupiedMeshPosition{i, cells_[i].occupied_end_m};
         positions.push_back(position);
-        for (const auto local : {nodes.back().left, nodes.back().right}) if (local != no_material_cell) {
-            const double difference = velocities[local] - velocity;
-            const double heat = 0.25 * masses[local] * difference * difference;
-            require_finite(heat, "initial compatible projection heat");
-            const double previous_energy = material[local].mixture.energy;
-            material[local].mixture.energy += heat;
-            const double rounding = (material[local].mixture.energy - previous_energy) - heat;
-            result.projection_heat_roundoff_j += rounding;
-            if (std::abs(rounding) > 32 * std::numeric_limits<double>::epsilon() * heat) ++result.unresolved_energy_updates;
-            result.initial_projection_heat_j += heat;
-            if (fixed) result.wall_reaction_impulse_kg_m_per_s += 0.5 * masses[local] * (velocity - velocities[local]);
-        }
     }
     auto pressure = advance_occupied_material_pressure(model, material, nodes, dt, settings_.pressure_preconditioner,
         geometry_->liquid_fill_roundoff);
@@ -244,6 +236,9 @@ FluidWorld::Candidate FluidWorld::advance_occupied(double dt) const {
     result.unresolved_energy_updates += pressure.unresolved_energy_updates;
     result.unresolved_volume_updates = pressure.unresolved_volume_updates;
     result.maximum_volume_roundoff_m3 = pressure.maximum_volume_roundoff_m3;
+    result.maximum_volume_addition_roundoff_m3 = pressure.maximum_volume_addition_roundoff_m3;
+    result.maximum_root_arithmetic_roundoff_m3 = pressure.maximum_root_arithmetic_roundoff_m3;
+    result.maximum_endpoint_relative_volume_residual = pressure.maximum_endpoint_relative_volume_residual;
     result.zero_work_substitutions = pressure.zero_work_substitutions;
     result.maximum_omitted_pressure_pa = pressure.maximum_omitted_pressure_pa;
     result.omitted_elastic_work_bound_j = pressure.omitted_elastic_work_bound_j;
@@ -266,23 +261,49 @@ FluidWorld::Candidate FluidWorld::advance_occupied(double dt) const {
     moving.reserve(active.size());
     long double energy_scale = 0;
     for (std::size_t i = 0; i < active.size(); ++i) {
-        const double ul = pressure.velocities_m_per_s[i], ur = pressure.velocities_m_per_s[i + 1];
-        const double difference = ur - ul;
+        // Transfer the pressure/body-force INCREMENT, retaining canonical
+        // cell momentum. Replacing it by the average endpoint node velocity
+        // would apply an O(1) PIC smoothing even as dt -> 0. Initial node
+        // velocities are the half-mass adjoint of this increment transfer,
+        // so their linear kinetic-work terms agree exactly in real arithmetic.
+        const double dul = pressure.velocities_m_per_s[i] - nodes[i].velocity_m_per_s;
+        const double dur = pressure.velocities_m_per_s[i + 1] - nodes[i + 1].velocity_m_per_s;
+        const double difference = dur - dul;
+        // Only the unresolved incremental kinetic variance becomes heat:
+        // 1/2 sum I du^2 - 1/2 sum M dv^2 = sum M/8 (duR-duL)^2.
+        // It is nonnegative and O(dt^2), unlike the old whole-velocity defect.
         const double heat = 0.125 * masses[i] * difference * difference;
         result.final_projection_heat_j += heat;
         auto& mixture = pressure.cells[i].mixture; const double previous_energy = mixture.energy; mixture.energy += heat;
         const double rounding = (mixture.energy - previous_energy) - heat;
         result.projection_heat_roundoff_j += rounding;
         if (std::abs(rounding) > 32 * std::numeric_limits<double>::epsilon() * heat) ++result.unresolved_energy_updates;
-        require_finite(heat, "final compatible projection heat");
-        const double momentum = masses[i] * (0.5 * ul + 0.5 * ur);
+        require_finite(heat, "compatible incremental kinetic heat");
+        const double old_momentum = geometry_->axis == FluidAxis::x ? cells_[active[i]].momentum_x : cells_[active[i]].momentum_y;
+        const double momentum = old_momentum + masses[i] * (0.5 * dul + 0.5 * dur);
         if (occupied_interval_length(next_positions[i], next_positions[i + 1], dx_) <= 0)
             throw FluidFatalError(FluidFatalCode::numerical_precision, "Positive pressure endpoint has nonpositive represented occupied geometry");
         const double represented_volume = area * occupied_interval_length(next_positions[i], next_positions[i + 1], dx_);
-        const double geometry_roundoff = std::abs((represented_volume - pressure.cells[i].volume_m3) + pressure.volume_residuals_m3[i]);
+        // Compare with the explicit requested change, not the independently
+        // rounded V0+dV endpoint. A rapidly expanding tiny cut can have an
+        // endpoint ULP larger than its initial-volume budget; subtracting that
+        // rounded endpoint injects its addition error into the geometry test.
+        AccurateSum geometry_residual;
+        geometry_residual.add(represented_volume); geometry_residual.add(-material[i].volume_m3);
+        geometry_residual.add(-pressure.volume_changes_m3[i]); geometry_residual.add(pressure.volume_residuals_m3[i]);
+        const double geometry_roundoff = std::abs(geometry_residual.value());
+        result.signed_geometry_volume_residual_m3 += geometry_residual.value();
+        result.absolute_geometry_volume_residual_m3 += geometry_roundoff;
         result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, geometry_roundoff);
-        if (geometry_roundoff > 32 * std::numeric_limits<double>::epsilon() * std::min(material[i].volume_m3, pressure.cells[i].volume_m3))
-            throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied endpoint rounding materially changes its local material volume");
+        if (geometry_roundoff > 32 * std::numeric_limits<double>::epsilon() * pressure.cells[i].volume_m3) {
+            std::ostringstream message;
+            message << std::setprecision(17) << "Occupied endpoint rounding materially changes its local material volume; cell=" << active[i] <<
+                " initial=" << material[i].volume_m3 << " requested=" << pressure.cells[i].volume_m3 <<
+                " requested_change=" << pressure.volume_changes_m3[i] <<
+                " represented=" << represented_volume << " root_residual=" << pressure.volume_residuals_m3[i] <<
+                " roundoff=" << geometry_roundoff;
+            throw FluidFatalError(FluidFatalCode::numerical_precision, message.str());
+        }
         if (pressure.zero_work_substituted[i]) {
             const auto anchor = model.reference().make_isentrope(model.to_reference(material[i].mixture, material[i].volume_m3));
             auto represented = anchor.reference_cell(); represented.volume_m3 = represented_volume;
@@ -558,6 +579,14 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
                 result.unresolved_position_updates += candidate.unresolved_position_updates;
                 result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, candidate.maximum_volume_roundoff_m3);
                 result.maximum_position_roundoff_m = std::max(result.maximum_position_roundoff_m, candidate.maximum_position_roundoff_m);
+                result.maximum_volume_addition_roundoff_m3 = std::max(result.maximum_volume_addition_roundoff_m3,
+                    candidate.maximum_volume_addition_roundoff_m3);
+                result.maximum_root_arithmetic_roundoff_m3 = std::max(result.maximum_root_arithmetic_roundoff_m3,
+                    candidate.maximum_root_arithmetic_roundoff_m3);
+                result.maximum_endpoint_relative_volume_residual = std::max(result.maximum_endpoint_relative_volume_residual,
+                    candidate.maximum_endpoint_relative_volume_residual);
+                result.signed_geometry_volume_residual_m3 += candidate.signed_geometry_volume_residual_m3;
+                result.absolute_geometry_volume_residual_m3 += candidate.absolute_geometry_volume_residual_m3;
                 result.zero_work_substitutions += candidate.zero_work_substitutions;
                 result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa, candidate.maximum_omitted_pressure_pa);
                 result.omitted_elastic_work_bound_j += candidate.omitted_elastic_work_bound_j;

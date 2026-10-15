@@ -182,6 +182,16 @@ unrepresentable/cancelling energy references, explicit import-energy accounting,
 metadata and failure rollback. These are reference
 thermodynamic checks, not production performance or gameplay validation.
 
+Gas entropy evaluates `log(Vgas/n)` and `log(T/Tref)` using `log1p` for
+nearby positive arguments and a difference of logarithms otherwise. This is
+the same entropy formula/reference and does not change the profile metadata,
+API or material calibration. It avoids forming an overflowing or underflowing
+quotient when the entropy contribution itself is finite. The independent
+26-group tests include pure-gas scale extremes, entropy volume derivatives and
+a minimum-positive gas trace beside bulk gas. A trace whose positive overlap
+shares cannot be represented still fails in the connected remap; it is never
+deleted by this logarithm correction.
+
 Manual MSVC build (after loading the VS x64 developer environment):
 
 ```
@@ -189,7 +199,8 @@ cl /nologo /std:c++20 /EHsc /W4 /WX /O2 /Fe:build-solver/liquid-reference/liquid
 build-solver/liquid-reference/liquid_reference_tests.exe
 ```
 
-Create the output directory first. Root CMake is intentionally unchanged.
+Create the output directory first. This standalone project remains independent
+of the root's opt-in connected FluidWorld build.
 
 Standalone GNU Linux CMake/CTest builds (GCC or Clang):
 

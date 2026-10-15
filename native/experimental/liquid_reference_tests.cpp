@@ -1,6 +1,7 @@
 #include "liquid_reference.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -573,6 +574,36 @@ void isentropic_domains_and_rollback() {
     rejects([&] { (void)model.make_isentrope({{-1, 0}, 0, 1}); }, ReferenceErrorCode::invalid_inventory);
     rejects([&] { (void)model.isentropic_at_volume(anchor, .1); }, ReferenceErrorCode::compression_outside_model);
 }
+
+void ideal_gas_entropy_extreme_ratios_and_denormal_trace() {
+    auto gas = oxygen(); gas.minimum_temperature_k = 1e-315;
+    const LiquidThermodynamicReference pure("stable-gas-entropy-v1", {gas});
+    for (const auto& [mass, temperature, volume] : std::vector<std::array<double, 3>>{
+        {1e-10, 300, 1e300}, {1e24, 1e-310, 1e-300}, {gas.molar_mass_kg_per_mol, entropy_reference_temperature_k, 1}}) {
+        const double moles = mass / gas.molar_mass_kg_per_mol;
+        const auto state = pure.initialize_at_temperature(std::vector<double>{mass}, temperature, volume);
+        const double expected = mass * gas.cv_j_per_kg_k * (std::log(temperature) - std::log(entropy_reference_temperature_k)) +
+            moles * reference_gas_constant * (std::log(volume) - std::log(moles));
+        near(state.state.entropy_j_per_k, expected, 5e-14);
+        require(std::isfinite(state.state.helmholtz_energy_j) && state.cell.masses_kg[0] == mass,
+            "Extreme finite gas entropy changed mass or overflowed Helmholtz energy");
+        const auto expanded = pure.initialize_at_temperature(std::vector<double>{mass}, temperature, volume * 1.01);
+        near(expanded.state.entropy_j_per_k - state.state.entropy_j_per_k,
+            moles * reference_gas_constant * std::log1p(.01), 5e-10);
+    }
+    auto trace = nitrogen(); trace.id = "denormal-helium-test"; trace.molar_mass_kg_per_mol = .004; trace.cv_j_per_kg_k = 3120;
+    const LiquidThermodynamicReference mixture("stable-trace-entropy-v1", {oxygen(), trace});
+    const double tiny = std::numeric_limits<double>::denorm_min();
+    const auto initial = mixture.initialize_at_temperature(std::vector<double>{1, tiny}, 300, .5);
+    require(initial.cell.masses_kg[1] == tiny && initial.state.partial_volumes_m3[1] > 0 &&
+        std::isfinite(initial.state.entropy_j_per_k) && initial.state.has_gas,
+        "Positive denormal trace disappeared or made finite entropy overflow");
+    const auto anchor = mixture.make_isentrope(initial.cell);
+    const auto response = mixture.isentropic_response(anchor, .01);
+    require(response.endpoint.masses_kg[1] == tiny && response.state.partial_volumes_m3[1] > 0,
+        "Stable entropy query changed the denormal trace");
+    near(response.state.entropy_j_per_k, initial.state.entropy_j_per_k, 1e-12);
+}
 }
 
 int main() {
@@ -601,7 +632,8 @@ int main() {
         {"sub-ULP volume/work changes and explicit endpoint precision reports", isentropic_tiny_increments},
         {"typed liquid-fill kinks, empty reference and immutable model identity", isentropic_kinks_empty_and_profiles},
         {"finite-volume gas expansion toward vacuum without deleting matter", isentropic_vacuum_limits},
-        {"isentropic domain/root failures preserve reference and prior output", isentropic_domains_and_rollback}
+        {"isentropic domain/root failures preserve reference and prior output", isentropic_domains_and_rollback},
+        {"ideal-gas entropy scale extremes and positive denormal trace", ideal_gas_entropy_extreme_ratios_and_denormal_trace}
     };
     int failed = 0;
     for (const auto& [name, test] : tests) {

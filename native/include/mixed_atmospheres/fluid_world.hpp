@@ -43,12 +43,17 @@ struct FluidStepResult {
     std::size_t thermal_iterations = 0;
     double maximum_linear_residual_norm = 0, maximum_linear_residual_ratio = 0, maximum_volume_residual_m3 = 0;
     std::size_t incomplete_cholesky_solves = 0, jacobi_solves = 0, preconditioner_fallbacks = 0;
+    // Occupied mode retains canonical cell momentum: initial heat is zero;
+    // final heat records only unresolved pressure/body increment variance.
     double initial_projection_heat_j = 0, final_projection_heat_j = 0;
     double projection_heat_roundoff_j = 0;
     double wall_reaction_impulse_kg_m_per_s = 0, body_impulse_kg_m_per_s = 0;
     double maximum_conservation_error_j = 0, pressure_work_roundoff_j = 0;
     std::size_t unresolved_energy_updates = 0, unresolved_volume_updates = 0, unresolved_position_updates = 0;
     double maximum_volume_roundoff_m3 = 0, maximum_position_roundoff_m = 0;
+    double maximum_volume_addition_roundoff_m3 = 0, maximum_root_arithmetic_roundoff_m3 = 0;
+    double maximum_endpoint_relative_volume_residual = 0;
+    double signed_geometry_volume_residual_m3 = 0, absolute_geometry_volume_residual_m3 = 0;
     std::size_t zero_work_substitutions = 0;
     double maximum_omitted_pressure_pa = 0, omitted_elastic_work_bound_j = 0;
     double cumulative_omitted_elastic_work_bound_j = 0;
@@ -110,6 +115,9 @@ private:
         double maximum_conservation_error_j = 0, pressure_work_roundoff_j = 0;
         std::size_t unresolved_energy_updates = 0, unresolved_volume_updates = 0, unresolved_position_updates = 0;
         double maximum_volume_roundoff_m3 = 0, maximum_position_roundoff_m = 0;
+        double maximum_volume_addition_roundoff_m3 = 0, maximum_root_arithmetic_roundoff_m3 = 0;
+        double maximum_endpoint_relative_volume_residual = 0;
+        double signed_geometry_volume_residual_m3 = 0, absolute_geometry_volume_residual_m3 = 0;
         std::size_t zero_work_substitutions = 0;
         double maximum_omitted_pressure_pa = 0, omitted_elastic_work_bound_j = 0;
     };

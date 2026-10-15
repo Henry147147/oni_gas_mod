@@ -135,7 +135,7 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         }
         [[nodiscard]] double total() const { return value + correction; }
     };
-    struct Sums { std::vector<Sum> masses; Sum internal, kinetic, potential, momentum; };
+    struct Sums { std::vector<Sum> masses; Sum internal, kinetic, potential, momentum, occupied_length; bool present = false; };
     std::vector<Sums> sums(walls.size());
     std::vector<OccupiedTransportCell> result;
     result.reserve(walls.size());
@@ -143,7 +143,7 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         sums[i].masses.resize(model.registry_size());
         result.push_back({MixtureInventory(model.registry_size()), {}, {}, 0});
     }
-    struct Overlap { std::size_t cell; double begin, end; };
+    struct Overlap { std::size_t cell; double begin, end, length; };
     std::optional<OccupiedMeshPosition> previous_end;
     for (const auto& donor : moving) {
         model.validate_inventory(donor.mixture);
@@ -171,11 +171,18 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         const auto last = static_cast<std::size_t>(std::min(static_cast<double>(walls.size() - 1), last_index));
         std::vector<Overlap> overlaps;
         for (std::size_t i = first; i <= last; ++i) {
-            const double begin = std::max(0.0, occupied_position_relative_to(donor.begin, i, dx));
-            const double end = std::min(dx, occupied_position_relative_to(donor.end, i, dx));
-            if (end <= begin) continue;
+            const OccupiedMeshPosition cell_begin{i, 0}, cell_end{i + 1, 0};
+            const auto clipped_begin = occupied_interval_length(cell_begin, donor.begin, dx) > 0 ? donor.begin : cell_begin;
+            const auto clipped_end = occupied_interval_length(donor.end, cell_end, dx) > 0 ? donor.end : cell_end;
+            // Compute positivity before converting to stored in-cell offsets.
+            // In particular dx-tiny can round to dx even though the material
+            // interval next to that boundary is positive. It must not vanish.
+            const double mathematical_length = occupied_interval_length(clipped_begin, clipped_end, dx);
+            if (mathematical_length <= 0) continue;
+            const double begin = occupied_position_relative_to(clipped_begin, i, dx);
+            const double end = occupied_position_relative_to(clipped_end, i, dx);
             if (walls[i]) throw FluidFatalError(FluidFatalCode::unsupported_topology, "Moving free surface reached a rigid wall; collision topology is unsupported");
-            overlaps.push_back({i, begin, end});
+            overlaps.push_back({i, begin, end, mathematical_length});
         }
         if (overlaps.empty()) throw FluidFatalError(FluidFatalCode::numerical_precision, "Positive material has no representable mesh overlap");
         // Give tiny cut receivers their directly computed positive share.
@@ -183,7 +190,7 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         // overlap, where cancellation cannot erase an arbitrarily small wet
         // interval or its traces as a front crosses a fixed grid face.
         const auto largest = std::max_element(overlaps.begin(), overlaps.end(), [](const auto& a, const auto& b) {
-            return a.end - a.begin < b.end - b.begin;
+            return a.length < b.length;
         });
         std::iter_swap(largest, overlaps.end() - 1);
         auto remaining_masses = donor.mixture.masses;
@@ -191,23 +198,24 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         double remaining_potential = potential, remaining_momentum = donor.momentum_kg_m_per_s;
         for (std::size_t o = 0; o < overlaps.size(); ++o) {
             const auto& overlap = overlaps[o]; const bool final = o + 1 == overlaps.size();
-            const double overlap_length = overlap.end - overlap.begin;
+            const double overlap_length = overlap.length;
             const double fraction = overlap_length / length;
             const auto share = [&](double value) {
                 const double density = value / length;
                 return std::isfinite(density) && (density != 0 || value == 0) ? density * overlap_length : fraction * value;
             };
             auto& target = result[overlap.cell]; auto& accumulated = sums[overlap.cell];
-            if (target.begin.offset_m == target.end.offset_m) { target.begin = {overlap.cell, overlap.begin}; target.end = {overlap.cell, overlap.end}; }
+            if (!accumulated.present) { target.begin = {overlap.cell, overlap.begin}; target.end = {overlap.cell, overlap.end}; accumulated.present = true; }
             else {
                 if (overlap.begin > target.end.offset_m || overlap.end < target.begin.offset_m)
                     throw FluidFatalError(FluidFatalCode::unsupported_topology, "Target cell needs more than one occupied interval");
                 target.begin.offset_m = std::min(target.begin.offset_m, overlap.begin); target.end.offset_m = std::max(target.end.offset_m, overlap.end);
             }
+            accumulated.occupied_length.add(overlap_length);
             double overlap_mass = 0;
             for (std::size_t s = 0; s < model.registry_size(); ++s) {
                 const double amount = final ? remaining_masses[s] : share(donor.mixture.masses[s]);
-                if (amount < 0 || (!final && donor.mixture.masses[s] > 0 && amount == 0))
+                if (amount < 0 || (donor.mixture.masses[s] > 0 && amount == 0))
                     throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied constituent overlap is unrepresentable");
                 accumulated.masses[s].add(amount); overlap_mass += amount;
                 if (!final) remaining_masses[s] -= amount;
@@ -228,6 +236,16 @@ std::vector<OccupiedTransportCell> remap_occupied_mixtures(const FluidThermodyna
         const double mass = target.mixture.mass();
         if (mass == 0) continue;
         const double length = target.end.offset_m - target.begin.offset_m;
+        // Internal donor subdivisions can be arbitrarily small: transport
+        // them using the accurate clipped length, then certify the union's
+        // actual stored geometry. Only a target free surface needs its cut
+        // represented by local begin/end offsets. Never round positive material
+        // dry when a right-aligned tiny cut cannot be stored accurately.
+        const double expected_length = accumulated.occupied_length.total();
+        if (length <= 0 || std::abs(length - expected_length) >
+            32 * std::numeric_limits<double>::epsilon() * expected_length)
+            throw FluidFatalError(FluidFatalCode::numerical_precision,
+                "Positive occupied target cannot be represented by local cell endpoints");
         const double ke = 0.5 * target.momentum_kg_m_per_s * (target.momentum_kg_m_per_s / mass);
         const double pe = mass * gravity * (static_cast<double>(i) * dx + target.begin.offset_m + 0.5 * length);
         target.mixture.energy = accumulated.internal.total() +

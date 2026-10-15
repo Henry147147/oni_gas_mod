@@ -227,7 +227,7 @@ void translating_liquid_plug_crosses_wet_dry_cells_without_drag_or_trace_loss() 
     check(result.substeps >= 20, "Plug did not run through repeated world candidate/remap path");
 }
 
-void projection_heat_and_free_surface_momentum_match_independent_lumped_mechanics() {
+void incremental_heat_and_free_surface_momentum_match_independent_lumped_mechanics() {
     auto w = world(8, ma::FluidAxis::x); const auto eos = model(w.registry());
     std::vector<double> m1(w.registry().size()), m2(w.registry().size());
     m1[w.registry().index("oxygen")] = 1; m2[w.registry().index("oxygen")] = 2;
@@ -235,23 +235,86 @@ void projection_heat_and_free_surface_momentum_match_independent_lumped_mechanic
     auto b = eos->initialize_at_temperature(m2, 300, 1).mixture;
     w.set_occupied_cell(2, 0, a, 0, 1, 1); w.set_occupied_cell(3, 0, b, 0, 1, -2);
     const auto before = w.totals();
-    // Initial nodes u=(1,-1,-2), inertias=(.5,1.5,1). The cell-to-node
-    // kinetic defect is 1/4*(1-(-1))^2 + 2/4*(-2-(-1))^2 = 1.5 J.
-    a.energy += 1; b.energy += 0.5;
+    // Initial nodes u=(1,-1,-2), inertias=(.5,1.5,1). Their lower initial
+    // kinetic energy is not converted to heat: only increments are transferred.
     const std::vector<ma::MaterialCell> cells{{a, 1}, {b, 1}};
     const auto none = ma::no_material_cell;
     const std::vector<ma::OccupiedMaterialNode> nodes{
         {none, 0, 1, 0.5, 1, 0, false}, {0, 1, 1, 1.5, -1, 0, false}, {1, none, 1, 1, -2, 0, false}};
     const auto reference = ma::advance_occupied_material_pressure(*eos, cells, nodes, 1e-6);
-    const auto& u = reference.velocities_m_per_s;
-    const double expected_final_heat = (u[1] - u[0]) * (u[1] - u[0]) / 8 +
-        2 * (u[2] - u[1]) * (u[2] - u[1]) / 8;
-    const auto step = w.step(1e-6); near(step.initial_projection_heat_j, 1.5);
+    const auto& p = reference.work_pressures_pa;
+    const double du0 = -1e-6 * p[0] / 0.5, du1 = 1e-6 * (p[0] - p[1]) / 1.5, du2 = 1e-6 * p[1];
+    near(reference.velocities_m_per_s[0], 1 + du0);
+    near(reference.velocities_m_per_s[1], -1 + du1);
+    near(reference.velocities_m_per_s[2], -2 + du2);
+    const double expected_final_heat = (du1 - du0) * (du1 - du0) / 8 +
+        2 * (du2 - du1) * (du2 - du1) / 8;
+    const double old_node_ke = 0.25 * 1 + 0.75 * 1 + 0.5 * 4;
+    const double new_node_ke = 0.25 * (1 + du0) * (1 + du0) + 0.75 * (-1 + du1) * (-1 + du1) +
+        0.5 * (-2 + du2) * (-2 + du2);
+    const double va = 1 + (du0 + du1) / 2, vb = -2 + (du1 + du2) / 2;
+    near((new_node_ke - old_node_ke) - (0.5 * va * va + vb * vb - 4.5), expected_final_heat, 1e-10);
+    const auto step = w.step(1e-6); check(step.initial_projection_heat_j == 0, "Initial velocity was projected to heat");
     near(step.final_projection_heat_j, expected_final_heat, 1e-11);
     near(momentum(w, ma::FluidAxis::x), -3, 0, 2e-13);
     check(step.wall_reaction_impulse_kg_m_per_s == 0 && step.body_impulse_kg_m_per_s == 0,
         "Free surface generated exterior impulse");
     conserve(before, w.totals(), 1e6, 1e-11);
+
+    // Combine unequal masses and nonuniform canonical initial velocities with
+    // a fixed wall AND gravity. This exercises the adjoint linear work terms
+    // when the wall node's reconstructed velocity differs from its cell mean.
+    constexpr double gravity = 3.5, dt = 1e-6;
+    auto vertical = world(8, ma::FluidAxis::y, gravity);
+    vertical.set_occupied_cell(0, 0, a, 0, 1, 1); vertical.set_occupied_cell(0, 1, b, 0, 1, -2);
+    const auto vertical_before = vertical.totals();
+    const std::vector<ma::OccupiedMaterialNode> supported_nodes{
+        {none, 0, 1, .5, 0, -gravity, true}, {0, 1, 1, 1.5, -1, -gravity, false},
+        {1, none, 1, 1, -2, -gravity, false}};
+    const auto supported = ma::advance_occupied_material_pressure(*eos, cells, supported_nodes, dt);
+    const double middle_increment = dt * ((supported.work_pressures_pa[0] - supported.work_pressures_pa[1]) / 1.5 - gravity);
+    const double top_increment = dt * (supported.work_pressures_pa[1] - gravity);
+    const double supported_heat = middle_increment * middle_increment / 8 +
+        2 * (top_increment - middle_increment) * (top_increment - middle_increment) / 8;
+    const auto vertical_step = vertical.step(dt);
+    check(vertical_step.initial_projection_heat_j == 0, "Wall projected an initial cell velocity instead of applying a finite force");
+    near(vertical_step.final_projection_heat_j, supported_heat, 2e-10);
+    near(vertical_step.wall_reaction_impulse_kg_m_per_s, dt * (supported.work_pressures_pa[0] + .5 * gravity), 2e-11);
+    near(vertical_step.body_impulse_kg_m_per_s, -3 * gravity * dt, 2e-11);
+    near(momentum(vertical, ma::FluidAxis::y), -3 + vertical_step.wall_reaction_impulse_kg_m_per_s +
+        vertical_step.body_impulse_kg_m_per_s, 0, 2e-12);
+    conserve(vertical_before, vertical.totals(), 1e6, 1e-11);
+}
+
+void fourier_velocity_has_an_identity_limit_as_timestep_vanishes() {
+    // For equal masses the old full PIC projection maps this quarter-grid
+    // Fourier mode to exactly half its amplitude independently of dt. The
+    // actual world step must instead approach the original velocity field.
+    double previous_error = 1;
+    for (const double dt : {1e-7, 1e-9, 1e-11}) {
+        auto w = world(32, ma::FluidAxis::x); const auto eos = model(w.registry());
+        std::vector<double> masses(w.registry().size()); masses[w.registry().index("oxygen")] = 1;
+        const auto gas = eos->initialize_at_temperature(masses, 300, 1).mixture;
+        const auto wave = [](std::size_t i) { return i % 4 == 1 ? 1.0 : i % 4 == 3 ? -1.0 : 0.0; };
+        for (std::size_t i = 0; i < 32; ++i) w.set_occupied_cell(i, 0, gas, 0, 1, wave(i));
+        const auto before = w.totals(); const auto result = w.step(dt);
+        double numerator = 0, denominator = 0, error = 0;
+        for (std::size_t i = 4; i < 28; ++i) {
+            const double velocity = w.cell(i, 0).momentum_x / w.cell(i, 0).mixture.mass();
+            numerator += wave(i) * velocity; denominator += wave(i) * wave(i);
+            error = std::max(error, std::abs(velocity - wave(i)));
+        }
+        const double amplitude = numerator / denominator;
+        check(std::abs(amplitude - 1) <= 2 * dt && error <= 2 * dt,
+            "Fourier velocity has nonvanishing drag as dt -> 0");
+        check(error < 0.02 * previous_error + 32 * std::numeric_limits<double>::epsilon(),
+            "Fixed-grid Fourier velocity error did not vanish with timestep");
+        check(result.initial_projection_heat_j == 0, "Fourier velocity suffered an initial PIC projection");
+        conserve(before, w.totals(), 1e7, 1e-12);
+        previous_error = error;
+        std::cout << std::setprecision(15) << "  Fourier dt=" << dt << " amplitude=" << amplitude <<
+            " maximum velocity error=" << error << '\n';
+    }
 }
 
 void gravity_falls_at_occupied_centroids_and_wall_reaction_balances_weight() {
@@ -432,7 +495,6 @@ void translating_plug_refines_grid_and_timestep_with_reported_error_bounds() {
         add_plug(w, ma::FluidAxis::x, 2.2, 5.7, 1.25, dx);
         const auto before = w.totals();
         const auto first = w.step(1); const auto second = w.step(1);
-        if (dx == 1) check(w.cumulative_omitted_elastic_work_bound() > 0, "Zero-duration ledger regression requires a positive prior bound");
         const double time_before_zero = w.time(), bound_before_zero = w.cumulative_omitted_elastic_work_bound();
         const auto zero = w.step(0);
         check(zero.seconds == 0 && zero.substeps == 0 && zero.omitted_elastic_work_bound_j == 0 &&
@@ -459,6 +521,152 @@ void translating_plug_refines_grid_and_timestep_with_reported_error_bounds() {
             " omitted-work bound=" << w.cumulative_omitted_elastic_work_bound() << " J; max omitted pressure=" <<
             std::max(first.maximum_omitted_pressure_pa, second.maximum_omitted_pressure_pa) << " Pa\n";
     }
+}
+
+void zero_duration_reports_an_explicit_nonzero_omitted_work_ledger() {
+    auto w = world(3, ma::FluidAxis::x); const auto eos = model(w.registry());
+    std::vector<double> masses(w.registry().size());
+    masses[w.registry().index("water")] = 1000 * (1 + 4 * std::numeric_limits<double>::epsilon());
+    const auto compressed = eos->initialize_at_temperature(masses, 300, 1).mixture;
+    // An explicit sub-ULP fill-band expansion releases a positive (bounded)
+    // elastic energy. Do not depend on incidental remap/PIC rounding to make
+    // the prior cumulative ledger nonzero.
+    w.set_occupied_cell(0, 0, compressed, 0, 1, 0);
+    w.set_occupied_cell(1, 0, compressed, 0, 1, -2e-14);
+    w.set_occupied_cell(2, 0, compressed, 0, 1, 0);
+    const auto step = w.step(0.1);
+    check(step.omitted_elastic_work_bound_j > 0 && w.cumulative_omitted_elastic_work_bound() > 0,
+        "Zero-duration ledger fixture did not explicitly release bounded elastic work");
+    const double before_time = w.time(), before_bound = w.cumulative_omitted_elastic_work_bound();
+    const auto zero = w.step(0);
+    check(zero.seconds == 0 && zero.substeps == 0 && zero.omitted_elastic_work_bound_j == 0 &&
+        zero.cumulative_omitted_elastic_work_bound_j == before_bound && w.time() == before_time &&
+        w.cumulative_omitted_elastic_work_bound() == before_bound,
+        "Zero-duration call lost a positive prior omitted-work ledger");
+}
+
+void endpoint_volume_accounting_handles_expansion_and_translation_without_a_floor() {
+    const auto registry = ma::SpeciesRegistry::standard(); const auto eos = model(registry);
+    // A symmetric one-cell pressure kick has an analytic swept-volume root.
+    // The unresolved expansion kinetic moment becomes heat in this bounded
+    // method, so its stored cell returns to T0; it is not a retained-slope test.
+    for (const double ratio : {1 + 1e-6, 68.0, 1e8}) for (const std::size_t origin : {2U, 10U}) {
+        const double volume0 = ratio < 2 ? 0.5 : 0x1p-30;
+        const double temperature = ratio < 2 ? 300 : 1e8; // Keep the declared caloric reference numerically resolved during a huge isentropic kick.
+        std::vector<double> masses(registry.size()); masses[registry.index("oxygen")] = volume0;
+        const auto initial = eos->initialize_at_temperature(masses, temperature, volume0);
+        const auto& species = registry[registry.index("oxygen")];
+        const double k = ma::gas_constant / (species.molar_mass * species.cv());
+        const double dv = volume0 * (ratio - 1);
+        const double work = -initial.state.thermal_energy_j * std::expm1(-k * std::log(ratio)) / dv;
+        const double dt = std::sqrt(dv * initial.mixture.mass() / (2 * work));
+        auto settings = quiet(); settings.maximum_timestep_s = dt;
+        ma::FluidWorld w(16, 1, 1, 1, settings, registry, {ma::FluidAxis::x, eos});
+        w.set_occupied_cell(origin, 0, initial.mixture, 0.25, 0.25 + volume0);
+        const auto before = w.totals(); const auto step = w.step(dt);
+        check(step.substeps == 1 && step.rejected_substeps == 0, "Expansion accounting unexpectedly changed its analytic single kick");
+        double volume1 = 0;
+        for (std::size_t x = 0; x < w.width(); ++x) if (w.cell(x, 0).mixture.mass() > 0) {
+            volume1 += w.occupied_volume(x, 0);
+            const auto state = w.thermodynamic_state(x, 0);
+            near(state.temperature_k, temperature, 2e-10);
+            near(state.mechanical_pressure_pa, initial.state.mechanical_pressure_pa / ratio, 2e-10);
+        }
+        near(volume1, volume0 * ratio, 2e-10);
+        check(step.maximum_volume_addition_roundoff_m3 <= 32 * std::numeric_limits<double>::epsilon() * volume0 * ratio &&
+            step.maximum_root_arithmetic_roundoff_m3 <= 32 * std::numeric_limits<double>::epsilon() * volume0 * ratio &&
+            step.maximum_endpoint_relative_volume_residual <= 5e-13,
+            "Scalar root/addition diagnostics exceeded endpoint-local volume budgets");
+        check(step.absolute_geometry_volume_residual_m3 <= 32 * std::numeric_limits<double>::epsilon() * volume0 * ratio,
+            "Expansion geometry used an initial-volume or unit floor");
+        conserve(before, w.totals(), initial.state.thermal_energy_j, 2e-10);
+    }
+}
+
+void positive_denormal_trace_is_never_deleted_by_endpoint_accounting() {
+    auto w = world(8, ma::FluidAxis::x); const auto eos = model(w.registry());
+    std::vector<double> masses(w.registry().size()); masses[w.registry().index("oxygen")] = 1;
+    masses[w.registry().index("helium")] = std::numeric_limits<double>::denorm_min();
+    const auto gas = eos->initialize_at_temperature(masses, 300, 0.5).mixture;
+    w.set_occupied_cell(3, 0, gas, 0, 0.5);
+    const auto original = w.cell(3, 0);
+    // Expansion into several overlaps cannot split a minimum representable
+    // trace into positive binary64 shares. Fail atomically, never make it dry.
+    fatal(ma::FluidFatalCode::numerical_precision, [&] { (void)w.step(0.001); });
+    check(w.time() == 0 && same_cell(original, w.cell(3, 0)), "Denormal trace split was silently lost or partially published");
+
+    // Two directly rounded shares can consume a two-ULP subnormal trace,
+    // leaving a zero final remainder in a still-wet third receiver. Global
+    // species conservation alone would miss this lost local constituent.
+    masses[w.registry().index("oxygen")] = 3;
+    masses[w.registry().index("helium")] = 2 * std::numeric_limits<double>::denorm_min();
+    const auto three = eos->initialize_at_temperature(masses, 300, 3).mixture;
+    const std::vector<ma::OccupiedTransportCell> moving{{three, {2, 0}, {5, 0}, 0}};
+    const std::vector<std::uint8_t> walls(8, 0);
+    fatal(ma::FluidFatalCode::numerical_precision, [&] { (void)ma::remap_occupied_mixtures(*eos, moving, walls, 1, 1); });
+    check(moving[0].mixture.masses == three.masses && moving[0].mixture.energy == three.energy,
+        "Final-zero trace failure changed the original donor");
+}
+
+void contracting_pressure_root_requires_endpoint_relative_accuracy() {
+    const auto registry = ma::SpeciesRegistry::standard(); const auto eos = model(registry);
+    std::vector<double> masses(registry.size()); masses[registry.index("oxygen")] = 1;
+    const auto initial = eos->initialize_at_temperature(masses, 300, 1);
+    const auto& species = registry[registry.index("oxygen")];
+    const double k = ma::gas_constant / (species.molar_mass * species.cv());
+    const std::vector<ma::MaterialCell> material{{initial.mixture, 1}};
+    const auto none = ma::no_material_cell;
+    for (const double ratio : {0.5, 0.01, 1e-4, 1e-8}) {
+        constexpr double dt = 1e-6;
+        const double dv = ratio - 1;
+        const double work = -initial.state.thermal_energy_j * std::expm1(-k * std::log(ratio)) / dv;
+        const double inward_speed = dt * work - dv / (2 * dt);
+        const std::vector<ma::OccupiedMaterialNode> nodes{
+            {none, 0, 1, .5, inward_speed, 0, false}, {0, none, 1, .5, -inward_speed, 0, false}};
+        if (ratio == 1e-8) {
+            // At this compression the encoded input/node sweeps cannot resolve
+            // the root to the requested relative endpoint accuracy. Reject;
+            // a tolerance scaled by the original V0 must not excuse it.
+            rejects([&] { (void)ma::advance_occupied_material_pressure(*eos, material, nodes, dt); });
+        } else {
+            const auto step = ma::advance_occupied_material_pressure(*eos, material, nodes, dt);
+            near(step.cells[0].volume_m3, ratio, 2e-11);
+            check(step.maximum_endpoint_relative_volume_residual <= 5e-13 &&
+                step.maximum_volume_addition_roundoff_m3 <= 32 * std::numeric_limits<double>::epsilon() * step.cells[0].volume_m3 &&
+                step.maximum_root_arithmetic_roundoff_m3 <= 32 * std::numeric_limits<double>::epsilon() * step.cells[0].volume_m3,
+                "Contraction used its initial volume as an endpoint accuracy floor");
+        }
+        check(material[0].mixture.masses == initial.mixture.masses && material[0].mixture.energy == initial.mixture.energy &&
+            material[0].volume_m3 == 1, "Pressure contraction/failure changed input state");
+    }
+}
+
+void reflected_translated_overlap_geometry_is_accurate_or_fails_atomically() {
+    const auto registry = ma::SpeciesRegistry::standard(); const auto eos = model(registry);
+    const std::vector<std::uint8_t> walls(16, 0);
+    for (const std::size_t origin : {2U, 10U}) for (const double length : {0x1p-40, 1e-16}) for (const bool reflected : {false, true}) {
+        const auto mixture = water(registry, *eos, length);
+        const ma::OccupiedMeshPosition a = reflected ? ma::OccupiedMeshPosition{origin + 1, -length} : ma::OccupiedMeshPosition{origin, 0};
+        const ma::OccupiedMeshPosition b = reflected ? ma::OccupiedMeshPosition{origin + 1, 0} : ma::OccupiedMeshPosition{origin, length};
+        const std::vector<ma::OccupiedTransportCell> moving{{mixture, a, b, 0}};
+        if (reflected && length == 1e-16) {
+            // The present local begin/end storage cannot encode dx-1e-16
+            // with relative precision for this tiny target. It must fail,
+            // whereas the reflected dyadic width has an exact representation.
+            fatal(ma::FluidFatalCode::numerical_precision, [&] { (void)ma::remap_occupied_mixtures(*eos, moving, walls, 1, 1); });
+        } else {
+            const auto target = ma::remap_occupied_mixtures(*eos, moving, walls, 1, 1);
+            near(target[origin].end.offset_m - target[origin].begin.offset_m, length, 4e-15);
+            near(target[origin].mixture.mass(), mixture.mass(), 4e-15);
+        }
+        check(moving[0].mixture.masses == mixture.masses && moving[0].mixture.energy == mixture.energy,
+            "Overlap geometry check mutated donor input");
+    }
+    auto w = world(8, ma::FluidAxis::x);
+    w.set_occupied_cell(3, 0, water(w.registry(), *eos, 1), 0, 1, -1e-15);
+    const auto original = w.cell(3, 0);
+    fatal(ma::FluidFatalCode::numerical_precision, [&] { (void)w.step(0.1); });
+    check(w.time() == 0 && same_cell(original, w.cell(3, 0)), "Unrepresentable left target partially published a world step");
 }
 
 void tiny_cut_receiver_gets_direct_share_and_large_overlap_gets_remainder() {
@@ -502,7 +710,8 @@ int main() {
         {"typed topology failure and atomic setters", unsupported_geometry_and_internal_void_fail_atomically},
         {"profile identity and explicit mode constraints", explicit_profile_and_mode_constraints_are_validated},
         {"translating liquid plug wet/dry and trace conservation", translating_liquid_plug_crosses_wet_dry_cells_without_drag_or_trace_loss},
-        {"independent initial/final projection heat and free momentum", projection_heat_and_free_surface_momentum_match_independent_lumped_mechanics},
+        {"independent incremental kinetic heat and free momentum", incremental_heat_and_free_surface_momentum_match_independent_lumped_mechanics},
+        {"fixed-grid Fourier velocity dt-to-zero consistency", fourier_velocity_has_an_identity_limit_as_timestep_vanishes},
         {"falling centroid gravity and hydrostatic wall reaction", gravity_falls_at_occupied_centroids_and_wall_reaction_balances_weight},
         {"gasless compressed release and fatal cavitation rollback", compressed_release_conserves_energy_without_gas_and_cavitation_is_fatal},
         {"whole-call rollback after moving geometry commit", failed_call_restores_geometry_after_an_accepted_moving_substep},
@@ -510,6 +719,11 @@ int main() {
         {"explicit fill policy bounds, traces and true EOS", explicit_fill_policy_is_gasless_bounded_and_keeps_true_eos_readings},
         {"material omitted elastic work is fatal and atomic", fill_policy_rejects_material_elastic_work_and_restores_world},
         {"liquid plug grid/timestep refinement and cumulative bounds", translating_plug_refines_grid_and_timestep_with_reported_error_bounds},
+        {"zero-duration reports explicit nonzero omitted-work ledger", zero_duration_reports_an_explicit_nonzero_omitted_work_ledger},
+        {"endpoint-local expansion accounting and translated coordinates", endpoint_volume_accounting_handles_expansion_and_translation_without_a_floor},
+        {"denormal gas trace split fails atomically without deletion", positive_denormal_trace_is_never_deleted_by_endpoint_accounting},
+        {"contracting pressure roots require endpoint-relative accuracy", contracting_pressure_root_requires_endpoint_relative_accuracy},
+        {"reflected/translated target geometry accurate or atomic failure", reflected_translated_overlap_geometry_is_accurate_or_fails_atomically},
         {"tiny wet receiver direct share with conservative remainder", tiny_cut_receiver_gets_direct_share_and_large_overlap_gets_remainder},
         {"materially unresolvable thin geometry full rollback", materially_unresolved_thin_geometry_fails_with_whole_call_rollback}
     };

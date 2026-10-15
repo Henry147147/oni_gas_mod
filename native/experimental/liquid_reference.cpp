@@ -16,6 +16,10 @@ constexpr Real R = reference_gas_constant;
 [[noreturn]] void fail(ReferenceErrorCode code, const char* message) { throw ReferenceError(code, message); }
 void check(bool condition, ReferenceErrorCode code, const char* message) { if (!condition) fail(code, message); }
 bool positive(double value) { return std::isfinite(value) && value > 0; }
+Real log_ratio(Real value, Real reference) {
+    const Real difference = value - reference;
+    return std::abs(difference) < reference / 2 ? std::log1p(difference / reference) : std::log(value) - std::log(reference);
+}
 double checked(Real value) {
     const double result = static_cast<double>(value);
     check(std::isfinite(result), ReferenceErrorCode::numerical_range, "Thermodynamic result exceeds finite double range");
@@ -177,7 +181,7 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
         const Real specific_thermal = material.cv_j_per_kg_k * temperature;
         check(std::isfinite(specific_thermal) && specific_thermal > 0, ReferenceErrorCode::numerical_range,
             "Positive material thermal energy is outside the numerical range");
-        entropy.add(amount * material.cv_j_per_kg_k * std::log(temperature / entropy_reference_temperature_k));
+        entropy.add(amount * material.cv_j_per_kg_k * log_ratio(temperature, entropy_reference_temperature_k));
         if (material.phase == ReferencePhase::elastic_liquid) {
             const Real q = compression_ratio(pressure, material.reference_bulk_modulus_pa);
             partial = amount / material.zero_pressure_density_kg_per_m3 / (1 + q);
@@ -188,7 +192,10 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
             partial = gas_volume * moles / stats.gas_moles;
             // Unit molar-volume reference is 1 m^3/mol; its arbitrary entropy
             // zero does not affect pressure, Cv or entropy differences.
-            entropy.add(moles * R * std::log(gas_volume / moles));
+            // V/n can overflow/underflow although both logarithms, their
+            // difference and n*R*log(V/n) are finite (including a denormal
+            // trace beside bulk gas). This is the same entropy reference.
+            entropy.add(moles * R * log_ratio(gas_volume, moles));
         }
         Sum specific_sum; specific_sum.add(material.energy_offset_j_per_kg);
         specific_sum.add(specific_thermal); specific_sum.add(specific_elastic);
@@ -340,10 +347,6 @@ ReferenceIsentrope::ReferenceIsentrope(std::string metadata, ReferenceConservedC
     : metadata_(std::move(metadata)), cell_(std::move(cell)), state_(std::move(state)) {}
 
 namespace {
-Real log_ratio(Real value, Real reference) {
-    const Real difference = value - reference;
-    return std::abs(difference) < reference / 2 ? std::log1p(difference / reference) : std::log(value) - std::log(reference);
-}
 Real scaled_exp(Real scale, Real exponent) {
     const Real result = std::abs(exponent) < .5L ? scale * std::exp(exponent) : std::exp(std::log(scale) + exponent);
     check(std::isfinite(result) && result > 0, ReferenceErrorCode::numerical_range, "Isentropic exponential is outside the numerical range");
