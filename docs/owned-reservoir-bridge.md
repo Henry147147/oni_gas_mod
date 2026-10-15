@@ -602,7 +602,40 @@ preserve the failed Windows controls separately from the accepted child results.
 The portable original synthetic corpus is described in
 [the inflation test tool](../tools/OwnedReservoirInflationTests/README.md).
 
-This establishes supported directory/body-prefix derivation and section inspection.
+### Private complete-source layout candidate
+
+A separate, unintegrated `SavedColonyLayoutInspector` candidate starts from one
+immutable complete source image. It derives the pinned native header, count-based
+template directory, exact compressed remainder, body prefix and KSAV section in
+order. Each report retains the same source/directory/body identities; callers
+cannot inject precomputed ranges or a different decompressed body. The original
+header rejection entry points remain unchanged, with a separate additive pure
+header-facts API.
+
+Independent completed reviews accept the same 74 original synthetic groups on
+Windows and WSL Linux. These cover source framing, immutable association,
+malformed/unsupported inputs, opaque regions, concurrency and resource limits.
+All twelve typed summary fields and ordered test names match exactly; both
+platforms' host and seven-helper .NET Standard 2.1 builds have zero warnings or
+errors. The original three-link 72-group Windows regression also passed. Its
+first wrapper nevertheless failed because its stdout contract omitted the
+existing optional-fixture NOTE. That failure remains negative; a separately
+reviewed continuation ran only the three new steps, without repeating the 72.
+
+Windows closure is under
+`local/saved-colony-layout-r2-remaining-three-independent-completed-review`
+(review `3010c789c67310f31665a1e8dea1237f1205784b3690b558fc786d13222fb0a8`).
+Linux closure is under
+`local/saved-colony-layout-r2-linux-r2-managed-independent-completed-review-r2`
+(review `1e5f114c777cc1fc711b1d4ef07c1dbbbea299fb2cbb594e769350ed37bfd73d`).
+No target was rerun to replace a failed control or reviewer audit. Actual ONI
+Mono compatibility and product integration of this candidate remain pending.
+Native Sim, arbitrary custom components and the terminal tail remain opaque;
+structural association grants no load/save, restore, writer or quarantine
+authority.
+
+The integrated helpers establish supported directory/body-prefix derivation
+and section inspection.
 Outer header/directory/inflation association, arbitrary custom-detail
 descendants, exact live-reader exclusion, checkpoint/owner reconciliation,
 quarantine before instantiation, atomic owned restore and save permission
