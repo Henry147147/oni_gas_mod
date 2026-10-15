@@ -39,6 +39,7 @@ EXPERIMENT_TESTS = {
     "protected_hybrid_material_rezone": "ma_occupied_staggered_hybrid_remap_tests",
     "protected_hybrid_first_boundary_event": "ma_occupied_staggered_hybrid_event_tests",
     "protected_hybrid_passive_diagnostic": "ma_occupied_staggered_hybrid_passive_tests",
+    "protected_hybrid_nonlinear_passive": "ma_occupied_staggered_hybrid_nonlinear_tests",
 }
 REFERENCE_TESTS = {"liquid_reference_thermodynamics": "liquid_reference_tests"}
 LEGACY = "positive_staggered_rezone"
@@ -63,13 +64,16 @@ GROUP_SUMMARIES = {
     "protected_hybrid_material_rezone": "12/12 hybrid A1 material-rezone groups passed; no repeated-rate, pressure adapter or front gate claimed",
     "protected_hybrid_first_boundary_event": "4/4 hybrid first-event test groups passed; inner-cap projection jumps remain; no whole-A2/repeated-rate/refinement/pressure/front gate claimed",
     "protected_hybrid_passive_diagnostic": "PASSIVE_DIAGNOSTIC cases=128 trend_failures=0; exact physical outer identity retained; inner cap jumps remain; no whole-A2/nonlinear/pressure/front gate claimed",
+    "protected_hybrid_nonlinear_passive": "NONLINEAR_PASSIVE cases=304; native physical/identity checks passed; independent nonlinear oracle required; all-node-rate/whole-A2/pressure/front unvalidated",
 }
 NEW_SOURCES = {
     "occupied_staggered_remap.cpp", "occupied_staggered_hybrid.cpp", "occupied_staggered_hybrid_remap.cpp",
     "occupied_staggered_remap_tests.cpp", "occupied_staggered_hybrid_tests.cpp",
     "occupied_staggered_hybrid_remap_tests.cpp", "occupied_staggered_hybrid_event_tests.cpp",
     "occupied_staggered_hybrid_passive_tests.cpp",
+    "occupied_staggered_hybrid_nonlinear_tests.cpp",
 }
+NONLINEAR = "protected_hybrid_nonlinear_passive"
 SANITIZER = re.compile(
     r"\b(?:AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer|ThreadSanitizer|Sanitizer)\b|"
     r"\bruntime error:", re.I
@@ -236,6 +240,37 @@ def validate_reference(run: Run) -> None:
             "Independent thermodynamic reference must execute all 26 distinct passing groups")
 
 
+def nonlinear_output(run: Run, build: Path, before: set[Path], *, enclosing_ctest_exit: int = 0) -> Path:
+    """Accept only this subprocess's newly created native dataset, once."""
+    require(enclosing_ctest_exit in (0, 8), "Invalid enclosing CTest disposition")
+    text = clean_run(run, enclosing_ctest_exit)
+    paths = re.findall(r"^(?:\d+: )?NONLINEAR_OUTPUT (.+)$", text, re.M)
+    require(len(paths) == 1, "Missing or duplicate fresh nonlinear output marker")
+    path = Path(paths[0]).resolve()
+    parent = (build / "hybrid-nonlinear-profiles").resolve()
+    require(path.parent == parent and path not in before and path.is_dir(), "Stale or foreign nonlinear dataset")
+    after = {p.resolve() for p in parent.iterdir() if p.is_dir()}
+    require(after - before == {path}, "Nonlinear run created an unexpected dataset set")
+    require(not (path / "FIRST_FAILURE.json").exists(), "Native nonlinear numerical failure exists")
+    try:
+        metadata = json.loads((path / "COMPLETE.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise EvidenceError("Missing complete nonlinear dataset") from error
+    require(metadata == {"schema": 1, "cases": 304, "nonlinear": 288, "uniform": 16,
+                         "native_physical_checks": True, "independent_oracle_required": True, "whole_A2": False},
+            "Wrong nonlinear completion metadata")
+    return path
+
+
+def validate_nonlinear_oracle(run: Run, output: Path) -> None:
+    clean_run(run, 0)
+    require(not (output / "FIRST_FAILURE.json").exists(), "Independent nonlinear numerical failure exists")
+    result = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    require(result.get("oracle_passed") is True and result.get("native_cases") == 304 and
+            result.get("whole_A2") is False and result.get("all_node_rate") is False and
+            result.get("pressure_front") is False, "Incomplete or overclaimed nonlinear oracle result")
+
+
 def read_cache(build: Path) -> dict[str, str]:
     values = {}
     for line in (build / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
@@ -275,7 +310,8 @@ def source_paths() -> list[Path]:
               (path.suffix in {".cpp", ".hpp", ".h", ".md"} or path.name == "CMakeLists.txt")]
     explicit = [ROOT / path for path in (
         "CMakeLists.txt", "tools/build.py", "tools/validate_staggered_experiments.py",
-        "tools/tests/test_staggered_evidence.py", ".github/workflows/staggered-experiments.yml",
+        "tools/tests/test_staggered_evidence.py", "tools/check_hybrid_nonlinear_oracle.py",
+        "tools/tests/test_hybrid_nonlinear_oracle.py", ".github/workflows/staggered-experiments.yml",
     )]
     return sorted(set(native + explicit))
 
@@ -295,8 +331,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ctest", default="ctest")
     parser.add_argument("--cmake", default="cmake")
     parser.add_argument("--timeout-seconds", type=float, default=300)
+    parser.add_argument("--oracle-timeout-seconds", type=float, default=1800)
     args = parser.parse_args(argv)
     require(math.isfinite(args.timeout_seconds) and args.timeout_seconds > 0, "Timeout must be finite and positive")
+    require(math.isfinite(args.oracle_timeout_seconds) and args.oracle_timeout_seconds > 0, "Oracle timeout must be finite and positive")
     build, reference, output = args.build_dir.resolve(), args.reference_build_dir.resolve(), args.output_dir.resolve()
     require(build != reference, "Reference must use its separate build project")
     output.mkdir(parents=True, exist_ok=False)
@@ -314,6 +352,24 @@ def main(argv: list[str] | None = None) -> int:
         result = capture(arguments, cwd, output, name, args.timeout_seconds)
         runs.append(result)
         return result
+
+    def nonlinear_before() -> set[Path]:
+        parent = build / "hybrid-nonlinear-profiles"
+        return {p.resolve() for p in parent.iterdir() if p.is_dir()} if parent.is_dir() else set()
+
+    def run_nonlinear_oracle(run: Run, before: set[Path], label: str, *, enclosing_ctest_exit: int = 0) -> None:
+        data = nonlinear_output(run, build, before, enclosing_ctest_exit=enclosing_ctest_exit)
+        archived = output / (label + "-nonlinear-input")
+        shutil.copytree(data, archived)
+        # Explicit fresh Python subprocess; no native CTest command wrapper or
+        # parser-only success can substitute for the independent numeric gate.
+        oracle_output = output / (label + "-nonlinear-oracle")
+        oracle = capture([sys.executable, str(ROOT / "tools/check_hybrid_nonlinear_oracle.py"),
+                          "--input", str(archived), "--output", str(oracle_output)],
+                         ROOT, output, label + "-nonlinear-oracle.log", args.oracle_timeout_seconds)
+        runs.append(oracle)
+        validate_nonlinear_oracle(oracle, oracle_output)
+        summary["bounded_nonlinear_passive"] = "PASSED_BOUNDED_ONLY"
 
     failure = None
     try:
@@ -347,8 +403,11 @@ def main(argv: list[str] | None = None) -> int:
         timeout = str(max(1, int(args.timeout_seconds) - 1))
         base_command = [args.ctest, "--test-dir", str(build), "--timeout", timeout, "-V"]
         positive_command = base_command + (["-E", "^" + LEGACY + "$"] if experimental else [])
+        before_nonlinear = nonlinear_before() if experimental else set()
         positive = execute(positive_command, ROOT, "applicable-ctest.log")
         validate_ctest(positive, set(expected) - ({LEGACY} if experimental else set()))
+        if experimental:
+            run_nonlinear_oracle(positive, before_nonlinear, "applicable")
         summary["applicable_tests_passed"] = len(expected) - int(experimental)
         if experimental:
             direct = execute(commands[LEGACY], build, "strict-cartesian-direct.log")
@@ -358,9 +417,13 @@ def main(argv: list[str] | None = None) -> int:
             negative = execute(base_command + ["-R", "^" + LEGACY + "$"], ROOT, "strict-cartesian-ctest.log")
             summary["strict_ctest_exit"] = negative.returncode
             validate_ctest(negative, {LEGACY}, {LEGACY})
+            before_nonlinear = nonlinear_before()
             unfiltered = execute(base_command, ROOT, "unfiltered-ctest.log")
             summary["unfiltered_ctest_exit"] = unfiltered.returncode
             validate_ctest(unfiltered, set(expected), {LEGACY})
+            # The actual enclosing CTest remains exit8. Dataset validation
+            # receives that already-verified disposition without rewriting it.
+            run_nonlinear_oracle(unfiltered, before_nonlinear, "unfiltered", enclosing_ctest_exit=8)
             summary.update(strict_cartesian_gate="FAILED", expected_failure_reproduced=True, strict_groups="6/7")
         else:
             summary.update(strict_cartesian_gate="NOT_BUILT_OPT_IN_REQUIRED", expected_failure_reproduced=False)
@@ -388,6 +451,17 @@ def main(argv: list[str] | None = None) -> int:
         failure = f"{type(error).__name__}: {error}"
         summary["failure"] = failure
     finally:
+        # Even native/independent first failure keeps complete raw packets and
+        # states; never delete/relabel it or rely on a former passing dataset.
+        if args.mode == "experimental":
+            profiles = build / "hybrid-nonlinear-profiles"
+            if profiles.is_dir():
+                try:
+                    shutil.copytree(profiles, output / "all-nonlinear-runs", dirs_exist_ok=False)
+                except OSError as error:
+                    summary["procedure_succeeded"] = False
+                    summary["failure_capture_error"] = f"{type(error).__name__}: {error}"
+                    failure = failure or summary["failure_capture_error"]
         write_json(output / "summary.json", summary)
         frozen = sorted(path for path in output.rglob("*") if path.is_file())
         write_json(output / "evidence-freeze.json", inventory(frozen, output))

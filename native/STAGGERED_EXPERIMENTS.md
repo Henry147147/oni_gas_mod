@@ -3,7 +3,7 @@
 The committed retained material-state library and its 17-group
 `retained_occupied_staggered` test remain in the default seven-test native
 build. `MA_BUILD_STAGGERED_EXPERIMENTS` defaults to **OFF** and controls only
-three additional standalone libraries and five additional tests. The normal
+three additional standalone libraries and six additional tests. The normal
 `tools/build.py` explicitly sets OFF, including when reusing an opted-in
 build cache. None of these libraries is linked into ma_core or the game DLL.
 There is no C ABI, FluidWorld mode, save format or gameplay activation for
@@ -13,7 +13,7 @@ The opt-in dependencies are `ma_occupied_staggered_remap` (Cartesian transport,
 linked to the retained library), `ma_occupied_staggered_hybrid_geometry` (A0,
 linked to the Cartesian grid helpers), and
 `ma_occupied_staggered_hybrid_remap` (A1, linked to A0). Their explicit build
-aggregate `ma_staggered_experiment_tests` builds all five additional test
+aggregate `ma_staggered_experiment_tests` builds all six additional test
 executables. It does not assert that their numerical gates pass.
 
 ## Scoped evidence and preserved failure
@@ -22,10 +22,10 @@ The original Cartesian test `positive_staggered_rezone` still fails its
 strict nonuniform free-boundary jump/dt assertion: six of seven groups pass.
 Its executable returns 1; its real CTest run returns 8. The test algorithm,
 criterion and failure are unchanged. An unfiltered CTest run with the option
-ON has twelve registered tests and still returns 8. There is no WILL_FAIL,
+ON has thirteen registered tests and is expected to return 8. There is no WILL_FAIL,
 skip, result-regex override, threshold change or automatic retry.
 
-The four additional passing gates have limited meanings:
+The four previously validated additional gates have limited meanings:
 
 - A0: authenticated immutable hybrid geometry, protected finite cap
   identities, capacity and positive fixed-grid coverage; no transport.
@@ -44,10 +44,28 @@ The four additional passing gates have limited meanings:
   not bounded at fixed grid spacing; its maximum measured rate was about
   10.8265. Passing this bounded diagnostic does not establish whole A2.
 
+A separate test-only nonlinear passive gate is now registered; its native
+completion is insufficient without its fresh exact-rational/analytic Python
+oracle. The predeclared288 nonlinear plus16 uniform-control histories, actual
+variable-density half-mass rebalance, physical balances, four sample times,
+packet oracles and strict refinement/settling criteria are specified in
+[HYBRID_NONLINEAR_PASSIVE.md](HYBRID_NONLINEAR_PASSIVE.md). The first strict
+MSVC native 304-case physical/export run passed, and the separately calibrated
+oracle completed all 304 per-history state/packet/balance checks. The full
+nonlinear refinement gate **FAILED** at the first N32-to-N64 velocity
+supremum comparison: ratio 0.964869095141856 against the unchanged strict 0.8
+criterion, C=1/4 and tau=1/32, phase 0/carrier -1/linear/unreflected family.
+Both maxima are at the right inner cap node; physical outer packets stay
+exact. That oracle exited1 and its procedure failed. GNU/sanitizer and any
+numerical rerun of this new gate have not been executed after the failure.
+The full states, first failure and original source/data archives remain
+preserved. All-node temporal rate and whole A2 remain false.
+
 These are supported experimental foundations, not proof of general remap
-convergence. Smooth nonlinear density/velocity transport, pressure/remap
-composition, a gas-to-vacuum fan and physical front convergence remain
-unvalidated. Reported actual mass, momentum and U+K+PE errors remain separate
+convergence. The new smooth nonlinear passive transport fails its predeclared
+supremum-refinement criterion; pressure/remap composition, a gas-to-vacuum
+fan and physical front convergence remain unvalidated. Reported actual mass,
+momentum and U+K+PE errors remain separate
 from signed arithmetic ledgers; no exact-conservation claim follows from
 the finite-tolerance checks. The full-front gate in `GAS_VACUUM.md` remains
 false. There are no performance or gameplay claims here.
@@ -63,7 +81,7 @@ cmake --build build-default --parallel 4
 ctest --test-dir build-default --output-on-failure
 ```
 
-Explicitly opting in registers all twelve tests. A plain `ctest` is expected
+Explicitly opting in registers all thirteen tests. A plain `ctest` is expected
 to fail the unresolved strict Cartesian gate:
 
 ```sh
@@ -88,16 +106,20 @@ python tools/validate_staggered_experiments.py --mode default --build-dir build-
 python tools/validate_staggered_experiments.py --mode experimental --build-dir build-experiments --reference-build-dir build-reference --output-dir evidence-experiments
 ```
 
-In experimental mode, the runner requires eleven applicable passes, direct
+In experimental mode, the runner requires twelve applicable native passes plus the independent nonlinear oracle, direct
 legacy exit1 with the exact six PASS/one preserved FAIL, single-test CTest
 exit8, and unfiltered CTest exit8 with only that failure. It also executes
-all 26 reference groups. Missing/modified registrations, result overrides,
+all 26 reference groups. The nonlinear oracle runs as an explicit fresh
+subprocess after each applicable/unfiltered native run; a native exit0 alone
+cannot pass it. Missing/modified registrations, result overrides,
 unexpected success, different failures, timeouts, sanitizer diagnostics and
 stale output are evidence failures. No old log is accepted as a fresh run.
 Raw subprocess bytes, commands/statuses, source snapshots, binary hashes,
 compile commands and passive profiles are frozen in the output directory.
 
 `procedure_succeeded=true` means that evidence contract was satisfied.
+The current frozen nonlinear run has `procedure_succeeded=false`; the
+runner does not convert its numerical failure into an expected pass.
 `strict_cartesian_gate=FAILED` remains a numerical failure in the same
 summary. A successful dedicated workflow verifies that the declared failure
 was reproduced; it does not report all native physics green. The separate

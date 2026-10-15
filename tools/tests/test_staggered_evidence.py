@@ -64,8 +64,8 @@ class StaggeredEvidenceTests(unittest.TestCase):
         return evidence.validate_discovery(json.dumps(self.discovery if value is None else value),
                                            self.expected if expected is None else expected, self.directory)
 
-    def test_default_seven_and_opt_in_twelve_are_distinct_complete_sets(self):
-        self.assertEqual(len(self.discover()), 12)
+    def test_default_seven_and_opt_in_thirteen_are_distinct_complete_sets(self):
+        self.assertEqual(len(self.discover()), 13)
         default = copy.deepcopy(self.discovery)
         default["tests"] = [test for test in default["tests"] if test["name"] in evidence.DEFAULT_TESTS]
         self.assertEqual(len(self.discover(default, evidence.DEFAULT_TESTS)), 7)
@@ -178,7 +178,7 @@ class StaggeredEvidenceTests(unittest.TestCase):
             good.replace("positive_staggered_rezone ............", "other_test ............"),
             ctest_output(names, {evidence.LEGACY, "retained_hybrid_geometry"}),
             good.replace("***Failed", "***Timeout"),
-            good.replace("1 tests failed out of 12", "0 tests failed out of 12"),
+            good.replace("1 tests failed out of 13", "0 tests failed out of 13"),
             good.replace("6/7 remap-only", "7/7 remap-only"),
         )
         for text in faults:
@@ -278,6 +278,60 @@ class StaggeredEvidenceTests(unittest.TestCase):
         (self.directory / "compile_commands.json").write_text(json.dumps(commands))
         with self.assertRaises(evidence.EvidenceError):
             evidence.validate_compile_graph(self.directory, True)
+
+    def nonlinear_fixture(self):
+        parent = self.directory / "hybrid-nonlinear-profiles"
+        parent.mkdir()
+        dataset = parent / "run-1"
+        dataset.mkdir()
+        metadata = {"schema": 1, "cases": 304, "nonlinear": 288, "uniform": 16,
+                    "native_physical_checks": True, "independent_oracle_required": True, "whole_A2": False}
+        (dataset / "COMPLETE.json").write_text(json.dumps(metadata))
+        return dataset, f"13: NONLINEAR_OUTPUT {dataset}\n"
+
+    def test_nonlinear_output_must_be_exactly_one_new_native_child(self):
+        dataset, text = self.nonlinear_fixture()
+        self.assertEqual(evidence.nonlinear_output(run(text), self.directory, set()), dataset)
+        self.assertEqual(evidence.nonlinear_output(run(text, 8), self.directory, set(), enclosing_ctest_exit=8), dataset)
+        self.assertEqual(run(text, 8).returncode, 8)
+        for transcript, previous in ((text, {dataset}), (text+text, set()), ("", set()),
+                                     (text.replace(str(dataset), str(self.directory)), set())):
+            with self.subTest(transcript=transcript), self.assertRaises(evidence.EvidenceError):
+                evidence.nonlinear_output(run(transcript), self.directory, previous)
+        (dataset.parent / "unexpected-run").mkdir()
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.nonlinear_output(run(text), self.directory, set())
+
+    def test_nonlinear_failure_incomplete_metadata_timeout_or_sanitizer_is_fatal(self):
+        dataset, text = self.nonlinear_fixture()
+        for result in (run(text, 2), run(text, timed_out=True), run(text+"runtime error: failure\n")):
+            with self.assertRaises(evidence.EvidenceError):
+                evidence.nonlinear_output(result, self.directory, set())
+        failure = dataset / "FIRST_FAILURE.json"
+        failure.write_text("{}")
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.nonlinear_output(run(text), self.directory, set())
+        failure.unlink()
+        (dataset / "COMPLETE.json").write_text('{"cases":304}')
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.nonlinear_output(run(text), self.directory, set())
+
+    def test_native_completion_never_substitutes_for_independent_oracle(self):
+        output = self.directory / "oracle"
+        output.mkdir()
+        summary = {"oracle_passed": True, "native_cases": 304, "whole_A2": False,
+                   "all_node_rate": False, "pressure_front": False}
+        (output / "summary.json").write_text(json.dumps(summary))
+        evidence.validate_nonlinear_oracle(run("fresh synthetic oracle"), output)
+        for mutation in ({"oracle_passed": False}, {"native_cases": 303}, {"whole_A2": True},
+                         {"all_node_rate": True}, {"pressure_front": True}):
+            with self.subTest(mutation=mutation), self.assertRaises(evidence.EvidenceError):
+                (output / "summary.json").write_text(json.dumps(summary | mutation))
+                evidence.validate_nonlinear_oracle(run("native completed"), output)
+        (output / "summary.json").write_text(json.dumps(summary))
+        (output / "FIRST_FAILURE.json").write_text("{}")
+        with self.assertRaises(evidence.EvidenceError):
+            evidence.validate_nonlinear_oracle(run("native completed"), output)
 
 
 if __name__ == "__main__":

@@ -1,9 +1,9 @@
 name: Unfinished staggered experiment evidence
 on:
   push:
-    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', '.github/workflows/staggered-experiments.yml']
+    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', 'tools/check_hybrid_nonlinear_oracle.py', 'tools/tests/test_hybrid_nonlinear_oracle.py', '.github/workflows/staggered-experiments.yml']
   pull_request:
-    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', '.github/workflows/staggered-experiments.yml']
+    paths: ['CMakeLists.txt', 'native/**', 'tools/build.py', 'tools/validate_staggered_experiments.py', 'tools/tests/test_staggered_evidence.py', 'tools/check_hybrid_nonlinear_oracle.py', 'tools/tests/test_hybrid_nonlinear_oracle.py', '.github/workflows/staggered-experiments.yml']
   workflow_dispatch:
 
 # A successful job means the evidence procedure succeeded. The unchanged
@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -27,6 +27,8 @@ jobs:
           arch: x64
       - name: Test fail-closed evidence parser and fresh subprocess capture
         run: python -m unittest discover -s tools/tests -p test_staggered_evidence.py -v
+      - name: Calibrate independent exact nonlinear oracle
+        run: python -m unittest discover -s tools/tests -p test_hybrid_nonlinear_oracle.py -v
       - name: Create fresh evidence root
         run: python -c "from pathlib import Path; Path('staggered-evidence').mkdir()"
       - name: Configure default seven-test build
@@ -43,7 +45,7 @@ jobs:
         run: cmake -S . -B build-staggered-opt-in -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON > staggered-evidence/opt-in-configure.log 2>&1
       - name: Build ordinary and opt-in targets
         run: cmake --build build-staggered-opt-in --parallel 4 --verbose > staggered-evidence/opt-in-build.log 2>&1
-      - name: Verify eleven applicable passes and reproduce strict numerical failure
+      - name: Verify twelve applicable passes plus independent nonlinear oracle and strict numerical failure
         run: python tools/validate_staggered_experiments.py --mode experimental --build-dir build-staggered-opt-in --reference-build-dir build-staggered-reference --output-dir staggered-evidence/experimental
       - uses: actions/upload-artifact@v4
         if: always()
@@ -53,7 +55,7 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 75
     env:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
@@ -64,6 +66,8 @@ jobs:
           python-version: '3.11'
       - name: Test fail-closed evidence parser
         run: python3 -m unittest discover -s tools/tests -p test_staggered_evidence.py -v
+      - name: Calibrate independent exact nonlinear oracle
+        run: python -m unittest discover -s tools/tests -p test_hybrid_nonlinear_oracle.py -v
       - name: Create fresh evidence root
         run: python3 -c "from pathlib import Path; Path('staggered-evidence').mkdir()"
       - name: Configure default sanitizer build

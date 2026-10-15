@@ -138,10 +138,13 @@ if(MA_BUILD_TESTS)
         add_executable(ma_occupied_staggered_hybrid_passive_tests native/tests/occupied_staggered_hybrid_passive_tests.cpp)
         target_link_libraries(ma_occupied_staggered_hybrid_passive_tests PRIVATE ma_occupied_staggered_hybrid_remap)
         add_test(NAME protected_hybrid_passive_diagnostic COMMAND ma_occupied_staggered_hybrid_passive_tests)
+        add_executable(ma_occupied_staggered_hybrid_nonlinear_tests native/tests/occupied_staggered_hybrid_nonlinear_tests.cpp)
+        target_link_libraries(ma_occupied_staggered_hybrid_nonlinear_tests PRIVATE ma_occupied_staggered_hybrid_remap)
+        add_test(NAME protected_hybrid_nonlinear_passive COMMAND ma_occupied_staggered_hybrid_nonlinear_tests)
         set(ma_staggered_experiment_test_targets
             ma_occupied_staggered_remap_tests ma_occupied_staggered_hybrid_tests
             ma_occupied_staggered_hybrid_remap_tests ma_occupied_staggered_hybrid_event_tests
-            ma_occupied_staggered_hybrid_passive_tests)
+            ma_occupied_staggered_hybrid_passive_tests ma_occupied_staggered_hybrid_nonlinear_tests)
         add_custom_target(ma_staggered_experiment_tests DEPENDS ${ma_staggered_experiment_test_targets})
         foreach(target IN LISTS ma_staggered_experiment_test_targets)
             if(MSVC)
@@ -151,7 +154,7 @@ if(MA_BUILD_TESTS)
             endif()
         endforeach()
         set_tests_properties(positive_staggered_rezone retained_hybrid_geometry protected_hybrid_material_rezone
-            protected_hybrid_first_boundary_event protected_hybrid_passive_diagnostic PROPERTIES LABELS "staggered-experimental")
+            protected_hybrid_first_boundary_event protected_hybrid_passive_diagnostic protected_hybrid_nonlinear_passive PROPERTIES LABELS "staggered-experimental")
         set_property(TEST positive_staggered_rezone APPEND PROPERTY LABELS "staggered-known-unresolved")
     endif()
 endif()
