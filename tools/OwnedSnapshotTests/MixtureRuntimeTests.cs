@@ -102,6 +102,165 @@ internal static class MixtureRuntimeTests
             reject(() => MixturePresentationRuntime.Configure(wrong));
             check(ReferenceEquals(MixturePresentationRuntime.CurrentModel, setup.model));
         });
+        test("owned containers resolve from the same world frame without independent providers", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog);
+            FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            {
+                tx.Inject(0, setup.catalog.CreateInventory(new Dictionary<string, double>
+                    { ["nitrogen"] = 1e-16, ["chlorine"] = 1e-8 }, 300), "trace-test");
+                handle = tx.CreateContainer("owned:tank", new FluidContainerDefinition(.2, 5, FluidContainerPhases.Gas));
+                tx.TransferCellToContainer(0, handle, .25); tx.CommitFrame(7, 1.4);
+            }
+            MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+            var frame = MixturePresentationRuntime.AcquireFrameFor(100)!;
+            check(MixturePresentationRuntime.InventoryProviderCount == 0 && frame.Inventories.Count == 0 && frame.Revision == state.CaptureSnapshot().Revision);
+            check(frame.TryResolveInventory(handle, out var reading) && Math.Abs(reading!.TotalMassKg - .25) < 1e-14 && reading.Revision == frame.Revision &&
+                reading.Constituents.Any(row => row.MaterialId == "chlorine" && row.MassKg > 0) && reading.Warnings.Count > 0);
+            check(frame.TryResolveInventory(handle.Id, out var byId) && ReferenceEquals(reading, byId) && frame.TryGetCell(0, out var cell) && cell!.Revision == reading!.Revision);
+            using (MixturePresentationRuntime.EnterWorkerBatch(frame))
+                check(Task.Run(() => MixturePresentationRuntime.TryResolveInventory(handle, out var worker) && ReferenceEquals(worker, reading) &&
+                    !MixturePresentationRuntime.TryResolveIndependentInventory(handle.Id, out _)).GetAwaiter().GetResult());
+        });
+        test("conserved visual fixtures retain the shared snapshot path and explicit fixture lifecycle", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog);
+            MixturePresentationRuntime.PublishConservedFixture(state.CaptureSnapshot());
+            var frame = MixturePresentationRuntime.AcquireFrameFor(105)!;
+            check(frame.IsFixture && MixturePresentationRuntime.IsFixture && frame.HasWorld);
+            reject(() => MixturePresentationRuntime.Publish(state.CaptureSnapshot()));
+            MixturePresentationRuntime.Configure(setup.model.WithVisualOptions(new MixtureVisualOptions { PatternEnabled = false }));
+            check(MixturePresentationRuntime.AcquireFrameFor(106)!.IsFixture);
+            MixturePresentationRuntime.ClearFixtures();
+            check(!MixturePresentationRuntime.HasWorldProvider && !MixturePresentationRuntime.IsFixture &&
+                MixturePresentationRuntime.AcquireFrameFor(107) == null && frame.TryGetCell(0, out _));
+        });
+        test("owned runtime lookups reject replaced handles while old completed frames remain immutable", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle first, replacement;
+            using (var tx = state.BeginTransaction())
+            { first = tx.CreateContainer("reused", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferCellToContainer(0, first, .25); tx.Commit(); }
+            MixturePresentationRuntime.Publish(state.CaptureSnapshot()); var old = MixturePresentationRuntime.AcquireFrameFor(110)!;
+            check(old.TryResolveInventory(first, out var oldReading) && oldReading!.TotalMassKg == .25);
+            using (var tx = state.BeginTransaction())
+            {
+                tx.RetireContainerToCell(first, 0);
+                replacement = tx.CreateContainer(first.Id, new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas));
+                tx.TransferCellToContainer(0, replacement, .5); tx.Commit();
+            }
+            MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+            check(ReferenceEquals(old, MixturePresentationRuntime.AcquireFrameFor(110)));
+            var next = MixturePresentationRuntime.AcquireFrameFor(111)!;
+            check(!next.TryResolveInventory(first, out _) && next.TryResolveInventory(replacement, out var reading) && reading!.TotalMassKg == .5);
+            check(old.TryResolveInventory(first, out var retained) && ReferenceEquals(retained, oldReading) && !old.TryResolveInventory(replacement, out _));
+            check(!next.TryResolveInventory(default(FluidContainerHandle), out _));
+        });
+        test("independent adapters cannot shadow an owned container in either registration order", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); var before = state.CaptureSnapshot();
+            MixturePresentationRuntime.Publish(before);
+            var captures = 0;
+            MixturePresentationRuntime.RegisterInventory("tank", () => { ++captures; return Air(setup.catalog); }, 1);
+            var prior = MixturePresentationRuntime.AcquireFrameFor(120)!; check(captures == 1);
+            FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("tank", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferCellToContainer(0, handle, .25); tx.Commit(); }
+            reject(() => MixturePresentationRuntime.Publish(state.CaptureSnapshot()));
+            check(ReferenceEquals(prior, MixturePresentationRuntime.AcquireFrameFor(120)) && !prior.TryResolveInventory(handle, out _));
+            MixturePresentationRuntime.UnregisterInventory("tank"); MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+            reject(() => MixturePresentationRuntime.RegisterInventory("tank", () => { ++captures; return Air(setup.catalog); }, 1));
+            var next = MixturePresentationRuntime.AcquireFrameFor(121)!;
+            check(captures == 1 && MixturePresentationRuntime.InventoryProviderCount == 0 && next.TryResolveInventory(handle, out var reading) && reading!.TotalMassKg == .25);
+        });
+        test("runtime owned lookup takes precedence even over a malformed independent frame entry", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("tank", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferCellToContainer(0, handle, .25); tx.Commit(); }
+            var snapshot = state.CaptureSnapshot(); var world = setup.model.CaptureFrame(snapshot);
+            var fake = setup.model.Describe(Air(setup.catalog), 1, snapshot.Revision, "independent:wrong");
+            var frame = new RuntimeMixturePresentationFrame(130, 1, 0, setup.model, world, null, 2, 2, snapshot.Revision, false,
+                new Dictionary<string, MixturePresentation> { [handle.Id] = fake }, new Dictionary<string, string>());
+            check(frame.TryResolveInventory(handle.Id, out var actual) && !ReferenceEquals(actual, fake) && actual!.TotalMassKg == .25);
+            check(frame.TryResolveInventory(handle, out var exact) && ReferenceEquals(exact, actual));
+        });
+        test("owned container handles survive custom checkpoint reload in one presentation session", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); FluidContainerHandle handle;
+            using (var tx = state.BeginTransaction())
+            { handle = tx.CreateContainer("tank", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas)); tx.TransferCellToContainer(0, handle, .25); tx.Commit(); }
+            MixturePresentationRuntime.Publish(state.CaptureSnapshot()); var first = MixturePresentationRuntime.AcquireFrameFor(140)!;
+            var restored = ColonyFluidState.Restore(state.Save(), setup.catalog);
+            MixturePresentationRuntime.Publish(restored.CaptureSnapshot()); var next = MixturePresentationRuntime.AcquireFrameFor(141)!;
+            check(first.TryResolveInventory(handle, out var old) && next.TryResolveInventory(handle, out var current) &&
+                old!.TotalMassKg == current!.TotalMassKg && old.Revision == current.Revision);
+        });
+        test("a different colony cannot replace a live presentation session without teardown", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+            var first = MixturePresentationRuntime.AcquireFrameFor(150)!;
+            reject(() => MixturePresentationRuntime.Publish(State(setup.catalog).CaptureSnapshot()));
+            check(ReferenceEquals(first, MixturePresentationRuntime.AcquireFrameFor(150)));
+        });
+        test("reentrant provider publication cannot mix completed world and inventory revisions", () =>
+        {
+            var setup = Setup(); var state = State(setup.catalog); var before = state.CaptureSnapshot();
+            MixturePresentationRuntime.Publish(before);
+            using (var tx = state.BeginTransaction()) { tx.Inject(0, Air(setup.catalog), "next"); tx.Commit(); }
+            var next = state.CaptureSnapshot();
+            var replacement = setup.model.WithVisualOptions(new MixtureVisualOptions { PatternEnabled = false });
+            MixturePresentationRuntime.RegisterInventory("first", () => new MixtureContainerSample("first", Air(setup.catalog), 1, before.Revision));
+            MixturePresentationRuntime.RegisterInventory("reentrant", () =>
+            {
+                MixturePresentationRuntime.Publish(next); MixturePresentationRuntime.Configure(replacement);
+                return new MixtureContainerSample("reentrant", Air(setup.catalog), 1, before.Revision);
+            });
+            var captured = MixturePresentationRuntime.AcquireFrameFor(160)!;
+            check(captured.Revision == before.Revision && ReferenceEquals(captured.Model, setup.model) &&
+                captured.Inventories.Count == 2 && captured.Inventories.Values.All(value => value.Revision == captured.Revision));
+            check(captured.TryGetCell(0, out var cell) && cell!.Revision == before.Revision);
+            var following = MixturePresentationRuntime.AcquireFrameFor(161)!;
+            check(following.Revision == next.Revision && ReferenceEquals(following.Model, replacement) &&
+                following.Inventories.Count == 0 && following.InventoryErrors.Count == 2);
+        });
+        test("teardown from an inventory callback cannot republish a retired session", () =>
+        {
+            var setup = Setup();
+            MixturePresentationRuntime.RegisterInventory("teardown", () =>
+            {
+                MixturePresentationLifecycle.EndSession();
+                return new MixtureContainerSample("teardown", Air(setup.catalog), 1, 0);
+            });
+            var retiredCalls = 0;
+            MixturePresentationRuntime.RegisterInventory("retired", () => { ++retiredCalls; return Air(setup.catalog); }, 1);
+            reject(() => MixturePresentationRuntime.AcquireFrameFor(170));
+            check(retiredCalls == 0 && !MixturePresentationRuntime.HasCachedFrame && !MixturePresentationRuntime.HasProvider && MixturePresentationRuntime.CurrentModel == null);
+            setup = Setup(); MixturePresentationRuntime.Publish(State(setup.catalog).CaptureSnapshot());
+            check(MixturePresentationRuntime.AcquireFrameFor(171) != null);
+        });
+        test("recursive provider capture is explicitly rejected without poisoning later frames", () =>
+        {
+            var setup = Setup();
+            MixturePresentationRuntime.RegisterInventory("recursive", () =>
+            {
+                reject(() => MixturePresentationRuntime.AcquireFrameFor(181));
+                return new MixtureContainerSample("recursive", Air(setup.catalog), 1, 0);
+            });
+            check(MixturePresentationRuntime.AcquireFrameFor(180)!.Inventories.Count == 1);
+            check(MixturePresentationRuntime.AcquireFrameFor(182)!.Inventories.Count == 1);
+        });
+        test("a reentrant liveness callback cannot retire a replacement provider with the same ID", () =>
+        {
+            var setup = Setup(); var calls = 0;
+            MixturePresentationRuntime.RegisterInventory("reused-adapter", () => throw new Exception("Retired adapter was captured."), 1, () =>
+            {
+                MixturePresentationRuntime.RegisterInventory("reused-adapter", () => { ++calls; return Air(setup.catalog); }, 1);
+                return false;
+            });
+            check(MixturePresentationRuntime.AcquireFrameFor(190)!.Inventories.Count == 0 && MixturePresentationRuntime.InventoryProviderCount == 1);
+            check(MixturePresentationRuntime.AcquireFrameFor(191)!.Inventories.Count == 1 && calls == 1);
+        });
         test("normal-world density opacity is independent of physical pressure", () =>
         {
             var setup = Setup(); var options = new MixtureWorldRendering.OpacityParameters(15, 200, 0.1);
@@ -153,6 +312,7 @@ internal static class MixtureRuntimeTests
             var replacement = Setup();
             MixturePresentationRuntime.EnableFixtureFrame(3, 2, new Dictionary<int, FluidInventory> { [4] = Air(replacement.catalog) });
             var next = MixturePresentationRuntime.AcquireFrameFor(60)!;
+            reject(() => MixturePresentationRuntime.EnterWorkerBatch(oldFrame));
             using (MixturePresentationRuntime.EnterWorkerBatch(next))
             {
                 oldLease.Dispose();

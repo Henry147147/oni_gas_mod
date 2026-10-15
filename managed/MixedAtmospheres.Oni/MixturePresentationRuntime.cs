@@ -23,6 +23,8 @@ namespace MixedAtmospheres.Oni
         private static RuntimeMixturePresentationFrame? workerReadFrame;
         private static long generation, builds, resetEpoch;
         private static int? presentationThread;
+        private static bool capturing;
+        private static bool sourceIsFixture;
         internal static event System.Action? SessionEnding;
         internal static string LastShutdownError { get; private set; } = "";
 
@@ -34,7 +36,7 @@ namespace MixedAtmospheres.Oni
         internal static bool IsActive => HasProvider;
         internal static long PresentationBuildCount { get { lock (Sync) return builds; } }
         internal static long CurrentRevision { get { lock (Sync) return current?.Revision ?? world?.Revision ?? fixture?.Revision ?? 0; } }
-        internal static bool IsFixture { get { lock (Sync) return fixture != null; } }
+        internal static bool IsFixture { get { lock (Sync) return fixture != null || sourceIsFixture; } }
 
         // The model owns cloned settings/palette/options. Replacing it prepares
         // new world readings atomically; an already pinned Unity frame retains
@@ -53,17 +55,31 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void Publish(ColonyFrameSnapshot authoritative)
+            => Publish(authoritative, false);
+
+        // Uses the production snapshot projection while retaining the private
+        // on-screen fixture banner. This owns no native simulation state.
+        internal static void PublishConservedFixture(ColonyFrameSnapshot authoritative)
+            => Publish(authoritative, true);
+
+        private static void Publish(ColonyFrameSnapshot authoritative, bool isFixture)
         {
             if (authoritative == null) throw new ArgumentNullException(nameof(authoritative));
             lock (Sync)
             {
                 if (model == null) throw new InvalidOperationException("Configure the mixture presentation model before publishing state.");
                 if (fixture != null) throw new InvalidOperationException("Clear visual fixtures before publishing authoritative colony state.");
+                if (source != null && sourceIsFixture != isFixture)
+                    throw new InvalidOperationException("Reset the presentation session before changing fixture ownership.");
                 if (ReferenceEquals(authoritative, source)) return;
+                if (source != null && authoritative.ColonyId != source.ColonyId)
+                    throw new InvalidOperationException("Reset the presentation session before publishing a different colony.");
                 if (source != null && (authoritative.CompletedFrame < source.CompletedFrame || authoritative.Revision < source.Revision))
                     throw new InvalidOperationException("Presentation cannot publish an older colony frame.");
+                foreach (var id in authoritative.Containers.Keys)
+                    if (Registrations.ContainsKey(id)) throw new InvalidOperationException("An independent inventory adapter conflicts with owned container " + id + ".");
                 var prepared = model.CaptureFrame(authoritative);
-                source = authoritative; world = prepared; ++generation;
+                source = authoritative; world = prepared; sourceIsFixture = isFixture; ++generation;
             }
         }
 
@@ -92,13 +108,26 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        internal static void ClearFixtures() { lock (Sync) { fixture = null; ++generation; } }
+        internal static void ClearFixtures()
+        {
+            lock (Sync)
+            {
+                fixture = null;
+                if (sourceIsFixture) { source = null; world = null; sourceIsFixture = false; }
+                ++generation;
+            }
+        }
 
         internal static void RegisterInventory(string id, Func<MixtureContainerSample> snapshot, Func<bool>? isAlive = null)
         {
             if (string.IsNullOrWhiteSpace(id) || id.Length > 256) throw new ArgumentException("A stable inventory identity is required.", nameof(id));
             if (snapshot == null) throw new ArgumentNullException(nameof(snapshot));
-            lock (Sync) { Registrations[id] = new InventoryRegistration(id, snapshot, isAlive); ++generation; }
+            lock (Sync)
+            {
+                if (world != null && world.OwnedContainerHandles.ContainsKey(id))
+                    throw new InvalidOperationException("An independent adapter cannot replace owned container " + id + ".");
+                Registrations[id] = new InventoryRegistration(id, snapshot, isAlive); ++generation;
+            }
         }
 
         internal static void RegisterInventory(string id, Func<FluidInventory> inventory, double volumeCubicMetres, Func<bool>? isAlive = null)
@@ -133,6 +162,8 @@ namespace MixedAtmospheres.Oni
             {
                 if (!presentationThread.HasValue || presentationThread != Thread.CurrentThread.ManagedThreadId)
                     throw new InvalidOperationException("Only the presentation thread may pin worker batches.");
+                if (frame.SessionEpoch != resetEpoch)
+                    throw new InvalidOperationException("A worker batch cannot reactivate a frame from a retired presentation session.");
                 var previous = Volatile.Read(ref workerReadFrame);
                 Volatile.Write(ref workerReadFrame, frame);
                 return new WorkerReadScope(previous, frame, resetEpoch);
@@ -151,21 +182,38 @@ namespace MixedAtmospheres.Oni
                 var thread = Thread.CurrentThread.ManagedThreadId;
                 if (presentationThread.HasValue && presentationThread != thread)
                     throw new InvalidOperationException("Presentation frames and inventory adapters must be captured on one main thread.");
+                if (capturing) throw new InvalidOperationException("An inventory adapter cannot recursively capture a new presentation frame.");
                 presentationThread = thread;
+                // Adapters are external code and may reenter Publish/Configure.
+                // Every projection in this Unity frame retains these exact
+                // completed inputs, even if a newer publication arrives.
+                var capturedModel = model; var capturedWorld = world; var capturedFixture = fixture; var capturedSource = source;
+                var capturedGeneration = generation; var capturedEpoch = resetEpoch; var capturedIsFixture = sourceIsFixture;
+                capturing = true;
+                try
+                {
                 var inventories = new Dictionary<string, MixturePresentation>(StringComparer.Ordinal);
                 var errors = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var registration in Registrations.Values.ToArray())
                 {
+                    if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
                     try
                     {
-                        if (registration.IsAlive != null && !registration.IsAlive())
-                        { Registrations.Remove(registration.Id); continue; }
+                        var alive = registration.IsAlive == null || registration.IsAlive();
+                        if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
+                        if (!alive)
+                        {
+                            if (Registrations.TryGetValue(registration.Id, out var registered) && ReferenceEquals(registered, registration))
+                                Registrations.Remove(registration.Id);
+                            continue;
+                        }
                         var sample = registration.Capture();
+                        if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
                         if (sample == null || sample.Id != registration.Id)
                             throw new InvalidOperationException("Inventory adapter returned a different or missing identity.");
-                        if (source != null && sample.Revision != source.Revision)
+                        if (capturedSource != null && sample.Revision != capturedSource.Revision)
                             throw new InvalidOperationException("Inventory adapter belongs to a different authoritative colony revision.");
-                        inventories.Add(registration.Id, model.Describe(sample.Inventory, sample.VolumeCubicMetres, sample.Revision, sample.Id));
+                        inventories.Add(registration.Id, capturedModel.Describe(sample.Inventory, sample.VolumeCubicMetres, sample.Revision, sample.Id));
                     }
                     catch (Exception error)
                     {
@@ -174,10 +222,13 @@ namespace MixedAtmospheres.Oni
                         errors[registration.Id] = error.Message;
                     }
                 }
-                current = new RuntimeMixturePresentationFrame(unityFrame, generation, model, world,
-                    fixture?.Presentations, fixture?.Width ?? world?.Width ?? 0, fixture?.Height ?? world?.Height ?? 0,
-                    fixture?.Revision ?? world?.Revision ?? 0, fixture != null, inventories, errors);
+                if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
+                current = new RuntimeMixturePresentationFrame(unityFrame, capturedGeneration, capturedEpoch, capturedModel, capturedWorld,
+                    capturedFixture?.Presentations, capturedFixture?.Width ?? capturedWorld?.Width ?? 0, capturedFixture?.Height ?? capturedWorld?.Height ?? 0,
+                    capturedFixture?.Revision ?? capturedWorld?.Revision ?? 0, capturedFixture != null || capturedIsFixture, inventories, errors);
                 ++builds; return current;
+                }
+                finally { capturing = false; }
             }
         }
 
@@ -195,6 +246,20 @@ namespace MixedAtmospheres.Oni
             reading = null; return false;
         }
 
+        internal static bool TryResolveInventory(FluidContainerHandle handle, out MixturePresentation? reading)
+        {
+            var frame = AcquireFrame();
+            if (frame != null) return frame.TryResolveInventory(handle, out reading);
+            reading = null; return false;
+        }
+
+        internal static bool TryResolveIndependentInventory(string id, out MixturePresentation? reading)
+        {
+            var frame = AcquireFrame();
+            if (frame != null) return frame.Inventories.TryGetValue(id, out reading);
+            reading = null; return false;
+        }
+
         internal static bool TryGetInventoryError(string id, out string? error)
         {
             var frame = AcquireFrame();
@@ -207,6 +272,7 @@ namespace MixedAtmospheres.Oni
             lock (Sync)
             {
                 source = null; world = null; fixture = null; current = null; Registrations.Clear();
+                sourceIsFixture = false;
                 Volatile.Write(ref workerReadFrame, null);
                 presentationThread = null; ++generation; ++resetEpoch;
             }
@@ -287,6 +353,7 @@ namespace MixedAtmospheres.Oni
         private readonly IReadOnlyDictionary<int, MixturePresentation>? fixtures;
         internal int UnityFrame { get; }
         internal long PublicationGeneration { get; }
+        internal long SessionEpoch { get; }
         internal long Revision { get; }
         internal bool IsFixture { get; }
         internal int Width { get; }
@@ -296,11 +363,11 @@ namespace MixedAtmospheres.Oni
         internal IReadOnlyDictionary<string, string> InventoryErrors { get; }
         internal bool HasWorld => world != null || fixtures != null;
 
-        internal RuntimeMixturePresentationFrame(int unityFrame, long generation, MixturePresentationModel model,
+        internal RuntimeMixturePresentationFrame(int unityFrame, long generation, long sessionEpoch, MixturePresentationModel model,
             MixturePresentationFrame? world, IReadOnlyDictionary<int, MixturePresentation>? fixtures, int width, int height,
             long revision, bool fixture, Dictionary<string, MixturePresentation> inventories, Dictionary<string, string> errors)
         {
-            UnityFrame = unityFrame; PublicationGeneration = generation; Model = model; this.world = world; this.fixtures = fixtures;
+            UnityFrame = unityFrame; PublicationGeneration = generation; SessionEpoch = sessionEpoch; Model = model; this.world = world; this.fixtures = fixtures;
             Width = width; Height = height; Revision = revision; IsFixture = fixture;
             Inventories = new ReadOnlyDictionary<string, MixturePresentation>(inventories);
             InventoryErrors = new ReadOnlyDictionary<string, string>(errors);
@@ -313,6 +380,16 @@ namespace MixedAtmospheres.Oni
             reading = null; return false;
         }
 
-        internal bool TryResolveInventory(string id, out MixturePresentation? reading) => Inventories.TryGetValue(id, out reading);
+        internal bool TryResolveInventory(string id, out MixturePresentation? reading)
+        {
+            if (world != null && world.TrySampleContainer(id, out reading)) return true;
+            return Inventories.TryGetValue(id, out reading);
+        }
+
+        internal bool TryResolveInventory(FluidContainerHandle handle, out MixturePresentation? reading)
+        {
+            if (world != null) return world.TrySampleContainer(handle, out reading);
+            reading = null; return false;
+        }
     }
 }

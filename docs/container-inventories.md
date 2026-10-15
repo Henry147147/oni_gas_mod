@@ -60,8 +60,12 @@ var bufferView = view.SampleContainer(buffer);
 with the same revision, model and simulation time as its cells. Handle-based
 presentation lookup rejects foreign, retired, replaced and unpublished
 allocations. Separate display-only fixture samples remain supported, but cannot
-override an owned container ID. Binding actual ONI objects to these handles and
-staging all device/actor inventories still require production adapters.
+override an owned container ID. `MixtureInspection.RegisterContainerOwner`
+binds an ONI object to its full allocation handle without adding a callback
+provider. Retired/replaced/foreign bindings explicitly show unavailable; an
+ID-only independent binding cannot adopt an owned allocation, and late legacy
+or old-handle cleanup cannot erase its replacement. Staging all native
+device/actor inventories still requires production adapters.
 
 Private checkpoint format 3 includes colony identity, allocation high-water,
 active handles, definitions and inventories. Restore validates all records,
@@ -70,7 +74,8 @@ before returning an authority. Version 2 is strictly rejected; old private
 evidence remains separate. The live snapshot companion/callback outbox and
 actual ONI manual-save/autosave envelope are not integrated by this format.
 
-Windows correctness evidence passes Core 82 and presentation 24 scenarios.
+Windows and isolated WSL Linux correctness evidence passes Core 82, presentation
+24, owned snapshot/runtime 76 and inspection 27 scenarios.
 New cases cover aborted/stale-handle ABA,
 cross-colony rejection, metadata-only evacuation, minimum-positive traces,
 fractional disease, capacity/phase/volume rollback, large-container selective
@@ -81,3 +86,12 @@ The fault-injection seam is internal, bounded and local to one transaction;
 normal pre-write validation remains recoverable. Private source hashes are in
 `local/owned-containers-windows-evidence.json`. These are managed protocol tests;
 they do not establish native actor/storage takeover or first-playable readiness.
+
+Actual Windows v17/v18 presentation fixtures move six complete world-cell parcels
+into six owned containers and bind real pipe/reservoir/bottle/suit/vent/machine
+objects using full handles. Both runs verify a selective oxygen transfer,
+custom checkpoint, stale allocation unavailability, safe replacement without
+stale warnings, complete retirement and whole-colony/external-ledger balances.
+V18 also compares nine runtime views directly to the completed Core state.
+Independent private checkpoint decoders and actual screenshot reviews pass;
+see [mixture presentation](mixture-presentation.md) for scope and evidence paths.

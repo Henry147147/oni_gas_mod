@@ -194,11 +194,16 @@ These are requirements, not currently registered ONI buildings.
 ## Read-only mixture presentation
 
 `MixturePresentationModel` describes explicitly supplied immutable inventories;
-`CaptureFrame` projects a completed colony snapshot and same-revision container
-samples. Unknown catalogue bindings and stale container revisions reject.
+`CaptureFrame` projects owned world cells and containers directly from one
+completed colony snapshot, with optional additional same-revision display
+samples. [Owned containers](container-inventories.md) use persisted full
+allocation handles; stale, foreign, retired or replaced object bindings display
+unavailable and cannot adopt an allocation by its string ID. Unknown catalogue
+bindings and stale container revisions reject.
 `MixturePresentationRuntime` publishes one immutable view per Unity frame and
 pins it across synchronous texture/overlay worker jobs. Provider callbacks run
-only on the presentation thread. No provider leaves native behavior intact;
+only on the presentation thread against pinned inputs, with reentrant
+publication unable to mix revisions. No provider leaves native behavior intact;
 an explicit provider failure displays unavailable instead of silently inferring
 a mixture from a native dominant element or packet.
 Real simulator/game teardown retires the model, providers, pinned frames,

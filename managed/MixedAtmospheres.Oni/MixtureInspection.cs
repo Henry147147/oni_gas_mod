@@ -28,7 +28,9 @@ namespace MixedAtmospheres.Oni
         {
             internal readonly string Id, Label;
             internal readonly bool SuppressNative;
+            internal readonly FluidContainerHandle? Handle;
             internal Binding(string id, string label, bool suppressNative) { Id = id; Label = label; SuppressNative = suppressNative; }
+            internal Binding(FluidContainerHandle handle, string label) { Id = handle.Id; Handle = handle; Label = label; SuppressNative = true; }
         }
         private sealed class OwnerBindings { internal readonly List<Binding> Items = new List<Binding>(); }
         private sealed class OwnerCache { internal int Frame = -1, Generation; internal InspectionData? Data; }
@@ -76,8 +78,9 @@ namespace MixedAtmospheres.Oni
         {
             if (owner == null) throw new ArgumentNullException(nameof(owner));
             if (string.IsNullOrWhiteSpace(inventoryId)) throw new ArgumentException("An inventory identity is required.", nameof(inventoryId));
+            RequireIndependentOwnerBinding(owner, inventoryId);
             var bindings = Owners.GetValue(owner, _ => new OwnerBindings()).Items;
-            sessionBindingCount -= bindings.RemoveAll(item => item.Id == inventoryId);
+            sessionBindingCount -= bindings.RemoveAll(item => !item.Handle.HasValue && item.Id == inventoryId);
             bindings.Add(new Binding(inventoryId, string.IsNullOrWhiteSpace(label) ? "Fluid contents" : label, suppressNativeFallback));
             ++sessionBindingCount;
             generation++;
@@ -87,15 +90,54 @@ namespace MixedAtmospheres.Oni
             double volumeCubicMetres, string label = "Fluid contents")
         {
             if (owner == null) throw new ArgumentNullException(nameof(owner));
+            RequireIndependentOwnerBinding(owner, inventoryId);
             MixturePresentationRuntime.RegisterInventory(inventoryId, inventory, volumeCubicMetres, () => owner != null);
             RegisterInventoryOwner(owner, inventoryId, label);
+        }
+
+        /// <summary>Binds a game object to an exact owned allocation in the shared completed snapshot. This creates no inventory provider.</summary>
+        public static void RegisterContainerOwner(GameObject owner, FluidContainerHandle handle, string label = "Fluid contents")
+        {
+            if (handle.ColonyId == Guid.Empty || string.IsNullOrWhiteSpace(handle.Id) || handle.Generation <= 0 || handle.AllocationToken == Guid.Empty)
+                throw new ArgumentException("A complete owned container allocation is required.", nameof(handle));
+            if (owner == null) throw new ArgumentNullException(nameof(owner));
+            var bindings = Owners.GetValue(owner, _ => new OwnerBindings()).Items;
+            if (bindings.Any(item => !item.Handle.HasValue && item.Id == handle.Id))
+                throw new InvalidOperationException("Unregister the independent inventory binding before assigning an owned allocation.");
+            sessionBindingCount -= bindings.RemoveAll(item => item.Id == handle.Id);
+            bindings.Add(new Binding(handle, string.IsNullOrWhiteSpace(label) ? "Fluid contents" : label));
+            ++sessionBindingCount; ++generation;
+        }
+
+        public static void UnregisterContainerOwner(GameObject owner, FluidContainerHandle handle)
+        {
+            if (ReferenceEquals(owner, null)) return;
+            if (Owners.TryGetValue(owner, out var bindings))
+                sessionBindingCount -= bindings.Items.RemoveAll(item => item.Handle.HasValue && item.Handle.Value.Equals(handle));
+            ++generation;
+        }
+
+        internal static bool TryResolveContainerBinding(RuntimeMixturePresentationFrame? frame, FluidContainerHandle handle,
+            out MixturePresentation? reading, out string error)
+        {
+            reading = null;
+            if (frame == null) { error = "waiting for a completed inventory frame"; return false; }
+            if (!frame.TryResolveInventory(handle, out reading) || reading == null)
+            { error = "owned container allocation is retired, replaced, foreign or unpublished"; return false; }
+            error = ""; return true;
         }
 
         public static void UnregisterInventoryOwner(GameObject owner, string inventoryId)
         {
             if (ReferenceEquals(owner, null)) return;
-            if (Owners.TryGetValue(owner, out var bindings)) sessionBindingCount -= bindings.Items.RemoveAll(item => item.Id == inventoryId);
+            if (Owners.TryGetValue(owner, out var bindings)) sessionBindingCount -= bindings.Items.RemoveAll(item => !item.Handle.HasValue && item.Id == inventoryId);
             generation++;
+        }
+
+        private static void RequireIndependentOwnerBinding(GameObject owner, string inventoryId)
+        {
+            if (Owners.TryGetValue(owner, out var bindings) && bindings.Items.Any(item => item.Handle.HasValue && item.Id == inventoryId))
+                throw new InvalidOperationException("An independent binding cannot replace an exact owned allocation.");
         }
 
         public static void UnregisterInventory(GameObject owner, string inventoryId)
@@ -418,13 +460,19 @@ namespace MixedAtmospheres.Oni
                 foreach (var binding in bindings.Items)
                 {
                     if (binding.SuppressNative) suppressed.Add(owner);
-                    if (!MixturePresentationRuntime.TryResolveInventory(binding.Id, out var reading) || reading == null)
+                    MixturePresentation? reading;
+                    if (binding.Handle.HasValue)
+                    {
+                        if (!TryResolveContainerBinding(MixturePresentationRuntime.AcquireFrame(), binding.Handle.Value, out reading, out var error))
+                        { result.Errors.Add(binding.Label + " unavailable: " + error); continue; }
+                    }
+                    else if (!MixturePresentationRuntime.TryResolveIndependentInventory(binding.Id, out reading) || reading == null)
                     {
                         MixturePresentationRuntime.TryGetInventoryError(binding.Id, out var error);
                         result.Errors.Add(binding.Label + " unavailable: " + (error ?? "waiting for a completed inventory frame"));
                         continue;
                     }
-                    if (seenIds.Add(binding.Id)) result.Owned.Add((binding.Label, reading));
+                    if (seenIds.Add(binding.Id)) result.Owned.Add((binding.Label, reading!));
                 }
             }
             var seenPackets = new HashSet<GameObject>();

@@ -37,7 +37,9 @@ carbon-dioxide fraction/partial pressure high, and explicit contaminants.
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
 are immutable; `TrySampleCell` rejects solids/outside cells and allocates nothing
-when reading. `MixtureContainerSample(id, inventory, volume, revision)` must
+when reading. Owned containers come directly from the same completed snapshot;
+full-handle lookup validates colony, ordinal generation and unique allocation
+token. Additional `MixtureContainerSample(id, inventory, volume, revision)` must
 match the colony revision. Source labels and revisions are never rewritten on
 older views. Settings/options getters return owned copies; primitive threshold
 properties and `GasMaterialIds`/`Styles` serve rendering workers and legends.
@@ -88,10 +90,22 @@ once per Unity frame, validates owned-source revisions and pins the resulting
 immutable frame for texture/overlay workers. Provider errors remain
 `unavailable`; they cannot silently become a native pure packet. Worker paths
 must not call Unity, invoke providers, deserialize settings or rebuild analysis.
+Capture pins the exact source, model and world before invoking external adapters,
+so reentrant publication cannot mix revisions. Recursive capture rejects;
+teardown aborts capture before any later retired callback runs. Liveness cleanup
+checks the registration object identity before removing an ID that a callback
+may have replaced. Worker frames carry a session epoch, preventing a fresh lease
+from reactivating a frame from a retired colony.
 
 `MixtureInspection.RegisterInventory(owner, id, provider, volume, label)` binds
-owned inventories to hover/selection surfaces; `RegisterInventoryOwner` binds an
-already registered provider. Unregister both on teardown. Existing unregistered
+independent display adapters to hover/selection surfaces; `RegisterInventoryOwner`
+binds an already registered independent provider. Unregister both on teardown.
+`RegisterContainerOwner(owner, handle, label)` instead binds the exact conserved
+allocation in the shared completed world frame and creates no provider. It
+suppresses native packet fallback even when that allocation is retired,
+replaced, foreign or unpublished. Independent ID-only bindings cannot resolve
+owned containers, and stale independent/old-handle cleanup cannot remove a new
+exact-handle binding. Existing unregistered
 native pipe/storage/bottle/equipped-suit/vent surfaces remain labelled native
 single-material packets. Their packet mass/temperature can be shown; unknown
 container pressure and mixed composition cannot be inferred from them.
@@ -116,9 +130,17 @@ limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
 
+Current Windows and isolated WSL Linux checks pass Core 82, presentation 24,
+owned snapshot/runtime 76 and inspection 27 scenarios. New coverage includes
+same-frame cell/container agreement, checkpoint-preserved allocation identities,
+retired/replaced/foreign handles, provider collision in both registration orders,
+reentrant publication/teardown/liveness replacement, recursive capture and
+cross-session worker frame rejection. These are correctness checks against local
+licensed game declarations, without Linux Unity rendering.
+
 The ordinary managed build runs
 `managed/MixedAtmospheres.Presentation.Tests` even without a game directory.
-Its 20 scenarios include 39 assessments against the native reference, tiny/zero-limit
+Its 24 scenarios include 39 assessments against the native reference, tiny/zero-limit
 trace regressions, 100
 bit-exact canonical cell comparisons, trace
 formatting, phase separation, linear colour, pattern/tie continuity, copied
@@ -126,7 +148,7 @@ settings, immutable frames/containers, concurrent cache/lazy inspection access
 and weak-key collection. With `--game-dir`, `tools/build.py` builds the ONI adapter and runs
 `tools/OwnedSnapshotTests`, `tools/MixtureInspectionTests` and
 `tools/NativeDescriptionTests` against the licensed
-local declarations. Current Linux runs pass 43 snapshot/router/render-policy
+local declarations. Earlier Linux runs passed 43 snapshot/router/render-policy
 checks, 25 inspection checks and five native-description checks, including one-line headers, player units,
 owned-container warning priority while preserving native description/order,
 native link formatting, safe native-port bounds races, session retirement,
@@ -277,6 +299,37 @@ and UI changes; the surrounding native colony is mostly paused and no baseline
 is subtracted. V11's packed recheck records 7,275 batches, frame p50/p95/p99 of
 8.24/9.76/110.74 ms and a maximum batch of 3.14 ms under the same limited scope.
 Those are separate runs, without a comparative production-speed claim.
+Windows v17 and v18 use `PublishConservedFixture` through the production snapshot
+projection: six world cells are emptied into six owned containers, followed by
+a constituent-selective 0.1 kg oxygen transfer, a custom format-3 checkpoint,
+retirement/reuse of a bottle ID, exact-handle rebinding, and complete evacuation
+before cleanup. Each run completes 25 Unity captures, nine selected-container
+checks, five whole-inventory conservation checks and an explicit unavailable
+panel for the stale allocation. No independent provider supplies these owned
+container readings. V18 additionally compares nine runtime views directly with
+Core revision, every constituent mass, total mass, temperature and pressure;
+the replacement must be breathable with zero warnings and no chlorine row.
+The actual cached panel must remove its old warning/composition rows.
+
+Independent decoders of v17/v18's frozen checkpoints verify the six removed
+world inventories, container parcels, selective oxygen/thermal-energy transfer,
+unchanged geometry and external ledgers, saved full allocation identity, and
+the recorded UI values, with source/package hash checks and actual screenshot
+reviews in each run's `shared-snapshot-review.json`. V17 also exercises native Save And Quit, same-save
+resume, retirement of the fixture world/model/frame and restored native F1
+legend. V18 automatically quits and does not repeat that manual sequence.
+Private reports and source/package/PNG hashes are under
+`local/colony-runs/presentation-windows-v17` and `presentation-windows-v18`.
+These checks cover conserved custom presentation fixtures; the native colony
+still runs its own physics and its save does not establish custom-mixture or
+owned-container persistence. V16's failed cached-world-reuse startup is retained
+separately and contributes no acceptance evidence.
+
+V18's mostly paused 504-cell/six-container sequence records 10,900 frames,
+p50/p95/p99 of 8.06/9.91/110.23 ms and a maximum stock-plus-mixture texture batch
+of 3.55 ms, including screenshots/UI transitions with no baseline subtraction.
+This is a scoped observation, not sustained 1x gameplay or a 100k-cell gate pass.
+
 Actual Linux Unity presentation
 screenshots remain unverified; the WSL test environment has no authenticated
 Linux Steam session or network route/DNS, and its EGL probe reports llvmpipe.

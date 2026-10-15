@@ -49,6 +49,8 @@ internal static class Program
             ("vent output port accessor matches installed game", VentSurface),
             ("inspection never constructs or infers a fluid inventory", ProjectionOnly),
             ("owner unregister removes runtime inventory adapter", UnregisterSurface),
+            ("owned object binding resolves only its exact completed allocation", OwnedAllocationResolution),
+            ("owned object registration creates no independent inventory provider", OwnedBindingSurface),
             ("registered adapter errors have an explicit unavailable path", AdapterFailureSurface),
             ("game teardown clears persistent prefab bindings and cached readings", SessionBindingReset)
         };
@@ -409,6 +411,72 @@ internal static class Program
         var method = typeof(MixtureInspection).GetMethod("ResolveContainers", BindingFlags.Static | BindingFlags.NonPublic)!;
         Check(PatchProcessor.GetOriginalInstructions(method).Any(item => item.operand is MethodInfo called && called.Name == "TryGetInventoryError"),
             "Registered adapter errors silently fall back to a projected native element.");
+    }
+
+    private static void OwnedAllocationResolution()
+    {
+        var (catalog, model) = Model();
+        MixturePresentationRuntime.ResetProviders(); MixturePresentationRuntime.Configure(model);
+        var state = TestState(catalog); FluidContainerHandle first, replacement;
+        using (var tx = state.BeginTransaction())
+        {
+            tx.Inject(0, catalog.CreateInventory(new Dictionary<string, double> { ["oxygen"] = .2, ["nitrogen"] = .8, ["chlorine"] = 1e-5 }, 300), "test");
+            first = tx.CreateContainer("owned", new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas));
+            tx.TransferAllCellToContainer(0, first); tx.Commit();
+        }
+        MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+        var old = MixturePresentationRuntime.AcquireFrameFor(100)!;
+        Check(MixtureInspection.TryResolveContainerBinding(old, first, out var reading, out var error) &&
+            reading!.Constituents.Any(row => row.MaterialId == "chlorine" && row.MassKg > 0) && reading.Warnings.Count > 0 && error.Length == 0,
+            "Exact allocation did not resolve its trace or warning.");
+        using (var tx = state.BeginTransaction())
+        {
+            tx.RetireContainerToCell(first, 0);
+            replacement = tx.CreateContainer(first.Id, new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas));
+            tx.TransferAllCellToContainer(0, replacement); tx.Commit();
+        }
+        MixturePresentationRuntime.Publish(state.CaptureSnapshot());
+        var next = MixturePresentationRuntime.AcquireFrameFor(101)!;
+        Check(!MixtureInspection.TryResolveContainerBinding(next, first, out var missing, out error) && missing == null && error.Contains("retired, replaced"),
+            "Retired allocation silently resolved the replacement.");
+        Check(MixtureInspection.TryResolveContainerBinding(next, replacement, out _, out error) && error.Length == 0 &&
+            MixtureInspection.TryResolveContainerBinding(old, first, out var prior, out _) && ReferenceEquals(prior, reading),
+            "New allocation or retained immutable frame failed.");
+        Check(!MixtureInspection.TryResolveContainerBinding(null, first, out _, out error) && error.Contains("completed"), "Missing frame was not explicit.");
+        MixturePresentationLifecycle.EndSession();
+    }
+
+    private static void OwnedBindingSurface()
+    {
+        var registration = typeof(MixtureInspection).GetMethod(nameof(MixtureInspection.RegisterContainerOwner))!;
+        var called = PatchProcessor.GetOriginalInstructions(registration).Where(item => item.operand is MethodBase).Select(item => (MethodBase)item.operand).ToArray();
+        Check(called.All(item => item.DeclaringType != typeof(MixturePresentationRuntime)), "Owned object binding registered a second provider.");
+        var resolver = typeof(MixtureInspection).GetMethod("ResolveContainers", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var instructions = PatchProcessor.GetOriginalInstructions(resolver);
+        Check(instructions.Any(item => item.operand is MethodInfo method && method.Name == "TryResolveContainerBinding"),
+            "Object inspection bypassed exact-handle resolution.");
+        Check(instructions.Any(item => item.operand is MethodInfo method && method.Name == "TryResolveIndependentInventory") &&
+            instructions.All(item => item.operand is not MethodInfo method || method.Name != "TryResolveInventory"),
+            "An ID-only independent object binding can adopt an owned container.");
+        var rejected = false;
+        try { MixtureInspection.RegisterContainerOwner(null!, default); }
+        catch (ArgumentException) { rejected = true; }
+        Check(rejected, "Invalid allocation reached the Unity object API.");
+    }
+
+    private static ColonyFluidState TestState(FluidMaterialCatalog catalog)
+    {
+        using var memory = new MemoryStream(); using var writer = new BinaryWriter(memory);
+        const int count = 9;
+        writer.Write(29 + 36 * count); writer.Write(System.Text.Encoding.ASCII.GetBytes("SIMSAVE\0")); writer.Write(15);
+        writer.Write(3); writer.Write(3); writer.Write(0); writer.Write(0); writer.Write((byte)0);
+        for (var i = 0; i < count; ++i) { writer.Write(1); writer.Write(0f); writer.Write(0f); writer.Write(0f); }
+        for (var i = 0; i < count; ++i) { writer.Write(0); writer.Write(0); }
+        for (var i = 0; i < count; ++i) { writer.Write(1); writer.Write(0f); writer.Write(0f); }
+        var imported = NativeColonyImport.StageNewColony(1, 1, new[] { new NativeWorldPlacement(0, 1, 1, 0, 0) },
+            new[] { new NativeWorldSource(0, memory.ToArray()) }, new Dictionary<int, NativeMatterPhase> { [1] = NativeMatterPhase.Vacuum },
+            new Dictionary<int, NativeFluidBinding>(), 1);
+        return ColonyFluidState.Import(imported, catalog);
     }
 
     private static void SessionBindingReset()

@@ -40,6 +40,11 @@ namespace MixedAtmospheres.Oni
         private static MixtureContainerValidationReport? containers;
         private static MixtureContainerVisualValidation? spawnedContainers;
         private static NitrogenVisualValidation? nitrogenItems;
+        private static readonly Dictionary<string, FluidContainerHandle> OwnedHandles = new Dictionary<string, FluidContainerHandle>(StringComparer.Ordinal);
+        private static readonly List<object> ContainerConservation = new List<object>();
+        private static readonly List<object> ContainerCoreAgreement = new List<object>();
+        private static ColonyFrameSnapshot? containerBaseline;
+        private static FluidContainerHandle retiredBottle;
 
         internal static void Tick()
         {
@@ -100,6 +105,7 @@ namespace MixedAtmospheres.Oni
                 case 16:
                     state = ColonyFluidState.Restore(checkpoint, catalog!);
                     Require(checkpoint.SequenceEqual(state.Save()), "Visual fixture save/reload changed conserved state.");
+                    MixturePresentationRuntime.ResetProviders(); MixturePresentationRuntime.Configure(model!);
                     PublishFixture(); MixtureAppearanceSettings.SetContrast(0.04, false);
                     Select(Scenarios[0].Center); caption = "Reloaded conserved state · normal air is breathable again"; break;
                 case 17:
@@ -131,40 +137,108 @@ namespace MixedAtmospheres.Oni
                     Require(string.IsNullOrEmpty(MixtureWorldRendering.LastError), MixtureWorldRendering.LastError);
                     Require(MixtureInspection.CellHoverHookReady && MixtureInspection.DetailsHookReady &&
                         MixtureInspection.DetailDrawCount > 0, "The live game inspection hook was not exercised.");
-                    var placements = ContainerPlacements();
-                    spawnedContainers = MixtureContainerVisualValidation.Create(placements, Scenarios[4].Inventory, 1);
+                    containerBaseline = state!.CaptureSnapshot();
+                    using (var transfer = state.BeginTransaction())
+                    {
+                        var kinds = new[] { "pipe", "reservoir", "bottle", "suit", "vent", "machine" };
+                        for (var i = 0; i < kinds.Length; ++i)
+                        {
+                            var handle = transfer.CreateContainer("conserved-visual-container:" + kinds[i], new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas));
+                            OwnedHandles.Add(kinds[i], handle);
+                            transfer.TransferAllCellToContainer(Scenarios[4].Cells[i], handle);
+                        }
+                        transfer.CommitFrame(3, .6);
+                    }
+                    CheckContainerConservation("six world cells transferred into six containers"); PublishFixture();
                     caption = "Preparing six real selected-object inspection surfaces";
                     break;
                 case 26:
+                    if (spawnedContainers == null)
+                    {
+                        spawnedContainers = MixtureContainerVisualValidation.CreateOwned(ContainerPlacements(), OwnedHandles);
+                        --step; return;
+                    }
                     if (!spawnedContainers!.IsReady) { --step; return; }
-                    Show(OverlayModes.None.ID, "Real spawned containers · separate, labelled conserved inspection fixtures");
+                    Show(OverlayModes.None.ID, "Real spawned containers · one conserved snapshot with the world cells");
                     var stripCenter = Grid.CellToPosCCC(Grid.XYToCell(x0 + 20, y0 + 23), Grid.SceneLayer.Background);
                     CameraController.Instance.SnapTo(stripCenter);
                     CameraController.Instance.SetTargetPos(stripCenter, 20, false);
                     CameraController.Instance.OrthographicSize = 13;
                     break;
                 case 45:
-                    spawnedContainers!.Dispose();
-                    Focus(); Select(Scenarios[4].Center);
-                    caption = "Container adapters removed · original mixture world remains coherent";
+                    using (var transfer = state!.BeginTransaction())
+                    {
+                        transfer.TransferContainerToContainer(OwnedHandles["reservoir"], OwnedHandles["bottle"], "oxygen", .1);
+                        transfer.CommitFrame(4, .8);
+                    }
+                    CheckContainerConservation("oxygen transferred from reservoir to bottle"); PublishFixture();
+                    spawnedContainers!.Select("bottle"); caption = "Conserved transfer · bottle oxygen fraction and pressure have increased";
                     break;
-                case 46:
+                case 46: Capture("22-container-selective-transfer.png"); break;
+                case 47: ValidateOwnedContainer("bottle"); spawnedContainers!.ValidateSelected("bottle"); WriteReport(); break;
+                case 48:
+                    var containerCheckpoint = state!.Save();
+                    state = ColonyFluidState.Restore(containerCheckpoint, catalog!);
+                    Require(containerCheckpoint.SequenceEqual(state.Save()), "Owned-container checkpoint changed state or allocation identity.");
+                    File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "owned-container-fixture-state.bin"), containerCheckpoint);
+                    CheckContainerConservation("custom checkpoint restored cells and containers"); PublishFixture();
+                    caption = "Custom checkpoint restored · exact container bindings and trace quantities retained";
+                    break;
+                case 49: ValidateOwnedContainer("bottle"); spawnedContainers!.ValidateSelected("bottle"); Capture("23-container-checkpoint-restore.png"); break;
+                case 50:
+                    retiredBottle = OwnedHandles["bottle"];
+                    using (var replacement = state!.BeginTransaction())
+                    {
+                        replacement.RetireContainerToCell(retiredBottle, Scenarios[4].Cells[2]);
+                        var nextBottle = replacement.CreateContainer(retiredBottle.Id, new FluidContainerDefinition(1, 10, FluidContainerPhases.Gas));
+                        replacement.TransferAllCellToContainer(Scenarios[0].Cells[0], nextBottle);
+                        OwnedHandles["bottle"] = nextBottle; replacement.CommitFrame(5, 1);
+                    }
+                    CheckContainerConservation("retired allocation evacuated and ID reused with normal air"); PublishFixture();
+                    caption = "Retired bottle binding · explicit unavailable status until the new allocation is bound";
+                    break;
+                case 51: Capture("24-container-stale-binding.png"); break;
+                case 52:
+                    Require(!MixturePresentationRuntime.TryResolveInventory(retiredBottle, out _), "The retired bottle handle resolved its replacement.");
+                    spawnedContainers!.ValidateUnavailable("bottle"); WriteReport(); break;
+                case 53:
+                    spawnedContainers!.Rebind("bottle", OwnedHandles["bottle"], false);
+                    // A late cleanup for the old allocation must preserve the new binding.
+                    MixtureInspection.UnregisterContainerOwner(spawnedContainers.Objects["bottle"], retiredBottle);
+                    MixtureInspection.UnregisterInventoryOwner(spawnedContainers.Objects["bottle"], retiredBottle.Id);
+                    spawnedContainers.Select("bottle"); caption = "Replacement bottle · breathable air, with no stale trace warning";
+                    break;
+                case 54: Capture("25-container-replacement.png"); break;
+                case 55: ValidateOwnedContainer("bottle", requireBreathable: true); spawnedContainers!.ValidateSelected("bottle"); WriteReport(); break;
+                case 56:
+                    spawnedContainers!.Dispose();
+                    using (var evacuation = state!.BeginTransaction())
+                    {
+                        var index = 0;
+                        foreach (var handle in OwnedHandles.Values) evacuation.RetireContainerToCell(handle, Scenarios[4].Cells[index++]);
+                        evacuation.CommitFrame(6, 1.2);
+                    }
+                    CheckContainerConservation("all owned containers evacuated and retired"); PublishFixture();
+                    Focus(); Select(Scenarios[4].Center);
+                    caption = "Containers evacuated and retired · all constituents remain in the world";
+                    break;
+                case 57:
                     foreach (var surface in spawnedContainers!.Surfaces)
                         Require(!MixturePresentationRuntime.TryResolveInventory(surface.InventoryId, out _), "Destroyed container adapter remains published.");
                     nitrogenItems = new NitrogenVisualValidation(x0 + 4, y0 + 21);
                     WriteReport(); caption = "Native nitrogen phases · real pure-material items"; break;
-                case 56:
+                case 67:
                     nitrogenItems!.RequireAllPassed();
                     // An interactive run retains its native items so the same
                     // disposable colony can exercise actual Save/Quit/Resume.
                     if (ColonyRuntimeValidation.Settings?.QuitWhenComplete != false) nitrogenItems!.Dispose();
                     WriteReport(); ColonyRuntimeValidation.CompletePresentation(); break;
                 default:
-                    if (phase >= 47 && phase < 56)
+                    if (phase >= 58 && phase < 67)
                     {
-                        var nitrogenIndex = (phase - 47) / 3;
-                        if ((phase - 47) % 3 == 0) nitrogenItems!.Select(nitrogenIndex);
-                        else if ((phase - 47) % 3 == 1) Capture((19 + nitrogenIndex).ToString("00") + "-native-nitrogen-phase-" + nitrogenIndex + ".png");
+                        var nitrogenIndex = (phase - 58) / 3;
+                        if ((phase - 58) % 3 == 0) nitrogenItems!.Select(nitrogenIndex);
+                        else if ((phase - 58) % 3 == 1) Capture((19 + nitrogenIndex).ToString("00") + "-native-nitrogen-phase-" + nitrogenIndex + ".png");
                         else nitrogenItems!.ValidateSelected(nitrogenIndex);
                         break;
                     }
@@ -185,7 +259,7 @@ namespace MixedAtmospheres.Oni
                     }
                     else
                     {
-                        try { spawnedContainers.ValidateSelected(selectedSurface.Kind); }
+                        try { ValidateOwnedContainer(selectedSurface.Kind); spawnedContainers.ValidateSelected(selectedSurface.Kind); }
                         finally { WriteReport(); }
                     }
                     break;
@@ -267,10 +341,10 @@ namespace MixedAtmospheres.Oni
                 var wall = y == y0 + 20 || y == y0 + 26 || x == x0 || x == x0 + width;
                 SimMessages.ReplaceElement(cell, wall ? SimHashes.Unobtanium : SimHashes.Oxygen, eventId, wall ? 20000 : 1.2f, 293.15f);
             }
-            var raw = VacuumWorld(width, height, x0, y0);
+            var raw = FixtureWorld(width, height, x0, y0);
             var import = NativeColonyImport.StageNewColony(Grid.WidthInCells, Grid.HeightInCells,
                 new[] { new NativeWorldPlacement(0, width, height, x0, y0) }, new[] { new NativeWorldSource(0, raw) },
-                new Dictionary<int, NativeMatterPhase> { [(int)SimHashes.Vacuum] = NativeMatterPhase.Vacuum },
+                new Dictionary<int, NativeMatterPhase> { [(int)SimHashes.Vacuum] = NativeMatterPhase.Vacuum, [(int)SimHashes.Unobtanium] = NativeMatterPhase.Solid },
                 new Dictionary<int, NativeFluidBinding>(), (int)SimHashes.Vacuum);
             state = ColonyFluidState.Import(import, catalog);
             using (var transaction = state.BeginTransaction())
@@ -307,7 +381,53 @@ namespace MixedAtmospheres.Oni
             // Explicit vacuum entries are meaningful owned cells too.
             foreach (var scenario in Scenarios)
                 foreach (var cell in scenario.Cells) Cells[cell] = frame.SampleCell(cell).Inventory;
-            MixturePresentationRuntime.EnableFixtureFrame(Grid.WidthInCells, Grid.HeightInCells, Cells);
+            MixturePresentationRuntime.PublishConservedFixture(frame);
+        }
+
+        private static void CheckContainerConservation(string stage)
+        {
+            var before = containerBaseline ?? throw new InvalidOperationException("Container baseline is missing.");
+            var after = state!.CaptureSnapshot(); var expected = before.Totals(); var actual = after.Totals();
+            var massResiduals = catalog!.Materials.Keys.ToDictionary(id => id, id =>
+                (actual.MassesKg.TryGetValue(id, out var a) ? a : 0) - (expected.MassesKg.TryGetValue(id, out var b) ? b : 0), StringComparer.Ordinal);
+            bool Close(double a, double b) => Math.Abs(a - b) <= 2e-12 * Math.Max(Math.Abs(a), Math.Abs(b));
+            bool EqualInventory(FluidInventory a, FluidInventory b) => a.TotalEnergyJoules == b.TotalEnergyJoules &&
+                a.MomentumX == b.MomentumX && a.MomentumY == b.MomentumY && a.RadiationQuantity == b.RadiationQuantity &&
+                a.MassesKg.Count == b.MassesKg.Count && a.MassesKg.All(pair => b.MassesKg.TryGetValue(pair.Key, out var mass) && mass == pair.Value) &&
+                a.DiseaseCounts.Count == b.DiseaseCounts.Count && a.DiseaseCounts.All(pair => b.DiseaseCounts.TryGetValue(pair.Key, out var count) && count == pair.Value);
+            var conserved = expected.MassesKg.Count == actual.MassesKg.Count && expected.MassesKg.All(pair =>
+                actual.MassesKg.TryGetValue(pair.Key, out var mass) && mass > 0 && Close(pair.Value, mass)) &&
+                Close(expected.TotalEnergyJoules, actual.TotalEnergyJoules) && Close(expected.MomentumX, actual.MomentumX) &&
+                Close(expected.MomentumY, actual.MomentumY) && Close(expected.RadiationQuantity, actual.RadiationQuantity) &&
+                expected.DiseaseCounts.Count == actual.DiseaseCounts.Count && expected.DiseaseCounts.All(pair =>
+                    actual.DiseaseCounts.TryGetValue(pair.Key, out var count) && Close(pair.Value, count)) && EqualInventory(before.SuppliedInventory, after.SuppliedInventory) &&
+                EqualInventory(before.RemovedInventory, after.RemovedInventory) && before.ExternalHeatJoules == after.ExternalHeatJoules;
+            ContainerConservation.Add(new { Stage = stage, after.Revision, Containers = after.Containers.Count,
+                TotalMassKg = actual.TotalMassKg, TotalEnergyJoules = actual.TotalEnergyJoules, MassResiduals = massResiduals,
+                EnergyResidualJoules = actual.TotalEnergyJoules - expected.TotalEnergyJoules, Conserved = conserved });
+            Require(conserved, "World/container conservation or external ledger changed during " + stage);
+        }
+
+        private static void ValidateOwnedContainer(string kind, bool requireBreathable = false)
+        {
+            var snapshot = state!.CaptureSnapshot(); var handle = OwnedHandles[kind];
+            var expected = snapshot.SampleContainer(handle); var frame = MixturePresentationRuntime.AcquireFrame();
+            MixturePresentation? actual = null;
+            var resolved = frame != null && frame.TryResolveInventory(handle, out actual) && actual != null;
+            // Compare with the authority, independently of UI rows generated
+            // from the runtime view. A self-consistent stale frame must fail.
+            var passed = resolved && frame!.Revision == snapshot.Revision && actual!.Revision == snapshot.Revision &&
+                actual.TotalMassKg == expected.Inventory.TotalMassKg && actual.TemperatureKelvin == expected.TemperatureKelvin &&
+                actual.TotalPressurePa == expected.GasPressurePa && actual.Constituents.Count == expected.Inventory.MassesKg.Count &&
+                actual.Constituents.All(row => expected.Inventory.MassesKg.TryGetValue(row.MaterialId, out var mass) && mass == row.MassKg) &&
+                (!requireBreathable || (actual.Failures == BreathingFailure.None && actual.Warnings.Count == 0 &&
+                    actual.Constituents.All(row => row.MaterialId != "chlorine")));
+            ContainerCoreAgreement.Add(new { Kind = kind, UnityFrame = Time.frameCount, ExpectedRevision = snapshot.Revision,
+                ActualRevision = actual?.Revision, Handle = handle, ExpectedMassKg = expected.Inventory.TotalMassKg,
+                ActualMassKg = actual?.TotalMassKg, ExpectedPressurePa = expected.GasPressurePa, ActualPressurePa = actual?.TotalPressurePa,
+                ExpectedTemperatureKelvin = expected.TemperatureKelvin, ActualTemperatureKelvin = actual?.TemperatureKelvin,
+                RequireBreathable = requireBreathable, ActualFailures = actual?.Failures.ToString(), ActualWarningCount = actual?.Warnings.Count, Passed = passed });
+            Require(passed, "Container presentation differs from its completed authority or retains a stale breathing warning: " + kind);
         }
         private static void Focus()
         {
@@ -436,16 +556,17 @@ namespace MixedAtmospheres.Oni
             File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "mixture-visual-validation.json"), ReportJson.Serialize(new
             {
                 Kind = "actual-Unity-rendered-explicit-conserved-mixture-fixtures", Platform = Application.platform.ToString(),
-                PhysicsOwner = "native ONI; visual fixture inventories are independent", FirstPlayableColonyPassed = false,
+                PhysicsOwner = "native ONI; explicit custom cells and containers share one conserved presentation snapshot", FirstPlayableColonyPassed = false,
                 Scenarios = Scenarios.Select(value => new { value.Name, value.Center,
                     Reading = frame != null && frame.TryGetCell(value.Center, out var reading) ? reading : null }).ToArray(),
                 Evidence, Containers = containers, SpawnedContainerSurfaces = spawnedContainers?.Surfaces,
                 SpawnedContainerEvidence = spawnedContainers?.Evidence,
+                ContainerAllocationEvidence = spawnedContainers?.AllocationEvidence, ContainerConservation, ContainerCoreAgreement,
                 MixtureWorldRendering.Installed, MixtureWorldRendering.SchedulingActive,
                 MixtureWorldRendering.TextureBatches, MixtureWorldRendering.TextureWrites, MixtureWorldRendering.MaximumTextureBatchMs,
                 MixtureWorldRendering.LastError, MixtureInspection.CellHoverHookReady, MixtureInspection.DetailsHookReady,
                 MixtureInspection.HoverDrawCount, MixtureInspection.DetailDrawCount,
-                PerformanceScope = "504 explicit conserved presentation cells and up to six registered visual inventories; mostly paused native surrounding colony; includes screenshots and UI transitions; no baseline subtraction; not sustained 1x evidence",
+                PerformanceScope = "504 explicit conserved presentation cells and up to six owned containers; mostly paused native surrounding colony; includes screenshots and UI transitions; no baseline subtraction; not sustained 1x evidence",
                 FrameSamples = timings.Length, FrameP50Ms = Percentile(.5), FrameP95Ms = Percentile(.95), FrameP99Ms = Percentile(.99)
             }));
         }
@@ -456,8 +577,8 @@ namespace MixedAtmospheres.Oni
             var style = new GUIStyle(GUI.skin.box) { fontSize = 18, alignment = TextAnchor.MiddleCenter, wordWrap = true };
             GUI.Box(new Rect(Screen.width / 2f - 470, 100, 940, 56), "MIXTURE PRESENTATION TEST · disposable colony\n" + caption, style);
             style.fontSize = 16;
-            if (step >= 47) { GUI.color = previous; return; }
-            if (spawnedContainers != null && step >= 27 && step <= 46)
+            if (step >= 58) { GUI.color = previous; return; }
+            if (spawnedContainers != null && step >= 27 && step <= 57)
             {
                 foreach (var surface in spawnedContainers.Surfaces)
                 {
@@ -473,13 +594,19 @@ namespace MixedAtmospheres.Oni
             }
             GUI.color = previous;
         }
-        private static byte[] VacuumWorld(int width, int height, int x, int y)
+        private static byte[] FixtureWorld(int width, int height, int x, int y)
         {
             var count = (width + 2) * (height + 2);
             using var memory = new MemoryStream(); using var writer = new BinaryWriter(memory, Encoding.UTF8, true);
             writer.Write(29 + 36 * count); writer.Write(new byte[] { 83, 73, 77, 83, 65, 86, 69, 0 }); writer.Write(15);
             writer.Write(width + 2); writer.Write(height + 2); writer.Write(x); writer.Write(y); writer.Write((byte)0);
-            for (var i = 0; i < count; ++i) { writer.Write((int)SimHashes.Vacuum); writer.Write(0f); writer.Write(0f); writer.Write(0f); }
+            for (var row = 0; row < height + 2; ++row)
+            for (var column = 0; column < width + 2; ++column)
+            {
+                var fluid = Cells.ContainsKey(Grid.XYToCell(x + column - 1, y + row - 1));
+                writer.Write((int)(fluid ? SimHashes.Vacuum : SimHashes.Unobtanium));
+                writer.Write(fluid ? 0f : 293.15f); writer.Write(fluid ? 0f : 20000f); writer.Write(0f);
+            }
             for (var i = 0; i < count; ++i) { writer.Write(0); writer.Write(0); }
             for (var i = 0; i < count; ++i) { writer.Write((int)SimHashes.Vacuum); writer.Write(0f); writer.Write(0f); }
             return memory.ToArray();

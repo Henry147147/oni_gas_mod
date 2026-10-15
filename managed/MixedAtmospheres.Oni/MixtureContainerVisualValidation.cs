@@ -24,6 +24,8 @@ namespace MixedAtmospheres.Oni
             public IReadOnlyList<int> Footprint { get; internal set; } = Array.Empty<int>();
             public IReadOnlyList<int> ReservedCells { get; internal set; } = Array.Empty<int>();
             public int InstanceId => Owner != null ? Owner.GetInstanceID() : 0;
+            [JsonIgnore] internal FluidContainerHandle? ContainerHandle;
+            [JsonIgnore] internal bool ExpectHazardousTrace = true;
             [JsonIgnore] public GameObject Owner { get; internal set; } = null!;
             [JsonIgnore] internal BuildingDef? Definition;
         }
@@ -46,10 +48,12 @@ namespace MixedAtmospheres.Oni
             public bool FixtureTitlePresent, NativeDescriptionPreserved, CompleteCompositionPresent;
             public bool WarningsPresentBeforeComposition, NoNativeSubstitute;
             public bool OwnedInspectionBeforeNativeDescription;
+            public bool ExactOwnedAllocation, SharedCompletedSnapshot;
+            public int IndependentInventoryProviders;
             public string[] Errors = Array.Empty<string>();
             public LabelEvidence[] Labels = Array.Empty<LabelEvidence>();
             public bool Passed => NativeSpawned && CorrectSelection && CorrectPanelTarget && FixtureTitlePresent &&
-                NativeDescriptionPreserved && CompleteCompositionPresent && WarningsPresentBeforeComposition && OwnedInspectionBeforeNativeDescription && NoNativeSubstitute && Errors.Length == 0;
+                NativeDescriptionPreserved && CompleteCompositionPresent && WarningsPresentBeforeComposition && OwnedInspectionBeforeNativeDescription && NoNativeSubstitute && SharedCompletedSnapshot && Errors.Length == 0;
         }
 
         private static readonly string[] Kinds = { "pipe", "reservoir", "bottle", "suit", "vent", "machine" };
@@ -57,6 +61,7 @@ namespace MixedAtmospheres.Oni
         { ["pipe"] = "GasConduit", ["reservoir"] = "GasReservoir", ["vent"] = "GasVent", ["machine"] = "Electrolyzer" };
         private readonly List<Surface> surfaces = new List<Surface>();
         private readonly List<SelectionEvidence> evidence = new List<SelectionEvidence>();
+        private readonly List<object> allocationEvidence = new List<object>();
         private readonly int createdFrame;
         private readonly float createdTime;
         private string selectedKind = "";
@@ -68,6 +73,7 @@ namespace MixedAtmospheres.Oni
 
         internal IReadOnlyList<Surface> Surfaces => surfaces.AsReadOnly();
         internal IReadOnlyList<SelectionEvidence> Evidence => evidence.AsReadOnly();
+        internal IReadOnlyList<object> AllocationEvidence => allocationEvidence.AsReadOnly();
         internal IReadOnlyDictionary<string, GameObject> Objects => surfaces.ToDictionary(surface => surface.Kind, surface => surface.Owner, StringComparer.Ordinal);
         internal string PendingReason { get; private set; } = "Waiting for native spawn and a completed UI frame.";
 
@@ -93,6 +99,34 @@ namespace MixedAtmospheres.Oni
                     Require(surface.Owner != null, "Native factory did not create " + surface.Kind + ".");
                     MixtureInspection.RegisterInventory(surface.Owner, surface.InventoryId, () => traceInventory,
                         volumeCubicMetres, surface.FixtureLabel);
+                }
+                return session;
+            }
+            catch { session.Dispose(); throw; }
+        }
+
+        internal static MixtureContainerVisualValidation CreateOwned(IReadOnlyDictionary<string, int> placements,
+            IReadOnlyDictionary<string, FluidContainerHandle> handles)
+        {
+            RequirePresentation();
+            if (handles == null) throw new ArgumentNullException(nameof(handles));
+            Require(handles.Count == Kinds.Length && Kinds.All(handles.ContainsKey), "Exactly six owned container handles are required.");
+            var planned = Plan(placements);
+            var frame = MixturePresentationRuntime.AcquireFrame();
+            foreach (var surface in planned)
+            {
+                var handle = handles[surface.Kind];
+                Require(MixtureInspection.TryResolveContainerBinding(frame, handle, out _, out _), "Owned container is not in the completed frame: " + surface.Kind);
+                surface.ContainerHandle = handle; surface.InventoryId = handle.Id;
+            }
+            var session = new MixtureContainerVisualValidation(planned);
+            try
+            {
+                foreach (var surface in planned)
+                {
+                    surface.Owner = Spawn(surface);
+                    Require(surface.Owner != null, "Native factory did not create " + surface.Kind + ".");
+                    MixtureInspection.RegisterContainerOwner(surface.Owner, surface.ContainerHandle!.Value, surface.FixtureLabel);
                 }
                 return session;
             }
@@ -160,11 +194,21 @@ namespace MixedAtmospheres.Oni
                 Expect(selectedKind == surfaceKind && Time.frameCount > selectedFrame + 1, "No completed UI frame after this surface was selected.");
                 result.CorrectSelection = SelectTool.Instance != null && SelectTool.Instance.selected == owner.GetComponent<KSelectable>();
                 Expect(result.CorrectSelection, "SelectTool is not selecting the fixture owner.");
-                Require(MixturePresentationRuntime.TryResolveInventory(surface.InventoryId, out var reading) && reading != null,
+                var frame = MixturePresentationRuntime.AcquireFrame();
+                MixturePresentation? reading = null;
+                var resolved = surface.ContainerHandle.HasValue
+                    ? frame != null && frame.TryResolveInventory(surface.ContainerHandle.Value, out reading)
+                    : MixturePresentationRuntime.TryResolveInventory(surface.InventoryId, out reading);
+                Require(resolved && reading != null,
                     "The explicit adapter has no completed-frame inventory.");
                 result.SourceId = reading!.SourceId; result.Revision = reading.Revision;
+                result.ExactOwnedAllocation = surface.ContainerHandle.HasValue;
+                result.IndependentInventoryProviders = MixturePresentationRuntime.InventoryProviderCount;
+                result.SharedCompletedSnapshot = !surface.ContainerHandle.HasValue ||
+                    (frame != null && frame.Revision == reading.Revision && result.IndependentInventoryProviders == 0);
+                Expect(result.SharedCompletedSnapshot, "Owned container is not using the same completed world frame or an independent provider remains.");
                 Expect(reading.SourceId == surface.InventoryId, "A different inventory source was resolved.");
-                Expect(reading.Constituents.Any(row => row.IsTrace) && reading.Warnings.Count > 0,
+                Expect(!surface.ExpectHazardousTrace || (reading.Constituents.Any(row => row.IsTrace) && reading.Warnings.Count > 0),
                     "The supplied conserved fixture must contain a positive trace and an explicit breathing warning.");
                 var screen = Resources.FindObjectsOfTypeAll<SimpleInfoScreen>().FirstOrDefault(value => value.gameObject.activeInHierarchy &&
                     ReferenceEquals(AccessTools.Field(typeof(SimpleInfoScreen), "selectedTarget").GetValue(value), owner));
@@ -186,6 +230,8 @@ namespace MixedAtmospheres.Oni
                 result.NativeDescriptionPreserved = DescriptionIsPreserved(description, nativeDescription);
                 Expect(result.NativeDescriptionPreserved, "The object's native description was changed or hidden.");
                 var expectedRows = MixtureInspection.BuildDetailRows(reading);
+                Expect(active.Count(label => label.Name.StartsWith("MixedAtmospheres.Inventory.0", StringComparison.Ordinal)) == expectedRows.Count + 1,
+                    "A stale owned mixture row remains after the reading changed.");
                 result.CompleteCompositionPresent = expectedRows.All(expected =>
                 {
                     var actual = Row("." + expected.Key);
@@ -215,6 +261,31 @@ namespace MixedAtmospheres.Oni
 
         internal static IReadOnlyDictionary<string, IReadOnlyList<int>> RequiredCells(IReadOnlyDictionary<string, int> placements)
             => Plan(placements, requireClear: false).ToDictionary(surface => surface.Kind, surface => surface.ReservedCells, StringComparer.Ordinal);
+
+        internal void Rebind(string kind, FluidContainerHandle replacement, bool expectHazardousTrace)
+        {
+            RequireUsable(); var surface = Find(kind);
+            Require(MixtureInspection.TryResolveContainerBinding(MixturePresentationRuntime.AcquireFrame(), replacement, out _, out _), "Replacement allocation is unavailable.");
+            MixtureInspection.RegisterContainerOwner(surface.Owner, replacement, surface.FixtureLabel);
+            surface.ContainerHandle = replacement; surface.InventoryId = replacement.Id; surface.ExpectHazardousTrace = expectHazardousTrace;
+        }
+
+        internal void ValidateUnavailable(string kind)
+        {
+            RequireUsable(); var surface = Find(kind);
+            Require(surface.ContainerHandle.HasValue, "An exact owned binding is required.");
+            var text = MixtureInspection.GetContainerInspectionText(surface.Owner);
+            var screen = Resources.FindObjectsOfTypeAll<SimpleInfoScreen>().FirstOrDefault(value => value.gameObject.activeInHierarchy &&
+                ReferenceEquals(AccessTools.Field(typeof(SimpleInfoScreen), "selectedTarget").GetValue(value), surface.Owner));
+            var panel = screen == null ? null : AccessTools.Field(typeof(SimpleInfoScreen), "infoPanel").GetValue(screen) as CollapsibleDetailContentPanel;
+            var labels = panel == null ? Array.Empty<LabelEvidence>() : panel.Content.GetComponentsInChildren<DetailLabel>(true).Select(ReadLabel).Where(label => label.ActiveInHierarchy).ToArray();
+            var unavailable = labels.SingleOrDefault(label => label.Name == "MixedAtmospheres.InventoryUnavailable");
+            var passed = unavailable != null && unavailable.TextEnabled && unavailable.Height > 0 && unavailable.Text.Contains("retired, replaced") &&
+                text.Contains("retired, replaced") && !text.Contains("Native inventory") &&
+                labels.All(label => !label.Name.StartsWith("MixedAtmospheres.Inventory.", StringComparison.Ordinal) && label.Name != "MixedAtmospheres.NativeInventory");
+            allocationEvidence.Add(new { Kind = kind, UnityFrame = Time.frameCount, Handle = surface.ContainerHandle.Value, Inspection = text, Labels = labels, Passed = passed });
+            Require(passed, "Retired owned binding did not show an explicit unavailable status or retained stale/native rows.");
+        }
 
         private static List<Surface> Plan(IReadOnlyDictionary<string, int> placements, bool requireClear = true)
         {
@@ -375,7 +446,8 @@ namespace MixedAtmospheres.Oni
             foreach (var surface in surfaces)
             {
                 if (ReferenceEquals(surface.Owner, null)) continue;
-                MixtureInspection.UnregisterInventory(surface.Owner, surface.InventoryId);
+                if (surface.ContainerHandle.HasValue) MixtureInspection.UnregisterContainerOwner(surface.Owner, surface.ContainerHandle.Value);
+                else MixtureInspection.UnregisterInventory(surface.Owner, surface.InventoryId);
                 if (surface.Owner != null) Util.KDestroyGameObject(surface.Owner);
             }
         }
