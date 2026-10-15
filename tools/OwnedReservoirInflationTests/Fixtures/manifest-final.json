@@ -1,0 +1,510 @@
+{
+  "records": [
+    {
+      "name": "empty",
+      "encoded": "empty.zlib",
+      "encodedBytes": 8,
+      "encodedSha256": "aca503def43dc086a5aaa5c3d6f86bcbbc2aa6a80007ddea4a81bce2b376fceb",
+      "decoded": "empty.raw",
+      "decodedBytes": 0,
+      "decodedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failureKind": null
+    },
+    {
+      "name": "stored",
+      "encoded": "stored.zlib",
+      "encodedBytes": 285,
+      "encodedSha256": "8082aa6abe3912e2e22976e7589d00970b7226540897b3b9df70f1eef3d2d5e6",
+      "decoded": "stored.raw",
+      "decodedBytes": 274,
+      "decodedSha256": "1c8fc7f1c294d395df966f7bbe59216ddd6d50d0ffd4c8c3aeff2ad6bd78eaa8",
+      "failureKind": null
+    },
+    {
+      "name": "fixed-overlap",
+      "encoded": "fixed-overlap.zlib",
+      "encodedBytes": 68,
+      "encodedSha256": "d9ed4d352fa890751a6f5af4e895018cf3589c53aaf81f832dbbcf5e86a70d4d",
+      "decoded": "fixed-overlap.raw",
+      "decodedBytes": 6144,
+      "decodedSha256": "1c0a0b099f052073cfb78aa76849c050ad8940f70b7634dbbbe2f5ea4bda04bf",
+      "failureKind": null
+    },
+    {
+      "name": "dynamic",
+      "encoded": "dynamic.zlib",
+      "encodedBytes": 147,
+      "encodedSha256": "d9a505fa051d9fe0819cdae03a5d11743840327d6a9a73128d6d70f059ca06d6",
+      "decoded": "dynamic.raw",
+      "decodedBytes": 36400,
+      "decodedSha256": "55de84a316844386bcccd05d55635326ed32eba6de4fdf418ad23f1e2936f8c3",
+      "failureKind": null
+    },
+    {
+      "name": "multiblock-stored",
+      "encoded": "multiblock-stored.zlib",
+      "encodedBytes": 1282,
+      "encodedSha256": "e3929ebc000e156ae5ffb98fa81b2a624ba8b49dc8b47023234f2565bfb4b53d",
+      "decoded": "multiblock-stored.raw",
+      "decodedBytes": 1261,
+      "decodedSha256": "30e5dff021e9538fdc1fa1d85218d5f7190d4f91789b442a5b6393bbb16d3adb",
+      "failureKind": null
+    },
+    {
+      "name": "multichunk",
+      "encoded": "multichunk.zlib",
+      "encodedBytes": 2168,
+      "encodedSha256": "a93a28f4985d47861e82431a60184d38ae004d116a59c38f747a838869ee48c8",
+      "decoded": "multichunk.raw",
+      "decodedBytes": 200003,
+      "decodedSha256": "2db155ae98cc92c09075c5c9e998368860a43e386d983f836b1e063799b85070",
+      "failureKind": null
+    },
+    {
+      "name": "literal-no-distance",
+      "encoded": "literal-no-distance.zlib",
+      "encodedBytes": 48,
+      "encodedSha256": "3be35a75ea5b822e71af614ef3a6f776e21064113ef591caaa2868a948274c5d",
+      "decoded": "literal-no-distance.raw",
+      "decodedBytes": 1,
+      "decodedSha256": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+      "failureKind": null
+    },
+    {
+      "name": "one-distance-code",
+      "encoded": "one-distance-code.zlib",
+      "encodedBytes": 49,
+      "encodedSha256": "e9b2a5e3efca8378292177c77c2e932be1205055d53b1948c646a3dc3514de00",
+      "decoded": "one-distance-code.raw",
+      "decodedBytes": 4,
+      "decodedSha256": "63c1dd951ffedf6f7fd968ad4efa39b8ed584f162f46e715114ee184f8de9201",
+      "failureKind": null
+    },
+    {
+      "name": "level-0",
+      "encoded": "level-0.zlib",
+      "encodedBytes": 68,
+      "encodedSha256": "d9ed4d352fa890751a6f5af4e895018cf3589c53aaf81f832dbbcf5e86a70d4d",
+      "decoded": "level-0.raw",
+      "decodedBytes": 6144,
+      "decodedSha256": "1c0a0b099f052073cfb78aa76849c050ad8940f70b7634dbbbe2f5ea4bda04bf",
+      "failureKind": null
+    },
+    {
+      "name": "level-1",
+      "encoded": "level-1.zlib",
+      "encodedBytes": 68,
+      "encodedSha256": "263fdbe4ed9a9149f97a7c7a08b0de6dc3bcda36fe477dbdebe4e289f3995acf",
+      "decoded": "level-1.raw",
+      "decodedBytes": 6144,
+      "decodedSha256": "1c0a0b099f052073cfb78aa76849c050ad8940f70b7634dbbbe2f5ea4bda04bf",
+      "failureKind": null
+    },
+    {
+      "name": "level-2",
+      "encoded": "level-2.zlib",
+      "encodedBytes": 68,
+      "encodedSha256": "da13d735ce0df77c566ae458fb3be7f53d82cbaad9bca4663018fa71a8c0fafb",
+      "decoded": "level-2.raw",
+      "decodedBytes": 6144,
+      "decodedSha256": "1c0a0b099f052073cfb78aa76849c050ad8940f70b7634dbbbe2f5ea4bda04bf",
+      "failureKind": null
+    },
+    {
+      "name": "level-3",
+      "encoded": "level-3.zlib",
+      "encodedBytes": 68,
+      "encodedSha256": "010b0685676458fe9bf8092296f0cd06a3445635fd812865fc69ffe903468bb4",
+      "decoded": "level-3.raw",
+      "decodedBytes": 6144,
+      "decodedSha256": "1c0a0b099f052073cfb78aa76849c050ad8940f70b7634dbbbe2f5ea4bda04bf",
+      "failureKind": null
+    },
+    {
+      "name": "reserved-block",
+      "encoded": "reserved-block.zlib",
+      "encodedBytes": 7,
+      "encodedSha256": "218f80536d00cba77bffa9ad2ff6a56a0bfb4ac40a5205cc36287d0144044834",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "stored-bad-complement",
+      "encoded": "stored-bad-complement.zlib",
+      "encodedBytes": 14,
+      "encodedSha256": "bd2c2a4eadabfdba5a2f66a51e3f7b820fa0c8367e9df9ffe5e4c020bbdcf24e",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "missing-final",
+      "encoded": "missing-final.zlib",
+      "encodedBytes": 12,
+      "encodedSha256": "d874f108d55d0900a0491700ba7a45692e139752704aff560bfa6018af64c87f",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "distance-before-output",
+      "encoded": "distance-before-output.zlib",
+      "encodedBytes": 9,
+      "encodedSha256": "db5678fa224a888d27a44818559378f1c2a7e27015f45bc80c2e280ff3e47a7f",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "oversubscribed-code-lengths",
+      "encoded": "oversubscribed-code-lengths.zlib",
+      "encodedBytes": 26,
+      "encodedSha256": "4ea0d6131936fa9ff10dd4162cb657fccb0e0fb40aa0b36af8e13f665f98316b",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "missing-end-code",
+      "encoded": "missing-end-code.zlib",
+      "encodedBytes": 48,
+      "encodedSha256": "258fcc11e98983d1e62065323ff50ea6385d938737be9d357d60d18343e53f5a",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "cross-block-history-and-padding",
+      "encoded": "cross-block-history-and-padding.zlib",
+      "encodedBytes": 15,
+      "encodedSha256": "e3be538399dc1146b0b82f07be768b43c0b82e82f803d1629b0a46d372c6e8dd",
+      "decoded": "cross-block-history-and-padding.raw",
+      "decodedBytes": 4,
+      "decodedSha256": "63c1dd951ffedf6f7fd968ad4efa39b8ed584f162f46e715114ee184f8de9201",
+      "failureKind": null
+    },
+    {
+      "name": "maximum-distance-32768",
+      "encoded": "maximum-distance-32768.zlib",
+      "encodedBytes": 32784,
+      "encodedSha256": "dd7fe9dbff118a3a4e8e5eeefb17d06662bfc52a3462604719c668a4d1aab42e",
+      "decoded": "maximum-distance-32768.raw",
+      "decodedBytes": 32771,
+      "decodedSha256": "c1fe01201d63a41d65979129c6badc267e1029e727a4bb71d1f680eb5eef7a06",
+      "failureKind": null
+    },
+    {
+      "name": "overlap-length-258-distance-2",
+      "encoded": "overlap-length-258-distance-2.zlib",
+      "encodedBytes": 11,
+      "encodedSha256": "ae2e6550833bd675f797921a184cfadc07e42cd413879ae0f6d0361e3ecd5409",
+      "decoded": "overlap-length-258-distance-2.raw",
+      "decodedBytes": 260,
+      "decodedSha256": "c80b3b91b2f5281cccf8eabd8d79d7847e603f66bd0057ca3f5f2a808af266a2",
+      "failureKind": null
+    },
+    {
+      "name": "twenty-blocks",
+      "encoded": "twenty-blocks.zlib",
+      "encodedBytes": 104,
+      "encodedSha256": "574bf7b55ae3e68003178f65b695d1bdd0c9c152286bbff0952195cb9e11a9c3",
+      "decoded": "twenty-blocks.raw",
+      "decodedBytes": 1,
+      "decodedSha256": "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd",
+      "failureKind": null
+    },
+    {
+      "name": "single-end-symbol",
+      "encoded": "single-end-symbol.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "321073b756bb98648be6738a87a6a77801eae277daf7645eb9e9bbf40fa474ab",
+      "decoded": "single-end-symbol.raw",
+      "decodedBytes": 0,
+      "decodedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "failureKind": null
+    },
+    {
+      "name": "maximum-code-depth-15",
+      "encoded": "maximum-code-depth-15.zlib",
+      "encodedBytes": 149,
+      "encodedSha256": "d31f03e001eee9b11452dda28559836f2775b335482aa313b76949e1408f8032",
+      "decoded": "maximum-code-depth-15.raw",
+      "decodedBytes": 2,
+      "decodedSha256": "7a2a7c0a81d1bd595dff09b918f8ecb5b5e8493654a4f83496956ed8eb017674",
+      "failureKind": null
+    },
+    {
+      "name": "repeat16-across-alphabets",
+      "encoded": "repeat16-across-alphabets.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "99f8c7912fcb2330eaf176250541fcc2ae3d674b37d5aa22e6a7388fb15e58c3",
+      "decoded": "repeat16-across-alphabets.raw",
+      "decodedBytes": 3,
+      "decodedSha256": "553925ca16c2af640fbaf4e1ae8438534e6364f135d6a712c845c7d9eaefeff1",
+      "failureKind": null
+    },
+    {
+      "name": "repeat18-across-alphabets",
+      "encoded": "repeat18-across-alphabets.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "8391f0c083339c4dd2049184641230cb67ac3f162a6a1f35270b89006936801e",
+      "decoded": "repeat18-across-alphabets.raw",
+      "decodedBytes": 1,
+      "decodedSha256": "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd",
+      "failureKind": null
+    },
+    {
+      "name": "distance-after-one-byte-too-far",
+      "encoded": "distance-after-one-byte-too-far.zlib",
+      "encodedBytes": 10,
+      "encodedSha256": "3b4c4ded815b53a7b0b7ce6a98766d0b309927694821ed1a88c0dbbf2fba4288",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "cross-block-distance-too-far",
+      "encoded": "cross-block-distance-too-far.zlib",
+      "encodedBytes": 15,
+      "encodedSha256": "591c2459ed96051d6e94319f29f386a12d7809294b8393e664caf594f8475db0",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "reserved-literal-286",
+      "encoded": "reserved-literal-286.zlib",
+      "encodedBytes": 9,
+      "encodedSha256": "da5b4de05d82bd418bb180fcf965c528dcfa545250ad2586b651b12180cdfcac",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "reserved-literal-287",
+      "encoded": "reserved-literal-287.zlib",
+      "encodedBytes": 9,
+      "encodedSha256": "5ce56ef7e11a95bf2ca1c828ac61bcf4e486a74d604a73b214f157caa35b2e0c",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "reserved-distance-30",
+      "encoded": "reserved-distance-30.zlib",
+      "encodedBytes": 10,
+      "encodedSha256": "ea73c910ccf0ff5f1339c02cf9aea429e8379caa01c1f499bf3bfc79612fc6b9",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "reserved-distance-31",
+      "encoded": "reserved-distance-31.zlib",
+      "encodedBytes": 10,
+      "encodedSha256": "5d5b038454bede06e32f608e810ff250728230f2a4b47ace84dfe317320133a1",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "too-many-literal-codes",
+      "encoded": "too-many-literal-codes.zlib",
+      "encodedBytes": 9,
+      "encodedSha256": "d561df69a63e1203efe712f634e69bd727a3e7a88dbfb09d2c82182b98f4125b",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "repeat16-without-previous",
+      "encoded": "repeat16-without-previous.zlib",
+      "encodedBytes": 17,
+      "encodedSha256": "82651408718c5fd577eced1a0d33d57dd0d5ebe4a0ec51d0e907916ea5bdf0a1",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "repeat18-beyond-combined-count",
+      "encoded": "repeat18-beyond-combined-count.zlib",
+      "encodedBytes": 19,
+      "encodedSha256": "843f65b729f8a4706346076396a5b565035ba9da50049b2bab1b8d792275d053",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "repeat17-beyond-combined-count",
+      "encoded": "repeat17-beyond-combined-count.zlib",
+      "encodedBytes": 20,
+      "encodedSha256": "a5ff80da2b072d53c40b690bf9c9f1a2bfbd8ccba3c995c1dfbcd36b921fc883",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "oversubscribed-literal-tree",
+      "encoded": "oversubscribed-literal-tree.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "52dd648291f5009fdcc275b199345f99ca378f692450648c9277eaeac191ba15",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "incomplete-literal-tree",
+      "encoded": "incomplete-literal-tree.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "8328f280925e56c4906667bbdb303a45cf099d5f0bb41a2406884bf389c53f17",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "oversubscribed-distance-tree",
+      "encoded": "oversubscribed-distance-tree.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "ef535648b80fa017261b03638dbe236c693011f7d12231aa4f420d075aaccaa4",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "incomplete-distance-tree",
+      "encoded": "incomplete-distance-tree.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "1298b5d660afc199004fdc61a69ddcaf5295a49a97ad20d6c089d187d543d6cb",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "empty-code-length-tree",
+      "encoded": "empty-code-length-tree.zlib",
+      "encodedBytes": 16,
+      "encodedSha256": "891c04dd1ab74af64837315e59f0c0eb1b2987bc88c01ce6ad1bfd6a5d08ab59",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "incomplete-code-length-tree",
+      "encoded": "incomplete-code-length-tree.zlib",
+      "encodedBytes": 16,
+      "encodedSha256": "0a0db982746304c7ecf20be3231a7753bb5881eb6d959c327adbe26d087126a0",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed"
+    },
+    {
+      "name": "incomplete-literal-complete-payload",
+      "encoded": "incomplete-literal-complete-payload.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "0c67c6745a774897ca4341d598fd846d56a0e44819bfd9b9b43aabf38bdbaeab",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Incomplete DEFLATE Huffman alphabet",
+      "hypotheticalCompletePayloadAdler32": 4325442
+    },
+    {
+      "name": "incomplete-distance-complete-payload",
+      "encoded": "incomplete-distance-complete-payload.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "53a915c829bea86824bffd204ffea135fce29b1d06fab7ba2575eadc07ce50da",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Incomplete DEFLATE Huffman alphabet",
+      "hypotheticalCompletePayloadAdler32": 42860805
+    },
+    {
+      "name": "empty-distance-alphabet-used",
+      "encoded": "empty-distance-alphabet-used.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "59e76fe54fdc13efb398ace6070ae1a2b60c13009598236a2f5c8d1032561918",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Unused or empty DEFLATE Huffman code",
+      "hypotheticalCompletePayloadAdler32": 42860805
+    },
+    {
+      "name": "unused-single-distance-branch",
+      "encoded": "unused-single-distance-branch.zlib",
+      "encodedBytes": 146,
+      "encodedSha256": "638e70a6dd259268439160701d3a4d49d9d9e02737f4ad9cc27b962828f8ccf3",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Unused or empty DEFLATE Huffman code",
+      "hypotheticalCompletePayloadAdler32": 42860805
+    },
+    {
+      "name": "unused-single-literal-branch",
+      "encoded": "unused-single-literal-branch.zlib",
+      "encodedBytes": 145,
+      "encodedSha256": "95ecf53ed0d32a949a35cde1f674884326cbed6785fe7140edd8e127c6c11d37",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Unused or empty DEFLATE Huffman code",
+      "hypotheticalCompletePayloadAdler32": 1
+    },
+    {
+      "name": "incomplete-code-length-complete-payload",
+      "encoded": "incomplete-code-length-complete-payload.zlib",
+      "encodedBytes": 80,
+      "encodedSha256": "bd19738d245c930512fd1db1ca0e7983456ecba7a0f5d0e37c54bd2c85d05c55",
+      "decoded": null,
+      "decodedBytes": null,
+      "decodedSha256": null,
+      "failureKind": "Malformed",
+      "expectedStructuralError": "Incomplete DEFLATE Huffman alphabet",
+      "hypotheticalCompletePayloadAdler32": 4325442
+    },
+    {
+      "name": "repeat17-valid",
+      "encoded": "repeat17-valid.zlib",
+      "encodedBytes": 144,
+      "encodedSha256": "796b29fca3c6a7011e4ea1b500c21e5ffb831b215166a7b263e783f56f821eb0",
+      "decoded": "repeat17-valid.raw",
+      "decodedBytes": 1,
+      "decodedSha256": "559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd",
+      "failureKind": null,
+      "expectedStructuralError": null,
+      "hypotheticalCompletePayloadAdler32": 4325442
+    }
+  ],
+  "productInvoked": false,
+  "description": "Original synthetic zlib and DEFLATE fixtures for bounded immutable compressed-fragment inspection; no captured game or licensed data."
+}

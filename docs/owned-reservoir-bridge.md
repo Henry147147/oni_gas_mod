@@ -519,8 +519,88 @@ comparison to the native witness. Body-prefix inspection then derives KSAV
 `3352143e5fa3d4de2b35f85751fe658f144ff9b6947302fe747502aa9df89ee9`.
 The first Linux preparation's missing reference-pack path failed before dotnet
 and remains preserved; the fresh preparation fixes only that private setup.
-The new directory-prefix API has not yet run in actual ONI Mono or Linux Unity;
-the v39 game evidence above belongs to its earlier exact-directory revision.
+The newer directory-prefix API subsequently passed in actual Windows-v43 ONI
+Mono 6.13, together with the bounded inflation helper below. Linux Unity remains
+unverified; the v39 evidence still belongs to the earlier exact-directory revision.
+
+### Bounded compressed-fragment inspection
+
+`SavedZlibInflationInspector` receives an immutable image and one exact supplied
+zlib range. An original structural walker validates its stored/fixed/dynamic
+blocks, Huffman descriptions, prior-output distance bounds, final block and
+exact compressed framing before a raw `DeflateStream` reconstructs bytes.
+Positive partial reads are supported. A positive-capacity zero return, exact
+structural output count and independent Adler32 must all agree. Decoder source
+position is never evidence of framing. Streams, work buffers and output state
+belong to one call; no Ionic codec or copied vendor implementation is included.
+
+Limits cover source/compressed/output bytes, output chunks, decoder calls,
+structural blocks and decoded symbols. Defaults are 1 GiB source, 64 MiB
+compressed, 256 MiB output, 64 KiB chunks, 65,536 Read calls/blocks and
+67,108,864 structural steps. Callers may only tighten them. Output limits are
+checked before retaining bytes, including a bounded one-byte completion probe
+at the exact cap. A failure returns no partial candidate. This is a bounded
+save-fragment compatibility helper, without a writer or a general native-file
+admission contract. Format references are [RFC 1950](https://www.rfc-editor.org/rfc/rfc1950)
+and [RFC 1951](https://www.rfc-editor.org/rfc/rfc1951); the platform reader's
+[partial-read contract](https://learn.microsoft.com/en-us/dotnet/api/system.io.compression.deflatestream.read?view=net-10.0)
+is handled explicitly.
+
+The unchanged private Windows and Linux hosts each pass 49 original stream
+fixtures, 15 bounds/isolation/structure groups and two captured-fragment groups
+(66 total). Complete typed summaries match, including both captured bodies,
+checksums, structural counters and actual Read counts 243/242. Both host and
+.NET Standard 2.1 builds have zero warnings/errors. The original Ionic attempt
+accepted an invalid pre-history distance; its structurally guarded successor
+rejected a legal empty-distance/repeat-18 stream. Both failed candidates remain
+preserved. The accepted helper keeps both regressions and uses the platform raw
+decoder after the unchanged strict walk. No fixture or classification was
+weakened to obtain the passing result.
+
+The integrated public host then passes its default 64 groups on Windows and
+WSL Linux: the same 49 streams and 15 support groups, without private captures.
+All nine summary fields and every ordered PASS name match exactly. Both host
+and .NET Standard builds report zero warnings/errors. Normal ONI compilation
+succeeds with the same two MSB3277 conflicts and zero errors. Two private Windows
+control errors remain preserved: an incorrect reference-count assertion stopped
+before any child; a later warning-line assertion failed after all five children
+returned zero because MSBuild repeats detailed warning lines. A separate
+independent metadata review accepts the actual child outputs; no build or test
+was rerun to replace either failed control. Linux's first outer/inner execution
+and all four children pass, with exact input/output closure. Fixture bytes are
+preserved by Git attributes so line-ending conversion cannot invalidate hashes.
+
+The fresh Windows-v43 ordinary native colony then passes all 49 unchanged
+streams plus eight Mono bounds/isolation/concurrency groups (57 total). After
+ordinary native save/menu/reload returns, its private wrapper derives the
+directory `[398,30089)` with 360 templates, inflates the remaining 1,109,215
+source bytes to the independently captured 10,552,046-byte body, derives KSAV
+`[9472651,10455829)` and preserves the actual reservoir/positive packet. Body
+SHA256 is `1d8d2bd47f663eb3834162e70dee50386f10be6aece9c708e81e6077aecb9d47`;
+Adler32 is 1,948,060,919. Mono records 163 Read calls, 52 blocks and 1,119,735
+structural steps. Private pinned-header interpretation remains fixture
+calibration, without a production outer-file association API.
+
+Native original-body observations each show one entry, one normal return and
+zero exceptions. Separate native witnesses retain one 12.5 kg Oxygen packet at
+310 K with disease count 12345 and an Unassigned marker across save/reload;
+PrimaryElement bytes stay opaque to the pure inspector. Two actual Unity PNGs,
+normal native quit, restored settings and exact membership/hashes for 283
+personal files were independently closed. The first V42 helper compile failed
+because ONI's global `Action` shadowed the test delegate; V43 qualifies only
+those two private delegate types. Its game build reports the two existing
+MSB3277 dependency warnings and zero errors, without warning suppression.
+
+Private accepted results/reviews are under `local/bounded-inflate-v3-r2`,
+`local/bounded-inflate-v3-r2-linux-r1` and
+`local/colony-runs/strict-inflate-mono-windows-v43`. The last independent review
+is `f33869580bf314c8ae414a404b79c7076a08f93d040a54c00f13dab3e0bed01a`.
+Integrated public-host evidence is under
+`local/inflation-product-windows-postintegration-r2` and
+`local/inflation-product-linux-postintegration-r1`; their independent reviews
+preserve the failed Windows controls separately from the accepted child results.
+The portable original synthetic corpus is described in
+[the inflation test tool](../tools/OwnedReservoirInflationTests/README.md).
 
 This establishes supported directory/body-prefix derivation and section inspection.
 Outer header/directory/inflation association, arbitrary custom-detail

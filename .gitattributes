@@ -1,1 +1,6 @@
 * text=auto eol=lf
+
+# Hash-authenticated synthetic payloads must retain their exact bytes.
+tools/OwnedReservoirInflationTests/Fixtures/* -text
+tools/OwnedReservoirInflationTests/Fixtures/*.raw binary
+tools/OwnedReservoirInflationTests/Fixtures/*.zlib binary
