@@ -36,20 +36,10 @@ double share(double value, double part, double total) {
         precision("Positive MAC transfer cannot represent its constituent or signed scalar");
     return answer;
 }
-double kinetic(double inertia, double momentum) {
-    if (momentum == 0) return 0;
-    require(inertia > 0, "Momentum on an inactive MAC face");
-    const double result = .5 * momentum * (momentum / inertia);
-    if (!(result > 0) || !std::isfinite(result)) precision("MAC kinetic energy is outside representable range");
-    return result;
-}
-double variance(double mass, double difference) {
-    if (mass == 0 || difference == 0) return 0;
-    int em = 0, eu = 0;
-    const double m = std::frexp(mass, &em), u = std::frexp(difference, &eu);
-    const double result = std::ldexp(.5 * m * u * u, em + 2 * eu);
-    if (!(result > 0) || !std::isfinite(result)) precision("Positive MAC mixing heat is outside representable range");
-    return result;
+double projected_energy(MacEnergy value, std::size_t& rounded) {
+    const auto projection = value.project();
+    if (projection.rounded) ++rounded;
+    return projection.value;
 }
 struct Neighbors { std::size_t left = absent, right = absent; };
 struct Geometry {
@@ -124,7 +114,7 @@ void validate_momentum(const std::vector<Neighbors>& faces, const std::vector<do
     for (std::size_t i = 0; i < faces.size(); ++i) {
         require_finite(momentum[i], "MAC canonical momentum");
         if (faces[i].left == absent || faces[i].right == absent) require(momentum[i] == 0, "Fixed MAC normal face has momentum");
-        static_cast<void>(kinetic(inertia[i], momentum[i]));
+        static_cast<void>(MacEnergy::kinetic(inertia[i], momentum[i]).project());
     }
 }
 void primal_edges(const std::vector<Neighbors>& faces, const std::vector<double>& flux, std::vector<MacDualFlux>& edges) {
@@ -177,19 +167,21 @@ MacFaceTransportReport transport_faces(const std::vector<Neighbors>& faces, cons
     const std::vector<double>& j0, std::vector<double>& j1, std::vector<MacDualFlux> edges) {
     const auto count = faces.size(); const auto keep = retained(m0, edges);
     MacFaceTransportReport report; report.old_inertia = m0; report.new_inertia = m1; report.fluxes = std::move(edges);
+    report.energies.resize(count);
     for (auto* values : {&report.old_kinetic, &report.new_kinetic, &report.transported_kinetic, &report.mixing_heat,
         &report.wall_heat, &report.wall_impulse, &report.dual_mass_residual}) values->resize(count);
-    std::vector<Sum> mass(count), momentum(count), transported(count), heat(count); std::vector<double> velocity(count), provisional(count);
+    std::vector<Sum> mass(count), momentum(count); std::vector<MacEnergySum> transported(count), heat(count);
+    std::vector<double> velocity(count), provisional(count);
     for (std::size_t i = 0; i < count; ++i) {
         velocity[i] = m0[i] == 0 ? 0 : j0[i] / m0[i]; require_finite(velocity[i], "MAC source velocity");
-        report.old_kinetic[i] = kinetic(m0[i], j0[i]); mass[i].add(keep[i]);
-        if (m0[i] > 0) { momentum[i].add(share(j0[i], keep[i], m0[i])); transported[i].add(share(report.old_kinetic[i], keep[i], m0[i])); }
+        report.energies[i].old_kinetic = MacEnergy::kinetic(m0[i], j0[i]); mass[i].add(keep[i]);
+        if (m0[i] > 0) { momentum[i].add(share(j0[i], keep[i], m0[i])); transported[i].add(report.energies[i].old_kinetic.shared(keep[i], m0[i])); }
     }
     for (const auto& edge : report.fluxes) if (edge.mass_kg != 0) {
         const auto donor = edge.mass_kg > 0 ? edge.left : edge.right, target = edge.mass_kg > 0 ? edge.right : edge.left;
         const auto amount = std::abs(edge.mass_kg); require(m0[donor] > 0, "MAC dual flux has no occupied donor");
         mass[target].add(amount); momentum[target].add(share(j0[donor], amount, m0[donor]));
-        transported[target].add(share(report.old_kinetic[donor], amount, m0[donor]));
+        transported[target].add(report.energies[donor].old_kinetic.shared(amount, m0[donor]));
     }
     j1.resize(count);
     for (std::size_t i = 0; i < count; ++i) {
@@ -197,15 +189,27 @@ MacFaceTransportReport transport_faces(const std::vector<Neighbors>& faces, cons
         const auto j = momentum[i].value(); provisional[i] = m1[i] == 0 ? 0 : j / m1[i];
         require_finite(provisional[i], "MAC transported velocity");
         j1[i] = faces[i].left == absent || faces[i].right == absent ? 0 : j;
-        report.wall_impulse[i] = j1[i] - j; report.wall_heat[i] = j1[i] == j ? 0 : kinetic(m1[i], j);
-        report.new_kinetic[i] = kinetic(m1[i], j1[i]); report.transported_kinetic[i] = transported[i].value();
-        heat[i].add(variance(keep[i], velocity[i] - provisional[i]));
+        report.wall_impulse[i] = j1[i] - j;
+        report.energies[i].wall_heat = j1[i] == j ? MacEnergy{} : MacEnergy::kinetic(m1[i], j);
+        report.energies[i].new_kinetic = MacEnergy::kinetic(m1[i], j1[i]); report.energies[i].transported_kinetic = transported[i].value();
+        heat[i].add(MacEnergy::variance(keep[i], velocity[i] - provisional[i]));
     }
     for (const auto& edge : report.fluxes) if (edge.mass_kg != 0) {
         const auto donor = edge.mass_kg > 0 ? edge.left : edge.right, target = edge.mass_kg > 0 ? edge.right : edge.left;
-        heat[target].add(variance(std::abs(edge.mass_kg), velocity[donor] - provisional[target]));
+        heat[target].add(MacEnergy::variance(std::abs(edge.mass_kg), velocity[donor] - provisional[target]));
     }
-    for (std::size_t i = 0; i < count; ++i) report.mixing_heat[i] = heat[i].value();
+    for (std::size_t i = 0; i < count; ++i) {
+        auto& values = report.energies[i]; values.mixing_heat = heat[i].value();
+        MacEnergyAccount balance; balance.add(values.transported_kinetic); balance.add(values.new_kinetic.negated());
+        balance.add(values.mixing_heat.negated()); balance.add(values.wall_heat.negated());
+        if (!balance.within_bound()) precision("MAC local derived kinetic/heat account exceeds its operand bound");
+        const std::array<MacEnergy, 5> encoded{values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat};
+        const std::array<double*, 5> legacy{&report.old_kinetic[i], &report.new_kinetic[i], &report.transported_kinetic[i], &report.mixing_heat[i], &report.wall_heat[i]};
+        for (std::size_t k = 0; k < encoded.size(); ++k) {
+            const auto projection = encoded[k].project(); *legacy[k] = projection.value;
+            if (projection.rounded) { values.rounded_projection_mask |= 1U << k; ++report.rounded_energy_projections; }
+        }
+    }
     return report;
 }
 }
@@ -279,6 +283,7 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
 }
 MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
     const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan = nullptr) {
+    require_mac_energy_environment();
     const Geometry geometry(source.grid); const auto m0 = masses(registry, source, model, source_volumes); const auto& g = source.grid;
     MacMassFluxes parcel_flux;
     if (plan) parcel_flux = validate_parcels(registry, *model, source, geometry, *plan);
@@ -287,7 +292,8 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
     validate_momentum(geometry.x, ix0, source.momentum_x); validate_momentum(geometry.y, iy0, source.momentum_y);
     std::vector<MacDualFlux> primal; primal_edges(geometry.x, actual_flux.x, primal); primal_edges(geometry.y, actual_flux.y, primal);
     const auto keep = retained(m0, primal); const auto count = source.cells.size(), species = registry.size();
-    MacTransportAdvance result{source, {}}; std::vector<Sum> mass(count * species), energy(count), cell_heat(count);
+    MacTransportAdvance result{source, {}}; std::vector<Sum> mass(count * species), energy(count);
+    std::vector<MacEnergySum> cell_heat(count);
     std::vector<std::map<std::uint64_t, Sum>> metadata(count);
     const auto transfer = [&](std::size_t donor, std::size_t target, double amount) {
         if (amount == 0) return;
@@ -320,31 +326,48 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
     const auto m1 = masses(registry, result.state, model); auto& report = result.report;
     report.x = transport_faces(geometry.x, ix0, inertias(geometry.x, m1), source.momentum_x, result.state.momentum_x, dual_edges(g, actual_flux, true));
     report.y = transport_faces(geometry.y, iy0, inertias(geometry.y, m1), source.momentum_y, result.state.momentum_y, dual_edges(g, actual_flux, false));
-    Sum total_energy, px, py, mixing, wall; std::vector<Sum> species_balance(species); std::map<std::uint64_t, Sum> passive_balance;
+    MacEnergyAccount total_energy; MacEnergySum mixing, wall; Sum px, py;
+    std::vector<Sum> species_balance(species); std::map<std::uint64_t, Sum> passive_balance;
     const auto account_faces = [&](const std::vector<Neighbors>& faces, const MacFaceTransportReport& r,
         const std::vector<double>& j0, const std::vector<double>& j1, Sum& momentum) {
         for (std::size_t i = 0; i < faces.size(); ++i) {
             momentum.add(j1[i]); momentum.add(-j0[i]); momentum.add(-r.wall_impulse[i]);
-            total_energy.add(r.new_kinetic[i]); total_energy.add(-r.old_kinetic[i]);
-            mixing.add(r.mixing_heat[i]); wall.add(r.wall_heat[i]);
-            const double heat = r.mixing_heat[i] + r.wall_heat[i]; const auto& pair = faces[i];
+            const auto& derived = r.energies[i];
+            total_energy.add(derived.new_kinetic); total_energy.add(derived.old_kinetic.negated());
+            mixing.add(derived.mixing_heat); wall.add(derived.wall_heat);
+            MacEnergySum packet; packet.add(derived.mixing_heat); packet.add(derived.wall_heat);
+            const auto heat = packet.value(); const auto& pair = faces[i];
             const double total = (pair.left == absent ? 0 : m1[pair.left]) + (pair.right == absent ? 0 : m1[pair.right]);
-            if (heat != 0) for (const auto cell : {pair.left, pair.right}) if (cell != absent) cell_heat[cell].add(share(heat, m1[cell], total));
+            if (!heat.is_zero()) for (const auto cell : {pair.left, pair.right}) if (cell != absent) cell_heat[cell].add(heat.shared(m1[cell], total));
         }
     };
     account_faces(geometry.x, report.x, source.momentum_x, result.state.momentum_x, px);
     account_faces(geometry.y, report.y, source.momentum_y, result.state.momentum_y, py);
     for (std::size_t i = 0; i < count; ++i) {
-        const double old = result.state.cells[i].mixture.energy; energy[i].add(cell_heat[i].value()); result.state.cells[i].mixture.energy = energy[i].value();
-        if (std::abs((result.state.cells[i].mixture.energy - old) - cell_heat[i].value()) > 32 * eps * cell_heat[i].value()) ++report.unresolved_heat_updates;
+        const double old = result.state.cells[i].mixture.energy; const auto heat = cell_heat[i].value();
+        if (!heat.is_zero()) {
+            MacEnergySum updated; updated.add(energy[i].hi); updated.add(energy[i].lo); updated.add(heat);
+            result.state.cells[i].mixture.energy = updated.value().project().value;
+            MacEnergySum difference; difference.add(result.state.cells[i].mixture.energy); difference.add(-old); difference.add(heat.negated());
+            MacEnergySum allowance; allowance.add(heat.shifted(-47)); const int polarity = difference.sign();
+            for (std::size_t k = 0; k < difference.size(); ++k) allowance.add(polarity < 0 ? difference.component(k) : difference.component(k).negated());
+            if (allowance.sign() < 0) ++report.unresolved_heat_updates;
+        }
         total_energy.add(result.state.cells[i].mixture.energy); total_energy.add(-source.cells[i].mixture.energy);
         for (std::size_t s = 0; s < species; ++s) { species_balance[s].add(result.state.cells[i].mixture.masses[s]); species_balance[s].add(-source.cells[i].mixture.masses[s]); }
         for (const auto& entry : result.state.cells[i].passive_quantities) passive_balance[entry.identity].add(entry.quantity);
         for (const auto& entry : source.cells[i].passive_quantities) passive_balance[entry.identity].add(-entry.quantity);
     }
-    static_cast<void>(masses(registry, result.state, model)); total_energy.check(); px.check(); py.check();
-    report.energy_residual_j = total_energy.value(); report.energy_bound_j = total_energy.bound();
-    report.momentum_x_residual = px.value(); report.momentum_y_residual = py.value(); report.mixing_heat_j = mixing.value(); report.wall_heat_j = wall.value();
+    static_cast<void>(masses(registry, result.state, model));
+    if (!total_energy.within_bound()) precision("MAC total wide energy account exceeds its operand bound");
+    px.check(); py.check(); report.rounded_energy_projections = report.x.rounded_energy_projections + report.y.rounded_energy_projections;
+    report.energy_residual_wide_j = total_energy.residual(); report.energy_bound_wide_j = total_energy.bound();
+    report.mixing_heat_wide_j = mixing.value(); report.wall_heat_wide_j = wall.value();
+    report.energy_residual_j = projected_energy(report.energy_residual_wide_j, report.rounded_energy_projections);
+    report.energy_bound_j = projected_energy(report.energy_bound_wide_j, report.rounded_energy_projections);
+    report.mixing_heat_j = projected_energy(report.mixing_heat_wide_j, report.rounded_energy_projections);
+    report.wall_heat_j = projected_energy(report.wall_heat_wide_j, report.rounded_energy_projections);
+    report.momentum_x_residual = px.value(); report.momentum_y_residual = py.value();
     for (const auto& balance : species_balance) { balance.check(); report.species_mass_residual.push_back(balance.value()); }
     for (const auto& [identity, balance] : passive_balance) { static_cast<void>(identity); balance.check(); }
     return result;

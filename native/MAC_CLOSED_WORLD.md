@@ -47,13 +47,18 @@ transport balances and 80-digit EOS, isentropic work and acoustic Fourier modes.
 ## Current-source evidence
 
 The limited-reconstruction source passes all eight groups on Windows/MSVC and
-Linux/GCC15, with 6,526 separate saved-operand/EOS/profile checks and three
+Linux/GCC15, with 6,530 separate saved-operand/EOS/profile checks and three
 corruptions rejected per platform. The full seven-group transport reference,
 five-group reconstruction controls, four-group smooth gravity gate and their
 reviewers also pass. Core 57, retained-node 17 and occupied-fluid 24 regressions
 pass. The last suite was supplemental after gravity because of a runner target/
 planned-count mismatch; original captures are preserved. Source identities and
 this correction are recorded in [reconstruction evidence](MAC_RECONSTRUCTION.md).
+The [wide-energy integration](MAC_ENERGY_TRANSPORT.md) repeats these controls
+and adds four tiny-energy/pressure-owner groups with 4,530 separate checks.
+Full derived K remains available when its legacy binary64 report is a rounded
+projection; source/candidate/interval accounts use the full values. The current
+Linux strong-flow retry still fails at an unrepresentable primary helium parcel.
 
 At acoustic Courant 2, current N16/32/64 pressure errors are approximately
 0.0526169416/0.0141066760/0.0035920106 and velocity errors

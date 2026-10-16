@@ -27,7 +27,7 @@ def dec(value):
 def parse(raw, required_passes=8, require_acoustic=True):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
-    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE'}
+    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER'}
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record')
         kind = row[0]
@@ -59,6 +59,13 @@ def parse(raw, required_passes=8, require_acoustic=True):
         else:
             raise ValueError('Unknown record: ' + kind)
     cases, _, _, _ = base.parse(('\n'.join(ordinary) + '\n').encode('ascii'), required_passes=required_passes)
+    for identifier,case in cases.items():
+        if case['owner_energy'] is not None:
+            count,values=case['owner_energy'];row=pressure[identifier];projections=row[3:7]
+            check(all(a==F(float(b)) for a,b in zip(projections,values)),'Owner energy projections differ')
+            transport_count=case['wide_report'][0] if case['wide_report'] else 0
+            check(count==transport_count+sum(a!=b for a,b in zip(projections,values)),'Owner energy projection counts differ')
+            pressure[identifier]=row[:3]+values+row[7:]
     check(set(pressure) == {0, 1} and len(materials) == 4 and (set(waves) == {16, 32, 64} if require_acoustic else not waves), 'Missing pressure/material/acoustic records')
     check(set(samples) == {(n, x) for n in waves for x in range(n)}, 'Missing/extra acoustic samples')
     if require_acoustic:

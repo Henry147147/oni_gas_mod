@@ -65,6 +65,21 @@ inline std::string fingerprint(const MacTransportState& s) {
     for (auto value : s.momentum_y) t << ' ' << value;
     return t.str();
 }
+inline void export_face_energy(int id, int axis, std::size_t face, const MacFaceEnergy& values) {
+    if (values.rounded_projection_mask == 0) return;
+    std::cout << "EFACE " << id << ' ' << axis << ' ' << face << ' ' << values.rounded_projection_mask;
+    for (const auto energy : {values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat})
+        std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
+    std::cout << '\n';
+}
+inline void export_energy_report(int id, const MacTransportReport& report) {
+    if (report.rounded_energy_projections == 0) return;
+    std::cout << "ECASE " << id << ' ' << report.rounded_energy_projections << ' ' << report.unresolved_heat_updates << ' ' <<
+        report.mixing_heat_j << ' ' << report.wall_heat_j;
+    for (const auto energy : {report.energy_residual_wide_j, report.energy_bound_wide_j, report.mixing_heat_wide_j, report.wall_heat_wide_j})
+        std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
+    std::cout << '\n';
+}
 inline void export_reconstruction(int id, double nominal_volume, const MacParcelPlan& plan) {
     std::cout << "RPLAN " << id << ' ' << nominal_volume << ' ' << plan.eos_backtracks << ' ' << plan.unresolved_stencil_cells << '\n';
     for (std::size_t i = 0; i < plan.retained.size(); ++i) {
@@ -101,10 +116,12 @@ inline void export_transport(int id, const MacTransportState& before, const MacT
             std::cout << "FACE " << id << ' ' << axis << ' ' << i << ' ' << flux[i] << ' ' << j0[i] << ' ' << j1[i];
             for (const auto value : {f.old_inertia[i], f.new_inertia[i], f.old_kinetic[i], f.new_kinetic[i], f.transported_kinetic[i], f.mixing_heat[i], f.wall_heat[i], f.wall_impulse[i], f.dual_mass_residual[i]}) std::cout << ' ' << value;
             std::cout << '\n';
+            export_face_energy(id, axis, i, f.energies[i]);
         }
         for (const auto& v : f.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << v.left << ' ' << v.right << ' ' << v.mass_kg << '\n';
     }
     export_reconstruction(id, g.volume_m3(), plan);
+    export_energy_report(id, r);
 }
 inline void export_case(int id, const MacTransportState& before, const MacClosedSubstep& result, double dt) {
     const auto& set = setup(); const auto& g = before.grid; const auto& r = result.transport;
@@ -147,9 +164,17 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
             for (const double value : {report.old_inertia[f], report.new_inertia[f], report.old_kinetic[f], report.new_kinetic[f], report.transported_kinetic[f],
                 report.mixing_heat[f], report.wall_heat[f], report.wall_impulse[f], report.dual_mass_residual[f]}) std::cout << ' ' << value;
             std::cout << '\n';
+            export_face_energy(id, axis, f, report.energies[f]);
         }
         for (const auto& f : report.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << f.left << ' ' << f.right << ' ' << f.mass_kg << '\n';
     }
     if (result.reconstruction) export_reconstruction(id, g.volume_m3(), *result.reconstruction);
+    export_energy_report(id, r);
+    if (result.rounded_energy_projections != 0) {
+        std::cout << "EOWNER " << id << ' ' << result.rounded_energy_projections;
+        for (const auto energy : {result.pressure_energy_residual_wide_j, result.pressure_energy_bound_wide_j, result.energy_residual_wide_j, result.energy_bound_wide_j})
+            std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
+        std::cout << '\n';
+    }
 }
 }

@@ -107,7 +107,7 @@ default game DLL still has SHA256
 No game, production solver or performance acceptance follows from this result.
 
 The later [closed pressure/transport owner](MAC_CLOSED_WORLD.md) uses the
-EOS-aware overload. Its current Windows/Linux builds repeat all seven transport
+EOS-aware overload. Its reconstruction-cohort Windows/Linux builds repeat all seven transport
 groups and the 3,884-check saved-data review successfully. A full retained share
 now returns the original value directly; the added zero-flux control checks
 every stored quantity bit for bit. No other physical bound is changed.
@@ -118,6 +118,14 @@ source/retained volumes and one common limiter per donor. It checks local
 decomposition, target volume, EOS and face geometry against actual operands.
 Actual parcel masses define primal fluxes and drive the same compatible dual
 J/K transport and positive variance heat. Uniform donor-cell transport remains
-the reference overload. The seven original groups and 3,884-check review still
+the reference overload. The seven original groups and current 3,888-check review
 pass on Windows/Linux; the new parcel controls and composed-owner checks are
 separate evidence. Normal face momentum transport remains first-order.
+
+[Wide derived-energy integration](MAC_ENERGY_TRANSPORT.md) now carries K,
+variance heat and assigned cell heat with independent exponents. Legacy report
+values have explicit rounding masks; full values drive energy accounts. Four
+additional Windows/Linux controls and a 4,530-check reviewer pass, including
+nonzero energy whose binary64 projection is zero. Primary transfer rules remain
+unchanged. The Linux strong-flow gate now stops at a primary helium parcel below
+binary64 range, so this does not establish general flow or game acceptance.

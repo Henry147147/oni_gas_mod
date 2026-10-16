@@ -1,8 +1,8 @@
 # Derived MAC energy range
 
-Seven standalone controls pass on Windows and Linux. This component is not yet
-connected to transport or the closed owner, so the
-[strong-flow failures](MAC_RIEMANN.md) remain unresolved.
+Seven standalone controls pass on Windows and Linux. Its
+[transport/owner integration](MAC_ENERGY_TRANSPORT.md) now passes its scoped controls;
+the [strong-flow failures](MAC_RIEMANN.md) remain unresolved.
 Its purpose is to retain derived kinetic/variance energy such as the Linux
 parcel 9.12e-436 J without changing primary masses, internal energy or momentum.
 
@@ -66,9 +66,10 @@ Completed-review SHA256 values are
 
 Bounds are aggregate build 180 s, native/review 30 s each and 512 KiB
 per raw pipe. No old failed physical gate is replayed for these standalone
-controls. After these pass, transport/closed-owner integration and their
-existing prerequisite controls are still required before any relevant physical
-retry. Constituent/passive/primary momentum transfers retain their current
-rules. The existing numerical transport/owner source and default game DLL are
-unchanged. This component alone cannot establish a strong-flow, production or
-game pass.
+controls. The later transport/closed-owner integration and all existing
+prerequisite controls also pass; its relevant Linux strong-flow retry now
+rejects an unrepresentable primary helium parcel. Constituent/passive/primary
+momentum checks retain their existing rules. The standalone source cohort above
+did not change transport/owner code; the later integration is separate evidence.
+The default game DLL is unchanged. This component alone cannot establish a
+strong-flow, production or game pass.

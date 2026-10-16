@@ -1,6 +1,7 @@
 #pragma once
 #include "mixture.hpp"
 #include "passive_quantities.hpp"
+#include "mac_energy.hpp"
 #include <cstdint>
 #include <span>
 
@@ -47,10 +48,18 @@ struct MacParcelPlan {
     std::size_t eos_backtracks = 0, unresolved_stencil_cells = 0;
 };
 struct MacDualFlux { std::size_t left = 0, right = 0; double mass_kg = 0; };
+struct MacFaceEnergy {
+    MacEnergy old_kinetic, new_kinetic, transported_kinetic, mixing_heat, wall_heat;
+    // Corresponding legacy binary64 fields are projections, never account
+    // operands. Bits 0..4 flag rounding in the order declared above.
+    unsigned int rounded_projection_mask = 0;
+};
 struct MacFaceTransportReport {
     std::vector<double> old_inertia, new_inertia, old_kinetic, new_kinetic;
     std::vector<double> transported_kinetic, mixing_heat, wall_heat, wall_impulse, dual_mass_residual;
     std::vector<MacDualFlux> fluxes;
+    std::vector<MacFaceEnergy> energies;
+    std::size_t rounded_energy_projections = 0;
 };
 struct MacTransportReport {
     MacFaceTransportReport x, y;
@@ -59,6 +68,8 @@ struct MacTransportReport {
     double momentum_x_residual = 0, momentum_y_residual = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     std::size_t unresolved_heat_updates = 0;
+    MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
+    std::size_t rounded_energy_projections = 0;
     MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };

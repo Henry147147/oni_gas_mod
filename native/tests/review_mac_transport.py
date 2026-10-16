@@ -39,7 +39,34 @@ def unique(mapping, key, value):
     mapping[key] = value
 
 
-def parse(raw, required_passes=7):
+def scaled_energy(mantissa, exponent):
+    m=number(mantissa);e=int(exponent)
+    check(-16384<=e<=16384 and ((m==0 and e==0) or F(1,2)<=abs(m)<1),'Scaled energy shape/range')
+    return m*F(2)**e
+
+
+def prepare_scaled_energy(case):
+    check(set(case['widefaces']).issubset(case['faces']),'Orphan wide face energy')
+    rounded_faces=0
+    for key,(mask,values) in case['widefaces'].items():
+        row=case['faces'][key];expected=0
+        for i,value in enumerate(values):
+            projected=F(float(value));check(row[5+i]==projected,'Legacy face energy projection differs')
+            if projected!=value:expected|=1<<i
+        check(mask==expected and 0<mask<32,'Wide face rounding mask differs')
+        rounded_faces+=mask.bit_count();case['faces'][key]=row[:5]+values+row[10:]
+    if case['wide_report'] is None:
+        check(not case['widefaces'],'Wide face values have no full report')
+        return
+    count,unresolved,legacy_mixing,legacy_wall,values=case['wide_report']
+    projections=(case['residual'],case['bound'],legacy_mixing,legacy_wall)
+    check(all(a==F(float(b)) for a,b in zip(projections,values)),'Legacy energy summary projection differs')
+    check(count==rounded_faces+sum(a!=b for a,b in zip(projections,values)) and unresolved>=0,'Energy summary projection counts differ')
+    case['residual_projection'],case['bound_projection']=case['residual'],case['bound']
+    case['residual'],case['bound']=values[:2]
+
+
+def parse(raw, required_passes=7, required_cases=(0,1)):
     cases, waves, samples, passes = {}, {}, {}, []
     timestep = None
     for line in raw.decode('ascii').splitlines():
@@ -52,7 +79,19 @@ def parse(raw, required_passes=7):
             check(w > 0 and h > 0 and px in (0, 1) and py in (0, 1), 'CASE geometry')
             unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
-                masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={}))
+                masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={},
+                widefaces={},wide_report=None,owner_energy=None))
+        elif kind in ('EFACE','ECASE','EOWNER'):
+            identifier=int(row[1]);check(identifier in cases,'Orphan scaled energy record');case=cases[identifier]
+            if kind=='EFACE':
+                check(len(row)==15,'Scaled face shape');unique(case['widefaces'],tuple(map(int,row[2:4])),
+                    (int(row[4]),tuple(scaled_energy(row[i],row[i+1]) for i in range(5,15,2))))
+            elif kind=='ECASE':
+                check(len(row)==14 and case['wide_report'] is None,'Scaled energy report shape/duplicate')
+                case['wide_report']=(int(row[2]),int(row[3]),number(row[4]),number(row[5]),tuple(scaled_energy(row[i],row[i+1]) for i in range(6,14,2)))
+            else:
+                check(len(row)==11 and case['owner_energy'] is None,'Scaled owner shape/duplicate')
+                case['owner_energy']=(int(row[2]),tuple(scaled_energy(row[i],row[i+1]) for i in range(3,11,2)))
         elif kind in ('RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE'):
             identifier = int(row[1]); check(identifier in cases, 'Orphan reconstruction record'); case = cases[identifier]
             if kind == 'RPLAN':
@@ -100,7 +139,8 @@ def parse(raw, required_passes=7):
             passes.append(line)
         else:
             raise ValueError('Unknown saved record: ' + kind)
-    check(set(cases) == {0, 1} and len(passes) == required_passes and len(set(passes)) == required_passes, 'Missing case/pass groups')
+    check(set(cases) == set(required_cases) and len(passes) == required_passes and len(set(passes)) == required_passes, 'Missing case/pass groups')
+    for case in cases.values():prepare_scaled_energy(case)
     return cases, waves, samples, timestep
 
 

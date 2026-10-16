@@ -1,7 +1,8 @@
 # Closed-gas Riemann gate
 
-The first-source gate fails on Windows and Linux for different reasons,
-recorded below. The passing smooth-wave/gravity controls in
+The gate remains failed. Windows collision velocity refinement is unresolved;
+the latest Linux retry rejects a primary helium parcel below binary64 range.
+The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. This gate changes tests and build declarations;
 the numerical solver remains the source accepted in that cohort.
@@ -70,6 +71,21 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
+## Current Linux range repair and primary transfer rejection
+
+[Wide derived-energy integration](MAC_ENERGY_TRANSPORT.md) passes four new
+Windows/Linux controls and repeats all range, transport, parcel, closed-owner
+and smooth-gravity prerequisites with separate reviews. After those pass, the
+Linux strong-flow retry uses the unchanged scientific source and physical
+limits. It no longer rejects a derived K parcel, but stops before any completed
+profile at a primary helium transfer of 8.5868194183540713e-325 kg. The existing
+positive-transfer check rejects its zero nearest binary64 projection. The
+diagnosis retains every input and changes no arithmetic or physical bound.
+
+No full strong-flow review follows that empty profile set, and the Windows
+failed collision gate is not repeated. Full strong-flow acceptance still
+requires primary parcel range work and collision accuracy investigation.
+
 ## First-source results: strong-flow gate failed
 
 Fresh strict builds pass on Windows/MSVC and Linux/GCC15. Both first native
@@ -123,10 +139,10 @@ and to investigate the collision velocity error before changing the transport
 operator. Neither failure is fixed by loosening the limits or changing the
 initial grid/timestep. The positive smooth-wave/gravity results remain scoped
 as before.
-The [derived-energy range component](MAC_ENERGY_RANGE.md) now passes seven
-standalone groups and 21,019 exact saved-data checks per platform. It is not
-yet connected to the transport/owner, so neither first-source physical failure
-is considered repaired.
+The later [derived-energy range component](MAC_ENERGY_RANGE.md) and its
+[transport/owner integration](MAC_ENERGY_TRANSPORT.md) address that derived K
+mechanism. The original failed source remains retained; the current primary
+transfer rejection and unresolved Windows collision still prevent acceptance.
 
 Private first results are
 `local/occupied-staggered-validation/mac-riemann-{windows,linux}-r1`.

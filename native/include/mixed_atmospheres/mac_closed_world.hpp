@@ -27,6 +27,9 @@ struct MacClosedSubstep {
     std::vector<double> material_volumes_m3, geometric_residuals_m3;
     double pressure_energy_residual_j = 0, pressure_energy_bound_j = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
+    MacEnergy pressure_energy_residual_wide_j, pressure_energy_bound_wide_j;
+    MacEnergy energy_residual_wide_j, energy_bound_wide_j;
+    std::size_t rounded_energy_projections = 0;
     double pressure_wall_impulse_x = 0, pressure_wall_impulse_y = 0;
     double body_impulse_y = 0;
     std::vector<double> gravity_body_work_y, gravity_potential_flux_y, gravity_internal_work_y;
@@ -39,7 +42,7 @@ struct MacClosedSubstep {
 };
 // Closed, occupied regular-grid Lagrange/projection split. Work pressure acts
 // directly on canonical face J; the same midpoint sweeps define material
-// volume and donor density for the compatible transport operator. Gravity work
+// volume and reconstructed material parcels for compatible transport. Gravity work
 // is reconciled with actual potential-energy mass flux, with a signed internal
 // energy change kept separate from transport mixing/projection heat. No
 // diffusion, free surface, phase transition or game dispatch is supplied here.
@@ -57,6 +60,8 @@ struct MacClosedAdvanceReport {
     double maximum_geometric_residual_m3 = 0;
     double gravity_internal_change_j = 0, body_impulse_y = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
+    MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
+    std::size_t rounded_energy_projections = 0;
 };
 struct MacClosedAdvance;
 // Owns its registry, immutable EOS identity, canonical state and clock. Advance

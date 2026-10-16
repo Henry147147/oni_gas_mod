@@ -80,6 +80,6 @@ def main():
         except (ValueError,KeyError):caught=True
         check(caught,'Altered derived-energy record accepted')
     print(json.dumps(dict(Passed=True,SavedSha256=hashlib.sha256(raw).hexdigest(),SavedChecks=checks,CorruptionsRejected=3,
-        NativeProcessLaunched=False,IndependentAgentReview=False,Scope='Derived-energy representation only; not yet connected to MAC transport or game')))
+        NativeProcessLaunched=False,IndependentAgentReview=False,Scope='Derived-energy representation only; simulation integration has separate controls')))
 
 if __name__=='__main__':main()
