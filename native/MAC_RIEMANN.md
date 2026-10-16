@@ -123,6 +123,10 @@ and to investigate the collision velocity error before changing the transport
 operator. Neither failure is fixed by loosening the limits or changing the
 initial grid/timestep. The positive smooth-wave/gravity results remain scoped
 as before.
+The [derived-energy range component](MAC_ENERGY_RANGE.md) now passes seven
+standalone groups and 21,019 exact saved-data checks per platform. It is not
+yet connected to the transport/owner, so neither first-source physical failure
+is considered repaired.
 
 Private first results are
 `local/occupied-staggered-validation/mac-riemann-{windows,linux}-r1`.
