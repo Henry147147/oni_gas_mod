@@ -16,6 +16,13 @@ its own observer report and always leaves physics with native ONI. It does not
 waive the stricter `snapshot-copy` material-import gate. Instructions and current
 evidence are in [the backend contract](../docs/native-backend-integration.md#build-and-observe).
 
+The Windows counterpart is `run_colony_validation.ps1 -NativeObserver`, using
+an explicitly opted-in Windows observer package. Windows V60 passes the same
+ten-native-timestep/physical-update gate with 47 byte-identical snapshot
+channels. The wrapper restores original mods, preferences and generated-world
+files after closing its disposable colony. Full Windows instructions and the
+retained failed timing control are in the same backend contract.
+
 The user signed the private Steam client in and installed ONI through it at
 `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded`
 (Steam build 24423041, game build U59-744825). Its `Assembly-CSharp.dll`

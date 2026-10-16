@@ -13,6 +13,18 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def observer_build_root(observer: Path) -> Path:
+    """Find dependency notices for single- and multi-config CMake outputs."""
+    parent = observer.resolve().parent
+    required = ("CMakeCache.txt", "oni-generated/licenses/funchook/LICENSE",
+                "oni-generated/licenses/distorm/COPYING", "_deps/ma_funchook-src/src/funchook_x86.c")
+    candidates = [root for root in (parent, parent.parent)
+                  if all((root / name).is_file() for name in required)]
+    if len(candidates) != 1:
+        raise ValueError("Observer must identify exactly one CMake build with dependency sources/notices")
+    return candidates[0]
+
+
 def source_state() -> tuple[str, bool, list[str]]:
     """Return the source tree revision, dirty flag and short status at packaging time.
 
@@ -46,13 +58,16 @@ def main() -> None:
     validator = args.private_file_protocol_validator
     observer = args.native_observer
     observer_name = "mixed_atmospheres_oni.dll" if args.native.suffix == ".dll" else "libmixed_atmospheres_oni.so"
-    observer_support = observer.parent / "oni-generated" if observer else None
-    observer_source = observer.parent / "_deps/ma_funchook-src" if observer else None
-    if observer is not None and (observer.name != observer_name or not observer.is_file() or
-                                 not (observer_support / "licenses/funchook/LICENSE").is_file() or
-                                 not (observer_support / "licenses/distorm/COPYING").is_file() or
-                                 not (observer_source / "src/funchook_x86.c").is_file()):
-        parser.error("Supply the platform observer from its CMake build directory, including dependency sources/notices")
+    observer_root = None
+    if observer is not None:
+        if observer.name != observer_name or not observer.is_file():
+            parser.error("Supply the platform observer from its CMake build directory")
+        try:
+            observer_root = observer_build_root(observer)
+        except ValueError as error:
+            parser.error(str(error))
+    observer_support = observer_root / "oni-generated" if observer_root else None
+    observer_source = observer_root / "_deps/ma_funchook-src" if observer_root else None
     if validator is not None and (args.native.suffix != ".dll" or not validator.is_file() or
                                   validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
                                                          "GameMonoFileProtocolValidation.dll")):

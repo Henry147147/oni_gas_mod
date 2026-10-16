@@ -262,16 +262,23 @@ namespace MixedAtmospheres.Oni
                 SetStage("running-disposable-colony");
             }
             Report.Duplicants = Components.LiveMinionIdentities.Count;
-            if (Report.NativeFramesAcknowledged - liveFrameBaseline < configuration.CompletedFrames) return;
             if (configuration.Mode == "native-observer")
             {
                 var observation = NativeBackendObservation.Capture();
+                if (observation.PositiveTimestepReturns < observerTimestepBaseline ||
+                    observation.Hooks.Single(hook => hook.Name == "update-data").Entries < observerUpdateBaseline)
+                    throw new InvalidOperationException("Native observer counters reset during the active colony validation.");
                 Report.Kind = "actual-game-native-hook-forwarding-validation";
                 Report.ObserverTimestepReturns = observation.PositiveTimestepReturns - observerTimestepBaseline;
                 Report.ObserverPhysicalUpdates = observation.Hooks.Single(hook => hook.Name == "update-data").Entries - observerUpdateBaseline;
-                Report.NativeObserverForwardingPassed = observation.Attached && !observation.RecoveryRequired &&
-                    !observation.AuthoritativeFluidOwner && Report.ObserverTimestepReturns >= (ulong)configuration.CompletedFrames &&
-                    Report.ObserverPhysicalUpdates >= (ulong)configuration.CompletedFrames && Report.AllCopiesByteIdentical;
+                var forwardingValid = observation.Attached && !observation.RecoveryRequired &&
+                    !observation.AuthoritativeFluidOwner && Report.AllCopiesByteIdentical;
+                // Native data publications/managed acknowledgments can repeat
+                // without a physical timestep. Keep observing until both native
+                // progress counters reach the requested amount.
+                if (forwardingValid && (Report.ObserverTimestepReturns < (ulong)configuration.CompletedFrames ||
+                    Report.ObserverPhysicalUpdates < (ulong)configuration.CompletedFrames)) { WriteReport(); return; }
+                Report.NativeObserverForwardingPassed = forwardingValid;
                 Report.Status = Report.NativeObserverForwardingPassed ? "passed" : "failed";
                 Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
                 Report.MaterialModel = "Original native ONI physics; no custom state import or fluid takeover.";
@@ -279,6 +286,7 @@ namespace MixedAtmospheres.Oni
             }
             else
             {
+                if (Report.NativeFramesAcknowledged - liveFrameBaseline < configuration.CompletedFrames) return;
                 Report.Status = Report.NewColonyStagingPassed && Report.CustomStateRoundtripPassed && Report.AllCopiesByteIdentical
                     ? "passed" : "failed";
                 if (Report.Status == "failed") Report.Error = "Required new-colony staging or roundtrip evidence is missing.";

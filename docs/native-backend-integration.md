@@ -141,7 +141,9 @@ python3 tools/NativeHookProbe/run.py \
 ```
 
 On Windows use an x64 Visual Studio developer environment and
-`build-oni-observer/mixed_atmospheres_oni.dll`. The same Python runner supports
+`build-oni-observer/Release/mixed_atmospheres_oni.dll` for the Visual Studio
+multi-configuration generator (single-configuration generators omit `Release/`).
+The same Python runner supports
 Windows. It compares separate unhooked/observed processes for baseline flow,
 two active regions, melting, filtered transitions and native load controls.
 Each process has a 45-second limit. It compares physical/event/save reports,
@@ -170,6 +172,21 @@ python3 tools/oni_headless.py run --package artifacts/native-observer-package \
   --mode native-observer --frames 10 --timeout 600
 ```
 
+For actual Windows Unity observation, build the ONI adapter against the Windows
+installation and package the Windows core DLL with the observer DLL above. Then
+run the disposable-colony wrapper with the explicit observer switch:
+
+```powershell
+./tools/run_colony_validation.ps1 -Package artifacts/native-observer-package `
+  -Output local/colony-runs/native-observer-windows `
+  -NativeObserver -Frames 10 -TimeoutSeconds 900
+```
+
+The wrapper checks the package's observer opt-in, native progress and ownership
+report, and byte-identical snapshots. Other validation modes refuse packages
+with native hooks. Packaging locates dependency notices and sources in exactly
+one complete CMake build root, including Visual Studio's `Release/` layout.
+
 Packaging includes the dependency licenses, modified dependency source archive
 and exact patch/build instructions. It creates an explicit
 `native-backend-observation.json` opt-in. The mod writes
@@ -192,7 +209,8 @@ Verified on 2026-10-16:
 | Actual Linux Unity menu | `20261016T165746Z-b78a1c`: scoped probe and forwarding observer pass in the real Mono player. |
 | Actual Linux Unity colony | `20261016T171241Z-991b86`: ten live timestep returns, ten physical updates, thirteen byte-identical snapshots, 47 channels. Original ONI owns physics. |
 | Latest dependency-bound Linux Unity colony | `20261016T172520Z-92bc7f`: the trampoline-capacity repair also passes in Mono; ten additional timestep returns/physical updates, fourteen byte-identical snapshots and 47 channels, with no mod failure lines. |
-| Windows source branch | Native DLL and both test executables cross-compile with MinGW x64. Seven C ABI exports match Linux. Actual Windows/MSVC and Unity execution remain pending; the configured Windows SSH endpoint refused connection. |
+| Windows MSVC Release | Actual x64 MSVC build passes strict warnings, ABI/hash/lifecycle controls and short-JMP/Jcc relocation/restoration controls. Five separate unhooked/observed licensed-native comparisons pass with identical physical/event/save reports, twelve actual timesteps/physical updates each and complete bounded control traces. |
+| Actual Windows Unity colony | V60 passes in ONI 744825 / Unity 6000.3.5f2: ten additional native timestep returns and physical updates, 160 byte-identical snapshots, 47 channels, nine worlds and three duplicants. Native ONI owns physics. The colony was inspected through the Windows UI and closed normally; original mods, preferences and generated-world files were restored byte-for-byte. |
 | Linux release baseline | This host's library requires glibc 2.38. A glibc-2.35 release build remains required. No release package is certified. |
 
 Private comparison logs are under `artifacts/native-hook-observer/linux-final-v7`;
@@ -203,6 +221,26 @@ diagnostic fixtures comparing Start with an unnormalized first query or omitting
 the multi-region initial inventory; and `20261016T170003Z-5293d4`, whose native
 observer/snapshot checks worked but whose legacy compressed-liquid import failed.
 Those failures are not overwritten or counted as passing takeover evidence.
+
+Windows native evidence is private under
+`local/native-hook-observer-windows-r1`; its completed review SHA256 is
+`3f53663f1b3fca2f9fb652b65a1a48d70f667f289eaac303cc3b182f73d4f813`.
+The V60 managed build, package, bounded game capture and source closure are in
+`local/native-hook-observer-windows-unity-r3`; the game evidence and Unity PNGs
+are in `local/colony-runs/native-hook-observer-windows-v60`. Completed review
+SHA256: `0015ff5ecee9eb4c284c520b41d3f4a6b0963046e214a4ad96433b2598fae5d1`.
+These are single-agent checked records, with no independent agent review.
+
+Retained Windows failures include an initial private launch plan pointing to a
+nonexistent PowerShell executable (no game process started) and actual colony
+V59. V59 reached four real native timesteps and updates before its validator
+mistook ten managed acknowledgments for physical progress. Snapshot copies
+matched, but the ten-step gate failed. The repaired validator waits for both
+native counters without lowering the ten-step requirement; V60 passes that
+gate. V59's completed failed-run review SHA256 is
+`818d8cefd3388680e91a1cf1db3a5007e0432c8ce06b5d1347e11374bf79b9ac`.
+No installed game binary was modified. These runs establish forwarding only;
+they add no authoritative mixture rendering, takeover or performance result.
 
 Linux's outer `Step` runs additional synchronization-only passes; its entry count
 is not elapsed physical time. The isolated trace therefore distinguishes actual
