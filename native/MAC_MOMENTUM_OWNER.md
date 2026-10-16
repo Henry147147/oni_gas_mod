@@ -161,3 +161,36 @@ Private immutable cohorts under `local/occupied-staggered-validation`:
 The default game DLL is unchanged. These receipts prove the stated occupied
 owner controls; they do not certify real-game behavior of this new default,
 the complete solver, gameplay, persistence or release readiness.
+
+## Verification after native consumer integration
+
+The momentum owner is merged with the native heat, gas-transfer, actor-clock
+and physical-CO2 changes at `8bb8b28`. Comparing with the accepted 85-group
+source confirms that its pressure/transport computations, owning timestep,
+settings and scientific inputs are unchanged; the closed-world implementation
+adds the separate immutable `with_cell_heat` entry point.
+
+Fresh strict MSVC and GCC builds of this merged source each pass 33 native
+groups: six limiter, six geometric momentum, seven owning momentum, eight
+closed-step, four gravity, one gas-transfer and one native-domain group. All
+five saved-review programs pass on each OS, retaining 107,210 owning checks
+and the geometry/work/trace/clock/capacity corruption controls. The direct
+domain controls cover native heat, gas exchange and physical CO2. A private
+CMake include builds the two existing consumer test targets without enabling
+the optional game hook backend; it changes no repository build definition.
+
+Private immutable post-merge cohorts:
+
+- `mac-momentum-owner-postmerge-windows-r1`, source-freeze SHA256
+  `9ee126bffecc2b7bb596663f22ab8f11eb64487f1d33f0aa2efdff1db1fb6186`,
+  terminal SHA256
+  `e1ba41b1ee81b8c64ed44e05192d82466f0a969cc772d4d95ca6512594f68553`.
+- `mac-momentum-owner-postmerge-linux-r1`, source-freeze SHA256
+  `dae0e055f3414d85d93a968d90fde1ed5feb8275ea3ad1c0fdb3a9f8bd61448f`,
+  terminal SHA256
+  `7cbd53aacb7667cc2774ff48a50c3f2db0622bfbdf2644ed4d1020662098c26a`.
+
+These are direct native integration controls. They provide no new Unity,
+mouse-hover, whole-colony, save/reload or performance acceptance. The known
+strong-flow failure is not replayed because its numerical path is unchanged.
+The default game DLL remains unchanged.
