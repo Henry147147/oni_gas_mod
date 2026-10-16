@@ -35,6 +35,10 @@ machines, pipes, and metabolism must use the same conserved state.
   gravity and zero-gravity controls pass, including tiny stored changes; earlier
   failures and explicit retests are [documented](native/CANONICAL_MATERIAL.md#current-source-validation).
   This reference is excluded from game dispatch and default builds.
+- A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
+  conserved imports, immutable advances and coherent gas/liquid readings.
+  Windows/Linux binding controls pass. It exposes the closed reference; game
+  frame coordination and the production solver remain unfinished.
 - A shared gas/liquid bulk remap that preserves constituents, momentum and total
   energy; it retains traces, converts mixed-velocity energy to heat, and rejects
   condensed overfill before changing inputs.

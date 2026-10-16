@@ -92,6 +92,10 @@ public:
     void set_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                   double velocity_x = 0, double velocity_y = 0,
                   double incompressible_pressure_pa = 101325);
+    // Conserved initialization/import: do not round momentum through P/M*M.
+    void set_conserved_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
+                            double momentum_x, double momentum_y,
+                            double incompressible_pressure_pa = 101325);
     void set_occupied_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                            double begin_m, double end_m, double axial_velocity_m_per_s = 0);
     void set_wall(std::size_t x, std::size_t y, bool wall);

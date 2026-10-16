@@ -43,6 +43,23 @@ target_link_libraries(mixed_atmospheres PRIVATE ma_core)
 target_include_directories(mixed_atmospheres PUBLIC native/include)
 target_compile_definitions(mixed_atmospheres PRIVATE MA_EXPORTS)
 set_target_properties(mixed_atmospheres PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+
+# Explicit managed/native boundary for the existing closed coupled reference.
+# No default runtime dispatch or change to the existing gas ABI.
+add_library(mixed_atmospheres_coupled SHARED EXCLUDE_FROM_ALL native/src/coupled_api.cpp)
+target_link_libraries(mixed_atmospheres_coupled PRIVATE ma_core)
+target_include_directories(mixed_atmospheres_coupled PUBLIC native/include)
+target_compile_definitions(mixed_atmospheres_coupled PRIVATE MA_EXPORTS)
+add_executable(ma_coupled_api_tests EXCLUDE_FROM_ALL native/tests/coupled_api_tests.cpp)
+target_link_libraries(ma_coupled_api_tests PRIVATE mixed_atmospheres_coupled ma_core)
+set_target_properties(mixed_atmospheres_coupled PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(MSVC)
+    target_compile_options(mixed_atmospheres_coupled PRIVATE /W4 /WX /permissive- /fp:precise)
+    target_compile_options(ma_coupled_api_tests PRIVATE /W4 /WX /permissive- /fp:precise)
+else()
+    target_compile_options(mixed_atmospheres_coupled PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+    target_compile_options(ma_coupled_api_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
     # Export only the extern "C" ma_* ABI. Archive members (ma_core,
     # ma_fluid_reference and, below, the static C++ runtime) are never
@@ -52,12 +69,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
     file(CONFIGURE OUTPUT "${ma_export_map}" CONTENT "{\n  global: ma_*;\n  local: *;\n};\n" @ONLY)
     target_link_options(mixed_atmospheres PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--version-script=${ma_export_map}")
     set_property(TARGET mixed_atmospheres APPEND PROPERTY LINK_DEPENDS "${ma_export_map}")
+    target_link_options(mixed_atmospheres_coupled PRIVATE "LINKER:--exclude-libs,ALL" "LINKER:--version-script=${ma_export_map}")
+    set_property(TARGET mixed_atmospheres_coupled APPEND PROPERTY LINK_DEPENDS "${ma_export_map}")
     if(NOT MA_SANITIZERS)
         # No libstdc++.so.6/GLIBCXX or libgcc_s dependency. The static runtime
         # still binds glibc symbols at the build host's versions (GCC 15 on
         # glibc 2.43 needs GLIBC_2.38), so build release binaries on the oldest
         # supported glibc. Sanitizer builds keep dynamic runtimes.
         target_link_options(mixed_atmospheres PRIVATE -static-libstdc++ -static-libgcc)
+        target_link_options(mixed_atmospheres_coupled PRIVATE -static-libstdc++ -static-libgcc)
     endif()
 endif()
 
@@ -73,7 +93,7 @@ if(MA_SANITIZERS AND NOT MSVC)
     # with undefined behavior diagnostics. Make every sanitizer finding fatal.
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
-    foreach(target ma_core ma_fluid_reference mixed_atmospheres)
+    foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()

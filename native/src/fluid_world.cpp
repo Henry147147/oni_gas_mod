@@ -143,12 +143,16 @@ void FluidWorld::validate_cell(const FluidCell& c, bool require_filled) const {
 
 void FluidWorld::set_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                           double ux, double uy, double liquid_pressure) {
+    require_finite(ux, "fluid x velocity"); require_finite(uy, "fluid y velocity");
+    set_conserved_cell(x, y, mixture, mixture.mass() * ux, mixture.mass() * uy, liquid_pressure);
+}
+void FluidWorld::set_conserved_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
+    double px, double py, double liquid_pressure) {
     if (geometry_) throw std::invalid_argument("Use set_occupied_cell with explicit geometry and conserved elastic energy");
     const auto index = offset(x, y);
     if (cells_[index].wall) throw std::invalid_argument("Displace wall before placing fluid");
-    require_finite(ux, "fluid x velocity"); require_finite(uy, "fluid y velocity");
     FluidCell next(registry_.size());
-    next.mixture = mixture; next.momentum_x = mixture.mass() * ux; next.momentum_y = mixture.mass() * uy;
+    next.mixture = mixture; next.momentum_x = px; next.momentum_y = py;
     next.liquid_pressure_pa = liquid_pressure;
     validate_cell(next, false);
     cells_[index] = std::move(next);
