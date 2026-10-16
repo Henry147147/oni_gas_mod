@@ -39,7 +39,7 @@ def unique(mapping, key, value):
     mapping[key] = value
 
 
-def parse(raw):
+def parse(raw, required_passes=7):
     cases, waves, samples, passes = {}, {}, {}, []
     timestep = None
     for line in raw.decode('ascii').splitlines():
@@ -85,7 +85,7 @@ def parse(raw):
             passes.append(line)
         else:
             raise ValueError('Unknown saved record: ' + kind)
-    check(set(cases) == {0, 1} and len(passes) == 7 and len(set(passes)) == 7, 'Missing case/pass groups')
+    check(set(cases) == {0, 1} and len(passes) == required_passes and len(set(passes)) == required_passes, 'Missing case/pass groups')
     return cases, waves, samples, timestep
 
 

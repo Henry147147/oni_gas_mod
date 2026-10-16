@@ -79,5 +79,6 @@ struct OccupiedMaterialPressureStep : MaterialPressureStep {
     const FluidThermodynamics& thermodynamics, std::span<const MaterialCell> cells,
     std::span<const OccupiedMaterialNode> nodes, double seconds,
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic,
-    LiquidFillRoundoffPolicy liquid_fill_roundoff = LiquidFillRoundoffPolicy::strict_eos);
+    LiquidFillRoundoffPolicy liquid_fill_roundoff = LiquidFillRoundoffPolicy::strict_eos,
+    double maximum_relative_volume_residual = 5e-13);
 }

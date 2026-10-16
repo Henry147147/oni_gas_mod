@@ -4,6 +4,13 @@
 managed wrappers, native-save schema and the game probe continue to use the
 existing gas reference solver. Milestone B is **not complete**.
 
+A newer, separately excluded [closed MAC owner](MAC_CLOSED_WORLD.md) retains
+canonical face momentum and composes EOS pressure work with compatible primal/
+dual transport. Its eight Windows/Linux groups and independent saved-data
+review pass, including smooth implicit acoustic refinement and compressed
+liquid. It does not supply gravity, free surfaces, full multiphase physics or
+game dispatch. The older prototype and its unresolved gates below are retained.
+
 ## Implemented path
 
 Each accepted substep runs the following operations on a candidate state:

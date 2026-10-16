@@ -45,7 +45,10 @@ machines, pipes, and metabolism must use the same conserved state.
   momentum and derives its mass transfers from the cell transfers. Seven
   Windows/Linux groups and an independent saved-data checker pass, including
   shear/composition refinement, solid-corner reactions and trace conservation.
-  Pressure, free surfaces and game integration remain required.
+  An owning [closed EOS pressure/transport solver](native/MAC_CLOSED_WORLD.md)
+  now also passes eight Windows/Linux groups, including elastic liquids,
+  interval rollback and pressure/velocity acoustic refinement. Gravity, free
+  surfaces, production performance and game integration remain required.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

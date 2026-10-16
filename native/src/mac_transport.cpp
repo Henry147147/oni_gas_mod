@@ -27,6 +27,7 @@ struct Sum {
 };
 double share(double value, double part, double total) {
     if (value == 0 || part == 0) return 0;
+    if (part == total) return value;
     int ev = 0, ep = 0, et = 0;
     const double v = std::frexp(value, &ev), p = std::frexp(part, &ep), t = std::frexp(total, &et);
     const double answer = std::ldexp((v * p) / t, ev + ep - et);
@@ -74,22 +75,35 @@ struct Geometry {
         }
     }
 };
-std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportState& state) {
+std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportState& state,
+    const FluidThermodynamics* model = nullptr, std::span<const double> volumes = {}) {
     const auto& g = state.grid; require(state.cells.size() == g.walls.size(), "MAC material shape differs");
+    require(volumes.empty() || volumes.size() == state.cells.size(), "MAC source-volume shape differs");
     require(registry.size() > 0 && registry.size() <= 16000000 && state.cells.size() <= 16000000 / registry.size(),
         "MAC constituent storage capacity exceeded");
     std::vector<double> result; result.reserve(state.cells.size());
     for (std::size_t i = 0; i < state.cells.size(); ++i) {
-        const auto& cell = state.cells[i]; cell.mixture.validate(registry); validate_passive_quantities(cell.passive_quantities);
+        const auto& cell = state.cells[i];
+        if (!volumes.empty()) require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0),
+            "Invalid MAC material source volume");
+        if (model) model->validate_inventory(cell.mixture); else cell.mixture.validate(registry);
+        validate_passive_quantities(cell.passive_quantities);
         const auto mass = cell.mixture.mass();
         if (g.walls[i]) require(mass == 0 && cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC solid contains fluid");
         else {
             if (!(mass > 0)) throw FluidFatalError(FluidFatalCode::unsupported_topology, "MAC transport requires occupied fluid cells");
             for (std::size_t s = 0; s < registry.size(); ++s)
                 require(cell.mixture.masses[s] == 0 || registry[s].phase != Phase::solid, "MAC transport cannot move solids");
-            const auto liquid = cell.mixture.condensed_volume(registry);
-            require(liquid <= g.volume_m3() * (1 + 1e-12) && (cell.mixture.gas_moles(registry) > 0 ? liquid < g.volume_m3() :
-                std::abs(liquid - g.volume_m3()) <= 1e-12 * g.volume_m3()), "MAC closed fluid needs gas headspace or filled liquid");
+            if (model) {
+                const double volume = volumes.empty() ? g.volume_m3() : volumes[i];
+                const auto state_eos = model->evaluate(cell.mixture, volume);
+                if (state_eos.vacuum_volume_m3 > 32 * eps * volume)
+                    throw FluidFatalError(FluidFatalCode::unsupported_topology, "MAC occupied EOS cell contains internal void");
+            } else {
+                const auto liquid = cell.mixture.condensed_volume(registry);
+                require(liquid <= g.volume_m3() * (1 + 1e-12) && (cell.mixture.gas_moles(registry) > 0 ? liquid < g.volume_m3() :
+                    std::abs(liquid - g.volume_m3()) <= 1e-12 * g.volume_m3()), "MAC closed fluid needs gas headspace or filled liquid");
+            }
         }
         result.push_back(mass);
     }
@@ -198,8 +212,15 @@ MacFaceInertias mac_face_inertias(const SpeciesRegistry& registry, const MacTran
     const Geometry geometry(state.grid); const auto m = masses(registry, state);
     return {inertias(geometry.x, m), inertias(geometry.y, m)};
 }
-MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux) {
-    const Geometry geometry(source.grid); const auto m0 = masses(registry, source); const auto& g = source.grid;
+MacFaceInertias mac_face_inertias(const SpeciesRegistry& registry, const MacTransportState& state, const FluidThermodynamics& model) {
+    model.validate_registry(registry);
+    const Geometry geometry(state.grid); const auto m = masses(registry, state, &model);
+    return {inertias(geometry.x, m), inertias(geometry.y, m)};
+}
+namespace {
+MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
+    const FluidThermodynamics* model, std::span<const double> source_volumes) {
+    const Geometry geometry(source.grid); const auto m0 = masses(registry, source, model, source_volumes); const auto& g = source.grid;
     const auto ix0 = inertias(geometry.x, m0), iy0 = inertias(geometry.y, m0);
     validate_momentum(geometry.x, ix0, source.momentum_x); validate_momentum(geometry.y, iy0, source.momentum_y);
     std::vector<MacDualFlux> primal; primal_edges(geometry.x, flux.x, primal); primal_edges(geometry.y, flux.y, primal);
@@ -222,7 +243,7 @@ MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const
         next.mixture.energy = energy[i].value(); next.passive_quantities.clear();
         for (const auto& [identity, value] : metadata[i]) next.passive_quantities.push_back({identity, value.value()});
     }
-    const auto m1 = masses(registry, result.state); auto& report = result.report;
+    const auto m1 = masses(registry, result.state, model); auto& report = result.report;
     report.x = transport_faces(geometry.x, ix0, inertias(geometry.x, m1), source.momentum_x, result.state.momentum_x, dual_edges(g, flux, true));
     report.y = transport_faces(geometry.y, iy0, inertias(geometry.y, m1), source.momentum_y, result.state.momentum_y, dual_edges(g, flux, false));
     Sum total_energy, px, py, mixing, wall; std::vector<Sum> species_balance(species); std::map<std::uint64_t, Sum> passive_balance;
@@ -247,11 +268,21 @@ MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const
         for (const auto& entry : result.state.cells[i].passive_quantities) passive_balance[entry.identity].add(entry.quantity);
         for (const auto& entry : source.cells[i].passive_quantities) passive_balance[entry.identity].add(-entry.quantity);
     }
-    static_cast<void>(masses(registry, result.state)); total_energy.check(); px.check(); py.check();
+    static_cast<void>(masses(registry, result.state, model)); total_energy.check(); px.check(); py.check();
     report.energy_residual_j = total_energy.value(); report.energy_bound_j = total_energy.bound();
     report.momentum_x_residual = px.value(); report.momentum_y_residual = py.value(); report.mixing_heat_j = mixing.value(); report.wall_heat_j = wall.value();
     for (const auto& balance : species_balance) { balance.check(); report.species_mass_residual.push_back(balance.value()); }
     for (const auto& [identity, balance] : passive_balance) { static_cast<void>(identity); balance.check(); }
     return result;
+}
+}
+MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux) {
+    return transport(registry, source, flux, nullptr, {});
+}
+MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
+    const FluidThermodynamics& model, std::span<const double> volumes) {
+    model.validate_registry(registry);
+    require(volumes.size() == source.cells.size(), "MAC EOS transport requires every source volume");
+    return transport(registry, source, flux, &model, volumes);
 }
 }

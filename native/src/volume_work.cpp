@@ -269,9 +269,11 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
 
 OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
     std::span<const MaterialCell> cells, std::span<const OccupiedMaterialNode> nodes, double dt,
-    PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy) {
+    PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy, double tolerance) {
     require_finite(dt, "occupied material timestep");
     if (dt <= 0 || cells.empty()) throw std::invalid_argument("Occupied material pressure requires cells and positive time");
+    if (!std::isfinite(tolerance) || tolerance < 8 * std::numeric_limits<double>::epsilon() || tolerance > 5e-13)
+        throw std::invalid_argument("Occupied pressure volume tolerance is outside the supported stricter range");
     if (roundoff_policy != LiquidFillRoundoffPolicy::strict_eos && roundoff_policy != LiquidFillRoundoffPolicy::balanced_local_roundoff)
         throw std::invalid_argument("Invalid liquid fill representability policy");
     const auto count = cells.size();
@@ -358,7 +360,6 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
         return norm;
     };
     OccupiedMaterialPressureStep result;
-    constexpr double tolerance = 5e-13;
     double norm = evaluate(changes, work, compliance, residual);
     while (norm > tolerance) {
         if (result.nonlinear_iterations == 80) {

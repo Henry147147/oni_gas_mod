@@ -127,6 +127,9 @@ void uniform() {
     auto inertia = mac_face_inertias(registry(), state);
     for (std::size_t i = 0; i < inertia.x.size(); ++i) state.momentum_x[i] = .125 * inertia.x[i];
     for (std::size_t i = 0; i < inertia.y.size(); ++i) state.momentum_y[i] = -.25 * inertia.y[i];
+    const auto held = fingerprint(state);
+    const auto still = advance_mac_transport(registry(), state, {std::vector<double>(inertia.x.size()), std::vector<double>(inertia.y.size())});
+    check(fingerprint(still.state) == held && fingerprint(state) == held, "Zero-flux transport changed stored state");
     const auto result = advance_mac_transport(registry(), state, carrier(state, .125)); inertia = mac_face_inertias(registry(), result.state);
     for (std::size_t i = 0; i < inertia.x.size(); ++i) near(result.state.momentum_x[i] / inertia.x[i], .125, .125);
     for (std::size_t i = 0; i < inertia.y.size(); ++i) near(result.state.momentum_y[i] / inertia.y[i], -.25, .25);

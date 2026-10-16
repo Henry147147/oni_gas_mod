@@ -42,8 +42,11 @@ caller-supplied fluxes.
 
 Inputs/candidates own their arrays; failure changes no input. Width/height and
 products are bounded to one million cells and sixteen million constituent
-slots. All fluid cells must remain occupied, with gas headspace or filled
-constant-density liquid; solids/exterior faces are impermeable. Periodicity is
+slots. The original overload requires gas headspace or filled constant-density
+liquid. The EOS-aware overload validates source material volumes and nominal
+target volumes with an explicit `FluidThermodynamics` profile, including
+compressed liquid and stored elastic energy. All fluid cells must remain
+occupied; solids/exterior faces are impermeable. Periodicity is
 explicit, with at least two cells along a periodic axis. Empty cells, cut/free
 surfaces, gravity, pressure work, diffusion, viscosity, conduction, phase change,
 persistence and game/actor ownership remain separate required work.
@@ -102,3 +105,9 @@ and 128-KiB pipe limits. No earlier failed physical gate was replayed. The
 default game DLL still has SHA256
 `5eb98c28d52c9e5408acdd3a310d060331566f135345dc7d707e884001fa485d`.
 No game, production solver or performance acceptance follows from this result.
+
+The later [closed pressure/transport owner](MAC_CLOSED_WORLD.md) uses the
+EOS-aware overload. Its current Windows/Linux builds repeat all seven transport
+groups and the 3,884-check saved-data review successfully. A full retained share
+now returns the original value directly; the added zero-flux control checks
+every stored quantity bit for bit. No other physical bound is changed.

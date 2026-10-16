@@ -2,6 +2,9 @@
 #include "mixture.hpp"
 #include "passive_quantities.hpp"
 #include <cstdint>
+#include <span>
+
+namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
@@ -46,10 +49,17 @@ struct MacTransportReport {
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };
 [[nodiscard]] MacFaceInertias mac_face_inertias(const SpeciesRegistry&, const MacTransportState&);
+// EOS-aware occupied transport: source volumes can be material volumes from a
+// pressure substep; the target is the grid's nominal fixed cell volume. No
+// legacy caloric-temperature or constant-density liquid validation is used.
+[[nodiscard]] MacFaceInertias mac_face_inertias(const SpeciesRegistry&, const MacTransportState&,
+    const FluidThermodynamics&);
 // Shared positive primal transfers carry every species, U and passive quantity.
 // Compatible dual fluxes transport normal J and K; upwind variance and fixed-wall
 // kinetic removal become separately reported heat. CFL/precision/domain failures
 // return no candidate and never change the source. This is not a world step,
 // free-surface remap, entropy/process proof, gravity or game backend.
 [[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&);
+[[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&,
+    const FluidThermodynamics&, std::span<const double> source_volumes_m3);
 }

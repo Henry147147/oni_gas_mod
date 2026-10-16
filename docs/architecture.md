@@ -136,6 +136,16 @@ passive refinement. This [component](../native/MAC_TRANSPORT.md) takes mass flux
 from its caller; pressure, gravity, free surfaces and world dispatch remain
 required before it can replace the prototype's reconstructed face momentum.
 
+The separate closed MAC owner now composes this transport with EOS material
+pressure work. It updates canonical face J directly, forms midpoint volume
+sweeps, uses material donor density for mass fluxes, and checks return to fixed
+cell volume and the two-stage U+face-K balance. It owns the EOS identity and
+prepares whole intervals atomically with bounded retries. Eight Windows/Linux
+groups and independent EOS/work/Fourier checks pass, including elastic liquids
+and implicit acoustic refinement. This [path](../native/MAC_CLOSED_WORLD.md)
+still requires gravity, free surfaces, phase topology and world/game dispatch;
+it does not yet replace the prototype or meet production acceptance.
+
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,
 diffusion, viscosity and conduction. Candidate substeps publish atomically;
