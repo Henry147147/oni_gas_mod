@@ -126,6 +126,16 @@ energy. Condensed overfill and unsupported solid transport reject the operation
 before any input changes. A divergence-free volume-flux test preserves liquid
 volume-fraction bounds and uniform temperature/pressure across gas/water cells.
 
+A separate regular-MAC transport component retains canonical face-normal
+momentum. It derives component dual mass fluxes from the same primal cell fluxes
+and target inertia from the updated adjacent half masses, avoiding a separate
+geometric mass rebalance. Positive upwind variance and fixed-normal wall
+projection have separate heat and impulse accounts. Seven Windows/Linux groups
+and an exact/high-precision saved-data checker pass, including 2-D shear and
+passive refinement. This [component](../native/MAC_TRANSPORT.md) takes mass fluxes
+from its caller; pressure, gravity, free surfaces and world dispatch remain
+required before it can replace the prototype's reconstructed face momentum.
+
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,
 diffusion, viscosity and conduction. Candidate substeps publish atomically;

@@ -41,6 +41,11 @@ machines, pipes, and metabolism must use the same conserved state.
   absolute error still remaining. EOS identity caching removes repeated
   profile serialization. These are [solver foundations](native/GAS_VACUUM.md#retained-nodal-replacement-path);
   production vacuum, remap and game ownership remain unfinished.
+- A separate 2-D [MAC transport component](native/MAC_TRANSPORT.md) retains face
+  momentum and derives its mass transfers from the cell transfers. Seven
+  Windows/Linux groups and an independent saved-data checker pass, including
+  shear/composition refinement, solid-corner reactions and trace conservation.
+  Pressure, free surfaces and game integration remain required.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
