@@ -102,6 +102,27 @@ MA_ONI_API MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus*, MAOniDoma
     MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* receipt_count);
 MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t through_sequence);
 
+/* Registered point-boundary actors, ABI 1. Native handles are opaque 32-bit
+ * values. Native registration remains intact, but its transfer stays inactive.
+ * kind 1 consumes one gas in kg/s; kind 2 emits mass_kg each interval. flags 1
+ * removes an existing actor. The emitter density limit retains the game's
+ * kg/m3 setting; it is not presented as a pressure in pascals.
+ * Receipt kinds 3/4 are consumer/emitter samples, 5/6 blocked/unblocked edges. */
+typedef struct MAOniDomainActor {
+    uint32_t struct_size, abi_version;
+    uint64_t session, expected_frame;
+    int32_t native_handle;
+    uint32_t kind, public_cell, species, flags, reserved;
+    double mass_kg, interval_s, temperature_k, maximum_gas_density_kg_m3;
+} MAOniDomainActor;
+typedef struct MAOniDomainActorStatus {
+    uint32_t struct_size, abi_version, state, live_actors;
+    uint64_t session, completed_frame, accepted_configurations, actor_steps, consumer_samples, emitter_samples;
+} MAOniDomainActorStatus;
+MA_ONI_API uint32_t ma_oni_domain_actor_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor*, MAOniDomainActorStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus*);
+
 #ifdef __cplusplus
 }
 #endif

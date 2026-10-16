@@ -19,5 +19,7 @@ void queue_domain_transfers(const MAOniDomainTransfer*,std::uint32_t count,MAOni
 void copy_domain_transfer_status(MAOniDomainTransferStatus&);
 void copy_domain_receipts(MAOniDomainStatus&,MAOniDomainCell*,std::uint32_t,MAOniDomainReceipt*,std::uint32_t,std::uint32_t&);
 void ack_domain_receipts(std::uint64_t session,std::uint64_t through);
+void configure_domain_actor(const MAOniDomainActor&,MAOniDomainActorStatus&);
+void copy_domain_actor_status(MAOniDomainActorStatus&);
 std::mutex& domain_frame_mutex() noexcept;
 }

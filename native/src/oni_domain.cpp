@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <limits>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include <vector>
@@ -37,6 +38,9 @@ MacEnergySum committed_material, pending_material, committed_kinetic, pending_ki
 std::uint64_t accepted_transfer_batches{}, committed_transfer_batches{}, receipt_sequence{}, acknowledged_receipt{};
 std::uint32_t pending_transfer_batches{};
 std::vector<MAOniDomainReceipt> pending_receipts, receipts;
+struct Actor { MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bool blocked{}; };
+std::map<std::pair<std::uint32_t,std::int32_t>,Actor> actors;
+std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
 std::vector<MAOniDomainCell> publication;
 std::array<long double,4> initial_masses{};
 long double initial_energy{};
@@ -140,6 +144,109 @@ MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second)
     for (std::size_t i=0;i<second.size();++i) result.add(second.component(i));
     return result;
 }
+// All callers hold the frame/state locks. This work owns every allocation and
+// account; neither actor preparation nor a later failed advance can publish it.
+struct GasWork {
+    std::unique_ptr<MacClosedWorld> owner=std::make_unique<MacClosedWorld>(pending_world ? *pending_world : *world);
+    std::array<MacScaledSum,4> mass=pending_mass;
+    MacEnergySum material=pending_material,kinetic=pending_kinetic;
+    std::vector<MAOniDomainReceipt> outbox=pending_receipts;
+    std::uint64_t sequence=receipt_sequence;
+    void append(MAOniDomainReceipt receipt) {
+        if (receipts.size()+outbox.size() >= 4096) throw std::length_error("Native actor/transfer receipt capacity exhausted");
+        if (sequence == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native receipt sequence overflow");
+        receipt.sequence=++sequence; receipt.session=status.session; outbox.push_back(receipt);
+    }
+    void validate_accounts() const {
+        (void)material.value().require_representable(); (void)kinetic.value().require_representable();
+        (void)combined_heat(committed_material,material).value().require_representable();
+        (void)combined_heat(committed_kinetic,kinetic).value().require_representable();
+        for (std::size_t i=0;i<mass.size();++i) {
+            (void)mass[i].value().require_representable();
+            (void)combined_heat(committed_mass[i],mass[i]).value().require_representable();
+        }
+    }
+};
+std::size_t domain_index(std::uint32_t public_cell) {
+    const auto x=public_cell%geometry.native_grid_width,y=public_cell/geometry.native_grid_width;
+    if (x < geometry.offset_x || x-geometry.offset_x >= geometry.width || y < geometry.offset_y || y-geometry.offset_y >= geometry.height)
+        throw std::invalid_argument("Native transfer/actor target is outside the domain");
+    return x-geometry.offset_x+(y-geometry.offset_y)*geometry.width;
+}
+void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
+    if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
+        (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
+        !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
+        throw std::invalid_argument("Native gas transfer input differs from its ABI/model");
+    if (input.session != status.session || input.expected_frame != status.completed_frames)
+        throw std::logic_error("Native gas transfer source session/frame is stale");
+    const auto cell=domain_index(input.public_cell),species=work.owner->registry().index(ids[input.species]);
+    double amount=input.mass_kg;
+    if (input.kind == 2) amount=std::min(amount,work.owner->state().cells[cell].mixture.masses[species]);
+    if (input.flags) {
+        float projected=static_cast<float>(amount);
+        if (!std::isfinite(projected)) throw std::invalid_argument("Gas callback mass exceeds binary32 range");
+        if (projected > amount) projected=std::nextafter(projected,0.0F);
+        if (input.kind == 1 && static_cast<double>(projected) != amount)
+            throw std::invalid_argument("Injected game mass must be exactly binary32-compatible");
+        amount=projected;
+    }
+    const MacGasTransfer request{cell,species,input.kind == 1,amount,input.temperature_k};
+    auto prepared=work.owner->with_gas_transfers(std::span(&request,1));
+    const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
+    work.mass[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
+    work.material.add(inject ? packet.internal_energy_j : -packet.internal_energy_j);
+    if (!inject) work.kinetic.add(packet.resolved_kinetic_energy.negated());
+    work.append({0,0,0,input.public_cell,input.species,input.callback,receipt_kind,
+        packet.mass_kg,packet.temperature_k,packet.internal_energy_j,packet.resolved_kinetic_energy.require_representable(),
+        packet.momentum_x.require_representable(),packet.momentum_y.require_representable()});
+    work.owner=std::make_unique<MacClosedWorld>(std::move(prepared.world));
+}
+MAOniDomainActorStatus actor_status() {
+    return {sizeof(MAOniDomainActorStatus),1,status.state,static_cast<std::uint32_t>(actors.size()),status.session,
+        status.completed_frames,accepted_actor_configurations,actor_steps,consumer_samples,emitter_samples};
+}
+void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>,Actor>& next,double seconds,
+    std::uint64_t& steps,std::uint64_t& consumed,std::uint64_t& emitted) {
+    for (auto& [key,actor] : next) {
+        (void)key;
+        const auto& input=actor.config; ++steps;
+        MAOniDomainTransfer transfer{64,1,status.session,status.completed_frames,input.public_cell,input.species,
+            input.kind == 1 ? 2U : 1U,1,input.native_handle,0,0,input.temperature_k};
+        if (input.kind == 1) {
+            if (input.mass_kg == 0) continue;
+            const auto cell=domain_index(input.public_cell),species=work.owner->registry().index(ids[input.species]);
+            const double available=work.owner->state().cells[cell].mixture.masses[species];
+            const double demand=input.mass_kg*seconds+actor.rate_remainder;
+            transfer.mass_kg=std::min(demand,available);
+            const auto before=work.outbox.size(); prepare_transfer(work,transfer,3);
+            actor.rate_remainder=transfer.mass_kg-work.outbox[before].mass_kg; ++consumed;
+        } else {
+            std::size_t count=0;
+            if (input.mass_kg > 0) {
+                const auto due=std::floor(actor.elapsed/input.interval_s);
+                if (!std::isfinite(due) || due > 256) throw std::length_error("Emitter has too many intervals in one native frame");
+                count=static_cast<std::size_t>(due);
+                actor.elapsed-=static_cast<double>(count)*input.interval_s;
+                actor.elapsed+=seconds;
+                if (!std::isfinite(actor.elapsed)) throw std::overflow_error("Emitter elapsed time overflow");
+            }
+            const auto cell=domain_index(input.public_cell);
+            const auto density=work.owner->state().cells[cell].mixture.mass()/work.owner->state().grid.volume_m3();
+            const bool blocked=count && density >= input.maximum_gas_density_kg_m3;
+            if (count && blocked != actor.blocked) {
+                work.append({0,0,0,input.public_cell,input.species,input.native_handle,blocked ? 5U : 6U,0,0,0,0,0,0});
+                actor.blocked=blocked;
+            }
+            if (!count || blocked) {
+                work.append({0,0,0,input.public_cell,input.species,input.native_handle,4,0,0,0,0,0,0}); ++emitted;
+            } else for (std::size_t i=0;i<count;++i) {
+                transfer.mass_kg=input.mass_kg; prepare_transfer(work,transfer,4); ++emitted;
+            }
+        }
+    }
+    work.validate_accounts();
+}
 }
 
 void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
@@ -190,6 +297,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     committed_mass={}; pending_mass={}; committed_material={}; pending_material={}; committed_kinetic={}; pending_kinetic={};
     accepted_transfer_batches=committed_transfer_batches=receipt_sequence=acknowledged_receipt=0;
     pending_transfer_batches=0; pending_receipts.clear(); receipts.clear();
+    actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     for (auto& value : suppressed) value=0;
     enabled.store(true,std::memory_order_release);
 }
@@ -239,11 +347,14 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         if (!ticket || ticket <= status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 1)
             throw std::runtime_error("Native frame ticket or timestep is invalid");
         if (thread == status.start_thread) throw std::runtime_error("Custom solver did not execute on a native worker");
-        auto result=(pending_world ? *pending_world : *world).advanced(seconds,4096);
+        GasWork work; auto next_actors=actors;
+        auto next_steps=actor_steps,next_consumed=consumer_samples,next_emitted=emitter_samples;
+        prepare_actors(work,next_actors,seconds,next_steps,next_consumed,next_emitted);
+        auto result=work.owner->advanced(seconds,4096);
         auto cells=project(result.world); auto next=status;
         const auto totals=masses(result.world);
         for (std::size_t i=0;i<totals.size();++i) {
-            const auto delta=combined_heat(committed_mass[i],pending_mass[i]).value().require_representable();
+            const auto delta=combined_heat(committed_mass[i],work.mass[i]).value().require_representable();
             const auto expected=initial_masses[i]+delta;
             const auto scale=std::abs(initial_masses[i])+std::abs(delta);
             if (scale == 0) {
@@ -252,7 +363,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
                 static_cast<double>(std::abs(totals[i]-expected)/scale));
         }
         auto next_heat=combined_heat(committed_heat,pending_heat);
-        auto next_material=combined_heat(committed_material,pending_material), next_kinetic=combined_heat(committed_kinetic,pending_kinetic);
+        auto next_material=combined_heat(committed_material,work.material), next_kinetic=combined_heat(committed_kinetic,work.kinetic);
         auto external_energy=combined_heat(combined_heat(next_heat,next_material),next_kinetic);
         const auto heat_projection=external_energy.value().require_representable();
         const auto expected_energy=initial_energy+heat_projection;
@@ -267,12 +378,14 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next.current_oxygen_kg=cells.front().masses[1]; next.pressure_pa=cells.front().pressure;
         next.liquid_mass_kg=cells.front().masses[3];
         auto next_receipts=receipts;
-        next_receipts.reserve(receipts.size()+pending_receipts.size());
-        for (auto receipt : pending_receipts) { receipt.completed_frame=next.completed_frames; next_receipts.push_back(receipt); }
+        next_receipts.reserve(receipts.size()+work.outbox.size());
+        for (auto receipt : work.outbox) { receipt.completed_frame=next.completed_frames; next_receipts.push_back(receipt); }
         auto next_mass=committed_mass;
-        for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],pending_mass[i]);
+        for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
         auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
         world=std::move(owner); publication=std::move(cells); status=next;
+        actors=std::move(next_actors); actor_steps=next_steps; consumer_samples=next_consumed; emitter_samples=next_emitted;
+        receipt_sequence=work.sequence;
         committed_heat=std::move(next_heat); committed_heat_batches=accepted_heat_batches;
         receipts=std::move(next_receipts); committed_mass=std::move(next_mass);
         committed_material=std::move(next_material); committed_kinetic=std::move(next_kinetic);
@@ -332,57 +445,13 @@ void queue_domain_transfers(const MAOniDomainTransfer* inputs,std::uint32_t coun
     if (!inputs || !count || count > 256 || receipts.size()+pending_receipts.size()+count > 4096 || pending_transfer_batches >= 1024)
         throw std::invalid_argument("Invalid native transfer batch or receipt capacity");
     const ArithmeticScope arithmetic;
-    auto candidate=std::make_unique<MacClosedWorld>(pending_world ? *pending_world : *world);
-    auto mass_changes=pending_mass; auto material=pending_material, kinetic=pending_kinetic;
-    auto candidate_receipts=pending_receipts; candidate_receipts.reserve(candidate_receipts.size()+count);
-    auto sequence=receipt_sequence;
-    for (std::uint32_t i=0;i<count;++i) {
-        const auto& input=inputs[i];
-        if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
-            (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
-            !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
-            throw std::invalid_argument("Native gas transfer input differs from its ABI/model");
-        if (input.session != status.session || input.expected_frame != status.completed_frames)
-            throw std::logic_error("Native gas transfer source session/frame is stale");
-        const auto x=input.public_cell%geometry.native_grid_width,y=input.public_cell/geometry.native_grid_width;
-        if (x < geometry.offset_x || x-geometry.offset_x >= geometry.width || y < geometry.offset_y || y-geometry.offset_y >= geometry.height)
-            throw std::invalid_argument("Native gas transfer target is outside the domain");
-        const auto cell=x-geometry.offset_x+(y-geometry.offset_y)*geometry.width;
-        const auto species=candidate->registry().index(ids[input.species]);
-        double amount=input.mass_kg;
-        if (input.kind == 2) amount=std::min(amount,candidate->state().cells[cell].mixture.masses[species]);
-        if (input.flags) {
-            float projected=static_cast<float>(amount);
-            if (!std::isfinite(projected)) throw std::invalid_argument("Gas callback mass exceeds binary32 range");
-            if (projected > amount) projected=std::nextafter(projected,0.0F);
-            if (input.kind == 1 && static_cast<double>(projected) != amount)
-                throw std::invalid_argument("Injected game mass must be exactly binary32-compatible");
-            amount=projected;
-        }
-        const MacGasTransfer request{cell,species,input.kind == 1,amount,input.temperature_k};
-        auto prepared=candidate->with_gas_transfers(std::span(&request,1));
-        const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
-        mass_changes[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
-        material.add(inject ? packet.internal_energy_j : -packet.internal_energy_j);
-        if (!inject) kinetic.add(packet.resolved_kinetic_energy.negated());
-        if (sequence == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native receipt sequence overflow");
-        candidate_receipts.push_back({++sequence,status.session,0,input.public_cell,input.species,input.callback,input.kind,
-            packet.mass_kg,packet.temperature_k,packet.internal_energy_j,packet.resolved_kinetic_energy.require_representable(),
-            packet.momentum_x.require_representable(),packet.momentum_y.require_representable()});
-        candidate=std::make_unique<MacClosedWorld>(std::move(prepared.world));
-    }
-    // Validate every public diagnostic projection before publishing any queue.
-    (void)material.value().require_representable(); (void)kinetic.value().require_representable();
-    (void)combined_heat(committed_material,material).value().require_representable();
-    (void)combined_heat(committed_kinetic,kinetic).value().require_representable();
-    for (std::size_t i=0;i<mass_changes.size();++i) {
-        (void)mass_changes[i].value().require_representable();
-        (void)combined_heat(committed_mass[i],mass_changes[i]).value().require_representable();
-    }
+    GasWork work;
+    for (std::uint32_t i=0;i<count;++i) prepare_transfer(work,inputs[i],inputs[i].kind);
+    work.validate_accounts();
     if (accepted_transfer_batches == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native transfer batch sequence overflow");
-    pending_world=std::move(candidate); pending_mass=std::move(mass_changes);
-    pending_material=std::move(material); pending_kinetic=std::move(kinetic); pending_receipts=std::move(candidate_receipts);
-    receipt_sequence=sequence; ++accepted_transfer_batches; ++pending_transfer_batches;
+    pending_world=std::move(work.owner); pending_mass=std::move(work.mass);
+    pending_material=std::move(work.material); pending_kinetic=std::move(work.kinetic); pending_receipts=std::move(work.outbox);
+    receipt_sequence=work.sequence; ++accepted_transfer_batches; ++pending_transfer_batches;
     output=transfer_status();
 }
 MAOniDomainStatus frame_status() {
@@ -424,4 +493,34 @@ void ack_domain_receipts(std::uint64_t session,std::uint64_t through) {
     if (found == receipts.end()) throw std::invalid_argument("Native receipt acknowledgment is not a published sequence");
     receipts.erase(receipts.begin(),found+1); acknowledged_receipt=through;
 }
+void configure_domain_actor(const MAOniDomainActor& input,MAOniDomainActorStatus& output) {
+    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);
+    const ArithmeticScope arithmetic;
+    if (!enabled.load(std::memory_order_acquire) || status.state != 1) throw std::logic_error("Native domain is not accepting actors");
+    if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
+        (input.kind != 1 && input.kind != 2) || input.native_handle == -1)
+        throw std::invalid_argument("Native actor ABI, handle or kind differs");
+    if (input.session != status.session || input.expected_frame != status.completed_frames)
+        throw std::logic_error("Native actor source session/frame is stale");
+    const auto key=std::make_pair(input.kind,input.native_handle); auto next=actors;
+    if (input.flags) {
+        if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
+    } else {
+        (void)domain_index(input.public_cell);
+        if (geometry.scenario != 0 || input.species >= ids.size() || input.species == 3 ||
+            !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
+            !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
+            (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||
+                input.maximum_gas_density_kg_m3 <= 0 || static_cast<double>(static_cast<float>(input.mass_kg)) != input.mass_kg)))
+            throw std::invalid_argument("Native point actor phase, material, rate or interval is unsupported");
+        if (!next.contains(key) && next.size() >= 256) throw std::length_error("Native actor capacity exhausted");
+        auto& value=next[key]; value.config=input; value.elapsed=0; value.rate_remainder=0;
+    }
+    if (accepted_actor_configurations == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native actor configuration overflow");
+    actors=std::move(next); ++accepted_actor_configurations; output=actor_status();
+}
+void copy_domain_actor_status(MAOniDomainActorStatus& output) {
+    std::lock_guard lock(state_mutex); output=actor_status();
+}
+
 }

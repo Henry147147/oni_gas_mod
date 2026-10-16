@@ -39,7 +39,10 @@ for ownership, interfaces, failures and implementation gates.
   native tick; the real-game control verifies both energy and presentation.
   Gas point injection and selective consumption also commit on that clock,
   carrying energy and momentum and delivering actual game callbacks once.
-  Registered actors, production devices and persistence remain unfinished.
+  Selective point consumers and emitters now retain native registrations while
+  transferring custom physical gas; a real Unity consumer, changed rates,
+  blocked/unblocked callbacks and removal pass in the Linux colony. General
+  production devices and persistence remain unfinished.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

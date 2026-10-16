@@ -471,4 +471,21 @@ MAOniResult ma_oni_domain_ack_receipts(std::uint64_t session,std::uint64_t throu
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
+std::uint32_t ma_oni_domain_actor_abi_version() { return 1; }
+MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native actor status ABI");
+        ma::oni::copy_domain_actor_status(*output);
+    });
+}
+MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor* input,MAOniDomainActorStatus* output) {
+    return boundary([&] {
+        if (!input || !output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native actor configuration/output ABI");
+        try { ma::oni::configure_domain_actor(*input,*output); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+    });
+}
 }

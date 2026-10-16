@@ -488,7 +488,7 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
             and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -544,6 +544,21 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(consumption.get("temperature")) not in (int, float) or not 0 < consumption["temperature"] < float("inf")
                 or any(packet.get("diseaseIdx") != 255 or packet.get("diseaseCount") != 0 for packet in (emission, consumption))):
             return False
+    if actors:
+        actor = report.get("RegisteredActors")
+        if not isinstance(actor, dict) or actor.get("Verified") is not True or actor.get("Stage") != 8:
+            return False
+        native = actor.get("Native")
+        if (not isinstance(native, dict) or native.get("LiveActors") != 0 or actor.get("EmitterGameStatusObserved") is not True
+                or actor.get("ActualEmitterRegistrations") != 1 or actor.get("ActualBlockedCallbacks") != 1 or actor.get("ActualUnblockedCallbacks") != 1
+                or type(actor.get("ActualConsumerCallbacks")) is not int or actor["ActualConsumerCallbacks"] <= 10
+                or native.get("ConsumerSamples") != actor["ActualConsumerCallbacks"] or actor.get("ConsumerPublications") != native["ConsumerSamples"]
+                or actor.get("EmitterPublications") != native.get("EmitterSamples") or actor.get("RemovalConsumerSamples") != native["ConsumerSamples"]
+                or actor.get("RemovalEmitterSamples") != native.get("EmitterSamples")
+                or type(actor.get("RemovedAtFrame")) is not int or physical["CompletedFrames"] - actor["RemovedAtFrame"] < 8
+                or type(actor.get("EnergyResidualJoules")) not in (int, float) or not abs(actor["EnergyResidualJoules"]) <= 1e-6
+                or type(actor.get("MaximumRelativeMassError")) not in (int, float) or not 0 <= actor["MaximumRelativeMassError"] <= 1e-10):
+            return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
@@ -565,7 +580,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -664,12 +679,12 @@ def playtest(args, state: Path, session: dict) -> int:
         observer_ok = native_observer_passed(manifest, observer_report)
         domain_report = None
         domain_ok = False
-        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain"):
+        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain"):
             try:
                 domain_report = read_json(colony_file.parent / "native-domain.json")
             except (OSError, json.JSONDecodeError):
                 pass
-            domain_ok = native_domain_passed(domain_report, observer_report, args.frames, args.mode == "native-liquid-domain", args.mode == "native-heat-domain", args.mode == "native-transfer-domain")
+            domain_ok = native_domain_passed(domain_report, observer_report, args.frames, args.mode == "native-liquid-domain", args.mode == "native-heat-domain", args.mode == "native-transfer-domain", args.mode == "native-actor-domain")
             if code == 0 and not domain_ok:
                 status, code = "failed-native-domain", 2
         elif code == 0 and not observer_ok:
@@ -717,7 +732,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)

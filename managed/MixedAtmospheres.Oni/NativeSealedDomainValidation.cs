@@ -16,8 +16,8 @@ namespace MixedAtmospheres.Oni
 {
     // A real, bounded native physical owner inside a disposable ONI colony.
     // The surrounding colony stays native. This sealed development domain is
-    // intentionally inaccessible to actors until their adapters are implemented.
-    internal static unsafe class NativeSealedDomainValidation
+    // admits only actors with an explicit conserved point-boundary adapter.
+    internal static unsafe partial class NativeSealedDomainValidation
     {
         private const int Width = 3, Height = 2;
         private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water" };
@@ -66,10 +66,11 @@ namespace MixedAtmospheres.Oni
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain";
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain";
+        private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
 
         internal static void Tick()
         {
@@ -104,6 +105,7 @@ namespace MixedAtmospheres.Oni
                 }
                 if (TransferMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !transfersSubmitted)
                     SubmitGameGasTransfers();
+                if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -173,6 +175,7 @@ namespace MixedAtmospheres.Oni
                     releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
                 }
                 VerifySaveGuard();
+                if (ActorMode) VerifyActorFixture();
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
                 ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
                 ColonyRuntimeValidation.CompletePresentation("actual-game-sealed-native-fluid-domain-validation");
@@ -189,6 +192,8 @@ namespace MixedAtmospheres.Oni
                 "Unsupported native heat command ABI.");
             Require(TransferVersion() == 1 && Marshal.SizeOf<TransferCommand>() == 64 && Marshal.SizeOf<Receipt>() == 88 &&
                 Marshal.SizeOf<TransferStatus>() == 96, "Unsupported native gas transfer ABI.");
+            Require(ActorVersion() == 1 && Marshal.SizeOf<ActorCommand>() == 80 && Marshal.SizeOf<ActorStatus>() == 64,
+                "Unsupported native actor ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
@@ -370,6 +375,8 @@ namespace MixedAtmospheres.Oni
                 // the owned copy is subsequently overlaid with custom readings.
                 var copy = candidate = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
                 copy.AssertEquivalentTo(source); nativeSnapshotVerified = true;
+                CaptureActorRegistrations(source);
+                PrepareActorSnapshot(copy);
                 var masses = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass));
                 var temperatures = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.temperature));
                 var elements = copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx));
@@ -391,7 +398,8 @@ namespace MixedAtmospheres.Oni
                     var element = (ushort)ElementLoader.FindElementByHash(SpeciesHash(receipt.Species)).idx;
                     var mass = (float)receipt.MassKg;
                     Require(mass == receipt.MassKg, "Native gas receipt mass cannot be represented by the game's callback.");
-                    if (receipt.Kind == 2) consumed.Add(new Sim.MassConsumedCallback { callbackIdx = receipt.Callback, elemIdx = element,
+                    if (receipt.Kind >= 3) PublishActorReceipt(copy, receipt, element, mass);
+                    else if (receipt.Kind == 2) consumed.Add(new Sim.MassConsumedCallback { callbackIdx = receipt.Callback, elemIdx = element,
                         mass = mass, temperature = mass == 0 ? 0 : (float)receipt.Temperature, diseaseIdx = 255, diseaseCount = 0 });
                     else if (receipt.Kind == 1) emitted.Add(new Sim.MassEmittedCallback { callbackIdx = receipt.Callback, elemIdx = element,
                         suceeded = 1, mass = mass, temperature = (float)receipt.Temperature, diseaseIdx = 255, diseaseCount = 0 });
@@ -572,6 +580,7 @@ namespace MixedAtmospheres.Oni
             HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
             HeatEnergyResidualJoules = heatEnergyResidual,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
+            RegisteredActors = ActorReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,
             EmissionResult = emissionResult, ConsumptionResult = consumptionResult,
@@ -581,13 +590,14 @@ namespace MixedAtmospheres.Oni
             TargetReading = publishedReadings != null && publishedReadings.TryGetValue(target, out var reading) ? reading : null,
             BoundedFluidAuthority = completed && active && !failed, CustomDomainActivated = active,
             WholeColonyFluidAuthority = false, FirstPlayableColonyPassed = false,
-            OwnershipScope = "Sealed actor-free six-cell domain; native ONI owns the surrounding colony", SavesAllowed = !SaveBlocked,
+            OwnershipScope = "Sealed six-cell domain with explicitly admitted point actors; native ONI owns the surrounding colony", SavesAllowed = !SaveBlocked,
             Width, Height, X = x, Y = y, TargetCell = target, RenderedRevision = renderedRevision
         }));
         internal static void Shutdown()
         {
             releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
             currentSnapshot?.Dispose(); currentSnapshot = null;
+            ResetActorBindings();
             if (active) { var stopped = Status.Empty; Check(Stop(ref stopped)); }
             active = false; arming = false;
         }

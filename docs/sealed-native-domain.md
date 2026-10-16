@@ -4,8 +4,9 @@ This is the first bounded takeover experiment for the Linux colony work. The
 custom native engine advances a six-cell room while the surrounding ONI colony
 retains its original simulation. The corrected mixed-air control passes in
 the actual Linux colony, as does the corrected compressed-water equilibrium
-control. Both are actor-free development scenes;
-whole-colony ownership, first-playable and release gates remain closed.
+control. The basic controls are actor-free development scenes; a separate
+registered-actor control exercises an actual game consumer and emitter API.
+Whole-colony ownership, first-playable and release gates remain closed.
 
 ## Execution and ownership
 
@@ -125,8 +126,40 @@ frame, so a stopped publication cannot replay callbacks.
 
 Current transfers support nitrogen, oxygen and helium in occupied gas cells.
 Liquid/empty-cell transitions, disease-bearing injection, spatial consumption,
-mixed-owner batches, registered actors and producer reservations require
+mixed-owner batches, spatial/bulk actors and producer reservations require
 additional adapters. Unsupported requests reject before dispatch.
+
+## Registered gas actors
+
+Selective single-cell consumers and disease-free single-cell emitters use the
+same conserved point-source boundary. ONI allocates the real actor handle and
+delivers its ordinary registration callback. The adapter keeps the native
+transfer at its initial inactive setting, admits the full handle, then routes
+subsequent rates and intervals to the custom worker. Native actors outside the
+domain continue normally. Moving a live actor between owners or admitting an
+already active native transfer requires a separate reservation and rejects.
+
+Actor ABI 1 uses 80-byte configurations and a 64-byte status. Consumption uses
+the actual native timestep; its binary32 reporting remainder stays with the
+actor's demand. Emission retains interval time, resets the interval on changes,
+and reports blocked/unblocked edges once. The existing game's output limit is
+a gas density in kg/m3; this compatibility setting is not labelled as pascals.
+Actor changes, physical transfers, accounts, clocks and receipts are prepared
+together. A late actor or solver failure commits none of the candidate.
+
+Completed consumer records feed the actual `ElementConsumer.AddMass` path.
+Emitter records overlay the allocated native status slot; they are status
+samples, not callback events. The latest completed emission status remains
+available during synchronization-only queries. Native positive transfers for
+an admitted handle fail verification. Block notifications use ONI's normal
+callback manager. Removal retires the custom actor and ONI's inactive handle.
+
+`native-actor-domain` spawns an actual Unity `ElementConsumer`, registers an
+emitter through the ordinary game API, changes both rates, blocks/unblocks
+output, disables and removes the actors, then verifies continuing physical
+frames without further actor transfers. It does not reserve producer inventory,
+power or output work, and it does not enable pumps, spatial consumers, disease,
+construction or general building gameplay.
 
 ## Run the actual Linux colony controls
 
@@ -147,6 +180,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-heat-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-transfer-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-actor-domain --frames 120 --timeout 1200
 ```
 
 Both runs use separate fresh profiles on the authenticated virtual desktop.
@@ -184,6 +219,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T200324Z-fbdef4` | Repeats the heat pass and additionally verifies that a direct native `SIM_BeginSave` returns null/zero without starting a scalar save. Normal managed saving also rejects before writing. |
 | `20261016T200702Z-8e3b53` | Passes after merging the new geometric momentum transport: 122 native frames, 120 after priming, 2,562 substeps, two heat commands and net 1,500 J. U+K heat residual is −1.63e−9 J, maximum relative mass drift 2.06e−15 and energy drift 3.94e−15. Grid, rendering, unchanged native tuples, native solid heat and both save guards pass, with no mod failure lines. |
 | `20261016T202909Z-bef415` | Passes real gas injection/consumption and both actual game callbacks exactly once: 122 native frames, 120 after priming, 2,562 substeps. Net oxygen addition is 0.030000001192092896 kg (the exact difference of the game floats); mass residual is 2.01e−15 and U+K residual 1.62e−10 J. Extraction carries 0.0003848342 J of resolved kinetic energy. Both receipts are acknowledged, native compatibility tuples stay exact, grid/render/solid-heat/save checks pass and no mod failure lines occur. Package source is `6bb2b53` plus the recorded dirty gas-transfer changes; private manifests retain the individual library hashes. |
+| `20261016T204654Z-021e13` | Passes actual Unity `ElementConsumer` and registered emitter integration: 122 native frames, 120 after priming, 2,562 substeps. The consumer receives 32 positive samples totalling 0.20000000530853868 kg; 40 emitter status samples account for 1.09375 kg. Both blocked/unblocked game callbacks fire once. Rate changes, interval resets, disable/removal and 74 subsequent native frames without actor transfers pass. U+K residual is −1.78e−9 J and constituent-mass residual 1.03e−15. Original native tuples, actual game emitter status, grid, renderer, solid heat and both save guards pass. Package source is `ea948bd` plus the recorded actor changes. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
@@ -223,8 +259,8 @@ not validated on Windows, where domain start explicitly rejects.
 
 Only the fixed sealed scene is enabled. Direct known native mutation packets
 targeting its cells or border reject before dispatch; every other native writer
-still needs an adapter and dedicated coverage. Production actors, duplicant
-breathing, machines, construction, cross-boundary fluid/solid heat and open
+still needs an adapter and dedicated coverage. General production actors, duplicant
+breathing, reserved machines, construction, cross-boundary fluid/solid heat and open
 boundaries are not implemented for this domain. They must not enter it.
 
 Saving is disabled while the development domain owns fluids. Its physical
@@ -239,7 +275,7 @@ checks as integration regressions. Native index translation and secondary-base
 actor dispatch are now explicit parts of the exact-build contract. Do not
 weaken unchanged-native-cell assertions when adding new writers or actors.
 
-After that gate passes, add actor transactions and native callbacks, real
-closed-domain checkpoints, an occupied development colony, then open/multiphase
+Continue with complete actor/process reservations, real closed-domain
+checkpoints, an occupied development colony, then open/multiphase
 geometry and complete reader/writer coverage. Native worker execution alone
 is narrower evidence than a playable overhaul.

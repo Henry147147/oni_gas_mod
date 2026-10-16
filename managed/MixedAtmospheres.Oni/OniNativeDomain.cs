@@ -84,6 +84,25 @@ namespace MixedAtmospheres.Oni
             public double MaterialEnergyChange, KineticEnergyChange;
             internal static TransferStatus Empty => new TransferStatus { Size = 96, Version = 1, MassChangesKg = new double[4] };
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ActorCommand
+        {
+            public uint Size, Version;
+            public ulong Session, ExpectedFrame;
+            public int Handle;
+            public uint Kind, PublicCell, Species, Flags, Reserved;
+            public double MassKg, Interval, Temperature, MaximumGasDensity;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ActorStatus
+        {
+            public uint Size, Version, State, LiveActors;
+            public ulong Session, CompletedFrame, AcceptedConfigurations, ActorSteps, ConsumerSamples, EmitterSamples;
+            internal static ActorStatus Empty => new ActorStatus { Size = 64, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_actor_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ActorVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actor", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActor(ref ActorCommand command, ref ActorStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_actor_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyActorStatus(ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint TransferVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_queue_transfers", CallingConvention = CallingConvention.Cdecl)] internal static extern int QueueTransfers([In] TransferCommand[] commands, uint count, ref TransferStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyTransferStatus(ref TransferStatus status);

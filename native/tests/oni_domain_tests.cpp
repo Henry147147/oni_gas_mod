@@ -25,6 +25,7 @@ int main() {
         static_assert(sizeof(MAOniDomainCell)==88);
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==96);
+        static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
         MAOniDomainConfig config{40,1,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);
@@ -101,6 +102,53 @@ int main() {
         ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
         require(receipt_count==1 && receipts[0].sequence==2,"receipt acknowledgment lost or duplicated delivery");
         ma::oni::ack_domain_receipts(final.session,2);
+        MAOniDomainActorStatus actor_status{};
+        MAOniDomainActor consumer{80,1,final.session,final.completed_frames,static_cast<std::int32_t>(0x81000001U),1,10+10*64,1,0,0,.05F,0,0,0};
+        MAOniDomainActor emitter{80,1,final.session,final.completed_frames,0x12000002,2,11+10*64,1,0,0,.01F,.2,300,10000};
+        ma::oni::configure_domain_actor(consumer,actor_status); ma::oni::configure_domain_actor(emitter,actor_status);
+        const auto held_actors=actor_status; auto invalid_actor=consumer; invalid_actor.species=3; rejected=false;
+        try { ma::oni::configure_domain_actor(invalid_actor,actor_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_actors,&actor_status,sizeof(actor_status))==0,"invalid actor changed its registration/output");
+        std::size_t blocked_edges=0,unblocked_edges=0; double consumed_total=0,emitted_total=0;
+        const auto initial_actor_mass=transfer_status.mass_changes_kg[1];
+        for (std::uint64_t frame=13;frame<=19;++frame) {
+            if (frame==15 || frame==17) {
+                emitter.expected_frame=frame-1; emitter.maximum_gas_density_kg_m3=frame==15 ? .1 : 10000;
+                ma::oni::configure_domain_actor(emitter,actor_status);
+            }
+            if (frame==19) { consumer.expected_frame=frame-1; consumer.mass_kg=.025F; ma::oni::configure_domain_actor(consumer,actor_status); }
+            ma::oni::advance_domain(frame,.2,2);
+            ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+            require(final.state==1 && final.completed_frames==frame,"registered actor frame failed");
+            std::size_t consumer_count=0,emitter_count=0;
+            for (std::size_t i=0;i<receipt_count;++i) {
+                const auto& receipt=receipts[i];
+                require(receipt.completed_frame==frame,"actor receipt escaped its physical frame");
+                if (receipt.kind==3) {
+                    ++consumer_count; consumed_total+=receipt.mass_kg;
+                    require(receipt.callback==consumer.native_handle && receipt.mass_kg>0 && receipt.kinetic_energy_j>0,
+                        "consumer receipt lost full handle, mass or carried kinetic energy");
+                } else if (receipt.kind==4) {
+                    ++emitter_count; emitted_total+=receipt.mass_kg;
+                    require(receipt.callback==emitter.native_handle && receipt.mass_kg==((frame==14 || frame==18 || frame==19) ? static_cast<double>(.01F) : 0),
+                        "emitter interval/reset/blocked cadence differs");
+                } else if (receipt.kind==5) ++blocked_edges;
+                else if (receipt.kind==6) ++unblocked_edges;
+                else throw std::runtime_error("unexpected actor receipt kind");
+            }
+            require(consumer_count==1 && emitter_count==1,"registered actor sample missing or duplicated");
+            ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        }
+        ma::oni::copy_domain_transfer_status(transfer_status);
+        require(blocked_edges==1 && unblocked_edges==1 && std::abs(transfer_status.mass_changes_kg[1]-initial_actor_mass+consumed_total-emitted_total)<1e-15,
+            "registered actor callbacks or physical mass account differ");
+        require(std::abs(consumed_total-(6*static_cast<double>(.05F)+static_cast<double>(.025F))*.2)<1e-9,"actor rate or modified rate differs");
+        consumer.expected_frame=emitter.expected_frame=final.completed_frames; consumer.flags=emitter.flags=1;
+        ma::oni::configure_domain_actor(consumer,actor_status); ma::oni::configure_domain_actor(emitter,actor_status);
+        ma::oni::advance_domain(20,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count); ma::oni::copy_domain_actor_status(actor_status);
+        require(final.state==1 && receipt_count==0 && actor_status.live_actors==0 && actor_status.actor_steps==14 &&
+            actor_status.consumer_samples==7 && actor_status.emitter_samples==7,"actor removal produced further transfers or samples");
         std::unique_lock frame_lock(ma::oni::domain_frame_mutex());
         std::promise<void> started;
         std::promise<MAOniDomainStatus> copied; auto ready=copied.get_future();
@@ -133,6 +181,27 @@ int main() {
         final=capture(cells);
         require(final.state==1 && final.liquid_mass_kg==1100 && std::abs(final.pressure_pa-2.2e8)<1,"compressed liquid EOS was not used");
         require(std::abs(cells.front().temperature-300)<1e-8,"elastic energy was treated as heat");
+        ma::oni::shutdown_domain();
+        config.scenario=0; ma::oni::start_domain(config,1); final=capture(cells);
+        consumer={80,1,final.session,0,1,1,10+10*64,1,0,0,.05F,0,0,0};
+        emitter={80,1,final.session,0,2,2,11+10*64,1,0,0,.01F,1e-6,300,10000};
+        ma::oni::configure_domain_actor(consumer,actor_status); ma::oni::configure_domain_actor(emitter,actor_status);
+        ma::oni::advance_domain(1,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        require(final.state==1 && receipt_count==2,"actor failure fixture did not complete its control frame");
+        ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        const auto before_actor_failure=cells; const auto before_actor_frame=final;
+        ma::oni::copy_domain_transfer_status(transfer_status); const auto before_actor_account=transfer_status;
+        ma::oni::copy_domain_actor_status(actor_status); const auto before_actor_steps=actor_status.actor_steps;
+        ma::oni::advance_domain(2,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::copy_domain_transfer_status(transfer_status); ma::oni::copy_domain_actor_status(actor_status);
+        require(final.state==3 && final.completed_frames==before_actor_frame.completed_frames && final.time_seconds==before_actor_frame.time_seconds &&
+            receipt_count==0 && actor_status.actor_steps==before_actor_steps &&
+            std::memcmp(cells.data(),before_actor_failure.data(),cells.size()*sizeof(cells[0]))==0 &&
+            transfer_status.mass_changes_kg[1]==before_actor_account.mass_changes_kg[1] &&
+            transfer_status.material_energy_change_j==before_actor_account.material_energy_change_j,
+            "late emitter failure published an earlier consumer, callback, clock or account");
         ma::oni::shutdown_domain();
         config.offset_x=63;
         try { ma::oni::start_domain(config,1); throw std::runtime_error("row-wrap geometry accepted"); }

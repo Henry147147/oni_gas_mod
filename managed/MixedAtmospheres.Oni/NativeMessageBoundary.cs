@@ -75,6 +75,7 @@ namespace MixedAtmospheres.Oni
             {
                 if (NativeSealedDomainValidation.TryHandleHeat(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, 1, payload)) return IntPtr.Zero;
+                if (NativeSealedDomainValidation.TryHandleActorMessage(message, length, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active) NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload);
                 var native = Sim.SIM_HandleMessage(message, length, payload);
                 NativeBackendObservation.AfterNativeMessage(message);
@@ -123,6 +124,7 @@ namespace MixedAtmospheres.Oni
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, count, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active)
                 {
+                    NativeSealedDomainValidation.CheckActorBatch(message, length, count, payload);
                     if (length < 0 || count < 0 || (count > 0 && payload == null)) throw new ArgumentException("Invalid native batch.");
                     _ = checked(length * count);
                     for (var index = 0; index < count; ++index)

@@ -110,6 +110,20 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             bad = copy.deepcopy(self.report); bad[section][field] = value
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, transfers=True), (section, field))
 
+    def test_registered_actors_require_actual_components_callbacks_and_removal(self):
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, actors=True))
+        self.report["RegisteredActors"] = {"Verified": True, "Stage": 8, "Native": {"LiveActors": 0,
+            "ConsumerSamples": 16, "EmitterSamples": 24}, "ActualConsumerCallbacks": 16, "ConsumerPublications": 16,
+            "EmitterPublications": 24, "RemovalConsumerSamples": 16, "RemovalEmitterSamples": 24, "RemovedAtFrame": 20,
+            "EmitterGameStatusObserved": True, "ActualEmitterRegistrations": 1, "ActualBlockedCallbacks": 1,
+            "ActualUnblockedCallbacks": 1, "EnergyResidualJoules": 1e-9, "MaximumRelativeMassError": 1e-15}
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, actors=True))
+        for field, value in (("ActualConsumerCallbacks", 0), ("ActualBlockedCallbacks", 2), ("ActualUnblockedCallbacks", 0),
+                ("EmitterGameStatusObserved", False), ("RemovalEmitterSamples", 23), ("RemovedAtFrame", 28),
+                ("EnergyResidualJoules", float("nan")), ("MaximumRelativeMassError", 1e-8), ("Stage", 6)):
+            bad = copy.deepcopy(self.report); bad["RegisteredActors"][field] = value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, actors=True), field)
+
 
 class EvidenceTests(unittest.TestCase):
     def test_optional_native_observer_requires_its_own_forwarding_report(self):

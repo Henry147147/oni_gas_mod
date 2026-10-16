@@ -30,6 +30,12 @@ through the real game APIs. It requires both actual callbacks exactly once,
 acknowledged completed-frame receipts, carried kinetic energy, conserved mass
 and U+K, and no original native transfer-packet dispatch. Run
 `20261016T202909Z-bef415` passes all these checks over 120 post-priming frames.
+`native-actor-domain` tests registered actors with a real Unity `ElementConsumer`,
+changed rates, emission intervals, actual blocked/unblocked callbacks, and
+disable/removal. Run `20261016T204654Z-021e13` passes 120 post-priming frames,
+32 actual consumer callbacks and 40 emission samples, with no actor transfers
+after removal and conserved mass/energy. These are explicit gas point boundaries;
+producer reservations, spatial/bulk actors and ordinary colony saves remain open.
 
 The optional native SimDLL forwarding observer has a separate `native-observer`
 mode. Build/package with `--native-observer`, then use that mode to validate

@@ -83,6 +83,13 @@ int main() {
         const MAOniDomainTransfer transfer{64,1,0,0,0,1,1,0,-1,0,.05,300};
         require(ma_oni_domain_queue_transfers(&transfer,1,&transfers)==MA_ONI_BUSY &&
                 std::memcmp(&transfers,&held_transfers,sizeof(transfers))==0,"unowned gas transfer changed output");
+        require(ma_oni_domain_actor_abi_version()==1 && sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64,"actor extension ABI");
+        MAOniDomainActorStatus actors{}; actors.struct_size=64; actors.abi_version=1;
+        require(ma_oni_domain_actor_status(&actors)==MA_ONI_OK && actors.state==0 && actors.live_actors==0,"inactive actor status");
+        const auto held_actors=actors;
+        const MAOniDomainActor actor{80,1,0,0,1,1,0,1,0,0,.05,0,0,0};
+        require(ma_oni_domain_configure_actor(&actor,&actors)==MA_ONI_BUSY && std::memcmp(&actors,&held_actors,sizeof(actors))==0,
+            "unowned actor configuration accepted or changed output");
         std::cout << "PASS: native observer ABI, SHA256 controls, unknown-image/immutable rejection and inactive lifecycle\n";
         return 0;
     } catch (const std::exception& error) {
