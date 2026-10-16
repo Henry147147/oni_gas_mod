@@ -92,6 +92,21 @@ else()
     target_compile_options(ma_occupied_staggered PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
 endif()
 
+# Bounded evidence for the prospective canonical owner. Neither target is a
+# default build/test dependency, and neither links the EOS, world or game DLL.
+add_library(ma_canonical_diagnostics STATIC EXCLUDE_FROM_ALL native/src/canonical_material_diagnostics.cpp)
+target_include_directories(ma_canonical_diagnostics PUBLIC native/include)
+add_executable(ma_canonical_diagnostics_tests EXCLUDE_FROM_ALL native/tests/canonical_material_diagnostics_tests.cpp)
+target_link_libraries(ma_canonical_diagnostics_tests PRIVATE ma_canonical_diagnostics)
+foreach(target ma_canonical_diagnostics ma_canonical_diagnostics_tests)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive- /fp:strict)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+            -fno-fast-math -ffp-contract=off -frounding-math)
+    endif()
+endforeach()
+
 if(MA_BUILD_STAGGERED_EXPERIMENTS)
     # Unfinished Cartesian transport is kept separate from the accepted retained
     # material-state library. Its strict boundary-rate test still fails.
