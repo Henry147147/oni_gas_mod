@@ -105,7 +105,7 @@ long double energy(const MacClosedWorld& owner) {
     for (std::size_t i=0;i<jy.size();++i) value+=MacEnergy::kinetic(inertia.y[i],jy[i]).require_representable();
     return value+potential(owner);
 }
-std::vector<MAOniDomainCell> project(const MacClosedWorld& owner) {
+std::vector<MAOniDomainCell> project(const MacClosedWorld& owner,std::uint32_t scenario) {
     const auto& state=owner.state();
     const auto inertia=mac_face_inertias(owner.registry(),state,owner.thermodynamics());
     const auto jx=mac_field_values(state.momentum_x,state.full_momentum_x);
@@ -120,7 +120,7 @@ std::vector<MAOniDomainCell> project(const MacClosedWorld& owner) {
         cell.temperature=reading.temperature_k;
         // This domain admits either gas-only cells or a completely filled
         // compressed-liquid control. It does not infer fraction from m/rho0.
-        cell.liquid_fraction=geometry.scenario == 1 ? 1 : 0;
+        cell.liquid_fraction=scenario == 1 ? 1 : 0;
         const auto x=index%state.grid.width, y=index/state.grid.width;
         const auto half_mass=.5*source.mixture.mass();
         MacEnergySum kinetic; MacScaledSum px, py;
@@ -260,9 +260,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
     }
     work.validate_accounts();
 }
-}
-
-void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
+void validate_domain_geometry(const MAOniDomainConfig& config) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
         config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 2 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
@@ -270,6 +268,32 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
         (static_cast<std::uint64_t>(config.offset_y)+config.height+2)*(static_cast<std::uint64_t>(config.native_grid_width)+2) > std::numeric_limits<int>::max())
         throw std::invalid_argument("Invalid sealed native domain geometry, model or opt-in");
+}
+std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& config,std::span<const std::uint8_t> image,double saved_time) {
+    validate_domain_geometry(config);
+    if (image.empty() || !std::isfinite(saved_time) || saved_time<0) throw std::invalid_argument("Invalid saved native domain source");
+    const auto registry=SpeciesRegistry::standard(); const auto eos=model(registry);
+    auto candidate=std::make_unique<MacClosedWorld>(MacClosedWorld::from_checkpoint(registry,eos,image));
+    const auto& state=candidate->state(); const auto& grid=state.grid;
+    if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
+        grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
+        candidate->settings().gravity_m_per_s2!=(config.scenario==2 ? 9.81 : 0))
+        throw std::invalid_argument("Physical checkpoint clock, grid or gravity differs from its native domain configuration");
+    const auto water=registry.index("water");
+    for (const auto& cell : state.cells) {
+        if (!cell.passive_quantities.empty()) throw std::invalid_argument("Saved native domain requires a passive-metadata adapter");
+        for (std::size_t k=0;k<registry.size();++k)
+            if (cell.mixture.masses[k]!=0 && ((config.scenario==1)!=(k==water)))
+                throw std::invalid_argument("Saved native domain phase differs from its declared scenario");
+    }
+    (void)project(*candidate,config.scenario); (void)energy(*candidate);
+    return candidate;
+}
+
+}
+
+void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span<const std::uint8_t> image,double saved_time) {
+    validate_domain_geometry(config);
     std::lock_guard frame_lock(frame_mutex);
     std::lock_guard lock(state_mutex);
     if (enabled.load(std::memory_order_acquire)) throw std::logic_error("A sealed native domain is already active");
@@ -297,11 +321,13 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     settings.gravity_m_per_s2=config.scenario == 2 ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
-    geometry=config;
-    auto cells=project(*candidate);
+    if (!image.empty()) candidate=restored_domain_owner(config,image,saved_time);
+    auto cells=project(*candidate,config.scenario);
     const auto totals=masses(*candidate); const auto total_energy=energy(*candidate); const auto next_potential=potential(*candidate);
     MAOniDomainStatus next{}; next.struct_size=sizeof(next); next.abi_version=MA_ONI_DOMAIN_ABI_VERSION;
+    if (session_sequence==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native domain session range exhausted");
     next.state=1; next.cells=static_cast<std::uint32_t>(cells.size()); next.session=++session_sequence;
+    next.time_seconds=candidate->time_s(); geometry=config;
     next.start_thread=thread; next.initial_oxygen_kg=cells.front().masses[1]; next.current_oxygen_kg=next.initial_oxygen_kg;
     next.pressure_pa=cells.front().pressure; next.liquid_mass_kg=cells.front().masses[3];
     world=std::move(candidate); publication=std::move(cells); initial_masses=totals; initial_energy=total_energy;
@@ -318,6 +344,9 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
     enabled.store(true,std::memory_order_release);
+}
+void validate_domain_checkpoint(const MAOniDomainConfig& config,std::span<const std::uint8_t> image,double saved_time) {
+    const ArithmeticScope arithmetic; (void)restored_domain_owner(config,image,saved_time);
 }
 void stop_domain() noexcept {
     // Stopping while the native sim runs would expose scalar projections to
@@ -370,7 +399,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         auto next_steps=actor_steps,next_consumed=consumer_samples,next_emitted=emitter_samples;
         prepare_actors(work,next_actors,seconds,next_steps,next_consumed,next_emitted);
         auto result=work.owner->advanced(seconds,4096);
-        auto cells=project(result.world); auto next=status;
+        auto cells=project(result.world,geometry.scenario); auto next=status;
         const auto totals=masses(result.world);
         for (std::size_t i=0;i<totals.size();++i) {
             const auto delta=combined_heat(committed_mass[i],work.mass[i]).value().require_representable();

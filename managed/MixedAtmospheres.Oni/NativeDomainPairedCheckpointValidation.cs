@@ -58,24 +58,16 @@ namespace MixedAtmospheres.Oni
                 pairedImmutableVerified=CheckpointHash(native)==pairedNativeHash && CheckpointHash(physical)==pairedPhysicalHash;
                 Require(pairedImmutableVerified,"Caller changes replaced the retained paired native/physical images.");
                 var hash=Enumerable.Range(0,32).Select(i=>Convert.ToByte(catalog!.Fingerprint.Substring(2*i,2),16)).ToArray();
-                byte[] payload;
-                using (var stream=new MemoryStream())
-                {
-                    using (var writer=new BinaryWriter(stream,System.Text.Encoding.UTF8,true))
-                    {
-                        writer.Write(System.Text.Encoding.ASCII.GetBytes("MAONID01")); writer.Write(1);
-                        writer.Write(ready.Session); writer.Write(ready.CompletedFrame); writer.Write(ready.NativeEpoch); writer.Write(ready.PhysicalTime);
-                        writer.Write(ready.Configuration.Size); writer.Write(ready.Configuration.Version); writer.Write(ready.Configuration.Flags);
-                        writer.Write(ready.Configuration.GridWidth); writer.Write(ready.Configuration.X); writer.Write(ready.Configuration.Y);
-                        writer.Write(ready.Configuration.Width); writer.Write(ready.Configuration.Height); writer.Write(ready.Configuration.Scenario); writer.Write(ready.Configuration.Reserved);
-                        writer.Write(physical.Length); writer.Write(physical);
-                    }
-                    payload=stream.ToArray();
-                }
+                var section=NativeDomainCheckpointPayload.Create(ready,physical);
+                section.ValidateNativeSection(native);
+                var payload=section.CopyEncodedData();
                 var envelope=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,hash,native,payload);
                 var encoded=envelope.CopyEncodedData(); var parsed=ColonySaveEnvelope.Parse(encoded,744825,2,hash);
                 Require(parsed.CompletedFrame==ready.CompletedFrame && parsed.NativeData.SequenceEqual(native) && parsed.CustomData.SequenceEqual(payload),
                     "Paired checkpoint envelope did not retain both complete sections and their source frame.");
+                var admitted=NativeDomainCheckpointPayload.Parse(parsed.CustomData); admitted.ValidateNativeSection(parsed.NativeData);
+                var restoredGeometry=admitted.Geometry;
+                Check(ValidateCheckpoint(ref restoredGeometry,physical,(uint)physical.Length,admitted.PhysicalTime));
                 pairedEncodedBytes=encoded.Length; pairedEnvelopeHash=CheckpointHash(encoded);
                 File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-paired-checkpoint.bin"),encoded);
                 Check(ReleasePair(pairedToken)); Check(ReleasePair(pairedToken)); pairedReleaseVerified=true; pairedToken=0;

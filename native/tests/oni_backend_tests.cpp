@@ -106,6 +106,9 @@ int main() {
             "Unknown paired token changed poll output");
         require(ma_oni_domain_pair_copy(999,checkpoint_buffer.data(),8,checkpoint_buffer.data()+8,8)==MA_ONI_INVALID_ARGUMENT &&
             checkpoint_buffer==held_checkpoint,"Unknown paired token changed copy outputs");
+        MAOniDomainConfig checkpoint_configuration{40,2,1,64,10,10,3,2,0,0};
+        require(ma_oni_domain_checkpoint_validate(&checkpoint_configuration,checkpoint_buffer.data(),16,.2)==MA_ONI_INVALID_ARGUMENT,
+            "Invalid physical restore image passed independent pre-native validation");
         MAOniDomainActorStatus actors{}; actors.struct_size=64; actors.abi_version=1;
         require(ma_oni_domain_actor_status(&actors)==MA_ONI_OK && actors.state==0 && actors.live_actors==0,"inactive actor status");
         const auto held_actors=actors;

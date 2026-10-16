@@ -264,6 +264,7 @@ int main(int argc,char** argv) {
         require(rejected,"A physical checkpoint omitted unacknowledged game callbacks");
         ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
         const auto checkpoint=ma::oni::checkpoint_domain(final.session,final.completed_frames);
+        const auto checkpoint_time=final.time_seconds; const auto checkpoint_session=final.session;
         require(ma::oni::advance_domain_checkpoint(checkpoint,0)==checkpoint,"Native physical image did not round trip exactly");
         const auto continued=ma::oni::advance_domain_checkpoint(checkpoint,.2);
         ma::oni::advance_domain(2,.2,2); final=capture(cells);
@@ -276,6 +277,24 @@ int main(int argc,char** argv) {
         rejected=false;
         try { (void)ma::oni::checkpoint_domain(final.session,final.completed_frames); } catch (const std::logic_error&) { rejected=true; }
         require(rejected,"A checkpoint dropped reserved pending heat");
+        ma::oni::shutdown_domain();
+        ma::oni::validate_domain_checkpoint(config,checkpoint,checkpoint_time);
+        for (int malformed=0;malformed<4;++malformed) {
+            auto wrong=config; auto when=checkpoint_time; auto image=checkpoint;
+            if (malformed==0) ++wrong.width;
+            if (malformed==1) wrong.scenario=1;
+            if (malformed==2) when+=1;
+            if (malformed==3) image.back()^=1;
+            rejected=false;
+            try { ma::oni::validate_domain_checkpoint(wrong,image,when); } catch (const std::exception&) { rejected=true; }
+            require(rejected && !ma::oni::domain_active(),"Invalid saved geometry, phase, clock or image activated native ownership");
+        }
+        ma::oni::start_domain(config,1,checkpoint,checkpoint_time); final=capture(cells);
+        require(final.session!=checkpoint_session && final.completed_frames==0 && final.time_seconds==checkpoint_time &&
+            ma::oni::checkpoint_domain(final.session,0)==checkpoint,"Native restore reset canonical state, revision or physical clock");
+        ma::oni::advance_domain(3,.2,2); final=capture(cells);
+        require(final.state==1 && final.completed_frames==1 && ma::oni::checkpoint_domain(final.session,1)==continued,
+            "Restored native owner did not continue to the exact uninterrupted physical state");
         ma::oni::shutdown_domain();
         config.scenario=2; ma::oni::start_domain(config,1); final=capture(cells);
         MAOniDomainGravityStatus gravity{}; ma::oni::copy_domain_gravity_status(gravity);

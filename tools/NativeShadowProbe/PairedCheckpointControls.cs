@@ -5,6 +5,8 @@ using MixedAtmospheres.Oni;
 
 internal static unsafe partial class Program
 {
+    private sealed record SavedDomainPair(OniNativeDomain.PairStatus Source,byte[] Native,byte[] Physical);
+    private static SavedDomainPair? savedDomainPair;
     private static void VerifyPairedCheckpoint(NativeSim sim,Contract contract,OniNativeObserver observer,OniNativeDomain.Status source,Dictionary<string,object?> report)
     {
         Require(OniNativeDomain.PairVersion()==1 && Marshal.SizeOf<OniNativeDomain.PairStatus>()==112,"Paired checkpoint ABI differs.");
@@ -54,6 +56,7 @@ internal static unsafe partial class Program
             Require(OniNativeDomain.Copy(ref current,new OniNativeDomain.Cell[6],6)==0 && current.CompletedFrames==source.CompletedFrames &&
                 current.TimeSeconds==source.TimeSeconds,"Paired lifecycle capture advanced custom physical time.");
             report["pairedCheckpointVerified"]=true;
+            savedDomainPair=new SavedDomainPair(ready,native,restored);
             report["pairedCheckpoint"]=new {ready.Token,ready.Session,ready.CompletedFrame,ready.NativeEpoch,ready.CaptureThread,
                 ready.PhysicalTime,ready.NativeBytes,ready.PhysicalBytes,NativeSha256=nativeHash,PhysicalSha256=physicalHash,OrdinaryGameSaveIntegrated=false};
         }

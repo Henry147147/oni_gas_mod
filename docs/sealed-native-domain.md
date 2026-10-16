@@ -270,6 +270,13 @@ worker barrier, verifies the original native cell tuples in that saved image,
 checks immutable native/physical buffers and encodes and validates their shared
 `MACOLONY` container. It remains a bounded paired capture, with ordinary
 save/load integration and managed/actor persistence still unfinished.
+The isolated `sealed-restore`, `sealed-restore-water` and
+`sealed-restore-gravity` controls now reload both paired sections through the
+licensed native loader. They preserve the complete physical state/clock,
+restore native flow flags at zero time and match twelve resumed worker images
+exactly. Source validation rejects corrupt metadata, inventory, geometry,
+phase or clock before native loading. This passes on Linux and the Windows
+library under Wine; Unity's ordinary save/load binding remains the next gate.
 
 Build the native backend and the normal ONI adapter, then create a fresh package:
 
@@ -348,6 +355,8 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T224334Z-cee2a7` | Passes physical checkpoint restore and exact continuation in the actual Linux game: the 3,503-byte source at frame 6 / 1.200000018 s independently restores/advances to the exact image published by native worker frame 7 / 1.400000021 s, with zero observation retries. Expected/actual SHA-256 is `ef895aa34a42ec337bbb0143d9ce870e0f873afdce4dbd673988c987817ba32c`. The full scene completes 122 frames, 120 after priming, 2,562 substeps and 24.4 s; relative mass/energy drift is 1.19e-15 / 5.72e-15. Exact native tuples, grid/rendering, native solid heat and both save guards pass without mod failure lines. Source is `e65ebe3` plus the recorded checkpoint changes. Windows native code under Wine also reads/reserializes this actual Linux game image without changing a byte; full colony save/reload remains open. |
 | `20261016T225904Z-9e5553` | Repeats the full checkpoint game pass with the native worker fence extended through native processing and `EndFrame`. It completes 120 post-priming frames, exact restored/live continuation, unchanged native tuples, grid/rendering, solid heat and both save guards, with no mod failure lines. Source is `42cae2b` plus the recorded fence changes. Both licensed native-library checkpoint controls pass with that fence too (Windows under Wine). |
 | `20261016T232719Z-0a1d98` | Passes paired native/physical capture on the merged compression-heat solver and physical file version 2. Native worker thread 4 captures frame 6 / epoch 541 at 1.200000018 s: 3,585,197 native bytes and 3,507 physical bytes. The physical hash also exactly matches the independently restored next-worker image. The 3,588,900-byte combined envelope retains both sections, original native tuples and geometry; immutable recopy and token retirement pass. The scene completes 121 frames, 120 after priming, 2,541 substeps; relative mass/energy drift is 1.72e-15 / 8.29e-15. Grid/rendering, native solid heat and both scalar-save guards pass, with no mod failure lines. Source is `13afbef` plus the recorded paired-capture changes. Ordinary colony save/reload remains open. |
+| `20261016T233539Z-b39f30` | Repeats the real consumer/emitter and atomic actor configuration pass on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps, consumes 0.2000000053 kg and emits 1.09375 kg; the actor energy residual is -2.87e-9 J. Relative mass/energy drift is 1.54e-15 / 5.84e-15. Native tuples, game grid/rendering, native solid heat and both save guards pass. |
+| `20261016T234845Z-2dc5ea` | Repeats gravity and actual gas callbacks on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps with relative mass/energy drift 1.30e-15 / 5.31e-15 and a boundary U+K+G residual of -3.21e-9 J. Carried potential is 0.147150006 J; maximum absolute physical energy residual is 3.15e-9 J. Native tuples, grid/rendering, native solid heat and both save guards pass. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

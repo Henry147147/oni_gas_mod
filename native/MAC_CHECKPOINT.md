@@ -52,19 +52,34 @@ using whichever default happens to be compiled into the current binary.
 
 ## Native domain boundary
 
-Checkpoint extension ABI 1 adds two buffer APIs without changing domain ABI 2:
+Checkpoint extension ABI 1 adds buffer and restore APIs without changing domain ABI 2:
 
 - `ma_oni_domain_checkpoint_copy(session, frame, output, capacity, required)`
   exports one exact completed frame under the native publication fence.
 - `ma_oni_domain_checkpoint_advance(input, input_bytes, seconds, output,
   capacity, required)` restores an independent owner and returns its advanced
   physical image. Zero seconds validates and reserializes it.
+- `ma_oni_domain_checkpoint_validate(config, input, input_bytes, saved_time)`
+  checks a complete physical image against the intended native owner without
+  initializing, loading or changing the native simulator.
+- `ma_oni_domain_restore(config, input, input_bytes, saved_time, status)`
+  activates a restored physical owner after the normal native world load. It
+  requires an attached, initialized simulator with matching actual dimensions
+  and no existing custom owner. Failure leaves the status output unchanged.
 
 A null output with zero capacity queries the required size. Failed calls leave
 buffer/count outputs unchanged. Export refuses stale frames, pending commands,
 live actors and unacknowledged receipts; it cannot silently omit them. Stateless
-restore/advance never changes the live colony or its clock. Both operations
+restore/advance never changes the live colony or its clock. These operations
 select and restore the executing thread's arithmetic environment.
+
+Restore admission checks the complete physical model/integrity, saved clock,
+grid, spacing/depth, gravity, impermeable exterior, phase and publishable energy
+and momentum. Passive metadata and other shapes require their own adapters.
+Activation preserves saved physical time, revision and complete state. It
+assigns a new session and starts its publication counters at zero; those
+counters do not replace physical time. Boundary diagnostics start from the
+restored inventory rather than inheriting an unrelated previous session.
 
 The physical image excludes native solids/buildings, ONI world placement, managed objects,
 registration generations, actor state, callback outboxes and cumulative domain
@@ -102,10 +117,30 @@ and copies, source time/state retention, output failures, immutable buffers and
 token retirement. `native-paired-checkpoint-domain` verifies the actual Linux
 game's native compatibility tuples and physical checkpoint, then encodes both
 sections in the existing SHA-256 `MACOLONY` envelope. Its custom section currently
-contains diagnostic source metadata, the domain configuration and physical
-image. Native load binding, managed object state, actor/outbox persistence and
+contains versioned source metadata, the domain configuration and physical
+image. Native Unity load binding, managed object state, actor/outbox persistence and
 ordinary whole-colony save/reload remain unfinished. This capture does not grant
 ordinary save permission.
+
+`NativeDomainCheckpointPayload` reads/writes that inner `MAONID01` version 1
+section. Its source session/frame/epoch, physical clock and geometry must agree
+with the contained `MACCLS01` version 2 metadata. Before native loading, the
+restore adapter also checks the complete native world inventory and backwalls,
+guard border, world placement, the six-cell compatibility tuples and their
+impermeable material border. Full C++ validation remains mandatory before
+dispatch; the managed metadata reader does not replace physical validation.
+
+`sealed-restore`, `sealed-restore-water` and `sealed-restore-gravity` write/read
+the paired envelope, reject invalid sources before any native message, then
+load the saved world through the actual licensed native loader. Native compact
+saves omit flow flags. The adapter installs those flags and restores challenged
+compatibility tuples through explicit zero-time frames, with ownership already
+active. It verifies unchanged physical clock/state and every outside cell
+against an unmodified native-load control. Twelve subsequent worker frames
+must exactly match independent checkpoint continuation. Linux and Windows
+libraries pass all three controls (Windows under Wine). These isolated native
+reloads have no live Unity object graph; they do not authorize restarting the
+native simulator beneath existing game objects.
 
 ## Verification
 

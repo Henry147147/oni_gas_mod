@@ -223,6 +223,11 @@ restored/advanced image matches the actual next native worker frame byte for
 byte. Export currently requires drained commands, callbacks and actors. Complete
 colony persistence must also pair native solids/buildings, managed objects,
 world placement and actor/outbox state; scalar saves remain guarded.
+An explicit native restore admission now validates the saved geometry, phase,
+clock and full physical model before any native load. Isolated Linux and
+Windows-library controls load both paired sections, reinstall native flow flags
+with zero-time frames and exactly match twelve resumed worker images. Unity's
+managed save/load lifecycle remains a separate unfinished integration step.
 
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature

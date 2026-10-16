@@ -160,6 +160,10 @@ MA_ONI_API MAOniResult ma_oni_domain_checkpoint_copy(uint64_t session, uint64_t 
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 MA_ONI_API MAOniResult ma_oni_domain_checkpoint_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+/* Validate before native Load; restore activates only after the caller has
+ * loaded the matching native section and verified the sealed boundary. */
+MA_ONI_API MAOniResult ma_oni_domain_checkpoint_validate(const MAOniDomainConfig*, const uint8_t* input, uint32_t input_bytes, double expected_time);
+MA_ONI_API MAOniResult ma_oni_domain_restore(const MAOniDomainConfig*, const uint8_t* input, uint32_t input_bytes, double expected_time, MAOniDomainStatus*);
 
 /* Paired capture ABI 1. Request against an exact physical source; the next
  * completed native worker epoch captures both owners (including zero-time

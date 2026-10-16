@@ -72,7 +72,7 @@ wrapper accepts `--mode domains --observer /path/to/backend --game /path/to/game
 for the sealed gas, compressed-water, heat, conduction, gravity and checkpoint controls. Each runs the actual
 native clock for sixty post-priming frames, preserves exact original native
 mass/temperature tuples, and advances after declining a scalar save. Individual
-`sealed-gas`, `sealed-water`, `sealed-heat`, `sealed-conduction`, `sealed-gravity`, `sealed-checkpoint` and `sealed-pair` modes are also available.
+`sealed-gas`, `sealed-water`, `sealed-heat`, `sealed-conduction`, `sealed-gravity`, `sealed-checkpoint`, `sealed-pair`, `sealed-restore`, `sealed-restore-water` and `sealed-restore-gravity` modes are also available.
 Conduction additionally requires positive internal redistribution/entropy and
 two coherent thermal stages per accepted solver substep; its walls remain insulated.
 Gravity additionally checks downward body impulse, physical vertical momentum

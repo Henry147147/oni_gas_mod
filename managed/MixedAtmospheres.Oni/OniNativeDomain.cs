@@ -128,6 +128,8 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CheckpointVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyCheckpoint(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceCheckpoint([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_validate", CallingConvention = CallingConvention.Cdecl)] internal static extern int ValidateCheckpoint(ref Configuration configuration, [In] byte[] input, uint count, double savedTime);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_restore", CallingConvention = CallingConvention.Cdecl)] internal static extern int RestoreCheckpoint(ref Configuration configuration, [In] byte[] input, uint count, double savedTime, ref Status result);
         [StructLayout(LayoutKind.Sequential)]
         internal struct PairStatus
         {

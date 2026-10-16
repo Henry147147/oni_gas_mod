@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainCheckpointPayload.cs" Link="NativeDomainCheckpointPayload.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeObserver.cs" Link="OniNativeObserver.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
   </ItemGroup>
