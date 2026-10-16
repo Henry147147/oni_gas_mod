@@ -1,8 +1,9 @@
 # Compatible compression viscosity
 
-Six native groups and 6,095 saved-data checks pass on Windows and Linux. It is excluded
-from the closed owner, default build, C ABI and game. The unchanged strong-flow
-gate is still failed. The purpose is to address oscillations behind shocks in
+The component and owning interval pass all 65 native groups on Windows/Linux,
+including 6,095 component and 11,214 owner saved-data checks. It is excluded
+from the default build, C ABI and game. The unchanged strong-flow
+gate is still failed on pressure refinement. The purpose is to address oscillations behind shocks in
 the retained collision profiles, without changing the accepted point-velocity
 oracle, grids, timestep or error limits.
 
@@ -83,5 +84,95 @@ and sibling `-r2` folders. Completed scoped-review SHA256 values are
 `658ea465d495f941ab260667c6abd140fdef54be9c7f54b3beaa3bb2e35737e0`
 (Linux). They bind frozen sources, binary/compiler identity, strict flags,
 bounded first builds/captures, the retained exporter failure and the saved
-reviews. The default game DLL is unchanged. Closed-owner integration, full
-strong-flow acceptance and actual game validation remain required.
+reviews. The default game DLL is unchanged. At that standalone checkpoint,
+closed-owner integration, full strong-flow acceptance and game validation
+remained required; the integration results follow below.
+
+## Owning interval integration
+
+`MacClosedWorld::advanced` now applies quadratic compression to every accepted
+pressure/transport candidate by default, before committing its state and clock.
+The primitive `advance_mac_closed_substep` remains the separately inspectable
+pressure/transport operator. An explicit `none` setting retains that reference
+path. Compression heat, unresolved heat/J updates and event counts have separate
+owner fields; wall impulse and energy bounds include all three stages. A failed
+later interval attempt publishes none of the compressed candidates.
+
+Four integration groups are fixed before the first build: one gas owner, one
+mixed-liquid solid-corner owner, one below-range owner, and disabled-reference/
+later-failure/invalid-mode controls. Three complete saved states include both
+pressure/transport and compression operands/events; a separate reviewer must
+replay the stages, actual U+K, wall impulse, clocks and projections, and reject
+three altered heat/wall/constituent records. Existing reference parsers are
+generalized only to their supplied case set and reusable compression format;
+their scientific error limits remain unchanged. Aggregate build 180 s,
+new native/review 60 s and 512 KiB per pipe. All 61 earlier native groups and
+their saved reviews must pass before either strong gate repeats at its original
+180-s/2-MiB bound. Original Riemann/gravity scientific source bytes stay fixed.
+
+The first integrated builds and all 65 native groups pass on both platforms.
+The first owner data review incorrectly calls acoustic-only checks without a
+wave fixture, and a parser generalization confuses transport cases with pressure
+cases. These first failures are retained. The repaired reviewers reuse every
+native capture and unchanged C++ binary. They then expose a physical impulse
+failure in the mixed-liquid case: vertical residual 1.0380829226e-15 kg m/s
+exceeds the original 7.2682376426e-16 bound by 1.428. Linux does not repeat that
+known shared review failure. No strong-flow retry follows either cohort.
+
+The next source accumulates signed boundary pressures before multiplying their
+shared timestep and area; gravity reaction remains separate until accumulation.
+Full pressure-wall reaction values back the explicit legacy projections. This
+removes cancellation of separately rounded large wall products, without
+changing pressure impulses on fluid faces, EOS work, initial data or the
+128-epsilon criterion. A data-only diagnosis of the original operands predicts
+vertical residual 2.1413e-18 with the same bound; fresh native verification is
+still required. The old tiny reversal now explicitly selects `none` because its
+purpose is exact interval comparison with the two-stage primitive. Its physical
+quantities and accounts stay unchanged; the new below-range owner control
+separately verifies the default active compression path.
+
+## Integrated results and remaining pressure accuracy
+
+Fresh strict MSVC and GCC15 builds pass after the wall accumulation repair.
+All 65 native groups and saved reviews pass once per platform. The new four
+owner groups pass 11,214 saved checks; the six compression groups pass 6,095.
+Every full reviewer rejects three corruptions. The remaining counts are the
+61 prerequisite groups documented above and in [exponent validation](MAC_EXPONENT_RANGE.md).
+The mixed-liquid vertical momentum residual is now 0.002947 of the unchanged
+bound on Windows and 0.000970 on Linux. The two-stage primitive and new default
+owning interval remain explicitly distinguishable in controls and reports.
+
+One Windows strong-flow retry follows all prerequisites. Sod N64/128/256 passes
+joint refinement and the original fine-grid limit. Collision then fails on
+pressure at N128:
+
+| Grid | Density L1 | Pressure L1 | Velocity L1 |
+| --- | --- | --- | --- |
+| 64 | 0.0528314817013 | 0.0581114509839 | 0.0757790079357 |
+| 128 | 0.0429871612094 | 0.0804701217318 | 0.0479075695783 |
+
+Successive ratios are 0.813666/1.384755/0.632201. Velocity now satisfies 0.85,
+while pressure fails. No collision N256 or separation case runs. All five
+completed profiles retain their original global mass/trace/passive, actual U+K,
+wall momentum, EOS and entropy checks; the partial saved-data review passes
+59,205 identities and reproduces the failed norm. This is one passing native
+Sod subgroup, no full strong-flow review and no partial-review corruption
+controls. Linux does not repeat the known shared failed gate. These are bounded
+correctness runs; no speed acceptance follows.
+
+A data-only localization retains the original cell-average pressure metric and
+independent EOS operands. Within four cell widths of the exact shocks lie
+99.35% of N64 pressure error and 91.43% at N128. A pressure/viscosity coupling
+accuracy repair is required before another failed-gate retry; neither the
+point/cell-average oracle, original timestep nor 0.85 criterion is changed.
+
+Private integration results are
+`local/occupied-staggered-validation/mac-compression-owner-{windows,linux}-r1`,
+`-r2` and `-r3`. R1 retains first review mistakes; R2 reuses all native captures
+and records the physical impulse and old reference-metadata failures. R3 binds
+fresh binaries/captures and the wall repair. Completed scoped-review SHA256s:
+`e576660afe5250de7cc7641c026181b47612ae6760b8951d34d05f0070aece2f`
+(Windows),
+`7a1d6b3de57a10ce4fd34079c02f310ca65c53c5d10b9be148d6fc6b06ea715c`
+(Linux). No independent agent, new sanitizer, Unity, production or shipping
+acceptance is claimed. The default game DLL remains unchanged.

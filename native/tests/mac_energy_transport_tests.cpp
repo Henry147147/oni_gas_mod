@@ -50,7 +50,8 @@ void tiny_closed_reversal() {
     constexpr double dt=1e-104;const double pl=set.eos->evaluate(source.cells[0].mixture,1).mechanical_pressure_pa;
     const double pr=set.eos->evaluate(source.cells[1].mixture,1).mechanical_pressure_pa;
     source.momentum_x[1]=-.5*(dt*(pl-pr));const auto held=ma::testing::fingerprint(source);
-    MacClosedSettings settings;settings.maximum_timestep_s=dt;const MacClosedWorld original(set.registry,set.eos,source,settings);
+    MacClosedSettings settings;settings.maximum_timestep_s=dt;settings.compression_viscosity=MacCompressionViscosity::none;
+    const MacClosedWorld original(set.registry,set.eos,source,settings);
     const auto substep=advance_mac_closed_substep(set.registry,*set.eos,source,dt,settings);
     check(std::all_of(substep.volume_fluxes_m3.x.begin(),substep.volume_fluxes_m3.x.end(),[](double q){return q==0;}),"Fine pressure reversal moved volume");
     check(substep.state.momentum_x[1]==-source.momentum_x[1]&&substep.rounded_energy_projections>0,"Tiny canonical pressure reversal or energy report failed");

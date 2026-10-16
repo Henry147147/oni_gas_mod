@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -92,7 +93,8 @@ void MacClosedSettings::validate() const {
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
          preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
-        (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear), "Invalid MAC closed settings");
+        (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear) &&
+        (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -151,13 +153,14 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         const auto cell = topology.active[i]; result.pressure_state.cells[cell].mixture = result.pressure.cells[i].mixture;
         result.material_volumes_m3[cell] = result.pressure.cells[i].volume_m3;
     }
-    std::vector<MacScaledSum> sweeps(source.cells.size()), outgoing(source.cells.size()); Account wx, wy, body_impulse; MacScaledAccount px, py;
+    std::vector<MacScaledSum> sweeps(source.cells.size()), outgoing(source.cells.size()); Account body_impulse; MacScaledAccount px, py;
+    std::array<MacScaledSum, 2> wall_pressure, wall_body;
     std::vector<MacScaled> jx1 = jx0, jy1 = jy0, qx(topology.x.size()), qy(topology.y.size()), fx(topology.x.size()), fy(topology.y.size());
     for (int axis = 0; axis < 2; ++axis) {
         const auto& pairs = axis == 0 ? topology.x : topology.y; const auto& m = axis == 0 ? inertia.x : inertia.y;
         const auto& old_j = axis == 0 ? jx0 : jy0;
         auto& new_j = axis == 0 ? jx1 : jy1; auto& q = axis == 0 ? qx : qy; auto& flux = axis == 0 ? fx : fy;
-        auto& reaction = axis == 0 ? wx : wy; auto& momentum = axis == 0 ? px : py;
+        auto& momentum = axis == 0 ? px : py;
         for (std::size_t f = 0; f < pairs.size(); ++f) if (m[f] > 0) {
             const auto& pair = pairs[f];
             const double pl = pair.left == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.left]];
@@ -168,7 +171,15 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             require_finite(impulse, "MAC pressure impulse");
             const bool fixed = pair.left == none || pair.right == none;
             MacScaledSum updated; updated.add(old_j[f]); updated.add(impulse); new_j[f] = fixed ? MacScaled{} : mac_scaled_primary(updated);
-            if (fixed) { reaction.add(-impulse); momentum.add(impulse); }
+            if (fixed) {
+                // Cancel boundary pressures before their common dt*area factor.
+                // Scaling large opposing wall forces separately loses a small
+                // net reaction even when the interior gradient is well resolved.
+                wall_pressure[static_cast<std::size_t>(axis)].add(-pl);
+                wall_pressure[static_cast<std::size_t>(axis)].add(pr);
+                wall_body[static_cast<std::size_t>(axis)].add(-gravity_impulse);
+                momentum.add(impulse);
+            }
             else if (impulse != 0) {
                 MacScaledSum difference; difference.add(new_j[f]); difference.add(old_j[f].negated()); difference.add(-impulse);
                 MacScaledSum allowance; allowance.add(MacScaled::from_double(std::abs(impulse)).shifted(-47));
@@ -197,7 +208,13 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     result.volume_fluxes_m3 = mac_fluxes(qx, qy); result.mass_fluxes_kg = mac_fluxes(fx, fy);
     if (settings.gravity_m_per_s2 != 0 && !result.volume_fluxes_m3.full_y.empty())
         throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity sweep is not implemented");
-    result.pressure_wall_impulse_x = wx.value(); result.pressure_wall_impulse_y = wy.value();
+    const auto wall_reaction = [&](std::size_t axis) {
+        MacScaledSum reaction; reaction.add(wall_pressure[axis].value().multiplied(dt).multiplied(area));
+        reaction.add(wall_body[axis].value()); return mac_scaled_primary(reaction);
+    };
+    result.full_pressure_wall_impulse_x = wall_reaction(0); result.full_pressure_wall_impulse_y = wall_reaction(1);
+    result.pressure_wall_impulse_x = result.full_pressure_wall_impulse_x.project().value;
+    result.pressure_wall_impulse_y = result.full_pressure_wall_impulse_y.project().value;
     result.body_impulse_y = body_impulse.value();
     if (!px.within_bound() || !py.within_bound()) throw std::domain_error("MAC pressure full momentum plus wall reaction failed");
     for (auto cell : topology.active) {
@@ -287,7 +304,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall;
+    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat;
     MacScaledSum wx, wy; Account gravity_change, body_impulse, entropy, entropy_roundoff;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
@@ -301,11 +318,21 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed retry time cannot be represented");
             try {
                 auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, result.world.state_, dt, settings_);
+                MacCompressionReport compression;
+                if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
+                    auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, dt);
+                    compression = std::move(damped.report); candidate.state = std::move(damped.state);
+                }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
+                bounds.add(compression.energy_bound); compression_heat.add(compression.heat);
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
-                wx.add(candidate.pressure_wall_impulse_x); wy.add(candidate.pressure_wall_impulse_y);
+                wx.add(candidate.full_pressure_wall_impulse_x); wy.add(candidate.full_pressure_wall_impulse_y);
                 for (const auto& reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
                 for (const auto& reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
+                wx.add(compression.wall_impulse_x); wy.add(compression.wall_impulse_y);
+                result.report.compression_events += compression.events.size();
+                result.report.unresolved_compression_heat_updates += compression.unresolved_heat_updates;
+                result.report.unresolved_compression_momentum_updates += compression.unresolved_momentum_updates;
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
@@ -313,6 +340,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 result.report.unresolved_gravity_internal_updates += candidate.unresolved_gravity_internal_updates;
                 gravity_change.add(candidate.gravity_internal_change_j); body_impulse.add(candidate.body_impulse_y);
                 entropy.add(candidate.entropy_change_j_per_k); entropy_roundoff.add(candidate.entropy_roundoff_j_per_k);
+                entropy.add(compression.entropy_change_j_per_k); entropy_roundoff.add(compression.entropy_roundoff_j_per_k);
                 for (const auto residual : candidate.geometric_residuals_m3)
                     result.report.maximum_geometric_residual_m3 = std::max(result.report.maximum_geometric_residual_m3, std::abs(residual));
                 result.world.state_ = std::move(candidate.state); result.world.time_s_ += dt;
@@ -325,6 +353,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (!within_energy_budget(total.terms(), bounds)) throw std::domain_error("MAC closed interval energy exceeds accumulated stage bounds");
     result.report.energy_residual_wide_j = total.residual(); result.report.energy_bound_wide_j = bounds.value();
     result.report.mixing_heat_wide_j = mix.value(); result.report.wall_heat_wide_j = wall.value();
+    result.report.compression_heat_wide_j = compression_heat.value();
+    result.report.compression_heat_j = projected_energy(result.report.compression_heat_wide_j, result.report.rounded_energy_projections);
     result.report.energy_residual_j = projected_energy(result.report.energy_residual_wide_j, result.report.rounded_energy_projections);
     result.report.energy_bound_j = projected_energy(result.report.energy_bound_wide_j, result.report.rounded_energy_projections);
     result.report.mixing_heat_j = projected_energy(result.report.mixing_heat_wide_j, result.report.rounded_energy_projections);

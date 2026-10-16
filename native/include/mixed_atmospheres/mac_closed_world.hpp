@@ -1,17 +1,22 @@
 #pragma once
 #include "mac_reconstruction.hpp"
+#include "mac_compression.hpp"
 #include "volume_work.hpp"
 #include <memory>
 #include <optional>
 
 namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
+enum class MacCompressionViscosity { none, quadratic };
 struct MacClosedSettings {
     double maximum_timestep_s = .01;
     double maximum_outgoing_volume_fraction = .4;
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
     double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
     MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
+    // The owning interval applies this separate dissipative stage after each
+    // accepted pressure/transport candidate. The primitive substep stays separate.
+    MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -33,6 +38,7 @@ struct MacClosedSubstep {
     MacEnergy energy_residual_wide_j, energy_bound_wide_j;
     std::size_t rounded_energy_projections = 0;
     double pressure_wall_impulse_x = 0, pressure_wall_impulse_y = 0;
+    MacScaled full_pressure_wall_impulse_x{}, full_pressure_wall_impulse_y{};
     double body_impulse_y = 0;
     std::vector<double> gravity_body_work_y, gravity_potential_flux_y, gravity_internal_work_y;
     std::vector<double> pre_gravity_internal_energy_j, gravity_internal_changes_j;
@@ -57,6 +63,7 @@ struct MacClosedAdvanceReport {
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
+    std::size_t compression_events = 0, unresolved_compression_heat_updates = 0, unresolved_compression_momentum_updates = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;
@@ -65,6 +72,8 @@ struct MacClosedAdvanceReport {
     double gravity_internal_change_j = 0, body_impulse_y = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
+    MacEnergy compression_heat_wide_j;
+    double compression_heat_j = 0;
     std::size_t rounded_energy_projections = 0;
 };
 struct MacClosedAdvance;

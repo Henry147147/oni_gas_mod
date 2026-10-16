@@ -60,12 +60,13 @@ machines, pipes, and metabolism must use the same conserved state.
   accumulation. [Momentum contribution range](native/MAC_MOMENTUM_PARCELS.md)
   passes four more. [Full canonical/flux range](native/MAC_CANONICAL_RANGE.md)
   passes five more. [Bounded large integer exponents](native/MAC_EXPONENT_RANGE.md)
-  pass six more and Linux ASan/UBSan checks. Linux now completes Sod N64/128/256;
-  the [strong-gas gate](native/MAC_RIEMANN.md) remains failed on collision velocity
-  refinement on both platforms. Earlier results and diagnostics are preserved.
-  A separate [compatible compression component](native/MAC_COMPRESSION.md)
-  passes six Windows/Linux groups and 6,095 saved checks; it has not yet been
-  integrated into the closed owner or repeated the failed shock gate.
+  pass six more and Linux ASan/UBSan checks; that Linux cohort completes Sod
+  N64/128/256. [Compatible compression](native/MAC_COMPRESSION.md) now integrates
+  with the owning interval: all 65 native groups and saved reviews pass on
+  Windows/Linux, including four new owner groups. The latest Windows
+  [strong-gas gate](native/MAC_RIEMANN.md) passes Sod and collision velocity
+  refinement, but fails collision pressure refinement. Linux does not repeat
+  that known failure. Earlier results and diagnostics are preserved.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

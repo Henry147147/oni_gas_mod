@@ -1,21 +1,13 @@
-#include "mac_fixture.hpp"
-#include "mixed_atmospheres/mac_compression.hpp"
+#include "mac_compression_fixture.hpp"
 #include <iomanip>
 
 namespace {
 using namespace ma;
 using namespace ma::experimental;
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
-void scaled(const MacScaled& x) { std::cout << ' ' << x.mantissa() << ' ' << x.exponent(); }
-void output_pair(std::size_t id, const MacCompressionPair& p) {
-    std::cout << "PAIR " << id << ' ' << p.inertia_left << ' ' << p.inertia_right << ' ' << p.fixed_left << ' ' << p.fixed_right << ' ' << p.unresolved_momentum_updates;
-    for (const auto& x : {p.before_left, p.before_right, p.integrated_density_area_s, p.closing_velocity,
-        p.relaxation_number, p.impulse, p.heat, p.after_left, p.after_right, p.wall_impulse}) scaled(x);
-    std::cout << '\n';
-}
 MacCompressionPair pair(std::size_t id, double il, double ir, double ul, double ur, double b, bool fl = false, bool fr = false) {
     auto p = relax_mac_compression_pair(il, ir, MacScaled::from_double(il * ul), MacScaled::from_double(ir * ur), fl, fr, MacScaled::from_double(b));
-    output_pair(id, p); return p;
+    ma::testing::export_compression_pair(id, p); return p;
 }
 void analytic_pairs() {
     static_cast<void>(pair(0, 2, 4, 3, -2, .125));
@@ -24,7 +16,7 @@ void analytic_pairs() {
     static_cast<void>(pair(3, 2, 4, 3, 0, .125, false, true));
     const auto half = pair(4, 2, 4, 3, -2, .0625);
     const auto twice = relax_mac_compression_pair(2, 4, half.after_left, half.after_right, false, false, MacScaled::from_double(.0625));
-    output_pair(5, twice);
+    ma::testing::export_compression_pair(5, twice);
     const auto full = relax_mac_compression_pair(2, 4, MacScaled::from_double(6), MacScaled::from_double(-8), false, false, MacScaled::from_double(.125));
     MacScaledAccount same; same.add(twice.after_left); same.add(full.after_left.negated());
     check(same.within_bound(), "Compression pair semigroup differs");
@@ -32,11 +24,11 @@ void analytic_pairs() {
 void range_pairs() {
     const auto tiny = MacScaled::from_parts(.75, -1941);
     const auto p = relax_mac_compression_pair(1, 2, tiny, tiny.negated(), false, false, MacScaled::from_double(.125));
-    output_pair(6, p);
+    ma::testing::export_compression_pair(6, p);
     check(p.impulse.mantissa() > 0 && p.heat.mantissa() > 0 && p.impulse.project().rounded && p.heat.project().rounded &&
         p.unresolved_momentum_updates == 2, "Compression below-range impulse/heat or unresolved update was lost");
     const auto q = relax_mac_compression_pair(1, 2, MacScaled::from_parts(.75, -1200), {}, false, false, MacScaled::from_parts(.5, -1200));
-    output_pair(7, q); check(q.impulse.mantissa() > 0 && q.after_right.mantissa() > 0, "Compression failed to create full target J");
+    ma::testing::export_compression_pair(7, q); check(q.impulse.mantissa() > 0 && q.after_right.mantissa() > 0, "Compression failed to create full target J");
 }
 void inactive_and_boost() {
     check(pair(8, 2, 4, 3, 3, .125).impulse.is_zero(), "Uniform velocity activates compression");
@@ -51,50 +43,12 @@ void inactive_and_boost() {
     check(result.report.events.empty() && ma::testing::fingerprint(result.state) == held, "Tangential shear was damped");
     std::cout << "INACTIVE 1\n";
 }
-bool fixed(const MacGrid& g, int axis, std::size_t f) {
-    const auto x = axis == 0 ? f % g.x_width() : f % g.width;
-    const auto y = axis == 0 ? f / g.x_width() : f / g.width;
-    if (axis == 0) return ((!g.periodic_x && (x == 0 || x == g.width)) ||
-        g.walls[(x + g.width - 1) % g.width + y * g.width] || g.walls[x % g.width + y * g.width]);
-    return ((!g.periodic_y && (y == 0 || y == g.height)) ||
-        g.walls[x + ((y + g.height - 1) % g.height) * g.width] || g.walls[x + (y % g.height) * g.width]);
-}
-void component(std::size_t id, const MacTransportState& source, const MacCompressionAdvance& result, double dt) {
-    const auto& set = ma::testing::setup(); const auto& g = source.grid; const auto& report = result.report;
-    std::cout << "GRID " << id << ' ' << g.width << ' ' << g.height << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << dt << ' ' << report.events.size() << ' ' << report.unresolved_heat_updates << ' ' << report.unresolved_momentum_updates;
-    for (const auto& v : {report.heat, report.energy_residual, report.energy_bound, report.wall_impulse_x, report.wall_impulse_y}) scaled(v);
-    std::cout << ' ' << report.entropy_change_j_per_k << ' ' << report.entropy_roundoff_j_per_k << '\n';
-    for (std::size_t i = 0; i < report.events.size(); ++i) {
-        const auto key = 1000 + id * 100 + i; const auto& e = report.events[i]; output_pair(key, e.pair);
-        std::cout << "EVENT " << id << ' ' << i << ' ' << e.axis << ' ' << e.cell << ' ' << e.sweep << ' ' << key << '\n';
-    }
-    const auto mass = mac_face_inertias(set.registry, source, *set.eos);
-    for (std::size_t i = 0; i < source.cells.size(); ++i) std::cout << "SOLID " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << '\n';
-    for (int endpoint = 0; endpoint < 2; ++endpoint) {
-        const auto& s = endpoint == 0 ? source : result.state;
-        for (std::size_t i = 0; i < s.cells.size(); ++i) {
-            if (g.walls[i]) continue;
-            const auto& c = s.cells[i]; const auto eos = set.eos->evaluate(c.mixture, g.volume_m3());
-            std::cout << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << c.mixture.energy << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
-            for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
-                std::cout << "SMASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
-            for (const auto& p : c.passive_quantities) std::cout << "SPASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
-        }
-        for (int axis = 0; axis < 2; ++axis) {
-            const auto j = axis == 0 ? mac_field_values(s.momentum_x, s.full_momentum_x) : mac_field_values(s.momentum_y, s.full_momentum_y);
-            const auto& m = axis == 0 ? mass.x : mass.y;
-            for (std::size_t f = 0; f < j.size(); ++f) {
-                std::cout << "SFACE " << id << ' ' << axis << ' ' << endpoint << ' ' << f << ' ' << m[f] << ' ' << fixed(g, axis, f); scaled(j[f]); std::cout << '\n';
-            }
-        }
-    }
-}
 MacTransportState compressing(bool periodic, bool wet, bool corner = false) {
     const auto& set = ma::testing::setup(); auto s = set.state(3, 3, periodic, wet, corner);
     const auto m = mac_face_inertias(set.registry, s, *set.eos);
     for (int axis = 0; axis < 2; ++axis) {
         auto& j = axis == 0 ? s.momentum_x : s.momentum_y; const auto& mass = axis == 0 ? m.x : m.y;
-        for (std::size_t f = 0; f < j.size(); ++f) if (!fixed(s.grid, axis, f))
+        for (std::size_t f = 0; f < j.size(); ++f) if (!ma::testing::compression_fixed_face(s.grid, axis, f))
             j[f] = mass[f] * (axis == 0 ? (f % s.grid.x_width() == 1 ? 12 : -8) : (f / s.grid.width == 1 ? 5 : -3));
     }
     return s;
@@ -105,7 +59,7 @@ void occupied_grids() {
         auto s = compressing(id == 1, true, id == 0); const auto held = ma::testing::fingerprint(s);
         const auto result = advance_mac_compression(set.registry, *set.eos, s, .01);
         check(ma::testing::fingerprint(s) == held && result.report.heat.mantissa() > 0 && !result.report.events.empty(), "Compression changed source or failed to heat occupied grid");
-        component(id, s, result, .01);
+        ma::testing::export_compression(id, s, result, .01);
     }
 }
 MacTransportState transpose(const MacTransportState& s) {
@@ -127,13 +81,13 @@ void transpose_and_range() {
         check(error.within_bound(), "Transposed compression energy differs");
     }
     check(expected.momentum_x == rb.state.momentum_x && expected.momentum_y == rb.state.momentum_y, "Transposed compression J differs");
-    component(2, b, rb, .01);
+    ma::testing::export_compression(2, b, rb, .01);
     auto tiny = set.state(2, 2, true); std::vector<MacScaled> j(tiny.momentum_x.size());
     for (std::size_t i = 0; i < j.size(); ++i) j[i] = MacScaled::from_parts(i % 2 == 0 ? .75 : -.75, -1941);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j);
     const auto result = advance_mac_compression(set.registry, *set.eos, tiny, .01);
     check(result.report.heat.mantissa() > 0 && result.report.unresolved_heat_updates > 0 && result.report.unresolved_momentum_updates > 0,
-        "Tiny compression did not retain and report unresolved heat/J"); component(3, tiny, result, .01);
+        "Tiny compression did not retain and report unresolved heat/J"); ma::testing::export_compression(3, tiny, result, .01);
 }
 void invalid_inputs() {
     const auto& set = ma::testing::setup(); const auto source = compressing(false, false); std::size_t rejected = 0;

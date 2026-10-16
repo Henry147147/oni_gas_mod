@@ -4,6 +4,9 @@ Six new groups and all prerequisites pass on Windows and Linux. This work addres
 [Sod N128 scaled-share rejection](MAC_CANONICAL_RANGE.md) requesting exponent
 -3049816383. A normalized significand can remain representable while its
 separate exponent exceeds a fixed machine word during tiny repeated transfers.
+The later [compression-owner integration](MAC_COMPRESSION.md) addresses velocity
+oscillations but still fails pressure refinement; this exponent cohort's results
+below remain retained evidence.
 
 `MacExponent` stores signed 64-bit values inline and larger signed magnitudes
 in immutable reference-counted 32-bit limbs. Copies share read-only data;

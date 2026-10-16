@@ -30,7 +30,7 @@ def round_scaled(value):
     return F(float(value / (F(2) ** (e + 1)))) * F(2) ** (e + 1)
 
 
-def parse(raw):
+def parse(raw, required_passes=6, required_grids=(0, 1, 2, 3), analytic=True):
     data = {key: {} for key in ('pairs', 'grids', 'events', 'cells', 'masses', 'passives', 'faces', 'walls', 'materials')}
     passes = []; controls = {}
     for line in raw.decode('ascii').splitlines():
@@ -61,9 +61,10 @@ def parse(raw):
             passes.append(line)
         else:
             raise ValueError('Unknown record: ' + kind)
-    check(len(passes) == len(set(passes)) == 6 and controls == {'REJECTED': 8, 'INACTIVE': 1}, 'Missing native groups/controls')
-    check(set(data['grids']) == {0, 1, 2, 3} and len(data['materials']) == 4, 'Missing grids/materials')
-    check(set(range(12)).issubset(data['pairs']), 'Missing analytic pair controls')
+    check(len(passes) == len(set(passes)) == required_passes and controls == ({'REJECTED': 8, 'INACTIVE': 1} if analytic else {}), 'Missing native groups/controls')
+    check(set(data['grids']) == set(required_grids) and len(data['materials']) == 4, 'Missing grids/materials')
+    if analytic:
+        check(set(range(12)).issubset(data['pairs']), 'Missing analytic pair controls')
     return data
 
 
@@ -105,15 +106,16 @@ def review_pair(p):
         check(min(ul, ur) - 128 * EPS * scale <= velocity <= max(ul, ur) + 128 * EPS * scale, 'Pair velocity outside initial interval')
 
 
-def review(data):
+def review(data, analytic=True):
     for p in data['pairs'].values():
         review_pair(p)
-    p0, p4, p5 = (data['pairs'][i] for i in (0, 4, 5))
-    for i in (12, 13):
-        close(p5[i], p0[i], abs(p0[i]), 'Pair semigroup', 128)
-    close(p4[11] + p5[11], p0[11], p0[11], 'Pair semigroup heat', 128)
-    check(data['pairs'][10][7:12] == data['pairs'][11][7:12], 'Galilean compression/work differs')
-    referenced = set(range(12))
+    if analytic:
+        p0, p4, p5 = (data['pairs'][i] for i in (0, 4, 5))
+        for i in (12, 13):
+            close(p5[i], p0[i], abs(p0[i]), 'Pair semigroup', 128)
+        close(p4[11] + p5[11], p0[11], p0[11], 'Pair semigroup heat', 128)
+        check(data['pairs'][10][7:12] == data['pairs'][11][7:12], 'Galilean compression/work differs')
+    referenced = set(range(12)) if analytic else set()
     for gid, grid in data['grids'].items():
         w, h, spacing, depth, px, py, dt, count, unresolved_u, unresolved_j, reported_heat, residual, bound, wx, wy, ds, sb = grid
         check(w > 1 and h > 1 and spacing > 0 and depth > 0 and dt > 0 and px in (0, 1) and py in (0, 1), 'Grid domain')
@@ -190,7 +192,7 @@ def review(data):
         close(sb, 128 * EPS * entropy_scale, 128 * EPS * entropy_scale, 'Entropy roundoff bound', 512)
         check(entropy >= -ref.dec(sb) and ds >= -sb, 'EOS entropy decreased')
         close(ds, F(entropy), entropy_scale, 'Reported entropy change', 128)
-        if gid == 3:
+        if analytic and gid == 3:
             check(reported_heat > 0 and float(reported_heat) == 0 and un_u > 0 and un_j > 0, 'Subrange heat/control missing')
     check(referenced == set(data['pairs']), 'Missing/orphan pair')
     check(set(data['events']) == {(gid, k) for gid, grid in data['grids'].items() for k in range(grid[7])}, 'Extra event')

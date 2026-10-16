@@ -24,7 +24,7 @@ def dec(value):
     return D(value.numerator) / D(value.denominator)
 
 
-def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1)):
+def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1), required_pressure_cases=(0,1)):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
     extended_pressure = {}
@@ -77,7 +77,7 @@ def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1)):
             transport_count=case['wide_report'][0] if case['wide_report'] else 0
             check(count==transport_count+sum(a!=b for a,b in zip(projections,values)),'Owner energy projection counts differ')
             pressure[identifier]=row[:3]+values+row[7:]
-    check(set(pressure) == {0, 1} and len(materials) == 4 and (set(waves) == {16, 32, 64} if require_acoustic else not waves), 'Missing pressure/material/acoustic records')
+    check(set(pressure) == set(required_pressure_cases) and len(materials) == 4 and (set(waves) == {16, 32, 64} if require_acoustic else not waves), 'Missing pressure/material/acoustic records')
     check(set(samples) == {(n, x) for n in waves for x in range(n)}, 'Missing/extra acoustic samples')
     if require_acoustic:
         check(interval is not None and interval[0] == interval[1] + interval[2] and interval[1] > 0 and interval[2] > 1, 'Interval retry counts')

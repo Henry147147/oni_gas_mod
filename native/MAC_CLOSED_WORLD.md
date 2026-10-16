@@ -1,5 +1,12 @@
 # Closed MAC pressure and transport
 
+The owning interval now also applies a separate
+[compatible compression stage](MAC_COMPRESSION.md) by default after each
+pressure/transport candidate and before publication. The primitive described
+below stays separately inspectable. All 65 current native groups and saved
+reviews pass on Windows/Linux; strong collision pressure refinement remains
+failed, with no production or game acceptance.
+
 This closed, occupied regular-grid owner composes the existing reversible EOS
 pressure-work solver with retained
 MAC face momentum and compatible primal/dual transport. It remains excluded

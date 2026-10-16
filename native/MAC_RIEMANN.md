@@ -1,12 +1,13 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. Windows and Linux complete Sod N64/128/256, then fail
-collision velocity refinement at N128. The latest exponent repair passes its
-scoped controls and removes the tested integer range rejection.
+The gate remains failed. The latest Windows compression-owner source completes
+Sod N64/128/256 and satisfies collision velocity refinement, then fails collision
+pressure refinement at N128. Linux passes all prerequisites and does not repeat
+that known failure. Earlier velocity/range failures remain recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
-strong-expansion behavior. This gate changes tests and build declarations;
-the numerical solver remains the source accepted in that cohort.
+strong-expansion behavior. The original gate introduced tests/build declarations;
+the later numerical changes and their results are recorded by cohort below.
 
 The reference is the ideal-gas Euler Riemann solution, using shock jump curves,
 isentropic rarefactions and a common pressure/velocity across the contact.
@@ -72,7 +73,33 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current exponent repair and collision-accuracy failure
+## Current compression owner and pressure-refinement failure
+
+[Compatible compression](MAC_COMPRESSION.md) passes six component groups and
+four new owning-interval groups; all 65 native groups and their saved reviews
+pass on Windows/Linux. The default owner adds positive compression heat and wall
+impulse before publication. A newly exposed small wall-reaction precision failure
+is repaired by cancelling boundary pressures before their common scale factors.
+The 128-epsilon bound, EOS, original scientific sources and all error limits
+remain unchanged. An old primitive-comparison control explicitly selects the
+reference mode; new owner controls verify the active default and rollback.
+
+After all prerequisites, one Windows strong retry completes Sod refinement with
+fine errors 0.00414986826735/0.00335348387977/0.00625419909291. Collision
+N64/N128 density errors are 0.0528314817013/0.0429871612094, pressure errors
+0.0581114509839/0.0804701217318 and velocity errors
+0.0757790079357/0.0479075695783. Ratios 0.813666/1.384755/0.632201 now pass
+velocity but fail pressure. No collision N256 or separation case runs.
+
+The partial saved-data reviewer checks 59,205 identities over five completed
+profiles and reproduces the failed pressure norm. Original mass, traces,
+passives, U+K, momentum/wall, EOS and entropy checks pass individually. No full
+strong-flow review or partial-review corruptions follow. Data-only localization
+places 99.35%/91.43% of pressure error within four cells of an exact shock at
+N64/N128. Linux does not repeat the known failed gate. A genuine accuracy repair
+is required before another retry; no oracle or criterion changes are accepted.
+
+## Exponent cohort: collision-velocity failure
 
 [Bounded large integer exponents](MAC_EXPONENT_RANGE.md) pass six new groups,
 8,560 saved checks and all 55 native prerequisite groups on Windows/Linux,
