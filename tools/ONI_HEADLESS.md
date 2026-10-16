@@ -9,6 +9,15 @@ windowed player on the virtual desktop.
 
 ## Current machine: 2026-10-16
 
+`native-domain` and `native-liquid-domain` test a sealed custom physical owner
+on ONI's actual native timestep, with original-flow controls, attempted native
+phase exclusions, immutable owned snapshots and continuing native solid heat. They
+require an observer-enabled package. See [scope and commands](../docs/sealed-native-domain.md).
+The gas run detects an uncovered native writer and fails. The compressed-water
+equilibrium run `20261016T191955Z-858237` passes 30 native frames after projection
+priming, actual grid/rendering checks and save rejection. These actor-free
+development modes do not certify a playable colony or moving liquid transport.
+
 The optional native SimDLL forwarding observer has a separate `native-observer`
 mode. Build/package with `--native-observer`, then use that mode to validate
 hook progress and byte-identical snapshots in a disposable colony. It requires

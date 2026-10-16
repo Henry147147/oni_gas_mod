@@ -9,13 +9,14 @@ namespace MixedAtmospheres.Oni
     internal sealed class OniNativeObserver : IDisposable
     {
         private const string Library = "mixed_atmospheres_oni";
-        private const int HookCount = 23;
+        private const int HookCount = 25;
         private bool disposed;
         private readonly string gameDirectory;
         internal static readonly string[] HookNames = {
             "initialize", "shutdown", "message", "messages", "begin-save", "end-save", "main", "process-frame",
             "next-frame", "update-data", "pressure", "liquid", "temperature", "state-transition", "load-transition",
-            "sublimation", "post-process", "step", "begin-frame", "end-frame", "consumer", "emitter", "building-heat"
+            "sublimation", "post-process", "step", "begin-frame", "end-frame", "consumer", "emitter", "building-heat",
+            "gas-interaction", "gas-interaction-pair"
         };
 
         [StructLayout(LayoutKind.Sequential)]
@@ -37,7 +38,7 @@ namespace MixedAtmospheres.Oni
             public ulong InstalledMask, ActiveCalls, PositiveTimestepReturns, TraceReserved, TraceDropped;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = HookCount)]
             public HookStatistics[] Hooks;
-            internal static Status Empty => new Status { Size = 432, Version = 1, Hooks = new HookStatistics[HookCount] };
+            internal static Status Empty => new Status { Size = 464, Version = 2, Hooks = new HookStatistics[HookCount] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct TraceEvent
@@ -47,7 +48,7 @@ namespace MixedAtmospheres.Oni
         }
         internal sealed class Reading
         {
-            public bool ForwardingOnly => true;
+            public bool ForwardingOnly { get; }
             public bool AuthoritativeFluidOwner => false;
             public uint OniBuild { get; }
             public bool Attached { get; }
@@ -61,6 +62,7 @@ namespace MixedAtmospheres.Oni
             internal Reading(Status status)
             {
                 if (status.AuthoritativeOwner != 0) throw new InvalidOperationException("A forwarding observer reported fluid authority.");
+                ForwardingOnly = DomainActive() == 0;
                 OniBuild = status.OniBuild; Attached = status.Attached != 0; InstalledMask = status.InstalledMask;
                 RecoveryRequired = status.RecoveryRequired != 0;
                 ActiveCalls = status.ActiveCalls; PositiveTimestepReturns = status.PositiveTimestepReturns;
@@ -79,9 +81,9 @@ namespace MixedAtmospheres.Oni
 
         internal OniNativeObserver(string directory)
         {
-            if (IntPtr.Size != 8 || Marshal.SizeOf<Config>() != 24 || Marshal.SizeOf<Status>() != 432 || Marshal.SizeOf<TraceEvent>() != 32)
+            if (IntPtr.Size != 8 || Marshal.SizeOf<Config>() != 24 || Marshal.SizeOf<Status>() != 464 || Marshal.SizeOf<TraceEvent>() != 32)
                 throw new PlatformNotSupportedException("Native observer ABI layouts differ.");
-            if (NativeVersion() != 1) throw new NotSupportedException("Unsupported native observer ABI.");
+            if (NativeVersion() != 2) throw new NotSupportedException("Unsupported native observer ABI; rebuild the managed and native backend together.");
             gameDirectory = directory ?? throw new ArgumentNullException(nameof(directory));
             WithConfig((ref Config config) => {
                 var status = Status.Empty;
@@ -95,7 +97,7 @@ namespace MixedAtmospheres.Oni
             var path = Marshal.StringToCoTaskMemUTF8(gameDirectory);
             try
             {
-                var config = new Config { Size = 24, Version = 1, Flags = 1, GameDirectory = path };
+                var config = new Config { Size = 24, Version = 2, Flags = 1, GameDirectory = path };
                 action(ref config);
             }
             finally { Marshal.FreeCoTaskMem(path); }
@@ -142,6 +144,8 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_abi_version", CallingConvention = CallingConvention.Cdecl)]
         private static extern uint NativeVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_active", CallingConvention = CallingConvention.Cdecl)]
+        private static extern uint DomainActive();
         [DllImport(Library, EntryPoint = "ma_oni_probe", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Probe(ref Config config, ref Status output);
         [DllImport(Library, EntryPoint = "ma_oni_attach_observer", CallingConvention = CallingConvention.Cdecl)]

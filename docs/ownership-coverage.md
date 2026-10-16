@@ -10,8 +10,8 @@ satisfy ownership gates.
 
 ## Executable inventory
 
-`coverage-inventory.json` currently contains 3,066 entries: 212 material
-identities, 62 native messages, 16 native imports, 23 native-hook responsibilities,
+`coverage-inventory.json` currently contains 3,068 entries: 212 material
+identities, 62 native messages, 16 native imports, 25 native-hook responsibilities,
 47 snapshot/event/texture channels, 215 observed call sites, 39 gameplay systems, 2,143 prefab
 registrations, 34 prefab converters and 275 recipe registrations. Every entry
 names its intended owner, adapter and acceptance requirement. Adapter names

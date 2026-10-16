@@ -73,8 +73,10 @@ namespace MixedAtmospheres.Oni
             var world = ProbeScope.World;
             if (world == null)
             {
+                if (NativeSealedDomainValidation.Active) NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload);
                 var native = Sim.SIM_HandleMessage(message, length, payload);
                 NativeBackendObservation.AfterNativeMessage(message);
+                if (NativeSealedDomainValidation.IsMode) native = NativeSealedDomainValidation.AfterNativeMessage(message, native);
                 return ColonyRuntimeValidation.AfterNativeMessage(message, native);
             }
             if (length < 0 || (length != 0 && payload == null)) throw new ArgumentException("Invalid scoped message payload.");
@@ -113,7 +115,17 @@ namespace MixedAtmospheres.Oni
         internal static IntPtr HandleBatch(int message, int length, int count, byte* payload)
         {
             if (NativeContractCapture.IsActive) throw new NotSupportedException("Batch calls are forbidden during capture-only export.");
-            if (ProbeScope.World == null) return Sim.SIM_HandleMessages(message, length, count, payload);
+            if (ProbeScope.World == null)
+            {
+                if (NativeSealedDomainValidation.Active)
+                {
+                    if (length < 0 || count < 0 || (count > 0 && payload == null)) throw new ArgumentException("Invalid native batch.");
+                    _ = checked(length * count);
+                    for (var index = 0; index < count; ++index)
+                        NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload + checked(index * length));
+                }
+                return Sim.SIM_HandleMessages(message, length, count, payload);
+            }
             // A partial batch followed by a rejection would break atomicity.
             // No batch is accepted until its whole transaction is implemented.
             throw new NotSupportedException("Batch native messages are not implemented in the probe.");

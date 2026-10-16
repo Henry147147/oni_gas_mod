@@ -1,0 +1,55 @@
+#ifndef MIXED_ATMOSPHERES_ONI_DOMAIN_H
+#define MIXED_ATMOSPHERES_ONI_DOMAIN_H
+#include "oni_backend.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Development-only sealed domain. This is not whole-colony ownership. The
+ * caller must verify an empty, impermeable, adiabatic native border before
+ * activation. No native inventory, machine, radiation or disease may enter it.
+ * Unsupported operations fault the domain; original fluids never take over. */
+#define MA_ONI_DOMAIN_ABI_VERSION 1U
+#define MA_ONI_DOMAIN_SEALED_TEST 1U
+#define MA_ONI_DOMAIN_SPECIES 4U /* nitrogen, oxygen, helium, water */
+typedef struct MAOniDomainConfig {
+    uint32_t struct_size, abi_version, flags, native_grid_width;
+    uint32_t offset_x, offset_y, width, height;
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water control */
+} MAOniDomainConfig;
+
+typedef struct MAOniDomainStatus {
+    uint32_t struct_size, abi_version, state, cells; /* 0 inactive, 1 running, 2 stopped, 3 faulted */
+    uint64_t session, completed_frames, native_ticket, substeps, rejected_attempts;
+    uint64_t solver_thread, start_thread;
+    double time_seconds, last_timestep_seconds;
+    double maximum_relative_mass_error, maximum_relative_energy_error;
+    double initial_oxygen_kg, current_oxygen_kg, pressure_pa, liquid_mass_kg;
+    uint64_t suppressed_pressure, suppressed_liquid, suppressed_temperature;
+    uint64_t suppressed_transition, suppressed_post_process;
+    uint64_t suppressed_gas;
+    char error[256];
+} MAOniDomainStatus;
+
+typedef struct MAOniDomainCell {
+    double masses[MA_ONI_DOMAIN_SPECIES];
+    double internal_energy, pressure, temperature, liquid_fraction;
+    double resolved_kinetic_energy, momentum_x, momentum_y;
+} MAOniDomainCell;
+typedef struct MAOniDomainSpecies {
+    double molar_mass, cv, energy_offset, reference_density;
+} MAOniDomainSpecies;
+
+MA_ONI_API uint32_t ma_oni_domain_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_start(const MAOniDomainConfig*, MAOniDomainStatus*);
+/* Copies a coherent completed frame; insufficient capacity changes no output. */
+MA_ONI_API MAOniResult ma_oni_domain_copy(MAOniDomainStatus*, MAOniDomainCell*, uint32_t capacity);
+MA_ONI_API MAOniResult ma_oni_domain_stop(MAOniDomainStatus*);
+MA_ONI_API uint32_t ma_oni_domain_active(void);
+MA_ONI_API MAOniResult ma_oni_domain_species(uint32_t index, MAOniDomainSpecies*);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

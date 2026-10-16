@@ -30,7 +30,7 @@ def check_observation(report: dict, mode: str) -> dict:
     if status["ActiveCalls"] or not report["nativeObserverDetached"] or not report["nativeObserverLiveDetachRejected"]:
         raise ValueError("Unbalanced observer lifecycle")
     hooks = {item["Name"]: item for item in status["Hooks"]}
-    if len(hooks) != 23 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
+    if len(hooks) != 25 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
         raise ValueError("Hook entry/exit imbalance")
     if hooks["update-data"]["Entries"] != (13 if mode == "fluid-actors" else 12):
         raise ValueError("Native physical update count differs from requested timesteps")

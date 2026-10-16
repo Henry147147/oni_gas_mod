@@ -43,6 +43,10 @@ SPECS = (
     ("consumer", "?Update@ElementConsumer@@UEAAXMAEAVSimData@@AEBURegion@@@Z", "_ZN15ElementConsumer6UpdateEfR7SimDataRK6Region", "void(this*,float,data*,const-region*)"),
     ("emitter", "?Update@ElementEmitter@@UEAAXMAEAVSimData@@AEBURegion@@@Z", "_ZN14ElementEmitter6UpdateEfR7SimDataRK6Region", "void(this*,float,data*,const-region*)"),
     ("building-heat", "?Update@BuildingHeatExchange@@UEAAXMAEAVSimData@@AEBURegion@@@Z", "_ZN20BuildingHeatExchange6UpdateEfR7SimDataRK6Region", "void(this*,float,data*,const-region*)"),
+    # The matching PDB's LF_PROCEDURE records confirm bool returns for both
+    # overloads (types 0xD8F7 and 0xC495). Windows inlines them; no RVA is invented.
+    ("gas-interaction", None, "_Z16DoGasInteractionR7SimDataR9SimEventsi", "bool(data*,events*,int)"),
+    ("gas-interaction-pair", None, "_Z16DoGasInteractionR7SimDataR9SimEventsii", "bool(data*,events*,int,int)"),
 )
 
 

@@ -6,7 +6,7 @@
     "coverage_policy": "4e36cd207d0e0930d16a22a60a1644f5222a97809a6db2063b1b455556399e45",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "219e67fcfdd93233578f79c8f3d11aabb7e2220c805944b85a5f7c2a25bb14fe"
+    "native_hook_profiles": "a236442724995398569e87daaf7e92800c87e88ace76f26770261e501e5c0c0e"
   },
   "assembly_hashes": {
     "windows-x64": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -7971,6 +7971,58 @@
           }
         ],
         "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
+      "id": "native-hook/gas-interaction",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "linux-x64",
+            "index": 23,
+            "role": "gas-interaction",
+            "symbol": "_Z16DoGasInteractionR7SimDataR9SimEventsi",
+            "rva": 455824,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "adfb6e137af72b82c727efb47d30388034c7b98ed35e2d25f046897604b8214e",
+            "signature": "bool(data*,events*,int)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [
+          "windows-x64"
+        ],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
+      "id": "native-hook/gas-interaction-pair",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "linux-x64",
+            "index": 24,
+            "role": "gas-interaction-pair",
+            "symbol": "_Z16DoGasInteractionR7SimDataR9SimEventsii",
+            "rva": 221552,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "57343c2bb47234556712f224a1abcd6c4dc51190247d83a9f11f3b84060f3cb7",
+            "signature": "bool(data*,events*,int,int)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [
+          "windows-x64"
+        ],
         "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
       }
     },

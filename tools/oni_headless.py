@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -486,11 +487,55 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
             and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
 
 
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False) -> bool:
+    """Accept bounded physical ownership only; never promote it to a playable colony."""
+    if not isinstance(report, dict) or not isinstance(observation, dict):
+        return False
+    physical = report.get("NativeDomain")
+    observed = observation.get("Observation")
+    if not isinstance(physical, dict) or not isinstance(observed, dict):
+        return False
+    counters = ("CompletedFrames", "NativeTicket", "Substeps", "SolverThread", "StartThread")
+    if any(type(physical.get(key)) is not int or physical[key] <= 0 for key in counters):
+        return False
+    bounds = (("MaximumRelativeMassError", 1e-8), ("MaximumRelativeEnergyError", 1e-6))
+    if any(type(physical.get(key)) not in (int, float) or not 0 <= physical[key] <= limit for key, limit in bounds):
+        return False
+    values = ("TimeSeconds", "LastTimestepSeconds", "InitialOxygenKg", "CurrentOxygenKg", "PressurePa", "LiquidMassKg")
+    if any(type(physical.get(key)) not in (int, float) or not math.isfinite(physical[key]) for key in values):
+        return False
+    phases = ("SuppressedPostProcess", "SuppressedTemperature")
+    if any(type(physical.get(key)) is not int or physical[key] <= 0 for key in phases):
+        return False
+    if (type(report.get("RenderedRevision")) is not int or not 0 < report["RenderedRevision"] <= physical["CompletedFrames"]
+            or type(report.get("Publications")) is not int or report["Publications"] < 2):
+        return False
+    primed = report.get("ProjectionPrimedAtNativeFrame")
+    if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
+        return False
+    physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
+                         physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
+                         physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
+    return (report.get("Kind") == "actual-game-sealed-native-fluid-domain" and report.get("Status") == "passed"
+            and report.get("Platform") == "LinuxPlayer" and report.get("BoundedFluidAuthority") is True
+            and report.get("WholeColonyFluidAuthority") is False and report.get("FirstPlayableColonyPassed") is False
+            and report.get("SavesAllowed") is False and physical.get("State") == 1
+            and physical["CompletedFrames"] >= frames and physical["NativeTicket"] >= physical["CompletedFrames"]
+            and physical["SolverThread"] != physical["StartThread"]
+            and physical["TimeSeconds"] > 0 and 0 < physical["LastTimestepSeconds"] <= 1 and physics_exercised
+            and all(report.get(key) is True for key in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced",
+                "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified",
+                "NativeRendererAdvanced", "SaveGuardVerified", "GameGridProjectionVerified"))
+            and observation.get("BoundedNativeDomainActive") is True and observed.get("Attached") is True
+            and observed.get("ForwardingOnly") is False and observed.get("RecoveryRequired") is False
+            and observed.get("AuthoritativeFluidOwner") is False and observed.get("OniBuild") == 744825)
+
+
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode == "native-observer" and not manifest.get("native_observer_enabled", False):
-        raise ValueError("native-observer mode requires a package built with --native-observer")
+    if args.mode in ("native-observer", "native-domain", "native-liquid-domain") and not manifest.get("native_observer_enabled", False):
+        raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
         raise ValueError("Supply the native Linux ONI installation.")
@@ -586,7 +631,17 @@ def playtest(args, state: Path, session: dict) -> int:
         except (OSError, json.JSONDecodeError):
             observer_report = None
         observer_ok = native_observer_passed(manifest, observer_report)
-        if code == 0 and not observer_ok:
+        domain_report = None
+        domain_ok = False
+        if args.mode in ("native-domain", "native-liquid-domain"):
+            try:
+                domain_report = read_json(colony_file.parent / "native-domain.json")
+            except (OSError, json.JSONDecodeError):
+                pass
+            domain_ok = native_domain_passed(domain_report, observer_report, args.frames, args.mode == "native-liquid-domain")
+            if code == 0 and not domain_ok:
+                status, code = "failed-native-domain", 2
+        elif code == 0 and not observer_ok:
             status, code = "failed-native-observer", 2
         retain_on_success = args.keep_open and code == 0
         result = {
@@ -603,6 +658,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
             "native_backend_observation": observer_report,
             "native_backend_observer_passed": observer_ok,
+            "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
             "game_hashes": {p: digest(game / p) for p in (
                 "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
             **revision_fields(manifest),
@@ -630,7 +686,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)

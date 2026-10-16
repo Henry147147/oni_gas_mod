@@ -43,7 +43,8 @@ namespace MixedAtmospheres.Oni
                 File.WriteAllText(destination, report.ToJson());
                 probeReport = report;
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Integration probe completed. " +
-                    "Full simulation ownership is NOT certified; this package does not change colony physics. Report: " + destination);
+                    (NativeSealedDomainValidation.IsMode ? "A sealed native development domain is enabled; whole-colony ownership is not certified. Report: " :
+                    "Full simulation ownership is NOT certified; this package does not change colony physics. Report: ") + destination);
             }
             catch (Exception error)
             {

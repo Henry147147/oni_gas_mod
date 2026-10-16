@@ -49,6 +49,7 @@ namespace MixedAtmospheres.Oni
             public int SnapshotsPublished, NativeFramesAcknowledged, MaxEventsPerSnapshot;
             public long MaxOwnedBytes;
             public bool AllCopiesByteIdentical = true;
+            public bool SnapshotCopiesIncludeCustomProjections = false;
             public bool NativeObserverForwardingPassed = false;
             public ulong ObserverTimestepReturns = 0, ObserverPhysicalUpdates = 0;
             public int SnapshotChannels, EventChannels, Duplicants;
@@ -81,10 +82,10 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
-            if (configuration.Mode == "native-observer" && !NativeBackendObservation.Enabled)
+            if ((configuration.Mode == "native-observer" || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
                 throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
                 throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
@@ -97,8 +98,14 @@ namespace MixedAtmospheres.Oni
                 (configuration.Mode == "load-rejection" && (configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 0)))
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
             Directory.CreateDirectory(OutputDirectory);
+            if (NativeSealedDomainValidation.IsMode)
+            {
+                Report.SnapshotCopiesIncludeCustomProjections = true;
+                Report.AllCopiesByteIdentical = false;
+            }
             WriteReport();
-            Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode + ". Colony physics remains native.");
+            Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode +
+                (NativeSealedDomainValidation.IsMode ? ". Experimental sealed-domain ownership checks are required." : ". Colony physics remains native."));
         }
 
         internal static bool ObserveMessage => configuration != null && !done;
@@ -224,6 +231,10 @@ namespace MixedAtmospheres.Oni
             if (Game.Instance == null) return;
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
+            if (NativeSealedDomainValidation.IsMode)
+            {
+                NativeSealedDomainValidation.Tick(); return;
+            }
             if (configuration.Mode == "coupled-presentation")
             {
                 try { CoupledPresentationValidation.Tick(); }
@@ -300,8 +311,23 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void SetStage(string stage) { Report.Stage = stage; WriteReport(); }
+        internal static void RecordNativeDomainPublication(Sim.GameDataUpdate* source, OwnedGameDataSnapshot copy)
+        {
+            Report.PhysicsOwner = "experimental custom domain; ownership unverified; native ONI outside";
+            Report.Width = Grid.WidthInCells; Report.Height = Grid.HeightInCells;
+            Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
+            Report.Duplicants = Components.LiveMinionIdentities.Count;
+            Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
+            Report.SnapshotChannels = OwnedGameDataSnapshot.ChannelCount;
+            Report.EventChannels = OwnedGameDataSnapshot.EventChannelCount;
+            Report.MaxOwnedBytes = Math.Max(Report.MaxOwnedBytes, copy.CapturedBytes);
+            ++Report.SnapshotsPublished;
+            Report.NativeFramesAcknowledged += source->numFramesProcessed;
+        }
         internal static void CompletePresentation(string kind = "actual-game-mixture-presentation-fixture-validation")
         {
+            if (NativeSealedDomainValidation.IsMode)
+                Report.PhysicsOwner = "custom native sealed domain; native ONI outside";
             Report.Kind = kind;
             Report.Status = "passed";
             Report.GameStarted = true;
@@ -350,6 +376,7 @@ namespace MixedAtmospheres.Oni
         internal static void Shutdown()
         {
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
+            if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();
             if (configuration?.Mode == "coupled-presentation") CoupledPresentationValidation.Abort();
         }
     }

@@ -40,7 +40,7 @@ namespace MixedAtmospheres.Oni
         internal static bool IsActive => HasProvider;
         internal static long PresentationBuildCount { get { lock (Sync) return builds; } }
         internal static long CurrentRevision { get { lock (Sync) return current?.Revision ?? world?.Revision ?? fixture?.Revision ?? 0; } }
-        internal static bool IsFixture { get { lock (Sync) return fixture != null || sourceIsFixture; } }
+        internal static bool IsFixture { get { lock (Sync) return fixture?.IsFixture == true || sourceIsFixture; } }
 
         // The model owns cloned settings/palette/options. Replacing it prepares
         // new world readings atomically; an already pinned Unity frame retains
@@ -189,6 +189,27 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // Native completed readings from an explicitly bounded physical owner.
+        // This does not replace ownership outside the supplied cell set.
+        internal static void PublishNativeDomainFrame(int width, int height, long revision,
+            IReadOnlyDictionary<int, MixtureThermodynamicReading> readings)
+        {
+            lock (Sync)
+            {
+                if (model == null || source != null || completedSource != null)
+                    throw new InvalidOperationException("A native domain requires its own presentation session and model.");
+                if (width <= 0 || height <= 0 || revision < 0 || readings.Count == 0)
+                    throw new ArgumentException("Invalid native domain frame.");
+                if (fixture != null && (fixture.IsFixture || revision < fixture.Revision))
+                    throw new InvalidOperationException("Native domain publication changed owner or moved backwards.");
+                foreach (var reading in readings)
+                    if (reading.Key < 0 || reading.Key >= (long)width * height || reading.Value.Revision != revision)
+                        throw new ArgumentException("Native domain cell or revision disagrees with its completed frame.");
+                fixture = new FixtureSource(width, height, readings, revision, model);
+                includeWorldCells = true; ++generation;
+            }
+        }
+
         internal static void RegisterInventory(string id, Func<MixtureContainerSample> snapshot, Func<bool>? isAlive = null)
         {
             if (string.IsNullOrWhiteSpace(id) || id.Length > 256) throw new ArgumentException("A stable inventory identity is required.", nameof(id));
@@ -305,7 +326,7 @@ namespace MixedAtmospheres.Oni
                 if (capturedEpoch != resetEpoch) throw new InvalidOperationException("The presentation session ended during an inventory capture.");
                 current = new RuntimeMixturePresentationFrame(unityFrame, capturedGeneration, capturedEpoch, capturedModel, capturedWorld,
                     capturedFixture?.Presentations, capturedFixture?.Width ?? capturedWorld?.Width ?? 0, capturedFixture?.Height ?? capturedWorld?.Height ?? 0,
-                    capturedFixture?.Revision ?? capturedWorld?.Revision ?? 0, capturedFixture != null || capturedIsFixture, inventories, errors, capturedWorldCells);
+                    capturedFixture?.Revision ?? capturedWorld?.Revision ?? 0, capturedFixture?.IsFixture == true || capturedIsFixture, inventories, errors, capturedWorldCells);
                 ++builds; return current;
                 }
                 finally { capturing = false; }
@@ -411,6 +432,8 @@ namespace MixedAtmospheres.Oni
 
         private sealed class FixtureSource
         {
+            internal readonly bool IsFixture;
+            private readonly IReadOnlyDictionary<int, MixtureThermodynamicReading>? physical;
             internal readonly int Width, Height;
             internal readonly long Revision;
             internal readonly double Volume;
@@ -419,13 +442,23 @@ namespace MixedAtmospheres.Oni
             internal FixtureSource(int width, int height, IReadOnlyDictionary<int, FluidInventory> inventories, double volume,
                 long revision, MixturePresentationModel model)
             {
+                IsFixture = true;
                 Width = width; Height = height; Inventories = inventories; Volume = volume; Revision = revision;
                 var readings = new Dictionary<int, MixturePresentation>();
                 foreach (var cell in inventories)
                     readings.Add(cell.Key, model.Describe(cell.Value, volume, revision, "fixture:cell:" + cell.Key));
                 Presentations = new ReadOnlyDictionary<int, MixturePresentation>(readings);
             }
-            internal FixtureSource WithModel(MixturePresentationModel model) => new FixtureSource(Width, Height, Inventories, Volume, Revision, model);
+            internal FixtureSource(int width, int height, IReadOnlyDictionary<int, MixtureThermodynamicReading> readings,
+                long revision, MixturePresentationModel model)
+            {
+                Width = width; Height = height; Volume = 1; Revision = revision; IsFixture = false;
+                physical = new ReadOnlyDictionary<int, MixtureThermodynamicReading>(readings.ToDictionary(entry => entry.Key, entry => entry.Value));
+                Inventories = new ReadOnlyDictionary<int, FluidInventory>(new Dictionary<int, FluidInventory>());
+                Presentations = new ReadOnlyDictionary<int, MixturePresentation>(physical.ToDictionary(entry => entry.Key, entry => model.Describe(entry.Value)));
+            }
+            internal FixtureSource WithModel(MixturePresentationModel model) => physical == null ?
+                new FixtureSource(Width, Height, Inventories, Volume, Revision, model) : new FixtureSource(Width, Height, physical, Revision, model);
         }
     }
 

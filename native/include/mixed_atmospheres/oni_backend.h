@@ -13,12 +13,13 @@
 extern "C" {
 #endif
 
-/* Forwarding observation only. No API grants fluid authority. All sizes/version
- * fields must match exactly. Error text is bounded and thread-local. Observer
+/* Attachment forwards by default and never grants whole-colony authority.
+ * The separate oni_domain.h extension provides opt-in development experiments.
+ * All sizes/version fields must match exactly. Error text is bounded and thread-local. Observer
  * lifecycle calls must be serialized by the caller before initialize / after
  * shutdown; they are not a mechanism for suspending running game workers. */
-#define MA_ONI_ABI_VERSION 1U
-#define MA_ONI_HOOK_COUNT 23U
+#define MA_ONI_ABI_VERSION 2U
+#define MA_ONI_HOOK_COUNT 25U
 #define MA_ONI_TRACE_CAPACITY 4096U
 #define MA_ONI_OBSERVER_ONLY 1U
 
@@ -38,7 +39,8 @@ typedef enum MAOniHook {
     MA_ONI_NEXT_FRAME, MA_ONI_UPDATE_DATA, MA_ONI_PRESSURE, MA_ONI_LIQUID,
     MA_ONI_TEMPERATURE, MA_ONI_STATE_TRANSITION, MA_ONI_LOAD_TRANSITION,
     MA_ONI_SUBLIMATION, MA_ONI_POST_PROCESS, MA_ONI_STEP, MA_ONI_BEGIN_FRAME,
-    MA_ONI_END_FRAME, MA_ONI_CONSUMER, MA_ONI_EMITTER, MA_ONI_BUILDING_HEAT
+    MA_ONI_END_FRAME, MA_ONI_CONSUMER, MA_ONI_EMITTER, MA_ONI_BUILDING_HEAT,
+    MA_ONI_GAS, MA_ONI_GAS_PAIR
 } MAOniHook;
 
 typedef struct MAOniObserverConfig {
@@ -59,7 +61,7 @@ typedef struct MAOniObserverStatus {
     uint32_t abi_version;
     uint32_t oni_build;
     uint32_t attached;
-    uint32_t authoritative_fluid_owner; /* Always zero in this observer. */
+    uint32_t authoritative_fluid_owner; /* Whole-colony authority: always zero. */
     uint32_t recovery_required; /* Keep module resident; process restart needed. */
     uint64_t installed_hook_mask;
     uint64_t active_calls;
@@ -71,7 +73,7 @@ typedef struct MAOniObserverStatus {
 
 /* Trace records control-flow entry/exit only, never pointers or game data.
  * next-frame exit carries the exact float return bits in value_bits. Positive
- * returns are observations, not an authoritative colony clock. Traces truncate
+ * returns alone do not certify fluid ownership. Traces truncate
  * at capacity rather than overwriting evidence. */
 typedef struct MAOniTraceEvent {
     uint64_t sequence;

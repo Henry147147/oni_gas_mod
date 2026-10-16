@@ -1,0 +1,17 @@
+#pragma once
+#include "mixed_atmospheres/oni_domain.h"
+#include <cstdint>
+#include <mutex>
+
+namespace ma::oni {
+// Called only from the native detours. No managed/game callbacks are made.
+void start_domain(const MAOniDomainConfig&, std::uint64_t start_thread);
+void stop_domain() noexcept;
+void shutdown_domain() noexcept;
+void advance_domain(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;
+bool suppress_domain_cell(std::uint32_t hook, int cell) noexcept;
+void copy_domain(MAOniDomainStatus&, MAOniDomainCell*, std::uint32_t capacity);
+bool domain_active() noexcept;
+MAOniDomainSpecies domain_species(std::uint32_t index);
+std::mutex& domain_frame_mutex() noexcept;
+}

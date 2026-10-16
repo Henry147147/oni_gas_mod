@@ -449,6 +449,24 @@
           "fingerprint_bytes": 32,
           "fingerprint_sha256": "5a8fd8358bf7db31b22a171d81cc3dd11a5ccebe32eda985c4cba857e78f3d80",
           "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 23,
+          "role": "gas-interaction",
+          "symbol": "_Z16DoGasInteractionR7SimDataR9SimEventsi",
+          "rva": 455824,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "adfb6e137af72b82c727efb47d30388034c7b98ed35e2d25f046897604b8214e",
+          "signature": "bool(data*,events*,int)"
+        },
+        {
+          "index": 24,
+          "role": "gas-interaction-pair",
+          "symbol": "_Z16DoGasInteractionR7SimDataR9SimEventsii",
+          "rva": 221552,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "57343c2bb47234556712f224a1abcd6c4dc51190247d83a9f11f3b84060f3cb7",
+          "signature": "bool(data*,events*,int,int)"
         }
       ]
     }

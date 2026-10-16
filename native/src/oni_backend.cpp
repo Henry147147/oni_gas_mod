@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
+#include "oni_domain.hpp"
 #include <funchook.h>
 #include <algorithm>
 #include <array>
@@ -22,9 +23,9 @@
 namespace {
 static_assert(sizeof(void*) == 8, "ONI native observer requires x64");
 static_assert(sizeof(MAOniObserverConfig) == 24);
-static_assert(sizeof(MAOniObserverStatus) == 432);
+static_assert(sizeof(MAOniObserverStatus) == 464);
 static_assert(sizeof(MAOniTraceEvent) == 32);
-static_assert(MA_ONI_BUILDING_HEAT + 1 == MA_ONI_HOOK_COUNT);
+static_assert(MA_ONI_GAS_PAIR + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 #include "oni_profiles.hpp"
 
@@ -48,9 +49,16 @@ bool installed{}, recovery_required{};
 // trampolines while any simulator could retain their addresses.
 void* game_module{};
 
+std::uint64_t native_thread() noexcept {
+    thread_local const auto thread=thread_sequence.fetch_add(1,std::memory_order_relaxed)+1;
+    return thread;
+}
+struct PendingTimestep { std::uint64_t ticket{}; float seconds{}; };
+thread_local PendingTimestep pending_timestep;
+
 void trace(std::uint32_t hook, bool entering, std::uint32_t bits=0) noexcept {
     if (hook > MA_ONI_UPDATE_DATA && (hook < MA_ONI_STEP || hook > MA_ONI_END_FRAME)) return;
-    thread_local const auto thread = thread_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const auto thread = native_thread();
     const auto index = trace_reserved.fetch_add(1, std::memory_order_relaxed);
     if (index >= traces.size()) return;
     const auto i = static_cast<std::size_t>(index);
@@ -77,7 +85,11 @@ template<class Function> Function original(std::uint32_t index) noexcept {
     result name args { Call call(index); using Function = result (*) args; return original<Function>(index) invocation; }
 using GameCallback = int (*)(int,void*);
 FORWARD(on_initialize, MA_ONI_INITIALIZE, void, (GameCallback callback), (callback))
-FORWARD(on_shutdown, MA_ONI_SHUTDOWN, void, (), ())
+void on_shutdown() {
+    Call call(MA_ONI_SHUTDOWN);
+    original<void (*)()>(MA_ONI_SHUTDOWN)();
+    ma::oni::shutdown_domain();
+}
 FORWARD(on_message, MA_ONI_MESSAGE, void*, (int id,int size,std::uint8_t* data), (id,size,data))
 FORWARD(on_messages, MA_ONI_MESSAGES, void*, (int id,int size,int count,std::uint8_t* data), (id,size,count,data))
 FORWARD(on_begin_save, MA_ONI_BEGIN_SAVE, std::uint8_t*, (int* size,int x,int y), (size,x,y))
@@ -88,19 +100,61 @@ float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     call.bits = std::bit_cast<std::uint32_t>(dt);
-    if (dt > 0) positive_steps.fetch_add(1, std::memory_order_relaxed);
+    if (dt > 0) pending_timestep={positive_steps.fetch_add(1,std::memory_order_relaxed)+1,dt};
     return dt;
 }
-FORWARD(on_update_data, MA_ONI_UPDATE_DATA, void, (void* self,void* data), (self,data))
-FORWARD(on_pressure, MA_ONI_PRESSURE, float,
-    (void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index),
-    (data,events,source,target,cell,element,direction,scale,index))
-FORWARD(on_liquid, MA_ONI_LIQUID, void, (void* data,void* events,int cell), (data,events,cell))
-FORWARD(on_temperature, MA_ONI_TEMPERATURE, void, (void* data,void* events,int a,int b), (data,events,a,b))
-FORWARD(on_transition, MA_ONI_STATE_TRANSITION, bool, (void* data,void* events,int cell,const void* definition), (data,events,cell,definition))
-FORWARD(on_load_transition, MA_ONI_LOAD_TRANSITION, void, (void* data,int cell), (data,cell))
-FORWARD(on_sublimation, MA_ONI_SUBLIMATION, bool, (void* data,void* events,int cell,const void* definition), (data,events,cell,definition))
-FORWARD(on_post_process, MA_ONI_POST_PROCESS, void, (void* data,void* events,int cell), (data,events,cell))
+void on_update_data(void* self,void* data) {
+    Call call(MA_ONI_UPDATE_DATA);
+    // Native publication can wake the managed reader inside UpdateData. Keep
+    // both owners behind the same fence until the original update completes.
+    std::lock_guard frame_lock(ma::oni::domain_frame_mutex());
+    const auto pending=pending_timestep; pending_timestep={};
+    if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
+    original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+}
+float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
+    Call call(MA_ONI_PRESSURE);
+    if (ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,cell)) return 0;
+    using Function=float (*)(void*,void*,const void*,void*,int,std::uint16_t,std::int8_t,float,int);
+    return original<Function>(MA_ONI_PRESSURE)(data,events,source,target,cell,element,direction,scale,index);
+}
+void on_liquid(void* data,void* events,int cell) {
+    Call call(MA_ONI_LIQUID);
+    if (!ma::oni::suppress_domain_cell(MA_ONI_LIQUID,cell)) original<void (*)(void*,void*,int)>(MA_ONI_LIQUID)(data,events,cell);
+}
+void on_temperature(void* data,void* events,int a,int b) {
+    Call call(MA_ONI_TEMPERATURE);
+    if (!ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,a) && !ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,b))
+        original<void (*)(void*,void*,int,int)>(MA_ONI_TEMPERATURE)(data,events,a,b);
+}
+bool on_transition(void* data,void* events,int cell,const void* definition) {
+    Call call(MA_ONI_STATE_TRANSITION);
+    if (ma::oni::suppress_domain_cell(MA_ONI_STATE_TRANSITION,cell)) return false;
+    return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_STATE_TRANSITION)(data,events,cell,definition);
+}
+void on_load_transition(void* data,int cell) {
+    Call call(MA_ONI_LOAD_TRANSITION);
+    if (!ma::oni::suppress_domain_cell(MA_ONI_LOAD_TRANSITION,cell)) original<void (*)(void*,int)>(MA_ONI_LOAD_TRANSITION)(data,cell);
+}
+bool on_sublimation(void* data,void* events,int cell,const void* definition) {
+    Call call(MA_ONI_SUBLIMATION);
+    if (ma::oni::suppress_domain_cell(MA_ONI_SUBLIMATION,cell)) return false;
+    return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_SUBLIMATION)(data,events,cell,definition);
+}
+void on_post_process(void* data,void* events,int cell) {
+    Call call(MA_ONI_POST_PROCESS);
+    if (!ma::oni::suppress_domain_cell(MA_ONI_POST_PROCESS,cell)) original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);
+}
+bool on_gas(void* data,void* events,int cell) {
+    Call call(MA_ONI_GAS);
+    if (ma::oni::suppress_domain_cell(MA_ONI_GAS,cell)) return false;
+    return original<bool (*)(void*,void*,int)>(MA_ONI_GAS)(data,events,cell);
+}
+bool on_gas_pair(void* data,void* events,int a,int b) {
+    Call call(MA_ONI_GAS_PAIR);
+    if (ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,a) || ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,b)) return false;
+    return original<bool (*)(void*,void*,int,int)>(MA_ONI_GAS_PAIR)(data,events,a,b);
+}
 FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
 FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
 FORWARD(on_end_frame, MA_ONI_END_FRAME, void, (void* self), (self))
@@ -121,7 +175,7 @@ const std::array<void*,MA_ONI_HOOK_COUNT> replacements{
     reinterpret_cast<void*>(&on_post_process), reinterpret_cast<void*>(&on_step),
     reinterpret_cast<void*>(&on_begin_frame), reinterpret_cast<void*>(&on_end_frame),
     reinterpret_cast<void*>(&on_consumer), reinterpret_cast<void*>(&on_emitter),
-    reinterpret_cast<void*>(&on_building_heat)};
+    reinterpret_cast<void*>(&on_building_heat), reinterpret_cast<void*>(&on_gas), reinterpret_cast<void*>(&on_gas_pair)};
 
 void output_valid(const MAOniObserverStatus* output) {
     if (!output || output->struct_size != sizeof(MAOniObserverStatus) || output->abi_version != MA_ONI_ABI_VERSION)
@@ -291,6 +345,50 @@ MAOniResult ma_oni_copy_trace(MAOniTraceEvent* output,std::uint32_t capacity,std
         if (ready && !output) throw Failure(MA_ONI_INVALID_ARGUMENT,"Trace buffer is required");
         if (ready) std::copy_n(traces.data(),ready,output);
         *count=ready;
+    });
+}
+std::uint32_t ma_oni_domain_abi_version() { return MA_ONI_DOMAIN_ABI_VERSION; }
+std::uint32_t ma_oni_domain_active() { return ma::oni::domain_active() ? 1U : 0U; }
+MAOniResult ma_oni_domain_species(std::uint32_t index,MAOniDomainSpecies* output) {
+    return boundary([&] {
+        if (!output || index > MA_ONI_DOMAIN_SPECIES) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid domain species output or index");
+        *output=ma::oni::domain_species(index);
+    });
+}
+MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatus* output) {
+    return boundary([&] {
+#if defined(_WIN32)
+        (void)config; (void)output;
+        throw Failure(MA_ONI_INCOMPATIBLE,"Sealed native domains require Linux gas-interaction hooks; Windows supports forwarding observation only");
+#else
+        if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain configuration or output ABI");
+        if (!installed || recovery_required || !image_base)
+            throw Failure(MA_ONI_BUSY,"Native domain requires inspected attached hooks");
+        if (ma::oni::domain_active()) throw Failure(MA_ONI_BUSY,"Native domain is already active");
+        std::uintptr_t sim{}, data{};
+        std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
+        std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+        if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
+        try { ma::oni::start_domain(*config,native_thread()); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        ma::oni::copy_domain(*output,nullptr,0);
+#endif
+    });
+}
+MAOniResult ma_oni_domain_copy(MAOniDomainStatus* output,MAOniDomainCell* cells,std::uint32_t capacity) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION || (!cells && capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain snapshot output");
+        try { ma::oni::copy_domain(*output,cells,capacity); }
+        catch (const std::length_error& error) { throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain output ABI");
+        ma::oni::stop_domain(); ma::oni::copy_domain(*output,nullptr,0);
     });
 }
 }

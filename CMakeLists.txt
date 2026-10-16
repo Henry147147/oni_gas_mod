@@ -9,10 +9,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(MA_BUILD_ONI_NATIVE_BACKEND)
-    include(cmake/OniNativeBackend.cmake)
-endif()
-
 # Used only by the explicit experimental FluidWorld geometry/EOS mode. The
 # existing GasWorld/C ABI do not select it. Keep its independent test project.
 add_library(ma_fluid_reference STATIC native/experimental/liquid_reference.cpp)
@@ -412,3 +408,7 @@ add_executable(ma_fluid_benchmark native/apps/fluid_benchmark.cpp)
 target_link_libraries(ma_fluid_benchmark PRIVATE ma_core)
 
 install(TARGETS mixed_atmospheres RUNTIME DESTINATION . LIBRARY DESTINATION .)
+
+if(MA_BUILD_ONI_NATIVE_BACKEND)
+    include(cmake/OniNativeBackend.cmake)
+endif()

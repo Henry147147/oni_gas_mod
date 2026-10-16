@@ -26,12 +26,17 @@ file(WRITE "${oni_generated}/third-party-sources.txt"
     "Funchook 1.1.3: https://github.com/kubo/funchook/tree/88388db3c69e16c1560fee65c6857d75f5ce6fd5\n"
     "diStorm: https://github.com/gdabah/distorm/tree/ab59d6e193948cfa5d1482fb6c7e64870e9e93b9\n"
     "Pinned source archives and SHA256 values are in cmake/OniNativeBackend.cmake.\n")
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_distorm.py"
+    "${ma_distorm_SOURCE_DIR}" COMMAND_ERROR_IS_FATAL ANY)
+file(APPEND "${oni_generated}/third-party-sources.txt"
+    "Local changes: patch_funchook.py (branch relocation and unaligned code operands) and patch_distorm.py (unsigned flag and unaligned opcode access).\n")
 # The release tarball omits its distorm git submodule. Copy only inside fetched
 # build artifacts, preserving upstream sources and avoiding a floating git ref.
 file(COPY "${ma_distorm_SOURCE_DIR}/" DESTINATION "${ma_funchook_SOURCE_DIR}/distorm")
 execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py"
     "${ma_funchook_SOURCE_DIR}/src/funchook_x86.c" COMMAND_ERROR_IS_FATAL ANY)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_distorm.py")
 set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(FUNCHOOK_BUILD_STATIC ON CACHE BOOL "" FORCE)
 set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -47,10 +52,13 @@ add_custom_command(OUTPUT "${oni_profile_header}"
     DEPENDS "${PROJECT_SOURCE_DIR}/tools/oni_hook_profiles.py"
         "${PROJECT_SOURCE_DIR}/docs/native-hook-profiles.json"
     VERBATIM)
-add_library(mixed_atmospheres_oni SHARED native/src/oni_backend.cpp "${oni_profile_header}")
+add_library(mixed_atmospheres_oni SHARED native/src/oni_backend.cpp native/src/oni_domain.cpp "${oni_profile_header}")
 target_include_directories(mixed_atmospheres_oni PUBLIC native/include PRIVATE "${oni_generated}")
 target_compile_definitions(mixed_atmospheres_oni PRIVATE MA_ONI_EXPORTS)
-target_link_libraries(mixed_atmospheres_oni PRIVATE funchook-static ${CMAKE_DL_LIBS})
+target_link_libraries(mixed_atmospheres_oni PRIVATE funchook-static ma_mac_closed_world ${CMAKE_DL_LIBS})
+foreach(target ma_mac_closed_world ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression)
+    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endforeach()
 set_target_properties(mixed_atmospheres_oni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 if(WIN32)
     set_target_properties(mixed_atmospheres_oni PROPERTIES PREFIX "")
@@ -77,9 +85,13 @@ if(MA_BUILD_TESTS)
     add_executable(ma_oni_detour_tests native/tests/oni_detour_tests.cpp)
     target_link_libraries(ma_oni_detour_tests PRIVATE funchook-static)
     add_test(NAME native_oni_detour_relocation COMMAND ma_oni_detour_tests)
+    add_executable(ma_oni_domain_tests native/tests/oni_domain_tests.cpp native/src/oni_domain.cpp)
+    target_link_libraries(ma_oni_domain_tests PRIVATE ma_mac_closed_world)
+    add_test(NAME native_oni_sealed_domain COMMAND ma_oni_domain_tests)
 endif()
 if(MA_SANITIZERS AND NOT MSVC)
-    foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests)
+    foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests ma_oni_domain_tests
+            ma_mac_closed_world ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression)
         if(TARGET ${target})
             target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
             target_link_options(${target} PRIVATE -fsanitize=address,undefined)

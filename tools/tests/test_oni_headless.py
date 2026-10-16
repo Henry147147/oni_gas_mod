@@ -1,5 +1,6 @@
 """Acceptance guards for private Linux playtest evidence and package isolation."""
 import contextlib
+import copy
 import importlib.util
 import io
 import json
@@ -17,6 +18,59 @@ if not sys.platform.startswith("linux"):
 SPEC = importlib.util.spec_from_file_location("oni_headless", Path(__file__).parents[1] / "oni_headless.py")
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
+
+
+class NativeDomainEvidenceTests(unittest.TestCase):
+    def setUp(self):
+        self.report = {"Kind": "actual-game-sealed-native-fluid-domain", "Status": "passed", "Platform": "LinuxPlayer",
+                       "BoundedFluidAuthority": True, "WholeColonyFluidAuthority": False, "FirstPlayableColonyPassed": False,
+                       "SavesAllowed": False, "NativeCellsUnchanged": True, "NativeSnapshotCopied": True,
+                       "NativeSolidsAdvanced": True, "RetainedFrameVerified": True, "NativeFlowControlObserved": True,
+                       "ProjectionPrimed": True, "NativeFlowFenceVerified": True, "NativeRendererAdvanced": True,
+                       "SaveGuardVerified": True, "GameGridProjectionVerified": True, "ProjectionPrimedAtNativeFrame": 0,
+                       "RenderedRevision": 30, "Publications": 35,
+                       "NativeDomain": {"State": 1, "CompletedFrames": 30, "NativeTicket": 100, "Substeps": 630,
+                           "SolverThread": 2, "StartThread": 1, "MaximumRelativeMassError": 1e-15,
+                           "MaximumRelativeEnergyError": 1e-14, "SuppressedPostProcess": 200, "SuppressedTemperature": 800,
+                           "SuppressedPressure": 100, "SuppressedLiquid": 0, "SuppressedGas": 180, "TimeSeconds": 6.00000009,
+                           "LastTimestepSeconds": .200000003, "InitialOxygenKg": .2, "CurrentOxygenKg": .21,
+                           "PressurePa": 100010.0, "LiquidMassKg": 0.0}}
+        self.observation = {"BoundedNativeDomainActive": True, "Observation": {"Attached": True, "ForwardingOnly": False,
+                            "RecoveryRequired": False, "AuthoritativeFluidOwner": False, "OniBuild": 744825}}
+
+    def test_accepts_only_completed_bounded_physical_ownership(self):
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30))
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 31))
+        for field in ("WholeColonyFluidAuthority", "FirstPlayableColonyPassed", "SavesAllowed"):
+            value = copy.deepcopy(self.report); value[field] = True
+            self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
+        for field in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced", "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified", "NativeRendererAdvanced", "SaveGuardVerified", "GameGridProjectionVerified"):
+            value = copy.deepcopy(self.report); value[field] = False
+            self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
+
+    def test_idle_or_failed_solver_and_unexecuted_exclusions_reject(self):
+        for field, value in (("State", 3), ("SolverThread", 1), ("CurrentOxygenKg", .2), ("TimeSeconds", 0),
+                             ("MaximumRelativeMassError", 1e-7), ("MaximumRelativeEnergyError", float("nan")),
+                             ("SuppressedTemperature", 0), ("SuppressedPostProcess", 0)):
+            report = copy.deepcopy(self.report); report["NativeDomain"][field] = value
+            self.assertFalse(runner.native_domain_passed(report, self.observation, 30), field)
+        observation = copy.deepcopy(self.observation); observation["Observation"]["ForwardingOnly"] = True
+        self.assertFalse(runner.native_domain_passed(self.report, observation, 30))
+
+    def test_compressed_liquid_requires_elastic_pressure(self):
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, True))
+        self.report["NativeDomain"].update(LiquidMassKg=1100.0, PressurePa=2.2e8, SuppressedLiquid=100)
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, True))
+        self.report["NativeDomain"]["PressurePa"] = 0
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, True))
+
+    def test_partial_or_malformed_physical_reports_do_not_raise_or_pass(self):
+        for value in (None, {}, {"NativeDomain": None}, {"NativeDomain": []}):
+            self.assertFalse(runner.native_domain_passed(value, self.observation, 30))
+        for field in ("CompletedFrames", "SuppressedTemperature", "TimeSeconds"):
+            for value in (None, True, "30", []):
+                report = copy.deepcopy(self.report); report["NativeDomain"][field] = value
+                self.assertFalse(runner.native_domain_passed(report, self.observation, 30), (field, value))
 
 
 class EvidenceTests(unittest.TestCase):

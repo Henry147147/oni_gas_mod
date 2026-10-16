@@ -20,6 +20,7 @@ namespace MixedAtmospheres.Oni
         internal static bool Enabled => observer != null && !diagnosticFaulted;
         internal static OniNativeObserver.Reading Capture() => observer?.Capture()
             ?? throw new InvalidOperationException("Native observer is not enabled.");
+        internal static void Flush() => WriteReport();
 
         internal static void Initialize(string modDirectory)
         {
@@ -58,6 +59,7 @@ namespace MixedAtmospheres.Oni
             var reading = observer.Capture();
             var report = new {
                 SchemaVersion = 1, Status = "observing", OriginalNativePhysicsActive = true,
+                BoundedNativeDomainActive = !reading.ForwardingOnly,
                 AuthoritativeFluidOwner = false, Observation = reading,
                 HookNames = OniNativeObserver.HookNames, Trace = observer.CaptureTrace()
             };

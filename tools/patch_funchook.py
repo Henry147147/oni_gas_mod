@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply a bounded short-branch relocation fix to pinned Funchook 1.1.3.
+"""Fix bounded short-branch relocation and unaligned operands in Funchook 1.1.3.
 
 Changes are limited to downloaded build artifacts. The original source hash is
 verified even on repeated application by reversing these exact substitutions.
@@ -69,10 +69,41 @@ NEW_REL = """    if (rel->size == 32) {
         if (*(int32_t*)(ctx->dst + rel->offset) != (uint32_t)rel->raddr) {
 """
 CHANGES = ((OLD, NEW), (OLD_ADVANCE, NEW_ADVANCE), (OLD_REL, NEW_REL))
+MEMORY_CHANGES = (
+    ("static int funchook_write_jump32(funchook_t *funchook,", """/* Mixed Atmospheres, 2026-10-16: x64 code operands can be unaligned. */
+static int32_t ma_funchook_read_s32(const void *pointer)
+{
+    int32_t value;
+    memcpy(&value, pointer, sizeof(value));
+    return value;
+}
+
+static int funchook_write_jump32(funchook_t *funchook,""", 1),
+    ("    *(int*)(out + 1) = (int)(dst - (src + 5));", """    int displacement = (int)(dst - (src + 5));
+    memcpy(out + 1, &displacement, sizeof(displacement));""", 1),
+    ("    *(const uint8_t**)(src + 6) = dst;", "    memcpy(src + 6, &dst, sizeof(dst));", 1),
+    ("*(int32_t*)(ctx->dst + rel->offset)", "ma_funchook_read_s32(ctx->dst + rel->offset)", 2),
+    ("    uint32_t *offset_addr;", "    uint8_t *offset_addr;\n    uint32_t displacement;", 1),
+    ("    offset_addr = (uint32_t*)(entry->trampoline + disp->disp[0].pos_offset);\n"
+     "    *offset_addr = (uint32_t)(disp->disp[0].dst_addr - src_addr);",
+     "    offset_addr = entry->trampoline + disp->disp[0].pos_offset;\n"
+     "    displacement = (uint32_t)(disp->disp[0].dst_addr - src_addr);\n"
+     "    memcpy(offset_addr, &displacement, sizeof(displacement));", 1),
+    ("        offset_addr = (uint32_t*)(entry->trampoline + disp->disp[1].pos_offset);\n"
+     "        *offset_addr = (uint32_t)(disp->disp[1].dst_addr - src_addr);",
+     "        offset_addr = entry->trampoline + disp->disp[1].pos_offset;\n"
+     "        displacement = (uint32_t)(disp->disp[1].dst_addr - src_addr);\n"
+     "        memcpy(offset_addr, &displacement, sizeof(displacement));", 1),
+)
 
 
 def patch(path: Path) -> None:
     source = path.read_text(encoding="utf-8")
+    for old, new, count in reversed(MEMORY_CHANGES):
+        if new in source:
+            if source.count(new) != count:
+                raise ValueError("Ambiguous unaligned-access patch")
+            source = source.replace(new, old)
     # Upgrade only the exact previous local extension in existing build caches.
     # Reversing it must still recover the pinned unmodified upstream hash.
     previous = NEW.removesuffix(BOUND)
@@ -90,6 +121,10 @@ def patch(path: Path) -> None:
     for old, new in CHANGES:
         if modified.count(old) != 1:
             raise ValueError("Funchook patch context differs")
+        modified = modified.replace(old, new)
+    for old, new, count in MEMORY_CHANGES:
+        if modified.count(old) != count:
+            raise ValueError("Funchook unaligned-access patch context differs")
         modified = modified.replace(old, new)
     if modified != path.read_text(encoding="utf-8"):
         path.write_text(modified, encoding="utf-8", newline="\n")

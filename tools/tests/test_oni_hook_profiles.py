@@ -17,7 +17,9 @@ class NativeProfileTests(unittest.TestCase):
         profiles.validate(self.value)
         win, linux = self.value["profiles"]
         self.assertEqual(len(win["hooks"]), 22)
-        self.assertEqual(len(linux["hooks"]), 23)
+        self.assertEqual(len(linux["hooks"]), 25)
+        self.assertNotIn("gas-interaction", [h["role"] for h in win["hooks"]])
+        self.assertEqual(next(h["signature"] for h in linux["hooks"] if h["role"] == "gas-interaction"), "bool(data*,events*,int)")
         self.assertNotIn("step", [h["role"] for h in win["hooks"]])
         self.assertNotEqual(win["assembly_sha256"], linux["assembly_sha256"])
         self.assertNotEqual(win["native_sha256"], linux["native_sha256"])

@@ -42,7 +42,7 @@ def main() -> None:
     parser.add_argument("--native", type=Path, required=True, help="libmixed_atmospheres.so or mixed_atmospheres.dll")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
-    parser.add_argument("--native-observer", type=Path, help="Opt-in forwarding SimDLL observer from its CMake build directory; never grants fluid authority")
+    parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
@@ -102,6 +102,7 @@ def main() -> None:
         shutil.copytree(observer_support / "licenses", third_party / "licenses")
         shutil.copy2(observer_support / "third-party-sources.txt", third_party)
         shutil.copy2(ROOT / "tools/patch_funchook.py", third_party)
+        shutil.copy2(ROOT / "tools/patch_distorm.py", third_party)
         shutil.copy2(ROOT / "cmake/OniNativeBackend.cmake", third_party)
         with tarfile.open(third_party / "funchook-1.1.3-with-distorm.tar.gz", "w:gz") as archive:
             archive.add(observer_source, arcname="funchook-1.1.3", recursive=True)
@@ -113,13 +114,16 @@ def main() -> None:
         shutil.copy2(validator.resolve(), private_directory / "GameMonoFileProtocolValidation.dll")
     (output / "mod.yaml").write_text(
         'title: "Mixed Atmospheres - Integration Probe"\n'
-        'description: "Developer probe only. Validates native loading and scoped simulation hooks; does not change colony physics."\n'
+        'description: "Developer probe only. Validates native loading and scoped simulation hooks; experimental physics requires explicit private configuration."\n'
         'staticID: "MixedAtmospheres.IntegrationProbe"\n', encoding="utf-8")
     (output / "mod_info.yaml").write_text(
         f'minimumSupportedBuild: {args.oni_build}\nversion: "0.1.0-probe"\nAPIVersion: 2\n', encoding="utf-8")
     (output / "README.txt").write_text(
         "Mixed Atmospheres - developer integration probe\n\n"
-        "This is NOT the playable gas/liquid overhaul. It leaves colony physics unchanged.\n"
+        "This is NOT the playable gas/liquid overhaul. Default probes preserve native physics.\n"
+        "Explicit native-domain modes attempt experimental ownership in a disposable sealed room.\n"
+        "The gas control currently fails; a sealed water equilibrium control passes.\n"
+        "Saving is disabled throughout experimental domain ownership.\n"
         "Place this complete folder under ONI's mods/Dev folder. Enable the probe,\n"
         "restart to the main menu, and inspect integration-probe.json and Player.log.\n"
         "Keep only one folder with staticID MixedAtmospheres.IntegrationProbe in mods/Dev;\n"
