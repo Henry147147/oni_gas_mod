@@ -40,6 +40,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
 
     def test_accepts_only_completed_bounded_physical_ownership(self):
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30))
+        windows = copy.deepcopy(self.report); windows['Platform'] = 'WindowsPlayer'
+        self.assertFalse(runner.native_domain_passed(windows, self.observation, 30))
+        self.assertTrue(runner.native_domain_passed(windows, self.observation, 30, expected_platform='WindowsPlayer'))
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 31))
         for field in ("WholeColonyFluidAuthority", "FirstPlayableColonyPassed", "SavesAllowed"):
             value = copy.deepcopy(self.report); value[field] = True

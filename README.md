@@ -45,6 +45,8 @@ for ownership, interfaces, failures and implementation gates.
   production devices and persistence remain unfinished.
   Carbon dioxide is now a physical constituent too: its real-game injection,
   consumption, transport, callbacks and energy/mass accounts pass on Linux.
+  The Windows binary also passes gas, water and heat controls under Wine.
+  Current Windows Unity takeover validation remains open.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

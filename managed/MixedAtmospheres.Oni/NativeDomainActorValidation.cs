@@ -7,6 +7,7 @@ namespace MixedAtmospheres.Oni
 {
     internal static unsafe partial class NativeSealedDomainValidation
     {
+        internal const int MinimumActorValidationFrames = 80;
         private static GameObject? actorConsumerObject;
         private static ElementConsumer? actorConsumer;
         private static int actorFixtureStage, fixtureEmitter = -1, fixtureRegistrations, fixtureBlockedCallbacks, fixtureUnblockedCallbacks;

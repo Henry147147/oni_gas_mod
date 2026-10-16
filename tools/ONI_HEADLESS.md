@@ -56,6 +56,11 @@ ten-native-timestep/physical-update gate with 47 byte-identical snapshot
 channels. The wrapper restores original mods, preferences and generated-world
 files after closing its disposable colony. Full Windows instructions and the
 retained failed timing control are in the same backend contract.
+It now also accepts `-NativeDomain gas|water|heat|transfer|actor|carbon` with a
+Windows native package. Domain runs use the shared portable evidence checker
+and require Windows Unity reports. All six Windows-binary forwarding cases and
+three native-domain controls execute successfully under Wine here; those
+isolated results remain separate from the actual Windows Unity gate.
 
 The user signed the private Steam client in and installed ONI through it at
 `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded`

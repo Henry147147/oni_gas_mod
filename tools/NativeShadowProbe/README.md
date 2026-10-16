@@ -67,6 +67,22 @@ Windows may refuse loading them directly from SMB. The native library can
 crash on an invalid contract; isolation is intentional. Submitted frames are
 asynchronous: snapshot polling must observe their completion before assertions.
 
+The current domain client uses ABI 2 and five physical species. The Linux
+wrapper accepts `--mode domains --observer /path/to/backend --game /path/to/game`
+for the sealed gas, compressed-water and heat controls. Each runs the actual
+native clock for sixty post-priming frames, preserves exact original native
+mass/temperature tuples, and advances after declining a scalar save. Individual
+`sealed-gas`, `sealed-water` and `sealed-heat` modes are also available.
+The Windows PowerShell wrapper accepts these modes with `-Observer` and
+`-GameDirectory`.
+
+On Linux, those same controls can execute the Windows binaries by adding
+`--wine`, `--wine-prefix` and `--windows-dotnet` to the wrapper; point `--native`
+at the licensed Windows SimDLL and `--observer` at the Windows backend.
+The prefix must already map the host root at `Z:`. All three controls pass
+under Wine 10, with explicit metadata preventing them from being counted as
+an actual Windows OS or Unity game test. Linux native execution passes too.
+
 On Linux, `run.py` runs the selected modes in separate processes, each with a
 45-second timeout and core dumps disabled. Its summary counts only the exact
 expected sanitize failure as a successful negative control; other failures,

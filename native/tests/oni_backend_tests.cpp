@@ -57,11 +57,7 @@ int main() {
             std::memcmp(&obsolete_domain,&held_obsolete,sizeof(obsolete_domain))==0,"obsolete four-species client was accepted or changed output");
         const auto unchanged=domain;
         const MAOniDomainConfig domain_config{40,2,1,64,10,10,3,2,0,0};
-#if defined(_WIN32)
-        constexpr auto inactive_start_result=MA_ONI_INCOMPATIBLE;
-#else
         constexpr auto inactive_start_result=MA_ONI_BUSY;
-#endif
         require(ma_oni_domain_start(&domain_config,&domain)==inactive_start_result && std::memcmp(&domain,&unchanged,sizeof(domain))==0,
                 "unattached native domain accepted or changed output");
         require(ma_oni_domain_copy(&domain,nullptr,6)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&domain,&unchanged,sizeof(domain))==0,
@@ -69,6 +65,8 @@ int main() {
         MAOniDomainSpecies species{-1,-1,-1,-1}; const auto held_species=species;
         require(ma_oni_domain_species(99,&species)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&species,&held_species,sizeof(species))==0,
                 "unknown domain species changed output");
+        require(ma_oni_domain_species(MA_ONI_DOMAIN_SPECIES,&species)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&species,&held_species,sizeof(species))==0,
+                "one-past-last domain species accepted or changed output");
         require(ma_oni_domain_species(4,&species)==MA_ONI_OK && species.molar_mass>0 && species.cv>0,
                 "absent physical carbon-dioxide definition");
         require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");

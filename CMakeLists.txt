@@ -52,6 +52,15 @@ add_library(mixed_atmospheres_coupled SHARED EXCLUDE_FROM_ALL native/src/coupled
 target_link_libraries(mixed_atmospheres_coupled PRIVATE ma_core)
 target_include_directories(mixed_atmospheres_coupled PUBLIC native/include)
 target_compile_definitions(mixed_atmospheres_coupled PRIVATE MA_EXPORTS)
+if(WIN32)
+    set_target_properties(mixed_atmospheres mixed_atmospheres_coupled PROPERTIES PREFIX "")
+    if(MINGW AND NOT MA_SANITIZERS)
+        # Loadable game packages must not depend on the developer's GCC or
+        # winpthreads DLL search path. Windows system import libraries remain.
+        target_link_options(mixed_atmospheres PRIVATE -static)
+        target_link_options(mixed_atmospheres_coupled PRIVATE -static)
+    endif()
+endif()
 add_executable(ma_coupled_api_tests EXCLUDE_FROM_ALL native/tests/coupled_api_tests.cpp)
 target_link_libraries(ma_coupled_api_tests PRIVATE mixed_atmospheres_coupled ma_core)
 add_executable(ma_passive_transport_tests EXCLUDE_FROM_ALL native/tests/passive_transport_tests.cpp)

@@ -8,6 +8,8 @@ param(
     [switch]$TileHover,
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
+    [ValidateSet('gas','water','heat','transfer','actor','carbon')][string]$NativeDomain,
+    [string]$Python = 'python',
     [switch]$IdleReservoirLease,
     [switch]$PrivateFileProtocol,
     [switch]$LoadRejection,
@@ -16,6 +18,10 @@ param(
     [int]$TimeoutSeconds = 600
 )
 $ErrorActionPreference = 'Stop'
+if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
+if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
+$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain' }
+$oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
 if ($CoupledPresentation -and ($TileHover -or $Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Coupled presentation uses its own explicit closed-reference scene.' }
 if ($IdleReservoirLease -and !$Presentation) { throw 'The idle reservoir lease check requires -Presentation.' }
@@ -29,7 +35,7 @@ if (Get-Process OxygenNotIncluded -ErrorAction SilentlyContinue) { throw 'Close 
 if (!(Test-Path -LiteralPath $Steam -PathType Leaf)) { throw 'Steam is not installed at the supplied path.' }
 $oniManifest = Get-Content -LiteralPath (Join-Path $oniPackagePath 'package-manifest.json') -Raw | ConvertFrom-Json
 if ($oniManifest.kind -ne 'integration-probe' -or $oniManifest.release_ready -ne $false) { throw 'Supply a built private integration probe package.' }
-if ([bool]$oniManifest.native_observer_enabled -ne [bool]$NativeObserver) { throw 'Observer packages require explicit -NativeObserver; other modes require a package without native hooks.' }
+if ([bool]$oniManifest.native_observer_enabled -ne $oniNeedsNative) { throw 'Native packages require explicit -NativeObserver or -NativeDomain; other modes require a package without native hooks.' }
 foreach ($oniEntry in $oniManifest.files.PSObject.Properties) {
     $oniFile = Join-Path $oniPackagePath $oniEntry.Name
     if ((Get-FileHash -LiteralPath $oniFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $oniEntry.Value) {
@@ -88,7 +94,7 @@ $oniExitCode = 1
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
     $oniValidationConfiguration = @{
-        Mode = $(if ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
+        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }
@@ -147,6 +153,15 @@ try {
     $oniResultData = Get-Content -LiteralPath $oniResult -Raw | ConvertFrom-Json
     $oniResultData | ConvertTo-Json -Depth 20 | Write-Output
     if ($oniResultData.Status -eq 'passed') {
+        if ($NativeDomain) {
+            $oniDomainReport = Join-Path $oniInstalledMod 'game-contract-local\colony-validation\native-domain.json'
+            $oniObserverReport = Join-Path $oniInstalledMod 'native-backend-observation-report.json'
+            $oniEvidenceChecker = Join-Path $PSScriptRoot 'oni_native_domain_evidence.py'
+            $oniCheckArguments = @($oniEvidenceChecker, '--domain', $oniDomainReport, '--observation', $oniObserverReport,
+                '--mode', $NativeDomain, '--frames', [string]$Frames, '--platform', 'WindowsPlayer')
+            & $Python @oniCheckArguments
+            if ($LASTEXITCODE -ne 0) { throw 'Native physical domain, callback, projection or ownership acceptance failed.' }
+        }
         if ($NativeObserver) {
             $oniObserverReportPath = Join-Path $oniInstalledMod 'native-backend-observation-report.json'
             if (!(Test-Path -LiteralPath $oniObserverReportPath -PathType Leaf)) { throw 'Missing native forwarding observer report.' }

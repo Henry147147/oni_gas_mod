@@ -123,7 +123,8 @@ Linux-only; Windows has 24 concrete locations and Linux has 28. Windows's
 have no standalone profiled locations.
 The separate development-domain ABI 2 has 40-byte configuration, 440-byte
 status and 96-byte five-species cell readings, with explicit start/copy/stop and material
-queries. It rejects activation on Windows. Production session initialization, commands, immutable
+queries. Activation checks the exact profile and padded-grid dimensions on both
+platforms. Production session initialization, commands, immutable
 physical-frame leases, checkpoints and shutdown follow separate gates. There
 is no independent managed advance creating a second clock. Domain ABI 1's
 four-species layout is historical. Rebuild native/managed clients together;
@@ -233,6 +234,7 @@ Verified on 2026-10-16:
 | Linux game heat commands | `20261016T200324Z-fbdef4` passes 120 post-priming frames with real heating/cooling messages routed to custom state. Two committed commands add net 1,500 J with U+K residual −4.54e−9 J, no native heat-packet dispatch, and both managed/native scalar-save rejection. Producer power reservations and mass/actor adapters remain separate work. |
 | Linux game gas point sources | `20261016T202909Z-bef415` passes actual oxygen injection and consumption, one actual game callback each, acknowledged completed-frame receipts, carried kinetic energy and mass/U+K accounts over 120 post-priming frames. Original native cells remain unchanged. Registered actors and process/output/power reservations remain separate work; see [the transfer contract](sealed-native-domain.md#gas-point-sources-and-game-callbacks). |
 | Linux registered gas actors | `20261016T204654Z-021e13` passes a real Unity consumer (32 callbacks), a native-registered emitter (40 status samples), changed rates, interval resets, actual blocked/unblocked callbacks once and removal. The native transfer stays inactive; custom mass/U+K and original-cell checks pass. These are explicit point boundaries, without general production/power reservations. See [the actor contract](sealed-native-domain.md#registered-gas-actors). |
+| Windows binary under Wine 10 | Current observer ABI 3 passes all six exact unhooked/hooked comparisons. Domain ABI 2 passes gas, compressed water and heat for sixty post-priming frames, exact native mass/temperature tuples, solid conduction, worker-clock ownership and save rejection. All eleven cross-compiled native tests also execute successfully. This uses the licensed Windows SimDLL under Wine on Linux; actual Windows OS/Unity validation remains open. |
 | Merged momentum/heat integration | `20261016T200702Z-8e3b53` repeats the heat control with the newly merged geometric momentum transport: 120 post-priming frames, net 1,500 J and heat residual −1.63e−9 J. The new dependency is built with PIC and sanitizer instrumentation; all ten CTests and full managed regressions pass. The separate momentum saved-data reviewer passes 3,964 checks. |
 | Actual Linux compressed-water domain | `20261016T191955Z-858237` passes: 32 native frames, 30 after projection priming, 672 solver substeps, 1,100 kg/cell at 220 MPa. Original-flow contrast, unchanged native tuples, actual grid projection, renderer, native solid heat and pre-native save rejection all pass. This is a sealed equilibrium control, not moving/free-surface liquid or a playable colony. |
 | Latest dependency-bound Linux Unity colony | `20261016T172520Z-92bc7f`: the trampoline-capacity repair also passes in Mono; ten additional timestep returns/physical updates, fourteen byte-identical snapshots and 47 channels, with no mod failure lines. |
@@ -263,9 +265,10 @@ The V60 managed build, package, bounded game capture and source closure are in
 are in `local/colony-runs/native-hook-observer-windows-v60`. Completed review
 SHA256: `0015ff5ecee9eb4c284c520b41d3f4a6b0963046e214a4ad96433b2598fae5d1`.
 These are single-agent checked records, with no independent agent review.
-The recorded Windows MSVC/Unity results above use observer ABI 1. The current
-Windows library cross-compiles on Linux; a fresh ABI 3 Windows runtime test remains
-required. Historical ABI 1 runs do not validate the revised binary.
+The recorded Windows MSVC/Unity results above use observer ABI 1. The current Windows binary additionally passes all six ABI 3 forwarding
+comparisons and the gas/water/heat domain controls under Wine 10 on Linux.
+These execute the licensed Windows SimDLL, but do not validate a native Windows
+OS or a Windows Unity colony. Historical ABI 1 runs remain separate evidence.
 
 Retained Windows failures include an initial private launch plan pointing to a
 nonexistent PowerShell executable (no game process started) and actual colony

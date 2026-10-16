@@ -1,6 +1,6 @@
 # Sealed native fluid domain
 
-This is the first bounded takeover experiment for the Linux colony work. The
+This is the first bounded takeover experiment for the colony work. The
 custom native engine advances a six-cell room while the surrounding ONI colony
 retains its original simulation. The corrected mixed-air control passes in
 the actual Linux colony, as does the corrected compressed-water equilibrium
@@ -263,9 +263,48 @@ Private reports, game logs and captures remain under
 `<headless-state>/runs/<run-id>`; build and sanitizer logs are in
 `artifacts/headless-working-20261016`. Neither licensed game data nor private
 reports are redistributed. All eleven native CTests pass in Release and with
-ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current
-Windows code cross-compiles; ABI 3 runtime execution and domain activation are
-not validated on Windows, where domain start explicitly rejects.
+ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current Windows x64 code also passes all eleven native tests, six forwarding
+comparisons and three sealed-domain controls under Wine 10. This executes the
+licensed Windows SimDLL and the Windows backend, without a Unity game process.
+Actual Windows OS and Windows Unity colony validation remain open.
+
+The Windows controls use the matching PDB's `SimData` width/height offsets 0/4
+and verify them against the loaded padded grid before activation. The same
+public/native halo translation protects each platform's post-processing and
+thermal phases. Windows inlines the gas interaction routines; their absent
+hook slots are not counted as executed coverage. The sixty-frame adversarial
+native-cell control passes through the containing phase exclusions.
+
+Private Windows-binary evidence is under `artifacts/native-integration-r2/`:
+`wine-forwarding-tool`, `wine-domains-tool` and `wine-native-ctests`. The gas
+case reports mass drift 9.26e-16 and energy drift 2.77e-15; water retains exactly
+1,100 kg/cell at 220 MPa with zero drift; net 1,500 J heating has a U+K residual
+of -1.17e-9 J. Every case advances after a rejected scalar save. Each summary
+explicitly records `actualWindowsOS: false` and `unityGameTest: false`.
+
+The MinGW package uses the normal Windows DLL names and statically links its
+compiler/thread runtimes. Import inspection shows only Windows system DLLs.
+A clean package with just the two native libraries passes all 89 managed/native
+Core tests through the normal Windows bootstrap, plus all three licensed
+Windows domain controls under Wine. Evidence is in `windows-package-core-tests.log`
+and `windows-package-domains` beside the other private reports. The managed
+adapter also compiles against the actual Windows game declarations.
+
+For an actual Windows Unity colony, build a Windows observer-enabled package
+and run the normal disposable-profile wrapper in PowerShell 7:
+
+```powershell
+./tools/run_colony_validation.ps1 -Package ./artifacts/windows-probe `
+  -NativeDomain gas -Frames 120 -TimeoutSeconds 1200
+```
+
+`-NativeDomain` also accepts `water`, `heat`, `transfer`, `actor` and `carbon`.
+The actor scene needs at least 80 frames; use 120 for its full control. Python
+must be available for the shared portable acceptance checker. It requires
+`WindowsPlayer` evidence and the same physical, native-source, rendering,
+callback, save and scope checks used on Linux. An isolated Wine report cannot
+pass this Unity gate. The Windows colony wrapper is syntax-checked here; this
+machine has not executed that Windows Unity run.
 
 ## Limits and next work
 

@@ -85,6 +85,8 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.Mode == "native-actor-domain" && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
+                throw new InvalidDataException("The registered actor scene requires at least 80 native frames.");
             if ((configuration.Mode == "native-observer" || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
                 throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")

@@ -41,6 +41,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True, help="libmixed_atmospheres.so or mixed_atmospheres.dll")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--managed-dir", type=Path, default=ROOT / "managed/MixedAtmospheres.Oni/bin/Release/netstandard2.1",
+                        help="Built managed adapter directory, for separate Windows/Linux outputs")
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
     parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
@@ -72,7 +74,7 @@ def main() -> None:
                                   validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
                                                          "GameMonoFileProtocolValidation.dll")):
         parser.error("Supply the built Windows private GameMono file protocol validation DLL")
-    managed = ROOT / "managed/MixedAtmospheres.Oni/bin/Release/netstandard2.1"
+    managed = args.managed_dir.resolve()
     files = [managed / "MixedAtmospheres.Oni.dll", managed / "MixedAtmospheres.Core.dll", args.native.resolve()]
     for file in files:
         if not file.is_file():

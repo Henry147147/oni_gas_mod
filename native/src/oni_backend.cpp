@@ -370,16 +370,12 @@ std::uint32_t ma_oni_domain_abi_version() { return MA_ONI_DOMAIN_ABI_VERSION; }
 std::uint32_t ma_oni_domain_active() { return ma::oni::domain_active() ? 1U : 0U; }
 MAOniResult ma_oni_domain_species(std::uint32_t index,MAOniDomainSpecies* output) {
     return boundary([&] {
-        if (!output || index > MA_ONI_DOMAIN_SPECIES) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid domain species output or index");
+        if (!output || index >= MA_ONI_DOMAIN_SPECIES) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid domain species output or index");
         *output=ma::oni::domain_species(index);
     });
 }
 MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatus* output) {
     return boundary([&] {
-#if defined(_WIN32)
-        (void)config; (void)output;
-        throw Failure(MA_ONI_INCOMPATIBLE,"Sealed native domains require Linux gas-interaction hooks; Windows supports forwarding observation only");
-#else
         if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain configuration or output ABI");
         if (!installed || recovery_required || !image_base)
@@ -389,7 +385,8 @@ MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatu
         std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
         std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
         if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
-        // Exact-build Linux SimData starts with its padded width and height.
+        // Both inspected SimData layouts start with padded width and height
+        // (Windows PDB field offsets 0/4; Linux disassembly/runtime controls).
         // Both the public snapshot and native phase indices are tested; never
         // infer the native pitch from a managed public-cell index.
         std::array<std::int32_t,2> dimensions{};
@@ -401,7 +398,6 @@ MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatu
         try { ma::oni::start_domain(*config,native_thread()); }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
         ma::oni::copy_domain(*output,nullptr,0);
-#endif
     });
 }
 MAOniResult ma_oni_domain_copy(MAOniDomainStatus* output,MAOniDomainCell* cells,std::uint32_t capacity) {

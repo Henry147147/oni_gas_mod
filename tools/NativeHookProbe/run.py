@@ -13,6 +13,9 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from native_probe_process import add_runtime_arguments, ProbeRuntime
+
 ROOT = Path(__file__).resolve().parents[2]
 MODES = ("baseline", "multi-region", "transition", "filtered-transition", "load-shadow", "fluid-actors")
 VOLATILE = {"processId", "startedUtc", "completedUtc", "nativeObserver", "nativeObserverTrace",
@@ -72,10 +75,11 @@ def main() -> int:
     parser.add_argument("--contract", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="New evidence directory")
     parser.add_argument("--probe", type=Path, default=ROOT / "tools/NativeShadowProbe/bin/Release/net10.0/NativeShadowProbe.dll")
-    parser.add_argument("--dotnet", default="dotnet")
+    add_runtime_arguments(parser)
     parser.add_argument("--mode", choices=(*MODES, "all"), default="all")
     args = parser.parse_args()
-    native = args.game / "OxygenNotIncluded_Data/Plugins" / ("x86_64/SimDLL.dll" if os.name == "nt" else "libSimDLL.so")
+    runtime = ProbeRuntime(args, parser)
+    native = args.game / "OxygenNotIncluded_Data/Plugins" / ("x86_64/SimDLL.dll" if runtime.windows_binary else "libSimDLL.so")
     for path in (native, args.observer, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):
         if not path.is_file(): parser.error(f"Required input missing: {path}")
     output = args.output.resolve()
@@ -83,6 +87,7 @@ def main() -> int:
     summary = {"kind": "native-hook-forwarding-comparison", "authoritativeFluidOwner": False,
                "gameBuild": 744825, "platform": sys.platform,
                "observerSha256": hashlib.sha256(args.observer.read_bytes()).hexdigest(), "results": []}
+    summary.update(runtime.metadata())
     for mode in MODES if args.mode == "all" else (args.mode,):
         result = {"mode": mode, "passed": False}
         try:
@@ -90,10 +95,11 @@ def main() -> int:
             for observed in (False, True):
                 name = mode + ("-observed" if observed else "-control")
                 report_path = output / (name + ".json")
-                command = [args.dotnet, str(args.probe.resolve()), str(native.resolve()), str(args.contract.resolve()), mode, str(report_path)]
-                if observed: command += [str(args.observer.resolve()), str(args.game.resolve())]
+                parameters = [native, args.contract, mode, report_path]
+                if observed: parameters += [args.observer, args.game]
+                command = runtime.command(args.probe, *parameters)
                 with (output / (name + ".log")).open("w", encoding="utf-8") as log:
-                    child = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=45, check=False)
+                    child = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=45, check=False, env=runtime.environment())
                 if child.returncode != 0: raise ValueError(f"{name} exited {child.returncode}; inspect retained log")
                 report = json.loads(report_path.read_text(encoding="utf-8"))
                 if report.get("passed") is not True: raise ValueError(f"{name} did not pass")

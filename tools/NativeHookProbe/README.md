@@ -41,7 +41,25 @@ checks on both platforms. Windows V60 waits for ten actual native timestep
 returns and physical updates; managed acknowledgments alone do not advance
 that gate. It retains the failed V59 timing control. Neither runner accepts
 these observer results as fluid takeover or performance validation. The retained
-Windows runtime evidence uses ABI 1; ABI 3 still needs a Windows runtime rerun.
+The retained Windows OS evidence uses ABI 1; current ABI 3 still needs an
+actual Windows Unity rerun.
+
+ABI 3 also passes all six Windows-binary comparisons under Wine 10 on Linux.
+The optional runner arguments `--wine /path/to/wine --wine-prefix /path/to/prefix
+--windows-dotnet /path/to/dotnet.exe` select that execution path; supply the
+Windows game and observer library. Use an initialized disposable prefix with
+the host filesystem mapped at `Z:` and a Windows x64 .NET 10 runtime. Paths are
+passed as separate arguments and mapped without a shell. Summaries explicitly
+mark Wine, the host/native platforms, `actualWindowsOS: false` and
+`unityGameTest: false`. These results verify the actual Windows DLL and hooks;
+they do not replace a current Windows Unity run.
+
+MinGW builds now produce the package's expected DLL names and link their
+compiler/thread runtimes statically. A clean Windows package passes normal
+native bootstrap and all 89 managed/native Core tests under Wine, followed by
+the three domain controls. The package contains no compiler runtime DLLs.
+Use `package_probe.py --managed-dir /path/to/managed/output` when keeping
+Windows and Linux adapter builds in separate output directories.
 
 The same isolated host also accepts `sealed-gas` and `sealed-water` modes with
 an enabled backend. They require an original-flow contrast, verified flow

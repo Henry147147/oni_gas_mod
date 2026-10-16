@@ -3,10 +3,13 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water','sealed-heat')][string]$Mode = 'baseline',
+    [string]$Observer,
+    [string]$GameDirectory,
     [string]$Dotnet = 'dotnet.exe'
 )
 $ErrorActionPreference = 'Stop'
+if ([bool]$Observer -ne [bool]$GameDirectory -or ($Mode.StartsWith('sealed-') -and !$Observer)) { throw 'Sealed domains require both -Observer and -GameDirectory.' }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $report = Join-Path $OutputDirectory "$Mode.json"
 $stdout = Join-Path $OutputDirectory "$Mode.stdout.log"
@@ -20,6 +23,7 @@ $assembly = Join-Path $localProbe 'NativeShadowProbe.dll'
 # Execute a local copy: Windows may reject managed assembly loading from SMB.
 # Quote paths, reject embedded quotes, and bound this process's lifetime.
 $values = @($assembly, $NativeDll, $ContractDirectory, $Mode, $report)
+if ($Observer) { $values += @($Observer, $GameDirectory) }
 foreach ($value in $values) { if ($value.Contains('"')) { throw 'Quote in argument.' } }
 $arguments = ($values | ForEach-Object { '"' + $_ + '"' }) -join ' '
 $start = New-Object System.Diagnostics.ProcessStartInfo
