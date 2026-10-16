@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import struct
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -116,9 +116,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(actor.get("EnergyResidualJoules")) not in (int, float) or not abs(actor["EnergyResidualJoules"]) <= 1e-6
                 or type(actor.get("MaximumRelativeMassError")) not in (int, float) or not 0 <= actor["MaximumRelativeMassError"] <= 1e-10):
             return False
-    if checkpoint:
+    if checkpoint or paired:
         saved = report.get("PhysicalCheckpoint")
-        if (not isinstance(saved, dict) or saved.get("Verified") is not True or saved.get("FormatVersion") != 1
+        if (not isinstance(saved, dict) or saved.get("Verified") is not True or saved.get("FormatVersion") != 2
                 or saved.get("OrdinaryGameSaveIntegrated") is not False
                 or any(type(saved.get(key)) is not int or saved[key] <= 0 for key in ("ImageBytes", "SourceFrame", "ResumedFrame"))
                 or not 32 < saved["ImageBytes"] <= 1024**3
@@ -129,6 +129,27 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or any(not isinstance(saved.get(key), str) or len(saved[key]) != 64 or any(char not in "0123456789abcdef" for char in saved[key])
                        for key in ("SourceSha256", "ExpectedSha256", "ActualSha256"))
                 or saved["SourceSha256"] == saved["ExpectedSha256"] or saved["ExpectedSha256"] != saved["ActualSha256"]):
+            return False
+    if paired:
+        pair = report.get("PairedCheckpoint")
+        if (not isinstance(pair, dict) or pair.get("Verified") is not True or pair.get("OrdinaryGameSaveIntegrated") is not False
+                or pair.get("WholeColonyCheckpoint") is not False
+                or any(pair.get(key) is not True for key in ("NativeCompatibilityCellsVerified", "ImmutableCopiesVerified", "ReleaseVerified"))):
+            return False
+        native = pair.get("Native")
+        if (not isinstance(native, dict) or native.get("Size") != 112 or native.get("Version") != 1 or native.get("State") != 2
+                or native.get("Session") != physical["Session"]
+                or any(type(native.get(key)) is not int or native[key] <= 0 for key in ("Token", "CompletedFrame", "NativeEpoch", "CaptureThread", "NativeBytes", "PhysicalBytes"))
+                or type(pair.get("RequestedFrame")) is not int or not 0 < pair["RequestedFrame"] <= native["CompletedFrame"] <= physical["CompletedFrames"]
+                or type(native.get("PhysicalTime")) not in (int, float) or not math.isfinite(native["PhysicalTime"])
+                or not 0 < native["PhysicalTime"] <= physical["TimeSeconds"]
+                or type(pair.get("EncodedBytes")) is not int or pair["EncodedBytes"] <= native["NativeBytes"] + native["PhysicalBytes"] + 108
+                or any(not isinstance(pair.get(key), str) or len(pair[key]) != 64 or any(char not in "0123456789abcdef" for char in pair[key])
+                       for key in ("NativeSha256", "PhysicalSha256", "EnvelopeSha256"))):
+            return False
+        geometry = native.get("Configuration")
+        if (not isinstance(geometry, dict) or geometry.get("Size") != 40 or geometry.get("Version") != 2 or geometry.get("Flags") != 1
+                or any(type(geometry.get(key)) is not int or geometry[key] != report.get(key) for key in ("X", "Y", "Width", "Height"))):
             return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
@@ -153,7 +174,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair"), required=True)
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -163,7 +184,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint")
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

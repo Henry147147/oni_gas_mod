@@ -72,7 +72,7 @@ wrapper accepts `--mode domains --observer /path/to/backend --game /path/to/game
 for the sealed gas, compressed-water, heat, conduction, gravity and checkpoint controls. Each runs the actual
 native clock for sixty post-priming frames, preserves exact original native
 mass/temperature tuples, and advances after declining a scalar save. Individual
-`sealed-gas`, `sealed-water`, `sealed-heat`, `sealed-conduction`, `sealed-gravity` and `sealed-checkpoint` modes are also available.
+`sealed-gas`, `sealed-water`, `sealed-heat`, `sealed-conduction`, `sealed-gravity`, `sealed-checkpoint` and `sealed-pair` modes are also available.
 Conduction additionally requires positive internal redistribution/entropy and
 two coherent thermal stages per accepted solver substep; its walls remain insulated.
 Gravity additionally checks downward body impulse, physical vertical momentum
@@ -80,6 +80,11 @@ and an independent U+K+G energy account using the cell masses and elevations.
 Checkpoint restores a complete physical image and compares its independent
 continuation byte for byte against the actual next native worker frame. It
 retains ordinary scalar-save rejection; full colony persistence remains open.
+`sealed-pair` additionally captures the native world and physical image at a
+zero-time worker barrier. It requires one native save across repeated reads,
+unchanged physical time/state, immutable buffers, safe output rejection and
+token retirement. Both licensed native-library platforms pass; Windows here
+executes under Wine. Full colony save/reload remains open.
 The Windows PowerShell wrapper accepts these modes with `-Observer` and
 `-GameDirectory`.
 

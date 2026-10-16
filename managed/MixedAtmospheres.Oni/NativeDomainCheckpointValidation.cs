@@ -7,7 +7,7 @@ namespace MixedAtmospheres.Oni
 {
     internal static partial class NativeSealedDomainValidation
     {
-        private static bool CheckpointMode => ColonyRuntimeValidation.Settings?.Mode == "native-checkpoint-domain";
+        private static bool CheckpointMode => ColonyRuntimeValidation.Settings?.Mode == "native-checkpoint-domain" || PairedCheckpointMode;
         private static byte[]? checkpointSource, checkpointExpected, checkpointActual;
         private static ulong checkpointSourceFrame, checkpointResumedFrame;
         private static double checkpointSourceTime, checkpointResumedTime;
@@ -67,7 +67,8 @@ namespace MixedAtmospheres.Oni
         }
         private static object CheckpointReport() => new
         {
-            Verified = checkpointVerified, FormatVersion = 1, ImageBytes = checkpointSource?.Length ?? 0,
+            Verified = checkpointVerified, FormatVersion = checkpointSource == null ? 0 : System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(checkpointSource.AsSpan(8, 4)),
+            ImageBytes = checkpointSource?.Length ?? 0,
             SourceFrame = checkpointSourceFrame, ResumedFrame = checkpointResumedFrame,
             SourcePhysicalTime = checkpointSourceTime, ResumedPhysicalTime = checkpointResumedTime,
             SourceSha256 = CheckpointHash(checkpointSource), ExpectedSha256 = CheckpointHash(checkpointExpected), ActualSha256 = CheckpointHash(checkpointActual),

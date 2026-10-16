@@ -72,6 +72,41 @@ boundary diagnostics. Full colony persistence must reserve and pair those
 states with a matching native save and atomically publish the complete file.
 The existing scalar-save guards remain active until that protocol exists.
 
+## Paired native capture
+
+Paired extension ABI 1 now captures the native v15 world and physical owner at
+one completed native epoch. `ma_oni_domain_pair_request` admits an exact drained
+session/frame on the activation thread and returns a pending token. The native
+`EndFrame` barrier performs the capture under the complete frame fence. A
+zero-time synchronization frame can complete this request while physical time
+stays fixed. The 112-byte status records the actual captured frame, native
+epoch, capture thread, geometry, time and both lengths.
+
+`ma_oni_domain_pair_poll` observes completion; `ma_oni_domain_pair_copy` copies
+the retained immutable buffers. Neither repeats native saving. Undersized or
+overlapping output buffers change nothing. Caller changes do not affect later
+copies. Release retires a token and is idempotent for the last released token;
+release before fulfillment cancels the request. Closing the simulator turns an
+unfinished request into an explicit failure. Only one token may be retained.
+
+The worker uses a private single-use native-save authorization and always ends
+the native borrow before publishing the paired buffers. A separate save lock
+protects that borrow; an existing ordinary native save must finish before
+ownership starts. The worker queue has its own lock, so capture never waits for
+the API lifecycle lock while the game thread waits for a completed frame.
+Raw scalar-save entry points remain guarded.
+
+`sealed-pair` verifies paused capture on the licensed Linux and Windows
+libraries (Windows under Wine), exactly one native save across repeated polls
+and copies, source time/state retention, output failures, immutable buffers and
+token retirement. `native-paired-checkpoint-domain` verifies the actual Linux
+game's native compatibility tuples and physical checkpoint, then encodes both
+sections in the existing SHA-256 `MACOLONY` envelope. Its custom section currently
+contains diagnostic source metadata, the domain configuration and physical
+image. Native load binding, managed object state, actor/outbox persistence and
+ordinary whole-colony save/reload remain unfinished. This capture does not grant
+ordinary save permission.
+
 ## Verification
 
 The native `mac_physical_checkpoint` CTest checks exact restored state and

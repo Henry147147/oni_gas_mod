@@ -579,12 +579,25 @@ void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
         gravity_internal_work.value().require_representable(),maximum_energy_residual};
 }
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame) {
-    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);
+    std::lock_guard frame_lock(frame_mutex); MAOniDomainConfig configuration{}; MAOniDomainStatus source{};
+    return checkpoint_domain_under_fence(session,frame,configuration,source);
+}
+std::vector<std::uint8_t> checkpoint_domain_under_fence(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig& configuration,MAOniDomainStatus& source) {
+    std::lock_guard lock(state_mutex);
     if (!enabled.load(std::memory_order_acquire) || status.state != 1 || session != status.session || frame != status.completed_frames)
         throw std::logic_error("Physical checkpoint source session/frame is unavailable");
     if (pending_world || !actors.empty() || !receipts.empty())
         throw std::logic_error("Physical checkpoint requires drained commands, actors and callback receipts");
-    const ArithmeticScope arithmetic; return world->checkpoint();
+    const ArithmeticScope arithmetic; auto image=world->checkpoint(); configuration=geometry; source=frame_status(); return image;
+}
+void domain_checkpoint_source(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig& configuration,MAOniDomainStatus& source) {
+    std::lock_guard lock(state_mutex);
+    if (!enabled.load(std::memory_order_acquire) || status.state!=1 || session!=status.session || frame!=status.completed_frames ||
+        pending_world || !actors.empty() || !receipts.empty()) throw std::logic_error("Paired source requires one drained completed physical frame");
+    configuration=geometry; source=frame_status();
+}
+MAOniDomainStatus domain_status_under_fence() {
+    std::lock_guard lock(state_mutex); return frame_status();
 }
 std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t> image,double seconds) {
     const ArithmeticScope arithmetic;

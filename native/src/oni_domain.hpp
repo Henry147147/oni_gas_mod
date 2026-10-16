@@ -27,6 +27,10 @@ void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);
+// Caller must hold domain_frame_mutex; native and physical capture share it.
+std::vector<std::uint8_t> checkpoint_domain_under_fence(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig&,MAOniDomainStatus&);
+void domain_checkpoint_source(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig&,MAOniDomainStatus&);
+MAOniDomainStatus domain_status_under_fence();
 std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t>,double seconds);
 std::mutex& domain_frame_mutex() noexcept;
 }

@@ -118,6 +118,7 @@ namespace MixedAtmospheres.Oni
                     SubmitGameGasTransfers();
                 if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
                 if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
+                if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -209,6 +210,7 @@ namespace MixedAtmospheres.Oni
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
+                if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
                 ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
                 ColonyRuntimeValidation.CompletePresentation("actual-game-sealed-native-fluid-domain-validation");
@@ -230,6 +232,7 @@ namespace MixedAtmospheres.Oni
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
+            Require(PairVersion()==1 && Marshal.SizeOf<PairStatus>()==112,"Unsupported native paired checkpoint ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
@@ -619,6 +622,7 @@ namespace MixedAtmospheres.Oni
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
+            PairedCheckpoint = PairedCheckpointReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
             CarbonDioxideTransfersVerified = CarbonMode && transfersVerified,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,
@@ -634,6 +638,7 @@ namespace MixedAtmospheres.Oni
         }));
         internal static void Shutdown()
         {
+            ReleasePairedCheckpointFixture();
             releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
             currentSnapshot?.Dispose(); currentSnapshot = null;
             ResetActorBindings();

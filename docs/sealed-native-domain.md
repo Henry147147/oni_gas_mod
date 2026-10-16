@@ -265,6 +265,11 @@ complete native owner, including physical U and full canonical momentum.
 worker frame in the real game. Export requires a drained actor-free frame.
 Native/managed colony state pairing, actor/outbox persistence and ordinary
 save/reload remain unfinished, so both scalar-save guards remain enabled.
+`native-paired-checkpoint-domain` additionally requests capture at the native
+worker barrier, verifies the original native cell tuples in that saved image,
+checks immutable native/physical buffers and encodes and validates their shared
+`MACOLONY` container. It remains a bounded paired capture, with ordinary
+save/load integration and managed/actor persistence still unfinished.
 
 Build the native backend and the normal ONI adapter, then create a fresh package:
 
@@ -293,6 +298,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-gravity-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-checkpoint-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-paired-checkpoint-domain --frames 120 --timeout 1200
 ```
 
 These runs use separate fresh profiles on the authenticated virtual desktop.
@@ -340,6 +347,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T223037Z-cf58d3` | Passes atomic owned actor configuration and outside native-batch forwarding with actual Unity consumers. The two ordered owned rate commands avoid native dispatch; the outside zero-rate consumer batch reaches the native batch entry exactly once. Over 120 post-priming frames, 32 consumer callbacks account for 0.2000000053 kg and 40 emitter samples account for 1.09375 kg. Blocked/unblocked callbacks, exact native cells, physical game status, grid/rendering, solid heat and both save guards pass. Removal is followed by 74 further frames without actor transfers. U+K residual is -2.58e-9 J; relative constituent drift is 1.01e-15. No mod failure lines. Source is `4f03eac` plus the recorded batch changes, including the pulled separate heat-component repair. |
 | `20261016T224334Z-cee2a7` | Passes physical checkpoint restore and exact continuation in the actual Linux game: the 3,503-byte source at frame 6 / 1.200000018 s independently restores/advances to the exact image published by native worker frame 7 / 1.400000021 s, with zero observation retries. Expected/actual SHA-256 is `ef895aa34a42ec337bbb0143d9ce870e0f873afdce4dbd673988c987817ba32c`. The full scene completes 122 frames, 120 after priming, 2,562 substeps and 24.4 s; relative mass/energy drift is 1.19e-15 / 5.72e-15. Exact native tuples, grid/rendering, native solid heat and both save guards pass without mod failure lines. Source is `e65ebe3` plus the recorded checkpoint changes. Windows native code under Wine also reads/reserializes this actual Linux game image without changing a byte; full colony save/reload remains open. |
 | `20261016T225904Z-9e5553` | Repeats the full checkpoint game pass with the native worker fence extended through native processing and `EndFrame`. It completes 120 post-priming frames, exact restored/live continuation, unchanged native tuples, grid/rendering, solid heat and both save guards, with no mod failure lines. Source is `42cae2b` plus the recorded fence changes. Both licensed native-library checkpoint controls pass with that fence too (Windows under Wine). |
+| `20261016T232719Z-0a1d98` | Passes paired native/physical capture on the merged compression-heat solver and physical file version 2. Native worker thread 4 captures frame 6 / epoch 541 at 1.200000018 s: 3,585,197 native bytes and 3,507 physical bytes. The physical hash also exactly matches the independently restored next-worker image. The 3,588,900-byte combined envelope retains both sections, original native tuples and geometry; immutable recopy and token retirement pass. The scene completes 121 frames, 120 after priming, 2,541 substeps; relative mass/energy drift is 1.72e-15 / 8.29e-15. Grid/rendering, native solid heat and both scalar-save guards pass, with no mod failure lines. Source is `13afbef` plus the recorded paired-capture changes. Ordinary colony save/reload remains open. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

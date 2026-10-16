@@ -161,6 +161,23 @@ MA_ONI_API MAOniResult ma_oni_domain_checkpoint_copy(uint64_t session, uint64_t 
 MA_ONI_API MAOniResult ma_oni_domain_checkpoint_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 
+/* Paired capture ABI 1. Request against an exact physical source; the next
+ * completed native worker epoch captures both owners (including zero-time
+ * synchronization). State 1 is pending, 2 ready. Poll/copy never repeat native
+ * saving. No ordinary scalar-save permit is exposed. */
+typedef struct MAOniDomainPairStatus {
+    uint32_t struct_size, abi_version, state, native_bytes, physical_bytes, reserved;
+    uint64_t token, session, completed_frame, native_epoch, capture_thread;
+    MAOniDomainConfig configuration;
+    double physical_time_seconds;
+} MAOniDomainPairStatus;
+MA_ONI_API uint32_t ma_oni_domain_pair_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_pair_request(uint64_t session, uint64_t completed_frame, int32_t x, int32_t y, MAOniDomainPairStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_pair_poll(uint64_t token, MAOniDomainPairStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_pair_copy(uint64_t token, uint8_t* native_data, uint32_t native_capacity,
+    uint8_t* physical_data, uint32_t physical_capacity);
+MA_ONI_API MAOniResult ma_oni_domain_pair_release(uint64_t token);
+
 #ifdef __cplusplus
 }
 #endif

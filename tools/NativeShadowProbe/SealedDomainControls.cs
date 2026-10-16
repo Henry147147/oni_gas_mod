@@ -11,7 +11,7 @@ internal static unsafe partial class Program
     private static int DomainCell(int index) => DomainX + index % DomainWidth + (DomainY + index / DomainWidth) * Width;
     private static float DomainProjectionTemperature(int column) => 280 + 20 * column;
 
-    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity, bool checkpoint)
+    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity, bool checkpoint, bool paired, OniNativeObserver observer)
     {
         Require(OniNativeDomain.Version() == 2 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
         var initialCells = Enumerable.Range(0, 6).Select(i => initial.CellData[DomainCell(i)]).ToArray();
@@ -59,6 +59,7 @@ internal static unsafe partial class Program
         var values = new OniNativeDomain.Cell[6]; CellState[]? baseline = null; var primedAt = 0UL;
         var heatQueued = false; var heatBeforeEnergy = 0.0;
         byte[]? checkpointExpected = null; ulong checkpointFrame = 0; var checkpointVerified = false;
+        var pairVerified=false;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
         Stage("advance-sealed-native-domain");
         for (var frame = 0; frame < 75; ++frame)
@@ -79,6 +80,10 @@ internal static unsafe partial class Program
             for (var i = 0; i < 6; ++i) Require(source[i] == baseline[i], "Uncovered native writer changed cell " + DomainCell(i) +
                 " at physical frame " + status.CompletedFrames + ": " + baseline[i] + " -> " + source[i]);
             Require(status.MaximumRelativeMassError <= 1e-8 && status.MaximumRelativeEnergyError <= 1e-6, "Custom conservation failed.");
+            if (paired && !pairVerified && status.CompletedFrames-primedAt>=4)
+            {
+                VerifyPairedCheckpoint(sim,contract,observer,status,report); pairVerified=true;
+            }
             if (checkpoint && !checkpointVerified && status.CompletedFrames-primedAt>=4)
             {
                 if (checkpointExpected == null)

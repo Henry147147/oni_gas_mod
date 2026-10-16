@@ -9,8 +9,10 @@
 #include <bit>
 #include <cstdio>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <utility>
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -40,6 +42,22 @@ std::array<void*,MA_ONI_HOOK_COUNT> originals{};
 struct Counter { std::atomic<std::uint64_t> entries{}, exits{}; };
 std::array<Counter,MA_ONI_HOOK_COUNT> counters;
 std::atomic<std::uint64_t> active{}, positive_steps{}, trace_reserved{}, thread_sequence{};
+std::atomic<std::uint64_t> native_frame_epochs{};
+std::recursive_mutex native_save_mutex;
+bool native_save_open{}; // protected by native_save_mutex
+thread_local bool paired_save_permit{}; // consumed by exactly one BeginSave
+struct DomainPair {
+    MAOniDomainPairStatus status{};
+    std::vector<std::uint8_t> native,physical;
+    std::int32_t x{},y{};
+    MAOniResult error_code{MA_ONI_INTERNAL_ERROR};
+    std::array<char,256> error{};
+};
+std::mutex pair_mutex;
+std::unique_ptr<DomainPair> captured_pair;
+std::uint64_t pair_sequence{},last_released_pair{}; // protected by pair_mutex
+std::atomic<bool> pair_pending{};
+void fulfill_paired_capture(); // Executed only at the native worker barrier.
 std::array<MAOniTraceEvent,MA_ONI_TRACE_CAPACITY> traces{};
 std::array<std::atomic<bool>,MA_ONI_TRACE_CAPACITY> trace_ready{};
 funchook_t* detours{};
@@ -94,19 +112,33 @@ void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
     original<void (*)()>(MA_ONI_SHUTDOWN)();
     ma::oni::shutdown_domain();
+    if (pair_pending.load(std::memory_order_acquire)) {
+        std::lock_guard lock(pair_mutex);
+        if (captured_pair && captured_pair->status.state==1) {
+            captured_pair->status.state=3; captured_pair->error_code=MA_ONI_BUSY;
+            std::snprintf(captured_pair->error.data(),captured_pair->error.size(),"Native simulator closed before paired capture");
+        }
+        pair_pending.store(false,std::memory_order_release);
+    }
 }
 FORWARD(on_message, MA_ONI_MESSAGE, void*, (int id,int size,std::uint8_t* data), (id,size,data))
 FORWARD(on_messages, MA_ONI_MESSAGES, void*, (int id,int size,int count,std::uint8_t* data), (id,size,count,data))
 std::uint8_t* on_begin_save(int* size,int x,int y) {
     Call call(MA_ONI_BEGIN_SAVE);
-    if (ma::oni::domain_active()) {
+    std::lock_guard save_lock(native_save_mutex);
+    const bool permit=std::exchange(paired_save_permit,false);
+    if (ma::oni::domain_active() && !permit) {
         if (size) *size=0;
         std::snprintf(last_error.data(),last_error.size(),"The custom native domain requires an integrated checkpoint; native scalar saving is disabled");
         return nullptr;
     }
-    return original<std::uint8_t* (*)(int*,int,int)>(MA_ONI_BEGIN_SAVE)(size,x,y);
+    auto* result=original<std::uint8_t* (*)(int*,int,int)>(MA_ONI_BEGIN_SAVE)(size,x,y);
+    native_save_open=result!=nullptr; return result;
 }
-FORWARD(on_end_save, MA_ONI_END_SAVE, void, (), ())
+void on_end_save() {
+    Call call(MA_ONI_END_SAVE); std::lock_guard save_lock(native_save_mutex);
+    original<void (*)()>(MA_ONI_END_SAVE)(); native_save_open=false;
+}
 FORWARD(on_main, MA_ONI_MAIN, void, (void* self), (self))
 FORWARD(on_process_frame, MA_ONI_PROCESS_FRAME, void, (void* frame,void* data), (frame,data))
 float on_next_frame(void* self,void* data) {
@@ -183,6 +215,12 @@ FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
 void on_end_frame(void* self) {
     Call call(MA_ONI_END_FRAME);
     original<void (*)(void*)>(MA_ONI_END_FRAME)(self);
+    native_frame_epochs.fetch_add(1,std::memory_order_release);
+    if (pair_pending.load(std::memory_order_acquire)) {
+        std::unique_lock<std::mutex> frame_lock;
+        if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
+        fulfill_paired_capture();
+    }
     if (worker_frame_fence.owns_lock()) worker_frame_fence.unlock();
 }
 FORWARD(on_consumer, MA_ONI_CONSUMER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
@@ -291,8 +329,60 @@ MAOniObserverStatus capture() noexcept {
 }
 void reset_observations() noexcept {
     for (auto& counter : counters) { counter.entries=0; counter.exits=0; }
-    positive_steps=0; trace_reserved=0;
+    positive_steps=0; trace_reserved=0; native_frame_epochs=0;
     for (auto& ready : trace_ready) ready=false;
+}
+void fulfill_paired_capture() {
+    std::lock_guard pair_lock(pair_mutex);
+    if (!captured_pair || captured_pair->status.state!=1) return;
+    auto& request=*captured_pair;
+    try {
+        const auto current=ma::oni::domain_status_under_fence();
+        if (current.state!=1 || current.session!=request.status.session || current.completed_frames<request.status.completed_frame)
+            throw Failure(MA_ONI_BUSY,"Paired source session ended before its worker barrier");
+        MAOniDomainConfig configuration{}; MAOniDomainStatus source{};
+        auto physical=ma::oni::checkpoint_domain_under_fence(current.session,current.completed_frames,configuration,source);
+        std::lock_guard save_lock(native_save_mutex);
+        if (native_save_open) throw Failure(MA_ONI_BUSY,"A native save buffer is still borrowed at the worker barrier");
+        std::uintptr_t data{}; std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+        if (!data) throw Failure(MA_ONI_BUSY,"Paired capture has no live native world");
+        std::array<std::int32_t,2> dimensions{}; std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
+        constexpr std::uint64_t maximum_native_bytes=639ULL*1024*1024;
+        if (dimensions[0]<=2 || dimensions[1]<=2 || static_cast<std::uint32_t>(dimensions[0])!=configuration.native_grid_width+2 ||
+            static_cast<std::uint64_t>(dimensions[0])*static_cast<std::uint32_t>(dimensions[1])>(maximum_native_bytes-29)/36 ||
+            request.x>INT32_MAX-dimensions[0] || request.y>INT32_MAX-dimensions[1])
+            throw Failure(MA_ONI_INCOMPATIBLE,"Paired native dimensions differ or exceed the envelope format");
+        const auto expected_bytes=29+36*static_cast<std::uint64_t>(dimensions[0])*static_cast<std::uint32_t>(dimensions[1]);
+        std::vector<std::uint8_t> saved(static_cast<std::size_t>(expected_bytes));
+        struct NativeSaveCleanup {
+            bool started{};
+            ~NativeSaveCleanup() { if (started) on_end_save(); paired_save_permit=false; }
+        } cleanup;
+        paired_save_permit=true; cleanup.started=true;
+        int bytes=0; const auto* native=on_begin_save(&bytes,request.x,request.y);
+        if (!native || bytes<29 || static_cast<std::uint64_t>(bytes)!=expected_bytes)
+            throw Failure(MA_ONI_INCOMPATIBLE,"Native saving returned an unexpected paired image");
+        const std::array<std::uint8_t,8> magic{'S','I','M','S','A','V','E',0}; std::array<std::int32_t,5> header{};
+        std::memcpy(header.data(),native+8,sizeof(header));
+        if (!std::equal(magic.begin(),magic.end(),native) || header[0]!=15 || header[1]!=dimensions[0] || header[2]!=dimensions[1] || header[3]!=request.x || header[4]!=request.y)
+            throw Failure(MA_ONI_INCOMPATIBLE,"Native paired image header differs from its source world");
+        std::copy_n(native,bytes,saved.data());
+        on_end_save(); cleanup.started=false;
+        request.native=std::move(saved); request.physical=std::move(physical);
+        auto& result=request.status; result.state=2; result.configuration=configuration;
+        result.native_bytes=static_cast<std::uint32_t>(request.native.size()); result.physical_bytes=static_cast<std::uint32_t>(request.physical.size());
+        result.completed_frame=source.completed_frames; result.native_epoch=native_frame_epochs.load(std::memory_order_acquire); result.capture_thread=native_thread();
+        result.physical_time_seconds=source.time_seconds;
+    } catch (const Failure& error) {
+        request.status.state=3; request.error_code=error.result; std::snprintf(request.error.data(),request.error.size(),"%s",error.what());
+    } catch (const std::logic_error& error) {
+        request.status.state=3; request.error_code=MA_ONI_BUSY; std::snprintf(request.error.data(),request.error.size(),"%s",error.what());
+    } catch (const std::exception& error) {
+        request.status.state=3; request.error_code=MA_ONI_INTERNAL_ERROR; std::snprintf(request.error.data(),request.error.size(),"%s",error.what());
+    } catch (...) {
+        request.status.state=3; request.error_code=MA_ONI_INTERNAL_ERROR; std::snprintf(request.error.data(),request.error.size(),"Unknown paired checkpoint capture failure");
+    }
+    pair_pending.store(false,std::memory_order_release);
 }
 template<class Action> MAOniResult boundary(Action action) noexcept {
     try { std::lock_guard lock(lifecycle); action(); last_error[0]='\0'; return MA_ONI_OK; }
@@ -387,6 +477,8 @@ MAOniResult ma_oni_domain_species(std::uint32_t index,MAOniDomainSpecies* output
 }
 MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatus* output) {
     return boundary([&] {
+        std::lock_guard save_lock(native_save_mutex);
+        if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
         if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain configuration or output ABI");
         if (!installed || recovery_required || !image_base)
@@ -542,6 +634,62 @@ MAOniResult ma_oni_domain_checkpoint_advance(const std::uint8_t* input,std::uint
         if (output && capacity < image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Resumed physical checkpoint buffer is too small");
         if (output) std::copy(image.begin(),image.end(),output);
         *required=static_cast<std::uint32_t>(image.size());
+    });
+}
+std::uint32_t ma_oni_domain_pair_abi_version() { return 1; }
+MAOniResult ma_oni_domain_pair_request(std::uint64_t session,std::uint64_t frame,std::int32_t x,std::int32_t y,MAOniDomainPairStatus* output) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniDomainPairStatus)==112);
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1 || x<0 || y<0)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid paired checkpoint request/output ABI");
+        std::lock_guard pair_lock(pair_mutex);
+        if (!installed || recovery_required || captured_pair)
+            throw Failure(MA_ONI_BUSY,"Paired capture requires attached hooks and a released prior token");
+        std::lock_guard save_lock(native_save_mutex);
+        if (native_save_open) throw Failure(MA_ONI_BUSY,"A native save buffer is still borrowed");
+        auto candidate=std::make_unique<DomainPair>(); MAOniDomainStatus source{};
+        try { ma::oni::domain_checkpoint_source(session,frame,candidate->status.configuration,source); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        if (!source.completed_frames || source.start_thread!=native_thread())
+            throw Failure(MA_ONI_BUSY,"Paired request requires a completed frame on its activation thread");
+        if (pair_sequence==UINT64_MAX) throw Failure(MA_ONI_BUSY,"Paired checkpoint token range exhausted");
+        candidate->x=x; candidate->y=y;
+        auto& result=candidate->status; result.struct_size=sizeof(result); result.abi_version=1; result.state=1;
+        result.token=++pair_sequence; result.session=session; result.completed_frame=frame; result.physical_time_seconds=source.time_seconds;
+        captured_pair=std::move(candidate); pair_pending.store(true,std::memory_order_release); *output=captured_pair->status;
+    });
+}
+MAOniResult ma_oni_domain_pair_poll(std::uint64_t token,MAOniDomainPairStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid paired checkpoint poll ABI");
+        std::lock_guard lock(pair_mutex);
+        if (!captured_pair || !token || captured_pair->status.token!=token) throw Failure(MA_ONI_INVALID_ARGUMENT,"Unknown paired checkpoint poll token");
+        if (captured_pair->status.state==3) throw Failure(captured_pair->error_code,captured_pair->error.data());
+        *output=captured_pair->status;
+    });
+}
+MAOniResult ma_oni_domain_pair_copy(std::uint64_t token,std::uint8_t* native,std::uint32_t native_capacity,std::uint8_t* physical,std::uint32_t physical_capacity) {
+    return boundary([&] {
+        std::lock_guard lock(pair_mutex);
+        if (!captured_pair || !token || captured_pair->status.token!=token) throw Failure(MA_ONI_INVALID_ARGUMENT,"Unknown paired checkpoint token");
+        if (!native || !physical) throw Failure(MA_ONI_INVALID_ARGUMENT,"Both paired checkpoint buffers are required");
+        const auto& source=*captured_pair;
+        if (source.status.state==3) throw Failure(source.error_code,source.error.data());
+        if (source.status.state!=2) throw Failure(MA_ONI_BUSY,"Paired checkpoint capture is not complete");
+        if (native_capacity<source.native.size() || physical_capacity<source.physical.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Paired checkpoint buffers are too small");
+        const auto a=reinterpret_cast<std::uintptr_t>(native),b=reinterpret_cast<std::uintptr_t>(physical);
+        if (a>UINTPTR_MAX-source.native.size() || b>UINTPTR_MAX-source.physical.size() ||
+            (a<b+source.physical.size() && b<a+source.native.size())) throw Failure(MA_ONI_INVALID_ARGUMENT,"Paired checkpoint output buffers overlap");
+        std::copy(source.native.begin(),source.native.end(),native); std::copy(source.physical.begin(),source.physical.end(),physical);
+    });
+}
+MAOniResult ma_oni_domain_pair_release(std::uint64_t token) {
+    return boundary([&] {
+        std::lock_guard lock(pair_mutex);
+        if (token && token==last_released_pair) return;
+        if (!captured_pair || !token || captured_pair->status.token!=token) throw Failure(MA_ONI_INVALID_ARGUMENT,"Unknown paired checkpoint release token");
+        captured_pair.reset(); pair_pending.store(false,std::memory_order_release); last_released_pair=token;
     });
 }
 }

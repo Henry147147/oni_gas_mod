@@ -46,6 +46,10 @@ injection/consumption callbacks must carry the matching boundary potential.
 `native-checkpoint-domain` requires a lossless physical restart image whose
 independent continuation exactly matches the actual next worker frame. It
 records binary images/hashes while retaining the ordinary colony-save guards.
+`native-paired-checkpoint-domain` also captures native cells and the physical
+owner at one completed native epoch, verifies the challenged native tuples and
+validates their combined file. It retains the ordinary save guards until load
+binding and complete managed/actor persistence are implemented.
 `native-carbon-domain` uses the five-species domain/transfer ABI 2 and verifies
 CO2 injection, selective consumption, both actual callbacks, chemical/internal
 energy, carried kinetic energy, complete mass accounts and transported CO2 in
@@ -66,7 +70,7 @@ ten-native-timestep/physical-update gate with 47 byte-identical snapshot
 channels. The wrapper restores original mods, preferences and generated-world
 files after closing its disposable colony. Full Windows instructions and the
 retained failed timing control are in the same backend contract.
-It now also accepts `-NativeDomain gas|water|heat|transfer|actor|carbon|conduction|gravity|checkpoint` with a
+It now also accepts `-NativeDomain gas|water|heat|transfer|actor|carbon|conduction|gravity|checkpoint|pair` with a
 Windows native package. Domain runs use the shared portable evidence checker
 and require Windows Unity reports. All six Windows-binary forwarding cases and
 three native-domain controls execute successfully under Wine here; those
