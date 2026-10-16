@@ -63,6 +63,9 @@ machines, pipes, and metabolism must use the same conserved state.
   pass six more and Linux ASan/UBSan checks. Linux now completes Sod N64/128/256;
   the [strong-gas gate](native/MAC_RIEMANN.md) remains failed on collision velocity
   refinement on both platforms. Earlier results and diagnostics are preserved.
+  A separate [compatible compression component](native/MAC_COMPRESSION.md)
+  passes six Windows/Linux groups and 6,095 saved checks; it has not yet been
+  integrated into the closed owner or repeated the failed shock gate.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
