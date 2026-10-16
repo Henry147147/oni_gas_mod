@@ -6,7 +6,64 @@ the node and component operands needed to identify the exact numerical cause.
 The prospective replacement retains canonical momentum as primary state and
 keeps stored internal energy separate from resolved kinetic energy. No new
 state owner, pressure step, remap, runtime mode or physical acceptance is supplied
-by the diagnostics component below.
+by the diagnostics component alone. The separate experimental owner below has a
+known failed translation gate and is not selected by the game.
+
+## Experimental material owner
+
+`experimental/canonical_material.hpp` adds a deep immutable owner for seven
+contiguous material regions, 8–33 retained nodes, at most 32 affine reference
+pieces and 1–4 supplied gas/liquid profiles. It retains the full consistent mass
+matrix, primary nodal momentum and reference constituent measures. Derived
+velocities, fine/owner moments, resolved kinetic energy and actual EOS caches
+share one completed snapshot. An owning read view survives retirement of both
+caller inputs and its originating state. Supplied stored internal energy is
+preserved; temperature initialization records its separate elastic addition.
+Resolved kinetic variance is never converted to heat.
+
+The fixed-h pressure step uses actual stored initial momentum in its nonlinear
+residual, stores free momentum from force, solves the full consistent system for
+velocity, then computes dependent constrained momentum and measured reactions.
+It checks actual impulse representation, geometry, actual-EOS stored m/U/V,
+independent work/entropy comparisons and finite energy/momentum/moment ledgers
+before an atomic immutable publication. It performs no remap or timestep retry.
+Unsupported topology, range and resource failures preserve the complete input
+and previous output and seal a separate bounded witness.
+
+The explicit `ma_canonical_material` and `ma_canonical_material_tests` targets
+are excluded from default builds and CTest. The library has one-way dependencies
+on `ma_core` and diagnostics; the game DLL and world dispatch do not depend on it.
+`canonical_material_diagnostic_bytes` exports tagged, length-delimited data for
+complete state comparisons, including model/registry and every report field.
+It uses raw binary64 bits and no EOS query. It is not a restart/save format.
+
+Strict Windows/MSVC and Linux/GNU builds passed. The first GNU build rejected
+six loop/following-statement lines as misleading indentation; only line breaks
+changed before its next compile-only build. No material case ran on Linux.
+The first new seven-case Windows invocation
+passed six cases: owner/read-view lifetime and independent reference/row checks,
+supplied-U import, five invalid-initialization controls, invalid-step/alias
+controls, a moving prescribed boundary, and free gas with zero exterior pressure.
+The two advancing cases reached force residual ratios 5.56e-14 and 5.03e-14;
+their finite energy-accounting remainders were 1.02e-16 J and 2.74e-14 J. These
+are bounded correctness observations, not performance or full-world acceptance.
+
+The seventh case, uniform translation on a nonuniform dyadic mesh, **failed**.
+At node 0 the relative requested increment was
+`-2.7105054312137611e-20` m (`bbe0000000000000`); adding it to stored relative
+position `-1.4375` m produced zero represented change. The typed
+`numerical_precision` witness was valid, at geometry stage 10, step 0, with
+21 numbers. Complete diagnostic bytes confirmed both input and previous output
+unchanged. The retained native exit was 1; raw stdout SHA-256 is
+`991cbef942702d747325526cb5a4b878d9ec5b4d3de4052f7facb3b51cfb703b` and
+stderr SHA-256 is
+`f8290ddc4777966f89246a4b9bda59d55eeb0ffb7e43a55646b87c4e161dad76`.
+Both streams reached EOF and closed without timeout, cap or capture errors.
+This failed gate is retained without rerun or a relaxed criterion. A storage
+representation change is needed before this method can be considered generally
+usable. No production 2D/multiphase, Unity, save/load or colony gate follows.
+The updated diagnostic component's 16 groups still pass on both platforms,
+with identical normalized output and the separate 642-number decimal review.
 
 ## Bounded failure evidence
 

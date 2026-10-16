@@ -107,6 +107,28 @@ foreach(target ma_canonical_diagnostics ma_canonical_diagnostics_tests)
     endif()
 endforeach()
 
+# Actual-EOS retained material owner, still isolated from ma_core and the DLL.
+# No default build or CTest dispatch selects this experimental fixed-h method.
+add_library(ma_canonical_material STATIC EXCLUDE_FROM_ALL
+    native/src/canonical_material.cpp
+    native/src/canonical_material_linear.cpp
+    native/src/canonical_material_views.cpp
+    native/src/canonical_material_thermo.cpp
+    native/src/canonical_material_step.cpp
+    native/src/canonical_material_serialization.cpp)
+target_link_libraries(ma_canonical_material PUBLIC ma_core ma_canonical_diagnostics)
+add_executable(ma_canonical_material_tests EXCLUDE_FROM_ALL native/tests/canonical_material_tests.cpp)
+target_link_libraries(ma_canonical_material_tests PRIVATE ma_canonical_material)
+if(MSVC)
+    target_compile_options(ma_canonical_material PRIVATE /W4 /WX /permissive- /fp:strict)
+    target_compile_options(ma_canonical_material_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+else()
+    target_compile_options(ma_canonical_material PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+    target_compile_options(ma_canonical_material_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+endif()
+
 if(MA_BUILD_STAGGERED_EXPERIMENTS)
     # Unfinished Cartesian transport is kept separate from the accepted retained
     # material-state library. Its strict boundary-rate test still fails.

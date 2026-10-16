@@ -266,6 +266,11 @@ void CanonicalFailureWitness::seal(CanonicalFatalCode code, std::string_view rea
     }
     code_ = code; reason_ = copied_text(reason); failed_ = true;
 }
+void CanonicalFailureWitness::reject_capture(std::string_view reason) noexcept {
+    if (failed_) return;
+    if (reason.empty() || !printable(reason)) invalid_capture("Invalid diagnostic capture rejection reason");
+    else invalid_capture(reason);
+}
 std::size_t CanonicalFailureWitness::numeric_slots() const noexcept {
     std::size_t count = scalar_count_;
     for (std::size_t i = 0; i < row_count_; ++i) count += rows_[i].length;

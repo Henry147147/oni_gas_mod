@@ -38,6 +38,18 @@ enum class CanonicalWitnessField : std::uint16_t {
     temperature, gas_pressure, mechanical_pressure, resolved_kinetic_energy,
     thermal_energy, elastic_energy, entropy_change, energy_error,
     rounding_mode, mxcsr, binary64_supported, x86_supported,
+    // Append-only producer fields; existing serialized IDs remain stable.
+    operand_left, operand_right, arithmetic_result, completed_time, constitutive_charge,
+    constitutive_error_code, temperature_minimum, temperature_maximum, molar_mass,
+    heat_capacity, energy_offset, reference_density, bulk_modulus, density_ratio_limit,
+    reference_position, position, jacobian, species_mass, partial_volume,
+    work_pressure, work_stiffness, balanced_energy_change, represented_energy_change,
+    requested_volume_change, represented_volume_change, incidence_volume_change,
+    free_residual, linear_residual, caloric_reference, mechanical_variance,
+    entropy_cache_difference, old_kinetic_energy, new_kinetic_energy,
+    basis_index, node_indices,
+    thermodynamic_reading,
+    residual_ratio, backtracking_fraction,
     count
 };
 
@@ -83,6 +95,8 @@ public:
     // The first seal wins. Bad/capacity-exceeding diagnostic input also seals
     // explicitly, with capture_valid()==false, rather than truncating evidence.
     void seal(CanonicalFatalCode code, std::string_view printable_reason) noexcept;
+    // Producer-side capture/association failure, distinct from physical rejection.
+    void reject_capture(std::string_view printable_reason) noexcept;
 
     [[nodiscard]] bool failed() const noexcept { return failed_; }
     [[nodiscard]] bool capture_valid() const noexcept { return capture_valid_; }

@@ -138,6 +138,10 @@ int main() {
             evidence.reset(); check(!evidence.set_identity(std::string(257, 'a'), 0), "Oversized identity accepted");
             evidence.reset(); evidence.seal(precision, std::string(257, 'a'));
             check(evidence.failed() && !evidence.capture_valid(), "Oversized reason accepted");
+            evidence.reset(); evidence.reject_capture("Producer frame capacity exhausted");
+            check(evidence.failed() && !evidence.capture_valid(), "Producer capture error accepted");
+            evidence.reset();
+            check(evidence.add_scalar(Field::work_pressure, 1), "Appended producer field rejected");
         }, passed);
         test("small output buffers report failure separately and leave evidence unchanged", [] {
             auto evidence = witness(); evidence.seal(precision, "Encoding buffer control"); const auto before = encoded(evidence);
