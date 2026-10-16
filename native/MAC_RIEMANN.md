@@ -113,6 +113,62 @@ failed terminal SHA256
 The default game DLL is unchanged. Linux does not repeat this shared failure.
 No independent agent, Unity or production/performance acceptance is claimed.
 
+### Logging-only localization of collision entropy
+
+A separate strict Windows diagnostic logs the six states of each accepted
+attempt: source, first compression half-step, pressure at actual material
+volumes, remap before heat, transport heat, and final compression half-step.
+Removing exactly the inserted logging restores the owning implementation,
+including arithmetic order, retries and bounds. Its private driver selects
+only the existing collision N64/N128 profiles; the repository scientific test
+is unchanged. This diagnostic does not rerun or pass the strong-flow gate.
+
+Both final cell records, all face momenta and the full interval reports are
+bit-identical to the retained failed run. The saved reviewer uses the original
+80-digit oracle, checks the central samples' EOS/entropy independently, and
+checks the chronological stage chain, actual aggregate heat operands and
+endpoint identities. There are 46 and 91 accepted substeps respectively.
+
+| Contribution to global entropy increase | N64 | N128 |
+| --- | ---: | ---: |
+| Both compression half-steps | 64.41% | 66.26% |
+| Pressure work | Roundoff | Roundoff |
+| Material remap before heat | 14.34% | 14.91% |
+| Transport heat | 21.24% | 18.82% |
+
+The pressure stage's accumulated entropy change is -2.77e-13 / -1.62e-13
+J/K. These closed-domain totals include wall regions, and the transverse
+domain height is 2/N; they are not a direct measure of excess shock entropy.
+Entropy production is required at a shock, so the table alone does not
+identify a faulty dissipative term.
+
+At both grids, the left central fixed-cell sample changes from -970.2291 to
+-852.6267 J/(kg K) after one complete substep and -795.8975 after two. The
+exact compressed state's specific entropy is -822.3579 J/(kg K). Pressure
+preserves the sample's specific entropy, while compression and transport heat
+increase it. Fixed-cell readings include advected material and are not parcel
+production rates. Together with the persistent final central density deficit,
+this suggests investigating heat distribution and shock coupling rather than
+changing pressure-root tolerance or the acceptance bounds.
+
+This pattern is consistent with the excess heating on shock formation
+investigated by [Noh (1987)](https://www.sciencedirect.com/science/article/pii/002199918790074X).
+That paper compares viscosity alone with an additional artificial heat flux;
+it does not validate this solver or establish that such a change will satisfy
+its gates. Any proposed thermal redistribution still needs compatible energy,
+positive-temperature, entropy and stationary-contact controls before a new
+strong-flow retry. No numerical coefficient or physical criterion changes in
+this diagnostic.
+
+Private cohort `local/occupied-staggered-validation/mac-collision-stage-diagnostic-windows-r1`:
+source-freeze SHA256
+`1d41ed241dc732e42550a2052f0815033b4f64f3afde31fde017fa19b7fa36ee`,
+terminal SHA256
+`e29e132eeda4e6109abd7bbd4c9f3aa7bb70863d2e34a71be64381db549fac06`.
+The 647,006-byte native stdout closes normally within its original 2 MiB
+diagnostic cap; native stderr is empty. The default game DLL is unchanged.
+This adds no Linux, Unity, production or performance acceptance.
+
 ## Earlier symmetric compression owner: pressure-refinement failure
 
 The subsequent [symmetric coupling](MAC_COMPRESSION_COUPLING.md) passes all 66
