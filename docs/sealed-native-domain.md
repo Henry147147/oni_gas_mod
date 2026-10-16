@@ -17,9 +17,11 @@ objects, disease and radiation before enabling the domain.
 
 The actual positive `ProcessNextFrame` return supplies the timestep and a
 monotonic ticket. `UpdateData` advances the custom `MacClosedWorld` on the native
-simulation worker, once for the global timestep. A mutex spans custom work and
-the original update so a managed reader cannot consume a partially completed
-native frame. Synchronization-only passes never advance custom time. There is
+simulation worker, once for the global timestep. The domain's mutex now spans
+`ProcessNextFrame` through `EndFrame`, including native cell work, custom work
+and the original update. A managed reader cannot consume a partially completed
+native frame. `BeginFrame` may wait for main-thread work and stays outside the
+fence. Synchronization-only passes never advance custom time. There is
 no managed advance timer.
 
 The physical model retains constituent mass, U and canonical face momentum.
@@ -337,6 +339,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T222138Z-5dd9d7` | Passes native-clock gravity and actual gas transfers: 121 native frames, 120 after priming, 2,541 substeps and zero rejected attempts. Initial/current potential is 68.4864608 / 68.7330484 J; the actual 0.05 kg injection and 0.02 kg consumption carry net 0.147150006 J of boundary potential. Both game callbacks fire once. Cumulative downward body impulse is -1,664.20014 kg m/s, with signed internal gravity work -0.0520605 J. U+K+G transfer residual is -3.48e-9 J; maximum relative mass/energy drift is 2.01e-15 / 6.09e-15. Exact native cells, game grid/rendering, native solid heat and both save guards pass, with no mod failure lines. Source is `5d39a15` plus the recorded gravity changes. |
 | `20261016T223037Z-cf58d3` | Passes atomic owned actor configuration and outside native-batch forwarding with actual Unity consumers. The two ordered owned rate commands avoid native dispatch; the outside zero-rate consumer batch reaches the native batch entry exactly once. Over 120 post-priming frames, 32 consumer callbacks account for 0.2000000053 kg and 40 emitter samples account for 1.09375 kg. Blocked/unblocked callbacks, exact native cells, physical game status, grid/rendering, solid heat and both save guards pass. Removal is followed by 74 further frames without actor transfers. U+K residual is -2.58e-9 J; relative constituent drift is 1.01e-15. No mod failure lines. Source is `4f03eac` plus the recorded batch changes, including the pulled separate heat-component repair. |
 | `20261016T224334Z-cee2a7` | Passes physical checkpoint restore and exact continuation in the actual Linux game: the 3,503-byte source at frame 6 / 1.200000018 s independently restores/advances to the exact image published by native worker frame 7 / 1.400000021 s, with zero observation retries. Expected/actual SHA-256 is `ef895aa34a42ec337bbb0143d9ce870e0f873afdce4dbd673988c987817ba32c`. The full scene completes 122 frames, 120 after priming, 2,562 substeps and 24.4 s; relative mass/energy drift is 1.19e-15 / 5.72e-15. Exact native tuples, grid/rendering, native solid heat and both save guards pass without mod failure lines. Source is `e65ebe3` plus the recorded checkpoint changes. Windows native code under Wine also reads/reserializes this actual Linux game image without changing a byte; full colony save/reload remains open. |
+| `20261016T225904Z-9e5553` | Repeats the full checkpoint game pass with the native worker fence extended through native processing and `EndFrame`. It completes 120 post-priming frames, exact restored/live continuation, unchanged native tuples, grid/rendering, solid heat and both save guards, with no mod failure lines. Source is `42cae2b` plus the recorded fence changes. Both licensed native-library checkpoint controls pass with that fence too (Windows under Wine). |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

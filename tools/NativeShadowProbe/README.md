@@ -155,3 +155,20 @@ inside a frame, chunk/building/backwall transition coverage, correct fluid-solid
 coupling, or usable performance. Filtering native definitions also removes
 phase behavior that the mixture engine must implement. A successful result
 always retains `authoritativeColonySimulationReady: false`.
+
+The explicit `zero-time-frame` lifecycle experiment requires the observer.
+Its current Linux and Windows-under-Wine controls pass: the first zero-time
+update resolves only the initial empty backwall index cache (`65535` to the
+registered vacuum index); a second zero-time update retains every complete
+cell tuple exactly. Queued cell edits and flags on a separate vacuum cell then
+commit on another zero-time frame, while solid temperatures stay exact and
+the observer records zero positive timestep returns. Native frame-message
+counts can still increase, so they must not stand in for physical time.
+
+Earlier negative results remain private: v1 retained 2 kg of fluid when flags
+targeted the occupied oxygen cell; v2/v3 compared the first update directly
+against its uninitialized backwall cache and failed on both platforms. These
+are not counted as passing the original controls. The current protocol tests
+the exact cache mapping before using a fully initialized baseline. It does
+not prove that flagging occupied cells is displacement-free, nor does it
+complete paired colony save/load. The default nine-mode suite is unchanged.

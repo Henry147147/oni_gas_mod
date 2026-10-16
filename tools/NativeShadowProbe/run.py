@@ -18,6 +18,7 @@ from native_probe_process import add_runtime_arguments, ProbeRuntime
 
 MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 DOMAIN_MODES = ("sealed-gas", "sealed-water", "sealed-heat", "sealed-conduction", "sealed-gravity", "sealed-checkpoint")
+EXPERIMENT_MODES = ("zero-time-frame",)
 
 
 def no_core_dump() -> None:
@@ -33,13 +34,13 @@ def main() -> int:
     add_runtime_arguments(parser)
     parser.add_argument("--observer", type=Path)
     parser.add_argument("--game", type=Path)
-    parser.add_argument("--mode", choices=(*MODES, *DOMAIN_MODES, "all", "domains"), default="all")
+    parser.add_argument("--mode", choices=(*MODES, *DOMAIN_MODES, *EXPERIMENT_MODES, "all", "domains"), default="all")
     args = parser.parse_args()
     if not sys.platform.startswith("linux"):
         parser.error("Use run.ps1 on Windows")
     runtime = ProbeRuntime(args, parser)
-    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, "domains") and not args.observer):
-        parser.error("Sealed domains require both --observer and --game")
+    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, *EXPERIMENT_MODES, "domains") and not args.observer):
+        parser.error("Sealed domains and zero-time controls require both --observer and --game")
     if args.observer and not args.observer.is_file(): parser.error("Native observer library is missing")
     for path in (args.native, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):
         if not path.is_file():

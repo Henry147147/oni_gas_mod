@@ -56,6 +56,10 @@ std::uint64_t native_thread() noexcept {
 }
 struct PendingTimestep { std::uint64_t ticket{}; float seconds{}; };
 thread_local PendingTimestep pending_timestep;
+// A domain save must exclude native cell processing as well as publication.
+// BeginFrame may wait for the main thread, so acquire only after it returns,
+// at ProcessNextFrame, and release after EndFrame finishes.
+thread_local std::unique_lock<std::mutex> worker_frame_fence;
 
 void trace(std::uint32_t hook, bool entering, std::uint32_t bits=0) noexcept {
     if (hook > MA_ONI_UPDATE_DATA && (hook < MA_ONI_STEP || hook > MA_ONI_END_FRAME)) return;
@@ -107,6 +111,8 @@ FORWARD(on_main, MA_ONI_MAIN, void, (void* self), (self))
 FORWARD(on_process_frame, MA_ONI_PROCESS_FRAME, void, (void* frame,void* data), (frame,data))
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
+    if (ma::oni::domain_active() && !worker_frame_fence.owns_lock())
+        worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     call.bits = std::bit_cast<std::uint32_t>(dt);
     if (dt > 0) pending_timestep={positive_steps.fetch_add(1,std::memory_order_relaxed)+1,dt};
@@ -116,7 +122,8 @@ void on_update_data(void* self,void* data) {
     Call call(MA_ONI_UPDATE_DATA);
     // Native publication can wake the managed reader inside UpdateData. Keep
     // both owners behind the same fence until the original update completes.
-    std::lock_guard frame_lock(ma::oni::domain_frame_mutex());
+    std::unique_lock<std::mutex> frame_lock;
+    if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
     if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
@@ -173,7 +180,11 @@ float on_displacement(std::uint16_t element,int a,int b,int c,void* data) {
 }
 FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
 FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
-FORWARD(on_end_frame, MA_ONI_END_FRAME, void, (void* self), (self))
+void on_end_frame(void* self) {
+    Call call(MA_ONI_END_FRAME);
+    original<void (*)(void*)>(MA_ONI_END_FRAME)(self);
+    if (worker_frame_fence.owns_lock()) worker_frame_fence.unlock();
+}
 FORWARD(on_consumer, MA_ONI_CONSUMER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_emitter, MA_ONI_EMITTER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_emitter_dispatch, MA_ONI_EMITTER_DISPATCH, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))

@@ -3,13 +3,13 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-checkpoint')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-checkpoint','zero-time-frame')][string]$Mode = 'baseline',
     [string]$Observer,
     [string]$GameDirectory,
     [string]$Dotnet = 'dotnet.exe'
 )
 $ErrorActionPreference = 'Stop'
-if ([bool]$Observer -ne [bool]$GameDirectory -or ($Mode.StartsWith('sealed-') -and !$Observer)) { throw 'Sealed domains require both -Observer and -GameDirectory.' }
+if ([bool]$Observer -ne [bool]$GameDirectory -or (($Mode.StartsWith('sealed-') -or $Mode -eq 'zero-time-frame') -and !$Observer)) { throw 'Sealed domains and zero-time controls require both -Observer and -GameDirectory.' }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $report = Join-Path $OutputDirectory "$Mode.json"
 $stdout = Join-Path $OutputDirectory "$Mode.stdout.log"
