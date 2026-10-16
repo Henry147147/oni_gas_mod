@@ -156,6 +156,12 @@ The original scientific fixture and physical bounds remain unchanged, with
 earlier first failures retained. Five reconstruction groups and separate
 exact/high-precision parcel/EOS checks pass. These smooth occupied-grid controls
 do not establish shocks, free surfaces or general nonlinear buoyancy.
+The new [strong-gas Riemann gate](../native/MAC_RIEMANN.md) remains failed:
+Windows completes Sod refinement but collision velocity error grows; Linux
+rejects an unrepresentable derived kinetic-energy parcel while primary mass
+and momentum transfers remain representable. Its first captures and separate
+saved-data diagnostics remain retained. Wider derived-energy accounting and
+collision transport accuracy still require work before production ownership.
 
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,

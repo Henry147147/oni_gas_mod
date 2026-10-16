@@ -54,6 +54,9 @@ machines, pipes, and metabolism must use the same conserved state.
   on both platforms with separate saved-data reviews. Earlier failures remain
   recorded. Shocks, free surfaces, phase interfaces, production performance
   and game integration remain required.
+  The new [strong-gas gate](native/MAC_RIEMANN.md) currently fails collision
+  velocity refinement on Windows and derived kinetic-energy range on Linux;
+  its first results and diagnostics are retained.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
