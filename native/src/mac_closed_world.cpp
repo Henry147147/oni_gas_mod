@@ -95,7 +95,8 @@ void MacClosedSettings::validate() const {
          preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
         (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear) &&
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
-        (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic), "Invalid MAC closed settings");
+        (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic) &&
+        (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -331,7 +332,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution;
+    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer;
     Account conductive_entropy;
     MacScaledSum wx, wy; Account gravity_change, body_impulse;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
@@ -347,10 +348,15 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
             try {
                 MacCompressionReport before_compression, after_compression; MacTransportState prepared;
                 MacThermalReport before_conduction, after_conduction;
+                MacShockHeatReport before_shock_heat, after_shock_heat;
                 const MacTransportState* pressure_source = &result.world.state_;
                 if (settings_.thermal_conduction) {
                     auto conducted=advance_mac_conduction(registry_,*thermodynamics_,*pressure_source,.5*dt);
                     before_conduction=std::move(conducted.report); prepared=std::move(conducted.state); pressure_source=&prepared;
+                }
+                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated) {
+                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, *pressure_source, .5 * dt);
+                    before_shock_heat = std::move(heated.report); prepared = std::move(heated.state); pressure_source = &prepared;
                 }
                 if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt);
@@ -360,6 +366,10 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt);
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
+                }
+                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated) {
+                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, candidate.state, .5 * dt);
+                    after_shock_heat = std::move(heated.report); candidate.state = std::move(heated.state);
                 }
                 if (settings_.thermal_conduction) {
                     auto conducted=advance_mac_conduction(registry_,*thermodynamics_,candidate.state,.5*dt);
@@ -384,6 +394,16 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     result.report.conduction_iterations+=conduction->iterations;
                     result.report.unresolved_conduction_updates+=conduction->unresolved_heat_updates;
                 }
+                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated)
+                    for (const auto* heat : {&before_shock_heat, &after_shock_heat}) {
+                        bounds.add(heat->energy_bound); shock_heat_transfer.add(heat->absolute_transfer);
+                        ++result.report.shock_heat_stages; result.report.shock_heat_events += heat->events.size();
+                        result.report.unresolved_shock_heat_updates += heat->unresolved_updates;
+                        for (const auto& event : heat->events) {
+                            result.report.shock_heat_root_iterations += event.pair.equilibrium_iterations;
+                            result.report.rejected_shock_heat_trials += event.pair.rejected_equilibrium_trials;
+                        }
+                    }
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
@@ -411,6 +431,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     result.report.compression_heat_wide_j = compression_heat.value();
     result.report.conductive_redistribution_j=conductive_redistribution.value();
     result.report.conductive_entropy_j_per_k=conductive_entropy.value();
+    result.report.absolute_shock_heat_transfer_wide_j = shock_heat_transfer.value();
+    result.report.absolute_shock_heat_transfer_j = projected_energy(result.report.absolute_shock_heat_transfer_wide_j, result.report.rounded_energy_projections);
     result.report.compression_heat_j = projected_energy(result.report.compression_heat_wide_j, result.report.rounded_energy_projections);
     result.report.energy_residual_j = projected_energy(result.report.energy_residual_wide_j, result.report.rounded_energy_projections);
     result.report.energy_bound_j = projected_energy(result.report.energy_bound_wide_j, result.report.rounded_energy_projections);

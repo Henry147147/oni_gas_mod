@@ -27,7 +27,9 @@ MacTransportState source(bool walls = false) {
         s.momentum_y[i] = m.y[i] * (-.25 + .125 * std::cos(static_cast<double>(i) + .3));
     return s;
 }
-MacClosedSettings settings() { MacClosedSettings s; s.maximum_timestep_s = dt; return s; }
+// Isolate the pressure/momentum reference; full default heat coupling has its
+// own owning tests, including the same accepted-stage and atomicity checks.
+MacClosedSettings settings() { MacClosedSettings s; s.maximum_timestep_s = dt; s.shock_heat = MacShockHeatRegularization::none; return s; }
 void positive(const MacTransportState& s) {
     const auto& set = ma::testing::setup();
     for (std::size_t i = 0; i < s.cells.size(); ++i) if (!s.grid.walls[i]) {

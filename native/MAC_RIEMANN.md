@@ -1,10 +1,11 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows reconstructed-momentum owner
-completes Sod N64/128/256 and satisfies collision velocity refinement, then
-fails collision density and pressure refinement at N128. Linux passes all 85
-prerequisite groups and does not repeat that known failure. Earlier
-compression, velocity and range failures remain recorded below.
+The gate remains failed. The latest Windows compression-activated heat owner
+completes Sod N64/128/256 and reduces central collision density errors below
+0.7%, then fails collision density and pressure refinement at N128. Both
+platforms pass all 102 prerequisite groups; Linux does not repeat the known
+strong-flow failure. Earlier compression, velocity and range failures remain
+recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. The original gate introduced tests/build declarations;
@@ -74,7 +75,52 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current reconstructed-momentum owner: density/pressure refinement failure
+## Current heat owner: shock-profile refinement failure
+
+The [heat owner](MAC_SHOCK_HEAT_OWNER.md) passes all 102 strict Windows/Linux
+groups and saved reviews, plus 35 Linux sanitizer groups, before this one
+changed-source retry. The original scientific sources, inputs, grids,
+timesteps and error limits remain unchanged.
+
+| Case | Grid | Density L1 | Pressure L1 | Velocity L1 |
+| --- | --- | --- | --- | --- |
+| Sod | 64 | 0.0110042047538 | 0.00785837035251 | 0.0176176567002 |
+| Sod | 128 | 0.00661869765206 | 0.00451709034098 | 0.0101238118567 |
+| Sod | 256 | 0.00346633865236 | 0.00226398995987 | 0.00494306477512 |
+| Collision | 64 | 0.0355248107233 | 0.0753658345741 | 0.0687128810454 |
+| Collision | 128 | 0.0344497819504 | 0.0772765689609 | 0.0414422536211 |
+
+Collision N128/N64 ratios are **0.96973865 / 1.02535279 / 0.60312205**.
+Density and pressure exceed 0.85; velocity passes. The native run exits 1
+normally after 57.4 seconds, with closed pipes, no timeout or overflow, and no
+rejected timesteps. It stops before collision N256 or any separation profile.
+A partial saved-data review checks 59,205 identities across the five completed
+profiles and reproduces the failure. Actual EOS, traces, U+face-K, entropy and
+momentum/wall accounts pass. No full-gate corruption controls are run.
+
+Saved-only regional analysis finds central density errors of 0.646% / 0.667%
+and central pressure errors of 0.715% / 0.758%. The left central cell's specific
+entropy excess falls from about 100.17 / 96.31 to 1.416 / 1.318 J/(kg K).
+Pressure-error contributions (unshocked / shock-cut / compressed) are
+0.033339 / 0.001620 / 0.040407 at N64 and
+0.029969 / 0.027129 / 0.020178 at N128. The finer compressed profile alternates
+around the exact star state: cells 59 through 63 have pressure approximately
+559001, 587884, 554703, 583795 and 567020 Pa against 571226 Pa. This supports
+investigating front damping and coupling; it does not establish a repair or
+justify changing any physical limit. The regional split is sensitive to the
+exact shock/cell intersection and must not be treated as an independent norm.
+
+Private analysis: `local/mac-shock-heat-owner-collision-analysis-r1`.
+Native/partial cohort:
+`local/occupied-staggered-validation/mac-shock-heat-owner-strong-windows-r1`,
+source-freeze SHA256
+`49641eb3ba5ca9ec26b24cc11bc53b1a4605ae971ad5092314507b2440d2f3cc`,
+failed terminal SHA256
+`820f1f0ae29c3eafeb21f58fb1e61777fd6fc19e0fa1776262f128a023151432`.
+The default game DLL remains unchanged. There is no independent-agent, Unity,
+production or performance acceptance. Linux does not repeat the same failure.
+
+## Earlier reconstructed-momentum owner: density/pressure refinement failure
 
 The [owning timestep integration](MAC_MOMENTUM_OWNER.md) passes all 85 strict
 Windows/Linux native groups and their saved reviews before this one

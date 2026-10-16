@@ -1,5 +1,6 @@
 #pragma once
 #include "mac_thermal.hpp"
+#include "mac_shock_heat.hpp"
 #include "mac_reconstruction.hpp"
 #include "mac_compression.hpp"
 #include "volume_work.hpp"
@@ -9,6 +10,7 @@
 namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
 enum class MacCompressionViscosity { none, quadratic };
+enum class MacShockHeatRegularization { none, compression_activated };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -22,6 +24,7 @@ struct MacClosedSettings {
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
+    MacShockHeatRegularization shock_heat = MacShockHeatRegularization::compression_activated;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -85,6 +88,10 @@ struct MacClosedAdvanceReport {
     MacEnergy compression_heat_wide_j;
     double compression_heat_j = 0;
     std::size_t rounded_energy_projections = 0;
+    std::size_t shock_heat_stages = 0, shock_heat_events = 0, shock_heat_root_iterations = 0;
+    std::size_t rejected_shock_heat_trials = 0, unresolved_shock_heat_updates = 0;
+    MacEnergy absolute_shock_heat_transfer_wide_j;
+    double absolute_shock_heat_transfer_j = 0;
 };
 struct MacClosedAdvance;
 struct MacGasTransferResult;

@@ -1,4 +1,4 @@
-#include "mac_compression_fixture.hpp"
+#include "mac_shock_heat_fixture.hpp"
 #include "mixed_atmospheres/mac_shock_heat.hpp"
 #include <iomanip>
 
@@ -6,27 +6,13 @@ namespace {
 using namespace ma;
 using namespace ma::experimental;
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
-void full(MacEnergy value) { ma::testing::export_compression_scaled(value); }
-void export_pair(std::size_t id, const MixtureInventory& l, const MixtureInventory& r, double vl, double vr, const MacShockHeatPair& p) {
-    std::cout << "HPAIR " << id << ' ' << vl << ' ' << vr << ' ' << p.equilibrium_iterations << ' ' << p.unresolved_updates;
-    for (auto v : {p.before_left_j, p.before_right_j, p.after_left_j, p.after_right_j, p.temperature_left_k, p.temperature_right_k,
-        p.after_temperature_left_k, p.after_temperature_right_k, p.capacity_left_j_per_k, p.capacity_right_j_per_k}) std::cout << ' ' << v;
-    for (auto v : {p.integrated_conductance, p.relaxation_number, p.fraction, p.equilibrium_transfer, p.transfer, p.energy_residual, p.energy_bound}) full(v);
-    std::cout << ' ' << p.entropy_change_j_per_k << ' ' << p.entropy_roundoff_j_per_k << '\n';
-    std::cout << "HEQCERT " << id << ' ' << p.rejected_equilibrium_trials << ' ' << p.equilibrium_temperature_left_k << ' ' << p.equilibrium_temperature_right_k;
-    full(p.equilibrium_temperature_residual); full(p.equilibrium_temperature_bound); std::cout << '\n';
-    for (std::size_t side = 0; side < 2; ++side) {
-        const auto& masses = side == 0 ? l.masses : r.masses;
-        for (std::size_t i = 0; i < masses.size(); ++i) if (masses[i] != 0) std::cout << "HPMASS " << id << ' ' << side << ' ' << i << ' ' << masses[i] << '\n';
-    }
-}
 MixtureInventory gas(double mass, double t, double volume = 1) {
     const auto& s = ma::testing::setup(); std::vector<double> m(s.registry.size());
     m[s.registry.index("nitrogen")] = mass; m[s.registry.index("helium")] = mass * 1e-28;
     return s.eos->initialize_at_temperature(m, t, volume).mixture;
 }
 MacShockHeatPair pair(std::size_t id, const MixtureInventory& l, const MixtureInventory& r, MacEnergy g, double vl = 1, double vr = 1) {
-    const auto& s = ma::testing::setup(); const auto p = relax_mac_shock_heat_pair(*s.eos, l, r, vl, vr, g); export_pair(id, l, r, vl, vr, p); return p;
+    const auto& s = ma::testing::setup(); const auto p = relax_mac_shock_heat_pair(*s.eos, l, r, vl, vr, g); ma::testing::export_shock_heat_pair(id, l, r, vl, vr, p); return p;
 }
 void analytic() {
     auto l = gas(.2, 600), r = gas(.3, 250); const auto held_l = l.masses, held_r = r.masses;
@@ -70,40 +56,6 @@ MacTransportState compressing(bool periodic, bool wet, bool corner) {
     }
     return state;
 }
-void export_grid(std::size_t id, const MacTransportState& source, const MacShockHeatAdvance& result, double dt) {
-    const auto& set = ma::testing::setup(); const auto& g = source.grid; const auto& report = result.report;
-    std::cout << "HGRID " << id << ' ' << g.width << ' ' << g.height << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << dt << ' ' << report.events.size() << ' ' << report.unresolved_updates;
-    for (auto v : {report.absolute_transfer, report.energy_residual, report.energy_bound}) full(v);
-    std::cout << ' ' << report.entropy_change_j_per_k << ' ' << report.entropy_roundoff_j_per_k << '\n';
-    for (std::size_t i = 0; i < report.events.size(); ++i) {
-        const auto& e = report.events[i]; const auto key = 1000 + id * 1000 + i;
-        auto l = source.cells[e.left].mixture, r = source.cells[e.right].mixture; l.energy = e.pair.before_left_j; r.energy = e.pair.before_right_j;
-        export_pair(key, l, r, g.volume_m3(), g.volume_m3(), e.pair);
-        std::cout << "HEVENT " << id << ' ' << i << ' ' << e.axis << ' ' << e.face << ' ' << e.left << ' ' << e.right << ' ' << e.sweep << ' ' << key; full(e.closing_velocity); std::cout << '\n';
-    }
-    const auto inertia = mac_face_inertias(set.registry, source, *set.eos);
-    for (std::size_t i = 0; i < source.cells.size(); ++i) {
-        std::cout << "SOLID " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << '\n';
-        std::cout << "HCAP " << id << ' ' << i << ' ' << report.frozen_capacity_j_per_k[i] << '\n';
-    }
-    for (int endpoint = 0; endpoint < 2; ++endpoint) {
-        const auto& state = endpoint == 0 ? source : result.state;
-        for (std::size_t i = 0; i < state.cells.size(); ++i) if (!g.walls[i]) {
-            const auto& c = state.cells[i]; const auto eos = set.eos->evaluate(c.mixture, g.volume_m3());
-            std::cout << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << c.mixture.energy << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
-            for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
-                std::cout << "SMASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
-            for (const auto& p : c.passive_quantities) std::cout << "SPASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
-        }
-        for (int axis = 0; axis < 2; ++axis) {
-            const auto j = axis == 0 ? mac_field_values(state.momentum_x, state.full_momentum_x) : mac_field_values(state.momentum_y, state.full_momentum_y);
-            const auto& m = axis == 0 ? inertia.x : inertia.y;
-            for (std::size_t f = 0; f < j.size(); ++f) {
-                std::cout << "SFACE " << id << ' ' << axis << ' ' << endpoint << ' ' << f << ' ' << m[f] << ' ' << ma::testing::compression_fixed_face(g, axis, f); full(j[f]); std::cout << '\n';
-            }
-        }
-    }
-}
 void grid_case(std::size_t id, MacTransportState state, double dt, bool active, bool changes) {
     const auto& s = ma::testing::setup(); const auto held = ma::testing::fingerprint(state);
     const auto result = advance_mac_shock_heat(s.registry, *s.eos, state, dt);
@@ -112,7 +64,7 @@ void grid_case(std::size_t id, MacTransportState state, double dt, bool active, 
     auto unchanged_fields = result.state;
     for (std::size_t i = 0; i < state.cells.size(); ++i) unchanged_fields.cells[i].mixture.energy = state.cells[i].mixture.energy;
     check(ma::testing::fingerprint(unchanged_fields) == held, "Heat grid changes mass, passives, J or geometry");
-    export_grid(id, state, result, dt);
+    ma::testing::export_shock_heat(id, state, result, dt);
 }
 void occupied() { grid_case(0, compressing(false, true, true), .01, true, true); grid_case(1, compressing(true, true, false), .01, true, true); }
 MacTransportState chain() {

@@ -244,3 +244,11 @@ The source-review SHA256 is
 Owning integration must also exercise both operators together when physical
 conduction is enabled. No merged-runtime or new game evidence is inferred
 from that source comparison.
+
+The subsequent [owning integration](MAC_SHOCK_HEAT_OWNER.md) now selects this
+component by default in the closed occupied solver and exercises it together
+with physical conduction. All 102 prerequisite groups pass on both platforms,
+and 35 Linux sanitizer groups pass. The original strong-flow retry still
+fails collision density/pressure refinement; see [the retained
+results](MAC_RIEMANN.md). No production or game dispatch is inferred from the
+standalone owner controls.

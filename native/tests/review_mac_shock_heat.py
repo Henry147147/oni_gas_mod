@@ -15,7 +15,7 @@ base=ref.base;check,close,number,unique=base.check,base.close,base.number,base.u
 EPS=base.EPS;dec=ref.dec
 
 
-def parse(raw):
+def parse(raw,required_passes=8,required_grids=tuple(range(7)),controls=True):
     data={k:{} for k in ('materials','pairs','certs','pmasses','grids','events','caps','cells','masses','passives','faces','walls','network')}
     passes=[];rejected=None;brackets=set()
     for line in raw.decode('ascii').splitlines():
@@ -54,9 +54,10 @@ def parse(raw):
             check(len(r)==2 and rejected is None,'Rejection shape');rejected=int(r[1])
         else:
             check(kind=='PASS','Unknown heat record');passes.append(line)
-    check(len(set(passes))==len(passes)==8 and rejected==8,'Missing heat groups/rejections')
-    check(set(data['grids'])==set(range(7)) and set(data['network'])=={1,2,4,8,16},'Missing grid/network controls')
-    check(set(range(14)).issubset(data['pairs']) and len(data['materials'])==4 and brackets=={11,12,13},'Missing pairs/materials')
+    check(len(set(passes))==len(passes)==required_passes and rejected==(8 if controls else None),'Missing heat groups/rejections')
+    check(set(data['grids'])==set(required_grids) and set(data['network'])==({1,2,4,8,16} if controls else set()),'Missing grid/network controls')
+    check(len(data['materials'])==4 and brackets==({11,12,13} if controls else set()),'Missing materials/brackets')
+    if controls:check(set(range(14)).issubset(data['pairs']),'Missing analytic pairs')
     check(data['certs'].keys()==data['pairs'].keys(),'Missing root certificates')
     return data
 
@@ -158,7 +159,7 @@ def review_pair(data,key):
     close(sb,budget,budget,'Pair stored-U entropy allowance',8);check(ds>=-sb,'Pair entropy gate')
 
 
-def review_grid(data,gid):
+def review_grid(data,gid,controls=True):
     w,h,spacing,depth,px,py,dt,count,un,total,res,bound,ds,sb=data['grids'][gid]
     check(w>0 and h>0 and spacing>0 and depth>0 and dt>0 and px in (0,1) and py in (0,1),'Grid domain')
     vol=spacing*spacing*depth;xw=w+(not px);yh=h+(not py)
@@ -218,17 +219,18 @@ def review_grid(data,gid):
     terms=[*us[1],*[-v for v in us[0]]];close(res,sum(terms,F(0)),sum(map(abs,terms),F(0)),'Grid actual U residual')
     close(bound,128*EPS*sum(map(abs,terms),F(0)),bound,'Grid actual U bound',8);check(abs(res)<=bound,'Global actual U conservation')
     entropy_account(entropies[0],entropies[1],us[0],us[1],ts[0],ts[1],ds,sb)
-    if gid in (2,3):check(count==0 and total==0 and us[0]==us[1],'Rest/shear contact changes')
-    if gid==4:check(count>0 and total==0 and us[0]==us[1],'Uniform temperature changes')
-    if gid==5:check(total>0 and un>0 and us[0]==us[1],'Full-range grid heat not retained/flagged')
-    if gid==6:
+    if controls and gid in (2,3):check(count==0 and total==0 and us[0]==us[1],'Rest/shear contact changes')
+    if controls and gid==4:check(count>0 and total==0 and us[0]==us[1],'Uniform temperature changes')
+    if controls and gid==5:check(total>0 and un>0 and us[0]==us[1],'Full-range grid heat not retained/flagged')
+    if controls and gid==6:
         check(count==0 and total==0 and us[0]==us[1],'Stationary pressure contact changes')
         for i in fluid:check(abs(data['cells'][gid,0,i][2]-100000)<F(float('5e-10'))*100000,'Contact is not at its declared pressure')
 
 
-def review(data):
+def review(data,controls=True):
     for key in data['pairs']:review_pair(data,key)
-    for gid in data['grids']:review_grid(data,gid)
+    for gid in data['grids']:review_grid(data,gid,controls)
+    if not controls:return
     previous=None
     for n,(time,*values) in sorted(data['network'].items()):
         check(time==F(.25),'Network duration changed');temps=values[:3];error=values[3]
