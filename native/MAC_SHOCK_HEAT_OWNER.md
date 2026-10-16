@@ -126,3 +126,11 @@ collision density errors fall below 0.7%, but the full profile errors fail the
 unchanged gate. See [the saved profiles and diagnosis](MAC_RIEMANN.md).
 Linux does not repeat this shared failure. The default game DLL is unchanged;
 there is no new independent-agent, Unity, production or performance acceptance.
+
+The shared physical-checkpoint changes at `42cae2b` add persistence APIs to the
+owner. The subsequent [schema-2 integration](MAC_CHECKPOINT.md#heat-setting-integration)
+retains the new heat setting, tests enabled/disabled continuation and passes
+cross-platform complete-image reads. Its ten scoped native groups and owner
+review pass on each platform. A source comparison confirms that the accepted
+owner algorithm and its dependencies remain unchanged by the merge. No
+unchanged strong-flow failure is replayed and no merged Unity claim is made.

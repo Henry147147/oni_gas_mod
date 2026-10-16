@@ -22,18 +22,19 @@ image. Binary identity avoids platform differences in floating-point text.
 Adding physical settings or changing their wire meaning requires a schema
 update and complete continuation controls.
 
-## Wire format 1
+## Wire format 2
 
 All integers are little-endian; floating values are finite IEEE binary64 values
 stored by their bits. Counts are unsigned 32-bit values. The image is bounded
 to 1 GiB and consists of:
 
-1. Eight-byte `MACCLS01` signature, unsigned 32-bit version 1, and a
+1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version 2, and a
    length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
-   material/compression/momentum reconstruction settings and conduction flag.
+   material/compression/momentum reconstruction settings, conduction flag and
+   compression-activated heat enum.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -46,6 +47,8 @@ The checksum detects accidental damage. Model identity, dimensions, byte/count
 limits, booleans, enums, canonical exponents, complete coverage, trailing bytes,
 physical inventories and EOS validity are checked separately. Parsing does not
 infer missing values, clip traces, normalize corrupted data or repair energy.
+Version 1 lacks the heat setting and is rejected explicitly; it is not restored
+using whichever default happens to be compiled into the current binary.
 
 ## Native domain boundary
 
@@ -74,6 +77,10 @@ The existing scalar-save guards remain active until that protocol exists.
 The native `mac_physical_checkpoint` CTest checks exact restored state and
 uninterrupted/resumed continuation for moving gas and wet material, including
 gravity, conduction, traces, passive quantities and a solid corner. A separate
+enabled/disabled heat loop requires the restored setting and complete next
+state/heat diagnostics to agree with uninterrupted advancement. Legacy and
+unknown versions, invalid heat enums and invalid conduction flags reject even
+with a valid checksum. A separate
 case retains canonical momentum at exponent `-9223372036854775809` whose scalar
 projection is zero. Every truncation, damaged data, foreign model, invalid
 clock/revision, impossible dimensions and valid-checksum trailing data reject.
@@ -95,3 +102,46 @@ bytes. Reports retain source/expected/actual SHA-256 values and private binary
 images. All native exclusion, grid, renderer, solid heat and save-guard checks
 still apply. This verifies the physical restart format, not ordinary colony
 save/reload or first-playable readiness.
+
+### Heat-setting integration
+
+After merging the default heat owner with the physical checkpoint work,
+strict Windows/MSVC and Linux/GCC15 builds pass ten scoped groups per OS:
+checkpoint, six heat-owner groups, native domain, physical conduction and gas
+boundary transfer. The owner saved reviews again pass 122,035 / 122,029 checks
+and all four corruptions. Source comparison confirms the accepted owning
+algorithm and 88 native dependency files are unchanged; the owner header only
+adds checkpoint methods and its schema reminder.
+
+For gas and wet grids, both heat settings retain the entire image and resume
+to the same next complete state and heat diagnostics as uninterrupted advancement.
+Both platforms write enabled/disabled images, and each reads and reserializes
+the other's complete 4,467-byte images without changing a byte. This does not
+require trajectories from different compilers to be bit-identical.
+
+The private harness's first two configurations fail before compiling: duplicate
+registration of an existing owner target, followed by attempting to configure
+that target before the main project declares it. Both first failures remain
+retained. Correcting the private target list changes no native implementation.
+The first Windows cross-read is launched before the Linux fixture is written
+and fails on a missing file. The follow-up checks the now-completed file hashes
+and reuses the same binary, source and earlier ten groups; no build or earlier
+native group is replayed for that correction.
+
+Private evidence under `local/occupied-staggered-validation`:
+
+- `mac-shock-heat-checkpoint-windows-r3`, terminal SHA256
+  `7e66e0d3801ffaf8d187bfa4660302f7e4ba3353529b58236d7ef257aa05402c`
+  retains the first missing-file failure after ten passing scoped groups.
+- `mac-shock-heat-checkpoint-windows-cross-after-file-r1`, supplemental terminal
+  SHA256 `2f32ec1a84bd34ab69808706220b83c5c9f304f79a82153c98ef1a69ec49dba3`
+  passes both cross-platform reads against completed Linux images.
+- `mac-shock-heat-checkpoint-linux-r3`, terminal SHA256
+  `7bbbdea2c7705c40589ae209189847ca370160bada8c283fdb315cac991301fc`
+  passes all ten scoped groups, review and both cross-platform reads.
+
+The merge/source review SHA256 is
+`78d907f569ba19fc008e02296488ca416a356742564e6e0f88e8fe114fbbc0f4`.
+These are standalone native controls. The original strong-flow gate is not
+repeated; there is no new sanitizer, Unity, ordinary colony save/reload,
+production or performance acceptance. The default game DLL remains unchanged.
