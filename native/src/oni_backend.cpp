@@ -23,9 +23,9 @@
 namespace {
 static_assert(sizeof(void*) == 8, "ONI native observer requires x64");
 static_assert(sizeof(MAOniObserverConfig) == 24);
-static_assert(sizeof(MAOniObserverStatus) == 464);
+static_assert(sizeof(MAOniObserverStatus) == 512);
 static_assert(sizeof(MAOniTraceEvent) == 32);
-static_assert(MA_ONI_GAS_PAIR + 1 == MA_ONI_HOOK_COUNT);
+static_assert(MA_ONI_EMITTER_DISPATCH + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 #include "oni_profiles.hpp"
 
@@ -155,11 +155,19 @@ bool on_gas_pair(void* data,void* events,int a,int b) {
     if (ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,a) || ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,b)) return false;
     return original<bool (*)(void*,void*,int,int)>(MA_ONI_GAS_PAIR)(data,events,a,b);
 }
+template<std::uint32_t Hook>
+float on_displacement(std::uint16_t element,int a,int b,int c,void* data) {
+    Call call(Hook);
+    if (ma::oni::suppress_domain_cell(Hook,a) || ma::oni::suppress_domain_cell(Hook,b) ||
+        ma::oni::suppress_domain_cell(Hook,c)) return 0;
+    return original<float (*)(std::uint16_t,int,int,int,void*)>(Hook)(element,a,b,c,data);
+}
 FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
 FORWARD(on_begin_frame, MA_ONI_BEGIN_FRAME, int, (void* self), (self))
 FORWARD(on_end_frame, MA_ONI_END_FRAME, void, (void* self), (self))
 FORWARD(on_consumer, MA_ONI_CONSUMER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_emitter, MA_ONI_EMITTER, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
+FORWARD(on_emitter_dispatch, MA_ONI_EMITTER_DISPATCH, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 FORWARD(on_building_heat, MA_ONI_BUILDING_HEAT, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 #undef FORWARD
 
@@ -175,7 +183,9 @@ const std::array<void*,MA_ONI_HOOK_COUNT> replacements{
     reinterpret_cast<void*>(&on_post_process), reinterpret_cast<void*>(&on_step),
     reinterpret_cast<void*>(&on_begin_frame), reinterpret_cast<void*>(&on_end_frame),
     reinterpret_cast<void*>(&on_consumer), reinterpret_cast<void*>(&on_emitter),
-    reinterpret_cast<void*>(&on_building_heat), reinterpret_cast<void*>(&on_gas), reinterpret_cast<void*>(&on_gas_pair)};
+    reinterpret_cast<void*>(&on_building_heat), reinterpret_cast<void*>(&on_gas), reinterpret_cast<void*>(&on_gas_pair),
+    reinterpret_cast<void*>(&on_displacement<MA_ONI_GAS_DISPLACEMENT>),
+    reinterpret_cast<void*>(&on_displacement<MA_ONI_LIQUID_DISPLACEMENT>), reinterpret_cast<void*>(&on_emitter_dispatch)};
 
 void output_valid(const MAOniObserverStatus* output) {
     if (!output || output->struct_size != sizeof(MAOniObserverStatus) || output->abi_version != MA_ONI_ABI_VERSION)
@@ -370,6 +380,15 @@ MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatu
         std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
         std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
         if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
+        // Exact-build Linux SimData starts with its padded width and height.
+        // Both the public snapshot and native phase indices are tested; never
+        // infer the native pitch from a managed public-cell index.
+        std::array<std::int32_t,2> dimensions{};
+        std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
+        if (config->native_grid_width > static_cast<std::uint32_t>(INT32_MAX-2) ||
+            dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
+            static_cast<std::uint64_t>(config->offset_y)+config->height+1 >= static_cast<std::uint32_t>(dimensions[1]))
+            throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
         try { ma::oni::start_domain(*config,native_thread()); }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
         ma::oni::copy_domain(*output,nullptr,0);

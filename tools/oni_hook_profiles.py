@@ -47,6 +47,12 @@ SPECS = (
     # overloads (types 0xD8F7 and 0xC495). Windows inlines them; no RVA is invented.
     ("gas-interaction", None, "_Z16DoGasInteractionR7SimDataR9SimEventsi", "bool(data*,events*,int)"),
     ("gas-interaction-pair", None, "_Z16DoGasInteractionR7SimDataR9SimEventsii", "bool(data*,events*,int,int)"),
+    # The three indices are cell, ncell and nncell (matching PDB module 32).
+    ("gas-displacement", "?DoGasPressureDisplacement@@YAMGHHHAEAVSimData@@@Z", "_Z25DoGasPressureDisplacementtiiiR7SimData", "float(uint16,int,int,int,data*)"),
+    ("liquid-displacement", "?DoLiquidPressureDisplacement@@YAMGHHHAEAVSimData@@@Z", "_Z28DoLiquidPressureDisplacementtiiiR7SimData", "float(uint16,int,int,int,data*)"),
+    # GCC emits a separate implementation for the secondary-base virtual call.
+    # Its this pointer is already adjusted by the caller; forward it unchanged.
+    ("emitter-dispatch", None, "_ZThn128_N14ElementEmitter6UpdateEfR7SimDataRK6Region", "void(adjusted-this*,float,data*,const-region*)"),
 )
 
 

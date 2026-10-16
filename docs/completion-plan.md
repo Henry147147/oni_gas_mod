@@ -2,8 +2,17 @@
 
 Accepted execution plan, recorded 2026-10-14. Work proceeds in dependency order;
 an implemented helper or standalone test does not satisfy an in-game exit gate.
-Each milestone is a separate reviewable change. No remote, publication, or
-Workshop upload is authorized by this plan.
+Each milestone is a separate reviewable change. Regular pulls, commits and
+pushes to the shared `main` branch are authorized by the user. Public release
+and Workshop upload still require separate authorization.
+
+Execution amendment, 2026-10-16: implement and verify the full feature set in
+real games before optimizing it. Slow simulation is acceptable for this stage.
+Retain conservation, thermodynamics and numerical acceptance requirements;
+runtime/performance targets must not prevent functional integration. Pull and
+push regularly while another developer works on `main`. The earlier small
+Linux colony priority remains the first integration step, followed by the full
+Windows/Linux and DLC scope below.
 
 Architecture amendment accepted 2026-10-16: implement the full overhaul through
 [native SimDLL hooks](native-backend-integration.md), retaining verified native
@@ -81,8 +90,9 @@ for evidence of a complete solver.
 Reference: <https://arxiv.org/abs/1612.08866>. All-Mach pressure methods do not
 provide multiphase behavior without additional implementation and validation.
 
-Exit: integrated gas/liquid benchmarks and an initial performance gate pass
-before broad gameplay integration.
+Exit: integrated gas/liquid numerical benchmarks pass before broad gameplay
+integration. Measure runtime, but defer performance tuning until the feature set
+works in real games.
 
 ## C. Materials, thermodynamics and aquatic chemistry
 

@@ -6,7 +6,7 @@
     "coverage_policy": "4e36cd207d0e0930d16a22a60a1644f5222a97809a6db2063b1b455556399e45",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "a236442724995398569e87daaf7e92800c87e88ace76f26770261e501e5c0c0e"
+    "native_hook_profiles": "1b9e0448112c8ae3d344bbf7f4689dcb51bf60c77552a429fa6b44aa6feeba2b"
   },
   "assembly_hashes": {
     "windows-x64": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -7907,6 +7907,32 @@
       }
     },
     {
+      "id": "native-hook/emitter-dispatch",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "linux-x64",
+            "index": 27,
+            "role": "emitter-dispatch",
+            "symbol": "_ZThn128_N14ElementEmitter6UpdateEfR7SimDataRK6Region",
+            "rva": 408752,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "7816fb169a325b21f8c1429ad46a52b25b17ae3701fa385143da4f692e583c09",
+            "signature": "void(adjusted-this*,float,data*,const-region*)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [
+          "windows-x64"
+        ],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
       "id": "native-hook/end-frame",
       "kind": "native-hook",
       "owner": "native-boundary",
@@ -7968,6 +7994,40 @@
             "fingerprint_bytes": 32,
             "fingerprint_sha256": "40033a99efe418aa913ca7a0213f70d3acb86929b4f097f9b3b5951ed86ddfd2",
             "signature": "void()"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
+      "id": "native-hook/gas-displacement",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 25,
+            "role": "gas-displacement",
+            "symbol": "?DoGasPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+            "rva": 306000,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a65764a41eca30a123d49aff4013bfef79177835030ec6d1d80898a02062b477",
+            "signature": "float(uint16,int,int,int,data*)"
+          },
+          {
+            "platform": "linux-x64",
+            "index": 25,
+            "role": "gas-displacement",
+            "symbol": "_Z25DoGasPressureDisplacementtiiiR7SimData",
+            "rva": 454352,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "61ac72d2818b8fc4e3d68a542ebd8f2731c86551c35a0f96c590a8c6f8b83e92",
+            "signature": "float(uint16,int,int,int,data*)"
           }
         ],
         "requires_enclosing_phase_coverage": [],
@@ -8088,6 +8148,40 @@
             "fingerprint_bytes": 32,
             "fingerprint_sha256": "07180508a4315607595d1dd74e51eb89acea8675fc2375e2841467f616161a85",
             "signature": "void(data*,events*,int)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
+      "id": "native-hook/liquid-displacement",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 26,
+            "role": "liquid-displacement",
+            "symbol": "?DoLiquidPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+            "rva": 299616,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "2d5ebe42a0cd309feb6d61182ad55936b3758b1663aff8afdb0d4ae0d9fe3a41",
+            "signature": "float(uint16,int,int,int,data*)"
+          },
+          {
+            "platform": "linux-x64",
+            "index": 26,
+            "role": "liquid-displacement",
+            "symbol": "_Z28DoLiquidPressureDisplacementtiiiR7SimData",
+            "rva": 448272,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "1823f8c09a40590a45bea067897eb4d7db7c7a4f37068ab9a02b6ffca78fafeb",
+            "signature": "float(uint16,int,int,int,data*)"
           }
         ],
         "requires_enclosing_phase_coverage": [],

@@ -130,7 +130,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
-        (static_cast<std::uint64_t>(config.offset_y)+config.height+1)*config.native_grid_width > std::numeric_limits<int>::max())
+        (static_cast<std::uint64_t>(config.offset_y)+config.height+2)*(static_cast<std::uint64_t>(config.native_grid_width)+2) > std::numeric_limits<int>::max())
         throw std::invalid_argument("Invalid sealed native domain geometry, model or opt-in");
     std::lock_guard frame_lock(frame_mutex);
     std::lock_guard lock(state_mutex);
@@ -194,7 +194,12 @@ MAOniDomainSpecies domain_species(std::uint32_t index) {
 bool suppress_domain_cell(std::uint32_t hook,int cell) noexcept {
     if (!enabled.load(std::memory_order_acquire) || cell < 0) return false;
     const auto position=static_cast<std::uint32_t>(cell);
-    const auto x=position%geometry.native_grid_width, y=position/geometry.native_grid_width;
+    // ONI's public grid omits a one-cell native halo. Every per-cell phase
+    // receives an index in the padded grid, not a GameData/public cell index.
+    const auto pitch=geometry.native_grid_width+2;
+    const auto native_x=position%pitch, native_y=position/pitch;
+    if (!native_x || !native_y) return false;
+    const auto x=native_x-1, y=native_y-1;
     if (x < geometry.offset_x || x-geometry.offset_x >= geometry.width ||
         y < geometry.offset_y || y-geometry.offset_y >= geometry.height) return false;
     if (hook < suppressed.size()) suppressed[hook].fetch_add(1,std::memory_order_relaxed);
@@ -239,11 +244,13 @@ void copy_domain(MAOniDomainStatus& output,MAOniDomainCell* cells,std::uint32_t 
     if (!cells && capacity) throw std::invalid_argument("Null native domain cell output");
     auto next=status;
     next.suppressed_pressure=suppressed[MA_ONI_PRESSURE].load(std::memory_order_relaxed);
-    next.suppressed_liquid=suppressed[MA_ONI_LIQUID].load(std::memory_order_relaxed);
+    next.suppressed_liquid=suppressed[MA_ONI_LIQUID].load(std::memory_order_relaxed)+
+        suppressed[MA_ONI_LIQUID_DISPLACEMENT].load(std::memory_order_relaxed);
     next.suppressed_temperature=suppressed[MA_ONI_TEMPERATURE].load(std::memory_order_relaxed);
     next.suppressed_transition=suppressed[MA_ONI_STATE_TRANSITION].load(std::memory_order_relaxed);
     next.suppressed_post_process=suppressed[MA_ONI_POST_PROCESS].load(std::memory_order_relaxed);
-    next.suppressed_gas=suppressed[MA_ONI_GAS].load(std::memory_order_relaxed)+suppressed[MA_ONI_GAS_PAIR].load(std::memory_order_relaxed);
+    next.suppressed_gas=suppressed[MA_ONI_GAS].load(std::memory_order_relaxed)+suppressed[MA_ONI_GAS_PAIR].load(std::memory_order_relaxed)+
+        suppressed[MA_ONI_GAS_DISPLACEMENT].load(std::memory_order_relaxed);
     if (cells) std::copy(publication.begin(),publication.end(),cells);
     output=next;
 }

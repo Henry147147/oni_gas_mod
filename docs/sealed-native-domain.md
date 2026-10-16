@@ -2,10 +2,9 @@
 
 This is the first bounded takeover experiment for the Linux colony work. The
 custom native engine advances a six-cell room while the surrounding ONI colony
-retains its original simulation. The compressed-water equilibrium control
-passes in the actual Linux colony. **Gas takeover acceptance currently fails:**
-an uncovered native writer changes a compatibility cell. The experiment stops
-instead of accepting that result. Both are actor-free development scenes;
+retains its original simulation. The corrected mixed-air control passes in
+the actual Linux colony, as does the corrected compressed-water equilibrium
+control. Both are actor-free development scenes;
 whole-colony ownership, first-playable and release gates remain closed.
 
 ## Execution and ownership
@@ -38,16 +37,25 @@ nonvacuum scalar cells, then requires an exact match before starting the
 30-frame acceptance interval. A missing projection fails within ten frames.
 
 Native per-cell post-processing and pressure, gas, liquid, thermal and transition
-entry hooks attempt to exclude owned cells. Native functions continue outside
-the rectangle. These hooks plus the impermeability flags are insufficient in
-the current gas run: some native work bypasses them. In particular, installed
-gas-interaction hooks have zero calls; their exported symbols do not prove
-coverage of inline code. A hot/cold Granite pair outside the room must continue
-to conduct heat. That independent control passes before the writer failure.
+entry hooks exclude owned cells. **Native indices include a one-cell halo:**
+for public `(x,y)` and width `W`, the native index is
+`(x+1) + (y+1)*(W+2)`. Configuration and snapshots use public coordinates; each
+cell hook decodes the padded index before checking ownership. Start checks the
+actual loaded simulator's padded dimensions against the requested public grid.
+Do not apply public-grid indices directly to native cell phases.
+
+Hardware watchpoints identified the earlier gas swap inside native
+`PostProcessCell`: the previous hook excluded different cells because of the
+wrong pitch. The corrected filter blocks the containing phase. Additional
+three-cell pressure-displacement hooks filter every involved cell. Installed
+gas-interaction entries still have zero calls, so their symbols alone are not
+coverage evidence. Native functions continue outside the rectangle. A hot/cold
+Granite pair outside the room must continue to conduct heat.
 
 The scalar native cells are compatibility data. To challenge the exclusions,
 the driver first lets original ONI move a deliberately unbalanced scalar mass
-pattern. It restores that pattern after activation and requires the original
+pattern. A nonuniform `[280, 300, 320] K` temperature pattern also challenges
+thermal exclusion. It restores those patterns after activation and requires the original
 element/mass/temperature/disease tuples to remain byte-identical while custom
 physical state advances. This
 control distinguishes a blocked native fluid phase from a native state that
@@ -112,6 +120,8 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T185522Z-8a9584` | Failed before physical advancement. Flow-flag installation displaced scalar gas during bootstrap. |
 | `20261016T191212Z-b81fc7` | Failed after ten custom native frames (2.0 s, 210 solver substeps). The restored scalar pattern was verified at frame one, then two scalar masses were exchanged. The original-flow control, flow flags, continuing native solid heat, copied native channels and retained physical frame checks succeeded. Renderer, game-grid projection and save-guard acceptance were not reached. |
 | `20261016T191955Z-858237` | Passed compressed-water equilibrium control: 32 native frames, 30 after projection priming at frame two, 6.4 s and 672 solver substeps. Original-flow contrast, unchanged native compatibility tuples, copied channels, retained physical frames, actual game-grid projection, current-generation texture writes, native solid heat and save rejection all pass. No mod failure lines were reported. |
+| `20261016T194104Z-564b3b` | Passed corrected mixed-air control: 121 native frames, 120 after projection priming, 24.2 s and 2,541 solver substeps. All six mass/temperature compatibility tuples remain unchanged, while custom oxygen transport, copied snapshots, all-six-cell game-grid projection, current-generation rendering, native solid heat and save rejection pass. No mod failure lines. |
+| `20261016T194433Z-dc7013` | Passed corrected compressed-water control: 122 native frames, 120 after priming, 24.4 s and 2,562 solver substeps. Zero mass/energy drift, 1,586 excluded liquid calls, 488 thermal calls and 732 post-processing calls. All-six-cell grid projection, rendering, exact compatibility tuples, solid heat and save rejection pass. No mod failure lines. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
@@ -119,6 +129,16 @@ energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
 not exclusive native ownership. Failure preserves the last valid owned snapshot,
 stops custom advancement and keeps saving disabled. It cannot repair the
 already observed native write.
+
+The corrected gas run has maximum relative mass drift `1.20e-15` and total
+energy drift `7.31e-15`. The target oxygen mass changes from `0.2067902267` to
+`0.2409221610` kg. It suppresses 726 owned-cell post-processing calls and 484
+thermal calls. Both physical values and exact compatibility tuples are checked;
+the earlier nonzero filter counters were insufficient because they referred
+to different padded-grid cells. The first water run above is retained as
+historical equilibrium/presentation evidence, not proof of the corrected
+per-cell filter. The ABI 3 isolated gas and water controls additionally pass
+sixty post-priming frames with the temperature gradient.
 
 The water run retains exactly 1,100 kg per cubic metre at 300 K and approximately
 220 MPa, with zero reported mass or energy drift. The native compatibility
@@ -134,7 +154,7 @@ Private reports, game logs and captures remain under
 `artifacts/headless-working-20261016`. Neither licensed game data nor private
 reports are redistributed. All ten native CTests pass in Release and with
 ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current
-Windows code cross-compiles; ABI 2 runtime execution and domain activation are
+Windows code cross-compiles; ABI 3 runtime execution and domain activation are
 not validated on Windows, where domain start explicitly rejects.
 
 ## Limits and next work
@@ -150,11 +170,10 @@ state is not an integrated ONI checkpoint, and an ordinary scalar save cannot
 resume it. Failure stops custom advancement while native fluid exclusions stay
 installed until native shutdown; the disposable session must end.
 
-The immediate next step is to identify the uncovered native writer and replace
-its containing task or phase where necessary. Repeat the adversarial gas and
-compressed-water controls through 30 native frames after projection priming,
-then verify the actual game grid, renderer, save guard and fault teardown.
-Do not weaken the unchanged-native-cell assertion to obtain a passing result.
+Retain the adversarial native-state, thermal, grid, rendering and save-guard
+checks as integration regressions. Native index translation and secondary-base
+actor dispatch are now explicit parts of the exact-build contract. Do not
+weaken unchanged-native-cell assertions when adding new writers or actors.
 
 After that gate passes, add actor transactions and native callbacks, real
 closed-domain checkpoints, an occupied development colony, then open/multiphase

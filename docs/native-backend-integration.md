@@ -11,9 +11,9 @@ supported gameplay packs.
 opt-in forwarding observer preserves native physics. A separate
 [sealed native domain](sealed-native-domain.md) now connects the closed MAC
 solver to the native worker timestep in an actor-free development room. Its
-Linux gas acceptance test detects an uncovered native writer and stops; native
-fluid exclusion is not yet complete. The compressed-water equilibrium control
-passes through actual grid, rendering and save-guard verification. Surrounding colony physics, production
+Linux mixed-air control passes 120 frames after priming, including actual grid,
+rendering and save-guard verification. The native/public padded-index mismatch
+that caused earlier gas failures is fixed. Surrounding colony physics, production
 actors and integrated persistence remain outside this experiment.
 
 ## Supported build and installation
@@ -116,10 +116,11 @@ callers can reference them.
 
 Expose a versioned `ma_oni_*` C ABI with explicit sizes and buffer ownership.
 The observer surface is inspection, attachment, counters and detachment.
-Observer ABI 2 has 25 hook slots and a 464-byte status; ABI 1 libraries reject
+Observer ABI 3 has 28 hook slots and a 512-byte status; older libraries reject
 before their different status layout is read. Two gas interaction slots are
-Linux-only; Windows has 22 concrete locations and Linux has 25. Windows's
-`Step` and gas interaction functions have no standalone profiled locations.
+Linux-only; Windows has 24 concrete locations and Linux has 28. Windows's
+`Step`, gas interaction functions and Linux secondary-base emitter dispatch
+have no standalone profiled locations.
 The separate development-domain ABI 1 has 40-byte configuration, 440-byte
 status and 88-byte cell readings, with explicit start/copy/stop and material
 queries. It rejects activation on Windows. Production session initialization, commands, immutable
@@ -219,19 +220,25 @@ Verified on 2026-10-16:
 | Linux Release | All ten default native CTests pass with the observer enabled, including ABI, relocation and sealed-domain controls. Full managed/game-declaration regressions also pass. |
 | Linux ASan/UBSan | All ten native CTests pass with the solver and Funchook/diStorm C sources instrumented. The licensed game itself is not sanitizer-instrumented. |
 | Isolated licensed Linux | Five unhooked/observed comparisons pass, including populated/empty batches and two active regions. Physics, event and native-save reports match exactly. Twelve positive timestep returns and twelve physical updates occur per case. |
-| Added Linux actor comparison | Physical/event/actor reports match between unhooked and observed processes over thirteen native frames, but the full gate fails: the profiled emitter entry is never called. Consumer entries are thirteen. Linux emitter dispatch coverage remains unresolved. |
+| Historical ABI 2 Linux actor comparison | Physical/event/actor reports match over thirteen frames, but the full gate fails because the emitter entry is bypassed. Retained as the dispatch regression control. |
+| ABI 3 isolated Linux | All six forwarding comparisons pass with identical native reports. The separate GCC secondary-base emitter dispatch executes thirteen times in the actor case. Canonical and dispatch entries are counted together without lowering the thirteen-frame gate. |
+| Padded-index sealed controls | Licensed-native gas and water scenes retain their exact six compatibility tuples for sixty physical frames after priming. A temperature gradient challenges thermal exclusion, while custom transport and native solid heat continue. These isolated controls supplement the real Unity gate. |
 | Actual Linux Unity menu | `20261016T165746Z-b78a1c`: scoped probe and forwarding observer pass in the real Mono player. |
 | Actual Linux Unity colony | `20261016T171241Z-991b86`: ten live timestep returns, ten physical updates, thirteen byte-identical snapshots, 47 channels. Original ONI owns physics. |
-| Actual Linux sealed domain | `20261016T191212Z-b81fc7` fails after ten custom native frames: a compatibility-cell mass is swapped by an uncovered native writer. Worker execution, custom transport, solid heat and owned snapshot copies progressed, but takeover acceptance, actual game-grid projection, renderer and save-guard checks did not pass. See [retained failures](sealed-native-domain.md#current-evidence). |
+| Historical Linux sealed domain | `20261016T191212Z-b81fc7` fails after ten custom native frames: a compatibility-cell mass is swapped by an uncovered native writer. See [retained failures and the padded-index repair](sealed-native-domain.md#current-evidence). |
+| Corrected Linux mixed-air domain | `20261016T194104Z-564b3b` passes 120 physical frames after priming, with a nonuniform native mass/temperature control. All-six-cell game-grid projection, completed-frame rendering, native solid heat and save rejection pass. Custom constituent-mass drift is below `1.20e-15`, total-energy drift below `7.31e-15`. |
+| Corrected Linux compressed-water domain | `20261016T194433Z-dc7013` passes 120 physical frames after priming, including 1,586 excluded liquid calls, nonuniform temperature controls, actual grid/rendering, solid heat and save rejection. Mass/energy drift is zero for this equilibrium control. |
 | Actual Linux compressed-water domain | `20261016T191955Z-858237` passes: 32 native frames, 30 after projection priming, 672 solver substeps, 1,100 kg/cell at 220 MPa. Original-flow contrast, unchanged native tuples, actual grid projection, renderer, native solid heat and pre-native save rejection all pass. This is a sealed equilibrium control, not moving/free-surface liquid or a playable colony. |
 | Latest dependency-bound Linux Unity colony | `20261016T172520Z-92bc7f`: the trampoline-capacity repair also passes in Mono; ten additional timestep returns/physical updates, fourteen byte-identical snapshots and 47 channels, with no mod failure lines. |
 | Windows MSVC Release | Actual x64 MSVC build passes strict warnings, ABI/hash/lifecycle controls and short-JMP/Jcc relocation/restoration controls. Six separate unhooked/observed licensed-native comparisons pass with identical physical/event/save reports and complete bounded control traces: twelve actual timesteps/physical updates for each original case; thirteen for the new actor case. |
 | Actual Windows Unity colony | V60 passes in ONI 744825 / Unity 6000.3.5f2: ten additional native timestep returns and physical updates, 160 byte-identical snapshots, 47 channels, nine worlds and three duplicants. Native ONI owns physics. The colony was inspected through the Windows UI and closed normally; original mods, preferences and generated-world files were restored byte-for-byte. |
 | Linux release baseline | This host's library requires glibc 2.38. A glibc-2.35 release build remains required. No release package is certified. |
 
-Current ABI 2 comparison logs are under
+Current ABI 3 comparison logs are under
+`artifacts/native-integration-r2/forwarding-v1`; all six cases pass. The failing
+ABI 2 actor comparison remains under
 `artifacts/headless-working-20261016/isolated-merged`; all five original cases
-pass and the new actor gate fails as recorded above. The complete merged build
+pass and its actor gate fails as recorded above. The complete earlier merged build
 passes in `artifacts/headless-working-20261016/full-build-merged.log`;
 instrumented native tests pass in `sanitizers-v5.log` beside it. Earlier ABI 1
 comparison logs are under `artifacts/native-hook-observer/linux-final-v7`.
@@ -250,8 +257,8 @@ The V60 managed build, package, bounded game capture and source closure are in
 are in `local/colony-runs/native-hook-observer-windows-v60`. Completed review
 SHA256: `0015ff5ecee9eb4c284c520b41d3f4a6b0963046e214a4ad96433b2598fae5d1`.
 These are single-agent checked records, with no independent agent review.
-The recorded Windows MSVC/Unity results above use observer ABI 1. The ABI 2
-Windows library cross-compiles on Linux; a fresh Windows runtime test remains
+The recorded Windows MSVC/Unity results above use observer ABI 1. The current
+Windows library cross-compiles on Linux; a fresh ABI 3 Windows runtime test remains
 required. Historical ABI 1 runs do not validate the revised binary.
 
 Retained Windows failures include an initial private launch plan pointing to a
@@ -286,8 +293,8 @@ after removal. Completed review SHA256:
 Earlier build timeouts and failed fixture assumptions (query-only registration,
 zero-mass slots and immediate emission after modification) remain retained in
 the preceding r1–r5 directories. This is single-agent review of isolated Windows
-native behavior. The Linux execution described above does not establish emitter
-hook coverage; Linux dispatch coverage and Unity actor routing remain required.
+native behavior. The ABI 3 Linux rerun now covers its separate emitter dispatch;
+custom Unity actor routing remains required.
 
 Linux's outer `Step` runs additional synchronization-only passes; its entry count
 is not elapsed physical time. The isolated trace therefore distinguishes actual

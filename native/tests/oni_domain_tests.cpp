@@ -27,8 +27,11 @@ int main() {
         require(ma::oni::domain_active(),"domain did not activate");
         auto initial=capture(cells);
         require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,-1) && !ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,0),"native exterior was claimed");
-        require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,10+10*64),"domain cell not excluded from native pressure");
-        require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,13+10*64),"native border was claimed");
+        const auto native_cell=[](int x,int y) { return x+1+(y+1)*66; };
+        require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,native_cell(10,10)),"domain cell not excluded from native pressure");
+        require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,native_cell(13,10)),"native border was claimed");
+        require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,10+10*64),"public cell index was mistaken for a native index");
+        require(ma::oni::suppress_domain_cell(MA_ONI_POST_PROCESS,native_cell(12,11)),"last padded domain cell was missed");
         for (std::uint64_t frame=1;frame<=10;++frame) ma::oni::advance_domain(frame,.2,2);
         auto final=capture(cells);
         require(final.state==1 && final.completed_frames==10 && std::abs(final.time_seconds-2)<1e-14,"native clock did not advance ten frames");
@@ -57,7 +60,7 @@ int main() {
         catch (const std::length_error&) {}
         ma::oni::advance_domain(10,.2,2); final=capture(cells);
         require(final.state==3 && final.completed_frames==before.completed_frames && final.time_seconds==before.time_seconds,"duplicate native ticket was not atomic");
-        require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,10+10*64),"fault re-enabled native fluid physics");
+        require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,native_cell(10,10)),"fault released the native cell filter");
         ma::oni::shutdown_domain(); require(!ma::oni::domain_active(),"shutdown retained native exclusions");
         config.scenario=1;
         std::fenv_t original_environment{}; require(std::fegetenv(&original_environment)==0,"floating-point environment capture");

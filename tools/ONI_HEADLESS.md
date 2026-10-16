@@ -13,10 +13,15 @@ windowed player on the virtual desktop.
 on ONI's actual native timestep, with original-flow controls, attempted native
 phase exclusions, immutable owned snapshots and continuing native solid heat. They
 require an observer-enabled package. See [scope and commands](../docs/sealed-native-domain.md).
-The gas run detects an uncovered native writer and fails. The compressed-water
+The corrected gas run `20261016T194104Z-564b3b` passes 120 native frames after
+projection priming, all-six-cell game-grid projection, rendering and save
+rejection. It fixes native/public index confusion caused by the native halo;
+prior failed runs remain retained. The earlier compressed-water
 equilibrium run `20261016T191955Z-858237` passes 30 native frames after projection
 priming, actual grid/rendering checks and save rejection. These actor-free
 development modes do not certify a playable colony or moving liquid transport.
+The corrected water rerun `20261016T194433Z-dc7013` passes 120 frames after
+priming with the padded-index filter and nonuniform temperature control.
 
 The optional native SimDLL forwarding observer has a separate `native-observer`
 mode. Build/package with `--native-observer`, then use that mode to validate

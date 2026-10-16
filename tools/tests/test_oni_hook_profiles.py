@@ -16,8 +16,10 @@ class NativeProfileTests(unittest.TestCase):
     def test_pinned_profiles_and_platform_specific_step(self):
         profiles.validate(self.value)
         win, linux = self.value["profiles"]
-        self.assertEqual(len(win["hooks"]), 22)
-        self.assertEqual(len(linux["hooks"]), 25)
+        self.assertEqual(len(win["hooks"]), 24)
+        self.assertEqual(len(linux["hooks"]), 28)
+        self.assertNotIn("emitter-dispatch", [h["role"] for h in win["hooks"]])
+        self.assertEqual(next(h["signature"] for h in linux["hooks"] if h["role"] == "gas-displacement"), "float(uint16,int,int,int,data*)")
         self.assertNotIn("gas-interaction", [h["role"] for h in win["hooks"]])
         self.assertEqual(next(h["signature"] for h in linux["hooks"] if h["role"] == "gas-interaction"), "bool(data*,events*,int)")
         self.assertNotIn("step", [h["role"] for h in win["hooks"]])

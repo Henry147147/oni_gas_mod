@@ -14,7 +14,7 @@ extern "C" {
 #define MA_ONI_DOMAIN_SEALED_TEST 1U
 #define MA_ONI_DOMAIN_SPECIES 4U /* nitrogen, oxygen, helium, water */
 typedef struct MAOniDomainConfig {
-    uint32_t struct_size, abi_version, flags, native_grid_width;
+    uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
     uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water control */
 } MAOniDomainConfig;

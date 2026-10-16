@@ -222,6 +222,24 @@
           "fingerprint_bytes": 32,
           "fingerprint_sha256": "b3a9ae42dafff5df9c5fb1fca27f3794f87784356697adf67e518809be61b6cc",
           "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 25,
+          "role": "gas-displacement",
+          "symbol": "?DoGasPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+          "rva": 306000,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "a65764a41eca30a123d49aff4013bfef79177835030ec6d1d80898a02062b477",
+          "signature": "float(uint16,int,int,int,data*)"
+        },
+        {
+          "index": 26,
+          "role": "liquid-displacement",
+          "symbol": "?DoLiquidPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+          "rva": 299616,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "2d5ebe42a0cd309feb6d61182ad55936b3758b1663aff8afdb0d4ae0d9fe3a41",
+          "signature": "float(uint16,int,int,int,data*)"
         }
       ]
     },
@@ -467,6 +485,33 @@
           "fingerprint_bytes": 32,
           "fingerprint_sha256": "57343c2bb47234556712f224a1abcd6c4dc51190247d83a9f11f3b84060f3cb7",
           "signature": "bool(data*,events*,int,int)"
+        },
+        {
+          "index": 25,
+          "role": "gas-displacement",
+          "symbol": "_Z25DoGasPressureDisplacementtiiiR7SimData",
+          "rva": 454352,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "61ac72d2818b8fc4e3d68a542ebd8f2731c86551c35a0f96c590a8c6f8b83e92",
+          "signature": "float(uint16,int,int,int,data*)"
+        },
+        {
+          "index": 26,
+          "role": "liquid-displacement",
+          "symbol": "_Z28DoLiquidPressureDisplacementtiiiR7SimData",
+          "rva": 448272,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "1823f8c09a40590a45bea067897eb4d7db7c7a4f37068ab9a02b6ffca78fafeb",
+          "signature": "float(uint16,int,int,int,data*)"
+        },
+        {
+          "index": 27,
+          "role": "emitter-dispatch",
+          "symbol": "_ZThn128_N14ElementEmitter6UpdateEfR7SimDataRK6Region",
+          "rva": 408752,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "7816fb169a325b21f8c1429ad46a52b25b17ae3701fa385143da4f692e583c09",
+          "signature": "void(adjusted-this*,float,data*,const-region*)"
         }
       ]
     }

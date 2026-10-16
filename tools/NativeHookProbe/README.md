@@ -27,17 +27,25 @@ See [the core contract](../../docs/native-backend-integration.md) for Unity
 packaging, actual evidence, platform limits and remaining implementation gates.
 
 Actual Windows x64 MSVC runs pass all six comparison cases on ONI 744825;
-Linux ABI 2 passes the original five. The added fluid-actor case
+Linux ABI 3 passes all six too. The added fluid-actor case
 uses thirteen native timesteps: one for registration, eight active and four
 after removal. It checks interval resets, mass ledgers and exact registration
 delivery. Emission status slots are distinct from consumed-mass events. Linux's
-physical/actor reports match over thirteen frames, but its full gate fails:
-the emitter hook records zero calls despite actual emission. Consumer entries
-are thirteen. Preserve this failure until Linux emitter dispatch is covered;
-do not count the matching physical reports as passing the hook gate. Separate real Unity colony tests
+ABI 2 physical/actor reports matched over thirteen frames, but its full gate
+failed because the emitter hook recorded zero calls. ABI 3 profiles the separate
+GCC secondary-base dispatch, which executes thirteen times; the complete gate
+now passes. The canonical entry remains unexercised on Linux and is reported
+that way. Separate real Unity colony tests
 also pass forwarding and snapshot
 checks on both platforms. Windows V60 waits for ten actual native timestep
 returns and physical updates; managed acknowledgments alone do not advance
 that gate. It retains the failed V59 timing control. Neither runner accepts
 these observer results as fluid takeover or performance validation. The retained
-Windows runtime evidence uses ABI 1; ABI 2 still needs a Windows runtime rerun.
+Windows runtime evidence uses ABI 1; ABI 3 still needs a Windows runtime rerun.
+
+The same isolated host also accepts `sealed-gas` and `sealed-water` modes with
+an enabled backend. They require an original-flow contrast, verified flow
+flags, exact nonuniform mass/temperature compatibility tuples for sixty native
+frames after priming, conserved custom physics and continuing native solid heat.
+They do not validate Unity presentation or save integration; run the actual
+headless colony controls for those checks.

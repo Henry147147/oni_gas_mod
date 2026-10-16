@@ -122,7 +122,7 @@ def main() -> None:
         "Mixed Atmospheres - developer integration probe\n\n"
         "This is NOT the playable gas/liquid overhaul. Default probes preserve native physics.\n"
         "Explicit native-domain modes attempt experimental ownership in a disposable sealed room.\n"
-        "The gas control currently fails; a sealed water equilibrium control passes.\n"
+        "Sealed mixed-air and water equilibrium controls are separate from playable-colony readiness.\n"
         "Saving is disabled throughout experimental domain ownership.\n"
         "Place this complete folder under ONI's mods/Dev folder. Enable the probe,\n"
         "restart to the main menu, and inspect integration-probe.json and Player.log.\n"

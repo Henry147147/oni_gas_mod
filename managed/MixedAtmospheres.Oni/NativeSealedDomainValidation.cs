@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Text;
+using static MixedAtmospheres.Oni.OniNativeDomain;
 using HarmonyLib;
 using Klei.CustomSettings;
 using MixedAtmospheres.Core;
@@ -18,41 +18,8 @@ namespace MixedAtmospheres.Oni
     // intentionally inaccessible to actors until their adapters are implemented.
     internal static unsafe class NativeSealedDomainValidation
     {
-        private const string Library = "mixed_atmospheres_oni";
         private const int Width = 3, Height = 2;
         private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water" };
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Configuration
-        {
-            public uint Size, Version, Flags, GridWidth, X, Y, Width, Height, Scenario, Reserved;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        internal struct Status
-        {
-            public uint Size, Version, State, Cells;
-            public ulong Session, CompletedFrames, NativeTicket, Substeps, RejectedAttempts, SolverThread, StartThread;
-            public double TimeSeconds, LastTimestepSeconds, MaximumRelativeMassError, MaximumRelativeEnergyError;
-            public double InitialOxygenKg, CurrentOxygenKg, PressurePa, LiquidMassKg;
-            public ulong SuppressedPressure, SuppressedLiquid, SuppressedTemperature, SuppressedTransition, SuppressedPostProcess;
-            public ulong SuppressedGas;
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256), JsonIgnore]
-            public byte[] ErrorBytes;
-            public string Error => Encoding.UTF8.GetString(ErrorBytes ?? Array.Empty<byte>()).TrimEnd('\0');
-            internal static Status Empty => new Status { Size = 440, Version = 1, ErrorBytes = new byte[256] };
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Cell
-        {
-            public double Nitrogen, Oxygen, Helium, Water, InternalEnergy, Pressure, Temperature, LiquidFraction;
-            public double ResolvedKineticEnergy, MomentumX, MomentumY;
-            public double Mass(int index) => index == 0 ? Nitrogen : index == 1 ? Oxygen : index == 2 ? Helium : Water;
-            public double TotalMass => Nitrogen + Oxygen + Helium + Water;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        private struct Species
-        {
-            public double MolarMass, Cv, Offset, Density;
-        }
         private static bool prepared, active, arming, completed, failed;
         private static int x, y, target, hotSolid, coldSolid, preparedFrame, publications;
         private static float started, nextReport;
@@ -75,6 +42,7 @@ namespace MixedAtmospheres.Oni
         private static ulong projectionPrimedAtFrame;
         private static readonly byte NativeFlowMask = (byte)(Sim.Cell.Properties.GasImpermeable | Sim.Cell.Properties.LiquidImpermeable);
         private static float[] nativeProjectionMasses = Array.Empty<float>();
+        private static float[] nativeProjectionTemperatures = Array.Empty<float>();
         private static IReadOnlyDictionary<int, MixtureThermodynamicReading>? publishedReadings;
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
@@ -114,8 +82,13 @@ namespace MixedAtmospheres.Oni
                     "Actual presentation did not consume a completed native domain frame.");
                 Require(publishedReadings != null && ReferenceEquals(reading!.ThermodynamicReading, publishedReadings[target]),
                     "Presentation did not retain the supplied native physical reading.");
-                gameGridProjectionVerified = Math.Abs(Grid.Mass[target] - (float)reading!.TotalMassKg) <= 1e-6 &&
-                    Math.Abs(Grid.Temperature[target] - (float)reading.TemperatureKelvin) <= 1e-4;
+                gameGridProjectionVerified = Enumerable.Range(0, cells.Length).All(index =>
+                {
+                    var global = Grid.XYToCell(x + index % Width, y + index / Width);
+                    return Math.Abs(Grid.Mass[global] - (float)cells[index].TotalMass) <= 1e-6 &&
+                        Math.Abs(Grid.Temperature[global] - (float)cells[index].Temperature) <= 1e-4 &&
+                        Grid.Element[global].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen);
+                });
                 Require(gameGridProjectionVerified, "Actual game Grid fields did not consume the physical domain projection.");
                 nativeRendererAdvanced = MixtureWorldRendering.TextureWrites > textureWriteBaseline &&
                     MixtureWorldRendering.LastTexturePublicationGeneration == view!.PublicationGeneration &&
@@ -172,7 +145,7 @@ namespace MixedAtmospheres.Oni
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
                 Grid.Visible[index] = byte.MaxValue;
                 SimMessages.ReplaceElement(index, wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : SimHashes.Oxygen,
-                    eventId, wall ? 20000 : ProjectionMass(dx), 300);
+                    eventId, wall ? 20000 : ProjectionMass(dx), wall ? 300 : ProjectionTemperature(dx));
             }
             SimMessages.ReplaceElement(hotSolid, SimHashes.Granite, eventId, 1000, 350);
             SimMessages.ReplaceElement(coldSolid, SimHashes.Granite, eventId, 1000, 250);
@@ -248,7 +221,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     SimMessages.ReplaceElement(global, Liquid ? SimHashes.Water : SimHashes.Oxygen,
-                        CellEventLogger.Instance.SandBoxTool, ProjectionMass(index % Width), 300);
+                        CellEventLogger.Instance.SandBoxTool, ProjectionMass(index % Width), ProjectionTemperature(index % Width));
                 }
             }
             finally { writingProjection = false; }
@@ -282,10 +255,13 @@ namespace MixedAtmospheres.Oni
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
                 nativeProjectionMasses = Enumerable.Range(0, cells.Length).Select(index =>
                     source->mass[Grid.XYToCell(x + index % Width, y + index / Width)]).ToArray();
+                nativeProjectionTemperatures = Enumerable.Range(0, cells.Length).Select(index =>
+                    source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)]).ToArray();
                 if (!projectionPrimed)
                 {
                     projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index =>
                         source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionMass(index % Width) &&
+                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionTemperature(index % Width) &&
                         source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);
                     if (projectionPrimed) projectionPrimedAtFrame = latest.CompletedFrames;
                 }
@@ -343,6 +319,7 @@ namespace MixedAtmospheres.Oni
             throw new InvalidOperationException("Native domain faulted before a valid owned snapshot existed; scalar fallback is forbidden.");
         private static float ProjectionMass(int column) => Liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
             column == 0 ? .6f : column == 1 ? 1.2f : 2.4f;
+        private static float ProjectionTemperature(int column) => 280 + 20 * column;
         internal static void BeforeNativeMutation(int message, int length, byte* payload)
         {
             if (!active || writingProjection || (message != -1252920804 && message != 818320644 && message != 1727657959 && message != 797274363 && message != -469311643)) return;
@@ -379,6 +356,7 @@ namespace MixedAtmospheres.Oni
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
             NativeFlowFenceVerified = nativeFlowFenceVerified, NativeProjectionMasses = nativeProjectionMasses,
+            NativeProjectionTemperatures = nativeProjectionTemperatures,
             NativeRendererAdvanced = nativeRendererAdvanced, SaveGuardVerified = saveGuardVerified,
             GameGridProjectionVerified = gameGridProjectionVerified, ProjectionPrimedAtNativeFrame = projectionPrimedAtFrame,
             MixtureWorldRendering.TextureWrites, MixtureWorldRendering.LastTexturePublicationGeneration,
@@ -404,12 +382,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
         private static void Check(int value) { if (value != 0) throw new InvalidOperationException("Native sealed domain " + value + ": " + Marshal.PtrToStringAnsi(LastError())); }
-        [DllImport(Library, EntryPoint = "ma_oni_domain_abi_version", CallingConvention = CallingConvention.Cdecl)] private static extern uint Version();
-        [DllImport(Library, EntryPoint = "ma_oni_domain_species", CallingConvention = CallingConvention.Cdecl)] private static extern int Definition(uint index, out Species value);
-        [DllImport(Library, EntryPoint = "ma_oni_domain_start", CallingConvention = CallingConvention.Cdecl)] private static extern int Begin(ref Configuration configuration, ref Status status);
-        [DllImport(Library, EntryPoint = "ma_oni_domain_copy", CallingConvention = CallingConvention.Cdecl)] private static extern int Copy(ref Status status, [Out] Cell[] values, uint capacity);
-        [DllImport(Library, EntryPoint = "ma_oni_domain_stop", CallingConvention = CallingConvention.Cdecl)] private static extern int Stop(ref Status status);
-        [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
+
     }
     public sealed class NativeSealedDomainLabel : MonoBehaviour { private void OnGUI() => NativeSealedDomainValidation.DrawLabel(); }
     [HarmonyPatch(typeof(Sim), nameof(Sim.Save))]

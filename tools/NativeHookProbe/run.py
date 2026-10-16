@@ -30,7 +30,7 @@ def check_observation(report: dict, mode: str) -> dict:
     if status["ActiveCalls"] or not report["nativeObserverDetached"] or not report["nativeObserverLiveDetachRejected"]:
         raise ValueError("Unbalanced observer lifecycle")
     hooks = {item["Name"]: item for item in status["Hooks"]}
-    if len(hooks) != 25 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
+    if len(hooks) != 28 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
         raise ValueError("Hook entry/exit imbalance")
     if hooks["update-data"]["Entries"] != (13 if mode == "fluid-actors" else 12):
         raise ValueError("Native physical update count differs from requested timesteps")
@@ -38,8 +38,9 @@ def check_observation(report: dict, mode: str) -> dict:
         raise ValueError("Native control/physics hooks were not exercised")
     if hooks["messages"]["Entries"] < 2:
         raise ValueError("Empty and populated native batch branches were not exercised")
+    emitter_entries = hooks["emitter"]["Entries"] + hooks["emitter-dispatch"]["Entries"]
     if mode == "fluid-actors" and (not report["fluidActorRegistrationModificationRemovalPassed"] or
-                                  hooks["consumer"]["Entries"] != 13 or hooks["emitter"]["Entries"] != 13):
+                                  hooks["consumer"]["Entries"] != 13 or emitter_entries != 13):
         raise ValueError("Native fluid actor registration, transfers or removal control is missing")
     trace = report["nativeObserverTrace"]
     if status["TraceEventsDropped"] or len(trace) != status["TraceEventsReserved"]:

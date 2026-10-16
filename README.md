@@ -32,13 +32,13 @@ for ownership, interfaces, failures and implementation gates.
 - A development [sealed native fluid domain](docs/sealed-native-domain.md)
   connects the closed MAC solver to ONI's native worker clock and publishes
   completed mixture readings. Its Linux compressed-water equilibrium control
-  passes actual grid, renderer and save-guard checks. The gas control fails:
-  an uncovered native writer changes a compatibility cell. This remains an
+  passes actual grid, renderer and save-guard checks. The corrected mixed-air
+  control also passes 120 native frames after projection priming. This remains an
   opt-in, actor-free experiment with saving disabled.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native
-  comparisons pass on Windows and the original five pass on Linux, alongside
+  comparisons pass on Windows and Linux, alongside
   actual Unity colony forwarding checks on both. Windows also passes strict
   MSVC ABI and relocation controls. Registered native emitter/consumer controls
   verify mass transfers, interval resets and removal on Windows. This

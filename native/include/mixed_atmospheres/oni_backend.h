@@ -18,8 +18,8 @@ extern "C" {
  * All sizes/version fields must match exactly. Error text is bounded and thread-local. Observer
  * lifecycle calls must be serialized by the caller before initialize / after
  * shutdown; they are not a mechanism for suspending running game workers. */
-#define MA_ONI_ABI_VERSION 2U
-#define MA_ONI_HOOK_COUNT 25U
+#define MA_ONI_ABI_VERSION 3U
+#define MA_ONI_HOOK_COUNT 28U
 #define MA_ONI_TRACE_CAPACITY 4096U
 #define MA_ONI_OBSERVER_ONLY 1U
 
@@ -40,7 +40,8 @@ typedef enum MAOniHook {
     MA_ONI_TEMPERATURE, MA_ONI_STATE_TRANSITION, MA_ONI_LOAD_TRANSITION,
     MA_ONI_SUBLIMATION, MA_ONI_POST_PROCESS, MA_ONI_STEP, MA_ONI_BEGIN_FRAME,
     MA_ONI_END_FRAME, MA_ONI_CONSUMER, MA_ONI_EMITTER, MA_ONI_BUILDING_HEAT,
-    MA_ONI_GAS, MA_ONI_GAS_PAIR
+    MA_ONI_GAS, MA_ONI_GAS_PAIR, MA_ONI_GAS_DISPLACEMENT,
+    MA_ONI_LIQUID_DISPLACEMENT, MA_ONI_EMITTER_DISPATCH
 } MAOniHook;
 
 typedef struct MAOniObserverConfig {
