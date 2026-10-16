@@ -56,6 +56,39 @@ namespace MixedAtmospheres.Oni
             public double CommittedHeatJoules, PendingHeatJoules;
             internal static HeatStatus Empty => new HeatStatus { Size = 56, Version = 1 };
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct TransferCommand
+        {
+            public uint Size, Version;
+            public ulong Session, ExpectedFrame;
+            public uint PublicCell, Species, Kind, Flags;
+            public int Callback;
+            public uint Reserved;
+            public double MassKg, Temperature;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Receipt
+        {
+            public ulong Sequence, Session, CompletedFrame;
+            public uint PublicCell, Species;
+            public int Callback;
+            public uint Kind;
+            public double MassKg, Temperature, InternalEnergy, KineticEnergy, MomentumX, MomentumY;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct TransferStatus
+        {
+            public uint Size, Version, State, PendingBatches;
+            public ulong Session, AcceptedBatches, CommittedBatches, UnacknowledgedReceipts;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public double[] MassChangesKg;
+            public double MaterialEnergyChange, KineticEnergyChange;
+            internal static TransferStatus Empty => new TransferStatus { Size = 96, Version = 1, MassChangesKg = new double[4] };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint TransferVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_queue_transfers", CallingConvention = CallingConvention.Cdecl)] internal static extern int QueueTransfers([In] TransferCommand[] commands, uint count, ref TransferStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyTransferStatus(ref TransferStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_copy_receipts", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyReceipts(ref Status status, [Out] Cell[] cells, uint capacity, [Out] Receipt[] receipts, uint receiptCapacity, out uint count);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_ack_receipts", CallingConvention = CallingConvention.Cdecl)] internal static extern int AckReceipts(ulong session, ulong throughSequence);
         [DllImport(Library, EntryPoint = "ma_oni_domain_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint HeatVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_queue_heat", CallingConvention = CallingConvention.Cdecl)] internal static extern int QueueHeat([In] HeatCommand[] commands, uint count, ref HeatStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyHeat(ref HeatStatus status);

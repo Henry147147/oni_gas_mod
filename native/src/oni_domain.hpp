@@ -15,5 +15,9 @@ bool domain_active() noexcept;
 MAOniDomainSpecies domain_species(std::uint32_t index);
 void queue_domain_heat(const MAOniDomainHeat*, std::uint32_t count, MAOniDomainHeatStatus&);
 void copy_domain_heat(MAOniDomainHeatStatus&);
+void queue_domain_transfers(const MAOniDomainTransfer*,std::uint32_t count,MAOniDomainTransferStatus&);
+void copy_domain_transfer_status(MAOniDomainTransferStatus&);
+void copy_domain_receipts(MAOniDomainStatus&,MAOniDomainCell*,std::uint32_t,MAOniDomainReceipt*,std::uint32_t,std::uint32_t&);
+void ack_domain_receipts(std::uint64_t session,std::uint64_t through);
 std::mutex& domain_frame_mutex() noexcept;
 }

@@ -437,4 +437,38 @@ MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat* inputs,std::uint32_t
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
+std::uint32_t ma_oni_domain_transfer_abi_version() { return 1; }
+MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native transfer status ABI");
+        ma::oni::copy_domain_transfer_status(*output);
+    });
+}
+MAOniResult ma_oni_domain_queue_transfers(const MAOniDomainTransfer* inputs,std::uint32_t count,MAOniDomainTransferStatus* output) {
+    return boundary([&] {
+        if (!inputs || !count || count > 256 || !output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native transfer batch/output ABI");
+        try { ma::oni::queue_domain_transfers(inputs,count,*output); }
+        catch (const ma::FluidFatalError& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus* output,MAOniDomainCell* cells,std::uint32_t capacity,
+    MAOniDomainReceipt* receipts,std::uint32_t receipt_capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION || !cells || !count || (!receipts && receipt_capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native physical frame/receipt output ABI");
+        try { ma::oni::copy_domain_receipts(*output,cells,capacity,receipts,receipt_capacity,*count); }
+        catch (const std::length_error& error) { throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_ack_receipts(std::uint64_t session,std::uint64_t through) {
+    return boundary([&] {
+        try { ma::oni::ack_domain_receipts(session,through); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+    });
+}
 }

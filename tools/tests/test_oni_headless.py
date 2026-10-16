@@ -84,6 +84,32 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 report = copy.deepcopy(self.report); report["NativeDomain"][field] = value
                 self.assertFalse(runner.native_domain_passed(report, self.observation, 30), (field, value))
 
+    def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
+        self.report.update(GasTransfersVerified=True, TransfersAvoidedNativeDispatch=True,
+            TransferPacketsRouted=2, ReceiptsPublished=2, EmissionCallbacks=1, ConsumptionCallbacks=1,
+            TransferEnergyResidualJoules=1e-9, TransferMaximumRelativeMassError=1e-15,
+            GasTransfers={"PendingBatches": 0, "AcceptedBatches": 2, "CommittedBatches": 2,
+                "UnacknowledgedReceipts": 0, "MassChangesKg": [0, .030000001192092896, 0, 0],
+                "KineticEnergyChange": -.001, "MaterialEnergyChange": -2200},
+            EmissionResult={"elemIdx": 176, "suceeded": 1, "mass": .05, "temperature": 300,
+                "diseaseIdx": 255, "diseaseCount": 0},
+            ConsumptionResult={"elemIdx": 176, "mass": .02, "temperature": 300.1,
+                "diseaseIdx": 255, "diseaseCount": 0})
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
+        corruptions = (("ReceiptsPublished", 1), ("EmissionCallbacks", 2), ("ConsumptionCallbacks", 0),
+                       ("TransferEnergyResidualJoules", float("nan")), ("TransferMaximumRelativeMassError", 1e-8))
+        for field, value in corruptions:
+            bad = copy.deepcopy(self.report); bad[field] = value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, transfers=True), field)
+        for section, field, value in (("GasTransfers", "UnacknowledgedReceipts", 1),
+                ("GasTransfers", "MassChangesKg", [0, .03, 0, 0]), ("GasTransfers", "KineticEnergyChange", 0),
+                ("ConsumptionResult", "elemIdx", 42), ("ConsumptionResult", "mass", .019),
+                ("EmissionResult", "suceeded", 0), ("ConsumptionResult", "temperature", float("inf")),
+                ("EmissionResult", "diseaseCount", 1)):
+            bad = copy.deepcopy(self.report); bad[section][field] = value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, transfers=True), (section, field))
+
 
 class EvidenceTests(unittest.TestCase):
     def test_optional_native_observer_requires_its_own_forwarding_report(self):

@@ -75,6 +75,14 @@ int main() {
         const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
         require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,
                 "unowned heat accepted or changed output");
+        require(ma_oni_domain_transfer_abi_version()==1 && sizeof(MAOniDomainTransfer)==64 &&
+                sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==96,"transfer extension ABI");
+        MAOniDomainTransferStatus transfers{}; transfers.struct_size=96; transfers.abi_version=1;
+        require(ma_oni_domain_transfer_status(&transfers)==MA_ONI_OK && transfers.state==0,"inactive transfer status");
+        const auto held_transfers=transfers;
+        const MAOniDomainTransfer transfer{64,1,0,0,0,1,1,0,-1,0,.05,300};
+        require(ma_oni_domain_queue_transfers(&transfer,1,&transfers)==MA_ONI_BUSY &&
+                std::memcmp(&transfers,&held_transfers,sizeof(transfers))==0,"unowned gas transfer changed output");
         std::cout << "PASS: native observer ABI, SHA256 controls, unknown-image/immutable rejection and inactive lifecycle\n";
         return 0;
     } catch (const std::exception& error) {

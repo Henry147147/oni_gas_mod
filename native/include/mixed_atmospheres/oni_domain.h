@@ -69,6 +69,39 @@ MA_ONI_API uint32_t ma_oni_domain_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t count, MAOniDomainHeatStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
+/* Gas point-source ABI 1. kind 1 injects at rest, kind 2 selectively removes.
+ * Receipts are retained until acknowledged after an owned snapshot publication.
+ * Quantities are binary32-compatible when flags bit 0 is set; any remainder
+ * stays in the physical source. These are not pump/aperture transactions. */
+typedef struct MAOniDomainTransfer {
+    uint32_t struct_size, abi_version;
+    uint64_t session, expected_frame;
+    uint32_t public_cell, species, kind, flags;
+    int32_t callback;
+    uint32_t reserved;
+    double mass_kg, temperature_k;
+} MAOniDomainTransfer;
+typedef struct MAOniDomainReceipt {
+    uint64_t sequence, session, completed_frame;
+    uint32_t public_cell, species;
+    int32_t callback;
+    uint32_t kind;
+    double mass_kg, temperature_k, internal_energy_j, kinetic_energy_j, momentum_x, momentum_y;
+} MAOniDomainReceipt;
+typedef struct MAOniDomainTransferStatus {
+    uint32_t struct_size, abi_version, state, pending_batches;
+    uint64_t session, accepted_batches, committed_batches, unacknowledged_receipts;
+    double mass_changes_kg[MA_ONI_DOMAIN_SPECIES];
+    double material_energy_change_j, kinetic_energy_change_j;
+} MAOniDomainTransferStatus;
+MA_ONI_API uint32_t ma_oni_domain_transfer_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_queue_transfers(const MAOniDomainTransfer*, uint32_t count, MAOniDomainTransferStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus*);
+/* Both physical cells and receipts refer to the same completed native frame. */
+MA_ONI_API MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus*, MAOniDomainCell*, uint32_t cell_capacity,
+    MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* receipt_count);
+MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t through_sequence);
+
 #ifdef __cplusplus
 }
 #endif

@@ -77,6 +77,19 @@ struct MacClosedAdvanceReport {
     std::size_t rounded_energy_projections = 0;
 };
 struct MacClosedAdvance;
+struct MacGasTransferResult;
+struct MacGasTransfer {
+    std::size_t cell_index, species_index;
+    bool inject;
+    double mass_kg, temperature_k;
+};
+struct MacGasParcel {
+    std::size_t cell_index, species_index;
+    bool injected;
+    double mass_kg, temperature_k, internal_energy_j;
+    MacEnergy resolved_kinetic_energy, potential_energy;
+    MacScaled momentum_x, momentum_y;
+};
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
@@ -96,6 +109,11 @@ public:
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
     [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>) const;
+    // Declared point sources, not an aperture/pump flow model. Injection is at
+    // rest; extraction carries the selected species at the local face speeds.
+    // Filled gas cells without passive metadata only; unsupported void/liquid
+    // topology rejects atomically. Packets account for all carried mechanics.
+    [[nodiscard]] MacGasTransferResult with_gas_transfers(std::span<const MacGasTransfer>) const;
 private:
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;
@@ -105,4 +123,9 @@ private:
     std::uint64_t revision_ = 1;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
+struct MacGasTransferResult {
+    MacClosedWorld world;
+    std::vector<MacGasParcel> parcels;
+    std::size_t unresolved_heat_updates = 0;
+};
 }

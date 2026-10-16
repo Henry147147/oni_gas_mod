@@ -173,6 +173,16 @@ namespace MixedAtmospheres.Oni
             fixed (T* pointer = combined) ReplaceBuffer(index, (IntPtr)pointer, newCount);
         }
 
+        // A frozen fault publication must not replay one-shot callbacks from
+        // the last successful frame. Cell/texture data stays owned and intact.
+        internal void ClearEventsForFault()
+        {
+            RequireOpen();
+            for (var index = 0; index < Channels.Length; ++index)
+                if (Channels[index].CountOffset >= 0) ReplaceBuffer(index, IntPtr.Zero, 0);
+            Pointer->numFramesProcessed = 0;
+        }
+
         private void ValidateOwnership()
         {
             for (var index = 0; index < Channels.Length; ++index)

@@ -24,6 +24,7 @@ int main() {
         static_assert(sizeof(MAOniDomainStatus)==440);
         static_assert(sizeof(MAOniDomainCell)==88);
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
+        static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==96);
         MAOniDomainConfig config{40,1,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);
@@ -76,6 +77,30 @@ int main() {
         }
         require(std::abs(next_total-old_total-750) <= 128*std::numeric_limits<double>::epsilon()*scale,
             "external heat disappeared from U plus canonical kinetic energy");
+        const std::array<MAOniDomainTransfer,2> transfers{{
+            {64,1,final.session,final.completed_frames,10+10*64,1,1,1,10,0,.05F,300},
+            {64,1,final.session,final.completed_frames,10+10*64,1,2,1,11,0,.02F,0}}};
+        MAOniDomainTransferStatus transfer_status{}; ma::oni::queue_domain_transfers(transfers.data(),2,transfer_status);
+        require(transfer_status.pending_batches==1 && transfer_status.committed_batches==0,"transfer committed before a native tick");
+        std::array<MAOniDomainReceipt,4> receipts{}; std::uint32_t receipt_count=99;
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        require(receipt_count==0 && final.completed_frames==11,"uncommitted receipt escaped its native frame");
+        auto invalid_transfers=transfers; invalid_transfers[1].public_cell=0; const auto held_transfer_status=transfer_status;
+        rejected=false;
+        try { ma::oni::queue_domain_transfers(invalid_transfers.data(),2,transfer_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_transfer_status,&transfer_status,sizeof(transfer_status))==0,"invalid gas batch partially queued");
+        ma::oni::advance_domain(12,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        require(final.state==1 && final.completed_frames==12 && receipt_count==2 && receipts[0].sequence==1 && receipts[1].sequence==2 &&
+            receipts[0].completed_frame==12 && receipts[1].completed_frame==12 && receipts[0].callback==10 && receipts[1].callback==11 &&
+            receipts[0].mass_kg==static_cast<double>(.05F) && receipts[1].mass_kg==static_cast<double>(.02F),"gas receipts differ from completed physical state");
+        ma::oni::copy_domain_transfer_status(transfer_status);
+        require(transfer_status.committed_batches==1 && transfer_status.pending_batches==0 && transfer_status.unacknowledged_receipts==2 &&
+            transfer_status.mass_changes_kg[1]==static_cast<double>(.05F)-static_cast<double>(.02F),"committed gas account differs");
+        ma::oni::ack_domain_receipts(final.session,1); ma::oni::ack_domain_receipts(final.session,1);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        require(receipt_count==1 && receipts[0].sequence==2,"receipt acknowledgment lost or duplicated delivery");
+        ma::oni::ack_domain_receipts(final.session,2);
         std::unique_lock frame_lock(ma::oni::domain_frame_mutex());
         std::promise<void> started;
         std::promise<MAOniDomainStatus> copied; auto ready=copied.get_future();

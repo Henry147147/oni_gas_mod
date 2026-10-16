@@ -92,8 +92,41 @@ queue nothing; a failed physical advance publishes neither heat nor state.
 
 This is a reserved external heat boundary, not a power/producer adapter.
 Mixed native/custom batches require a cross-owner reservation and currently
-reject before dispatch. Native heat outside the arena still uses ONI. Known
-unimplemented mass, actor and geometry mutations remain blocked.
+reject before dispatch. Native heat outside the arena still uses ONI.
+
+## Gas point sources and game callbacks
+
+Owned-cell `SimMessages.EmitMass` and single-cell `ConsumeMass` now reserve
+physical gas transfers against the same completed native frame. Injection
+arrives at rest; selective extraction carries the selected gas's internal
+energy and its share of face momentum and kinetic energy. Injection retains
+existing momentum and returns the kinetic mixing loss as heat. Every other
+constituent, including trace helium, remains in the physical inventory.
+These are declared point-source boundaries; pumps still need accountable
+aperture flow, work and output reservations.
+
+The additive transfer ABI 1 has 64-byte commands, 88-byte receipts and a
+96-byte status. Heat and mass commands share an ordered immutable candidate.
+Enqueue publishes no physical change or callback. The native worker commits
+the candidate, advance, constituent/energy accounts and receipts together.
+Session IDs, expected frames and receipt sequences reject stale work.
+Receipts remain in a bounded outbox until acknowledged with a coherent owned
+snapshot. The snapshot appends the actual game's mass callback records;
+normal game callback managers then deliver them. Callback handles retain all
+32 bits. Binary32 callback amounts agree exactly with the physical transfers;
+unrepresentable extraction remainders stay in the source.
+
+The real-game control injects 0.05 kg of oxygen and consumes 0.02 kg using the
+ordinary game message APIs. It requires one successful emission callback and
+one consumption callback, unchanged original native cells, no original native
+message dispatch, and independently checked mass and U+K accounts. Fault
+snapshots clear already delivered event lists before retaining the last physical
+frame, so a stopped publication cannot replay callbacks.
+
+Current transfers support nitrogen, oxygen and helium in occupied gas cells.
+Liquid/empty-cell transitions, disease-bearing injection, spatial consumption,
+mixed-owner batches, registered actors and producer reservations require
+additional adapters. Unsupported requests reject before dispatch.
 
 ## Run the actual Linux colony controls
 
@@ -112,6 +145,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-liquid-domain --frames 30 --timeout 600
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-heat-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-transfer-domain --frames 120 --timeout 1200
 ```
 
 Both runs use separate fresh profiles on the authenticated virtual desktop.
@@ -148,6 +183,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T195730Z-4b7c8c` | Passed actual game heat messages: +2,000 J heating and −500 J cooling, committed on the native clock. Net physical U+K rises by 1,500 J, with residual −4.54e−9 J after 120 post-priming frames. The original native message entry is never called for either heat packet; grid, rendering and native compatibility checks pass. |
 | `20261016T200324Z-fbdef4` | Repeats the heat pass and additionally verifies that a direct native `SIM_BeginSave` returns null/zero without starting a scalar save. Normal managed saving also rejects before writing. |
 | `20261016T200702Z-8e3b53` | Passes after merging the new geometric momentum transport: 122 native frames, 120 after priming, 2,562 substeps, two heat commands and net 1,500 J. U+K heat residual is −1.63e−9 J, maximum relative mass drift 2.06e−15 and energy drift 3.94e−15. Grid, rendering, unchanged native tuples, native solid heat and both save guards pass, with no mod failure lines. |
+| `20261016T202909Z-bef415` | Passes real gas injection/consumption and both actual game callbacks exactly once: 122 native frames, 120 after priming, 2,562 substeps. Net oxygen addition is 0.030000001192092896 kg (the exact difference of the game floats); mass residual is 2.01e−15 and U+K residual 1.62e−10 J. Extraction carries 0.0003848342 J of resolved kinetic energy. Both receipts are acknowledged, native compatibility tuples stay exact, grid/render/solid-heat/save checks pass and no mod failure lines occur. Package source is `6bb2b53` plus the recorded dirty gas-transfer changes; private manifests retain the individual library hashes. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
@@ -178,7 +214,7 @@ first-playable readiness as false, with saving disabled.
 Private reports, game logs and captures remain under
 `<headless-state>/runs/<run-id>`; build and sanitizer logs are in
 `artifacts/headless-working-20261016`. Neither licensed game data nor private
-reports are redistributed. All ten native CTests pass in Release and with
+reports are redistributed. All eleven native CTests pass in Release and with
 ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current
 Windows code cross-compiles; ABI 3 runtime execution and domain activation are
 not validated on Windows, where domain start explicitly rejects.

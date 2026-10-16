@@ -70,6 +70,18 @@ internal static unsafe class Program
                 .SequenceEqual(new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, originalCount * sizeof(Sim.MassConsumedCallback))));
             Reject(() => { _ = retained!.Masses.Length; });
         });
+        Test("fault freeze retains physical buffers without replaying callbacks", () =>
+        {
+            using var source = new NativeFixture();
+            using var copy = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            var mass = copy.Pointer->mass[0]; var texture = ((byte*)copy.Pointer->propertyTextureLiquidData)[7];
+            Check(copy.Pointer->numMassConsumedCallbacks > 0 && copy.Pointer->numFramesProcessed > 0);
+            copy.ClearEventsForFault(); copy.ClearEventsForFault();
+            Check(copy.Pointer->numFramesProcessed == 0 && copy.Pointer->numMassConsumedCallbacks == 0 &&
+                copy.Pointer->massConsumedCallbacks == null && copy.Pointer->numMassEmittedCallbacks == 0 &&
+                copy.Pointer->numCallbackInfo == 0 && copy.Pointer->mass[0] == mass &&
+                ((byte*)copy.Pointer->propertyTextureLiquidData)[7] == texture && source.Pointer->numMassConsumedCallbacks > 0);
+        });
         Test("wrong event record type rejects unpublished overlay", () =>
         {
             using var source = new NativeFixture();

@@ -37,6 +37,9 @@ for ownership, interfaces, failures and implementation gates.
   opt-in, actor-free experiment with saving disabled.
   Owned-cell heating/cooling messages now commit conserved external heat on the
   native tick; the real-game control verifies both energy and presentation.
+  Gas point injection and selective consumption also commit on that clock,
+  carrying energy and momentum and delivering actual game callbacks once.
+  Registered actors, production devices and persistence remain unfinished.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native
