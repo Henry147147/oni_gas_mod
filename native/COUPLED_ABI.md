@@ -182,11 +182,59 @@ settings remain unchanged. Linux exports fourteen `ma_coupled_*` functions.
 The same 180-second build, 30-second runtime and 128-KiB pipe limits apply.
 There is no new game, independent agent or performance acceptance.
 
+## Closed-reference colony frame coordination
+
+Core's `CoupledColonySimulation` stages an imported colony against the explicit
+closed-reference catalogue and geometry before creating native owners. Each
+admitted world has a persistent immutable native owner. Unsupported species,
+vacuum/metadata-only fluid cells and unrelated pressure-map entries reject.
+Pure-liquid initial cells require an explicit mechanical pressure; gas pressure
+is never substituted for liquid mechanical pressure. Native disease hashes and
+passive radiation survive admission and subsequent frames.
+
+`AdvanceFrame` accepts exactly the next global frame number and advances every
+world in sorted ID order. One attempt budget covers the whole colony, including
+rejected native substeps. All world candidates, captures and the managed
+projection are prepared before Core's writer reservation and paired commit.
+Any preparation failure disposes candidates and preserves the identical current
+frame. A failure reports how many world candidates had completed. Old native
+owners retire before staging the following advance; at most one retired
+generation is retained. Managed frames contain no native handles and remain
+readable after owner retirement or disposal.
+
+`CoupledColonyFrame` binds native snapshots, diagnostics and its read-only Core
+projection to one completed frame/time. Global sampling resolves the correct
+world footprint and exposes actual native U, momentum, mechanical pressure and
+temperature. The private Core authority is never exposed for mutation.
+
+The projection stores scalar total energy, so deriving U by subtracting kinetic
+energy can round differently from native U. Every nonzero difference is exposed
+in `InternalEnergyProjectionErrorsJoules` and bounded by 64 binary64 epsilons
+times the larger of native |U| and projected |K|, without a unit floor. This is
+an arithmetic diagnostic, not heat. The coordinator never uses that projection
+to reinitialize physical state. Consumers needing physical readings must use
+the bound native snapshot. The projection alone cannot preserve this owner's
+physical state for restart.
+
+The first new Windows and WSL Linux runs each pass all thirteen managed groups,
+including five colony groups. Original synthetic import blobs cover two
+separated world placements, same-frame advancement, later-world failure after
+one completed candidate, shared-budget accounting, retained reads, catalogue
+rejection and pure-liquid pressure admission. Native sources are unchanged:
+the runs pin the previously validated passive-extension libraries rather than
+rebuilding/replaying native C++ controls. Frozen source, managed builds,
+library/assembly hashes, raw output and completed root reviews are under
+`local/occupied-staggered-validation/coupled-colony-{windows,linux}-r1`.
+Both first builds/runs exit zero with clean EOFs, no capture errors or retries;
+limits remain 180 seconds per build, 30 seconds per runtime and 128 KiB per pipe.
+
 ## Remaining integration work
 
-The frame coordinator is not connected to this owner. It still needs matching
-material/geometry admission, game metadata routing, transactions/mutations,
-multi-world atomic publication and presentation binding. Fork/capture allocation
-and complete-frame copying also require production performance work. This
-boundary does not repair the older remap, vacuum-front or performance failures,
-which were not replayed. It establishes no first-playable or release gate.
+The ONI `ExperimentalFluidFrameCoordinator` callback/message router is still
+unconnected to this separate Core coordinator. Actor transactions, native
+dispatch/acknowledgement, supported material/phase coverage, presentation
+binding and actual save/reload need integration. Fork/capture allocation and
+complete-frame copying also require production performance work. These controls
+repair none of the older remap, vacuum-front or performance failures, which
+were not replayed. There is no new game or independent agent review, and no
+first-playable or release gate is established.

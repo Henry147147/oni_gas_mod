@@ -39,6 +39,11 @@ machines, pipes, and metabolism must use the same conserved state.
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
   frame coordination and the production solver remain unfinished.
+- A closed-reference colony coordinator advances every admitted world before
+  publishing one immutable frame. Windows/Linux controls verify later-world
+  rollback and shared attempt budgets. Physical internal energy and momentum
+  stay in native owners; the read-only colony projection never resets them.
+  Actor transactions, ONI hooks and persistence remain unfinished.
 - Sparse disease counts and passive radiation metadata follow the coupled
   reference's material transfers and appear in its completed snapshots.
   Disease growth and radiation-dose physics remain required.
