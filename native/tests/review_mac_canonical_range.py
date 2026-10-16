@@ -48,7 +48,7 @@ def review(parsed):
 
 
 def main():
-    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=524288,'Canonical saved pipe cap')
+    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=base.saved_pipe_cap(raw,524288),'Canonical saved pipe cap')
     with localcontext() as context:
         context.prec=80;parsed=parse(raw);review(parsed);checks=base.CHECKS
         for corruption in ('canonical-state','swept-volume','wall-reaction'):

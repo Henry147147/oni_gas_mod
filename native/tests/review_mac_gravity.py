@@ -180,7 +180,7 @@ def review(data):
 
 
 def main():
-    raw=Path(sys.argv[1]).read_bytes(); check(len(raw)<=262144,'Gravity saved pipe cap')
+    raw=Path(sys.argv[1]).read_bytes(); check(len(raw)<=base.saved_pipe_cap(raw,262144),'Gravity saved pipe cap')
     with localcontext() as context:
         context.prec=80; data=parse(raw); review(data); checks=base.CHECKS
         for control in ('mass-potential','stored-gravity-work','stratified-profile'):

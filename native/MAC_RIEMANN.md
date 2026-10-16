@@ -1,9 +1,10 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows symmetric compression-owner source completes
-Sod N64/128/256 and satisfies collision velocity refinement, then fails collision
-pressure refinement at N128. Linux passes all prerequisites and does not repeat
-that known failure. Earlier velocity/range failures remain recorded below.
+The gate remains failed. The latest Windows reconstructed-momentum owner
+completes Sod N64/128/256 and satisfies collision velocity refinement, then
+fails collision density and pressure refinement at N128. Linux passes all 85
+prerequisite groups and does not repeat that known failure. Earlier
+compression, velocity and range failures remain recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. The original gate introduced tests/build declarations;
@@ -73,7 +74,46 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current compression owner and pressure-refinement failure
+## Current reconstructed-momentum owner: density/pressure refinement failure
+
+The [owning timestep integration](MAC_MOMENTUM_OWNER.md) passes all 85 strict
+Windows/Linux native groups and their saved reviews before this one
+changed-source Windows retry. Source, timestep, grids and every scientific
+bound in the original Riemann and gravity tests remain unchanged.
+
+| Case | Grid | Density L1 | Pressure L1 | Velocity L1 |
+| --- | --- | --- | --- | --- |
+| Sod | 64 | 0.0106727979090 | 0.00746236246693 | 0.0166702480559 |
+| Sod | 128 | 0.00644484914260 | 0.00434731984663 | 0.00976405151286 |
+| Sod | 256 | 0.00335375430713 | 0.00219319568397 | 0.00472756956501 |
+| Collision | 64 | 0.0447502618538 | 0.0551942800520 | 0.0661799908479 |
+| Collision | 128 | 0.0397925973197 | 0.0742963811250 | 0.0434654060056 |
+
+Collision N128/N64 ratios are **0.88921485 / 1.34608842 / 0.65677564**.
+Density and pressure exceed the original 0.85 limit; velocity passes. The
+native gate stops before collision N256 or any separation profile. The
+separate partial review checks 59,205 saved identities across five completed
+profiles, including individual traces, actual U+face-K, entropy and both
+momentum/wall accounts. It is not the complete three-group review and runs no
+full-gate corruption controls. No full strong-flow acceptance is claimed.
+
+Saved-only regional analysis reproduces the failed norms without another
+native run. Pressure-error contributions (unshocked / shock-cut / compressed)
+are 0.025911 / 0.007177 / 0.022107 at N64 and
+0.024955 / 0.026951 / 0.022390 at N128. Central specific entropy exceeds the
+exact compressed state by about 100.17 / 96.31 J/(kg K), with central density
+about 91.55% / 90.94% of the exact value. These locate unresolved shock-profile
+and stagnation errors; they do not justify changing the oracle or bounds.
+The CSV/analysis are private under `local/mac-momentum-owner-collision-analysis-r1`.
+
+Private first native/partial records are under
+`local/occupied-staggered-validation/mac-momentum-owner-strong-windows-r1`,
+failed terminal SHA256
+`441a3c6eac53c0367f1512e4feb30ffc8647c993941a0cc7ea942908e2cb8cd8`.
+The default game DLL is unchanged. Linux does not repeat this shared failure.
+No independent agent, Unity or production/performance acceptance is claimed.
+
+## Earlier symmetric compression owner: pressure-refinement failure
 
 The subsequent [symmetric coupling](MAC_COMPRESSION_COUPLING.md) passes all 66
 native groups and saved reviews on Windows/Linux, including a manufactured

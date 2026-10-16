@@ -5,6 +5,7 @@ Balances use exact binary64 Fractions. Wave profiles are compared with an
 checks a transport component, not pressure, free surfaces or colony ownership.
 """
 import copy
+import importlib.util
 from decimal import Decimal, localcontext
 from fractions import Fraction as F
 import hashlib
@@ -15,6 +16,12 @@ import sys
 
 EPS = F(1, 2**52)
 CHECKS = 0
+
+def saved_pipe_cap(raw, donor_limit):
+    # Full predictors and every paired correction expand owning-step records.
+    # Donor fixtures retain their original capture limit.
+    corrected=any(line.startswith(b'MCONFIG ') and line.split()[-1:]==[b'1'] for line in raw.splitlines())
+    return 2097152 if corrected else donor_limit
 
 
 def check(ok, reason):
@@ -110,7 +117,27 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
             unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
                 masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={},
-                widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={},wide_momentum={},wide_duals={},wide_volumes={}))
+                widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={},wide_momentum={},wide_duals={},wide_volumes={},
+                momentum_mode=None,mcells={},mreports={},mfaces={},mduals={},mevents={}))
+        elif kind in ('MCONFIG','MRCELL','MRECON','MRFACE','MRDUAL','MREVENT'):
+            identifier=int(row[1]);check(identifier in cases,'Orphan momentum reconstruction record');case=cases[identifier]
+            def full(index):
+                m=number(row[index]);e=int(row[index+1])
+                check((m==0 and e==0) or F(1,2)<=abs(m)<1,'Noncanonical reconstructed full scalar')
+                return scaled_energy(row[index],row[index+1])
+            if kind=='MCONFIG':
+                check(len(row)==3 and case['momentum_mode'] is None and int(row[2]) in (0,1),'Momentum mode shape/duplicate')
+                case['momentum_mode']=int(row[2])
+            elif kind=='MRCELL':
+                check(len(row)==4,'Advected U shape');unique(case['mcells'],int(row[2]),number(row[3]))
+            elif kind=='MRECON':
+                check(len(row)==7,'Correction report shape');unique(case['mreports'],int(row[2]),tuple(map(int,row[3:])))
+            elif kind=='MRFACE':
+                check(len(row)==20,'Reconstruction face shape');unique(case['mfaces'],tuple(map(int,row[2:4])),tuple(full(i) for i in range(4,20,2)))
+            elif kind=='MRDUAL':
+                check(len(row)==8,'Indexed dual shape');unique(case['mduals'],tuple(map(int,row[2:4])),(int(row[4]),int(row[5]),full(6)))
+            else:
+                check(len(row)==41,'Correction event shape');unique(case['mevents'],tuple(map(int,row[2:4])),(*map(int,row[4:9]),*[full(i) for i in range(9,41,2)]))
         elif kind in ('XFACE','XDUAL','XVOLUME'):
             identifier=int(row[1]);check(identifier in cases,'Orphan full range record');case=cases[identifier]
             if kind=='XFACE':
@@ -256,6 +283,35 @@ def packets(old_mass, edges):
     return incoming
 
 
+_geometric=None
+
+def review_geometric(case,faces,mass):
+    global _geometric,CHECKS
+    payload=('mcells','mreports','mfaces','mduals','mevents')
+    if case['momentum_mode']!=1:
+        check(not any(case[k] for k in payload),'Correction data without limited momentum mode')
+        return False
+    check(set(case['mcells'])==set(range(case['w']*case['h'])),'Advected U coverage')
+    check(set(case['mreports'])=={0,1} and set(case['mfaces'])==set(case['faces']),'Correction component/face coverage')
+    check(all(a in (0,1) and k>=0 for a,k in (*case['mduals'],*case['mevents'])),'Orphan indexed correction record')
+    check({(a,l,r):f for (a,_),(l,r,f) in case['mduals'].items()}==case['duals'],'Indexed dual differs from physical dual record')
+    if _geometric is None:
+        spec=importlib.util.spec_from_file_location('saved_geometric',Path(__file__).with_name('review_mac_momentum_reconstruction.py'))
+        _geometric=importlib.util.module_from_spec(spec);spec.loader.exec_module(_geometric)
+    rows={}
+    for (a,i),row in case['faces'].items():
+        flux,j0,j1,i0,i1,k0,k1,kt,qm,qw,impulse,_=row
+        jup,sx,sy,cx,cy,qup,tup,audit_bound=case['mfaces'][a,i]
+        rows[0,a,i]=(i0,i1,int(None in faces[a][i]),flux,j0,j1,jup,sx,sy,cx,cy,k0,k1,qup,qm,tup,kt,qw,impulse,audit_bound)
+    d=dict(grids={0:(case['w'],case['h'],1,1,case['px'],case['py'],0,0,0)},faces=rows,
+        duals={(0,a,k):v for (a,k),v in case['mduals'].items()},events={(0,a,k):v for (a,k),v in case['mevents'].items()},
+        reports={(0,a):v for a,v in case['mreports'].items()})
+    before=_geometric.CHECKS
+    _geometric.review_components(d,0,dict(enumerate(mass[0])),dict(enumerate(mass[1])),{i:(v,) for i,v in case['walls'].items()})
+    CHECKS+=_geometric.CHECKS-before
+    return True
+
+
 def review_case(case):
     if case['rplan'] is None and any(case[k] for k in ('rcells', 'rmasses', 'rpassives', 'parcels', 'pmasses', 'ppassives')):
         raise ValueError('Reconstruction payload has no plan record')
@@ -279,6 +335,7 @@ def review_case(case):
                 check(flux == j0 == j1 == 0, 'Constrained normal face carries mass/momentum')
             else:
                 primal.append((*adjacent, flux))
+    corrected = review_geometric(case,faces,mass)
     material_packets = packets(mass[0], primal)
     reconstructed = review_reconstructed_primal(case, faces) if case['rplan'] is not None else None
     for key in ('masses', 'passives'):
@@ -304,25 +361,26 @@ def review_case(case):
             transported_mass = sum((amount for _, amount in donors), F(0))
             close(transported_mass, i1, transported_mass + i1, 'Dual mass continuity')
             close(dm, transported_mass - i1, transported_mass + i1, 'Saved dual mass residual')
-            provisional_j = sum((amount * rows[d][1] / rows[d][3] for d, amount in donors if amount), F(0))
-            provisional_u = provisional_j / i1 if i1 else F(0)
-            fixed = None in faces[axis][i]
-            expect_j = F(0) if fixed else provisional_j
-            jscale = sum((abs(amount * rows[d][1] / rows[d][3]) for d, amount in donors if amount), F(0))
-            close(j1, expect_j, jscale + abs(j1), 'Dual momentum packet mismatch')
-            close(impulse, expect_j - provisional_j, jscale + abs(impulse), 'Wall impulse mismatch')
-            for inertia, momentum, actual in ((i0, j0, k0), (i1, j1, k1)):
-                expect = momentum * momentum / (2 * inertia) if inertia else F(0)
-                close(actual, expect, actual + expect, 'Stored resolved kinetic energy')
-            expect_kt = sum((amount * rows[d][5] / rows[d][3] for d, amount in donors if amount), F(0))
-            close(kt, expect_kt, kt + expect_kt, 'Transported kinetic packet mismatch')
-            expect_qm = sum((amount * (rows[d][1] / rows[d][3] - provisional_u)**2 / 2
-                             for d, amount in donors if amount), F(0))
-            expect_qw = provisional_j * provisional_u / 2 if fixed else F(0)
-            # A near-zero variance subtracts rounded velocities. Its allowed
-            # error is tied to actual packet K, never an arbitrary unit floor.
-            close(qm, expect_qm, kt + expect_kt + expect_qm, 'Positive variance heat mismatch', 1024)
-            close(qw, expect_qw, qw + expect_qw, 'Wall projection heat mismatch')
+            if not corrected:
+                provisional_j = sum((amount * rows[d][1] / rows[d][3] for d, amount in donors if amount), F(0))
+                provisional_u = provisional_j / i1 if i1 else F(0)
+                fixed = None in faces[axis][i]
+                expect_j = F(0) if fixed else provisional_j
+                jscale = sum((abs(amount * rows[d][1] / rows[d][3]) for d, amount in donors if amount), F(0))
+                close(j1, expect_j, jscale + abs(j1), 'Dual momentum packet mismatch')
+                close(impulse, expect_j - provisional_j, jscale + abs(impulse), 'Wall impulse mismatch')
+                for inertia, momentum, actual in ((i0, j0, k0), (i1, j1, k1)):
+                    expect = momentum * momentum / (2 * inertia) if inertia else F(0)
+                    close(actual, expect, actual + expect, 'Stored resolved kinetic energy')
+                expect_kt = sum((amount * rows[d][5] / rows[d][3] for d, amount in donors if amount), F(0))
+                close(kt, expect_kt, kt + expect_kt, 'Transported kinetic packet mismatch')
+                expect_qm = sum((amount * (rows[d][1] / rows[d][3] - provisional_u)**2 / 2
+                                 for d, amount in donors if amount), F(0))
+                expect_qw = provisional_j * provisional_u / 2 if fixed else F(0)
+                # A near-zero variance subtracts rounded velocities. Its allowed
+                # error is tied to actual packet K, never an arbitrary unit floor.
+                close(qm, expect_qm, kt + expect_kt + expect_qm, 'Positive variance heat mismatch', 1024)
+                close(qw, expect_qw, qw + expect_qw, 'Wall projection heat mismatch')
             close(kt, k1 + qm + qw, kt + k1 + qm + qw, 'Local kinetic-to-heat closure', 1024)
             total = sum((mass[1][c] for c in faces[axis][i] if c is not None), F(0))
             for c in faces[axis][i]:
@@ -334,6 +392,8 @@ def review_case(case):
         terms = reconstructed['energy'][i] + [cell_heat[i]] if reconstructed else [amount * case['cells'][0, d] / mass[0][d] for d, amount in donors if amount] + [cell_heat[i]]
         expect = sum(terms, F(0)); actual = case['cells'][1, i]
         close(actual, expect, abs(actual) + sum(map(abs, terms), F(0)), 'Primal U plus assigned heat', 256)
+        if corrected:
+            close(case['mcells'][i],sum(terms[:-1],F(0)),abs(case['mcells'][i])+sum(map(abs,terms[:-1]),F(0)),'Actual advected U before correction heat')
     residual = sum(energy_terms, F(0)); scale = sum(map(abs, energy_terms), F(0))
     close(residual, F(0), scale, 'Physical global energy balance')
     close(case['residual'], residual, scale, 'Saved energy residual', 2)
@@ -479,7 +539,7 @@ def review(data):
 
 def main():
     path = Path(sys.argv[1]); raw = path.read_bytes()
-    check(len(raw) <= 131072, 'Saved stdout exceeds declared cap')
+    check(len(raw) <= saved_pipe_cap(raw,131072), 'Saved stdout exceeds declared cap')
     data = parse(raw); review(data)
     checks = CHECKS
     for control in ('dual-flux', 'wave-profile', 'trace-loss'):

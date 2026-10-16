@@ -15,9 +15,14 @@ struct MacMomentumLimitedPair {
     std::size_t limiter_roundoff_backoffs = 0;
     std::size_t unresolved_momentum_updates = 0, unresolved_heat_updates = 0;
 };
+// Optional actual transported kinetic energy before this correction. Keep the
+// additive expansions: a rounded estimate can overstate a nearly empty budget.
+// References are borrowed only for the synchronous pair calculation.
+struct MacMomentumWorkBudget { const MacEnergySum& left; const MacEnergySum& right; };
 [[nodiscard]] MacMomentumLimitedPair limit_mac_momentum_pair(double inertia_left,
     double inertia_right, MacScaled momentum_left, MacScaled momentum_right,
-    MacEnergy available_heat_left, MacEnergy available_heat_right, MacScaled requested_impulse);
+    MacEnergy available_heat_left, MacEnergy available_heat_right, MacScaled requested_impulse,
+    const MacMomentumWorkBudget* transported_work_budget = nullptr);
 
 struct MacMomentumCorrection { std::size_t left = 0, right = 0; MacScaled impulse; };
 struct MacMomentumLimitedBatch {

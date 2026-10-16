@@ -3,8 +3,9 @@
 The scoped Windows/Linux controls below pass. The explicit `limited_linear`
 momentum mode uses actual primal/dual mass fluxes in MAC transport and applies the
 [compatible limiter](MAC_MOMENTUM_LIMITER.md) before material heat deposition.
-The donor reference remains the default. The closed owner, game dispatch and
-the failed strong-flow gate have not changed yet.
+The standalone transport API retains its donor reference default. The
+[owning timestep](MAC_MOMENTUM_OWNER.md) now selects reconstructed momentum
+and also constrains actual transported work capacity.
 
 Source face velocities use canonical J/I. Each free dual face has minmod
 normal/transverse slopes; stencils touching fixed faces are flat in that
@@ -99,10 +100,11 @@ concentrations; nonuniform material slopes have the existing independent
 material reconstruction suite. These advection controls do not establish full
 Euler accuracy or a general entropy proof.
 
-The closed pressure owner and its settings still select donor momentum. The
-original collision pressure failure remains unresolved, and its strong-flow
-gate was not replayed. The next integration must apply this mode inside the
-owning pressure/transport interval and pass all prerequisites before one retry.
+These component captures preceded integration into the closed pressure owner.
+The later [owning integration](MAC_MOMENTUM_OWNER.md) passes its prerequisites
+and performs one changed-source strong-flow retry; collision refinement still
+fails. It also carries the actual local stage bounds through cancellation and
+checks full transported-energy capacity before each work transfer.
 The default game DLL is unchanged. No C ABI, Unity, free-surface, production or
 performance acceptance follows from this component.
 

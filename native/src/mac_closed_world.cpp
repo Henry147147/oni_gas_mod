@@ -94,6 +94,7 @@ void MacClosedSettings::validate() const {
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
          preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
         (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear) &&
+        (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
@@ -236,9 +237,10 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     MacTransportAdvance transported;
     if (settings.reconstruction == MacMaterialReconstruction::limited_linear) {
         auto plan = reconstruct_mac_parcels(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction);
-        transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan);
+        transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan, settings.momentum_reconstruction);
         result.mass_fluxes_kg = std::move(transported.report.primal_mass_fluxes_kg); result.reconstruction = std::move(plan);
-    } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model, result.material_volumes_m3);
+    } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,
+        result.material_volumes_m3, settings.momentum_reconstruction);
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
     if (settings.gravity_m_per_s2 != 0) {
         if (!result.mass_fluxes_kg.full_y.empty()) throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity mass work is not implemented");
@@ -369,6 +371,12 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
                 result.report.unresolved_momentum_updates += candidate.unresolved_momentum_updates;
+                for (const auto* component : {&candidate.transport.x, &candidate.transport.y}) {
+                    result.report.momentum_correction_events += component->corrections.size();
+                    result.report.limited_momentum_corrections += component->limited_corrections;
+                    result.report.unresolved_momentum_corrections += component->unresolved_momentum_corrections;
+                    result.report.unresolved_remainder_corrections += component->unresolved_remainder_corrections;
+                }
                 result.report.unresolved_gravity_internal_updates += candidate.unresolved_gravity_internal_updates;
                 gravity_change.add(candidate.gravity_internal_change_j); body_impulse.add(candidate.body_impulse_y);
                 for (const auto residual : candidate.geometric_residuals_m3)

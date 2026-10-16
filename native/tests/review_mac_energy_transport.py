@@ -109,7 +109,7 @@ def review(data):
     check(interval[5:]==energy[2:],'One-step interval wide energy differs from its candidate')
 
 def main():
-    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=524288,'Wide transport saved pipe cap')
+    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=base.saved_pipe_cap(raw,524288),'Wide transport saved pipe cap')
     with localcontext() as context:
         context.prec=80;data=parse(raw);review(data);checks=base.CHECKS
         for corruption in ('primary-trace','wide-heat','unresolved-update'):

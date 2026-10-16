@@ -51,11 +51,13 @@ void check_pair(const MacMomentumLimitedPair& p) {
 }
 }
 MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled jl, MacScaled jr,
-    MacEnergy ql, MacEnergy qr, MacScaled requested) {
+    MacEnergy ql, MacEnergy qr, MacScaled requested, const MacMomentumWorkBudget* work_budget) {
     require_mac_energy_environment();
     require(std::isfinite(il) && std::isfinite(ir) && il > 0 && ir > 0 && ql.mantissa() >= 0 && qr.mantissa() >= 0,
         "Invalid MAC correction inertia or available heat");
     static_cast<void>(jl.project()); static_cast<void>(jr.project());
+    if (work_budget) require(work_budget->left.sign() >= 0 && work_budget->right.sign() >= 0,
+        "Negative available MAC transported work energy");
     MacMomentumLimitedPair p; p.inertia_left = il; p.inertia_right = ir;
     p.before_left = p.after_left = jl; p.before_right = p.after_right = jr;
     p.before_heat_left = p.after_heat_left = ql; p.before_heat_right = p.after_heat_right = qr;
@@ -63,6 +65,7 @@ MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled j
     if (requested.is_zero()) { check_pair(p); return p; }
     const auto ul = jl.shared(1, il), ur = jr.shared(1, ir);
     const auto difference = mac_scaled_difference(ul, ur);
+    const auto velocity_sum = add(ul, ur);
     const auto linear = product(requested, difference).shifted(-1);
     // Q + a*A - a^2*B >= Q + a*(A-B), for 0<=a<=1 and B>=0.
     // The sufficient linear bound avoids square roots or projected tiny ratios.
@@ -74,6 +77,17 @@ MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled j
             if (less(ratio, p.limiter)) p.limiter = ratio;
         }
     }
+    if (work_budget) {
+        const auto requested_work = product(velocity_sum, requested).shifted(-1);
+        if (!requested_work.is_zero()) {
+            const auto& available = requested_work.mantissa() > 0 ? work_budget->left : work_budget->right;
+            MacEnergySum remainder = available; remainder.add(requested_work.magnitude().negated());
+            if (remainder.sign() < 0) {
+                const auto ratio = represented(available).shared(one, requested_work.magnitude());
+                if (less(ratio, p.limiter)) p.limiter = ratio;
+            }
+        }
+    }
     bool accepted = false;
     for (std::size_t attempt = 0; attempt <= 64; ++attempt) {
         p.impulse = requested.shared(p.limiter, one);
@@ -82,15 +96,25 @@ MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled j
         p.heat_change_right = add(a, MacEnergy::kinetic(ir, p.impulse).negated());
         MacEnergySum left, right; left.add(ql); left.add(p.heat_change_left); right.add(qr); right.add(p.heat_change_right);
         if (left.sign() >= 0 && right.sign() >= 0) {
-            p.after_heat_left = represented(left); p.after_heat_right = represented(right); accepted = true; break;
+            p.energy_flux = product(velocity_sum, p.impulse).shifted(-1);
+            bool work_admitted = true;
+            if (work_budget) {
+                auto remaining_left = work_budget->left, remaining_right = work_budget->right;
+                remaining_left.add(p.energy_flux.negated()); remaining_right.add(p.energy_flux);
+                work_admitted = remaining_left.sign() >= 0 && remaining_right.sign() >= 0;
+            }
+            if (work_admitted) {
+                p.after_heat_left = represented(left); p.after_heat_right = represented(right); accepted = true; break;
+            }
         }
         if (attempt == 64 || p.limiter.is_zero()) break;
-        p.limiter = MacScaled::from_parts(std::nextafter(p.limiter.mantissa(), 0.), p.limiter.exponent());
+        const double reduced = std::nextafter(p.limiter.mantissa(), 0.);
+        p.limiter = reduced < .5 ? MacScaled::from_parts(2 * reduced, p.limiter.exponent() - 1) :
+            MacScaled::from_parts(reduced, p.limiter.exponent());
         ++p.limiter_roundoff_backoffs;
     }
-    if (!accepted) precision("MAC correction cannot resolve a nonnegative remainder at its limiter");
+    if (!accepted) precision("MAC correction cannot resolve nonnegative heat and transported work at its limiter");
     p.after_left = update_momentum(jl, p.impulse.negated()); p.after_right = update_momentum(jr, p.impulse);
-    p.energy_flux = product(add(ul, ur), p.impulse).shifted(-1);
     if (!resolved(jl, p.after_left, p.impulse.negated())) ++p.unresolved_momentum_updates;
     if (!resolved(jr, p.after_right, p.impulse)) ++p.unresolved_momentum_updates;
     if (!resolved(ql, p.after_heat_left, p.heat_change_left)) ++p.unresolved_heat_updates;

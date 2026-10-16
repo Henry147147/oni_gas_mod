@@ -1,9 +1,11 @@
 # Compatible momentum correction
 
-The scoped component controls pass on Windows/Linux, outside default builds and world/game
-dispatch. It is the energy/positivity foundation for spatial momentum
-reconstruction; the closed owner's normal transport is still first order and
-the existing strong-flow gate remains failed. It does not supply a new pressure
+The scoped component controls pass on Windows/Linux. This foundation now serves
+[geometric transport](MAC_MOMENTUM_RECONSTRUCTION.md) and the
+[owning timestep](MAC_MOMENTUM_OWNER.md), whose default reconstructs momentum.
+Standalone pair/batch callers retain their heat-budget reference; transport
+also supplies actual transported-energy expansions to limit outward work.
+The existing strong-flow gate remains failed. This does not supply a new pressure
 solver, phase interface, vacuum support or a production timestep.
 
 Build the explicit `ma_mac_momentum_limiter_tests` CMake target. Its output is
@@ -83,9 +85,9 @@ mass, internal-energy or pressure floor.
 The first Windows build's missing namespace brace and the next run's misuse
 of the nonnegative-share API for a signed product are retained. The repaired
 signed product does not project its multiplier or change the physical limits.
-No strong-flow retry occurred: the closed owner still needs geometric velocity
-reconstruction, compatible work-flux insertion before heat deposition, wall
-handling, complete prerequisite controls and the original Riemann gate.
+These original component captures preceded geometric transport and owning
+integration. That later integration passes its prerequisites and performs one
+changed-source strong-flow retry, which still fails collision refinement.
 The default game DLL is unchanged, and this component has no C ABI dispatch.
 
 Private source/build/capture/review records are under

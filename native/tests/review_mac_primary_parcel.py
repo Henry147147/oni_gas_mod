@@ -76,7 +76,7 @@ def review(data):
 
 
 def main():
-    raw = Path(sys.argv[1]).read_bytes(); check(len(raw) <= 524288, 'Primary parcel capture cap')
+    raw = Path(sys.argv[1]).read_bytes(); check(len(raw) <= base.saved_pipe_cap(raw,524288), 'Primary parcel capture cap')
     data = parse(raw); review(data); checks = base.CHECKS
     for corruption in ('full-constituent', 'reference-volume', 'new-target-trace'):
         bad = copy.deepcopy(data)

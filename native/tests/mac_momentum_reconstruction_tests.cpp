@@ -49,7 +49,7 @@ void record(std::size_t id, const MacTransportState& before, const MacMassFluxes
             const auto& e = f.energies[i];
             for (const auto& x : {q[i], j0[i], j1[i], f.upwind_momentum[i], f.velocity_slope_x[i], f.velocity_slope_y[i],
                 f.centered_courant_x[i], f.centered_courant_y[i], e.old_kinetic, e.new_kinetic, f.upwind_mixing_heat[i], e.mixing_heat,
-                f.upwind_transported_kinetic[i], e.transported_kinetic, e.wall_heat, f.full_wall_impulse[i]}) scaled(x);
+                f.upwind_transported_kinetic[i], e.transported_kinetic, e.wall_heat, f.full_wall_impulse[i], e.composed_energy_bound}) scaled(x);
             std::cout << '\n';
         }
         for (std::size_t k = 0; k < f.fluxes.size(); ++k) {

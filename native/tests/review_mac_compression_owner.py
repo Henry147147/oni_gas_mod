@@ -131,7 +131,7 @@ def review(data):
 
 
 def main():
-    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=524288,'Owner saved pipe bound')
+    raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=base.saved_pipe_cap(raw,524288),'Owner saved pipe bound')
     with localcontext() as ctx:
         ctx.prec=80;data=parse(raw);review(data);checks=base.CHECKS;rejected=0
         for kind in range(3):

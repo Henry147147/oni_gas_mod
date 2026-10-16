@@ -17,6 +17,7 @@ struct MacClosedSettings {
     // The owning interval applies compression half steps around each
     // pressure/transport candidate. The primitive substep stays separate.
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
+    MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -64,6 +65,8 @@ struct MacClosedAdvanceReport {
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
     std::size_t compression_events = 0, unresolved_compression_heat_updates = 0, unresolved_compression_momentum_updates = 0;
+    std::size_t momentum_correction_events = 0, limited_momentum_corrections = 0;
+    std::size_t unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;

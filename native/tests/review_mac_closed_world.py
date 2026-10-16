@@ -29,6 +29,7 @@ def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1), r
     interval = None
     extended_pressure = {}
     common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER', 'SPARCEL', 'SPMASS', 'SPPASSIVE', 'XFACE', 'XDUAL', 'XVOLUME'}
+    common.update(('MCONFIG','MRCELL','MRECON','MRFACE','MRDUAL','MREVENT'))
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record')
         kind = row[0]
@@ -71,6 +72,7 @@ def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1), r
         check(mask==expected and mask>0,'Pressure face projection mask differs');faces[key]=values
         cases[key[0]].setdefault('root_projection',{})[key[1:]]=(root_in,root_out)
     for identifier,case in cases.items():
+        check(case['momentum_mode'] in (0,1),'Closed step omitted its momentum mode')
         if case['owner_energy'] is not None:
             count,values=case['owner_energy'];row=pressure[identifier];projections=row[3:7]
             check(all(a==F(float(b)) for a,b in zip(projections,values)),'Owner energy projections differ')
@@ -293,7 +295,7 @@ def review(data):
 
 
 def main():
-    raw = Path(sys.argv[1]).read_bytes(); check(len(raw) <= 131072, 'Saved pipe limit')
+    raw = Path(sys.argv[1]).read_bytes(); check(len(raw) <= base.saved_pipe_cap(raw,131072), 'Saved pipe limit')
     with localcontext() as context:
         context.prec = 80
         data = parse(raw); review(data); checks = base.CHECKS

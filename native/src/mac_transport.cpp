@@ -175,12 +175,33 @@ MacScaled limited_slope(MacScaled left, MacScaled right) {
     if (left.is_zero() || right.is_zero() || (left.mantissa() < 0) != (right.mantissa() < 0)) return {};
     return exceeds(left.magnitude(), right.magnitude()) ? right : left;
 }
-void validate_face_energy(const MacFaceEnergy& values) {
-    require(values.mixing_heat.mantissa() >= 0 && values.wall_heat.mantissa() >= 0 && values.transported_kinetic.mantissa() >= 0,
-        "Negative MAC transported kinetic energy or pending heat");
+MacEnergyAccount face_energy_account(const MacFaceEnergy& values) {
     MacEnergyAccount balance; balance.add(values.transported_kinetic); balance.add(values.new_kinetic.negated());
     balance.add(values.mixing_heat.negated()); balance.add(values.wall_heat.negated());
-    if (!balance.within_bound()) precision("MAC local derived kinetic/heat account exceeds its operand bound");
+    return balance;
+}
+MacEnergyAccount correction_energy_account(const MacMomentumLimitedPair& p, bool left) {
+    const double inertia = left ? p.inertia_left : p.inertia_right;
+    MacEnergyAccount balance;
+    balance.add(MacEnergy::kinetic(inertia, left ? p.after_left : p.after_right));
+    balance.add(MacEnergy::kinetic(inertia, left ? p.before_left : p.before_right).negated());
+    balance.add(left ? p.after_heat_left : p.after_heat_right);
+    balance.add((left ? p.before_heat_left : p.before_heat_right).negated());
+    balance.add(left ? p.energy_flux : p.energy_flux.negated());
+    return balance;
+}
+void validate_face_energy(const MacFaceEnergy& values, bool composed = false) {
+    require(values.mixing_heat.mantissa() >= 0 && values.wall_heat.mantissa() >= 0 && values.transported_kinetic.mantissa() >= 0,
+        "Negative MAC transported kinetic energy or pending heat");
+    const auto balance = face_energy_account(values);
+    if (!composed) {
+        if (!balance.within_bound()) precision("MAC local derived kinetic/heat account exceeds its operand bound");
+        return;
+    }
+    MacEnergySum remaining; remaining.add(values.composed_energy_bound);
+    for (std::size_t k = 0; k < balance.terms().size(); ++k)
+        remaining.add(balance.terms().sign() < 0 ? balance.terms().component(k) : balance.terms().component(k).negated());
+    if (remaining.sign() < 0) precision("MAC composed local kinetic/heat account exceeds its stage operand bounds");
 }
 void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vector<Neighbors>& faces,
     const std::vector<MacScaled>& old_velocity, std::vector<MacScaled>& momentum, MacFaceTransportReport& report) {
@@ -202,6 +223,9 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
     report.upwind_mixing_heat.resize(count); report.upwind_transported_kinetic.resize(count);
     std::vector<std::array<MacScaledSum, 2>> centered(count);
     std::vector<MacEnergySum> transported(count);
+    std::vector<MacEnergySum> bounds(count);
+    std::vector<MacEnergyAccount> storage(count);
+    std::vector<std::uint8_t> changed(count);
     const auto axis_of = [&](const MacDualFlux& edge) -> std::size_t { return edge.left % width == edge.right % width ? 1U : 0U; };
     for (const auto& edge : report.fluxes) {
         const auto half = mac_dual_mass(edge).shifted(-1); const auto axis = axis_of(edge);
@@ -211,6 +235,8 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
         report.upwind_mixing_heat[i] = report.energies[i].mixing_heat;
         report.upwind_transported_kinetic[i] = report.energies[i].transported_kinetic;
         transported[i].add(report.energies[i].transported_kinetic);
+        bounds[i].add(report.energies[i].composed_energy_bound);
+        storage[i].add(report.energies[i].transported_kinetic);
         if (!is_free(i)) continue;
         for (std::size_t axis = 0; axis < 2; ++axis) {
             auto& slope = axis == 0 ? report.velocity_slope_x[i] : report.velocity_slope_y[i];
@@ -237,11 +263,18 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
             bounded = exceeds(delta.magnitude(), difference.magnitude()) ? difference : delta;
         const auto request = signed_product(flux, bounded);
         if (request.is_zero()) continue;
+        const MacMomentumWorkBudget work_budget{transported[edge.left], transported[edge.right]};
         auto pair = limit_mac_momentum_pair(report.new_inertia[edge.left], report.new_inertia[edge.right], momentum[edge.left], momentum[edge.right],
-            report.energies[edge.left].mixing_heat, report.energies[edge.right].mixing_heat, request);
+            report.energies[edge.left].mixing_heat, report.energies[edge.right].mixing_heat, request, &work_budget);
         momentum[edge.left] = pair.after_left; momentum[edge.right] = pair.after_right;
         report.energies[edge.left].mixing_heat = pair.after_heat_left; report.energies[edge.right].mixing_heat = pair.after_heat_right;
         transported[edge.left].add(pair.energy_flux.negated()); transported[edge.right].add(pair.energy_flux);
+        if (!pair.impulse.is_zero()) {
+            bounds[edge.left].add(correction_energy_account(pair, true).bound());
+            bounds[edge.right].add(correction_energy_account(pair, false).bound());
+            storage[edge.left].add(pair.energy_flux.negated()); storage[edge.right].add(pair.energy_flux);
+            changed[edge.left] = changed[edge.right] = 1;
+        }
         if (exceeds(one, pair.limiter)) ++report.limited_corrections;
         report.unresolved_momentum_corrections += pair.unresolved_momentum_updates;
         report.unresolved_remainder_corrections += pair.unresolved_heat_updates;
@@ -250,7 +283,15 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
     for (std::size_t i = 0; i < count; ++i) {
         if (transported[i].sign() < 0) precision("MAC corrected transported kinetic energy is negative");
         report.energies[i].transported_kinetic = transported[i].value();
+        if (transported[i].sign() != 0 && report.energies[i].transported_kinetic.is_zero())
+            precision("MAC corrected transported energy lost its nonzero sign");
         report.energies[i].new_kinetic = MacEnergy::kinetic(report.new_inertia[i], momentum[i]);
+        if (changed[i]) {
+            storage[i].add(report.energies[i].transported_kinetic.negated());
+            if (!storage[i].within_bound()) precision("MAC transported work storage exceeds its actual operand bound");
+            bounds[i].add(storage[i].bound());
+        }
+        report.energies[i].composed_energy_bound = bounds[i].value();
     }
 }
 MacFaceTransportReport transport_faces(const MacGrid& grid, bool x_component, const std::vector<Neighbors>& faces,
@@ -296,10 +337,13 @@ MacFaceTransportReport transport_faces(const MacGrid& grid, bool x_component, co
         const auto flux = mac_dual_mass(edge); const auto donor = flux.mantissa() > 0 ? edge.left : edge.right, target = flux.mantissa() > 0 ? edge.right : edge.left;
         heat[target].add(MacEnergy::variance(flux.magnitude(), mac_scaled_difference(velocity[donor], provisional[target])));
     }
-    for (std::size_t i = 0; i < count; ++i) { report.energies[i].mixing_heat = heat[i].value(); validate_face_energy(report.energies[i]); }
+    for (std::size_t i = 0; i < count; ++i) {
+        report.energies[i].mixing_heat = heat[i].value(); validate_face_energy(report.energies[i]);
+        report.energies[i].composed_energy_bound = face_energy_account(report.energies[i]).bound();
+    }
     if (reconstruction == MacMomentumReconstruction::limited_linear) reconstruct_momentum(grid, x_component, faces, velocity, j1, report);
     for (std::size_t i = 0; i < count; ++i) {
-        auto& values = report.energies[i]; validate_face_energy(values);
+        auto& values = report.energies[i]; validate_face_energy(values, reconstruction == MacMomentumReconstruction::limited_linear);
         const std::array<MacEnergy, 5> encoded{values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat};
         const std::array<double*, 5> legacy{&report.old_kinetic[i], &report.new_kinetic[i], &report.transported_kinetic[i], &report.mixing_heat[i], &report.wall_heat[i]};
         for (std::size_t k = 0; k < encoded.size(); ++k) {

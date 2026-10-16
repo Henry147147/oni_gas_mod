@@ -77,6 +77,10 @@ struct MacFaceEnergy {
     // Corresponding legacy binary64 fields are projections, never account
     // operands. Bits 0..4 flag rounding in the order declared above.
     unsigned int rounded_projection_mask = 0;
+    // Original 128-epsilon donor account plus actual correction/work-storage
+    // stage accounts. Cancellation cannot reset inherited roundoff to the
+    // magnitude of only the much smaller final transported energy.
+    MacEnergy composed_energy_bound{};
 };
 struct MacMomentumReconstructionEvent {
     std::size_t dual_edge = 0, transport_axis = 0;

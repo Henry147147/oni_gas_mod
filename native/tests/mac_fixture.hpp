@@ -125,6 +125,41 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
         for (const auto& v : p.contents.passive_quantities) std::cout << "PPASSIVE " << id << ' ' << p.axis << ' ' << p.face << ' ' << v.identity << ' ' << v.quantity << '\n';
     }
 }
+inline void export_momentum_reconstruction(int id, const MacTransportReport& r) {
+    if (r.x.reconstruction != r.y.reconstruction) throw std::runtime_error("Transport components disagree on momentum mode");
+    const bool corrected = r.x.reconstruction == MacMomentumReconstruction::limited_linear;
+    std::cout << "MCONFIG " << id << ' ' << corrected << '\n';
+    if (!corrected) return;
+    const auto scaled = [](MacScaled value) { std::cout << ' ' << value.mantissa() << ' ' << value.exponent(); };
+    for (std::size_t i = 0; i < r.advected_internal_energy_j.size(); ++i)
+        std::cout << "MRCELL " << id << ' ' << i << ' ' << r.advected_internal_energy_j[i] << '\n';
+    for (int axis = 0; axis < 2; ++axis) {
+        const auto& f = axis == 0 ? r.x : r.y;
+        std::cout << "MRECON " << id << ' ' << axis << ' ' << f.corrections.size() << ' ' << f.limited_corrections << ' '
+            << f.unresolved_momentum_corrections << ' ' << f.unresolved_remainder_corrections << '\n';
+        for (std::size_t i = 0; i < f.energies.size(); ++i) {
+            std::cout << "MRFACE " << id << ' ' << axis << ' ' << i;
+            for (const auto& value : {f.upwind_momentum[i], f.velocity_slope_x[i], f.velocity_slope_y[i],
+                f.centered_courant_x[i], f.centered_courant_y[i], f.upwind_mixing_heat[i], f.upwind_transported_kinetic[i],
+                f.energies[i].composed_energy_bound}) scaled(value);
+            std::cout << '\n';
+        }
+        for (std::size_t i = 0; i < f.fluxes.size(); ++i) {
+            const auto& edge = f.fluxes[i];
+            std::cout << "MRDUAL " << id << ' ' << axis << ' ' << i << ' ' << edge.left << ' ' << edge.right;
+            scaled(mac_dual_mass(edge)); std::cout << '\n';
+        }
+        for (std::size_t i = 0; i < f.corrections.size(); ++i) {
+            const auto& event = f.corrections[i]; const auto& p = event.pair;
+            std::cout << "MREVENT " << id << ' ' << axis << ' ' << i << ' ' << event.dual_edge << ' ' << event.transport_axis << ' '
+                << p.limiter_roundoff_backoffs << ' ' << p.unresolved_momentum_updates << ' ' << p.unresolved_heat_updates;
+            for (const auto& value : {event.predictor_delta_velocity, event.bounded_delta_velocity, p.before_left, p.before_right,
+                p.before_heat_left, p.before_heat_right, p.requested_impulse, p.limiter, p.impulse, p.after_left, p.after_right,
+                p.after_heat_left, p.after_heat_right, p.energy_flux, p.heat_change_left, p.heat_change_right}) scaled(value);
+            std::cout << '\n';
+        }
+    }
+}
 inline void export_transport(int id, const MacTransportState& before, const MacTransportAdvance& after, const MacParcelPlan& plan) {
     const auto& g = before.grid; const auto& r = after.report;
     std::cout << "CASE " << id << ' ' << g.width << ' ' << g.height << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << r.energy_residual_j << ' ' << r.energy_bound_j << '\n';
@@ -155,7 +190,7 @@ inline void export_transport(int id, const MacTransportState& before, const MacT
         for (const auto& v : f.fluxes) export_dual(id, axis, v);
     }
     export_reconstruction(id, g.volume_m3(), plan);
-    export_energy_report(id, r);
+    export_momentum_reconstruction(id, r); export_energy_report(id, r);
 }
 inline void export_case(int id, const MacTransportState& before, const MacClosedSubstep& result, double dt) {
     const auto& set = setup(); const auto& g = before.grid; const auto& r = result.transport;
@@ -217,7 +252,7 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
         for (const auto& f : report.fluxes) export_dual(id, axis, f);
     }
     if (result.reconstruction) export_reconstruction(id, g.volume_m3(), *result.reconstruction);
-    export_energy_report(id, r);
+    export_momentum_reconstruction(id, r); export_energy_report(id, r);
     if (result.rounded_energy_projections != 0) {
         std::cout << "EOWNER " << id << ' ' << result.rounded_energy_projections;
         for (const auto& energy : {result.pressure_energy_residual_wide_j, result.pressure_energy_bound_wide_j, result.energy_residual_wide_j, result.energy_bound_wide_j})

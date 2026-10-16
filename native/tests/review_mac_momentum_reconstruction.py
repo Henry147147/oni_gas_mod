@@ -36,7 +36,7 @@ def parse(raw):
         elif kind in ('MASS','PASSIVE'):
             check(len(r)==6,'Material record shape');unique(d['masses' if kind=='MASS' else 'passives'],tuple(map(int,r[1:5])),number(r[5]))
         elif kind=='FACE':
-            check(len(r)==39,'Face shape');unique(d['faces'],tuple(map(int,r[1:4])),(number(r[4]),number(r[5]),int(r[6]),*[encoded(r,i) for i in range(7,39,2)]))
+            check(len(r)==41,'Face shape');unique(d['faces'],tuple(map(int,r[1:4])),(number(r[4]),number(r[5]),int(r[6]),*[encoded(r,i) for i in range(7,41,2)]))
         elif kind=='DUAL':
             check(len(r)==8,'Dual shape');unique(d['duals'],tuple(map(int,r[1:4])),(int(r[4]),int(r[5]),encoded(r,6)))
         elif kind=='CORRECTION':
@@ -69,16 +69,24 @@ def topology(g,component):
     for y in range(ny):
         for x in range(nx):pairs.append((cell(x,y-1),cell(x,y)) if component else (cell(x-1,y),cell(x,y)))
     return nx,ny,pairs
-def review_pair(il,ir,p):
+def review_pair(il,ir,p,work_budget=None):
     jl,jr,ql,qr,request,alpha,impulse,al,ar,hl,hr,work,dl,dr=p
     check(ql>=0 and qr>=0 and hl>=0 and hr>=0 and 0<=alpha<=1,'Pair heat/limiter domain')
+    if impulse==0:check((al,ar,hl,hr,work,dl,dr)==(jl,jr,ql,qr,0,0,0),'Zero impulse changed a paired state')
     ul,ur=jl/il,jr/ir
     # Account for rounded endpoint velocity operands when the difference is small.
     err=16*EPS*abs(request)*(abs(ul)+abs(ur))
     a=(ul-ur)*request/2;costs=(request*request/(2*il)-a,request*request/(2*ir)-a)
     lower=min([F(1)]+[q/(c+err) for q,c in zip((ql,qr),costs) if c+err>0 and q<c+err])
     upper=min([F(1)]+[q/(c-err) for q,c in zip((ql,qr),costs) if c-err>0 and q<c-err])
-    check(alpha>=lower*(1-128*EPS) and alpha<=upper*(1+128*EPS),'Independent sufficient limiter interval')
+    if work_budget is not None:
+        tl,tr=work_budget;check(tl>=0 and tr>=0 and tl-work>=0 and tr+work>=0,'Actual transported kinetic work capacity')
+        w0=(ul+ur)*request/2
+        low_cost=(max(w0+err,F(0)),max(-w0+err,F(0)))
+        high_cost=(max(w0-err,F(0)),max(-w0-err,F(0)))
+        lower=min([lower]+[t/c for t,c in zip((tl,tr),low_cost) if c>0 and t<c])
+        upper=min([upper]+[t/c for t,c in zip((tl,tr),high_cost) if c>0 and t<c])
+    check(alpha>=lower*(1-128*EPS) and alpha<=upper*(1+128*EPS),'Independent sufficient heat/work limiter interval')
     close(impulse,request*alpha,(impulse,request*alpha),'Applied correction')
     close(al,jl-impulse,(al,jl,impulse),'Left corrected J');close(ar,jr+impulse,(ar,jr,impulse),'Right corrected J')
     close(work,(ul+ur)*impulse/2,(work,(abs(ul)+abs(ur))*impulse),'Paired work flux')
@@ -88,6 +96,122 @@ def review_pair(il,ir,p):
         close(h,q+delta,(h,q,delta),'Remainder storage')
         ko,kn=ref.kinetic(inertia,before),ref.kinetic(inertia,after)
         close(kn-ko+h-q+sgn*work,0,(kn,ko,h,q,work),'Local K/remainder/work identity')
+
+def review_components(d,case,m0,m1,cells,require_uniform=False):
+    g=d['grids'][case];w,h,_,_,px,py,*_=g
+    heat={i:F(0) for i in cells};energy_terms=[];energy_change=F(0)
+    primal=[]
+    for component in (0,1):
+        nx,ny,pairs=topology(g,component);rows={i:d['faces'][case,component,i] for i in range(nx*ny)}
+        active=lambda i:pairs[i][0] is not None and pairs[i][1] is not None and not cells[pairs[i][0]][0] and not cells[pairs[i][1]][0]
+        for i,(left,right) in enumerate(pairs):
+            i0,i1,is_fixed,*f=rows[i];check(is_fixed==int(not active(i)),'Fixed face topology')
+            for mass,source in ((i0,m0),(i1,m1)):
+                expected=sum(source[k]/2 for k in (left,right) if k is not None and not cells[k][0])
+                close(mass,expected,(mass,expected),'Derived half-cell inertia')
+            if not active(i):check(f[0]==f[1]==f[2]==0,'Wall/exterior flux or canonical J')
+            else:primal.append((left,right,f[0]))
+        duals={k:v for (c,a,k),v in d['duals'].items() if c==case and a==component}
+        expected=[]
+        face=lambda x,y:x%nx+(y%ny)*nx
+        # Independently enumerate dual cell centers and transverse faces.
+        for y in range(h):
+            for x in range(w):
+                if cells[x+y*w][0]:continue
+                l,r=(face(x,y),face(x,y+1)) if component else (face(x,y),face(x+1,y))
+                expected.append((l,r,rounded((rows[l][3]+rows[r][3])/2)))
+        other={i:d['faces'][case,1-component,i][3] for i in range((w+(not px))*h if component else w*(h+(not py)))}
+        if component==0:
+            for y in range(0 if py else 1,h):
+                for x in range(nx):
+                    a=other[(x+w-1)%w+y*w] if x>0 or px else 0;b=other[x+y*w] if x<w else 0
+                    expected.append((face(x,y-1),face(x,y),rounded((a+b)/2)))
+        else:
+            for x in range(0 if px else 1,w):
+                for y in range(ny):
+                    a=other[x+((y+h-1)%h)*(w+(not px))] if y>0 or py else 0;b=other[x+y*(w+(not px))] if y<h else 0
+                    expected.append((face(x-1,y),face(x,y),rounded((a+b)/2)))
+        check(set(duals)==set(range(len(expected))),'Dual flux count')
+        for k,(l,r,f) in sorted(duals.items()):
+            el,er,ef=expected[k];check((l,r)==(el,er),'Dual geometry');close(f,ef,(f,ef),'Dual compatible mass flux')
+        oldv={i:rounded(row[4]/row[0]) if row[0] else 0 for i,row in rows.items()}
+        def neighbor(i,axis,sgn):
+            x,y=i%nx,i//nx;v=x if axis==0 else y;size=nx if axis==0 else ny;periodic=px if axis==0 else py
+            if not periodic and not 0<=v+sgn<size:return None
+            j=face(x+sgn,y) if axis==0 else face(x,y+sgn)
+            return j if active(j) else None
+        center={(i,a):F(0) for i in rows for a in (0,1)};out={i:F(0) for i in rows};incoming={i:[] for i in rows}
+        for l,r,f in duals.values():
+            a=int(l%nx==r%nx);center[l,a]+=f/2;center[r,a]+=f/2
+            if f:donor,target=(l,r) if f>0 else (r,l);out[donor]+=abs(f);incoming[target].append((donor,abs(f)))
+        slopes={};courants={};current_j={};current_q={};tk={};budgets={};works={i:[] for i in rows}
+        for i,row in rows.items():
+            i0,i1,wall,flux,j0,j1,jup,sx,sy,cx,cy,ko,kn,qup,qnew,tup,tnew,qwall,jwall,audit_bound=row
+            keep=rounded(i0-out[i]);check(keep>=0,'Dual CFL');momentum=[j0*keep/i0] if i0 else []
+            kinetic=[ko*keep/i0] if i0 else []
+            for donor,amount in incoming[i]:momentum.append(rows[donor][4]*amount/rows[donor][0]);kinetic.append(rows[donor][11]*amount/rows[donor][0])
+            jp=sum(momentum);close(jup,0 if wall else jp,(jup,*momentum),'Upwind canonical momentum')
+            close(jwall,-jp if wall else 0,(jwall,*momentum),'Fixed wall impulse')
+            close(tup,sum(kinetic),(tup,*kinetic),'Actual upwind kinetic flux')
+            if i0:close(ko,ref.kinetic(i0,j0),(ko,ref.kinetic(i0,j0)),'Old kinetic')
+            if i1:close(kn,ref.kinetic(i1,j1),(kn,ref.kinetic(i1,j1)),'New kinetic')
+            provisional=rounded((-jwall if wall else jup)/i1) if i1 else 0
+            variance=[keep*rounded(oldv[i]-provisional)**2/2]
+            variance += [amount*rounded(oldv[donor]-provisional)**2/2 for donor,amount in incoming[i]]
+            close(qup,sum(variance),(qup,*variance),'Positive upwind variance heat')
+            close(qwall,ref.kinetic(i1,-jwall) if wall and i1 else 0,(qwall,ref.kinetic(i1,-jwall) if i1 else 0),'Wall kinetic heat')
+            for a,slope,courant in ((0,sx,cx),(1,sy,cy)):
+                left,right=neighbor(i,a,-1),neighbor(i,a,1);wanted=F(0)
+                if active(i) and left is not None and right is not None:
+                    dl,dr=rounded(oldv[i]-oldv[left]),rounded(oldv[right]-oldv[i])
+                    if dl*dr>0:wanted=dl if abs(dl)<=abs(dr) else dr
+                check(slope==wanted,'Geometric minmod slope')
+                wanted_c=rounded(rounded(center[i,a])/i0) if active(i) else 0
+                check(courant==wanted_c,'Centered dual Courant');slopes[i,a]=slope;courants[i,a]=courant
+            current_j[i]=jup;current_q[i]=qup;tk[i]=tup
+            kup=ref.kinetic(i1,jup) if i1 else 0
+            budgets[i]=128*EPS*(abs(tup)+kup+qup+qwall)
+            check(abs(tup-kup-qup-qwall)<=budgets[i],'Original upwind local energy account')
+        requests={}
+        for k,(l,r,f) in sorted(duals.items()):
+            if not f or not active(l) or not active(r):continue
+            a=int(l%nx==r%nx);donor,target=(l,r) if f>0 else (r,l)
+            pred=rounded((slopes[donor,a] if f>0 else -slopes[donor,a])/2-product(courants[donor,0],slopes[donor,0])/2-product(courants[donor,1],slopes[donor,1])/2)
+            diff=rounded(oldv[target]-oldv[donor]);bounded=pred if pred*diff>0 and abs(pred)<=abs(diff) else diff if pred*diff>0 else 0
+            request=product(f,bounded)
+            if request:requests[k]=(a,pred,bounded,request)
+        events=sorted((k,v) for (c,a,k),v in d['events'].items() if c==case and a==component)
+        check([k for k,_ in events]==list(range(len(events))) and [v[0] for _,v in events]==list(requests),'Missing/reordered geometric correction')
+        limited=unresolved_j=unresolved_q=0
+        for _,event in events:
+            edge,a,backoffs,uj,uq,pred,bounded,*p=event;l,r,_=duals[edge]
+            check((a,pred,bounded,p[4])==requests[edge],'Geometric predictor or bounded request')
+            check(p[:4]==[current_j[l],current_j[r],current_q[l],current_q[r]],'Correction chain source state')
+            check(0<=backoffs<=64 and 0<=uj<=2 and 0<=uq<=2,'Correction diagnostics');review_pair(rows[l][1],rows[r][1],p,work_budget=(tk[l],tk[r]))
+            current_j[l],current_j[r]=p[7:9];current_q[l],current_q[r]=p[9:11];tk[l]-=p[11];tk[r]+=p[11]
+            if p[6]:
+                for cell,inertia,before,after,qb,qa,flow in ((l,rows[l][1],p[0],p[7],p[2],p[9],-p[11]),(r,rows[r][1],p[1],p[8],p[3],p[10],p[11])):
+                    budgets[cell]+=128*EPS*(ref.kinetic(inertia,after)+ref.kinetic(inertia,before)+qa+qb+abs(flow));works[cell].append(flow)
+            limited+=p[5]<1;unresolved_j+=uj;unresolved_q+=uq
+        check(d['reports'][case,component]==(len(events),limited,unresolved_j,unresolved_q),'Correction report totals')
+        if require_uniform:check(not events,'Uniform velocity activated correction')
+        for i,row in rows.items():
+            i0,i1,wall,flux,j0,j1,jup,sx,sy,cx,cy,ko,kn,qup,qnew,tup,tnew,qwall,jwall,audit_bound=row
+            check(j1==current_j[i] and qnew==current_q[i] and qnew>=0,'Final corrected canonical J/remainder')
+            close(tnew,tk[i],(tnew,tk[i]),'Accumulated paired work in transported kinetic energy')
+            composed=budgets[i]
+            if works[i]:
+                storage_bound=128*EPS*(abs(tnew)+abs(tup)+sum(map(abs,works[i])))
+                check(abs(tnew-tup-sum(works[i]))<=storage_bound,'Actual transported work storage account')
+                composed+=storage_bound
+            close(audit_bound,composed,(audit_bound,composed),'Composed actual stage operand bound')
+            check(abs(tnew-kn-qnew-qwall)<=audit_bound,'Composed local K/heat/work account')
+            energy_change+=kn-ko;energy_terms.extend((kn,ko))
+            if i1:
+                for cell in pairs[i]:
+                    if cell is not None and not cells[cell][0]:heat[cell]+=(qnew+qwall)*m1[cell]/(2*i1)
+        close(sum(row[5]-row[4]-row[18] for row in rows.values()),0,[x for row in rows.values() for x in (row[5],row[4],row[18])],'Component momentum plus wall impulse')
+    return heat,energy_change,energy_terms,primal
 
 def review(d):
     global CHECKS;CHECKS=0
@@ -110,106 +234,7 @@ def review(d):
                 values=[x for (c,e,k,s),x in d['masses'].items() if c==case and e==t and k==i]
                 close(mass,sum(values),(mass,*values),'Cell mass is not constituent sum')
             if not v[0]:check((case,1,i,d['trace'][0]) in d['masses'] and (case,1,i,d['trace'][1]) in d['passives'],'Missing positive trace')
-        heat={i:F(0) for i in cells};energy_terms=[];energy_change=F(0)
-        primal=[]
-        for component in (0,1):
-            nx,ny,pairs=topology(g,component);rows={i:d['faces'][case,component,i] for i in range(nx*ny)}
-            active=lambda i:pairs[i][0] is not None and pairs[i][1] is not None and not cells[pairs[i][0]][0] and not cells[pairs[i][1]][0]
-            for i,(left,right) in enumerate(pairs):
-                i0,i1,is_fixed,*f=rows[i];check(is_fixed==int(not active(i)),'Fixed face topology')
-                for mass,source in ((i0,m0),(i1,m1)):
-                    expected=sum(source[k]/2 for k in (left,right) if k is not None and not cells[k][0])
-                    close(mass,expected,(mass,expected),'Derived half-cell inertia')
-                if not active(i):check(f[0]==f[1]==f[2]==0,'Wall/exterior flux or canonical J')
-                else:primal.append((left,right,f[0]))
-            duals={k:v for (c,a,k),v in d['duals'].items() if c==case and a==component}
-            expected=[]
-            face=lambda x,y:x%nx+(y%ny)*nx
-            # Independently enumerate dual cell centers and transverse faces.
-            for y in range(h):
-                for x in range(w):
-                    if cells[x+y*w][0]:continue
-                    l,r=(face(x,y),face(x,y+1)) if component else (face(x,y),face(x+1,y))
-                    expected.append((l,r,rounded((rows[l][3]+rows[r][3])/2)))
-            other={i:d['faces'][case,1-component,i][3] for i in range((w+(not px))*h if component else w*(h+(not py)))}
-            if component==0:
-                for y in range(0 if py else 1,h):
-                    for x in range(nx):
-                        a=other[(x+w-1)%w+y*w] if x>0 or px else 0;b=other[x+y*w] if x<w else 0
-                        expected.append((face(x,y-1),face(x,y),rounded((a+b)/2)))
-            else:
-                for x in range(0 if px else 1,w):
-                    for y in range(ny):
-                        a=other[x+((y+h-1)%h)*(w+(not px))] if y>0 or py else 0;b=other[x+y*(w+(not px))] if y<h else 0
-                        expected.append((face(x-1,y),face(x,y),rounded((a+b)/2)))
-            check(set(duals)==set(range(len(expected))),'Dual flux count')
-            for k,(l,r,f) in sorted(duals.items()):
-                el,er,ef=expected[k];check((l,r)==(el,er),'Dual geometry');close(f,ef,(f,ef),'Dual compatible mass flux')
-            oldv={i:rounded(row[4]/row[0]) if row[0] else 0 for i,row in rows.items()}
-            def neighbor(i,axis,sgn):
-                x,y=i%nx,i//nx;v=x if axis==0 else y;size=nx if axis==0 else ny;periodic=px if axis==0 else py
-                if not periodic and not 0<=v+sgn<size:return None
-                j=face(x+sgn,y) if axis==0 else face(x,y+sgn)
-                return j if active(j) else None
-            center={(i,a):F(0) for i in rows for a in (0,1)};out={i:F(0) for i in rows};incoming={i:[] for i in rows}
-            for l,r,f in duals.values():
-                a=int(l%nx==r%nx);center[l,a]+=f/2;center[r,a]+=f/2
-                if f:donor,target=(l,r) if f>0 else (r,l);out[donor]+=abs(f);incoming[target].append((donor,abs(f)))
-            slopes={};courants={};current_j={};current_q={};tk={}
-            for i,row in rows.items():
-                i0,i1,wall,flux,j0,j1,jup,sx,sy,cx,cy,ko,kn,qup,qnew,tup,tnew,qwall,jwall=row
-                keep=rounded(i0-out[i]);check(keep>=0,'Dual CFL');momentum=[j0*keep/i0] if i0 else []
-                kinetic=[ko*keep/i0] if i0 else []
-                for donor,amount in incoming[i]:momentum.append(rows[donor][4]*amount/rows[donor][0]);kinetic.append(rows[donor][11]*amount/rows[donor][0])
-                jp=sum(momentum);close(jup,0 if wall else jp,(jup,*momentum),'Upwind canonical momentum')
-                close(jwall,-jp if wall else 0,(jwall,*momentum),'Fixed wall impulse')
-                close(tup,sum(kinetic),(tup,*kinetic),'Actual upwind kinetic flux')
-                if i0:close(ko,ref.kinetic(i0,j0),(ko,ref.kinetic(i0,j0)),'Old kinetic')
-                if i1:close(kn,ref.kinetic(i1,j1),(kn,ref.kinetic(i1,j1)),'New kinetic')
-                provisional=rounded((-jwall if wall else jup)/i1) if i1 else 0
-                variance=[keep*rounded(oldv[i]-provisional)**2/2]
-                variance += [amount*rounded(oldv[donor]-provisional)**2/2 for donor,amount in incoming[i]]
-                close(qup,sum(variance),(qup,*variance),'Positive upwind variance heat')
-                close(qwall,ref.kinetic(i1,-jwall) if wall and i1 else 0,(qwall,ref.kinetic(i1,-jwall) if i1 else 0),'Wall kinetic heat')
-                for a,slope,courant in ((0,sx,cx),(1,sy,cy)):
-                    left,right=neighbor(i,a,-1),neighbor(i,a,1);wanted=F(0)
-                    if active(i) and left is not None and right is not None:
-                        dl,dr=rounded(oldv[i]-oldv[left]),rounded(oldv[right]-oldv[i])
-                        if dl*dr>0:wanted=dl if abs(dl)<=abs(dr) else dr
-                    check(slope==wanted,'Geometric minmod slope')
-                    wanted_c=rounded(rounded(center[i,a])/i0) if active(i) else 0
-                    check(courant==wanted_c,'Centered dual Courant');slopes[i,a]=slope;courants[i,a]=courant
-                current_j[i]=jup;current_q[i]=qup;tk[i]=tup
-            requests={}
-            for k,(l,r,f) in sorted(duals.items()):
-                if not f or not active(l) or not active(r):continue
-                a=int(l%nx==r%nx);donor,target=(l,r) if f>0 else (r,l)
-                pred=rounded((slopes[donor,a] if f>0 else -slopes[donor,a])/2-product(courants[donor,0],slopes[donor,0])/2-product(courants[donor,1],slopes[donor,1])/2)
-                diff=rounded(oldv[target]-oldv[donor]);bounded=pred if pred*diff>0 and abs(pred)<=abs(diff) else diff if pred*diff>0 else 0
-                request=product(f,bounded)
-                if request:requests[k]=(a,pred,bounded,request)
-            events=sorted((k,v) for (c,a,k),v in d['events'].items() if c==case and a==component)
-            check([k for k,_ in events]==list(range(len(events))) and [v[0] for _,v in events]==list(requests),'Missing/reordered geometric correction')
-            limited=unresolved_j=unresolved_q=0
-            for _,event in events:
-                edge,a,backoffs,uj,uq,pred,bounded,*p=event;l,r,_=duals[edge]
-                check((a,pred,bounded,p[4])==requests[edge],'Geometric predictor or bounded request')
-                check(p[:4]==[current_j[l],current_j[r],current_q[l],current_q[r]],'Correction chain source state')
-                check(0<=backoffs<=64 and 0<=uj<=2 and 0<=uq<=2,'Correction diagnostics');review_pair(rows[l][1],rows[r][1],p)
-                current_j[l],current_j[r]=p[7:9];current_q[l],current_q[r]=p[9:11];tk[l]-=p[11];tk[r]+=p[11]
-                limited+=p[5]<1;unresolved_j+=uj;unresolved_q+=uq
-            check(d['reports'][case,component]==(len(events),limited,unresolved_j,unresolved_q),'Correction report totals')
-            if case==0:check(not events,'Uniform velocity activated correction')
-            for i,row in rows.items():
-                i0,i1,wall,flux,j0,j1,jup,sx,sy,cx,cy,ko,kn,qup,qnew,tup,tnew,qwall,jwall=row
-                check(j1==current_j[i] and qnew==current_q[i] and qnew>=0,'Final corrected canonical J/remainder')
-                close(tnew,tk[i],(tnew,tk[i]),'Accumulated paired work in transported kinetic energy')
-                close(tnew,kn+qnew+qwall,(tnew,kn,qnew,qwall),'Corrected local K/heat identity')
-                energy_change+=kn-ko;energy_terms.extend((kn,ko))
-                if i1:
-                    for cell in pairs[i]:
-                        if cell is not None and not cells[cell][0]:heat[cell]+=(qnew+qwall)*m1[cell]/(2*i1)
-            close(sum(row[5]-row[4]-row[18] for row in rows.values()),0,[x for row in rows.values() for x in (row[5],row[4],row[18])],'Component momentum plus wall impulse')
+        heat,energy_change,energy_terms,primal=review_components(d,case,m0,m1,cells,require_uniform=(case==0))
         outgoing={i:F(0) for i in cells};incoming={i:[] for i in cells}
         for left,right,f in primal:
             if f:donor,target=(left,right) if f>0 else (right,left);outgoing[donor]+=abs(f);incoming[target].append((donor,abs(f)))
