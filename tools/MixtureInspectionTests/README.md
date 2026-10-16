@@ -33,6 +33,18 @@ native ONI physics and synthetic display inventories; it does not certify
 production fluid ownership. V52's final receipt missed that deadline, so its
 overall result remains failed. See [the native evidence](../../docs/mixture-presentation.md#verification-and-limits).
 
+After reviewing a held native screenshot, publish its receipt with
+`tools/write_tile_hover_receipt.ps1 -ReviewedReport <saved-held-report.json>
+-OutputDirectory <the-live-fixture-output> -ExpectedCase <0..3>
+-AllNonTraceRowsVisible -TraceRowsOmitted -HazardWarningVisible -NoSelection`.
+Those four switches are the operator's explicit pixel-review assertions.
+The producer validates the held observation and closes its temporary writer
+before renaming the complete receipt into place. Direct writes to the final
+receipt caused V53's native sharing violation; that failed run remains retained.
+The protocol-only checks run with `python -m unittest discover -s tools/tests
+-p test_tile_hover_receipt.py -v` on Windows with PowerShell 7 available;
+`MA_PWSH` can select its executable. They do not perform pixel review.
+
 In the disposable Unity visual fixture, register a real container owner with
 `MixtureInspection.RegisterInventory(owner, id, provider, volume, label)` or
 bind an already registered adapter with `RegisterInventoryOwner`. After a

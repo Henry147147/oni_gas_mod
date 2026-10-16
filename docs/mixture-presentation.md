@@ -211,11 +211,10 @@ generation and session epoch.
 receipts, then reaches the fixed 180-second deadline while awaiting the final
 125% UI review receipt. Root reviews that screenshot, but writes its receipt
 after the primary failure; it cannot count as accepted completion. The failed
-report and all original screenshots/receipts are preserved, with no rerun or
-deadline change. A subsequent source correction records aborts in the helper's
-own report and hides its inactive test banner; it has build/source review only,
-not new game acceptance. The ordinary hover formatter is unchanged by that
-reporting correction.
+report and all original screenshots/receipts are preserved without changing
+that invocation or its deadline. A subsequent source correction records aborts
+in the helper's own report and hides its inactive test banner. V53 below
+exercises that failure path; the ordinary hover formatter is unchanged.
 
 The evidence is private under `local/colony-runs/tile-hover-contents-windows-v52`
 and `local/tile-hover-contents-windows-v52-root`. The package manifest SHA256 is
@@ -228,6 +227,28 @@ The runner exits 1; the game's OS exit code is not independently captured.
 These are explicit immutable display fixtures with native ONI physics, not an
 authoritative mixed-fluid colony. There is no new Linux hover, GPU readback,
 performance, independent-review or first-playable acceptance.
+
+Windows V53 is a fresh invocation from clean source `9463fe2`, with the same
+four cases and deadlines. Its default native tooltip and Unity capture show all
+four non-trace gases and the chlorine warning. It then **fails** while reading
+`default-all-gases.continue.json`: direct PowerShell `Set-Content` exposes the
+final name while its write handle is open, and the native poller reports an
+`IOException` sharing violation. No continuation is accepted. Both primary and
+helper reports retain the same error, the inactive banner/fixture disappears,
+and both shutdown boundaries pass after normal Alt-F4. All 283 personal files
+and 13 settings/cache files restore exactly; the runner exits 1. Package manifest
+SHA256 is `6dc62416e4346c40482794a73e770049c6c2d174b1a41f3a434f0c4f80d21cc7`.
+Private evidence is under `local/colony-runs/tile-hover-contents-windows-v53`
+and its sibling root review directory. This does not complete the hover gate.
+
+The new [receipt producer](../tools/write_tile_hover_receipt.ps1) requires all
+four explicit operator pixel-review assertions and a matching held report. It
+writes a bounded temporary file, closes its writer, then renames it in the same
+directory without replacing an existing receipt. It changes no game criterion
+and adds no native read retry. Four Windows protocol tests pass: an eager reader
+checks all 64 receipts while the producer handle is confirmed live, and missing
+assertions, invalid/stale observations and attempted overwrite reject. These
+use synthetic protocol data and establish no pixels or game acceptance.
 
 On 2026-10-16 the Windows V51 fresh-world fixture run passes the three-frame
 pacing change introduced by the Linux run. It uses source `2b91864` plus a
