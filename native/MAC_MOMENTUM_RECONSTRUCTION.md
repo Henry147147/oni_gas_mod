@@ -120,3 +120,13 @@ superseded before execution to correct a const-pointer initializer type. Linux
 R4/R5 compiled but their preparation/approval scripts rejected malformed path
 handling before any native execution; their first outcomes remain retained.
 No numerical bound was changed for those harness repairs.
+
+After integrating shared `main` through `8ba8e55`, a source comparison confirms
+unchanged computational MAC sources (allowing Git line-ending normalization).
+The CMake change only moves the optional native-backend include; that backend
+is disabled in these controls. Fresh merged-source Windows/Linux builds pass
+the 12 limiter/geometric groups and both saved reviews. Their private cohorts
+are `mac-momentum-reconstruction-{windows,linux}-postmerge-r1`; terminal SHA256:
+
+- Windows: `9db24d880c31588131756805c52d91e7c1b24b2051a12ad8be4905a99dfc6d77`.
+- Linux: `a6d20684b7d6071f70e8681133c2cc08710a3f770fc45d04f71dd296f854ed61`.
