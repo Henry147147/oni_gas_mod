@@ -78,6 +78,25 @@ A positive contaminant or carbon-dioxide mass violates an explicit zero limit
 even if its computed fraction underflows. The checks cover vacuum, oxygen fraction low/high, oxygen partial pressure low,
 carbon-dioxide fraction/partial pressure high, and explicit contaminants.
 
+Tile hover must show every non-trace gas as a separate name and mole-percentage
+entry, without a top-N limit or requiring a click. The two-name mixture heading
+does not replace this contents list. Hover uses each shared row's `IsTrace`
+classification: by default fractions **below 1% of gas moles** are traces, while
+1% and above are included. The model's `MeaningfulGasMoleFraction` controls that
+boundary. Percentages retain their fraction of all gas moles; excluding traces
+does not renormalize the visible entries. A short hint points to full composition
+when traces are omitted. Specific breathing and contaminant warnings still show
+hazardous traces, and the expanded table continues to show every constituent.
+
+This is a first-playable success criterion. Native mouse-hover evidence on both
+platforms must include at least four non-trace gases plus benign and hazardous
+traces, check the threshold boundary, and match all displayed entries to one
+completed snapshot. Earlier two-gas screenshots and the V51 automatic fixture
+run do not establish this added criterion. The formatter and focused inspection
+controls implement it. All 29 Windows inspection groups pass, including a
+four-gas list, retained trace warnings/full details, and the exact configured
+trace boundary. New native hover verification remains required.
+
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
 are immutable; `TrySampleCell` rejects solids/outside cells and allocates nothing
@@ -173,6 +192,37 @@ avoid an unknown-view warning each frame. The native F1 legend explicitly
 limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
+
+On 2026-10-16 the Windows V51 fresh-world fixture run passes the three-frame
+pacing change introduced by the Linux run. It uses source `2b91864` plus a
+private-validation reporting correction: native `LoadFromWorldGen` exceptions
+now reach the primary failure report and still propagate to the game. That
+error branch has source/build review; V51 exercises its successful-load path.
+The new all-non-trace hover formatter was added after V51 and is not covered by
+this game run.
+
+V51 produces 34 numbered actual Unity captures, 18 exact immediate CPU
+texture-write/readback proof records (54 embedded colour/pressure/danger checks),
+nine container/Core agreements, five conservation guards, two appearance
+comparisons, passing container/nitrogen/owned-reservoir reports and passing
+shutdown observations. It reaches a 736-by-304, nine-world Spaced Out! colony
+with three duplicants. Root directly observes the game and representative trace,
+composition-overlay and gas/liquid screenshots. This run performs no sampled GPU
+readback and records zero custom mouse-hover draws; the separate V48 evidence
+retains that earlier scope. V51 supplies no new hover or performance acceptance.
+After normal Alt-F4, the runner exits 0, ONI is closed, and all 283 protected
+personal files plus 13 settings/cache files match their pre-run membership and
+bytes. The runner's exit is not an independently captured game OS exit code.
+
+The preceding V50 cached-world invocation fails before colony creation with a
+`SaveLoader.LoadFromWorldGen` null-reference error. Its original primary report
+remains pending, raw error and restoration evidence are retained, and no visual
+acceptance follows. V51 uses the separate fresh-generation path; it does not
+establish that cached-world startup was repaired. Private evidence is under
+`local/colony-runs/presentation-pacing-windows-v50`,
+`local/colony-runs/presentation-fresh-world-windows-v51` and their sibling root
+review directories. A metadata auditor's initial `Passed`/`Conserved` field-name
+mistake is retained; its corrected data-only review changes no game criterion.
 
 Current Windows and isolated WSL Linux checks pass Core 88, presentation 27,
 owned snapshot/runtime 97 and inspection 27 scenarios. New coverage includes
@@ -566,10 +616,9 @@ original V41 rejection. Evidence remains under
 `local/applyheat-baseline-aa-source-only-v1` and
 `local/applyheat-baseline-aa-independent-result-review-r2`.
 
-Actual Linux Unity presentation screenshots remain unverified. The latest
-recorded dedicated Linux run passes startup checks but is blocked on Steam
-authentication before the main menu; see [the Linux harness evidence](../tools/ONI_HEADLESS.md).
-The separate WSL host correctness runs do not establish Linux Unity behavior.
-Linux Unity, production container transactions,
-long-run memory and coherent full-owned colony save/load remain open acceptance
-evidence under milestone D. `FirstPlayableColonyPassed` is false.
+The dedicated Linux harness now records menu and full presentation-fixture
+success with 34 Unity captures; see [the Linux harness evidence](../tools/ONI_HEADLESS.md).
+That is separate from WSL host correctness checks. The newly added four-gas
+native-hover criterion, production container transactions, sustained performance,
+long-run memory and coherent full-owned colony save/load remain open under
+milestone D. `FirstPlayableColonyPassed` is false.

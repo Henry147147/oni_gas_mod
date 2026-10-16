@@ -30,7 +30,9 @@ internal static class Program
             ("details injection runs before single vanilla Commit", DetailsContract),
             ("unknown IL contracts reject explicitly", RejectUnknownContracts),
             ("complete inspection retains trace mass and partial pressure", FullTrace),
-            ("compact hover retains out-of-limit contaminants beyond bulk rows", CompactContaminant),
+            ("hover lists every non-trace gas without a top-N limit", HoverAllNonTrace),
+            ("hover excludes traces while retaining their warnings and full details", CompactContaminant),
+            ("hover uses the shared trace threshold including its exact boundary", HoverTraceBoundary),
             ("liquid inspection does not invent gas partial pressure", LiquidRows),
             ("breathing warnings use actual mixture model", BreathingWarnings),
             ("state uses player units and explicit breathing status", PlayerUnitsAndStatus),
@@ -146,9 +148,49 @@ internal static class Program
         var (catalog, model) = Model();
         var reading = model.Describe(catalog.CreateInventory(new Dictionary<string, double>
         { ["oxygen"] = .23, ["nitrogen"] = .77, ["helium"] = .01, ["chlorine"] = .0001 }, 300), 1);
-        var lines = MixtureInspection.FormatCompactComposition(reading, 1);
-        Check(lines.Any(line => line.Contains("chlorine") && line.Contains("CONTAMINANT")), "A contaminant was hidden behind compact truncation.");
+        var lines = MixtureInspection.FormatCompactComposition(reading);
+        Check(reading.GasConstituents.Single(row => row.MaterialId == "chlorine").IsTrace, "Fixture contaminant is not a trace.");
+        Check(!lines.Any(line => line.StartsWith("chlorine ", StringComparison.Ordinal)), "Trace leaked into the non-trace contents list.");
+        Check(reading.Warnings.Any(warning => warning.Contains("chlorine")), "Omitting a trace discarded its hazard warning.");
+        Check(MixtureInspection.FormatFullComposition(reading).Contains("chlorine"), "Expanded details discarded a trace.");
         Check(lines.Any(line => line.Contains("complete composition")), "No expansion hint for omitted species.");
+    }
+
+    private static void HoverAllNonTrace()
+    {
+        var (catalog, model) = Model();
+        var fractions = new Dictionary<string, double>
+        { ["nitrogen"] = .45, ["oxygen"] = .25, ["carbon_dioxide"] = .15, ["helium"] = .149998, ["chlorine"] = .000002 };
+        var inventory = catalog.CreateInventory(fractions.ToDictionary(item => item.Key,
+            item => item.Value * catalog.Materials[item.Key].MolarMassKgPerMol), 300);
+        var reading = model.Describe(inventory, 1); var lines = MixtureInspection.FormatCompactComposition(reading);
+        var gases = reading.GasConstituents.Where(row => !row.IsTrace).ToArray();
+        Check(gases.Length == 4, "Fixture does not exceed the old three-gas cap.");
+        foreach (var row in gases)
+            Check(lines.Any(line => line.StartsWith(row.DisplayName + " " + row.MolePercentText + " by moles", StringComparison.Ordinal)),
+                "A non-trace gas or its original mole percentage is missing: " + row.MaterialId);
+        Check(lines.Count(line => line.Contains(" by moles")) == gases.Length, "Hover composition duplicated or omitted a gas.");
+        Check(gases.Sum(row => row.GasMoleFraction!.Value) < 1, "Fixture lacks excluded trace moles.");
+    }
+
+    private static void HoverTraceBoundary()
+    {
+        var (catalog, model) = Model();
+        var inventory = catalog.CreateInventory(new Dictionary<string, double>
+        { ["oxygen"] = .032, ["nitrogen"] = .028 * 98, ["helium"] = .004 }, 300);
+        var threshold = model.Describe(inventory, 1).GasConstituents.Single(row => row.MaterialId == "oxygen").GasMoleFraction!.Value;
+        MixturePresentation At(double value) => new MixturePresentationModel(catalog,
+            catalog.Materials.Keys.Select(id => new MixtureSpeciesStyle(id, id, new MixtureSrgbColor(.5, .5, .5))),
+            new AtmosphereSettings(), "oxygen", "carbon_dioxide", new Dictionary<string, double>(),
+            new MixtureVisualOptions { MeaningfulGasMoleFraction = value }).Describe(inventory, 1);
+        var boundary = At(threshold);
+        Check(!boundary.GasConstituents.Single(row => row.MaterialId == "oxygen").IsTrace &&
+            MixtureInspection.FormatCompactComposition(boundary).Any(line => line.StartsWith("oxygen ", StringComparison.Ordinal)),
+            "Gas at the trace threshold was omitted.");
+        var above = At(Math.BitIncrement(threshold));
+        Check(above.GasConstituents.Single(row => row.MaterialId == "oxygen").IsTrace &&
+            !MixtureInspection.FormatCompactComposition(above).Any(line => line.StartsWith("oxygen ", StringComparison.Ordinal)),
+            "Hover ignored the shared trace classification.");
     }
 
     private static void LiquidRows()

@@ -138,7 +138,13 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void BeginNewColony() { if (ObserveMessage) { inNewColonyLoad = true; actualColonyActive = true; } }
-        internal static void EndNewColony() { inNewColonyLoad = false; }
+        internal static void EndNewColony(Exception? error)
+        {
+            inNewColonyLoad = false;
+            // The native loader can fail before Game.Update ever starts. Keep
+            // that failure in the private report instead of leaving it pending.
+            if (error != null && ObserveMessage) Fail(error);
+        }
 
         internal static void StageGeneratedWorlds(Cluster cluster, List<SimSaveFileStructure> worlds)
         {
@@ -412,7 +418,7 @@ namespace MixedAtmospheres.Oni
     internal static class NewColonyValidationScope
     {
         private static void Prefix() => ColonyRuntimeValidation.BeginNewColony();
-        private static Exception? Finalizer(Exception? __exception) { ColonyRuntimeValidation.EndNewColony(); return __exception; }
+        private static Exception? Finalizer(Exception? __exception) { ColonyRuntimeValidation.EndNewColony(__exception); return __exception; }
     }
 
     [HarmonyPatch(typeof(Cluster), nameof(Cluster.LoadClusterSim))]

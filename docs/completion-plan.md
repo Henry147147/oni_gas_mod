@@ -101,8 +101,18 @@ in [mixture presentation](mixture-presentation.md):
   colour-only mode and persisted contrast controls, defaulting to 0.04.
 - Cell hover, selected-cell details and owned pipe/reservoir/storage/bottle/suit/
   vent inventories showing the same completed revision. Show gas mole
-  percentages, every constituent's mass and partial pressure, temperature,
-  gas density and total gas pressure; identify liquid rows separately.
+  percentages, temperature, gas density and total gas pressure; expanded details
+  show every constituent's mass and partial pressure, with liquid rows identified
+  separately.
+- Hovering a tile must list **every non-trace gas in that tile**, each with its
+  gas mole percentage, directly in the tooltip without selecting the tile or
+  opening details. No top-N cap or short mixture name may hide a non-trace gas.
+  Use the shared trace classification (default: below 1% of gas moles); retain
+  the original percentages without renormalizing after traces are omitted.
+  Hazardous trace warnings remain mandatory. Expanded details retain all traces.
+  Verify actual Windows and Linux mouse hover on a tile with at least four
+  non-trace gases plus benign and hazardous traces, including a gas at the trace
+  threshold, and compare the full tooltip against the same completed snapshot.
 - Composition, gas-pressure, oxygen-partial-pressure and breathability overlays
   with legends. Explain every configured breathing failure and retain harmful
   traces even when their visual contribution is imperceptible. Native packet

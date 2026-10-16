@@ -41,8 +41,11 @@ unregistrations then landed between the texture batch and the capture. The
 fixture now also waits three Unity frames per step and for that coroutine
 before the first texture acceptance. The 20 s spawned-surface and 30 s
 owned-reservoir waits now also need 60 frames before timing out. At normal
-frame rates the seconds still decide, so Windows pacing is unchanged; this
-has not been re-run on Windows. After world generation the passing run
+frame rates the seconds still decide. A later fresh-world Windows fixture run
+also passes the updated pacing: 34 captures and 18 exact CPU texture-write
+proof records, with nine worlds and three duplicants. Its earlier cached-world
+startup attempt failed before fixtures; both results are recorded in
+[the presentation evidence](../docs/mixture-presentation.md). After world generation the passing Linux run
 measured 203 ms p50 and 374 ms p95 per frame. That is software-rendering cost,
 not game-scale performance evidence.
 

@@ -186,22 +186,21 @@ namespace MixedAtmospheres.Oni
         private static string Assessment(MixturePresentation reading) => reading.IsBreathable ? "Breathable" :
             (reading.Failures & BreathingFailure.Vacuum) != 0 ? "Vacuum / no atmosphere" : "Unsafe atmosphere";
 
-        public static IReadOnlyList<string> FormatCompactComposition(MixturePresentation reading, int bulkRows = 3)
+        public static IReadOnlyList<string> FormatCompactComposition(MixturePresentation reading)
         {
             if (reading == null) throw new ArgumentNullException(nameof(reading));
-            if (bulkRows < 1) throw new ArgumentOutOfRangeException(nameof(bulkRows));
-            var selected = reading.GasConstituents.Take(bulkRows).ToList();
-            // Every out-of-limit contaminant stays visible even when it ranks
-            // below the compact bulk list. All other traces remain in details.
-            foreach (var row in reading.GasConstituents)
-                if (row.IsContaminant && !selected.Contains(row)) selected.Add(row);
             var result = new List<string>();
-            foreach (var row in selected)
-                result.Add(row.DisplayName + " " + row.MolePercentText + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : row.IsTrace ? " (trace)" : ""));
+            // The short mixture name is not a complete contents list. Hover
+            // lists every non-trace gas, with no top-N limit or renormalization.
+            // DrawCell/DrawContainers append every warning separately, including
+            // hazardous traces omitted from this contents list.
+            foreach (var row in reading.GasConstituents)
+                if (!row.IsTrace)
+                    result.Add(row.DisplayName + " " + row.MolePercentText + " by moles" + (row.IsContaminant ? " — CONTAMINANT" : ""));
             if (reading.LiquidVolumeFraction > 0)
                 result.Add("Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%");
-            var hidden = reading.Constituents.Count - selected.Count;
-            if (hidden > 0) result.Add("+ " + hidden.ToString(CultureInfo.InvariantCulture) + " constituents · select for complete composition");
+            if (reading.GasConstituents.Any(row => row.IsTrace))
+                result.Add("Trace gases omitted from contents · select for complete composition");
             else result.Add("Select for constituent masses and partial pressures");
             return result.AsReadOnly();
         }
