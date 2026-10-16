@@ -106,9 +106,13 @@ def review_pair(p):
         check(min(ul, ur) - 128 * EPS * scale <= velocity <= max(ul, ur) + 128 * EPS * scale, 'Pair velocity outside initial interval')
 
 
-def review(data, analytic=True):
+def review(data, analytic=True, pair_reviewer=None, equilibrium=None):
+    if pair_reviewer is None:
+        pair_reviewer = review_pair
+    if equilibrium is None:
+        equilibrium = ref.equilibrium
     for p in data['pairs'].values():
-        review_pair(p)
+        pair_reviewer(p)
     if analytic:
         p0, p4, p5 = (data['pairs'][i] for i in (0, 4, 5))
         for i in (12, 13):
@@ -170,12 +174,12 @@ def review(data, analytic=True):
                 new_values = {s: v for (g, e, c, s), v in data[field].items() if (g, e, c) == (gid, 1, cell)}
                 check(old_values == new_values and all(v > 0 for v in old_values.values()), 'Constituent/passive changed')
             for point in (a, b):
-                p, t, _, s = ref.equilibrium(saved_mass, data['materials'], point[0], volume)
+                p, t, _, s = equilibrium(saved_mass, data['materials'], point[0], volume)
                 close(point[1], F(t), abs(F(t)), 'Independent EOS temperature', 4096)
                 close(point[2], F(p), abs(F(p)), 'Independent EOS pressure', 4096)
                 close(point[3], F(s), sum(abs(v) for v in point) + abs(F(s)), 'Independent EOS entropy', 4096)
-            s0 = ref.equilibrium(saved_mass, data['materials'], a[0], volume)[3]
-            s1 = ref.equilibrium(saved_mass, data['materials'], b[0], volume)[3]
+            s0 = equilibrium(saved_mass, data['materials'], a[0], volume)[3]
+            s1 = equilibrium(saved_mass, data['materials'], b[0], volume)[3]
             entropy += s1 - s0; entropy_scale += abs(a[0]) / a[1] + abs(b[0]) / b[1]
             terms.extend((b[0], -a[0]))
         for axis, nf in ((0, xw * h), (1, w * yh)):

@@ -120,6 +120,12 @@ failed terminal SHA256
 The default game DLL remains unchanged. There is no independent-agent, Unity,
 production or performance acceptance. Linux does not repeat the same failure.
 
+The subsequent [acoustic/quadratic component](MAC_ACOUSTIC_COMPRESSION.md)
+passes seven new groups, all 110 prerequisites on both platforms and 49 Linux
+sanitizer groups. It is still separate from the owning law. This adds no
+strong-flow retry or acceptance; the failed heat-owner result above remains
+the latest full scientific attempt.
+
 ## Earlier reconstructed-momentum owner: density/pressure refinement failure
 
 The [owning timestep integration](MAC_MOMENTUM_OWNER.md) passes all 85 strict

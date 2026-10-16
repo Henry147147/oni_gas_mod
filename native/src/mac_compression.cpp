@@ -8,6 +8,14 @@ namespace {
 void require(bool condition, const char* why) { if (!condition) throw std::invalid_argument(why); }
 [[noreturn]] void precision(const char* why) { throw FluidFatalError(FluidFatalCode::numerical_precision, why); }
 MacScaled sum(MacScaled a, MacScaled b) { MacScaledSum values; values.add(a); values.add(b); return mac_scaled_primary(values); }
+MacScaled acoustic_phi(MacScaled x) {
+    const auto one = MacScaled::from_double(1);
+    if (x.is_zero() || x.exponent() <= MacExponent(-53)) return one;
+    // exp(-64) is below the significand roundoff; keep the full reciprocal.
+    if (x.exponent() >= MacExponent(7)) return one.shared(one, x);
+    const auto value = x.require_representable();
+    return MacScaled::from_double(-std::expm1(-value) / value);
+}
 bool resolved_change(MacScaled before, MacScaled after, MacScaled requested) {
     MacScaledSum difference; difference.add(after); difference.add(before.negated()); difference.add(requested.negated());
     MacScaledSum allowance; allowance.add(requested.magnitude().shifted(-47));
@@ -46,13 +54,14 @@ std::vector<bool> fixed_faces(const MacGrid& g, bool x_axis) {
 }
 }
 MacCompressionPair relax_mac_compression_pair(double il, double ir, MacScaled jl, MacScaled jr,
-    bool fl, bool fr, MacScaled integrated) {
+    bool fl, bool fr, MacScaled integrated, MacScaled linear_speed) {
     require_mac_energy_environment();
-    require(std::isfinite(il) && std::isfinite(ir) && il > 0 && ir > 0 && integrated.mantissa() >= 0,
+    require(std::isfinite(il) && std::isfinite(ir) && il > 0 && ir > 0 && integrated.mantissa() >= 0 && linear_speed.mantissa() >= 0,
         "Invalid MAC compression inertia/coefficient");
     require((!fl || jl.is_zero()) && (!fr || jr.is_zero()), "Fixed MAC compression endpoint has momentum");
     MacCompressionPair p; p.inertia_left = il; p.inertia_right = ir; p.fixed_left = fl; p.fixed_right = fr;
     p.before_left = p.after_left = jl; p.before_right = p.after_right = jr; p.integrated_density_area_s = integrated;
+    p.linear_speed = linear_speed;
     p.closing_velocity = mac_scaled_difference(jl.shared(1, il), jr.shared(1, ir));
     if (p.closing_velocity.mantissa() <= 0 || integrated.is_zero()) return p;
     MacScaledSum inverse; if (!fl) inverse.add(MacScaled::from_double(1).shared(1, il));
@@ -60,9 +69,18 @@ MacCompressionPair relax_mac_compression_pair(double il, double ir, MacScaled jl
     const auto reciprocal = inverse.value(), one = MacScaled::from_double(1);
     require(!reciprocal.is_zero(), "Compressing MAC pair has no free endpoint");
     p.relaxation_number = integrated.shared(p.closing_velocity, one).shared(reciprocal, one);
-    MacScaledSum denominator; denominator.add(1); denominator.add(p.relaxation_number);
-    // This form retains the impulse when k is so small that 1+k rounds to 1.
-    p.impulse = integrated.shared(p.closing_velocity, one).shared(p.closing_velocity, denominator.value());
+    if (linear_speed.is_zero()) {
+        MacScaledSum denominator; denominator.add(1); denominator.add(p.relaxation_number);
+        // Retain the original quadratic arithmetic/reference unchanged.
+        p.impulse = integrated.shared(p.closing_velocity, one).shared(p.closing_velocity, denominator.value());
+    } else {
+        p.linear_relaxation_number = integrated.shared(linear_speed, one).shared(reciprocal, one);
+        p.linear_relaxation_phi = acoustic_phi(p.linear_relaxation_number);
+        MacScaledSum denominator; denominator.add(1); denominator.add(p.relaxation_number.shared(p.linear_relaxation_phi, one));
+        MacScaledSum speed; speed.add(linear_speed); speed.add(p.closing_velocity);
+        p.impulse = integrated.shared(p.closing_velocity, one).shared(speed.value(), one)
+            .shared(p.linear_relaxation_phi, denominator.value());
+    }
     const auto drop = p.impulse.shared(reciprocal, one);
     const auto midpoint_closing = mac_scaled_difference(p.closing_velocity, drop.shifted(-1));
     if (midpoint_closing.mantissa() <= 0) precision("MAC compression relaxation lost its positive midpoint closing speed");
@@ -77,9 +95,10 @@ MacCompressionPair relax_mac_compression_pair(double il, double ir, MacScaled jl
     return p;
 }
 MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, double dt) {
+    const MacTransportState& source, double dt, MacCompressionLaw law) {
     require_mac_energy_environment();
     require(std::isfinite(dt) && dt > 0 && dt <= 1, "Invalid MAC compression timestep");
+    require(law == MacCompressionLaw::quadratic || law == MacCompressionLaw::acoustic_quadratic, "Invalid MAC compression law");
     if (.5 * dt == 0) precision("MAC compression half timestep cannot be represented");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
@@ -94,6 +113,19 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
         }
     }
     MacCompressionAdvance result{source, {}}; MacEnergySum heat; MacScaledSum wx, wy;
+    if (law == MacCompressionLaw::acoustic_quadratic) {
+        result.report.source_linear_speeds.resize(source.cells.size());
+        for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+            const auto& mixture = source.cells[i].mixture;
+            const auto anchor = model.reference().make_isentrope(model.to_reference(mixture, g.volume_m3()));
+            const auto compliance = model.compression_compliance(anchor);
+            // c_s^2 = V^2 / (mass * (-dV/dp)_S). Separate square roots avoid
+            // under/overflow in an otherwise representable mass*compliance.
+            const auto sound = (g.volume_m3() / std::sqrt(mixture.mass())) / std::sqrt(compliance);
+            if (!std::isfinite(sound) || sound <= 0) precision("MAC compression sound speed cannot be represented");
+            result.report.source_linear_speeds[i] = MacScaled::from_double(sound).shifted(-1);
+        }
+    }
     for (int axis = 0; axis < 2; ++axis) for (std::size_t sweep = 0; sweep < 2; ++sweep)
         for (std::size_t n = 0; n < source.cells.size(); ++n) {
             const auto cell = sweep == 0 ? n : source.cells.size() - 1 - n;
@@ -104,7 +136,8 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
             auto& j = axis == 0 ? jx : jy; const auto& m = axis == 0 ? inertia.x : inertia.y;
             const auto& fixed = axis == 0 ? fixed_x : fixed_y;
             const auto integrated = MacScaled::from_double(source.cells[cell].mixture.mass()).multiplied(.5 * dt).shared(1, g.spacing_m);
-            auto pair = relax_mac_compression_pair(m[l], m[r], j[l], j[r], fixed[l], fixed[r], integrated);
+            auto pair = relax_mac_compression_pair(m[l], m[r], j[l], j[r], fixed[l], fixed[r], integrated,
+                law == MacCompressionLaw::quadratic ? MacScaled{} : result.report.source_linear_speeds[cell]);
             if (pair.impulse.is_zero()) continue;
             j[l] = pair.after_left; j[r] = pair.after_right; heat.add(pair.heat);
             (axis == 0 ? wx : wy).add(pair.wall_impulse);
