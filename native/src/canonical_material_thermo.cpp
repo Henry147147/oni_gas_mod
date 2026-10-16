@@ -130,6 +130,10 @@ void supported(Kernel& k, const ReferenceConservedCell& cell, const ReferenceEqu
 ReferenceEquilibriumState evaluate_owner(Kernel& k, const Data& d, const ReferenceConservedCell& cell, std::size_t owner) {
     k.scope(Stage::thermodynamics, canonical_absent_index, static_cast<std::uint32_t>(owner));
     k.row(Field::species_mass, cell.masses_kg); k.scalar(Field::stored_internal_energy, cell.internal_energy_j);
+    k.scalar(Field::retained_internal_energy_low, d.primary.internal_energy_j[owner].low());
+    k.require(std::bit_cast<std::uint64_t>(cell.internal_energy_j) == std::bit_cast<std::uint64_t>(d.primary.internal_energy_j[owner].high()) &&
+        std::bit_cast<std::uint64_t>(cell.volume_m3) == std::bit_cast<std::uint64_t>(d.owner_geometry[owner].projected_volume_m3),
+        Code::numerical_precision, "EOS input does not match the declared retained-state projection");
     k.scalar(Field::occupied_volume, cell.volume_m3); k.charge(6);
     ReferenceEquilibriumState state;
     try { const auto inventory = d.thermodynamics->from_reference(cell); state = d.thermodynamics->evaluate(inventory, cell.volume_m3); }
@@ -179,10 +183,14 @@ void check_thermodynamics(Kernel& k, const Data& old, const Data& next, std::siz
             const double factor = k.div(k.mul(cell.masses_kg[s], material.reference_bulk_modulus_pa), material.zero_pressure_density_kg_per_m3);
             cold.add(k.mul(factor, cold_curve_factor(k, q)));
         }
-    const double temperature = k.div(sum(k, {cell.internal_energy_j, -c.offset, -cold.get()}), c.capacity);
+    const auto& stored_energy = next.primary.internal_energy_j[owner];
+    const double temperature = k.div(sum(k, {stored_energy.high(), stored_energy.low(), -c.offset, -cold.get()}), c.capacity);
     const double ti = k.ratio(difference(k, temperature, state.temperature_k), std::max(std::abs(temperature), std::abs(state.temperature_k)));
     const double total_volume = volume.get();
-    const double vi = k.ratio(difference(k, total_volume, cell.volume_m3), std::max(std::abs(total_volume), std::abs(cell.volume_m3)));
+    Sum volume_difference(k, 7); volume_difference.add(total_volume);
+    const auto& geometry = next.owner_geometry[owner];
+    for (std::size_t i = 0; i < geometry.volume_term_count; ++i) volume_difference.add(-geometry.volume_terms_m3[i]);
+    const double vi = k.ratio(volume_difference.get(), std::max(std::abs(total_volume), std::abs(cell.volume_m3)));
     k.scalar(Field::temperature, temperature); k.scalar(Field::occupied_volume, total_volume);
     k.require(ti <= 2e-10 && vi <= 2e-10, Code::numerical_precision, "Independent stored-owner temperature/volume closure failed");
     report.maximum_thermodynamic_ratio = std::max({report.maximum_thermodynamic_ratio, ti, vi});

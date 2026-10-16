@@ -1,6 +1,7 @@
 #pragma once
 
 #include "canonical_material_diagnostics.hpp"
+#include "retained_scalar.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <array>
 #include <chrono>
@@ -48,7 +49,24 @@ struct CanonicalInitialization {
     double area_m2 = 1, completed_time_seconds = 0;
     CanonicalBoundary left, right;
 };
+struct CanonicalGeometryMeasure {
+    RetainedScalarDifference length_m;
+    // Exact area-scaled products of the length certificate. This derived
+    // measure, not its scalar EOS projection, comes from the primary nodes.
+    std::array<double, 8> volume_terms_m3{};
+    std::size_t volume_term_count = 0;
+    double projected_volume_m3 = 0;
+    // Exact signed residual expression: sum(volume terms) - projection.
+    // Never replace this expression by an independently rounded scalar zero.
+    std::array<double, 9> projection_residual_terms_m3{};
+};
+struct CanonicalPrimaryValues {
+    std::vector<RetainedScalar> relative_positions_m, momentum;
+    std::array<RetainedScalar, canonical_owner_count> internal_energy_j{};
+    RetainedScalar origin_m, completed_time_seconds;
+};
 struct CanonicalPieceReading {
+    CanonicalGeometryMeasure geometry, reference_geometry;
     double jacobian = 0, mass_kg = 0;
     double first_mass_moment = 0, second_mass_moment = 0;
     double momentum = 0, position_velocity_product = 0, kinetic_energy_j = 0;
@@ -68,6 +86,10 @@ struct CanonicalInitializationLedger {
     double requested_kinetic_energy_j = 0, represented_kinetic_energy_j = 0;
     double kinetic_arithmetic_difference_j = 0, maximum_quadrature_ratio = 0;
     double maximum_thermodynamic_ratio = 0, maximum_linear_ratio = 0;
+    CanonicalVector requested_velocity_m_per_s;
+    // Flattened node-major rows, n*n entries. Products and sum remainders
+    // preserve the finite initialization account for the actual stored pi.
+    std::vector<std::array<double, 2>> momentum_product_terms, momentum_sum_remainders;
 };
 struct CanonicalStepReport {
     double seconds = 0, represented_seconds = 0;
@@ -108,6 +130,11 @@ struct CanonicalSnapshot {
     std::shared_ptr<const FluidThermodynamics> thermodynamics;
     std::shared_ptr<const SpeciesRegistry> registry;
     std::string model_metadata, diagnostic_model_identity;
+    CanonicalPrimaryValues primary;
+    std::array<CanonicalGeometryMeasure, canonical_owner_count> owner_geometry;
+    // Scalar positions/momentum/time/origin and cell U/V are explicitly derived
+    // projections for readouts and the current EOS interface. They are not
+    // independently mutable authorities for the retained pressure step.
     CanonicalVector reference_nodes_m, positions_m, velocities_m_per_s, momentum;
     CanonicalMatrix consistent_mass;
     std::vector<CanonicalReferencePiece> reference_pieces;
@@ -169,6 +196,9 @@ private:
 };
 void initialize_canonical_material_into(const CanonicalInitialization& input, CanonicalMaterialState& output,
     CanonicalBudgetContext& budget, CanonicalFailureWitness& witness);
+// False during the retained-state migration. The public advance boundary
+// rejects before calling the old scalar pressure operator or querying its EOS.
+[[nodiscard]] bool canonical_material_advance_ready() noexcept;
 // One fixed-h operation with strong input/previous-output preservation. There is
 // no timestep retry, scheduler registration, variance heat or endpoint fallback.
 void advance_canonical_material_into(const CanonicalMaterialState& input, double seconds, CanonicalMaterialState& output,

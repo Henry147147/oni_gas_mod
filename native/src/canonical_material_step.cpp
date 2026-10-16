@@ -562,6 +562,8 @@ void advance_canonical_material_into(const CanonicalMaterialState& input, double
         kernel.scope(Stage::publication);
         kernel.require(&input != &output, Code::unsupported_configuration, "Canonical input/output state objects alias");
         kernel.require(static_cast<bool>(input.data_), Code::unsupported_configuration, "Canonical input is uninitialized, not vacuum");
+        kernel.require(canonical_material_advance_ready(), Code::unsupported_configuration,
+            "Retained canonical pressure-step migration is incomplete; scalar projections are not an advance authority");
         auto candidate = advance_data(kernel, *input.data_, seconds);
         kernel.scope(Stage::publication); kernel.deadline();
         kernel.require(read_canonical_arithmetic_environment().supported(), Code::numerical_precision, "Canonical arithmetic controls changed during advance");

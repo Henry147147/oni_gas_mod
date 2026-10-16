@@ -50,6 +50,7 @@ enum class CanonicalWitnessField : std::uint16_t {
     basis_index, node_indices,
     thermodynamic_reading,
     residual_ratio, backtracking_fraction,
+    retained_position_low, retained_momentum_low, retained_internal_energy_low, retained_time_low,
     count
 };
 

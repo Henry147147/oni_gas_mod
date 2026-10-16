@@ -3,9 +3,11 @@
 namespace ma::experimental::canonical_detail {
 
 ReferenceMetrics reference_metrics(Kernel& k, const Data& d, const CanonicalReferencePiece& piece) {
-    const double length = difference(k, d.reference_nodes_m[piece.right], d.reference_nodes_m[piece.left]);
-    const double measure = k.mul(d.area_m2, length);
-    ReferenceMetrics result; Sum rho_left(k, 1), rho_right(k, 2);
+    ReferenceMetrics result;
+    result.geometry = measure_geometry(k, retained_value(k, d.reference_nodes_m[piece.left]),
+        retained_value(k, d.reference_nodes_m[piece.right]), d.area_m2);
+    const double measure = result.geometry.projected_volume_m3;
+    Sum rho_left(k, 1), rho_right(k, 2);
     for (std::size_t s = 0; s < 4; ++s) {
         result.masses[s] = k.mul(measure, sum(k, {k.mul(.5, piece.density_left[s]), k.mul(.5, piece.density_right[s])}));
         k.scalar(Field::species_mass, result.masses[s], static_cast<std::uint32_t>(s));
@@ -19,7 +21,8 @@ ReferenceMetrics reference_metrics(Kernel& k, const Data& d, const CanonicalRefe
     return result;
 }
 double owner_volume(Kernel& k, const Data& d, std::size_t owner) {
-    return k.mul(d.area_m2, difference(k, d.positions_m[d.owner_right[owner]], d.positions_m[d.owner_left[owner]]));
+    return measure_geometry(k, d.primary.relative_positions_m[d.owner_left[owner]],
+        d.primary.relative_positions_m[d.owner_right[owner]], d.area_m2).projected_volume_m3;
 }
 Vec volume_change(Kernel& k, const Data& d, const Vec& displacement) {
     Vec result(7);
@@ -68,11 +71,15 @@ void update_readings(Kernel& k, Data& d, double& maximum_quadrature_ratio) {
         k.scalar(Field::reference_position, d.reference_nodes_m[a], 0); k.scalar(Field::reference_position, d.reference_nodes_m[b], 1);
         k.scalar(Field::position, d.positions_m[a], 0); k.scalar(Field::position, d.positions_m[b], 1);
         const double before = difference(k, d.reference_nodes_m[b], d.reference_nodes_m[a]);
-        const double after = difference(k, d.positions_m[b], d.positions_m[a]);
+        const auto geometry = measure_geometry(k, d.primary.relative_positions_m[a], d.primary.relative_positions_m[b], d.area_m2);
+        const double after = sum(k, {geometry.length_m.value.high(), geometry.length_m.value.low(),
+            geometry.length_m.roundoff_remainders[0], geometry.length_m.roundoff_remainders[1]});
         k.require(before > 0 && after > 0, Code::unsupported_topology, "Canonical fine nodes crossed");
-        volumes[owner].add(k, k.mul(d.area_m2, after), 12);
-        CanonicalPieceReading view; view.jacobian = k.div(after, before); k.scalar(Field::jacobian, view.jacobian);
+        volumes[owner].add(k, geometry.projected_volume_m3, 12);
+        CanonicalPieceReading view; view.geometry = geometry;
+        view.jacobian = k.div(after, before); k.scalar(Field::jacobian, view.jacobian);
         const auto metrics = reference_metrics(k, d, reference);
+        view.reference_geometry = metrics.geometry;
         view.masses_kg = metrics.masses; view.consistent_mass = metrics.consistent;
         k.row(Field::species_mass, view.masses_kg); k.row(Field::matrix_coefficients, view.consistent_mass);
         for (std::size_t s = 0; s < 4; ++s) {
@@ -85,8 +92,8 @@ void update_readings(Kernel& k, Data& d, double& maximum_quadrature_ratio) {
         k.row(Field::reference_density, view.density_left, 2); k.row(Field::reference_density, view.density_right, 3);
         const auto& c = view.consistent_mass;
         const double w0 = sum(k, {c[0], c[1]}), w1 = sum(k, {c[1], c[2]});
-        const double xa = sum(k, {d.origin_high_m, d.origin_low_m, d.positions_m[a]});
-        const double xb = sum(k, {d.origin_high_m, d.origin_low_m, d.positions_m[b]});
+        const double xa = physical_position(k, d, a);
+        const double xb = physical_position(k, d, b);
         const double ua = d.velocities_m_per_s[a], ub = d.velocities_m_per_s[b];
         view.mass_kg = sum(k, {w0, w1});
         view.first_mass_moment = sum(k, {k.mul(w0, xa), k.mul(w1, xb)});
@@ -171,7 +178,8 @@ void update_readings(Kernel& k, Data& d, double& maximum_quadrature_ratio) {
         128 * epsilon, "Owner kinetic partition differs from the full consistent quadratic");
     Sum canonical_momentum(k, 2), compatibility_scale(k, 3);
     for (std::size_t j = 0; j < d.momentum.size(); ++j) {
-        canonical_momentum.add(d.momentum[j]); compatibility_scale.add(std::abs(d.momentum[j]));
+        canonical_momentum.add(d.primary.momentum[j].high()); canonical_momentum.add(d.primary.momentum[j].low());
+        compatibility_scale.add(std::abs(d.primary.momentum[j].high())); compatibility_scale.add(std::abs(d.primary.momentum[j].low()));
         const auto terms = physical_row_products(k, d.consistent_mass, d.velocities_m_per_s, j);
         for (double term : terms) compatibility_scale.add(std::abs(term));
     }

@@ -118,10 +118,19 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
     }
     const auto anchor = in.left.kind == CanonicalBoundaryKind::fixed ? std::size_t{0} :
         in.right.kind == CanonicalBoundaryKind::fixed ? n - 1 : n / 2;
-    d.origin_high_m = in.positions_m[anchor];
+    d.primary.origin_m = retained_value(k, in.positions_m[anchor]);
+    d.primary.completed_time_seconds = retained_value(k, in.completed_time_seconds);
+    d.origin_high_m = d.primary.origin_m.high(); d.origin_low_m = d.primary.origin_m.low();
+    d.primary.relative_positions_m.resize(n);
     for (std::size_t j = 0; j < n; ++j) {
-        d.positions_m[j] = difference(k, in.positions_m[j], d.origin_high_m);
-        k.require(sum(k, {d.origin_high_m, d.positions_m[j]}) == in.positions_m[j],
+        k.scope(Stage::initialization, static_cast<std::uint32_t>(j));
+        const auto relative = retained_difference(k, retained_value(k, in.positions_m[j]), d.primary.origin_m);
+        for (double value : relative.roundoff_remainders)
+            k.require(value == 0, Code::numerical_precision, "Initial scalar position difference exceeds two exact components");
+        d.primary.relative_positions_m[j] = relative.value;
+        d.positions_m[j] = relative.value.high();
+        k.scalar(Field::retained_position_low, relative.value.low(), static_cast<std::uint32_t>(j));
+        k.require(physical_position(k, d, j) == in.positions_m[j],
             Code::numerical_precision, "Canonical initial relative coordinates cannot reconstruct the supplied geometry");
     }
     std::array<std::array<Accumulated, 4>, 7> masses{};
@@ -159,9 +168,14 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
             Code::unsupported_topology, "Canonical owner partition contains a gap");
         auto& cell = d.cells[i]; cell.masses_kg.resize(species_count);
         for (std::size_t s = 0; s < species_count; ++s) cell.masses_kg[s] = masses[i][s].get(k, static_cast<std::uint32_t>(20 + s));
-        cell.volume_m3 = owner_volume(k, d, i); k.positive(cell.volume_m3, Field::occupied_volume);
+        d.owner_geometry[i] = measure_geometry(k, d.primary.relative_positions_m[d.owner_left[i]],
+            d.primary.relative_positions_m[d.owner_right[i]], d.area_m2);
+        cell.volume_m3 = d.owner_geometry[i].projected_volume_m3;
         k.row(Field::species_mass, cell.masses_kg);
-        if (in.energy == CanonicalInitialEnergy::stored_internal_energy) cell.internal_energy_j = in.stored_internal_energy_j[i];
+        if (in.energy == CanonicalInitialEnergy::stored_internal_energy) {
+            d.primary.internal_energy_j[i] = retained_value(k, in.stored_internal_energy_j[i]);
+            cell.internal_energy_j = d.primary.internal_energy_j[i].high();
+        }
         else {
             k.positive(in.temperatures_k[i], Field::temperature); Vec registry_masses(species_count, 0);
             for (std::size_t s = 0; s < species_count; ++s) registry_masses[d.registry->index(profiles[s].id)] = cell.masses_kg[s];
@@ -169,10 +183,14 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
             const auto initialized = d.thermodynamics->initialize_at_temperature(registry_masses, in.temperatures_k[i], cell.volume_m3);
             const auto retained = d.thermodynamics->to_reference(initialized.mixture, cell.volume_m3);
             k.require(retained.masses_kg == cell.masses_kg, Code::numerical_precision, "Temperature initialization changed canonical constituent masses");
-            cell.internal_energy_j = retained.internal_energy_j;
+            const auto stored = retained_increment(k, retained_value(k, initialized.caloric_reference_and_thermal_energy_j),
+                initialized.initialized_elastic_energy_j);
+            k.require(stored.roundoff_remainder == 0, Code::numerical_precision, "Initial caloric/elastic scalar sum exceeds retained storage");
+            d.primary.internal_energy_j[i] = stored.value;
+            cell.internal_energy_j = stored.value.high();
             d.initialization.caloric_energy_j[i] = initialized.caloric_reference_and_thermal_energy_j;
             d.initialization.explicitly_added_elastic_energy_j[i] = initialized.initialized_elastic_energy_j;
-            const double represented = difference(k, cell.internal_energy_j, initialized.caloric_reference_and_thermal_energy_j);
+            const double represented = sum(k, {stored.represented_increment[0], stored.represented_increment[1]});
             d.initialization.represented_elastic_energy_change_j[i] = represented;
             d.initialization.energy_addition_roundoff_j[i] = difference(k, represented, initialized.initialized_elastic_energy_j);
             Sum offset(k, 1), thermal(k, 2);
@@ -191,7 +209,7 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
     }
     k.scope(Stage::canonical_decode); double linear_ratio = 0;
     d.initialization.requested_kinetic_energy_j = kinetic(k, d, linear_ratio);
-    d.momentum = multiply(k, d.consistent_mass, in.velocities_m_per_s, linear_ratio); k.baseline(Field::pi1, d.momentum);
+    initialize_retained_momentum(k, d, in.velocities_m_per_s); k.baseline(Field::pi1, d.momentum);
     d.velocities_m_per_s = decode_velocity(k, d, linear_ratio);
     double quadrature = 0; update_readings(k, d, quadrature);
     d.initialization.represented_kinetic_energy_j = d.resolved_kinetic_energy_j;
@@ -203,6 +221,7 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
     CanonicalStepReport verification;
     for (std::size_t i = 0; i < 7; ++i) check_thermodynamics(k, d, d, i, verification);
     d.initialization.maximum_thermodynamic_ratio = verification.maximum_thermodynamic_ratio;
+    validate_scalar_projections(k, d);
     return d;
 }
 }

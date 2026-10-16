@@ -36,6 +36,10 @@ void emit(Bytes&, const ReferenceEquilibriumState&);
 void emit(Bytes&, const CanonicalReferencePiece&);
 void emit(Bytes&, const CanonicalPieceReading&);
 void emit(Bytes&, const CanonicalOwnerReading&);
+void emit(Bytes&, const RetainedScalar&);
+void emit(Bytes&, const RetainedScalarDifference&);
+void emit(Bytes&, const CanonicalGeometryMeasure&);
+void emit(Bytes&, const CanonicalPrimaryValues&);
 template<class T> requires (std::is_integral_v<T> || std::is_enum_v<T>)
 void emit(Bytes& w, T value) { w.integer(static_cast<std::uint64_t>(value)); }
 template<class T, std::size_t N> void emit(Bytes& w, const std::array<T, N>& values) {
@@ -45,6 +49,20 @@ template<class T> void emit(Bytes& w, const std::vector<T>& values) {
     w.integer(values.size()); for (const auto& value : values) emit(w, value);
 }
 #define FIELD(name) do { w.text(#name); emit(w, r.name); } while (false)
+void emit(Bytes& w, const RetainedScalar& r) {
+    w.text("high"); emit(w, r.high()); w.text("low"); emit(w, r.low());
+}
+void emit(Bytes& w, const RetainedScalarDifference& r) {
+    FIELD(value); FIELD(expansion_terms); FIELD(expansion_count); FIELD(roundoff_remainders);
+}
+void emit(Bytes& w, const CanonicalGeometryMeasure& r) {
+    FIELD(length_m); FIELD(volume_terms_m3); FIELD(volume_term_count);
+    FIELD(projected_volume_m3); FIELD(projection_residual_terms_m3);
+}
+void emit(Bytes& w, const CanonicalPrimaryValues& r) {
+    FIELD(relative_positions_m); FIELD(momentum); FIELD(internal_energy_j);
+    FIELD(origin_m); FIELD(completed_time_seconds);
+}
 void emit(Bytes& w, const SpeciesDefinition& r) {
     FIELD(id); FIELD(name); FIELD(phase);
     w.text("atoms"); w.integer(r.atoms.size());
@@ -80,6 +98,7 @@ void emit(Bytes& w, const CanonicalReferencePiece& r) {
     FIELD(left); FIELD(right); FIELD(owner); FIELD(density_left); FIELD(density_right);
 }
 void emit(Bytes& w, const CanonicalPieceReading& r) {
+    FIELD(geometry); FIELD(reference_geometry);
     FIELD(jacobian); FIELD(mass_kg); FIELD(first_mass_moment); FIELD(second_mass_moment);
     FIELD(momentum); FIELD(position_velocity_product); FIELD(kinetic_energy_j);
     FIELD(density_left); FIELD(density_right); FIELD(masses_kg); FIELD(consistent_mass); FIELD(local_momentum);
@@ -95,6 +114,7 @@ void emit(Bytes& w, const CanonicalInitializationLedger& r) {
     FIELD(requested_kinetic_energy_j); FIELD(represented_kinetic_energy_j);
     FIELD(kinetic_arithmetic_difference_j); FIELD(maximum_quadrature_ratio);
     FIELD(maximum_thermodynamic_ratio); FIELD(maximum_linear_ratio);
+    FIELD(requested_velocity_m_per_s); FIELD(momentum_product_terms); FIELD(momentum_sum_remainders);
 }
 void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(seconds); FIELD(represented_seconds); FIELD(force_residual_ratio); FIELD(linear_residual_ratio);
@@ -124,6 +144,7 @@ void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(endpoint_volume_resolves); FIELD(endpoint_energy_resolves);
 }
 void emit(Bytes& w, const CanonicalSnapshot& r) {
+    FIELD(primary); FIELD(owner_geometry);
     w.text("registry"); emit(w, r.registry->all());
     w.text("profile_version"); emit(w, r.thermodynamics->reference().profile_version());
     w.text("materials"); emit(w, r.thermodynamics->reference().materials());
@@ -139,7 +160,7 @@ void emit(Bytes& w, const CanonicalSnapshot& r) {
 #undef FIELD
 }
 std::vector<std::byte> canonical_material_diagnostic_bytes(const CanonicalReadView& view) {
-    Bytes output; output.text("ma-canonical-material-diagnostics-v1");
+    Bytes output; output.text("ma-canonical-material-diagnostics-v2");
     emit(output, view.snapshot()); return std::move(output.data);
 }
 }

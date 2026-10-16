@@ -83,6 +83,17 @@ public:
     }
     void scalar(Field field, double value, std::uint32_t index = canonical_absent_index) noexcept { frame.scalar(field, value, index); }
     void row(Field field, std::span<const double> values, std::uint32_t index = canonical_absent_index) noexcept { frame.row(field, values, index); }
+    [[noreturn]] void relay_arithmetic_failure(const CanonicalFailureWitness& child) {
+        for (const auto& value : child.scalars())
+            scalar(value.field, std::bit_cast<double>(value.number.bits), value.index);
+        for (const auto& value : child.rows()) {
+            std::array<double, 33> copied{};
+            for (std::size_t i = 0; i < value.length; ++i) copied[i] = std::bit_cast<double>(value.numbers[i].bits);
+            row(value.field, std::span<const double>(copied.data(), value.length), value.index);
+        }
+        if (!child.failed() || !child.capture_valid()) frame.overflow = true;
+        fail(child.code(), child.reason());
+    }
     [[noreturn]] void fail(Code code, std::string_view reason) {
         if (witness_.failed()) canonical_fail(witness_, witness_.code(), witness_.reason());
         if (!witness_.begin_stage(stage_)) canonical_fail(witness_, witness_.code(), witness_.reason());
@@ -306,9 +317,18 @@ inline double boundary_velocity(const Data& d, std::size_t node) { return node =
 [[nodiscard]] Vec physical_row_products(Kernel& k, const Matrix& a, const Vec& x, std::size_t row);
 [[nodiscard]] double kinetic(Kernel& k, const Data& data, double& maximum_ratio);
 struct ReferenceMetrics {
+    CanonicalGeometryMeasure geometry;
     CanonicalSpecies masses{};
     std::array<double, 3> consistent{};
 };
+[[nodiscard]] RetainedScalar retained_value(Kernel& k, double value);
+[[nodiscard]] RetainedScalarUpdate retained_increment(Kernel& k, const RetainedScalar& value, double increment);
+[[nodiscard]] RetainedScalarDifference retained_difference(Kernel& k, const RetainedScalar& left, const RetainedScalar& right);
+[[nodiscard]] RetainedScalarProduct retained_product(Kernel& k, const RetainedScalar& value, double coefficient);
+[[nodiscard]] CanonicalGeometryMeasure measure_geometry(Kernel& k, const RetainedScalar& left, const RetainedScalar& right, double area);
+[[nodiscard]] double physical_position(Kernel& k, const Data& data, std::size_t node);
+void initialize_retained_momentum(Kernel& k, Data& data, const Vec& requested_velocity);
+void validate_scalar_projections(Kernel& k, const Data& data);
 [[nodiscard]] ReferenceMetrics reference_metrics(Kernel& k, const Data& data, const CanonicalReferencePiece& piece);
 [[nodiscard]] double owner_volume(Kernel& k, const Data& data, std::size_t owner);
 [[nodiscard]] Vec volume_change(Kernel& k, const Data& data, const Vec& displacement);

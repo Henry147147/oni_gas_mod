@@ -227,8 +227,13 @@ Vec decode_velocity(Kernel& k, const Data& d, double& maximum_ratio, bool check_
         const auto j = free[i]; k.row_scope(static_cast<std::uint32_t>(j));
         k.row(Field::matrix_coefficients, d.consistent_mass[j]);
         k.row(Field::velocity1, prescribed); k.row(Field::node_indices, prescribed_nodes);
-        k.scalar(Field::pi1, d.momentum[j]); Sum value(k); value.add(d.momentum[j]);
-        for (std::size_t p = 0; p < n; ++p) if (constrained(d, p)) value.add(-k.mul(d.consistent_mass[j][p], velocity[p]));
+        k.scalar(Field::pi1, d.primary.momentum[j].high());
+        k.scalar(Field::retained_momentum_low, d.primary.momentum[j].low(), static_cast<std::uint32_t>(j));
+        Sum value(k); value.add(d.primary.momentum[j].high()); value.add(d.primary.momentum[j].low());
+        for (std::size_t p = 0; p < n; ++p) if (constrained(d, p)) {
+            const auto known = retained_product(k, retained_value(k, velocity[p]), d.consistent_mass[j][p]);
+            for (double term : known.product_terms) value.add(-term);
+        }
         rhs[i] = value.get();
         for (std::size_t p = 0; p < free.size(); ++p) a[i][p] = d.consistent_mass[j][free[p]];
     }
@@ -241,9 +246,12 @@ Vec decode_velocity(Kernel& k, const Data& d, double& maximum_ratio, bool check_
         // Its old value is not an equation for a prescribed endpoint velocity.
         if (constrained(d, j) && !check_dependent_pi) continue;
         const auto terms = physical_row_products(k, d.consistent_mass, velocity, j); Sum scale(k, 1);
-        scale.add(std::abs(d.momentum[j])); for (double term : terms) scale.add(std::abs(term));
-        const double error = difference(k, product[j], d.momentum[j]);
-        k.scalar(Field::pi1, d.momentum[j]); k.scalar(Field::compatibility1, error);
+        scale.add(std::abs(d.primary.momentum[j].high())); scale.add(std::abs(d.primary.momentum[j].low()));
+        for (double term : terms) scale.add(std::abs(term));
+        const double error = sum(k, {product[j], -d.primary.momentum[j].high(), -d.primary.momentum[j].low()});
+        k.scalar(Field::pi1, d.primary.momentum[j].high());
+        k.scalar(Field::retained_momentum_low, d.primary.momentum[j].low(), static_cast<std::uint32_t>(j));
+        k.scalar(Field::compatibility1, error);
         k.within(error, scale.get(), 256 * epsilon, "Actual canonical momentum cannot be decoded compatibly");
     }
     return velocity;
