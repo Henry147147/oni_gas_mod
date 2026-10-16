@@ -304,8 +304,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
                 wx.add(candidate.pressure_wall_impulse_x); wy.add(candidate.pressure_wall_impulse_y);
-                for (const auto reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
-                for (const auto reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
+                for (const auto& reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
+                for (const auto& reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;

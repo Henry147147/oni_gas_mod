@@ -1,6 +1,9 @@
 # Range-extended canonical momentum and fluxes
 
-Five new groups and all prerequisites pass on Windows and Linux. This work addresses
+Five new groups and all prerequisites pass on Windows and Linux. The later
+[bounded integer exponent integration](MAC_EXPONENT_RANGE.md) removes this
+cohort's signed-word limit and reaches full Linux Sod refinement; collision
+accuracy remains failed. This work addresses
 the recorded [open-face canonical storage rejection](MAC_MOMENTUM_PARCELS.md).
 The original Riemann/gravity scientific sources, physical inputs, timesteps,
 grids and acceptance limits remain unchanged.

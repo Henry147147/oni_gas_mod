@@ -1,7 +1,9 @@
 #pragma once
+#include "mac_exponent.hpp"
 #include <array>
 #include <cstddef>
 #include <vector>
+#include <utility>
 
 namespace ma::experimental {
 // Read-only entry guard. Call once on the executing thread before a batch of
@@ -15,7 +17,7 @@ class MacEnergy {
 public:
     MacEnergy() noexcept = default;
     [[nodiscard]] static MacEnergy from_double(double);
-    [[nodiscard]] static MacEnergy from_parts(double mantissa, int exponent);
+    [[nodiscard]] static MacEnergy from_parts(double mantissa, MacExponent exponent);
     [[nodiscard]] static MacEnergy kinetic(double inertia, double momentum);
     [[nodiscard]] static MacEnergy kinetic(double inertia, MacEnergy momentum);
     [[nodiscard]] static MacEnergy variance(double mass, double velocity_difference);
@@ -28,15 +30,15 @@ public:
     [[nodiscard]] MacEnergy magnitude() const noexcept;
     [[nodiscard]] bool is_zero() const noexcept { return mantissa_ == 0; }
     [[nodiscard]] double mantissa() const noexcept { return mantissa_; }
-    [[nodiscard]] int exponent() const noexcept { return exponent_; }
+    [[nodiscard]] const MacExponent& exponent() const noexcept { return exponent_; }
     // Projection is explicit: below-range/subnormal rounding is reported.
     // Overflow rejects, preserving the previous upper representability limit.
     [[nodiscard]] MacEnergyProjection project() const;
     [[nodiscard]] double require_representable() const;
 private:
     double mantissa_ = 0;
-    int exponent_ = 0;
-    MacEnergy(double mantissa, int exponent) noexcept : mantissa_(mantissa), exponent_(exponent) {}
+    MacExponent exponent_{};
+    MacEnergy(double mantissa, MacExponent exponent) noexcept : mantissa_(mantissa), exponent_(std::move(exponent)) {}
 };
 struct MacEnergyPair { MacEnergy high, low; };
 // Error-free addition of the represented operands, including exponent gaps

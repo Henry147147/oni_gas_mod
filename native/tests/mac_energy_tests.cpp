@@ -51,7 +51,7 @@ void products() {
     }
 }
 void export_sum(int id,const std::vector<MacEnergy>& inputs) {
-    MacEnergySum sum; for(const auto e:inputs) sum.add(e);
+    MacEnergySum sum; for(const auto& e:inputs) sum.add(e);
     std::cout<<"SUM "<<id<<' '<<inputs.size()<<' '<<sum.size()<<' '<<sum.sign()<<' ';encoded(sum.value());std::cout<<'\n';
     for(std::size_t i=0;i<inputs.size();++i) {std::cout<<"TERM "<<id<<' '<<i<<' ';encoded(inputs[i]);std::cout<<'\n';}
     for(std::size_t i=0;i<sum.size();++i) {std::cout<<"COMP "<<id<<' '<<i<<' ';encoded(sum.component(i));std::cout<<'\n';}
@@ -79,7 +79,7 @@ void accounts() {
         const int power=id>=3 ? -4096 : 0;
         std::vector<MacEnergy> values{MacEnergy::from_double(1).shifted(power),MacEnergy::from_double(-1).shifted(power)};
         values.push_back(MacEnergy::from_parts(.5,id%3==0 ? -44 : id%3==1 ? -42 : -4000).shifted(power));
-        MacEnergyAccount account;for(const auto e:values)account.add(e);
+        MacEnergyAccount account;for(const auto& e:values)account.add(e);
         const bool expected=id%3!=1;check(account.within_bound()==expected,"Wide energy account changed its relative operand criterion");
         std::cout<<"ACCOUNT "<<id<<' '<<values.size()<<' '<<account.within_bound()<<' ';encoded(account.residual());std::cout<<' ';encoded(account.bound());std::cout<<'\n';
         for(std::size_t i=0;i<values.size();++i){std::cout<<"ATERM "<<id<<' '<<i<<' ';encoded(values[i]);std::cout<<'\n';}
@@ -87,7 +87,7 @@ void accounts() {
 }
 void projections() {
     int id=0;
-    for(const auto e:{MacEnergy::from_parts(.75,-4096),MacEnergy::from_parts(-.75,-4096),MacEnergy::from_parts(.5,-1074),
+    for(const auto& e:{MacEnergy::from_parts(.75,-4096),MacEnergy::from_parts(-.75,-4096),MacEnergy::from_parts(.5,-1074),
         MacEnergy::from_parts(.75,-1074),MacEnergy::from_parts(-.75,-1074),MacEnergy::from_parts(.5,-1073),MacEnergy::from_parts(.75,-1073)}) {
         const auto p=e.project();std::cout<<"PROJECT "<<id++<<' ';encoded(e);std::cout<<' '<<p.value<<' '<<p.rounded<<'\n';
         if(p.rounded){bool caught=false;try{static_cast<void>(e.require_representable());}catch(const FluidFatalError&){caught=true;}check(caught,"Unresolved energy projection passed strict narrowing");}
@@ -105,7 +105,7 @@ void rejected() {
     expect([]{static_cast<void>(MacEnergy::variance(-1,1));});
     expect([]{static_cast<void>(MacEnergy::from_double(1).shared(1,0));});
     fatal([]{static_cast<void>(MacEnergy::from_parts(.5,1026).project());});
-    fatal([]{static_cast<void>(MacEnergy::from_parts(.5,std::numeric_limits<int>::max()).shifted(1));});
+    fatal([]{static_cast<void>((MacExponent(std::numeric_limits<int>::max()) + 1).to_int_exact());});
     MacEnergySum held;held.add(1);expect([&]{held.add(MacEnergy::from_double(std::numeric_limits<double>::infinity()));});
     check(caught==10&&held.size()==1&&held.value().require_representable()==1,"Invalid wide energy input was accepted or changed a held sum");
     std::cout<<"REJECTIONS "<<caught<<'\n';

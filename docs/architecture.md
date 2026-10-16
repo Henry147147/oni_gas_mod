@@ -157,8 +157,8 @@ earlier first failures retained. Five reconstruction groups and separate
 exact/high-precision parcel/EOS checks pass. These smooth occupied-grid controls
 do not establish shocks, free surfaces or general nonlinear buoyancy.
 The new [strong-gas Riemann gate](../native/MAC_RIEMANN.md) remains failed:
-Windows completes Sod refinement but collision velocity error grows; Linux
-now completes Sod N64 and rejects integer exponent capacity on N128. The prior derived K
+Windows and Linux complete Sod refinement but collision velocity error grows.
+The prior derived K
 failure is addressed by [wide energy accounts](../native/MAC_ENERGY_TRANSPORT.md),
 which pass four new Windows/Linux controls and repeat every transport/closed/
 gravity prerequisite. Full energy values and legacy projection masks remain
@@ -170,9 +170,12 @@ pass four more groups and reach primary storage. The subsequent
 [full canonical/flux representation](../native/MAC_CANONICAL_RANGE.md) passes
 five more, retaining full J, velocities, sweeps, bulk/dual fluxes and wall
 reactions behind explicit double projections. Constituent/U cells remain
-binary64, and full vertical-gravity work is explicitly unsupported. A wider
-integer exponent representation and collision accuracy still require work
-before production ownership.
+binary64, and full vertical-gravity work is explicitly unsupported.
+[Bounded large integer exponents](../native/MAC_EXPONENT_RANGE.md) now remove
+the tested signed-word range failure while retaining binary64 significands.
+Six new groups, all 55 native prerequisite groups, separate saved-data reviews
+and Linux ASan/UBSan checks pass. Collision accuracy still requires work before
+production ownership; no full strong-flow acceptance follows.
 
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,

@@ -59,10 +59,10 @@ machines, pipes, and metabolism must use the same conserved state.
   pass five more, retaining below-range helium/passive contributions until
   accumulation. [Momentum contribution range](native/MAC_MOMENTUM_PARCELS.md)
   passes four more. [Full canonical/flux range](native/MAC_CANONICAL_RANGE.md)
-  passes five more and reaches a completed Linux Sod N64 profile. The
-  [strong-gas gate](native/MAC_RIEMANN.md) remains failed: Linux N128 exceeds the
-  integer exponent capacity, while the first Windows collision-accuracy failure
-  remains retained. Earlier results and diagnostics are preserved.
+  passes five more. [Bounded large integer exponents](native/MAC_EXPONENT_RANGE.md)
+  pass six more and Linux ASan/UBSan checks. Linux now completes Sod N64/128/256;
+  the [strong-gas gate](native/MAC_RIEMANN.md) remains failed on collision velocity
+  refinement on both platforms. Earlier results and diagnostics are preserved.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

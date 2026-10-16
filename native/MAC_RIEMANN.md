@@ -1,7 +1,8 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. Windows collision velocity refinement is unresolved;
-the latest Linux retry completes Sod N64 and then exceeds integer exponent capacity on N128.
+The gate remains failed. Windows and Linux complete Sod N64/128/256, then fail
+collision velocity refinement at N128. The latest exponent repair passes its
+scoped controls and removes the tested integer range rejection.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. This gate changes tests and build declarations;
@@ -71,7 +72,25 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current Linux canonical range and exponent-capacity rejection
+## Current exponent repair and collision-accuracy failure
+
+[Bounded large integer exponents](MAC_EXPONENT_RANGE.md) pass six new groups,
+8,560 saved checks and all 55 native prerequisite groups on Windows/Linux,
+including Linux ASan/UBSan checks of the new controls. After those pass, one
+Linux strong-flow retry completes Sod N64/128/256 with original criteria and no
+rejected attempts. Its fine-grid density/pressure/velocity errors are
+0.00419136756470/0.00322154541957/0.00532509993547.
+
+Collision N64/N128 then reproduce the Windows failure: velocity L1 grows from
+0.043892229516 to 0.048944416778, ratio **1.1151043663** versus the original 0.85
+bound. A partial saved-data review checks 59,205 identities across five profiles
+and reproduces the failed norm. One full native Sod subgroup passes; no full
+strong-flow review, collision N256 or separation case follows. Windows' failed
+gate is not repeated. Data-only localization finds oscillations behind the
+shocks while retaining the point-velocity metric. Collision accuracy requires
+a real numerical repair before either platform repeats this failed gate.
+
+## Canonical-range cohort: exponent-capacity rejection
 
 [Full canonical/flux range](MAC_CANONICAL_RANGE.md) passes five new Windows/Linux
 groups, 7,040 saved checks and all prerequisite controls/reviews. The Linux retry
@@ -81,8 +100,8 @@ Sod N128 then requests exponent -3049816383 in a scaled share, beyond the
 representation's signed 32-bit range. The original guard rejects before
 overflow. No complete refinement group or full strong-flow review passes.
 A first-rejection diagnostic changes no arithmetic, source input or bound.
-Wider exponent storage and the separate Windows collision-accuracy repair
-remain required. The Windows failed gate is not replayed.
+The later exponent repair above addresses that range failure. The Windows
+failed collision gate is not replayed by that repair.
 
 ## Momentum-contribution cohort: canonical storage rejection
 

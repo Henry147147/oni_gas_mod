@@ -85,7 +85,7 @@ inline void export_dual(int id, int axis, const MacDualFlux& flux) {
 inline void export_face_energy(int id, int axis, std::size_t face, const MacFaceEnergy& values) {
     if (values.rounded_projection_mask == 0) return;
     std::cout << "EFACE " << id << ' ' << axis << ' ' << face << ' ' << values.rounded_projection_mask;
-    for (const auto energy : {values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat})
+    for (const auto& energy : {values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat})
         std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
     std::cout << '\n';
 }
@@ -93,7 +93,7 @@ inline void export_energy_report(int id, const MacTransportReport& report) {
     if (report.rounded_energy_projections == 0) return;
     std::cout << "ECASE " << id << ' ' << report.rounded_energy_projections << ' ' << report.unresolved_heat_updates << ' ' <<
         report.mixing_heat_j << ' ' << report.wall_heat_j;
-    for (const auto energy : {report.energy_residual_wide_j, report.energy_bound_wide_j, report.mixing_heat_wide_j, report.wall_heat_wide_j})
+    for (const auto& energy : {report.energy_residual_wide_j, report.energy_bound_wide_j, report.mixing_heat_wide_j, report.wall_heat_wide_j})
         std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
     std::cout << '\n';
 }
@@ -220,7 +220,7 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
     export_energy_report(id, r);
     if (result.rounded_energy_projections != 0) {
         std::cout << "EOWNER " << id << ' ' << result.rounded_energy_projections;
-        for (const auto energy : {result.pressure_energy_residual_wide_j, result.pressure_energy_bound_wide_j, result.energy_residual_wide_j, result.energy_bound_wide_j})
+        for (const auto& energy : {result.pressure_energy_residual_wide_j, result.pressure_energy_bound_wide_j, result.energy_residual_wide_j, result.energy_bound_wide_j})
             std::cout << ' ' << energy.mantissa() << ' ' << energy.exponent();
         std::cout << '\n';
     }
