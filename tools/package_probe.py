@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,6 +30,7 @@ def main() -> None:
     parser.add_argument("--native", type=Path, required=True, help="libmixed_atmospheres.so or mixed_atmospheres.dll")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
+    parser.add_argument("--native-observer", type=Path, help="Opt-in forwarding SimDLL observer from its CMake build directory; never grants fluid authority")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
@@ -42,6 +44,15 @@ def main() -> None:
     if coupled is not None and (coupled.name != expected_coupled or not coupled.is_file()):
         parser.error("Supply the matching platform's explicit coupled reference library")
     validator = args.private_file_protocol_validator
+    observer = args.native_observer
+    observer_name = "mixed_atmospheres_oni.dll" if args.native.suffix == ".dll" else "libmixed_atmospheres_oni.so"
+    observer_support = observer.parent / "oni-generated" if observer else None
+    observer_source = observer.parent / "_deps/ma_funchook-src" if observer else None
+    if observer is not None and (observer.name != observer_name or not observer.is_file() or
+                                 not (observer_support / "licenses/funchook/LICENSE").is_file() or
+                                 not (observer_support / "licenses/distorm/COPYING").is_file() or
+                                 not (observer_source / "src/funchook_x86.c").is_file()):
+        parser.error("Supply the platform observer from its CMake build directory, including dependency sources/notices")
     if validator is not None and (args.native.suffix != ".dll" or not validator.is_file() or
                                   validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
                                                          "GameMonoFileProtocolValidation.dll")):
@@ -70,6 +81,17 @@ def main() -> None:
     shutil.copy2(files[2], native_directory / files[2].name)
     if coupled is not None:
         shutil.copy2(coupled.resolve(), native_directory / coupled.name)
+    if observer is not None:
+        shutil.copy2(observer.resolve(), native_directory / observer.name)
+        third_party = output / "third-party"
+        shutil.copytree(observer_support / "licenses", third_party / "licenses")
+        shutil.copy2(observer_support / "third-party-sources.txt", third_party)
+        shutil.copy2(ROOT / "tools/patch_funchook.py", third_party)
+        shutil.copy2(ROOT / "cmake/OniNativeBackend.cmake", third_party)
+        with tarfile.open(third_party / "funchook-1.1.3-with-distorm.tar.gz", "w:gz") as archive:
+            archive.add(observer_source, arcname="funchook-1.1.3", recursive=True)
+        (output / "native-backend-observation.json").write_text(
+            json.dumps({"SchemaVersion": 1, "Enabled": True}) + "\n", encoding="utf-8")
     if validator is not None:
         private_directory = output / "private-validation"
         private_directory.mkdir()
@@ -98,6 +120,7 @@ def main() -> None:
         encoding="utf-8")
     manifest = {"kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
                 "source_revision": revision, "source_dirty": dirty, "source_status": status,
+                "native_observer_enabled": observer is not None,
                 "files": {f.relative_to(output).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
                           for f in sorted(output.rglob("*")) if f.is_file()}}
     (output / "package-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

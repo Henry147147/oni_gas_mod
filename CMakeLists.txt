@@ -4,9 +4,14 @@ project(MixedAtmospheres VERSION 0.1.0 LANGUAGES CXX)
 option(MA_BUILD_TESTS "Build standalone physics and ABI tests" ON)
 option(MA_SANITIZERS "Enable address and undefined-behavior sanitizers" OFF)
 option(MA_BUILD_STAGGERED_EXPERIMENTS "Build unfinished standalone Cartesian/hybrid remap experiments" OFF)
+option(MA_BUILD_ONI_NATIVE_BACKEND "Build opt-in forwarding native SimDLL observer" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(MA_BUILD_ONI_NATIVE_BACKEND)
+    include(cmake/OniNativeBackend.cmake)
+endif()
 
 # Used only by the explicit experimental FluidWorld geometry/EOS mode. The
 # existing GasWorld/C ABI do not select it. Keep its independent test project.

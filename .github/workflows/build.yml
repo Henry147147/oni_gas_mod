@@ -16,7 +16,7 @@ jobs:
         with:
           arch: x64
       - name: Build and test
-        run: python tools/build.py
+        run: python tools/build.py --oni-native-observer
       - name: Configure isolated liquid thermodynamic reference
         run: cmake -S native/experimental -B build-liquid-reference -G Ninja -DCMAKE_BUILD_TYPE=Release
       - name: Build isolated liquid thermodynamic reference
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Native memory and undefined-behavior checks
-        run: python3 tools/build.py --native-only --sanitizers --build-dir build-sanitized
+        run: python3 tools/build.py --native-only --sanitizers --oni-native-observer --build-dir build-sanitized
       - name: Configure isolated reference sanitizers
         run: cmake -S native/experimental -B build-liquid-reference-sanitized -G Ninja -DCMAKE_BUILD_TYPE=Debug -DMA_REFERENCE_SANITIZERS=ON
       - name: Build isolated reference sanitizers

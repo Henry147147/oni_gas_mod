@@ -42,6 +42,15 @@ class CoverageTests(unittest.TestCase):
         self.inventory["entries"] = [entry for entry in self.inventory["entries"] if entry["id"] != "message/MassEmission"]
         with self.assertRaisesRegex(ValueError, "Missing discovered"): coverage.validate(self.inventory)
 
+    def test_native_hooks_cannot_disappear_from_coverage(self):
+        self.inventory["entries"] = [entry for entry in self.inventory["entries"] if entry["id"] != "native-hook/pressure"]
+        with self.assertRaisesRegex(ValueError, "Missing discovered"): coverage.validate(self.inventory)
+
+    def test_forwarding_observer_cannot_satisfy_native_takeover(self):
+        entry = next(entry for entry in self.inventory["entries"] if entry["kind"] == "native-hook")
+        self.inventory["evidence"] = [self.proof(entry)]
+        with self.assertRaisesRegex(ValueError, "forwarding observation is insufficient"): coverage.validate(self.inventory)
+
     def test_material_deletion_or_identity_edit_rejected(self):
         self.inventory["entries"] = [entry for entry in self.inventory["entries"] if entry["id"] != "material/Oxygen"]
         with self.assertRaisesRegex(ValueError, "Material identity list changed"): coverage.validate(self.inventory)

@@ -74,6 +74,7 @@ namespace MixedAtmospheres.Oni
             if (world == null)
             {
                 var native = Sim.SIM_HandleMessage(message, length, payload);
+                NativeBackendObservation.AfterNativeMessage(message);
                 return ColonyRuntimeValidation.AfterNativeMessage(message, native);
             }
             if (length < 0 || (length != 0 && payload == null)) throw new ArgumentException("Invalid scoped message payload.");

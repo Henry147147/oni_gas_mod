@@ -10,7 +10,30 @@ Linux. Every fluid inventory will retain the mass of every constituent. Oxygen,
 nitrogen, carbon dioxide, temperature, pressure, buoyancy, phase changes,
 machines, pipes, and metabolism must use the same conserved state.
 
+## How the native integration works
+
+The production architecture uses **native SimDLL hooks** to put the mixture
+engine inside ONI's simulation schedule. The custom engine will own all fluid
+inventories and physics; verified native services retain solids and buildings.
+Native scalar cells become compatibility projections, while machines, heat,
+callbacks, rendering and saves use one completed physical frame. The mod loads
+its own library and changes verified code in memory; installed SimDLL files
+remain intact.
+
+This is the next implementation track, **not an already playable takeover**.
+It starts with an opt-in forwarding observer, followed by controlled takeover,
+production physics, complete gameplay and persistence. Windows and native Linux
+have independent ONI 744825 profiles. Earlier vacuum-shadow experiments remain
+historical controls. See the [native integration contract](docs/native-backend-integration.md)
+for ownership, interfaces, failures and implementation gates.
+
 ## What currently works
+
+- Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
+  code fingerprints, bounded traces and lifecycle fences. Linux isolated and
+  Unity forwarding checks pass; the Windows branch cross-compiles, with actual
+  Windows validation still required. This observer preserves native physics.
+  See [instructions and evidence](docs/native-backend-integration.md#build-and-observe).
 
 - Per-species mass and internal-energy inventories, including nitrogen; bulk
   transfers and selective extraction retain trace constituents.

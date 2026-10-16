@@ -9,6 +9,13 @@ windowed player on the virtual desktop.
 
 ## Current machine: 2026-10-16
 
+The optional native SimDLL forwarding observer has a separate `native-observer`
+mode. Build/package with `--native-observer`, then use that mode to validate
+hook progress and byte-identical snapshots in a disposable colony. It requires
+its own observer report and always leaves physics with native ONI. It does not
+waive the stricter `snapshot-copy` material-import gate. Instructions and current
+evidence are in [the backend contract](../docs/native-backend-integration.md#build-and-observe).
+
 The user signed the private Steam client in and installed ONI through it at
 `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded`
 (Steam build 24423041, game build U59-744825). Its `Assembly-CSharp.dll`

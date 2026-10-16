@@ -12,6 +12,28 @@ namespace MixedAtmospheres.Oni
     {
         private static IntPtr module;
         private static IntPtr coupledReferenceModule;
+        private static IntPtr observerModule;
+        internal static bool ObserverLoaded => observerModule != IntPtr.Zero;
+        internal static void LoadObserver(string modDirectory)
+        {
+            if (observerModule != IntPtr.Zero) return;
+            if (IntPtr.Size != 8) throw new PlatformNotSupportedException("A 64-bit native observer is required.");
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var file = Path.GetFullPath(Path.Combine(modDirectory, "native", "win-x64", "mixed_atmospheres_oni.dll"));
+                if (!File.Exists(file)) throw new FileNotFoundException("Native observer is missing", file);
+                observerModule = LoadLibraryEx(file, IntPtr.Zero, 0x00000100 | 0x00001000);
+                if (observerModule == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot load native observer");
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var file = Path.GetFullPath(Path.Combine(modDirectory, "native", "linux-x64", "libmixed_atmospheres_oni.so"));
+                if (!File.Exists(file)) throw new FileNotFoundException("Native observer is missing", file);
+                observerModule = Dlopen(file, 2 | 0x100);
+                if (observerModule == IntPtr.Zero) throw new DllNotFoundException("Cannot load native observer: " + Marshal.PtrToStringAnsi(Dlerror()));
+            }
+            else throw new PlatformNotSupportedException("Native observation targets Windows and Linux x64.");
+        }
         internal static void LoadCoupledReference(string modDirectory)
         {
             if (coupledReferenceModule != IntPtr.Zero) return;

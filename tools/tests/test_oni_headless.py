@@ -20,6 +20,20 @@ SPEC.loader.exec_module(runner)
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_optional_native_observer_requires_its_own_forwarding_report(self):
+        manifest = {"native_observer_enabled": True}
+        report = {"Status": "observing", "OriginalNativePhysicsActive": True,
+                  "AuthoritativeFluidOwner": False, "Observation": {"ForwardingOnly": True,
+                      "Attached": True, "RecoveryRequired": False, "AuthoritativeFluidOwner": False, "OniBuild": 744825}}
+        self.assertTrue(runner.native_observer_passed(manifest, report))
+        self.assertFalse(runner.native_observer_passed(manifest, None))
+        report["Observation"]["AuthoritativeFluidOwner"] = True
+        self.assertFalse(runner.native_observer_passed(manifest, report))
+        report["Observation"]["AuthoritativeFluidOwner"] = False
+        report["Observation"]["RecoveryRequired"] = True
+        self.assertFalse(runner.native_observer_passed(manifest, report))
+        self.assertTrue(runner.native_observer_passed({}, None))
+
     def setUp(self):
         self.probe = {flag: True for flag in runner.PROBE_FLAGS}
         self.probe["Platform"] = "LinuxPlayer"

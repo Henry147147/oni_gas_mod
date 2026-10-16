@@ -11,5 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeObserver.cs" Link="OniNativeObserver.cs" />
   </ItemGroup>
 </Project>

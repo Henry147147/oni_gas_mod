@@ -474,9 +474,23 @@ def screenshot(state: Path, session: dict, path: Path) -> None:
     run_checked([str(state / "tools/desktop/usr/bin/scrot"), "-o", str(path)], env=desktop_env(state, session))
 
 
+def native_observer_passed(manifest: dict, report: dict | None) -> bool:
+    if not manifest.get("native_observer_enabled", False):
+        return True
+    if not isinstance(report, dict):
+        return False
+    reading = report.get("Observation", {})
+    return (report.get("Status") == "observing" and report.get("OriginalNativePhysicsActive") is True
+            and report.get("AuthoritativeFluidOwner") is False and reading.get("ForwardingOnly") is True
+            and reading.get("Attached") is True and reading.get("RecoveryRequired") is False
+            and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
+
+
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
+    if args.mode == "native-observer" and not manifest.get("native_observer_enabled", False):
+        raise ValueError("native-observer mode requires a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
         raise ValueError("Supply the native Linux ONI installation.")
@@ -566,6 +580,14 @@ def playtest(args, state: Path, session: dict) -> int:
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = CHILDREN[record["pid"]].poll()
         status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (name,))
+        observer_file = mod / "native-backend-observation-report.json"
+        try:
+            observer_report = read_json(observer_file) if observer_file.exists() else None
+        except (OSError, json.JSONDecodeError):
+            observer_report = None
+        observer_ok = native_observer_passed(manifest, observer_report)
+        if code == 0 and not observer_ok:
+            status, code = "failed-native-observer", 2
         retain_on_success = args.keep_open and code == 0
         result = {
             "status": status, "exit_code": code, "mode": args.mode, "output": str(output),
@@ -579,6 +601,8 @@ def playtest(args, state: Path, session: dict) -> int:
             "colony_started": bool(report and report.get("GameStarted")),
             "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
             "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
+            "native_backend_observation": observer_report,
+            "native_backend_observer_passed": observer_ok,
             "game_hashes": {p: digest(game / p) for p in (
                 "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
             **revision_fields(manifest),
@@ -606,7 +630,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)

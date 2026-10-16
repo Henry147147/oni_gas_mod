@@ -369,6 +369,14 @@ positive temperature and full-system conservation are the relevant checks.
 
 ## Native ownership and compatibility
 
+The selected production architecture is direct **in-memory native SimDLL
+integration**, specified in [the native backend contract](native-backend-integration.md).
+Hooks route fluid work to the custom engine within ONI's schedule while
+retaining verified nonfluid services. Native scalar fluid cells are projections,
+never the physical owner. Complete native reader/writer coverage, explicit
+cross-domain transfers and completed-frame publication are required before
+takeover. The initial forwarding observer does not grant fluid ownership.
+
 ONI 744825's native simulator is a process-wide singleton. `Grid` contains
 pointers into arrays returned through `Sim.GameDataUpdate`. Cell mutations,
 component registration, consumers, emitters, temperatures, diseases, radiation,
@@ -402,12 +410,13 @@ The main-menu probe has passed inside Windows ONI, and the same six scoped
 checks passed during Linux Unity startup. Linux exited before its main menu
 with no local Steam session. A separate process harness
 has passed narrow import/solid-heat checks using both Windows and Linux native
-libraries. It is investigating whether native solids/buildings can coexist
-with an entirely custom fluid domain by representing those fluids as native vacuum. That
-candidate requires suppressing every native fluid source, owning fluid-solid
-coupling, and publishing owned merged arrays. See the detailed
-[native contract and disposable-colony gate](interop-contract.md); scoped
-probe success alone does not validate this architecture.
+libraries. Its vacuum-shadow method is historical research, superseded as the
+production design by native hooks. Preserve its results and negative controls
+without treating zero-fluid snapshots as hook-ownership evidence. See the
+[inspected interface and historical experiments](interop-contract.md).
+Current Linux main-menu/presentation setup evidence is recorded in
+[the headless runner documentation](../tools/ONI_HEADLESS.md); these fixtures
+and scoped probes do not establish production native ownership.
 
 A constant-capacity thermal-network component now provides backward-Euler heat
 conduction with pairwise conservative energy transfers. Conductance uses the

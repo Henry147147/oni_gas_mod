@@ -2,12 +2,17 @@
 
 Milestone A is **in progress**, not complete. The public release gate is closed.
 The [accepted completion plan](completion-plan.md) remains the execution target.
+The selected mechanism is now [native SimDLL hooks](native-backend-integration.md).
+Staging/filter controls below are historical vacuum-shadow work, not an enabled
+production importer. Hook acceptance must audit readers/writers and trace actual
+execution; scalar projected fluids are allowed. Observer attachment cannot
+satisfy ownership gates.
 
 ## Executable inventory
 
-`coverage-inventory.json` currently contains 3,042 entries: 212 material
-identities, 62 native messages, 16 native imports, 47 snapshot/event/texture
-channels, 215 observed call sites, 38 required gameplay systems, 2,143 prefab
+`coverage-inventory.json` currently contains 3,066 entries: 212 material
+identities, 62 native messages, 16 native imports, 23 native-hook responsibilities,
+47 snapshot/event/texture channels, 215 observed call sites, 39 gameplay systems, 2,143 prefab
 registrations, 34 prefab converters and 275 recipe registrations. Every entry
 names its intended owner, adapter and acceptance requirement. Adapter names
 with `unimplemented` status are planned responsibilities, not existing code.
@@ -27,6 +32,11 @@ configuration. Absence requires a registry capture; native interfaces and
 observed call sites cannot be waived as absent. Unit tests never count as
 in-game acceptance. Cosmetic compatibility and numerical/performance/long-run
 requirements remain separate release evidence.
+
+Native-hook evidence additionally requires explicit authoritative fluid ownership
+and complete reader/writer coverage. Forwarding observation cannot pass those
+entries. Windows has no standalone `Step` symbol: that obligation requires proof
+of the enclosing phase, rather than an absence waiver.
 
 ```sh
 python3 tools/coverage_inventory.py validate

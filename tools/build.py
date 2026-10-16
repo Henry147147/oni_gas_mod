@@ -27,6 +27,7 @@ def main() -> None:
     parser.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR"))
     parser.add_argument("--sanitizers", action="store_true")
     parser.add_argument("--native-only", action="store_true")
+    parser.add_argument("--oni-native-observer", action="store_true", help="Build forwarding SimDLL hooks and relocation/ABI tests; no licensed game required")
     args = parser.parse_args()
     directory = (args.build_dir or ROOT / ("build-windows" if os.name == "nt" else "build")).resolve()
     if platform.system() not in ("Windows", "Linux"):
@@ -34,7 +35,8 @@ def main() -> None:
     run([sys.executable, "tools/coverage_inventory.py", "validate"])
     run([sys.executable, "-m", "unittest", "discover", "-s", "tools/tests", "-v"])
     run(["cmake", "-S", str(ROOT), "-B", str(directory), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
-         "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF"), "-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF"])
+         "-DMA_SANITIZERS=" + ("ON" if args.sanitizers else "OFF"), "-DMA_BUILD_STAGGERED_EXPERIMENTS=OFF",
+         "-DMA_BUILD_ONI_NATIVE_BACKEND=" + ("ON" if args.oni_native_observer else "OFF")])
     run(["cmake", "--build", str(directory), "--parallel", "8"])
     run(["ctest", "--test-dir", str(directory), "--output-on-failure"])
     if args.native_only:

@@ -14,14 +14,15 @@ internal static unsafe class Program
     private const int Width = 64, Height = 64, Cells = Width * Height;
     private const int OxygenCell = 20 + 20 * Width, WaterCell = 30 + 20 * Width;
     private const int ColdCell = 15 + 15 * Width, HotCell = 16 + 15 * Width;
+    private const int SecondaryColdCell = 47 + 15 * Width, SecondaryHotCell = 48 + 15 * Width;
     private const int TransitionCell = 40 + 20 * Width;
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     private static int Main(string[] args)
     {
-        if (args.Length != 4 || args[2] is not ("baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
         {
-            Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <baseline|sanitize|rebuild-shadow|load-shadow|transition|filtered-transition|reject-custom-envelope> <report.json>");
+            Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
         }
         var report = new Dictionary<string, object?>
@@ -47,11 +48,13 @@ internal static unsafe class Program
             report["elementsSha256"] = Convert.ToHexStringLower(SHA256.HashData(contract.Elements));
             report["diseasesSha256"] = Convert.ToHexStringLower(SHA256.HashData(contract.Diseases));
             report["elementCount"] = contract.Count;
+            using var observer = args.Length == 6 ? LoadObserver(args[4], args[5]) : null;
             using (var sim = new NativeSim(nativePath))
             {
                 report["nativeDiagnostics"] = sim.Diagnostics;
                 Stage("initialize");
                 sim.Initialize();
+                observer?.VerifyLiveDetachRejected();
                 var table = (byte[])contract.Elements.Clone();
                 if (args[2] == "filtered-transition") report["filteredDefinitions"] = contract.FilterFluidProduction(table);
                 sim.Send(1108437482, table);
@@ -60,10 +63,12 @@ internal static unsafe class Program
                 sim.Send(2062421945, CreateWorld(contract, args[2]));
                 Stage("start");
                 var initial = Snapshot.Read(sim.Send(-931446686, []), contract);
+                sim.VerifyBatchSnapshots(contract, initial);
+                report["emptyAndTwoMessageBatchesPreservedSnapshot"] = true;
                 report["initial"] = initial;
                 Require(initial.Elements[ColdCell] == contract.Granite && initial.Elements[HotCell] == contract.Granite,
                     "Native solid initialization differs from input.");
-                if (args[2] is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope")
+                if (ContainsFluidFixture(args[2]))
                 {
                     Require(initial.Elements[OxygenCell] == contract.Oxygen && initial.Elements[WaterCell] == contract.Water,
                         "Native fluid initialization differs from input.");
@@ -72,7 +77,7 @@ internal static unsafe class Program
                 if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
                 else
                 {
-                if (args[2] == "baseline")
+                if (args[2] is "baseline" or "multi-region")
                 {
                     Stage("export-initial-native-save");
                     var saved = sim.Save();
@@ -170,7 +175,7 @@ internal static unsafe class Program
                 report["frames"] = trace;
                 for (var i = 0; i < 12; ++i)
                 {
-                    sim.Send(-775326397, Frame(0.2f));
+                    sim.Send(-775326397, args[2] == "multi-region" ? RegionFrames(0.2f) : Frame(0.2f));
                     var snapshot = sim.PrepareAfterFrame(contract);
                     trace.Add(snapshot);
                     Require(snapshot.FramesProcessed == 1, "Expected one processed native frame; observed " + snapshot.FramesProcessed + ".");
@@ -180,11 +185,34 @@ internal static unsafe class Program
                 report["solidHeatTransferObserved"] = trace[^1].ColdTemperature > initial.ColdTemperature
                     && trace[^1].HotTemperature < initial.HotTemperature;
                 Require((bool)report["solidHeatTransferObserved"]!, "Native solid heat transfer was not observed.");
+                if (args[2] == "multi-region")
+                {
+                    Require(trace[^1].SecondaryColdTemperature > initial.SecondaryColdTemperature &&
+                        trace[^1].SecondaryHotTemperature < initial.SecondaryHotTemperature,
+                        "Second active region did not advance its native heat pair.");
+                    report["twoActiveRegionsAdvanceOncePerFrame"] = true;
+                }
                 if (args[2] == "transition") Require(trace.Any(item => item.FluidCells > 0), "Unfiltered melting control did not produce fluid.");
                 if (args[2] == "filtered-transition") Require(trace.All(item => item.TransitionElement == contract.Ice), "Filtered ice did not remain solid.");
                 Require(sim.Diagnostics.Count == 0, "Native simulator reported diagnostic errors.");
                 }
                 Stage("shutdown");
+            }
+            if (observer != null)
+            {
+                var reading = observer.Capture();
+                observer.VerifyTraceBufferRejection();
+                report["nativeObserver"] = reading;
+                report["nativeObserverTrace"] = observer.CaptureTrace().Select(e => new {
+                    e.Sequence, e.Thread, Hook = OniNativeObserver.HookNames[e.Hook], e.Entering, e.ValueBits
+                }).ToArray();
+                Require(reading.Attached && reading.ActiveCalls == 0 && !reading.AuthoritativeFluidOwner,
+                    "Observer lifecycle or ownership status differs.");
+                Require(reading.Hooks.All(hook => hook.Entries == hook.Exits), "Native hook entry/exit imbalance after shutdown.");
+                if (args[2] is "baseline" or "multi-region") Require(reading.PositiveTimestepReturns == 12, "Expected twelve positive native timestep returns.");
+                observer.Dispose();
+                report["nativeObserverDetached"] = !observer.Capture().Attached;
+                report["nativeObserverLiveDetachRejected"] = true;
             }
             report["passed"] = true;
         }
@@ -203,7 +231,16 @@ internal static unsafe class Program
     }
 
     private static void Stage(string value) { Console.WriteLine(value); Console.Out.Flush(); }
+    private static OniNativeObserver LoadObserver(string path, string gameDirectory)
+    {
+        var module = NativeLibrary.Load(Path.GetFullPath(path));
+        // Keep the module resident for cached P/Invoke targets and trampolines.
+        NativeLibrary.SetDllImportResolver(typeof(Program).Assembly,
+            (name, assembly, search) => name == "mixed_atmospheres_oni" ? module : IntPtr.Zero);
+        return new OniNativeObserver(Path.GetFullPath(gameDirectory));
+    }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
+    private static bool ContainsFluidFixture(string mode) => mode is "baseline" or "multi-region" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope";
     private static void VerifyCustomEnvelopeRejection(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report)
     {
         Stage("unmodified-native-load-positive-control");
@@ -255,7 +292,9 @@ internal static unsafe class Program
             float mass = border ? 20000 : 0, temperature = border ? 293.15f : 0;
             if (cell == ColdCell || cell == HotCell)
             { element = contract.Granite; mass = 1000; temperature = cell == ColdCell ? 300 : 600; }
-            if (mode is "baseline" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope")
+            if (mode == "multi-region" && (cell == SecondaryColdCell || cell == SecondaryHotCell))
+            { element = contract.Granite; mass = 1000; temperature = cell == SecondaryColdCell ? 300 : 600; }
+            if (ContainsFluidFixture(mode))
             {
                 if (cell == OxygenCell) { element = contract.Oxygen; mass = 2; temperature = 293.15f; }
                 if (cell == WaterCell) { element = contract.Water; mass = 100; temperature = 293.15f; }
@@ -311,6 +350,14 @@ internal static unsafe class Program
     {
         writer.Write(dt); writer.Write(0); writer.Write(0); writer.Write(Width); writer.Write(Height);
         writer.Write(0f); writer.Write(0f);
+    });
+    private static byte[] RegionFrames(float dt) => WritePayload(writer =>
+    {
+        for (var x = 0; x < Width; x += Width / 2)
+        {
+            writer.Write(dt); writer.Write(x); writer.Write(0); writer.Write(x + Width / 2); writer.Write(Height);
+            writer.Write(0f); writer.Write(0f);
+        }
     });
 
     private sealed class Contract
@@ -371,6 +418,8 @@ internal static unsafe class Program
         public double TotalMass { get; init; }
         public float ColdTemperature { get; init; }
         public float HotTemperature { get; init; }
+        public float SecondaryColdTemperature { get; init; }
+        public float SecondaryHotTemperature { get; init; }
         public int TransitionElement { get; init; }
         public int SubstanceChangeEvents { get; init; }
         public int FallingLiquidEvents { get; init; }
@@ -411,6 +460,7 @@ internal static unsafe class Program
             {
                 Elements = elements, CellData = states, FramesProcessed = Marshal.ReadInt32(pointer, 0), FluidCells = fluids,
                 FluidMass = fluidMass, TotalMass = totalMass, ColdTemperature = temperatures[ColdCell], HotTemperature = temperatures[HotCell],
+                SecondaryColdTemperature = temperatures[SecondaryColdCell], SecondaryHotTemperature = temperatures[SecondaryHotCell],
                 TransitionElement = indices[TransitionCell], SubstanceChangeEvents = Marshal.ReadInt32(pointer, 136),
                 FallingLiquidEvents = Marshal.ReadInt32(pointer, 160), OreEvents = Marshal.ReadInt32(pointer, 184)
             };
@@ -423,12 +473,14 @@ internal static unsafe class Program
         [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void InitializeFunction(Callback callback);
         [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void ShutdownFunction();
         [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr MessageFunction(int id, int size, byte* data);
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate IntPtr MessagesFunction(int id, int size, int count, byte* data);
         [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate byte* BeginSaveFunction(int* size, int x, int y);
         [UnmanagedFunctionPointer(CallingConvention.Winapi)] private delegate void EndSaveFunction();
         private readonly IntPtr library;
         private readonly InitializeFunction initialize;
         private readonly ShutdownFunction shutdown;
         private readonly MessageFunction message;
+        private readonly MessagesFunction messages;
         private readonly BeginSaveFunction beginSave;
         private readonly EndSaveFunction endSave;
         private readonly Callback callback;
@@ -441,6 +493,7 @@ internal static unsafe class Program
             initialize = Marshal.GetDelegateForFunctionPointer<InitializeFunction>(NativeLibrary.GetExport(library, "SIM_Initialize"));
             shutdown = Marshal.GetDelegateForFunctionPointer<ShutdownFunction>(NativeLibrary.GetExport(library, "SIM_Shutdown"));
             message = Marshal.GetDelegateForFunctionPointer<MessageFunction>(NativeLibrary.GetExport(library, "SIM_HandleMessage"));
+            messages = Marshal.GetDelegateForFunctionPointer<MessagesFunction>(NativeLibrary.GetExport(library, "SIM_HandleMessages"));
             beginSave = Marshal.GetDelegateForFunctionPointer<BeginSaveFunction>(NativeLibrary.GetExport(library, "SIM_BeginSave"));
             endSave = Marshal.GetDelegateForFunctionPointer<EndSaveFunction>(NativeLibrary.GetExport(library, "SIM_EndSave"));
             callback = OnDiagnostic;
@@ -484,6 +537,26 @@ internal static unsafe class Program
             { writer.Write(1); writer.Write(0); writer.Write(0); writer.Write(Width); writer.Write(Height); }));
         }
         public IntPtr Send(int id, byte[] bytes) { fixed (byte* data = bytes) return message(id, bytes.Length, data); }
+        public void VerifyBatchSnapshots(Contract contract, Snapshot initial)
+        {
+            // Start and PrepareGameData use distinct native publication paths:
+            // the first ordinary query normalizes empty backwall identities.
+            // Compare the batch with that equivalent ordinary-query baseline.
+            var before = Prepare(contract);
+            Require(before.FramesProcessed == 0 && before.TotalMass == initial.TotalMass && before.FluidMass == initial.FluidMass &&
+                before.ColdTemperature == initial.ColdTemperature && before.HotTemperature == initial.HotTemperature,
+                "Ordinary pre-batch publication advanced physical state.");
+            Require(messages(1078620451, visibility.Length, 0, null) == IntPtr.Zero, "Empty native batch returned a result.");
+            var payload = visibility.Concat(visibility).ToArray();
+            fixed (byte* pointer = payload)
+            {
+                var current = Snapshot.Read(messages(1078620451, visibility.Length, 2, pointer), contract);
+                Require(current.FramesProcessed == 0 && current.CellData.SequenceEqual(before.CellData),
+                    "Two-query native batch changed the initial snapshot; frames=" + current.FramesProcessed + "; first difference=" +
+                    before.CellData.Zip(current.CellData).Select((pair, index) => new { pair, index })
+                        .Where(item => item.pair.First != item.pair.Second).Select(item => item.index + ": " + item.pair.First + " -> " + item.pair.Second).FirstOrDefault());
+            }
+        }
         public byte[] Save()
         {
             var size = 0;

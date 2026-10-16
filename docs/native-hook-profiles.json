@@ -1,0 +1,456 @@
+{
+  "schema_version": 1,
+  "oni_build": 744825,
+  "steam_build_id": 24423041,
+  "scope": "Forwarding observer only; no fluid authority or complete writer coverage.",
+  "profiles": [
+    {
+      "platform": "windows-x64",
+      "native_relative_path": "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll",
+      "native_sha256": "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",
+      "assembly_sha256": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
+      "native_bytes": 1176576,
+      "symbols": {
+        "pdb_guid": "7ca64cfd-5754-4a86-9b05-4be74c76f7a3",
+        "pdb_age": 1
+      },
+      "globals": [
+        {
+          "name": "gSim",
+          "rva": 1134520
+        },
+        {
+          "name": "gSimData",
+          "rva": 1136192
+        }
+      ],
+      "hooks": [
+        {
+          "index": 0,
+          "role": "initialize",
+          "symbol": "SIM_Initialize",
+          "rva": 31840,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "24edabb6cdd986830bad4942dd87b57f477a4e5e103947a2a0a2f2c8947f8aea",
+          "signature": "void(callback)"
+        },
+        {
+          "index": 1,
+          "role": "shutdown",
+          "symbol": "SIM_Shutdown",
+          "rva": 32048,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "dda95cc2f43320af30e405b5a489fa5c2b577a1f096040479e0c9d31204062eb",
+          "signature": "void()"
+        },
+        {
+          "index": 2,
+          "role": "message",
+          "symbol": "SIM_HandleMessage",
+          "rva": 31360,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "3f19deac36daf1124cae54ae7ca675bb403b45af8737d7d8792eb2e92eb2a748",
+          "signature": "pointer(int,int,byte*)"
+        },
+        {
+          "index": 3,
+          "role": "messages",
+          "symbol": "SIM_HandleMessages",
+          "rva": 31584,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "a847b9beacd38f9d04e8fbdec5241e29e6cade8d7063921ff12c3b38bf94aaac",
+          "signature": "pointer(int,int,int,byte*)"
+        },
+        {
+          "index": 4,
+          "role": "begin-save",
+          "symbol": "SIM_BeginSave",
+          "rva": 29920,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "d825ea70965609019a9e18cd170ca5abfbbdf18c853abf6b3cd330cc8d29881e",
+          "signature": "byte*(int*,int,int)"
+        },
+        {
+          "index": 5,
+          "role": "end-save",
+          "symbol": "SIM_EndSave",
+          "rva": 31312,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "d5d6b528b9118fc2cd70d4df6854b6b58373a06abd64dae4c29a83b1d378d7d2",
+          "signature": "void()"
+        },
+        {
+          "index": 6,
+          "role": "main",
+          "symbol": "?Main@Sim@@MEAAXXZ",
+          "rva": 216272,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "a1602c0acc6037af4c12df3eefba77ccea2b5cf96f72fb038215864a68da3021",
+          "signature": "void(this*)"
+        },
+        {
+          "index": 7,
+          "role": "process-frame",
+          "symbol": "?ProcessFrame@SimFrameManager@@SAXAEAUSimFrameInfo@@AEAVSimData@@@Z",
+          "rva": 128816,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "22df0ae7e31070cb251808a8241da59dfba27c5080b134f5d118d87456a475fb",
+          "signature": "void(frame*,data*)"
+        },
+        {
+          "index": 8,
+          "role": "next-frame",
+          "symbol": "?ProcessNextFrame@SimFrameManager@@QEAAMAEAVSimData@@@Z",
+          "rva": 134384,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "a4ff1d941f6ed5b1c8c9d045a578d9890e207e22760ad0c6e18fa6a7a3e57ba0",
+          "signature": "float(this*,data*)"
+        },
+        {
+          "index": 9,
+          "role": "update-data",
+          "symbol": "?UpdateData@SimBase@@QEAAXAEAVSimData@@@Z",
+          "rva": 285968,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "a796150c32d95a5969984ed6066a7a123232ee49816ee0724dd5609c06b2b56f",
+          "signature": "void(this*,data*)"
+        },
+        {
+          "index": 10,
+          "role": "pressure",
+          "symbol": "?UpdatePressure@@YAMAEAVSimData@@AEAUSimEvents@@PEBUCellSOA@@PEAU3@HGCMH@Z",
+          "rva": 306848,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "b0d511bc287640625d1bc7449489e23949bd50048f1c61108b3078f8366ace3d",
+          "signature": "float(data*,events*,const-cell*,cell*,int,uint16,int8,float,int)"
+        },
+        {
+          "index": 11,
+          "role": "liquid",
+          "symbol": "?UpdateLiquid@@YAXAEAVSimData@@AEAUSimEvents@@H@Z",
+          "rva": 301232,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "3a4707e10ae1b06eff666b1453d83da9997c8ac7781acd8b0534ef41f4db4ae9",
+          "signature": "void(data*,events*,int)"
+        },
+        {
+          "index": 12,
+          "role": "temperature",
+          "symbol": "?UpdateTemperature@@YAXAEAVSimData@@AEAUSimEvents@@HH@Z",
+          "rva": 222320,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "f90e07b221ff0fdb59d85a6ce786676dbadc6f95f7810d2eca6a76ec9cc7bb0d",
+          "signature": "void(data*,events*,int,int)"
+        },
+        {
+          "index": 13,
+          "role": "state-transition",
+          "symbol": "?DoStateTransition@@YA_NAEAVSimData@@AEAUSimEvents@@HAEBUElementTemperatureData@@@Z",
+          "rva": 219616,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "2649ccf26ec0285ad56bc74892f523ac84abeb1a5bc4ac0eeb540b91b6f36494",
+          "signature": "bool(data*,events*,int,const-definition*)"
+        },
+        {
+          "index": 14,
+          "role": "load-transition",
+          "symbol": "?DoLoadTimeStateTransition@@YAXAEAVSimData@@H@Z",
+          "rva": 219216,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "e1e6800468a6d7448f5ed14283eeab1d1221d75933c6348de818ba1f58235fc4",
+          "signature": "void(data*,int)"
+        },
+        {
+          "index": 15,
+          "role": "sublimation",
+          "symbol": "?DoSublimation@@YA_NAEAVSimData@@AEAUSimEvents@@HAEBUElementPostProcessData@@@Z",
+          "rva": 313424,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "9683fa68612df2f39302527a4e81ae6dd8391f617bdfa1544e0c03120472d8ec",
+          "signature": "bool(data*,events*,int,const-definition*)"
+        },
+        {
+          "index": 16,
+          "role": "post-process",
+          "symbol": "?PostProcessCell@@YAXAEAVSimData@@AEAUSimEvents@@H@Z",
+          "rva": 318192,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "0cff3c62d9ceb0e7542e5d837edb857da8f880b4298a530c2a46da37ee571a3a",
+          "signature": "void(data*,events*,int)"
+        },
+        {
+          "index": 18,
+          "role": "begin-frame",
+          "symbol": "?BeginFrameProcessing@SimFrameManager@@QEAAHXZ",
+          "rva": 118672,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "cd2180b9566745f859c3be5d4524efb0901dae397fe66b651cb2c3791b94c421",
+          "signature": "int(this*)"
+        },
+        {
+          "index": 19,
+          "role": "end-frame",
+          "symbol": "?EndFrameProcessing@SimFrameManager@@QEAAXXZ",
+          "rva": 119104,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "adeb99da7976ad9f807ca0468db9029103f3e2d2ce98dfa0a621e0ad3c0f8597",
+          "signature": "void(this*)"
+        },
+        {
+          "index": 20,
+          "role": "consumer",
+          "symbol": "?Update@ElementConsumer@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+          "rva": 264320,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "ad73c9f05452a95650e547d986fe9e1abb98303b94dc24b320062d297e030fcf",
+          "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 21,
+          "role": "emitter",
+          "symbol": "?Update@ElementEmitter@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+          "rva": 268272,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "7c44552e1db6ee5d0e76ca9c98634ab6a9e2d6dd232535ed4b9116648e9b0638",
+          "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 22,
+          "role": "building-heat",
+          "symbol": "?Update@BuildingHeatExchange@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+          "rva": 244368,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "b3a9ae42dafff5df9c5fb1fca27f3794f87784356697adf67e518809be61b6cc",
+          "signature": "void(this*,float,data*,const-region*)"
+        }
+      ]
+    },
+    {
+      "platform": "linux-x64",
+      "native_relative_path": "OxygenNotIncluded_Data/Plugins/libSimDLL.so",
+      "native_sha256": "85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d",
+      "assembly_sha256": "6db652990ad1038e86b3493ed43004e12bfd61e62a4be60c787a9a9b9ac52ee1",
+      "native_bytes": 783384,
+      "symbols": {},
+      "globals": [
+        {
+          "name": "gSim",
+          "rva": 785360
+        },
+        {
+          "name": "gSimData",
+          "rva": 786640
+        }
+      ],
+      "hooks": [
+        {
+          "index": 0,
+          "role": "initialize",
+          "symbol": "SIM_Initialize",
+          "rva": 203408,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "92e358a2e64478314f4f3e724c165a942e92078854b0b23eb5da8ba469df67e7",
+          "signature": "void(callback)"
+        },
+        {
+          "index": 1,
+          "role": "shutdown",
+          "symbol": "SIM_Shutdown",
+          "rva": 203568,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "f204bfe9a3258f0af4da52bf99a6e779e35fef107b3e9f9c2fad218fbb47bf7a",
+          "signature": "void()"
+        },
+        {
+          "index": 2,
+          "role": "message",
+          "symbol": "SIM_HandleMessage",
+          "rva": 203616,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "3e600be3f0514cfdf4208e5c28037128b9724ba8273d92c4b6154f4a23abd68e",
+          "signature": "pointer(int,int,byte*)"
+        },
+        {
+          "index": 3,
+          "role": "messages",
+          "symbol": "SIM_HandleMessages",
+          "rva": 204032,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "9a1d796b881e0c6775b3d8e58ca856281fda50edebe79588137c6be02239a9d9",
+          "signature": "pointer(int,int,int,byte*)"
+        },
+        {
+          "index": 4,
+          "role": "begin-save",
+          "symbol": "SIM_BeginSave",
+          "rva": 209280,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "f714c2a684e36068b02d594c3a4d28065768f7cae047cbb9bed0b9f4dd66f2da",
+          "signature": "byte*(int*,int,int)"
+        },
+        {
+          "index": 5,
+          "role": "end-save",
+          "symbol": "SIM_EndSave",
+          "rva": 206000,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "40033a99efe418aa913ca7a0213f70d3acb86929b4f097f9b3b5951ed86ddfd2",
+          "signature": "void()"
+        },
+        {
+          "index": 6,
+          "role": "main",
+          "symbol": "_ZN3Sim4MainEv",
+          "rva": 368896,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "879f9d80815471756e57134c19445db43bc6e4a85809bd3084f235f8216ba584",
+          "signature": "void(this*)"
+        },
+        {
+          "index": 7,
+          "role": "process-frame",
+          "symbol": "_ZN15SimFrameManager12ProcessFrameER12SimFrameInfoR7SimData",
+          "rva": 306432,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "4537e727abbee1e225f96f370fde96a5fcda560ae1f4b4a6740babf8a4d6b299",
+          "signature": "void(frame*,data*)"
+        },
+        {
+          "index": 8,
+          "role": "next-frame",
+          "symbol": "_ZN15SimFrameManager16ProcessNextFrameER7SimData",
+          "rva": 317744,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "b1ed262f161a57779d64470589840abce135a53c0f54f6ae5612e25027e049c6",
+          "signature": "float(this*,data*)"
+        },
+        {
+          "index": 9,
+          "role": "update-data",
+          "symbol": "_ZN7SimBase10UpdateDataER7SimData",
+          "rva": 431920,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "6cf9a8c0610100aa871a6afaa6f801df21cb567def6f8f81f34c7b0526b76807",
+          "signature": "void(this*,data*)"
+        },
+        {
+          "index": 10,
+          "role": "pressure",
+          "symbol": "_Z14UpdatePressureR7SimDataR9SimEventsPK7CellSOAPS3_itafi",
+          "rva": 454944,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "9d3f1c29e2119446240ac9782cd66f29011e0891c140d4888c0a5cd6b13ef108",
+          "signature": "float(data*,events*,const-cell*,cell*,int,uint16,int8,float,int)"
+        },
+        {
+          "index": 11,
+          "role": "liquid",
+          "symbol": "_Z12UpdateLiquidR7SimDataR9SimEventsi",
+          "rva": 448928,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "07180508a4315607595d1dd74e51eb89acea8675fc2375e2841467f616161a85",
+          "signature": "void(data*,events*,int)"
+        },
+        {
+          "index": 12,
+          "role": "temperature",
+          "symbol": "_Z17UpdateTemperatureR7SimDataR9SimEventsii",
+          "rva": 346368,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "d50d9a4ad7cb7698ed6a22a646a4d2638863ad5a596e3d59bb67227bdc76e187",
+          "signature": "void(data*,events*,int,int)"
+        },
+        {
+          "index": 13,
+          "role": "state-transition",
+          "symbol": "_Z17DoStateTransitionR7SimDataR9SimEventsiRK22ElementTemperatureData",
+          "rva": 349184,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "f5bfa4fb40c93d5b331259673b6f920007309dede43f136ea8a6af0bcd0514cb",
+          "signature": "bool(data*,events*,int,const-definition*)"
+        },
+        {
+          "index": 14,
+          "role": "load-transition",
+          "symbol": "_Z25DoLoadTimeStateTransitionR7SimDatai",
+          "rva": 347968,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "aa8f55687f507fc6f5c76580621676e6685d38a9ac2c7a8301c084c04a35ac35",
+          "signature": "void(data*,int)"
+        },
+        {
+          "index": 15,
+          "role": "sublimation",
+          "symbol": "_Z13DoSublimationR7SimDataR9SimEventsiRK22ElementPostProcessData",
+          "rva": 464144,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "9b7a9132934e133488e620f859b80d87d3307a676b5f62e0deace8e4df0f85e2",
+          "signature": "bool(data*,events*,int,const-definition*)"
+        },
+        {
+          "index": 16,
+          "role": "post-process",
+          "symbol": "_Z15PostProcessCellR7SimDataR9SimEventsi",
+          "rva": 467440,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "e7866f71e126c1801cade3b64a0f227719ff050a424974d1b178bd644148f156",
+          "signature": "void(data*,events*,int)"
+        },
+        {
+          "index": 17,
+          "role": "step",
+          "symbol": "_ZN7SimBase4StepER7SimDataR8GameDataRKS2_",
+          "rva": 368576,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "414993227726b07bcca5da3b7cdf527f99e1e5355147d67e0c37dbd9b847491f",
+          "signature": "void(this*,data*,game-data*,const-game-data*)"
+        },
+        {
+          "index": 18,
+          "role": "begin-frame",
+          "symbol": "_ZN15SimFrameManager20BeginFrameProcessingEv",
+          "rva": 299168,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "32c8f2ae9867d032fb954adfbc62e6534c00c310b9510865f71a34e0e277944b",
+          "signature": "int(this*)"
+        },
+        {
+          "index": 19,
+          "role": "end-frame",
+          "symbol": "_ZN15SimFrameManager18EndFrameProcessingEv",
+          "rva": 300448,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "006463187bf4102eb577f379e4c438056667360479fce4bbb53107c480260150",
+          "signature": "void(this*)"
+        },
+        {
+          "index": 20,
+          "role": "consumer",
+          "symbol": "_ZN15ElementConsumer6UpdateEfR7SimDataRK6Region",
+          "rva": 403088,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "3156869d7293f41c614ffecf0687f02ee881bd98d127031402e0d4935895f290",
+          "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 21,
+          "role": "emitter",
+          "symbol": "_ZN14ElementEmitter6UpdateEfR7SimDataRK6Region",
+          "rva": 407760,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "23af53777a612575a2cd20da68e81020aae44f45351f717d6bb05ed2902bbc8e",
+          "signature": "void(this*,float,data*,const-region*)"
+        },
+        {
+          "index": 22,
+          "role": "building-heat",
+          "symbol": "_ZN20BuildingHeatExchange6UpdateEfR7SimDataRK6Region",
+          "rva": 376320,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "5a8fd8358bf7db31b22a171d81cc3dd11a5ccebe32eda985c4cba857e78f3d80",
+          "signature": "void(this*,float,data*,const-region*)"
+        }
+      ]
+    }
+  ]
+}

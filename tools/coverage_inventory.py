@@ -18,6 +18,7 @@ INVENTORY = ROOT / "docs/coverage-inventory.json"
 CONTRACT = ROOT / "docs/interop-contract.json"
 POLICY = ROOT / "docs/coverage-policy.json"
 RUNTIME = ROOT / "docs/runtime-identities.json"
+NATIVE_HOOKS = ROOT / "docs/native-hook-profiles.json"
 PACKS = ("Spaced Out!", "Frosty", "Bionic", "Prehistoric", "Aquatic")
 PLATFORMS = ("windows-x64", "linux-x64")
 ABSENCE_ELIGIBLE = ("material", "gameplay-system", "prefab", "prefab-converter", "recipe")
@@ -60,6 +61,19 @@ def interface_entries(contract: dict, policy: dict) -> list[dict]:
     for item in policy["systems"]:
         add(f"system/{item['id']}", "gameplay-system", item["owner"], item["adapter"], item["acceptance"],
             {"description": item["description"]})
+    profiles = json.loads(NATIVE_HOOKS.read_text(encoding="utf-8"))
+    from oni_hook_profiles import validate as validate_hooks
+    validate_hooks(profiles)
+    by_role = {}
+    for profile in profiles["profiles"]:
+        for hook in profile["hooks"]:
+            by_role.setdefault(hook["role"], []).append({"platform": profile["platform"], **hook})
+    for role, locations in sorted(by_role.items()):
+        add(f"native-hook/{role}", "native-hook", "native-boundary", "NativeBackendHooks", "native-service",
+            {"locations": locations,
+             "requires_enclosing_phase_coverage": [p["platform"] for p in profiles["profiles"]
+                                                  if not any(h["role"] == role for h in p["hooks"])],
+             "scope": "Forwarding observer; replacement/reader-writer coverage remains required."})
     runtime = json.loads(RUNTIME.read_text(encoding="utf-8"))
     if runtime["schema_version"] != 1 or runtime["oni_build"] != contract["scope"]["oniBuild"] or runtime["coverage_complete"] is not False:
         raise ValueError("Invalid runtime discovery input")
@@ -98,7 +112,7 @@ def generate(contract_path: Path, policy_path: Path, material_path: Path) -> dic
     inventory = {
         "schema_version": 1, "oni_build": contract["scope"]["oniBuild"],
         "source_hashes": {"interop_contract": digest(contract_path), "coverage_policy": digest(policy_path),
-                          "runtime_identities": digest(RUNTIME),
+                          "runtime_identities": digest(RUNTIME), "native_hook_profiles": digest(NATIVE_HOOKS),
                           "private_material_identities": digest(material_path)},
         "assembly_hashes": {"windows-x64": contract["scope"]["assemblySha256"],
                             "linux-x64": contract["linuxContractEvidence"]["assemblySha256"]},
@@ -121,7 +135,8 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
     contract = json.loads(contract_path.read_text(encoding="utf-8")); policy = json.loads(policy_path.read_text(encoding="utf-8"))
     if inventory.get("schema_version") != 1 or inventory.get("oni_build") != contract["scope"]["oniBuild"]:
         raise ValueError("Unsupported inventory schema or game build")
-    for key, path in (("interop_contract", contract_path), ("coverage_policy", policy_path), ("runtime_identities", RUNTIME)):
+    for key, path in (("interop_contract", contract_path), ("coverage_policy", policy_path), ("runtime_identities", RUNTIME),
+                      ("native_hook_profiles", NATIVE_HOOKS)):
         if inventory["source_hashes"].get(key) != digest(path):
             raise ValueError(f"Stale inventory: {key} changed; regenerate and review")
     if inventory.get("assembly_hashes") != {"windows-x64": contract["scope"]["assemblySha256"],
@@ -179,6 +194,9 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
             if key in seen or item["configuration"] not in configs: raise ValueError(f"Duplicate or unknown evidence key: {key}")
             seen.add(key)
             if collection == "evidence" and item["entry"] not in observed: raise ValueError("Evidence refers to an unknown entry")
+            if (collection == "evidence" and by_id[item["entry"]]["kind"] == "native-hook" and item.get("result") == "passed"
+                    and (item.get("authoritative_fluid_owner") is not True or item.get("complete_reader_writer_coverage") is not True)):
+                raise ValueError("Native-hook acceptance requires authoritative ownership and complete reader/writer coverage; forwarding observation is insufficient")
             if collection == "release_evidence" and item["requirement"] not in policy["release_requirements"]:
                 raise ValueError("Unknown release requirement")
             sha = item.get("artifact_sha256", "")

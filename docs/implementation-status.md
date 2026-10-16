@@ -4,19 +4,23 @@ This is a private development milestone. The requested overhaul is incomplete.
 The first public release remains gated on complete gas **and** liquid gameplay.
 
 The accepted [completion plan](completion-plan.md) remains the execution target.
+Its 2026-10-16 amendment selects [native SimDLL hooks](native-backend-integration.md)
+as the core integration mechanism. The native observer starts implementation;
+production takeover, complete physics, gameplay and persistence remain open.
 Current work adds managed colony transactions/checkpoints, owned native
 snapshot copies, a staged fluid-message router, an integrated gas/liquid solver
 prototype, and shared mixture presentation. Actual Windows disposable colonies
 exercise snapshot copying, presentation fixtures and two explicitly owned
 native-empty reservoirs. Native ONI retains the surrounding world physics;
 no first-playable or release gate is marked complete.
-The 3,042-entry [ownership inventory](ownership-coverage.md) records known work
+The 3,066-entry [ownership inventory](ownership-coverage.md) records known work
 and remaining acceptance obligations across the supported packs and platforms.
 
 ## Implemented and exercised
 
 | Area | Evidence | Limits |
 | --- | --- | --- |
+| Native SimDLL forwarding observer | Separate exact-build profiles; Linux Release/ASan ABI and short-branch controls; five identical native control comparisons; actual Linux Unity menu and ten-frame colony forwarding pass. Windows DLL/tests cross-compile | Observation only; original ONI owns physics. Windows runtime/MSVC, full native reader/writer coverage, glibc-2.35 release build and takeover remain required. See [contract and evidence](native-backend-integration.md#current-evidence-and-limits) |
 | Native mixture/thermodynamic reference core | 57/57 current GNU Linux scenarios, including tiny/zero-limit trace hazards; earlier 56-scenario Windows/Linux and Linux ASan/UBSan evidence is retained | Constant properties; incomplete material coverage |
 | Gas finite-volume baseline | Hydrostatic, buoyancy, diffusion, pressure, vacuum and conservation tests | Gas only; explicit acoustic performance fails target |
 | Integrated gas/liquid prototype | 10 closed-mode cases plus 24 occupied-1D groups and bounded gas/vacuum consistency checks pass MSVC, strict GNU and ASan/UBSan; independent thermodynamic reference passes 26 groups | Full vacuum-front convergence fails: N1024 recent speed is 5.874c versus exact 5.019c, and N2048 worsens front position. Dormant outside the C ABI/runtime; 2-D, cavitation, immiscible interfaces and phase transitions remain unproved. See [the failed gate and next design](../native/GAS_VACUUM.md) |

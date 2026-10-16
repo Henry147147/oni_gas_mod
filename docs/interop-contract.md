@@ -1,5 +1,12 @@
 # Fluid ownership boundary in ONI 744825
 
+**Architecture amendment, 2026-10-16:** direct hooks are the selected production
+approach; see [native backend integration](native-backend-integration.md).
+The vacuum-shadow candidate and minimum gate below describe earlier experiments
+and remain historical evidence. Native private ABI, phase order and reader/writer
+coverage need independent Windows/Linux proof. Projected native fluid values
+are permitted; zero-native-fluid scans do not establish hook ownership.
+
 The Windows x64 interface permits investigating a hybrid in which the custom solver owns all fluids and the original native simulator owns solids, solid chunks, buildings and backwalls. Inspection has not exposed an operation that makes this architecture impossible. It also has not proved that all native fluid production can be disabled safely. A native vacuum shadow is the strongest candidate; a native solid proxy changes collision, falling solids, heat capacity and digging, so it is unsuitable as a general fluid representation.
 
 Facts below come from the acquired licensed build and its matching shipped `SimDLL.pdb`. They are original interface descriptions, not reproduced game implementation. The companion `interop-contract.json` contains 62 message IDs, 84 unmanaged layouts, exact Windows pointer widths, PDB comparisons and static caller facts. Build 744825 is the inspected reference, not a promise that Steam's latest build remains unchanged.

@@ -28,6 +28,7 @@ namespace MixedAtmospheres.Oni
                 DirectoryPath = path;
                 var verifiedAssemblyHash = IntegrationProbe.VerifyContract();
                 NativeLibraryBootstrap.Load(path);
+                NativeBackendObservation.Initialize(path);
                 MixtureAppearanceSettings.Initialize();
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
@@ -77,6 +78,7 @@ namespace MixedAtmospheres.Oni
             Step("mixture renderer", MixtureWorldRendering.ResetAfterFailedLoad);
             Step("reservoir marker", OwnedReservoirOwnerMarker.ResetAfterFailedLoad);
             Step("overlay status registry", MixtureOverlays.UnregisterStatusItemOverlays);
+            Step("native observer", NativeBackendObservation.ResetAfterFailedLoad);
             // The native library stays mapped (see NativeLibraryBootstrap); no
             // managed caller remains once the patches above are removed.
             return problems.Count == 0

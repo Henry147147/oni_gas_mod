@@ -49,6 +49,8 @@ namespace MixedAtmospheres.Oni
             public int SnapshotsPublished, NativeFramesAcknowledged, MaxEventsPerSnapshot;
             public long MaxOwnedBytes;
             public bool AllCopiesByteIdentical = true;
+            public bool NativeObserverForwardingPassed = false;
+            public ulong ObserverTimestepReturns = 0, ObserverPhysicalUpdates = 0;
             public int SnapshotChannels, EventChannels, Duplicants;
             public string[] ActiveDlcIds = Array.Empty<string>();
             public string[] ImportedMaterialIds = Array.Empty<string>();
@@ -65,6 +67,7 @@ namespace MixedAtmospheres.Oni
         private static bool actualColonyActive;
         private static bool done;
         private static int liveFrameBaseline = -1;
+        private static ulong observerTimestepBaseline, observerUpdateBaseline;
         private static string ReportPath => Path.Combine(OutputDirectory, "colony-validation.json");
         internal static string OutputDirectory => Path.Combine(Mod.DirectoryPath, "game-contract-local", "colony-validation");
         internal static Configuration? Settings => configuration;
@@ -78,9 +81,11 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.Mode == "native-observer" && !NativeBackendObservation.Enabled)
+                throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
                 throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
             var fileProtocolHash = configuration.PrivateFileProtocolAssemblySha256;
@@ -107,7 +112,7 @@ namespace MixedAtmospheres.Oni
                 catch (Exception error) { Fail(error); }
                 return result;
             }
-            if (configuration?.Mode != "snapshot-copy" || !ObserveMessage || !actualColonyActive || result == IntPtr.Zero ||
+            if ((configuration?.Mode != "snapshot-copy" && configuration?.Mode != "native-observer") || !ObserveMessage || !actualColonyActive || result == IntPtr.Zero ||
                 (message != -931446686 && message != 1078620451)) return result;
             try
             {
@@ -248,13 +253,36 @@ namespace MixedAtmospheres.Oni
             if (liveFrameBaseline < 0)
             {
                 liveFrameBaseline = Report.NativeFramesAcknowledged;
+                if (configuration.Mode == "native-observer")
+                {
+                    var observation = NativeBackendObservation.Capture();
+                    observerTimestepBaseline = observation.PositiveTimestepReturns;
+                    observerUpdateBaseline = observation.Hooks.Single(hook => hook.Name == "update-data").Entries;
+                }
                 SetStage("running-disposable-colony");
             }
             Report.Duplicants = Components.LiveMinionIdentities.Count;
             if (Report.NativeFramesAcknowledged - liveFrameBaseline < configuration.CompletedFrames) return;
-            Report.Status = Report.NewColonyStagingPassed && Report.CustomStateRoundtripPassed && Report.AllCopiesByteIdentical
-                ? "passed" : "failed";
-            if (Report.Status == "failed") Report.Error = "Required new-colony staging or roundtrip evidence is missing.";
+            if (configuration.Mode == "native-observer")
+            {
+                var observation = NativeBackendObservation.Capture();
+                Report.Kind = "actual-game-native-hook-forwarding-validation";
+                Report.ObserverTimestepReturns = observation.PositiveTimestepReturns - observerTimestepBaseline;
+                Report.ObserverPhysicalUpdates = observation.Hooks.Single(hook => hook.Name == "update-data").Entries - observerUpdateBaseline;
+                Report.NativeObserverForwardingPassed = observation.Attached && !observation.RecoveryRequired &&
+                    !observation.AuthoritativeFluidOwner && Report.ObserverTimestepReturns >= (ulong)configuration.CompletedFrames &&
+                    Report.ObserverPhysicalUpdates >= (ulong)configuration.CompletedFrames && Report.AllCopiesByteIdentical;
+                Report.Status = Report.NativeObserverForwardingPassed ? "passed" : "failed";
+                Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
+                Report.MaterialModel = "Original native ONI physics; no custom state import or fluid takeover.";
+                if (Report.Status == "failed") Report.Error = "Native forwarding progress or snapshot equivalence was not established.";
+            }
+            else
+            {
+                Report.Status = Report.NewColonyStagingPassed && Report.CustomStateRoundtripPassed && Report.AllCopiesByteIdentical
+                    ? "passed" : "failed";
+                if (Report.Status == "failed") Report.Error = "Required new-colony staging or roundtrip evidence is missing.";
+            }
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.Stage = "completed";
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");

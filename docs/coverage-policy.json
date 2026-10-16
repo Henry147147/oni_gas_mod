@@ -3,10 +3,10 @@
   "acceptance_tests": {
     "material-accounting": "Import, render, transport, transition and save every material and phase with an explicit property model and conserved inventory.",
     "message-transaction": "Exercise valid, invalid, blocked and batch requests in a disposable colony; custom fluid mutations and native nonfluid operations commit together exactly once.",
-    "native-service": "Verify service routing, native buffer lifetime, shutdown and no second fluid owner in the actual platform runtime.",
+    "native-service": "Verify exact-platform native code/ABI, service routing, worker synchronization, buffer lifetime, shutdown and no second fluid owner in the actual game. Forwarding observer results alone cannot pass takeover.",
     "snapshot-lifetime": "Verify count/pointer consistency, completed-frame coherence, retained buffer lifetime, exactly-once callbacks and no publication on a rejected frame.",
     "callsite-transaction": "Trigger the originating gameplay action with available and blocked outputs; check inputs, work, heat, disease and callbacks against ledgers.",
-    "ownership": "Run a disposable colony with visible mixtures, working solids/buildings, correct callbacks and no native fluid production, including transient registries.",
+    "ownership": "Run a disposable native-hook colony with authoritative custom mixtures, progressing native solids/buildings and correct callbacks; audit all native fluid readers/writers and trace suppression/replacement. Projected native fluid cells are allowed; zero-fluid scans and forwarding observers do not prove ownership.",
     "transport": "Bulk and selective transfers preserve traces, energy and disease; backpressure and blocked capacity consume no input or work.",
     "conversion": "Every recipe has balanced material, explicit work and heat, depletion behavior and atomic blocked-output rejection.",
     "biology": "Respiration, photosynthesis, metabolism and excretion debit and credit actual inventories across their full life cycle.",
@@ -15,7 +15,7 @@
     "persistence": "Same-frame native/custom atomic save, reload, deterministic continuation, failure recovery and safe mod-disabled rejection."
   },
   "systems": [
-    {"id":"cluster-import","owner":"hybrid-boundary","adapter":"NativeColonyImport","acceptance":"ownership","description":"All new-colony worlds stage before native initialization; reject existing-save conversion."},
+    {"id":"cluster-import","owner":"native-boundary","adapter":"NativeBackendSession","acceptance":"ownership","description":"Stage every new-colony world before native activation; preserve native scalar compatibility projections, admit compressed liquids with the production EOS and reject vanilla-save conversion."},
     {"id":"cell-transitions","owner":"custom-fluid","adapter":"PhaseTransitionAdapter","acceptance":"environment","description":"Cell freezing, melting, evaporation and transition byproducts."},
     {"id":"sublimation","owner":"custom-fluid","adapter":"SublimationAdapter","acceptance":"environment","description":"Native and managed sublimation, offgassing and conversion remnants."},
     {"id":"element-interactions","owner":"custom-fluid","adapter":"ElementInteractionAdapter","acceptance":"conversion","description":"Native element interactions and implicit/default reactions."},
@@ -52,7 +52,8 @@
     {"id":"light","owner":"owned-snapshot","adapter":"LightAbsorptionAdapter","acceptance":"geometry","description":"Mixture and liquid light absorption with photosynthesis energy accounting."},
     {"id":"liquid-access","owner":"owned-snapshot","adapter":"LiquidGeometryAdapter","acceptance":"geometry","description":"Swimming, submersion, flooding and atmospheric access use liquid geometry."},
     {"id":"pressure-damage","owner":"owned-snapshot","adapter":"PressureDamageAdapter","acceptance":"geometry","description":"Bulk pressure and load limits use the authoritative custom world."},
-    {"id":"colony-save","owner":"hybrid-boundary","adapter":"ColonySaveContainer","acceptance":"persistence","description":"Manual/autosave/resume/previews/cloud/local and all-world load validation."}
+    {"id":"colony-save","owner":"hybrid-boundary","adapter":"ColonySaveContainer","acceptance":"persistence","description":"Manual/autosave/resume/previews/cloud/local and all-world load validation."},
+    {"id":"native-hook-coverage","owner":"native-boundary","adapter":"NativeBackendHooks","acceptance":"native-service","description":"Per-build Windows/Linux native hooks, private ABI, inlined work, all fluid readers/writers, native timestep barriers, original nonfluid services and failure recovery."}
   ],
   "release_requirements": [
     "coupled-physics-benchmarks", "10000-step-conservation", "trace-preservation", "dissolved-gas-exchange",

@@ -1,0 +1,88 @@
+# Explicit developer observer. Never changes the default game/probe package.
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Windows|Linux)$" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+    message(FATAL_ERROR "The ONI observer requires native Windows/Linux x64")
+endif()
+enable_language(C)
+include(FetchContent)
+if(POLICY CMP0135)
+    cmake_policy(SET CMP0135 NEW)
+endif()
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+FetchContent_Declare(ma_funchook
+    URL https://codeload.github.com/kubo/funchook/tar.gz/refs/tags/v1.1.3
+    URL_HASH SHA256=4b0195e70524237e222dc34c53ac25e12677bb936e64eefe33189931688444c4
+    SOURCE_SUBDIR observer-populate-only)
+FetchContent_Declare(ma_distorm
+    URL https://codeload.github.com/gdabah/distorm/tar.gz/ab59d6e193948cfa5d1482fb6c7e64870e9e93b9
+    URL_HASH SHA256=3554976d3d03f9b72b8cca621ef6b54008dd9c3673eec0f2e05a6473cbc3faa5
+    SOURCE_SUBDIR observer-populate-only)
+# Populate pinned sources without running upstream's nested dependency downloads.
+FetchContent_MakeAvailable(ma_funchook ma_distorm)
+set(oni_generated "${CMAKE_CURRENT_BINARY_DIR}/oni-generated")
+file(MAKE_DIRECTORY "${oni_generated}")
+file(COPY "${ma_funchook_SOURCE_DIR}/LICENSE" DESTINATION "${oni_generated}/licenses/funchook")
+file(COPY "${ma_distorm_SOURCE_DIR}/COPYING" DESTINATION "${oni_generated}/licenses/distorm")
+file(WRITE "${oni_generated}/third-party-sources.txt"
+    "Funchook 1.1.3: https://github.com/kubo/funchook/tree/88388db3c69e16c1560fee65c6857d75f5ce6fd5\n"
+    "diStorm: https://github.com/gdabah/distorm/tree/ab59d6e193948cfa5d1482fb6c7e64870e9e93b9\n"
+    "Pinned source archives and SHA256 values are in cmake/OniNativeBackend.cmake.\n")
+# The release tarball omits its distorm git submodule. Copy only inside fetched
+# build artifacts, preserving upstream sources and avoiding a floating git ref.
+file(COPY "${ma_distorm_SOURCE_DIR}/" DESTINATION "${ma_funchook_SOURCE_DIR}/distorm")
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py"
+    "${ma_funchook_SOURCE_DIR}/src/funchook_x86.c" COMMAND_ERROR_IS_FATAL ANY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py")
+set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(FUNCHOOK_BUILD_STATIC ON CACHE BOOL "" FORCE)
+set(FUNCHOOK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(FUNCHOOK_INSTALL OFF CACHE BOOL "" FORCE)
+set(FUNCHOOK_DISASM distorm CACHE STRING "" FORCE)
+add_subdirectory("${ma_funchook_SOURCE_DIR}" "${ma_funchook_BINARY_DIR}" EXCLUDE_FROM_ALL)
+set_target_properties(funchook-static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+set(oni_profile_header "${oni_generated}/oni_profiles.hpp")
+add_custom_command(OUTPUT "${oni_profile_header}"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/oni_hook_profiles.py"
+        header --output "${oni_profile_header}"
+    DEPENDS "${PROJECT_SOURCE_DIR}/tools/oni_hook_profiles.py"
+        "${PROJECT_SOURCE_DIR}/docs/native-hook-profiles.json"
+    VERBATIM)
+add_library(mixed_atmospheres_oni SHARED native/src/oni_backend.cpp "${oni_profile_header}")
+target_include_directories(mixed_atmospheres_oni PUBLIC native/include PRIVATE "${oni_generated}")
+target_compile_definitions(mixed_atmospheres_oni PRIVATE MA_ONI_EXPORTS)
+target_link_libraries(mixed_atmospheres_oni PRIVATE funchook-static ${CMAKE_DL_LIBS})
+set_target_properties(mixed_atmospheres_oni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(WIN32)
+    set_target_properties(mixed_atmospheres_oni PROPERTIES PREFIX "")
+endif()
+if(MSVC)
+    target_compile_options(mixed_atmospheres_oni PRIVATE /W4 /WX /permissive- /fp:precise)
+else()
+    target_compile_options(mixed_atmospheres_oni PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+    target_link_options(mixed_atmospheres_oni PRIVATE "LINKER:--exclude-libs,ALL")
+    if(NOT MA_SANITIZERS)
+        target_link_options(mixed_atmospheres_oni PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        set(oni_map "${oni_generated}/oni_exports.map")
+        file(WRITE "${oni_map}" "{ global: ma_oni_*; local: *; };\n")
+        target_link_options(mixed_atmospheres_oni PRIVATE "LINKER:--version-script=${oni_map}")
+        set_property(TARGET mixed_atmospheres_oni APPEND PROPERTY LINK_DEPENDS "${oni_map}")
+    endif()
+endif()
+if(MA_BUILD_TESTS)
+    add_executable(ma_oni_backend_tests native/tests/oni_backend_tests.cpp)
+    target_link_libraries(ma_oni_backend_tests PRIVATE mixed_atmospheres_oni)
+    add_test(NAME native_oni_observer_abi COMMAND ma_oni_backend_tests)
+    add_executable(ma_oni_detour_tests native/tests/oni_detour_tests.cpp)
+    target_link_libraries(ma_oni_detour_tests PRIVATE funchook-static)
+    add_test(NAME native_oni_detour_relocation COMMAND ma_oni_detour_tests)
+endif()
+if(MA_SANITIZERS AND NOT MSVC)
+    foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests)
+        if(TARGET ${target})
+            target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+            target_link_options(${target} PRIVATE -fsanitize=address,undefined)
+        endif()
+    endforeach()
+endif()

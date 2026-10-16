@@ -5,6 +5,11 @@ an implemented helper or standalone test does not satisfy an in-game exit gate.
 Each milestone is a separate reviewable change. No remote, publication, or
 Workshop upload is authorized by this plan.
 
+Architecture amendment accepted 2026-10-16: implement the full overhaul through
+[native SimDLL hooks](native-backend-integration.md), retaining verified native
+nonfluid services. Observer and takeover work are the next engineering steps;
+they do not replace the remaining full-overhaul milestones.
+
 ## Target
 
 The existing code is a tested foundation, not a nearly finished playable mod.
@@ -28,7 +33,7 @@ documented, conservation-consistent approximations.
 4. Review and commit as `Initial mixed-atmospheres core and ONI integration probe`.
 5. Record this plan in a second commit; use separate commits for milestones.
 
-## A. Complete coverage and prove simulation ownership
+## A. Integrate natively, complete coverage and prove simulation ownership
 
 Create a machine-readable inventory of every material, fluid producer,
 consumer, conversion, storage system and relevant callback across all DLC
@@ -37,18 +42,25 @@ configurations. Each entry identifies its owner, adapter and acceptance test.
 The custom engine owns fluids; ONI retains supported nonfluid services.
 
 - Stage and validate all new-colony world blobs before changing any of them.
-- Extract fluid inventories and load native cells as vacuum.
-- Suppress native fluid production: transitions, sublimation, emitters, melting
-  buildings, chunks and backwalls.
+- Establish exact-build Windows/Linux profiles; prove forwarding hooks, native
+  phase order and worker barriers in isolated runs.
+- Import authoritative fluid state and retain scalar compatibility projections;
+  the earlier vacuum-shadow importer remains a historical control.
+- Replace native fluid readers/writers and route pressure/liquid flow,
+  transitions, sublimation, emitters, melting buildings, chunks and backwalls.
 - Route fluid mutations and callbacks through the custom engine.
 - Publish owned, coherent snapshots for rendering, navigation, pressure queries
   and game logic.
 - Advance once per game frame regardless of asteroid-region count.
 - Stage custom changes before native operations; publish only completed frames.
+- Retry custom candidates before irreversible native work; fault and reload
+  after ambiguous native effects rather than claiming unsupported rollback.
 
 Exit: a disposable colony has visible custom mixtures, working native
-solids/buildings, correct callbacks and no native fluid ownership. Every
-unresolved native fluid source blocks this milestone.
+solids/buildings, correct callbacks and no native fluid ownership on both OSes.
+Trace execution and audit readers/writers; projected fluid identities are
+allowed and zero-fluid scans alone are insufficient. Every unresolved native
+fluid source blocks this milestone.
 
 ## B. Complete production timestep
 
