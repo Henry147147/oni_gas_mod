@@ -2,7 +2,6 @@
 
 namespace ma::experimental::canonical_detail {
 namespace {
-struct Mode { std::size_t a = 0, b = 0; int sign = 0; };
 std::uint32_t node(std::size_t index, std::span<const std::size_t> indices) {
     return static_cast<std::uint32_t>(indices.empty() ? index : indices[index]);
 }
@@ -26,146 +25,124 @@ void shape(Kernel& k, const Matrix& a, std::size_t n, std::span<const std::size_
         k.require(a[i][j] == a[j][i], Code::numerical_precision, "Canonical matrix is not symmetric");
     }
 }
-std::vector<Mode> modes(std::size_t n) {
-    std::vector<Mode> result; result.reserve(n);
-    for (std::size_t j = 0; j < n / 2; ++j) {
-        result.push_back({j, n - 1 - j, 1}); result.push_back({j, n - 1 - j, -1});
-    }
-    if (n % 2 != 0) result.push_back({n / 2, n / 2, 0});
-    return result;
+std::array<double, 2> scalar_product(Kernel& k, double a, double b) {
+    const auto result = retained_product(k, retained_value(k, a), b);
+    k.require(result.product_terms[2] == 0 && result.product_terms[3] == 0,
+        Code::numerical_precision, "Scalar linear product acquired a low input");
+    for (double remainder : result.roundoff_remainders)
+        k.require(remainder == 0, Code::numerical_precision, "Scalar linear product exceeds its exact pair");
+    return {result.product_terms[0], result.product_terms[1]};
 }
-Matrix congruence(Kernel& k, const Matrix& a, const std::vector<Mode>& basis, const Vec& indices) {
-    Matrix result = zeros(basis.size());
-    for (std::size_t i = 0; i < basis.size(); ++i) for (std::size_t j = 0; j <= i; ++j) {
-        const auto x = basis[i], y = basis[j];
-        k.row_scope(static_cast<std::uint32_t>(indices[x.a]));
-        k.row(Field::node_indices, indices); k.row(Field::matrix_coefficients, a[x.a], 0);
-        if (x.b != x.a) k.row(Field::matrix_coefficients, a[x.b], 1);
-        const Vec coordinates{static_cast<double>(x.a), static_cast<double>(x.b), static_cast<double>(x.sign),
-            static_cast<double>(y.a), static_cast<double>(y.b), static_cast<double>(y.sign)};
-        k.row(Field::matrix_operands, coordinates); k.scalar(Field::basis_index, static_cast<double>(i));
-        double value;
-        if (x.sign == 0 && y.sign == 0) value = a[x.a][y.a];
-        else if (x.sign == 0) value = sum(k, {a[x.a][y.a], y.sign == 1 ? a[x.a][y.b] : -a[x.a][y.b]});
-        else if (y.sign == 0) value = sum(k, {a[x.a][y.a], x.sign == 1 ? a[x.b][y.a] : -a[x.b][y.a]});
-        else if (x.sign == y.sign) {
-            const double diagonal = sum(k, {a[x.a][y.a], a[x.b][y.b]});
-            const double cross = sum(k, {a[x.a][y.b], a[x.b][y.a]});
-            value = sum(k, {diagonal, x.sign == 1 ? cross : -cross});
-        } else {
-            const double diagonal = sum(k, {a[x.a][y.a], -a[x.b][y.b]});
-            const double cross = x.sign == 1 ? sum(k, {a[x.b][y.a], -a[x.a][y.b]}) :
-                sum(k, {a[x.a][y.b], -a[x.b][y.a]});
-            value = sum(k, {diagonal, cross});
-        }
-        result[i][j] = k.finite(value); result[j][i] = value; // Copy, never separately recompute symmetry.
-    }
-    return result;
-}
-Vec transpose(Kernel& k, const Vec& x, const std::vector<Mode>& basis, const Vec& indices, bool inverse) {
-    Vec result(basis.size());
-    for (std::size_t i = 0; i < basis.size(); ++i) {
-        const auto mode = basis[i]; k.row_scope(static_cast<std::uint32_t>(indices[mode.a]));
-        k.row(Field::matrix_operands, x); k.row(Field::node_indices, indices);
-        k.scalar(Field::basis_index, static_cast<double>(i));
-        const double value = mode.sign == 0 ? k.finite(x[mode.a]) :
-            sum(k, {x[mode.a], mode.sign == 1 ? x[mode.b] : -x[mode.b]});
-        result[i] = inverse && mode.sign != 0 ? k.mul(.5, value) : value;
-    }
-    return result;
-}
-Vec expand(Kernel& k, const Vec& x, const std::vector<Mode>& basis, const Vec& indices, bool inverse_transpose) {
-    Vec result(x.size());
-    for (std::size_t i = 0; i < basis.size();) {
-        const auto mode = basis[i]; k.row_scope(static_cast<std::uint32_t>(indices[mode.a]));
-        k.row(Field::matrix_operands, x); k.row(Field::node_indices, indices);
-        k.scalar(Field::basis_index, static_cast<double>(i));
-        if (mode.sign == 0) { result[mode.a] = k.finite(x[i]); ++i; continue; }
-        const double even = inverse_transpose ? k.mul(.5, x[i]) : x[i];
-        const double odd = inverse_transpose ? k.mul(.5, x[i + 1]) : x[i + 1];
-        result[mode.a] = sum(k, {even, odd}); result[mode.b] = sum(k, {even, -odd}); i += 2;
-    }
-    return result;
-}
-struct RowProduct { double value = 0, magnitude = 0; Vec products; };
+struct RowProduct { double value = 0, magnitude = 0; Vec products, errors; };
 RowProduct direct_row(Kernel& k, const Matrix& a, const Vec& x, std::size_t i, const Vec& indices) {
     k.row_scope(static_cast<std::uint32_t>(indices[i]));
     k.row(Field::matrix_coefficients, a[i]); k.row(Field::matrix_operands, x); k.row(Field::node_indices, indices);
-    RowProduct result; result.products.resize(x.size()); Sum value(k, 0), magnitude(k, 1);
+    RowProduct result; result.products.resize(x.size()); result.errors.resize(x.size()); Sum value(k, 0), magnitude(k, 1);
     for (std::size_t j = 0; j < x.size(); ++j) {
         k.row(Field::matrix_products, std::span<const double>(result.products.data(), j));
-        result.products[j] = k.mul(a[i][j], x[j]); value.add(result.products[j]); magnitude.add(std::abs(result.products[j]));
+        const auto pair = scalar_product(k, a[i][j], x[j]);
+        result.products[j] = pair[0]; result.errors[j] = pair[1];
+        value.add(pair[0]); value.add(pair[1]); magnitude.add(std::abs(pair[0])); magnitude.add(std::abs(pair[1]));
     }
-    k.row(Field::matrix_products, result.products); result.value = value.get(); result.magnitude = magnitude.get();
+    k.row(Field::matrix_products, result.products); k.row(Field::matrix_products, result.errors, 1);
+    result.value = value.get(); result.magnitude = magnitude.get();
     return result;
 }
-Vec direct_product(Kernel& k, const Matrix& a, const Vec& x, const Vec& indices) {
-    Vec result(x.size());
-    for (std::size_t i = 0; i < x.size(); ++i) result[i] = direct_row(k, a, x, i, indices).value;
-    return result;
-}
-Vec dense_spd(Kernel& k, const Matrix& a, const Vec& rhs, const Matrix& original,
-    const std::vector<Mode>& basis, const Vec& indices, double& maximum_ratio) {
-    const auto n = rhs.size(); Vec scales(n), y(n), x(n), basis_indices(n); Matrix lower = zeros(n);
-    for (std::size_t i = 0; i < n; ++i) basis_indices[i] = indices[basis[i].a];
+struct ScaledFactor { Vec scales; Matrix lower; };
+ScaledFactor factor_spd(Kernel& k, const Matrix& a, const Vec& rhs, const Vec& indices) {
+    const auto n = rhs.size(); ScaledFactor factor{Vec(n), zeros(n)};
+    auto& scales = factor.scales; auto& lower = factor.lower;
     for (std::size_t i = 0; i < n; ++i) {
-        k.row_scope(static_cast<std::uint32_t>(indices[basis[i].a]));
-        k.row(Field::matrix_coefficients, original[basis[i].a], 0); k.row(Field::matrix_coefficients, a[i], 1);
-        k.row(Field::node_indices, indices); k.scalar(Field::basis_index, static_cast<double>(i));
+        k.row_scope(static_cast<std::uint32_t>(indices[i]));
+        k.row(Field::matrix_coefficients, a[i]); k.row(Field::node_indices, indices);
         scales[i] = k.sqrt(a[i][i]);
     }
     k.factorization();
     for (std::size_t i = 0; i < n; ++i) for (std::size_t j = 0; j <= i; ++j) {
-        k.row_scope(static_cast<std::uint32_t>(indices[basis[i].a]));
-        k.row(Field::matrix_coefficients, original[basis[i].a], 0); k.row(Field::matrix_coefficients, a[i], 1);
+        k.row_scope(static_cast<std::uint32_t>(indices[i]));
+        k.row(Field::matrix_coefficients, a[i]);
         k.row(Field::node_indices, indices); k.row(Field::matrix_operands, rhs, 0); k.row(Field::matrix_operands, scales, 1);
         k.row(Field::matrix_operands, std::span<const double>(lower[i].data(), j), 2);
         k.row(Field::matrix_operands, std::span<const double>(lower[j].data(), j), 3);
-        k.scalar(Field::basis_index, static_cast<double>(i)); Sum sum_value(k); Vec products(j);
+        Sum sum_value(k); Vec products(j), errors(j);
         sum_value.add(k.div(k.div(a[i][j], scales[i]), scales[j]));
         for (std::size_t p = 0; p < j; ++p) {
             k.row(Field::matrix_products, std::span<const double>(products.data(), p));
-            products[p] = k.mul(lower[i][p], lower[j][p]); sum_value.add(-products[p]);
+            const auto pair = scalar_product(k, lower[i][p], lower[j][p]); products[p] = pair[0]; errors[p] = pair[1];
+            sum_value.add(-pair[0]); sum_value.add(-pair[1]);
         }
-        k.row(Field::matrix_products, products);
+        k.row(Field::matrix_products, products); k.row(Field::matrix_products, errors, 1);
         const double value = sum_value.get();
         lower[i][j] = i == j ? k.sqrt(value) : k.div(value, lower[j][j]);
     }
+    return factor;
+}
+Vec triangular_solution(Kernel& k, const Matrix& a, const Vec& rhs, const Vec& indices, const ScaledFactor& factor) {
+    const auto n = rhs.size(); Vec y(n), x(n); const auto& scales = factor.scales; const auto& lower = factor.lower;
     for (std::size_t i = 0; i < n; ++i) {
-        k.row_scope(static_cast<std::uint32_t>(indices[basis[i].a]));
+        k.row_scope(static_cast<std::uint32_t>(indices[i]));
         k.row(Field::matrix_coefficients, a[i], 0); k.row(Field::matrix_coefficients, lower[i], 1);
         k.row(Field::node_indices, indices); k.row(Field::matrix_operands, rhs, 0); k.row(Field::matrix_operands, scales, 1);
         k.row(Field::matrix_operands, std::span<const double>(y.data(), i), 2);
-        k.scalar(Field::basis_index, static_cast<double>(i)); Sum value(k); Vec products(i);
+        Sum value(k); Vec products(i), errors(i);
         value.add(k.div(rhs[i], scales[i]));
         for (std::size_t j = 0; j < i; ++j) {
             k.row(Field::matrix_products, std::span<const double>(products.data(), j));
-            products[j] = k.mul(lower[i][j], y[j]); value.add(-products[j]);
+            const auto pair = scalar_product(k, lower[i][j], y[j]); products[j] = pair[0]; errors[j] = pair[1];
+            value.add(-pair[0]); value.add(-pair[1]);
         }
-        k.row(Field::matrix_products, products); y[i] = k.div(value.get(), lower[i][i]);
+        k.row(Field::matrix_products, products); k.row(Field::matrix_products, errors, 1); y[i] = k.div(value.get(), lower[i][i]);
     }
     for (std::size_t i = n; i-- != 0;) {
-        Vec column(n), products(n - i - 1);
+        Vec column(n), products(n - i - 1), errors(n - i - 1);
         for (std::size_t j = i; j < n; ++j) column[j] = lower[j][i];
-        k.row_scope(static_cast<std::uint32_t>(indices[basis[i].a]));
+        k.row_scope(static_cast<std::uint32_t>(indices[i]));
         k.row(Field::matrix_coefficients, a[i], 0); k.row(Field::matrix_coefficients, column, 1);
         k.row(Field::node_indices, indices); k.row(Field::matrix_operands, rhs, 0); k.row(Field::matrix_operands, scales, 1);
         k.row(Field::matrix_operands, std::span<const double>(x.data() + i + 1, n - i - 1), 2);
-        k.scalar(Field::basis_index, static_cast<double>(i)); k.scalar(Field::matrix_operands, y[i]); Sum value(k); value.add(y[i]);
+        k.scalar(Field::matrix_operands, y[i]); Sum value(k); value.add(y[i]);
         for (std::size_t j = i + 1; j < n; ++j) {
             k.row(Field::matrix_products, std::span<const double>(products.data(), j - i - 1));
-            products[j - i - 1] = k.mul(lower[j][i], x[j]); value.add(-products[j - i - 1]);
+            const auto pair = scalar_product(k, lower[j][i], x[j]); products[j - i - 1] = pair[0]; errors[j - i - 1] = pair[1];
+            value.add(-pair[0]); value.add(-pair[1]);
         }
-        k.row(Field::matrix_products, products); x[i] = k.div(value.get(), lower[i][i]);
+        k.row(Field::matrix_products, products); k.row(Field::matrix_products, errors, 1); x[i] = k.div(value.get(), lower[i][i]);
     }
     for (std::size_t i = 0; i < n; ++i) x[i] = k.div(x[i], scales[i]);
-    for (std::size_t i = 0; i < n; ++i) {
-        const auto product = direct_row(k, a, x, i, basis_indices);
-        const double error = difference(k, product.value, rhs[i]);
-        const double scale = sum(k, {std::abs(rhs[i]), product.magnitude});
-        k.scalar(Field::linear_residual, error); k.scalar(Field::basis_index, static_cast<double>(i));
-        k.within(error, scale, 256 * epsilon, "Transformed SPD backward error exceeds its local bound");
-        maximum_ratio = std::max(maximum_ratio, k.ratio(error, scale));
+    return x;
+}
+double complete_residual(Kernel& k, const RowProduct& product, const Terms& rhs) {
+    k.row(Field::matrix_operands, rhs, 1); Sum value(k, 2);
+    for (double term : rhs) value.add(term);
+    for (std::size_t j = 0; j < product.products.size(); ++j) { value.add(-product.products[j]); value.add(-product.errors[j]); }
+    return value.get();
+}
+Vec solve_complete(Kernel& k, const Matrix& a, const Vec& rhs, const std::vector<Terms>& full_rhs,
+    const Vec& indices, double& maximum_ratio) {
+    k.require(full_rhs.size() == rhs.size(), Code::unsupported_configuration, "Complete linear RHS shape differs");
+    const auto factor = factor_spd(k, a, rhs, indices);
+    auto x = triangular_solution(k, a, rhs, indices, factor);
+    // Two fixed residual-correction passes use the same factorization. The
+    // residual includes complete primary momentum and exact row products,
+    // rather than refining a RHS that has already lost its low component.
+    // No failed predicate selects a fallback, precision, norm or iteration cap.
+    for (std::size_t pass = 0; pass < 2; ++pass) {
+        Vec residual(rhs.size());
+        for (std::size_t i = 0; i < rhs.size(); ++i)
+            residual[i] = complete_residual(k, direct_row(k, a, x, i, indices), full_rhs[i]);
+        const auto correction = triangular_solution(k, a, residual, indices, factor);
+        for (std::size_t i = 0; i < rhs.size(); ++i) {
+            k.row_scope(static_cast<std::uint32_t>(indices[i]));
+            k.scalar(Field::matrix_operands, x[i], 0); k.scalar(Field::matrix_operands, correction[i], 1);
+            x[i] = k.add(x[i], correction[i]);
+        }
+    }
+    for (std::size_t i = 0; i < rhs.size(); ++i) {
+        const auto product = direct_row(k, a, x, i, indices);
+        const double error = complete_residual(k, product, full_rhs[i]);
+        const double magnitude = sum(k, {std::abs(rhs[i]), product.magnitude}); k.scalar(Field::linear_residual, error);
+        k.within(error, magnitude, 256 * epsilon, "SPD solution fails the complete original physical row");
+        maximum_ratio = std::max(maximum_ratio, k.ratio(error, magnitude));
     }
     return x;
 }
@@ -176,38 +153,27 @@ Vec physical_row_products(Kernel& k, const Matrix& a, const Vec& x, std::size_t 
 }
 Vec multiply(Kernel& k, const Matrix& a, const Vec& x, double& maximum_ratio, std::span<const std::size_t> indices) {
     shape(k, a, x.size(), indices);
-    const auto physical_indices = index_values(x.size(), indices); const auto basis = modes(x.size());
-    const auto coordinates = transpose(k, x, basis, physical_indices, true);
-    const auto transformed = congruence(k, a, basis, physical_indices);
-    Vec basis_indices(x.size());
-    for (std::size_t i = 0; i < x.size(); ++i) basis_indices[i] = physical_indices[basis[i].a];
-    const auto values = direct_product(k, transformed, coordinates, basis_indices);
-    const auto result = expand(k, values, basis, physical_indices, true);
+    const auto physical_indices = index_values(x.size(), indices); Vec result(x.size());
     for (std::size_t i = 0; i < x.size(); ++i) {
         const auto direct = direct_row(k, a, x, i, physical_indices);
-        const double error = difference(k, result[i], direct.value);
-        k.scalar(Field::matrix_products, result[i], 0); k.scalar(Field::matrix_products, direct.value, 1);
-        k.within(error, direct.magnitude, 256 * epsilon, "Parity product differs from the independent physical row");
+        result[i] = direct.value; Sum remainder(k, 2);
+        for (std::size_t j = 0; j < x.size(); ++j) { remainder.add(direct.products[j]); remainder.add(direct.errors[j]); }
+        remainder.add(-result[i]); const double error = remainder.get();
+        k.scalar(Field::linear_residual, error);
+        k.within(error, direct.magnitude, 256 * epsilon, "Physical row projection exceeds its local bound");
         maximum_ratio = std::max(maximum_ratio, k.ratio(error, direct.magnitude));
     }
     return result;
 }
 Vec solve_spd(Kernel& k, const Matrix& a, const Vec& rhs, double& maximum_ratio, std::span<const std::size_t> indices) {
     shape(k, a, rhs.size(), indices);
-    const auto physical_indices = index_values(rhs.size(), indices); const auto basis = modes(rhs.size());
-    const auto transformed = congruence(k, a, basis, physical_indices);
-    const auto b = transpose(k, rhs, basis, physical_indices, false);
-    const auto y = dense_spd(k, transformed, b, a, basis, physical_indices, maximum_ratio);
-    const auto x = expand(k, y, basis, physical_indices, false);
-    for (std::size_t i = 0; i < x.size(); ++i) {
-        const auto product = direct_row(k, a, x, i, physical_indices);
-        const double error = difference(k, product.value, rhs[i]);
-        const double scale = sum(k, {std::abs(rhs[i]), product.magnitude});
-        k.scalar(Field::linear_residual, error); k.scalar(Field::matrix_operands, rhs[i]);
-        k.within(error, scale, 256 * epsilon, "SPD solution fails the original physical row");
-        maximum_ratio = std::max(maximum_ratio, k.ratio(error, scale));
-    }
-    return x;
+    // Work in physical node coordinates. A global even/odd congruence mixes
+    // distant liquid and gas rows, then cancellation can erase local forces.
+    // This is the only solve path, with the same original-row error criterion.
+    const auto physical_indices = index_values(rhs.size(), indices);
+    std::vector<Terms> full_rhs; full_rhs.reserve(rhs.size());
+    for (double value : rhs) full_rhs.push_back(terms({value}));
+    return solve_complete(k, a, rhs, full_rhs, physical_indices, maximum_ratio);
 }
 Vec decode_velocity(Kernel& k, const Data& d, double& maximum_ratio, bool check_dependent_pi) {
     k.scope(Stage::canonical_decode);
@@ -218,7 +184,7 @@ Vec decode_velocity(Kernel& k, const Data& d, double& maximum_ratio, bool check_
             velocity[j] = boundary_velocity(d, j); k.baseline_value(Field::velocity1, j, velocity[j]);
         } else free.push_back(j);
     }
-    Matrix a = zeros(free.size()); Vec rhs(free.size());
+    Matrix a = zeros(free.size()); Vec rhs(free.size()); std::vector<Terms> full_rhs(free.size());
     Vec prescribed, prescribed_nodes;
     for (std::size_t j = 0; j < n; ++j) if (constrained(d, j)) {
         prescribed.push_back(velocity[j]); prescribed_nodes.push_back(static_cast<double>(j));
@@ -229,15 +195,16 @@ Vec decode_velocity(Kernel& k, const Data& d, double& maximum_ratio, bool check_
         k.row(Field::velocity1, prescribed); k.row(Field::node_indices, prescribed_nodes);
         k.scalar(Field::pi1, d.primary.momentum[j].high());
         k.scalar(Field::retained_momentum_low, d.primary.momentum[j].low(), static_cast<std::uint32_t>(j));
-        Sum value(k); value.add(d.primary.momentum[j].high()); value.add(d.primary.momentum[j].low());
+        full_rhs[i] = terms(d.primary.momentum[j]);
         for (std::size_t p = 0; p < n; ++p) if (constrained(d, p)) {
             const auto known = retained_product(k, retained_value(k, velocity[p]), d.consistent_mass[j][p]);
-            for (double term : known.product_terms) value.add(-term);
+            for (double term : known.product_terms) if (term != 0) full_rhs[i].push_back(-term);
         }
-        rhs[i] = value.get();
+        rhs[i] = projected(k, full_rhs[i]);
         for (std::size_t p = 0; p < free.size(); ++p) a[i][p] = d.consistent_mass[j][free[p]];
     }
-    const auto decoded = solve_spd(k, a, rhs, maximum_ratio, free);
+    shape(k, a, rhs.size(), free);
+    const auto decoded = solve_complete(k, a, rhs, full_rhs, index_values(free.size(), free), maximum_ratio);
     for (std::size_t i = 0; i < free.size(); ++i) velocity[free[i]] = decoded[i];
     k.baseline(Field::velocity1, velocity);
     const auto product = multiply(k, d.consistent_mass, velocity, maximum_ratio);

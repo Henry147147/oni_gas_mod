@@ -36,6 +36,20 @@ Vec exterior_force(Kernel& k, const Data& d) {
     result.back() = -k.mul(d.area_m2, d.right.exterior_pressure_pa);
     return result;
 }
+Vec gravity_force(Kernel& k, const Data& d) {
+    Vec result(d.positions_m.size(), 0);
+    if (d.gravity_down_m_per_s2 == 0) return result;
+    for (std::size_t j = 0; j < result.size(); ++j) {
+        k.scope(Stage::pressure_trial, static_cast<std::uint32_t>(j));
+        k.scalar(Field::gravity_acceleration, d.gravity_down_m_per_s2);
+        k.row(Field::matrix_coefficients, d.consistent_mass[j]);
+        Terms weights;
+        for (double coefficient : d.consistent_mass[j]) weights = joined(k, {weights, terms({coefficient})});
+        result[j] = projected(k, scaled(k, weights, -d.gravity_down_m_per_s2));
+        k.scalar(Field::gravity_force, result[j]);
+    }
+    return result;
+}
 std::array<double, 7> pressure_components(Kernel& k, const Data& d, std::span<const double> pressure, std::size_t node) {
     k.require(pressure.size() == 7, Code::unsupported_configuration, "Canonical pressure owner count differs");
     std::array<double, 7> result{};

@@ -141,6 +141,7 @@ void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(accounting_remainder_j); FIELD(accounting_bound_j); FIELD(momentum_residual_work_j);
     FIELD(kinematic_defect_work_j); FIELD(kinetic_defect_j); FIELD(trial_residual_work_j);
     FIELD(exterior_work_left_j); FIELD(exterior_work_right_j); FIELD(reaction_work_left_j); FIELD(reaction_work_right_j);
+    FIELD(gravitational_potential_change_j); FIELD(gravity_work_j); FIELD(gravity_arithmetic_defect_j); FIELD(gravity_impulse);
     FIELD(exterior_impulse_left); FIELD(exterior_impulse_right); FIELD(reaction_impulse_left); FIELD(reaction_impulse_right);
     FIELD(momentum_error); FIELD(momentum_accounting_remainder); FIELD(momentum_accounting_bound);
     FIELD(first_moment_change); FIELD(first_moment_error); FIELD(first_moment_accounting_remainder); FIELD(first_moment_bound);
@@ -153,7 +154,7 @@ void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(delta_velocity); FIELD(mass_delta_velocity); FIELD(requested_impulse); FIELD(represented_impulse);
     FIELD(free_addition_defect); FIELD(constrained_linearity_defect); FIELD(constrained_join_defect); FIELD(constrained_impulse_defect);
     FIELD(constrained_linearity_bound); FIELD(constrained_join_bound); FIELD(constrained_impulse_bound);
-    FIELD(pressure_force); FIELD(exterior_force); FIELD(reaction); FIELD(actual_force); FIELD(momentum_residual); FIELD(kinematic_defect);
+    FIELD(pressure_force); FIELD(exterior_force); FIELD(gravity_force); FIELD(reaction); FIELD(actual_force); FIELD(momentum_residual); FIELD(kinematic_defect);
     FIELD(requested_volume_change); FIELD(represented_volume_change); FIELD(incidence_volume_change); FIELD(volume_storage_difference);
     FIELD(balanced_energy_change); FIELD(represented_energy_change); FIELD(stored_energy_defect); FIELD(secant_defect);
     FIELD(volume_work_defect); FIELD(owner_work_defect); FIELD(work_pressure); FIELD(work_stiffness);
@@ -163,7 +164,7 @@ void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(retained);
 }
 void emit(Bytes& w, const CanonicalSnapshot& r) {
-    FIELD(primary); FIELD(owner_geometry);
+    FIELD(primary); FIELD(owner_geometry); FIELD(gravity_down_m_per_s2);
     w.text("registry"); emit(w, r.registry->all());
     w.text("profile_version"); emit(w, r.thermodynamics->reference().profile_version());
     w.text("materials"); emit(w, r.thermodynamics->reference().materials());
@@ -179,7 +180,7 @@ void emit(Bytes& w, const CanonicalSnapshot& r) {
 #undef FIELD
 }
 std::vector<std::byte> canonical_material_diagnostic_bytes(const CanonicalReadView& view) {
-    Bytes output; output.text("ma-canonical-material-diagnostics-v3");
+    Bytes output; output.text("ma-canonical-material-diagnostics-v4");
     emit(output, view.snapshot()); return std::move(output.data);
 }
 }

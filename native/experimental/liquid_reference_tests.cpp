@@ -358,6 +358,31 @@ void isentropic_gas_analytic() {
         "Isentropic query mutated its conserved reference");
 }
 
+void isentropic_gas_tiny_work_precision() {
+    const LiquidThermodynamicReference model("analytic-small-gas-work-v1", {oxygen()});
+    const auto initial = model.initialize_at_temperature(std::vector<double>{1}, 300, 1);
+    const auto anchor = model.make_isentrope(initial.cell);
+    const double p0 = anchor.reference_state().mechanical_pressure_pa;
+    const double gamma = 1 + reference_gas_constant / (.032 * 660);
+    const double arithmetic = 32 * std::numeric_limits<double>::epsilon();
+    for (int exponent : {-20, -40, -70, -120}) for (double direction : {-1.0, 1.0}) {
+        const double delta = direction * std::ldexp(1.0, exponent);
+        const auto result = model.isentropic_response(anchor, delta);
+        // Independent quadrature of p(V+s*dV) and s*p'(V+s*dV).
+        // At |dV/V|<=2^-20, the omitted Simpson terms are below binary64
+        // arithmetic resolution. No subtraction of tiny endpoint differences.
+        const auto pressure = [&](double s) { return p0 * std::exp(-gamma * std::log1p(s * delta)); };
+        const auto derivative = [&](double s) { return -gamma * p0 * s * std::exp(-(gamma + 1) * std::log1p(s * delta)); };
+        const double expected = (pressure(0) + 4 * pressure(.5) + pressure(1)) / 6;
+        const double tangent = (derivative(0) + 4 * derivative(.5) + derivative(1)) / 6;
+        near(result.work_pressure_pa, expected, arithmetic);
+        near(model.isentropic_work_pressure_derivative(anchor, delta), tangent, arithmetic);
+        require(result.internal_energy_change_j != 0 && result.volume_change_m3 == delta,
+            "Analytic gas work erased a genuine small volume/energy change");
+        near(result.internal_energy_change_j, -expected * delta, arithmetic);
+    }
+}
+
 void isentropic_liquid_release() {
     const LiquidThermodynamicReference model("isentropic-liquid-v1", {water()});
     const auto initialized = model.initialize_at_temperature(std::vector<double>{1407}, 300, 1);
@@ -625,6 +650,7 @@ int main() {
         {"versioned metadata/provenance and invalid model rejection", metadata_and_invalid_model},
         {"domain/root failures preserve input and output", invalid_states_and_rollback},
         {"isentropic ideal-gas analytic state and pressure-work quadrature", isentropic_gas_analytic},
+        {"gas-only tiny work and tangent agree with independent quadrature to arithmetic precision", isentropic_gas_tiny_work_precision},
         {"gasless liquid release through zero pressure recovers all elastic work", isentropic_liquid_release},
         {"common-pressure entropy-reference mixture volume queries", isentropic_mixture_known_roots},
         {"isentropic endpoint/work derivatives and independent quadrature", isentropic_derivatives_and_work},

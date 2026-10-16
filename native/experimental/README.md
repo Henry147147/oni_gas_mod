@@ -119,6 +119,31 @@ quadrature, reversible cycles, both sides of the fill kink, empty references,
 expansion toward vacuum, sub-ULP increments, genuine trace gas, model identity,
 and failure rollback. These are thermodynamic reference checks only.
 
+## Gas-only small-work precision
+
+For a gas-only isentrope, the volume equation has the analytic inverse
+`log(p/p0) = -log(V/V0)/b`. Incremental queries use `log1p(deltaV/V0)` so a small
+volume change survives even when the scalar endpoint volume rounds to V0.
+The same pressure/temperature domain checks, error priority, balanced energy,
+endpoint construction and work-pressure derivative still apply. Gas/liquid and
+liquid root algorithms are unchanged. No physical pressure is clamped.
+
+The former relative bisection tolerance on a tiny logarithmic shift propagated
+into `deltaU/deltaV`, creating finite work-pressure errors during uniform motion.
+An independent 90-digit calculation of a captured canonical free-fall state
+measured errors up to `5.29809e-9 Pa`. Its original physical failures and explicit
+diagnostic reproduction remain recorded in [the canonical evidence](../CANONICAL_MATERIAL.md#preserved-first-failures-and-diagnostic-reproduction).
+
+All 27 reference groups pass on Windows/MSVC and WSL Linux/GNU. The added group
+checks pressure, its work tangent and nonzero balanced energy at signed volume
+changes `2^-20`, `2^-40`, `2^-70` and `2^-120 m3`, against independent Simpson
+quadrature with a 32-binary64-epsilon relative bound and no absolute/unit floor.
+The prior 26 groups retain their inputs and bounds, including domain failures,
+gas/liquid mixtures, vacuum limits and immutable rollback. This is thermodynamic
+validation; it provides no world, game, vacuum-front or performance acceptance.
+The separate reference project uses warnings as errors, with its existing FP
+settings; the canonical target's stricter FP settings are a separate audit.
+
 ## Future vacuum/free-surface integration
 
 The explicit `FluidWorld` geometry mode now supplies the first bounded 1-D
@@ -186,7 +211,7 @@ Gas entropy evaluates `log(Vgas/n)` and `log(T/Tref)` using `log1p` for
 nearby positive arguments and a difference of logarithms otherwise. This is
 the same entropy formula/reference and does not change the profile metadata,
 API or material calibration. It avoids forming an overflowing or underflowing
-quotient when the entropy contribution itself is finite. The independent
+quotient when the entropy contribution itself is finite. The earlier independent
 26-group tests include pure-gas scale extremes, entropy volume derivatives and
 a minimum-positive gas trace beside bulk gas. A trace whose positive overlap
 shares cannot be represented still fails in the connected remap; it is never

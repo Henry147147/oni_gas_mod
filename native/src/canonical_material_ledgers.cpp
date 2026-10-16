@@ -24,7 +24,7 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
         mean[j] = scaled(k, joined(k, {old_velocity[j], new_velocity[j]}), .5);
     }
     Terms kinetic_defect = terms({k1, -k0}), residual_work, kinematic_work, assembly_work;
-    Terms momentum_change, momentum_residual, assembly_impulse, energy_scale, impulse_scale;
+    Terms momentum_change, momentum_residual, assembly_impulse, energy_scale, impulse_scale, gravity_work, potential_change, gravity_impulse;
     Terms first_change, first_prediction, first_scale, relative_change, relative_canonical, relative_compatibility, product_scale;
     Terms pbar_total, cbar_total, delta_c_total;
     report.momentum_residual.resize(n); report.kinematic_defect.resize(n);
@@ -54,18 +54,21 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
         append_expression(k, energy_scale, work); append_expression(k, energy_scale, rw); append_expression(k, energy_scale, gw);
         append_expression(k, momentum_change, dpi); append_expression(k, momentum_residual, rpi); append_expression(k, impulse_scale, dpi);
         const auto parts = pressure_components(k, old, report.work_pressure, j);
-        Terms assembly = terms({report.actual_force[j], -report.exterior_force[j], -report.reaction[j]});
+        Terms assembly = terms({report.actual_force[j], -report.exterior_force[j], -report.reaction[j], -report.gravity_force[j]});
         for (double part : parts) {
             append_expression(k, assembly, terms({-part}));
             append_expression(k, impulse_scale, scaled(k, terms({part}), h));
         }
-        append_expression(k, impulse_scale, scaled(k, terms({report.exterior_force[j], report.reaction[j]}), h));
+        append_expression(k, impulse_scale, scaled(k, terms({report.exterior_force[j], report.reaction[j], report.gravity_force[j]}), h));
+        append_expression(k, gravity_impulse, scaled(k, terms({report.gravity_force[j]}), h));
+        append_expression(k, gravity_work, scaled(k, displacement, report.gravity_force[j]));
         static_cast<void>(recorded(k, report, "node.force-assembly-defect", assembly, node));
         append_expression(k, assembly_impulse, scaled(k, assembly, h));
         append_expression(k, assembly_work, products(k, displacement, assembly));
         Terms weights;
         for (double coefficient : old.consistent_mass[j]) append_expression(k, weights, terms({coefficient}));
         const auto first = products(k, weights, displacement);
+        append_expression(k, potential_change, scaled(k, first, old.gravity_down_m_per_s2));
         const auto prediction = joined(k, {products(k, weights, g), scaled(k, products(k, weights, mean[j]), h), negated(scaled(k, pi_bar[j], h))});
         append_expression(k, first_change, first); append_expression(k, first_prediction, prediction);
         append_expression(k, first_scale, first); append_expression(k, first_scale, prediction);
@@ -96,9 +99,19 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
     report.momentum_residual_work_j = recorded(k, report, "energy.momentum-residual-work", residual_work);
     report.kinematic_defect_work_j = recorded(k, report, "energy.kinematic-defect-work", kinematic_work);
     static_cast<void>(recorded(k, report, "energy.force-assembly-work", assembly_work));
+    report.gravitational_potential_change_j = recorded(k, report, "energy.gravitational-potential-change", potential_change);
+    report.gravity_work_j = recorded(k, report, "energy.gravity-work", gravity_work);
+    const auto gravity_defect = joined(k, {gravity_work, potential_change});
+    report.gravity_arithmetic_defect_j = recorded(k, report, "energy.gravity-defect", gravity_defect);
+    k.scalar(Field::gravity_potential_change, report.gravitational_potential_change_j);
+    k.scalar(Field::gravity_work, report.gravity_work_j); k.scalar(Field::gravity_defect, report.gravity_arithmetic_defect_j);
+    k.within(report.gravity_arithmetic_defect_j, magnitude(k, gravity_defect), 256 * epsilon,
+        "Gravity work does not close the stable potential-energy change within projection arithmetic");
     report.trial_residual_work_j = dot(k, report.requested_displacement, report.force_residual);
-    Terms lhs = terms({k1, -k0}), owner_defects, physical_scale = terms({k0, k1});
+    Terms lhs = joined(k, {terms({k1, -k0}), potential_change}), owner_defects;
+    Terms physical_scale = joined(k, {terms({k0, k1}), terms({std::abs(report.gravity_work_j), std::abs(report.gravitational_potential_change_j)})});
     append_expression(k, energy_scale, terms({k0, k1})); append_expression(k, energy_scale, kinetic_defect);
+    append_expression(k, energy_scale, gravity_work); append_expression(k, energy_scale, potential_change); append_expression(k, energy_scale, gravity_defect);
     for (std::size_t i = 0; i < 7; ++i) {
         append_expression(k, lhs, terms(report.retained.internal_energy_change[i]));
         const auto& defect = recorded_terms(k, report, "owner.work-defect", canonical_absent_index, static_cast<std::uint32_t>(i));
@@ -112,7 +125,7 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
     for (const auto& work : {exterior_left, exterior_right, reaction_left, reaction_right}) {
         append_expression(k, lhs, negated(work)); append_expression(k, energy_scale, work);
     }
-    const auto accounted = joined(k, {residual_work, kinematic_work, kinetic_defect, owner_defects, assembly_work});
+    const auto accounted = joined(k, {residual_work, kinematic_work, kinetic_defect, owner_defects, assembly_work, gravity_defect});
     const auto remainder = joined(k, {lhs, negated(accounted)});
     report.energy_error_j = recorded(k, report, "energy.physical-error", lhs);
     static_cast<void>(recorded(k, report, "energy.accounted-error", accounted));
@@ -123,7 +136,8 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
     k.require(std::abs(report.energy_error_j) <= report.energy_budget_j, Code::numerical_precision, "Actual retained-state physical energy gate failed");
     k.scalar(Field::energy_error, report.accounting_remainder_j); k.scalar(Field::arithmetic_bound, report.accounting_bound_j);
     k.require(std::abs(report.accounting_remainder_j) <= report.accounting_bound_j, Code::numerical_precision, "Complete retained-state finite energy identity failed");
-    const auto momentum_error = joined(k, {momentum_change, negated(ext_pi_left), negated(ext_pi_right), negated(reaction_pi_left), negated(reaction_pi_right)});
+    report.gravity_impulse = recorded(k, report, "momentum.gravity-impulse", gravity_impulse);
+    const auto momentum_error = joined(k, {momentum_change, negated(ext_pi_left), negated(ext_pi_right), negated(reaction_pi_left), negated(reaction_pi_right), negated(gravity_impulse)});
     const auto momentum_remainder = joined(k, {momentum_error, negated(momentum_residual), negated(assembly_impulse)});
     report.momentum_error = recorded(k, report, "momentum.physical-error", momentum_error);
     static_cast<void>(recorded(k, report, "momentum.assembly-impulse", assembly_impulse));

@@ -51,6 +51,7 @@ enum class CanonicalWitnessField : std::uint16_t {
     thermodynamic_reading,
     residual_ratio, backtracking_fraction,
     retained_position_low, retained_momentum_low, retained_internal_energy_low, retained_time_low,
+    gravity_acceleration, gravity_force, gravity_potential_change, gravity_work, gravity_defect,
     count
 };
 

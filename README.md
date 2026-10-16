@@ -30,6 +30,11 @@ machines, pipes, and metabolism must use the same conserved state.
 - A nonlinear, reversible pressure-work step for moving material volumes. It
   couples gas/liquid heat capacity, pressure, temperature and staggered kinetic
   energy while preserving entropy and accounting for gravity work.
+- A separate retained material-state reference with constant gravity, full
+  consistent-mass momentum and finite work ledgers. Strict Windows/Linux
+  gravity and zero-gravity controls pass, including tiny stored changes; earlier
+  failures and explicit retests are [documented](native/CANONICAL_MATERIAL.md#current-source-validation).
+  This reference is excluded from game dispatch and default builds.
 - A shared gas/liquid bulk remap that preserves constituents, momentum and total
   energy; it retains traces, converts mixed-velocity energy to heat, and rejects
   condensed overfill before changing inputs.

@@ -153,11 +153,14 @@ add_executable(ma_canonical_retained_initialization_tests EXCLUDE_FROM_ALL nativ
 target_link_libraries(ma_canonical_retained_initialization_tests PRIVATE ma_canonical_material)
 add_executable(ma_canonical_retained_step_tests EXCLUDE_FROM_ALL native/tests/canonical_retained_step_tests.cpp)
 target_link_libraries(ma_canonical_retained_step_tests PRIVATE ma_canonical_material)
+add_executable(ma_canonical_gravity_tests EXCLUDE_FROM_ALL native/tests/canonical_gravity_tests.cpp)
+target_link_libraries(ma_canonical_gravity_tests PRIVATE ma_canonical_material)
 if(MSVC)
     target_compile_options(ma_canonical_material PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_canonical_material_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_canonical_retained_initialization_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_canonical_retained_step_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+    target_compile_options(ma_canonical_gravity_tests PRIVATE /W4 /WX /permissive- /fp:strict)
 else()
     target_compile_options(ma_canonical_material PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
@@ -166,6 +169,8 @@ else()
     target_compile_options(ma_canonical_retained_initialization_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
     target_compile_options(ma_canonical_retained_step_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+    target_compile_options(ma_canonical_gravity_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
 endif()
 

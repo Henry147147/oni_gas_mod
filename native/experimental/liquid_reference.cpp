@@ -487,6 +487,29 @@ IsentropicSolution solve_isentrope(const std::vector<ReferenceMaterial>& definit
         std::size_t iterations = 0;
         if (curve.stats.gas_moles == 0 && solution.target_fill_deficit <= 0) {
             solution.parameter = -curve.p0;
+        } else if (curve.stats.gas_moles > 0 && !curve.stats.has_liquid) {
+            // Invert the gas-only volume curve exactly. A relative bisection
+            // error in this small logarithmic shift becomes a relative error
+            // in deltaU/deltaV, even as deltaV tends to zero. It can therefore
+            // introduce a finite work-pressure perturbation into uniform flow.
+            const bool incremental = std::abs(delta) <= static_cast<Real>(cell.volume_m3) / 8 && solution.initial_void == 0;
+            const Real logarithm = incremental ? std::log1p(delta / curve.vg0) : log_ratio(target_volume, curve.vg0);
+            solution.parameter = -logarithm / curve.b;
+            check(std::isfinite(solution.parameter) && solution.parameter != 0, ReferenceErrorCode::numerical_range,
+                "Nonzero gas volume change has an unrepresentable logarithmic pressure shift");
+            // Keep the same thermal/pressure domain and error priority used
+            // by the iterative gas/mixed branch below. No boundary is clamped.
+            const int direction = solution.parameter > 0 ? 1 : -1;
+            const Real double_min = std::numeric_limits<double>::denorm_min(), double_max = std::numeric_limits<double>::max();
+            const Real minimum = curve.stats.minimum_temperature - boundary_roundoff(curve.stats.minimum_temperature, curve.stats.minimum_temperature);
+            const Real maximum = std::min(curve.stats.maximum_temperature + boundary_roundoff(curve.stats.maximum_temperature, curve.stats.maximum_temperature), double_max);
+            const Real thermal_bound = log_ratio(direction > 0 ? maximum : minimum, curve.t0) / curve.a;
+            const Real pressure_bound = log_ratio(direction > 0 ? std::min(curve.stats.maximum_pressure, double_max) : double_min, curve.p0);
+            const bool thermal_first = direction > 0 ? thermal_bound < pressure_bound : thermal_bound > pressure_bound;
+            const Real bound = thermal_first ? thermal_bound : pressure_bound;
+            const auto code = thermal_first ? ReferenceErrorCode::temperature_outside_model : ReferenceErrorCode::numerical_range;
+            check(direction > 0 ? solution.parameter <= bound : solution.parameter >= bound, code,
+                "Requested volume exceeds the gas isentrope's declared domain");
         } else {
             const bool gas = curve.stats.gas_moles > 0;
             const bool incremental = std::abs(delta) <= static_cast<Real>(cell.volume_m3) / 8 && solution.initial_void == 0;

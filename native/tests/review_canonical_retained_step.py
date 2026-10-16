@@ -164,7 +164,8 @@ class Reader:
         return (name, node, owner), self.expression()
 
     def decode(self, n):
-        self.text('ma-canonical-material-diagnostics-v3')
+        schema = self.text()
+        assert schema in ('ma-canonical-material-diagnostics-v3', 'ma-canonical-material-diagnostics-v4')
         self.text('primary')
         primary = {}
         for name, count in [('relative_positions_m', n), ('momentum', n), ('internal_energy_j', 7)]:
@@ -176,6 +177,11 @@ class Reader:
         primary_lows = self.low_offsets[:]
         self.text('owner_geometry')
         geometry = self.array(7, self.geometry, 7)
+        if schema.endswith('-v4'):
+            self.text('gravity_down_m_per_s2')
+            primary['gravity_down_m_per_s2'] = self.number()
+        else:
+            primary['gravity_down_m_per_s2'] = '0000000000000000'
         self.text('registry')
         prefix_bytes = self.offset
         tag = struct.pack('<Q', len('retained')) + b'retained'
@@ -206,20 +212,25 @@ class Reader:
         return primary, geometry, retained, primary_lows, prefix_bytes, len(self.raw) - offset
 
 
-def check_case(case, data, raw_before, raw_after):
+def check_case(case, data, raw_before, raw_after, gravity_fixture=False):
     n, species = data['meta']['nodes'], data['meta']['species']
-    assert n == 9 + case and species == (4 if case == 0 else 2)
+    assert n == ([9, 8, 11][case] if gravity_fixture else 9 + case)
+    assert species == ([1, 4, 2][case] if gravity_fixture else 4 if case == 0 else 2)
     p0, g0, _, _, prefix0, suffix0 = Reader(raw_before).decode(n)
     p1, g1, ledger, low_offsets, prefix1, suffix1 = Reader(raw_after).decode(n)
     h, area = N(data['meta']['h']), N(data['meta']['area'])
+    gravity = N(data['meta'].get('g', '0000000000000000'))
+    assert N(p0['gravity_down_m_per_s2']) == N(p1['gravity_down_m_per_s2']) == gravity >= 0
     u0, u1 = [N(row[3]) for row in data['nodes0']], [N(row[3]) for row in data['nodes1']]
     z, exterior, reaction, force = ([N(row[i]) for row in data['nodes1']] for i in range(4, 8))
+    body = [N(row[8]) if len(row) == 9 else Fraction(0) for row in data['nodes1']]
     x0, x1 = ([pair_value(pair) for pair in p[name]] for p, name in [(p0, 'relative_positions_m'), (p1, 'relative_positions_m')])
     pi0, pi1 = ([pair_value(pair) for pair in p['momentum']] for p in (p0, p1))
     origin0, origin1 = pair_value(p0['origin_m']), pair_value(p1['origin_m'])
     dx = [origin1 - origin0 + b - a for a, b in zip(x0, x1)]
     dpi, duv, mean = [b - a for a, b in zip(pi0, pi1)], [b - a for a, b in zip(u0, u1)], [(a + b) / 2 for a, b in zip(u0, u1)]
     matrix = [[N(data['rows'][j * n + p][3]) for p in range(n)] for j in range(n)]
+    weights = list(map(sum, matrix))
     assert all(matrix[j][p] == matrix[p][j] and matrix[j][p] >= 0 for j in range(n) for p in range(n))
     assert all(matrix[j][p] == 0 for j in range(n) for p in range(n) if abs(j - p) > 1)
     multiply = lambda vector: [sum((a * b for a, b in zip(row, vector)), Fraction(0)) for row in matrix]
@@ -241,7 +252,7 @@ def check_case(case, data, raw_before, raw_after):
     for name, expected in [('origin_change', origin1 - origin0), ('time_change', pair_value(p1['completed_time_seconds']) - pair_value(p0['completed_time_seconds']))]:
         assert total(ledger[name]['expansion']) == expected
     assert total(ledger['time_change']['expansion']) == h
-    if case != 1:
+    if case != 1 and not gravity_fixture:
         assert p0['completed_time_seconds'][0] == p1['completed_time_seconds'][0] and N(p1['completed_time_seconds'][1]) != 0
     for name, expected in [('relative_position_change', [b - a for a, b in zip(x0, x1)]), ('momentum_change', dpi), ('velocity_change', duv),
                            ('internal_energy_change', [pair_value(b) - pair_value(a) for a, b in zip(p0['internal_energy_j'], p1['internal_energy_j'])])]:
@@ -249,7 +260,7 @@ def check_case(case, data, raw_before, raw_after):
         assert [total(value['expansion']) for value in ledger[name]] == expected
     assert [total(value['terms']) for value in ledger['displacement']] == dx
     assert [origin0 + value for value in x0] == [N(row[2]) for row in data['inputs']]
-    if case == 2:
+    if case == 2 and not gravity_fixture:
         assert any(a[0] == b[0] and pair_value(a) != pair_value(b) for a, b in zip(p0['relative_positions_m'], p1['relative_positions_m']))
     constrained = {j for j in range(n) if j == 0 and data['meta']['left_kind'] != 0 or j == n - 1 and data['meta']['right_kind'] != 0}
     for j in constrained:
@@ -267,7 +278,10 @@ def check_case(case, data, raw_before, raw_after):
             assert total(geometry[i]['volume']) == area * expected_length
             assert geometry[i]['projection'] == cells[i][3]
         assert data['cells0'][i][8:12] == data['cells1'][i][8:12]
-        assert all(N(value) > 0 for value in data['cells1'][i][8:8 + species])
+        masses = list(map(N, data['cells1'][i][8:8 + species]))
+        assert all(value >= 0 for value in masses) and any(value > 0 for value in masses)
+        if not gravity_fixture:
+            assert all(value > 0 for value in masses)
         delta_volume = total(g1[i]['volume']) - total(g0[i]['volume'])
         assert total(ledger['volume_change'][i]['terms']) == delta_volume
         delta_u = pair_value(p1['internal_energy_j'][i]) - pair_value(p0['internal_energy_j'][i])
@@ -290,7 +304,7 @@ def check_case(case, data, raw_before, raw_after):
         expect('owner.volume-work-defect', pwork[i] * (incidence - N(data['cells1'][i][14])), owner=i)
     rpi = [dpi[j] - h * force[j] for j in range(n)]
     kinematic = [dx[j] - h * mean[j] for j in range(n)]
-    assembly = [force[j] - exterior[j] - reaction[j] - pressure[j] for j in range(n)]
+    assembly = [force[j] - exterior[j] - reaction[j] - pressure[j] - body[j] for j in range(n)]
     for j in range(n):
         expect('node.compatibility0', c0[j], node=j)
         expect('node.compatibility1', c1[j], node=j)
@@ -300,6 +314,11 @@ def check_case(case, data, raw_before, raw_after):
         expect('node.momentum-residual', rpi[j], node=j)
         expect('node.kinematic-defect', kinematic[j], node=j)
         expect('node.force-assembly-defect', assembly[j], node=j)
+        if ('node.gravity-load', j, absent) in expressions:
+            expect('node.gravity-load', -gravity * weights[j], node=j)
+            expect('node.gravity-projection-defect', body[j] + gravity * weights[j], node=j)
+        else:
+            assert gravity == 0 and body[j] == 0
         if j not in constrained:
             expect('node.free-addition-defect', dpi[j] - required, node=j)
         else:
@@ -307,7 +326,7 @@ def check_case(case, data, raw_before, raw_after):
             expect('node.constrained-linearity-defect', linearity, node=j)
             expect('node.constrained-join-defect', required - dpi[j] - linearity, node=j)
             expect('node.constrained-impulse-defect', required - dpi[j], node=j)
-        expect('node.reaction-impulse-defect', h * (pressure[j] + exterior[j] + reaction[j]) - required, node=j)
+        expect('node.reaction-impulse-defect', h * (pressure[j] + exterior[j] + reaction[j] + body[j]) - required, node=j)
     independent_force_ratio = Fraction(0)
     for j in range(n):
         if j in constrained:
@@ -316,12 +335,12 @@ def check_case(case, data, raw_before, raw_after):
         lz = sum(matrix[j][p] * z[p] for p in free)
         lu = sum(matrix[j][p] * u0[p] for p in free)
         coupling = sum(matrix[j][p] * u1[p] for p in constrained)
-        residual = 2 * lz / h**2 - (lu + pi0[j]) / h + coupling / h - pressure[j] - exterior[j]
+        residual = 2 * lz / h**2 - (lu + pi0[j]) / h + coupling / h - pressure[j] - exterior[j] - body[j]
         scale = (2 * sum(abs(matrix[j][p] * z[p]) for p in free) / h**2
                  + sum(abs(matrix[j][p] * u0[p]) for p in free) / h
                  + sum(abs(N(value)) for value in p0['momentum'][j]) / h
                  + sum(abs(matrix[j][p] * u1[p]) for p in constrained) / h
-                 + pressure_magnitude[j] + abs(exterior[j]))
+                 + pressure_magnitude[j] + abs(exterior[j]) + abs(body[j]))
         assert scale > 0 and abs(residual) <= Fraction(2, 10**12) * scale
         independent_force_ratio = max(independent_force_ratio, abs(residual) / scale)
     k0, k1 = N(data['summary']['k0']), N(data['summary']['k1'])
@@ -334,21 +353,31 @@ def check_case(case, data, raw_before, raw_after):
     kinematic_work = -sum(a * b for a, b in zip(kinematic, force))
     assembly_work = sum(a * b for a, b in zip(dx, assembly))
     ports = [exterior[0] * dx[0], exterior[-1] * dx[-1], reaction[0] * z[0], reaction[-1] * z[-1]]
-    energy_error = k1 - k0 + sum(internal_changes) - sum(ports)
-    accounted = residual_work + kinematic_work + e_kinetic + sum(owner_defects) + assembly_work
+    potential = gravity * sum(a * b for a, b in zip(weights, dx))
+    gravity_work = sum(a * b for a, b in zip(body, dx))
+    gravity_defect = gravity_work + potential
+    energy_error = k1 - k0 + sum(internal_changes) + potential - sum(ports)
+    accounted = residual_work + kinematic_work + e_kinetic + sum(owner_defects) + assembly_work + gravity_defect
     assert energy_error == accounted
     expect('energy.kinetic-defect', e_kinetic)
     expect('energy.momentum-residual-work', residual_work)
     expect('energy.kinematic-defect-work', kinematic_work)
     expect('energy.force-assembly-work', assembly_work)
+    if ('energy.gravity-work', absent, absent) in expressions:
+        for name, value, field in [('energy.gravity-work', gravity_work, 'gravity_work'),
+                                   ('energy.gravitational-potential-change', potential, 'potential_change'),
+                                   ('energy.gravity-defect', gravity_defect, 'gravity_defect'),
+                                   ('momentum.gravity-impulse', h * sum(body), 'gravity_impulse')]:
+            expect(name, value, summary=field if field in data['summary'] else None)
+    else:
+        assert gravity == 0 and gravity_defect == potential == gravity_work == 0
     expect('energy.physical-error', energy_error, summary='energy_error')
     expect('energy.accounted-error', accounted)
     expect('energy.accounting-remainder', Fraction(0), summary='energy_remainder')
-    momentum_error = sum(dpi) - h * (exterior[0] + exterior[-1] + reaction[0] + reaction[-1])
+    momentum_error = sum(dpi) - h * (exterior[0] + exterior[-1] + reaction[0] + reaction[-1] + sum(body))
     expect('momentum.physical-error', momentum_error, summary='momentum_error')
     expect('momentum.assembly-impulse', h * sum(assembly))
     expect('momentum.accounting-remainder', Fraction(0), summary='momentum_remainder')
-    weights = list(map(sum, matrix))
     first_change = sum(a * b for a, b in zip(weights, dx))
     first_error = first_change - h * sum((a + b) / 2 for a, b in zip(pi0, pi1))
     expect('first-moment.change', first_change, summary='first_change')
@@ -421,7 +450,7 @@ def review(path, directory):
             for endpoint in (0, 1):
                 values = [row for row in records[kind] if row[:2] == [case, endpoint]]
                 count = n if kind == 'NODE' else 7
-                length = (4 if endpoint == 0 else 8) if kind == 'NODE' else (12 if endpoint == 0 else 17)
+                length = (4 if endpoint == 0 else 9 if 'g' in meta else 8) if kind == 'NODE' else (12 if endpoint == 0 else 17)
                 assert len(values) == count and all(row[:3] == [case, endpoint, j] and len(row) == length for j, row in enumerate(values))
                 data[kind.lower() + 's' + str(endpoint)] = values
         data['inputs'] = [row for row in records['INPUT'] if row[0] == case]
@@ -449,18 +478,19 @@ def review(path, directory):
         assert witness['context']['constitutive_charges'] == witness['context']['factorizations'] == 0
         slots = 0
         for field, _, value in witness['scalars']:
-            assert 0 <= field < 88
+            assert 0 <= field < 93
             decoder.witness_number(value)
             slots += 1
         for field, _, values in witness['rows']:
-            assert 0 <= field < 88 and len(values) <= 33
+            assert 0 <= field < 93 and len(values) <= 33
             for value in values:
                 decoder.witness_number(value)
             slots += len(values)
         assert slots == witness['numeric_slots'] <= 512
         numbers += slots
     return dict(EvidenceValid=True, NativeLaunchedByReview=False, Cases=cases, CorruptedNormalLowBitsRejected=corruptions,
-                WitnessNumbersChecked=numbers, OldFailedGateRetried=False, GameAcceptance=False, PerformanceAcceptance=False)
+                WitnessNumbersChecked=numbers, NativeOutcomeProvenanceNotEstablishedByDataReview=True,
+                GameAcceptance=False, PerformanceAcceptance=False)
 
 
 if __name__ == '__main__':

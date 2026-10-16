@@ -103,7 +103,7 @@ void record_state(int case_id, int endpoint, const CanonicalSnapshot& state) {
     for (std::size_t j = 0; j < state.positions_m.size(); ++j) {
         std::cout << "NODE [" << case_id << ',' << endpoint << ',' << j << ','; hex(state.velocities_m_per_s[j]);
         if (endpoint == 1) for (double value : {state.last_step.requested_displacement[j], state.last_step.exterior_force[j],
-            state.last_step.reaction[j], state.last_step.actual_force[j]}) { std::cout << ','; hex(value); }
+            state.last_step.reaction[j], state.last_step.actual_force[j], state.last_step.gravity_force[j]}) { std::cout << ','; hex(value); }
         std::cout << "]\n";
     }
     for (std::size_t i = 0; i < 7; ++i) {
@@ -123,7 +123,8 @@ void record_state(int case_id, int endpoint, const CanonicalSnapshot& state) {
 CanonicalMaterialState run(int case_id, const std::filesystem::path& directory) {
     auto in = input(case_id); const double h = std::ldexp(1.0, case_id == 2 ? -56 : -17);
     std::cout << "CASE {\"case\":" << case_id << ",\"nodes\":" << in.positions_m.size() << ",\"species\":" << in.materials.size() << ",\"h\":"; hex(h);
-    std::cout << ",\"area\":"; hex(in.area_m2); std::cout << ",\"left_kind\":" << static_cast<int>(in.left.kind) << ",\"right_kind\":" << static_cast<int>(in.right.kind);
+    std::cout << ",\"area\":"; hex(in.area_m2); std::cout << ",\"g\":"; hex(in.gravity_down_m_per_s2);
+    std::cout << ",\"left_kind\":" << static_cast<int>(in.left.kind) << ",\"right_kind\":" << static_cast<int>(in.right.kind);
     std::cout << ",\"left_velocity\":"; hex(in.left.velocity_m_per_s); std::cout << ",\"right_velocity\":"; hex(in.right.velocity_m_per_s); std::cout << "}\n";
     auto state = initialize(in); auto output = state; const auto before = bytes(state);
     save(directory, "case-" + std::to_string(case_id) + "-before.bin", before);

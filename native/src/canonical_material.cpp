@@ -86,6 +86,7 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
     k.require(text_valid(in.profile_version, 256) && text_valid(in.expected_model_metadata, 65536, true),
         Code::unsupported_configuration, "Invalid bounded model version or complete metadata");
     k.positive(in.area_m2, Field::occupied_volume); k.nonnegative(in.completed_time_seconds, Field::completed_time);
+    k.nonnegative(in.gravity_down_m_per_s2, Field::gravity_acceleration);
     k.step_context(0, in.completed_time_seconds); validate_boundary(k, in.left); validate_boundary(k, in.right);
     for (std::size_t i = 0; i < 7; ++i) {
         k.scope(Stage::initialization, canonical_absent_index, static_cast<std::uint32_t>(i));
@@ -105,6 +106,7 @@ Data initialize_data(Kernel& k, const CanonicalInitialization& in) {
     d.diagnostic_model_identity = in.diagnostic_model_identity;
     d.reference_nodes_m = in.reference_nodes_m; d.positions_m.resize(n); d.velocities_m_per_s = in.velocities_m_per_s;
     d.reference_pieces = in.pieces; d.owner_ids = in.owner_ids; d.area_m2 = in.area_m2; d.completed_time_seconds = in.completed_time_seconds;
+    d.gravity_down_m_per_s2 = in.gravity_down_m_per_s2;
     d.left = in.left; d.right = in.right; d.initialization_energy = in.energy; d.consistent_mass = zeros(n);
     d.owner_left.fill(n); d.owner_right.fill(0);
     for (std::size_t j = 0; j < n; ++j) {

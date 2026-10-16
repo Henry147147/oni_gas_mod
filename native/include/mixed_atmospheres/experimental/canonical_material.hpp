@@ -47,6 +47,7 @@ struct CanonicalInitialization {
     // Only the explicitly selected array is used; the other must remain zero.
     std::array<double, canonical_owner_count> stored_internal_energy_j{}, temperatures_k{};
     double area_m2 = 1, completed_time_seconds = 0;
+    double gravity_down_m_per_s2 = 0; // Toward the negative material coordinate.
     CanonicalBoundary left, right;
 };
 struct CanonicalGeometryMeasure {
@@ -133,6 +134,8 @@ struct CanonicalStepReport {
     double trial_residual_work_j = 0; // Labelled trial diagnostic, not the old z.R0 energy interpretation.
     double exterior_work_left_j = 0, exterior_work_right_j = 0;
     double reaction_work_left_j = 0, reaction_work_right_j = 0;
+    double gravitational_potential_change_j = 0, gravity_work_j = 0, gravity_arithmetic_defect_j = 0;
+    double gravity_impulse = 0;
     double exterior_impulse_left = 0, exterior_impulse_right = 0, reaction_impulse_left = 0, reaction_impulse_right = 0;
     double momentum_error = 0, momentum_accounting_remainder = 0, momentum_accounting_bound = 0;
     double first_moment_change = 0, first_moment_error = 0, first_moment_accounting_remainder = 0, first_moment_bound = 0;
@@ -148,7 +151,7 @@ struct CanonicalStepReport {
     CanonicalVector delta_velocity, mass_delta_velocity, requested_impulse, represented_impulse;
     CanonicalVector free_addition_defect, constrained_linearity_defect, constrained_join_defect, constrained_impulse_defect;
     CanonicalVector constrained_linearity_bound, constrained_join_bound, constrained_impulse_bound;
-    CanonicalVector pressure_force, exterior_force, reaction, actual_force, momentum_residual, kinematic_defect;
+    CanonicalVector pressure_force, exterior_force, gravity_force, reaction, actual_force, momentum_residual, kinematic_defect;
     CanonicalVector requested_volume_change, represented_volume_change, incidence_volume_change, volume_storage_difference;
     CanonicalVector balanced_energy_change, represented_energy_change, stored_energy_defect, secant_defect, volume_work_defect, owner_work_defect;
     CanonicalVector work_pressure, work_stiffness, entropy_change, entropy_cache_difference;
@@ -179,6 +182,7 @@ struct CanonicalSnapshot {
     std::array<CanonicalOwnerReading, canonical_owner_count> owners;
     CanonicalBoundary left, right;
     double area_m2 = 1, origin_high_m = 0, origin_low_m = 0, completed_time_seconds = 0;
+    double gravity_down_m_per_s2 = 0;
     double resolved_kinetic_energy_j = 0, cumulative_energy_error_j = 0;
     std::uint64_t completed_steps = 0;
     CanonicalInitialEnergy initialization_energy = CanonicalInitialEnergy::stored_internal_energy;

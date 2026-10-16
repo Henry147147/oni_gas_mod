@@ -30,11 +30,14 @@ class SnapshotPrefix:
         self.offset += 8
         return result
 
-    def text(self, expected):
+    def text(self, expected=None):
         length = self.integer()
         assert length <= 256 and self.offset + length <= len(self.raw)
-        assert self.raw[self.offset:self.offset + length] == expected.encode('ascii')
+        value = self.raw[self.offset:self.offset + length].decode('ascii')
+        if expected is not None:
+            assert value == expected
         self.offset += length
+        return value
 
     def number(self):
         bits = f'{self.integer():016x}'
@@ -76,7 +79,8 @@ class SnapshotPrefix:
                     volume=volume, volume_count=volume_count, projected=projected, residual=residual)
 
     def decode(self):
-        self.text('ma-canonical-material-diagnostics-v3')
+        schema = self.text()
+        assert schema in ('ma-canonical-material-diagnostics-v3', 'ma-canonical-material-diagnostics-v4')
         self.text('primary')
         primary = {}
         for name, count in [('relative_positions_m', 8), ('momentum', 8), ('internal_energy_j', 7)]:
@@ -87,6 +91,9 @@ class SnapshotPrefix:
             primary[name] = self.pair()
         self.text('owner_geometry')
         geometry = self.array(7, self.geometry)
+        if schema.endswith('-v4'):
+            self.text('gravity_down_m_per_s2')
+            assert decoder.number(self.number()) == 0
         self.text('registry')
         assert self.offset < len(self.raw)
         return primary, geometry

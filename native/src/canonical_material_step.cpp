@@ -73,8 +73,13 @@ bool trial(Kernel& k, const Data& d, const Vec& z, const Vec& u0, const Vec& c0,
     k.scope(Stage::pressure_trial);
     const Vec zf = selected(z, free), uf = selected(u0, free);
     const auto lz = multiply(k, ff, zf, maximum_linear, free), lu = multiply(k, ff, uf, maximum_linear, free);
-    const auto exterior = exterior_force(k, d);
-    Vec q(n); for (std::size_t j = 0; j < n; ++j) q[j] = difference(k, z[j], k.mul(h, u0[j]));
+    const auto exterior = exterior_force(k, d), body = gravity_force(k, d);
+    Vec q(n);
+    for (std::size_t j = 0; j < n; ++j) {
+        k.scope(Stage::pressure_trial, static_cast<std::uint32_t>(j));
+        k.scalar(Field::requested_displacement, z[j]); k.scalar(Field::velocity0, u0[j]);
+        q[j] = difference(k, z[j], k.mul(h, u0[j]));
+    }
     const auto lq = multiply(k, d.consistent_mass, q, maximum_linear);
     value.old_residual.resize(n); value.scaled.resize(n); value.residual.resize(n); value.scales.resize(n); value.scaled_terms.resize(n);
     for (std::size_t j = 0; j < n; ++j) {
@@ -82,10 +87,11 @@ bool trial(Kernel& k, const Data& d, const Vec& z, const Vec& u0, const Vec& c0,
         k.row(Field::matrix_coefficients, d.consistent_mass[j]); k.row(Field::velocity0, u0);
         k.row(Field::requested_displacement, z); const auto parts = pressure_components(k, d, value.pressure, j);
         k.row(Field::pressure_force, parts); k.scalar(Field::exterior_force, exterior[j]); k.scalar(Field::pi0, d.momentum[j]);
+        k.scalar(Field::gravity_acceleration, d.gravity_down_m_per_s2); k.scalar(Field::gravity_force, body[j]);
         k.scalar(Field::retained_momentum_low, d.primary.momentum[j].low());
         Sum old_residual(k, 0); old_residual.add(k.div(lq[j], h2half));
         for (double part : parts) old_residual.add(-part);
-        old_residual.add(-exterior[j]);
+        old_residual.add(-exterior[j]); old_residual.add(-body[j]);
         value.old_residual[j] = old_residual.get();
         if (constrained(d, j)) {
             value.residual[j] = sum(k, {value.old_residual[j], k.div(c0[j], h)});
@@ -93,7 +99,7 @@ bool trial(Kernel& k, const Data& d, const Vec& z, const Vec& u0, const Vec& c0,
             value.scaled_terms[j] = scaled(k, terms({value.residual[j]}), h2half);
             Sum scale(k, 1); scale.add(std::abs(k.div(lq[j], h2half))); scale.add(std::abs(k.div(c0[j], h)));
             for (double part : parts) scale.add(std::abs(part));
-            scale.add(std::abs(exterior[j])); value.scales[j] = scale.get();
+            scale.add(std::abs(exterior[j])); scale.add(std::abs(body[j])); value.scales[j] = scale.get();
             continue;
         }
         const auto found = std::lower_bound(free.begin(), free.end(), j); const auto local = static_cast<std::size_t>(found - free.begin());
@@ -104,6 +110,7 @@ bool trial(Kernel& k, const Data& d, const Vec& z, const Vec& u0, const Vec& c0,
             scaled(k, terms(d.primary.momentum[j]), -half_h), scaled(k, coupling, half_h)});
         for (double part : parts) scaled_value = joined(k, {scaled_value, scaled(k, terms({part}), -h2half)});
         scaled_value = joined(k, {scaled_value, scaled(k, terms({exterior[j]}), -h2half)});
+        scaled_value = joined(k, {scaled_value, scaled(k, terms({body[j]}), -h2half)});
         k.row(Field::matrix_products, scaled_value);
         value.scaled_terms[j] = scaled_value;
         value.scaled[j] = projected(k, scaled_value); value.residual[j] = k.div(value.scaled[j], h2half);
@@ -115,6 +122,7 @@ bool trial(Kernel& k, const Data& d, const Vec& z, const Vec& u0, const Vec& c0,
         for (std::size_t p = 0; p < n; ++p) if (constrained(d, p)) scale.add(k.div(std::abs(k.mul(d.consistent_mass[j][p], boundary_velocity(d, p))), h));
         for (double part : parts) scale.add(std::abs(part));
         scale.add(std::abs(exterior[j]));
+        scale.add(std::abs(body[j]));
         value.scales[j] = scale.get();
         const double equivalent = sum(k, {value.old_residual[j], k.div(c0[j], h)});
         k.within(difference(k, value.residual[j], equivalent), value.scales[j], 256 * epsilon, "Actual-pi0 residual differs from its c0 diagnostic identity");
@@ -147,6 +155,7 @@ void node_frame(Kernel& k, Stage stage, const Data& old, const Data* next, const
     const Vec& delta, const Vec& pressure, std::size_t j, bool owner_readings_known = false) {
     k.scope(stage, static_cast<std::uint32_t>(j));
     k.row(Field::matrix_coefficients, old.consistent_mass[j]); k.row(Field::velocity0, u0);
+    k.scalar(Field::gravity_acceleration, old.gravity_down_m_per_s2);
     k.scalar(Field::retained_momentum_low, old.primary.momentum[j].low(), 0);
     k.scalar(Field::retained_position_low, old.primary.relative_positions_m[j].low(), 0);
     if (next != nullptr) k.row(Field::velocity1, next->velocities_m_per_s);
@@ -386,6 +395,18 @@ Data advance_data(Kernel& k, const Data& old, double h) {
     for (std::size_t j = 0; j < n; ++j)
         static_cast<void>(recorded(k, report, "trial.scaled-residual", current.scaled_terms[j], static_cast<std::uint32_t>(j)));
     report.pressure_force = pressure_force(k, old, current.pressure); report.exterior_force = exterior_force(k, old);
+    report.gravity_force = gravity_force(k, old);
+    for (std::size_t j = 0; j < n; ++j) {
+        k.scope(Stage::pressure_trial, static_cast<std::uint32_t>(j));
+        k.scalar(Field::gravity_acceleration, old.gravity_down_m_per_s2); k.scalar(Field::gravity_force, report.gravity_force[j]);
+        k.row(Field::matrix_coefficients, old.consistent_mass[j]); Terms weights;
+        for (double coefficient : old.consistent_mass[j]) weights = joined(k, {weights, terms({coefficient})});
+        const auto load = scaled(k, weights, -old.gravity_down_m_per_s2);
+        const double projection = recorded(k, report, "node.gravity-load", load, static_cast<std::uint32_t>(j));
+        k.require(std::bit_cast<std::uint64_t>(projection) == std::bit_cast<std::uint64_t>(report.gravity_force[j]),
+            Code::numerical_precision, "Actual gravity force differs from its declared mass-load projection");
+        static_cast<void>(recorded(k, report, "node.gravity-projection-defect", joined(k, {terms({report.gravity_force[j]}), negated(load)}), static_cast<std::uint32_t>(j)));
+    }
     report.requested_impulse.resize(n); report.represented_impulse.resize(n); report.free_addition_defect.resize(n);
     report.constrained_linearity_defect.resize(n); report.constrained_join_defect.resize(n); report.constrained_impulse_defect.resize(n);
     report.constrained_linearity_bound.resize(n); report.constrained_join_bound.resize(n); report.constrained_impulse_bound.resize(n);
@@ -394,7 +415,7 @@ Data advance_data(Kernel& k, const Data& old, double h) {
         node_frame(k, Stage::free_impulse, old, nullptr, u0, {}, current.pressure, j);
         Sum force(k); const auto parts = pressure_components(k, old, current.pressure, j);
         for (double value : parts) force.add(value);
-        force.add(report.exterior_force[j]);
+        k.scalar(Field::gravity_force, report.gravity_force[j]); force.add(report.gravity_force[j]); force.add(report.exterior_force[j]);
         const auto impulse = retained_product(k, retained_value(k, force.get()), h);
         for (double remainder : impulse.roundoff_remainders)
             k.require(remainder == 0, Code::numerical_precision, "Scalar force impulse exceeds its exact product pair");
@@ -480,16 +501,17 @@ Data advance_data(Kernel& k, const Data& old, double h) {
         if (constrained(old, j)) {
             Sum reaction(k); reaction.add(k.div(report.requested_impulse[j], h));
             for (double part : parts) reaction.add(-part);
-            reaction.add(-report.exterior_force[j]); report.reaction[j] = reaction.get();
+            reaction.add(-report.exterior_force[j]); reaction.add(-report.gravity_force[j]); report.reaction[j] = reaction.get();
         }
         Sum total(k, 1); for (double part : parts) total.add(part);
-        total.add(report.exterior_force[j]); total.add(report.reaction[j]); report.actual_force[j] = total.get();
+        total.add(report.gravity_force[j]); total.add(report.exterior_force[j]); total.add(report.reaction[j]); report.actual_force[j] = total.get();
+        k.scalar(Field::gravity_force, report.gravity_force[j]);
         k.scalar(Field::reaction_force, report.reaction[j]); k.scalar(Field::assembled_force, report.actual_force[j]);
         const double assembled = projected(k, scaled(k, terms({report.actual_force[j]}), h)); k.scalar(Field::assembled_impulse, assembled);
         k.represented(report.requested_impulse[j], assembled, "Actual force assembly erased or reversed its required impulse");
         k.represented(assembled, report.represented_impulse[j], "Stored impulse erased or reversed actual assembled force");
         k.represented(report.represented_impulse[j], assembled, "Actual force assembly erased stored canonical impulse");
-        Terms component_impulses = scaled(k, terms({report.reaction[j], report.exterior_force[j]}), h);
+        Terms component_impulses = scaled(k, terms({report.reaction[j], report.exterior_force[j], report.gravity_force[j]}), h);
         for (double part : parts) component_impulses = joined(k, {component_impulses, scaled(k, terms({part}), h)});
         const auto defect_terms = joined(k, {component_impulses, negated(required_impulse[j])});
         const double defect = recorded(k, report, "node.reaction-impulse-defect", defect_terms, static_cast<std::uint32_t>(j));

@@ -359,6 +359,7 @@ void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, Canon
 [[nodiscard]] double owner_volume(Kernel& k, const Data& data, std::size_t owner);
 [[nodiscard]] Vec volume_change(Kernel& k, const Data& data, const Vec& displacement);
 [[nodiscard]] Vec exterior_force(Kernel& k, const Data& data);
+[[nodiscard]] Vec gravity_force(Kernel& k, const Data& data);
 [[nodiscard]] std::array<double, 7> pressure_components(Kernel& k, const Data& data, std::span<const double> pressure, std::size_t node);
 [[nodiscard]] Vec pressure_force(Kernel& k, const Data& data, std::span<const double> pressure);
 void update_readings(Kernel& k, Data& data, double& maximum_quadrature_ratio);

@@ -35,14 +35,15 @@ Unsupported topology, range and resource failures preserve the complete input
 and previous output and seal a separate bounded witness.
 
 The explicit `ma_canonical_material`, `ma_canonical_material_tests`,
-`ma_canonical_retained_initialization_tests` and `ma_canonical_retained_step_tests` targets
+`ma_canonical_retained_initialization_tests`, `ma_canonical_retained_step_tests` and
+`ma_canonical_gravity_tests` targets
 are excluded from default builds and CTest. The library has one-way dependencies
 on `ma_core` and retained arithmetic; the game DLL and world dispatch do not depend on it.
 `canonical_material_diagnostic_bytes` exports tagged, length-delimited data for
 complete state comparisons, including model/registry and every report field.
-Its v3 schema includes complete primary high/low values, geometry certificates,
+Its v4 schema includes the immutable gravity parameter, complete primary high/low values, geometry certificates,
 scalar projections, initialization product/remainder ledgers and the complete
-retained-step diagnostic section. It uses raw
+retained-step diagnostic section, including gravity force/work/potential ledgers. It uses raw
 binary64 bits and no EOS query. It is not a restart/save format.
 
 ## Retained initialization and inspection
@@ -104,7 +105,7 @@ That initialization stage deliberately closed public advance. The current
 retained pressure implementation below replaces that guard; the initialization
 control's rejection check now uses zero h and still enters no EOS/advance physics.
 The v2 evidence and its failed cross-platform bitwise comparison remain intact.
-The current data checker accepts the v3 diagnostic schema.
+The current data checker accepts the v3 and v4 diagnostic schemas.
 
 The updated initialization/zero-step target also passes four groups on its first
 v3 Windows/MSVC and WSL Linux/GNU invocations. Its independent decoder checks
@@ -116,7 +117,7 @@ diagnostics translation unit as well; the wrapper continued before resolving
 that assertion. All eleven matched GNU units were then verified to use the
 required strict flags. That failed audit is retained, with no native rerun.
 Historical v2 captures use the checker from `62ee096`; the current command below
-accepts v3 captures. No first-stage failure is replaced by the current evidence.
+accepts v3/v4 captures. No first-stage failure is replaced by the current evidence.
 
 ```text
 python native/tests/review_canonical_retained_initialization.py capture.stdout snapshot-directory
@@ -205,6 +206,143 @@ game ownership, performance, persistence and surviving colonies remain required.
 ```text
 python native/tests/review_canonical_retained_step.py capture.stdout snapshot-directory
 ```
+
+## Constant gravity and complete physical-node solves
+
+`gravity_down_m_per_s2` is an immutable, nonnegative constant directed toward
+negative material x. It defaults to zero. Negative, nonfinite and positive
+subnormal inputs fail before any constitutive query or factorization, preserving
+the caller's input and previous output. This remains a one-dimensional model.
+
+The nodal body load uses the same consistent mass matrix as momentum:
+
+```text
+w_j = sum_k L_jk
+G_j = projection(-g * w_j)
+F_j = F_pressure,j + F_exterior,j + G_j
+delta_PE = g * sum_j (w_j * completed_physical_displacement_j)
+W_gravity = sum_j (G_j * completed_physical_displacement_j)
+D_gravity = W_gravity + delta_PE
+```
+
+The weight, products and completed displacement use complete finite operand
+lists and explicit FMA errors. `G_j` is the actual finite force used in pressure
+trials, momentum updates, constrained reactions and residuals. The energy ledger
+includes stable potential *changes*, rather than subtracting absolute potentials
+at large coordinates. Its signed gravity projection defect remains explicit.
+Momentum includes the actual gravity impulse. The existing 256-epsilon arithmetic
+and `2e-11` physical energy bounds remain unchanged; their scales include actual
+gravity work and potential change without a new unit or formation-energy floor.
+
+Linear algebra now operates in physical node coordinates. A diagonally scaled
+Cholesky factorization replaces the global even/odd congruence, whose cancellation
+mixed distant heavy-liquid and light-gas rows. Row, factor and triangular
+products retain their explicit FMA errors. Two fixed residual-correction passes
+reuse the same factorization. Decoding residuals consume full primary high/low
+momentum and prescribed contributions before scalar RHS projection. A velocity
+cache never supplies the solution. The original 256-epsilon physical-row bound,
+factorization budget, Newton stopping criterion and physical timestep remain
+unchanged. No failure selects a fallback or a new precision or timestep.
+
+The gas-only isentropic inverse also uses its analytic logarithmic volume
+relation; see the [thermodynamic reference](experimental/README.md#gas-only-small-work-precision).
+Mixed gas/liquid and liquid roots retain their existing algorithms.
+
+### Preserved first failures and diagnostic reproduction
+
+The first gravity controls on Windows/MSVC and WSL Linux/GNU both failed the
+uniform free-fall velocity check. The first driver checked that physical result
+before writing its returned candidate. An explicitly labelled Windows diagnostic
+reproduction corrected only that observation order and repeated the same
+failure: maximum velocity error `2.52505e-10 m/s` against `5e-11 m/s`. Its returned
+candidate passes 175 exact finite identities, which does not make its physical
+accuracy pass. A separate 90-digit ideal-gas calculation from that candidate's
+actual profiles/volumes found work-pressure errors up to `5.29809e-9 Pa`.
+
+After the analytic gas inverse, both R3 free-fall cases passed the unchanged
+bound. The newly reached supported liquid/gas column then failed: Windows on a
+parity row product, Linux on the solved physical row. Both preserve complete
+input/previous-output bytes and owned witnesses containing 52/51 numeric slots.
+The mixed-boundary case and invalid-gravity controls were not reached in R3.
+
+The physical-node R4 solver passed all four gravity groups on both platforms.
+Exact review checks 540 expression identities, 81 stored updates, three corrupted
+normal low-bit snapshots and 21 witness numbers per platform. The subsequent
+explicit zero-gravity regression passed its first two cases, then rejected the
+original `h=2^-56 s` case on both platforms. A `3.78866e-29 J` energy increment
+would disappear below the existing U-low-component spacing, `2.64698e-23 J`.
+That erasure predicate correctly stopped publication. An independent exact solve
+of the actual mass matrix and primary momentum identifies a one-ULP error in
+node 9's initial velocity cache: its nearest solution is `0.0625 m/s`.
+The complete-RHS correction passes above address this arithmetic error; they do
+not relax the erasure check. These original negative captures remain retained.
+
+Private evidence is under `local/occupied-staggered-validation/`:
+`canonical-gravity-{windows,linux}-r1`,
+`canonical-gravity-windows-r2-diagnostic`,
+`canonical-gravity-{windows,linux}-r3`,
+`canonical-gravity-{windows,linux}-r4`, and
+`retained-pressure-physical-basis-{windows,linux}-r1`.
+The first Linux R3 readiness audit incorrectly included linked dependency sources
+in its fourteen-source strict canonical whitelist. It stopped before native
+invocation; the corrected audit records dependency sources separately. A
+zero-gravity plan's copied negative-case labels were corrected in a separately
+hashed metadata erratum before native invocation; its driver stayed unchanged.
+
+The current data readers accept v3/v4 prefixes and complete retained suffixes.
+They explicitly report that intervening legacy metadata is not semantically
+decoded. They cannot establish native execution/retry provenance themselves;
+the separate captured invocation/source/executable records supply that evidence.
+These snapshots remain diagnostic exports, not restart files.
+
+```text
+python native/tests/review_canonical_gravity.py capture.stdout snapshot-directory
+```
+
+### Current source validation
+
+With the complete-RHS corrections, the explicit gravity retest passes all four
+groups on both strict Windows/MSVC and WSL Linux/GNU builds. The same three
+original fixtures cover nine-node uniform free fall, an eight-node supported
+water/air column and an eleven-node mixed gas/liquid state with fixed/prescribed
+ends. Each platform's exact review checks 540 expression identities, 81 stored
+updates, all twelve finite accounting closures, three corrupted normal low-bit
+snapshots and 21 invalid-gravity witness numbers.
+
+Free-fall maximum velocity errors are `2.98116e-13 m/s` (Windows) and
+`4.69298e-13 m/s` (Linux), below the original `5e-11 m/s` bound. Hydrostatic
+speeds are `4.88694e-12` and `2.43740e-12 m/s`. These are not asserted to be
+exactly zero: each is checked against an independent inverse-consistent-mass
+response bound from measured initial EOS force imbalance, actual nonlinear and
+momentum residuals, assembly error and pressure monotonicity work. The resulting
+bounds are `3.54267e-10` and `1.72209e-10 m/s`. There is no arbitrary stationary
+velocity floor. Initial liquid-pressure deviations, up to `3.39264e-7` and
+`1.43861e-7 Pa`, are retained and checked using density-to-pressure conditioning.
+
+The explicitly retried original zero-gravity pressure suite also passes all
+four groups on both platforms, including the unchanged `h=2^-56 s` case and
+zero-step, alias and unsupported-rounding atomic rejections. Its v4 data reviews
+check 566 expression identities (including zero-gravity ledgers), 83 stored
+updates, twelve finite accounting closures, three corrupted low-bit snapshots
+and 14 witness numbers per platform. The earlier failed regression remains a
+negative outcome of its older algorithm.
+
+Evidence is private under `canonical-gravity-{windows,linux}-r5` and
+`retained-pressure-physical-basis-{windows,linux}-r2` in the validation directory.
+Each source-frozen build has an actual strict compiler audit before invocation;
+every native exit is zero, with both raw pipes reaching EOF and closing without
+timeout/cap/capture errors. Inputs, complete diagnostic snapshots, executable
+hashes and exact reviews are retained under the original 180-s build, 30-s
+invocation, 128-KiB pipe and 2-MiB snapshot limits. Execution provenance explicitly
+records the failed-gravity and failed-zero-gravity retests. No historical C7,
+scalar-translation, remap, vacuum-front or performance gate was replayed or
+retroactively accepted. Platform snapshots are not claimed to be bit-identical.
+
+The default game DLL is unchanged. These controls establish bounded standalone
+constant-gravity mechanics and arithmetic, not a production grid, remap,
+save/reload, game ownership, screenshots, rendering speed or a playable colony.
+The first-playable gate still requires its complete Windows/Linux colony and
+presentation evidence, including every non-trace gas on tile hover.
 
 ## Historical scalar-owner validation
 
