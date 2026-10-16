@@ -108,7 +108,10 @@ internal static unsafe partial class Program
                     thermal.Session == status.Session && thermal.CompletedFrame == status.CompletedFrames &&
                     thermal.Stages == 2 * status.Substeps && thermal.Contacts > 0 && thermal.RedistributedEnergy > 0 && thermal.EntropyChange > 0,
                     "Worker-clock internal heat conduction did not produce coherent physical diagnostics.");
-                report["internalConductionPassed"] = true; report["thermalConduction"] = thermal;
+                report["internalConductionPassed"] = true;
+                report["thermalConduction"] = new { thermal.Size, thermal.Version, thermal.State, thermal.Enabled,
+                    thermal.Session, thermal.CompletedFrame, thermal.Stages, thermal.Contacts, thermal.Iterations,
+                    thermal.UnresolvedUpdates, thermal.RedistributedEnergy, thermal.EntropyChange };
             }
             report["sealedNativeDomainPassed"] = true; report["projectionPrimedAtFrame"] = primedAt;
             report["nativeCompatibilityCellsUnchanged"] = true;
