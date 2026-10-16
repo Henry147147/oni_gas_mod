@@ -16,7 +16,7 @@ std::string fingerprint(const MacParcelPlan& p) {
     for (auto v : p.retained_volumes_m3) s << ' ' << v;
     for (auto v : p.limiter) s << ' ' << v;
     for (const auto& c : p.retained) cell(c);
-    for (const auto& v : p.parcels) { s << ' ' << v.axis << ' ' << v.face << ' ' << v.donor << ' ' << v.target << ' ' << v.volume_m3; cell(v.contents); }
+    for (const auto& v : p.parcels) { s << ' ' << v.axis << ' ' << v.face << ' ' << v.donor << ' ' << v.target << ' ' << v.volume_m3 << ' ' << v.reference_volume_m3; cell(v.contents); }
     return s.str();
 }
 MacMassFluxes uniform_sweeps(const MacTransportState& s, double x, double y) {

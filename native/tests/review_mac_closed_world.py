@@ -27,7 +27,7 @@ def dec(value):
 def parse(raw, required_passes=8, require_acoustic=True):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
-    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER'}
+    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER', 'SPARCEL', 'SPMASS', 'SPPASSIVE'}
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record')
         kind = row[0]

@@ -122,3 +122,9 @@ all prerequisite reviews, the retained R1 compile failures and the Linux
 primary-transfer diagnosis. The Linux strong retry retains its original
 180-second/2-MiB bounds. No independent agent review, Unity launch or production
 performance acceptance occurred. The default game DLL is unchanged.
+
+The subsequent [scaled primary-parcel cohort](MAC_PRIMARY_PARCELS.md) passes
+five new Windows/Linux groups and all these prerequisites. Its Linux retry
+passes the helium-parcel creation and then fails at incoming momentum range.
+Those later results do not change this retained cohort's first evidence or
+establish strong-flow/game acceptance.

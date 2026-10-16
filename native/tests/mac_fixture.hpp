@@ -1,4 +1,5 @@
 #pragma once
+#include "mixed_atmospheres/mac_parcel.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include <algorithm>
 #include <cmath>
@@ -89,6 +90,18 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
         for (const auto& p : c.passive_quantities) std::cout << "RPASSIVE " << id << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
     }
     for (const auto& p : plan.parcels) {
+        if (p.reference_volume_m3 != 0) {
+            const auto energy = mac_parcel_quantity(p, p.contents.mixture.energy);
+            std::cout << "SPARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' <<
+                p.reference_volume_m3 << ' ' << p.contents.mixture.energy << ' ' << energy.mantissa() << ' ' << energy.exponent() << '\n';
+            const auto field = [&](const char* kind, std::uint64_t identity, double value) {
+                const auto actual = mac_parcel_quantity(p, value);
+                std::cout << kind << ' ' << id << ' ' << p.axis << ' ' << p.face << ' ' << identity << ' ' << value << ' ' << actual.mantissa() << ' ' << actual.exponent() << '\n';
+            };
+            for (std::size_t s = 0; s < p.contents.mixture.masses.size(); ++s) if (p.contents.mixture.masses[s] != 0) field("SPMASS", s, p.contents.mixture.masses[s]);
+            for (const auto& v : p.contents.passive_quantities) field("SPPASSIVE", v.identity, v.quantity);
+            continue;
+        }
         std::cout << "PARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' << p.contents.mixture.energy << '\n';
         for (std::size_t s = 0; s < p.contents.mixture.masses.size(); ++s) if (p.contents.mixture.masses[s] != 0)
             std::cout << "PMASS " << id << ' ' << p.axis << ' ' << p.face << ' ' << s << ' ' << p.contents.mixture.masses[s] << '\n';

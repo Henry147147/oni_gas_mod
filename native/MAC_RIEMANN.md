@@ -1,7 +1,7 @@
 # Closed-gas Riemann gate
 
 The gate remains failed. Windows collision velocity refinement is unresolved;
-the latest Linux retry rejects a primary helium parcel below binary64 range.
+the latest Linux retry rejects an incoming momentum contribution below binary64 range.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. This gate changes tests and build declarations;
@@ -71,7 +71,18 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current Linux range repair and primary transfer rejection
+## Current Linux parcel repair and incoming momentum rejection
+
+[Scaled primary parcels](MAC_PRIMARY_PARCELS.md) pass five new Windows/Linux
+groups, 7,681 saved checks and all transport/closed/gravity prerequisites.
+The Linux retry passes the earlier helium-parcel creation and then rejects an
+incoming normal momentum contribution of 3.615258007097827e-585 kg·m/s before
+any completed Sod profile. Its primary J share still narrows before addition.
+The first-rejection diagnosis changes no arithmetic or scientific criteria.
+No full/partial profile review follows, and no Windows collision retry occurs.
+Full strong-flow acceptance still needs momentum-range and collision-accuracy work.
+
+## Derived-energy cohort: primary transfer rejection
 
 [Wide derived-energy integration](MAC_ENERGY_TRANSPORT.md) passes four new
 Windows/Linux controls and repeats all range, transport, parcel, closed-owner
@@ -83,8 +94,8 @@ positive-transfer check rejects its zero nearest binary64 projection. The
 diagnosis retains every input and changes no arithmetic or physical bound.
 
 No full strong-flow review follows that empty profile set, and the Windows
-failed collision gate is not repeated. Full strong-flow acceptance still
-requires primary parcel range work and collision accuracy investigation.
+failed collision gate is not repeated. The later primary parcel repair above
+addresses this failure mechanism; strong-flow acceptance remains open.
 
 ## First-source results: strong-flow gate failed
 

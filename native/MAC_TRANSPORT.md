@@ -129,3 +129,11 @@ additional Windows/Linux controls and a 4,530-check reviewer pass, including
 nonzero energy whose binary64 projection is zero. Primary transfer rules remain
 unchanged. The Linux strong-flow gate now stops at a primary helium parcel below
 binary64 range, so this does not establish general flow or game acceptance.
+
+The later [scaled primary-parcel integration](MAC_PRIMARY_PARCELS.md) retains
+complete normalized prototypes when an actual constituent/U/passive projection
+would lose range. Full contributions reach donor/target accumulators before
+bounded primary cell storage; unresolved destinations still reject atomically.
+Five new groups and a 7,681-check review pass on both platforms. The Linux
+strong-flow retry then stops at an incoming canonical-momentum share below
+binary64 range. Its full strong-flow gate remains failed.

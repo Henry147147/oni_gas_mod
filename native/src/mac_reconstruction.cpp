@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_reconstruction.hpp"
+#include "mixed_atmospheres/mac_parcel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -33,11 +34,6 @@ std::optional<double> scaled(double value, double part, double total) {
     if (!std::isfinite(answer) || answer == 0 || std::signbit(answer) != std::signbit(value)) return std::nullopt;
     return answer;
 }
-double transfer(double value, double volume, double total) {
-    const auto result = scaled(value, volume, total);
-    if (!result) throw FluidFatalError(FluidFatalCode::numerical_precision, "Positive reconstructed MAC transfer is unrepresentable");
-    return *result;
-}
 struct Edge { std::size_t axis, face, donor, target; double volume, cx = 0, cy = 0; };
 struct Field { double centre = 0, sx = 0, sy = 0, lower = 0, upper = 0; bool positive = true; };
 double evaluated(const Field& field, double theta, double x, double y) {
@@ -47,6 +43,7 @@ double evaluated(const Field& field, double theta, double x, double y) {
 }
 MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
+    require_mac_energy_environment();
     model.validate_registry(registry); static_cast<void>(mac_face_inertias(registry, source, model, volumes));
     const auto& g = source.grid; const auto count = source.cells.size(), species = registry.size();
     require(volumes.size() == count && q.x.size() == g.x_width() * g.height && q.y.size() == g.width * g.y_height() &&
@@ -150,11 +147,10 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
         }
         if (flat) ++result.unresolved_stencil_cells;
         require(std::isfinite(theta) && theta >= 0 && theta <= 1, "Invalid reconstructed MAC limiter calculation");
-        const auto values = [&](double coefficient, double x, double y, double packet_volume, bool normalized) {
+        const auto values = [&](double coefficient, double x, double y) {
             MacMaterialCell cell{MixtureInventory(species), {}};
             const auto value = [&](std::size_t index) {
-                const double p = evaluated(fields[index], coefficient, x, y);
-                return normalized ? p : transfer(p, packet_volume, volumes[i]);
+                return evaluated(fields[index], coefficient, x, y);
             };
             for (std::size_t s = 0; s < species; ++s) cell.mixture.masses[s] = value(s);
             cell.mixture.energy = value(species);
@@ -168,29 +164,39 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
         };
         bool accepted = false;
         for (std::size_t attempt = 0; attempt <= 33; ++attempt) {
-            std::vector<Sum> retained(species + 1 + ids.size());
+            std::vector<MacScaledSum> retained(species + 1 + ids.size());
             for (std::size_t f = 0; f < species + 1; ++f) retained[f].add(quantity(i, f));
             for (std::size_t p = 0; p < ids.size(); ++p) retained[species + 1 + p].add(quantity(i, species + 2 + p));
             try {
                 for (auto edge : by_donor[i]) if (edge != none) {
-                    const auto& e = edges[edge]; admitted(values(theta, e.cx, e.cy, e.volume, true), volumes[i]);
-                    auto cell = values(theta, e.cx, e.cy, e.volume, false);
-                    auto normalized = cell;
-                    for (auto& mass : normalized.mixture.masses) mass = transfer(mass, volumes[i], e.volume);
-                    normalized.mixture.energy = transfer(normalized.mixture.energy, volumes[i], e.volume);
-                    admitted(normalized, volumes[i]);
-                    for (std::size_t s = 0; s < species; ++s) retained[s].add(-cell.mixture.masses[s]);
-                    retained[species].add(-cell.mixture.energy);
-                    for (const auto& p : cell.passive_quantities) {
-                        const auto index = static_cast<std::size_t>(std::lower_bound(ids.begin(), ids.end(), p.identity) - ids.begin()); retained[species + 1 + index].add(-p.quantity);
+                    const auto& e = edges[edge]; auto prototype = values(theta, e.cx, e.cy);
+                    admitted(prototype, volumes[i]);
+                    MacPrimalParcel parcel{e.axis, e.face, i, e.target, e.volume, std::move(prototype), volumes[i]};
+                    auto projected = parcel.contents; bool rounded = false;
+                    const auto projection = [&](double value) {
+                        const auto p = mac_parcel_quantity(parcel, value).project(); rounded = rounded || p.rounded; return p.value;
+                    };
+                    for (auto& mass : projected.mixture.masses) mass = projection(mass);
+                    projected.mixture.energy = projection(projected.mixture.energy);
+                    for (auto& p : projected.passive_quantities) p.quantity = projection(p.quantity);
+                    // Preserve the original actual-amount representation whenever
+                    // every field projects exactly. Otherwise retain the complete
+                    // common-scale prototype, including every positive trace.
+                    if (!rounded) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; }
+                    admitted(mac_parcel_contents_at(parcel, volumes[i]), volumes[i]);
+                    for (std::size_t s = 0; s < species; ++s) retained[s].add(mac_parcel_quantity(parcel, parcel.contents.mixture.masses[s]).negated());
+                    retained[species].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy).negated());
+                    for (const auto& p : parcel.contents.passive_quantities) {
+                        const auto index = static_cast<std::size_t>(std::lower_bound(ids.begin(), ids.end(), p.identity) - ids.begin());
+                        retained[species + 1 + index].add(mac_parcel_quantity(parcel, p.quantity).negated());
                     }
-                    prepared[edge] = MacPrimalParcel{e.axis, e.face, i, e.target, e.volume, std::move(cell)};
+                    prepared[edge] = std::move(parcel);
                 }
                 auto& cell = result.retained[i];
-                for (std::size_t s = 0; s < species; ++s) cell.mixture.masses[s] = retained[s].value();
-                cell.mixture.energy = retained[species].value();
+                for (std::size_t s = 0; s < species; ++s) cell.mixture.masses[s] = store_mac_primary(retained[s], true);
+                cell.mixture.energy = store_mac_primary(retained[species], false);
                 cell.passive_quantities.clear();
-                for (std::size_t p = 0; p < ids.size(); ++p) { const double v = retained[species + 1 + p].value(); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
+                for (std::size_t p = 0; p < ids.size(); ++p) { const double v = store_mac_primary(retained[species + 1 + p], true); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
                 admitted(cell, retained_volume); accepted = true;
             } catch (const ReferenceError& error) {
                 if (theta == 0 || error.code() == ReferenceErrorCode::invalid_model || error.code() == ReferenceErrorCode::incompatible_entropy_reference) throw;

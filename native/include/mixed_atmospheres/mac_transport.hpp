@@ -37,6 +37,9 @@ struct MacPrimalParcel {
     std::size_t axis = 0, face = 0, donor = 0, target = 0;
     double volume_m3 = 0;
     MacMaterialCell contents;
+    // Zero: contents stores actual amounts (legacy form). Otherwise contents
+    // is a prototype at this volume; actual amounts retain the common scale.
+    double reference_volume_m3 = 0;
 };
 // Complete conservative donor decomposition. The transport API validates
 // inventories, geometry, each donor's species/U/passive accounts and EOS. It
@@ -71,6 +74,7 @@ struct MacTransportReport {
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
     std::size_t rounded_energy_projections = 0;
     MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
+    std::size_t scaled_primary_parcels = 0;
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };

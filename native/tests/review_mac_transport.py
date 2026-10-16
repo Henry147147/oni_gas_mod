@@ -45,6 +45,20 @@ def scaled_energy(mantissa, exponent):
     return m*F(2)**e
 
 
+def prepare_scaled_parcels(case):
+    for key, (reference, prototype_energy) in case['scaled_parcels'].items():
+        donor, _, volume, energy = case['parcels'][key]
+        check(reference > 0 and volume > 0 and donor in case['rcells'], 'Invalid scaled parcel reference')
+        close(energy, prototype_energy * volume / reference, abs(energy), 'Scaled parcel energy differs', 8)
+    for field, prototypes in (('pmasses', case['scaled_masses']), ('ppassives', case['scaled_passives'])):
+        for key, prototype in prototypes.items():
+            check(key[:2] in case['scaled_parcels'] and prototype > 0, 'Orphan/nonpositive scaled parcel constituent')
+            reference, _ = case['scaled_parcels'][key[:2]]; volume = case['parcels'][key[:2]][2]
+            actual = case[field][key]
+            check(actual > 0, 'Positive scaled parcel constituent disappeared')
+            close(actual, prototype * volume / reference, actual, 'Scaled parcel constituent differs', 8)
+
+
 def prepare_scaled_energy(case):
     check(set(case['widefaces']).issubset(case['faces']),'Orphan wide face energy')
     rounded_faces=0
@@ -80,7 +94,17 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
             unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
                 masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={},
-                widefaces={},wide_report=None,owner_energy=None))
+                widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={}))
+        elif kind in ('SPARCEL', 'SPMASS', 'SPPASSIVE'):
+            identifier=int(row[1]);check(identifier in cases,'Orphan scaled parcel record');case=cases[identifier]
+            if kind=='SPARCEL':
+                check(len(row)==11,'Scaled parcel shape');key=tuple(map(int,row[2:4]))
+                unique(case['parcels'],key,(int(row[4]),int(row[5]),number(row[6]),scaled_energy(row[9],row[10])))
+                unique(case['scaled_parcels'],key,(number(row[7]),number(row[8])))
+            else:
+                check(len(row)==8,'Scaled parcel constituent shape');key=tuple(map(int,row[2:5]))
+                unique(case['pmasses' if kind=='SPMASS' else 'ppassives'],key,scaled_energy(row[6],row[7]))
+                unique(case['scaled_masses' if kind=='SPMASS' else 'scaled_passives'],key,number(row[5]))
         elif kind in ('EFACE','ECASE','EOWNER'):
             identifier=int(row[1]);check(identifier in cases,'Orphan scaled energy record');case=cases[identifier]
             if kind=='EFACE':
@@ -140,7 +164,9 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
         else:
             raise ValueError('Unknown saved record: ' + kind)
     check(set(cases) == set(required_cases) and len(passes) == required_passes and len(set(passes)) == required_passes, 'Missing case/pass groups')
-    for case in cases.values():prepare_scaled_energy(case)
+    for case in cases.values():
+        prepare_scaled_parcels(case)
+        prepare_scaled_energy(case)
     return cases, waves, samples, timestep
 
 
