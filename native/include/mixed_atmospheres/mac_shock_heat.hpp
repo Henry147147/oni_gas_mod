@@ -12,6 +12,9 @@ struct MacShockHeatPair {
     MacEnergy energy_residual, energy_bound;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t equilibrium_iterations = 0, unresolved_updates = 0;
+    double equilibrium_temperature_left_k = 0, equilibrium_temperature_right_k = 0;
+    MacEnergy equilibrium_temperature_residual, equilibrium_temperature_bound;
+    std::size_t rejected_equilibrium_trials = 0;
 };
 // Conservative, monotone thermal relaxation at fixed masses and cell volumes.
 // Exact constant-capacity two-body conduction. For a mixed gas/elastic-liquid

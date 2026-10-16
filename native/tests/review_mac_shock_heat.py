@@ -16,8 +16,8 @@ EPS=base.EPS;dec=ref.dec
 
 
 def parse(raw):
-    data={k:{} for k in ('materials','pairs','pmasses','grids','events','caps','cells','masses','passives','faces','walls','network')}
-    passes=[];rejected=None
+    data={k:{} for k in ('materials','pairs','certs','pmasses','grids','events','caps','cells','masses','passives','faces','walls','network')}
+    passes=[];rejected=None;brackets=set()
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty heat record');kind=r[0]
         if kind=='MATERIAL':
@@ -28,6 +28,11 @@ def parse(raw):
             unique(data['pairs'],int(r[1]),values)
         elif kind=='HPMASS':
             check(len(r)==5,'Pair mass shape');unique(data['pmasses'],tuple(map(int,r[1:4])),number(r[4]))
+        elif kind=='HEQCERT':
+            check(len(r)==9,'Thermal-root certificate shape')
+            unique(data['certs'],int(r[1]),(int(r[2]),number(r[3]),number(r[4]),base.scaled_energy(r[5],r[6]),base.scaled_energy(r[7],r[8])))
+        elif kind=='HBRACKET_START':
+            check(len(r)==2 and int(r[1]) not in brackets,'Bracket fixture marker');brackets.add(int(r[1]))
         elif kind=='HGRID':
             check(len(r)==19,'Heat grid shape')
             unique(data['grids'],int(r[1]),(*map(int,r[2:4]),*map(number,r[4:6]),*map(int,r[6:8]),number(r[8]),*map(int,r[9:11]),*[base.scaled_energy(r[i],r[i+1]) for i in range(11,17,2)],*map(number,r[17:19])))
@@ -49,9 +54,10 @@ def parse(raw):
             check(len(r)==2 and rejected is None,'Rejection shape');rejected=int(r[1])
         else:
             check(kind=='PASS','Unknown heat record');passes.append(line)
-    check(len(set(passes))==len(passes)==6 and rejected==8,'Missing heat groups/rejections')
-    check(set(data['grids'])==set(range(6)) and set(data['network'])=={1,2,4,8,16},'Missing grid/network controls')
-    check(set(range(11)).issubset(data['pairs']) and len(data['materials'])==4,'Missing pairs/materials')
+    check(len(set(passes))==len(passes)==8 and rejected==8,'Missing heat groups/rejections')
+    check(set(data['grids'])==set(range(7)) and set(data['network'])=={1,2,4,8,16},'Missing grid/network controls')
+    check(set(range(14)).issubset(data['pairs']) and len(data['materials'])==4 and brackets=={11,12,13},'Missing pairs/materials')
+    check(data['certs'].keys()==data['pairs'].keys(),'Missing root certificates')
     return data
 
 
@@ -106,10 +112,14 @@ def review_pair(data,key):
     check(all(m and min(m.values())>0 for m in masses),'Missing/zero pair constituents')
     old=[eos(m,data['materials'],u,v) for m,u,v in zip(masses,(ul,ur),(vl,vr))]
     new=[eos(m,data['materials'],u,v) for m,u,v in zip(masses,(nl,nr),(vl,vr))]
+    rej,eqtl,eqtr,eqres,eqbound=data['certs'][key]
+    check(0<=rej<=it and eqbound>=0,'Thermal-root trial metadata')
+    check(eqres==eqtl-eqtr,'Actual root temperature residual')
     for actual,expected in zip((tl,tr,ntl,ntr,cl,cr),(old[0][1],old[1][1],new[0][1],new[1][1],old[0][3],old[1][3])):
         near(actual,expected,'Independent pair EOS/capacity')
     if g==0 or tl==tr:
         check(x==f==eq==q==res==bound==ds==sb==un==it==0 and nl==ul and nr==ur,'Inactive thermal pair changed')
+        check(rej==eqtl==eqtr==eqres==eqbound==0,'Inactive root certificate changed')
         return
     close(x,g*(1/cl+1/cr),g*(1/cl+1/cr),'Thermal relaxation number',8)
     exact=dec(x) if x<F(2)**-53 else D(1)-(-dec(x)).exp() if x<64 else D(1)
@@ -118,10 +128,18 @@ def review_pair(data,key):
     if constant:
         check(it==0,'Constant capacity unnecessarily invokes a nonlinear root')
         close(eq,(tl-tr)*cl*cr/(cl+cr),abs(eq),'Constant-capacity equilibrium partition',16)
+        check(rej==eqtl==eqtr==eqres==eqbound==0,'Analytic partition claims a root certificate')
     else:
         check(0<it<=128,'Mixed equilibrium root count')
-        temps=[eos(m,data['materials'],F(float(u+sign*eq)),v)[1] for m,u,v,sign in zip(masses,(ul,ur),(vl,vr),(-1,1))]
-        check(abs(temps[0]-temps[1])<=D('5e-10')*(abs(temps[0])+abs(temps[1])),'Nonlinear thermal equilibrium partition')
+        eq_u=[F(float(u+sign*eq)) for u,sign in ((ul,-1),(ur,1))]
+        temps=[eos(m,data['materials'],u,v)[1] for m,u,v in zip(masses,eq_u,(vl,vr))]
+        for t,e in zip((eqtl,eqtr),temps):near(t,e,'Independent thermal-root EOS')
+        intrinsic=[sum((amount*data['materials'][i][2] for i,amount in m.items()),F(0)) for m in masses]
+        expected_bound=128*EPS*(abs(eqtl)+abs(eqtr)+sum(((abs(u)+abs(n)+abs(eq))/c for u,n,c in zip((ul,ur),eq_u,intrinsic)),F(0)))
+        close(eqbound,expected_bound,expected_bound,'Thermal-root actual storage bound',16)
+        check(abs(eqres)<=eqbound,'Root exceeds certified primary storage precision')
+        if eqres*(1 if tl>tr else -1)<0:
+            check(abs(eqres)<=128*EPS*(abs(eqtl)+abs(eqtr)),'Storage certificate permits root temperature crossing')
     close(q,eq*f,abs(q),'Full heat transfer',8);check((q>0)==(tl>tr),'Heat flows from cold to hot')
     for after,before,request in ((nl,ul,-q),(nr,ur,q)):
         close(after-before,request,abs(after)+abs(before)+abs(request),'Actual signed U update')
@@ -203,6 +221,9 @@ def review_grid(data,gid):
     if gid in (2,3):check(count==0 and total==0 and us[0]==us[1],'Rest/shear contact changes')
     if gid==4:check(count>0 and total==0 and us[0]==us[1],'Uniform temperature changes')
     if gid==5:check(total>0 and un>0 and us[0]==us[1],'Full-range grid heat not retained/flagged')
+    if gid==6:
+        check(count==0 and total==0 and us[0]==us[1],'Stationary pressure contact changes')
+        for i in fluid:check(abs(data['cells'][gid,0,i][2]-100000)<F(float('5e-10'))*100000,'Contact is not at its declared pressure')
 
 
 def review(data):
@@ -223,19 +244,21 @@ def main():
     raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=1048576,'Heat saved pipe cap')
     with localcontext() as context:
         context.prec=80;data=parse(raw);review(data);checks=base.CHECKS
-        for mutation in ('heat','trace','geometry'):
+        for mutation in ('heat','trace','geometry','root'):
             bad=copy.deepcopy(data)
             if mutation=='heat':
                 row=list(bad['pairs'][0]);row[18]*=F(5,4);bad['pairs'][0]=tuple(row)
             elif mutation=='trace':
                 key=next(k for k,v in bad['masses'].items() if v<F(1,10**20));bad['masses'][key]*=2
-            else:
+            elif mutation=='geometry':
                 row=list(bad['events'][0,0]);row[2]=row[3];bad['events'][0,0]=tuple(row)
+            else:
+                row=list(bad['certs'][11]);row[1]+=1;bad['certs'][11]=tuple(row)
             caught=False
             try:review(bad)
             except (ValueError,KeyError):caught=True
             check(caught,'Altered heat record accepted')
-    result=dict(Passed=True,Groups=6,SavedChecks=checks,CorruptionsRejected=['heat','trace','geometry'],SavedSha256=hashlib.sha256(raw).hexdigest(),NativeProcessLaunched=False,IndependentAgentReview=False,
+    result=dict(Passed=True,Groups=8,SavedChecks=checks,CorruptionsRejected=['heat','trace','geometry','root'],SavedSha256=hashlib.sha256(raw).hexdigest(),NativeProcessLaunched=False,IndependentAgentReview=False,
         Scope='Separate occupied shock-heat component; not owning-step, shock refinement, production or game acceptance')
     if len(sys.argv)>2:
         with Path(sys.argv[2]).open('x') as stream:json.dump(result,stream,indent=2)

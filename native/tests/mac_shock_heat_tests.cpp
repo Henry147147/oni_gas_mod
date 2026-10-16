@@ -13,6 +13,8 @@ void export_pair(std::size_t id, const MixtureInventory& l, const MixtureInvento
         p.after_temperature_left_k, p.after_temperature_right_k, p.capacity_left_j_per_k, p.capacity_right_j_per_k}) std::cout << ' ' << v;
     for (auto v : {p.integrated_conductance, p.relaxation_number, p.fraction, p.equilibrium_transfer, p.transfer, p.energy_residual, p.energy_bound}) full(v);
     std::cout << ' ' << p.entropy_change_j_per_k << ' ' << p.entropy_roundoff_j_per_k << '\n';
+    std::cout << "HEQCERT " << id << ' ' << p.rejected_equilibrium_trials << ' ' << p.equilibrium_temperature_left_k << ' ' << p.equilibrium_temperature_right_k;
+    full(p.equilibrium_temperature_residual); full(p.equilibrium_temperature_bound); std::cout << '\n';
     for (std::size_t side = 0; side < 2; ++side) {
         const auto& masses = side == 0 ? l.masses : r.masses;
         for (std::size_t i = 0; i < masses.size(); ++i) if (masses[i] != 0) std::cout << "HPMASS " << id << ' ' << side << ' ' << i << ' ' << masses[i] << '\n';
@@ -169,15 +171,51 @@ void range_and_invalid() {
     }
     check(rejected == 8, "Invalid heat input was accepted"); std::cout << "HREJECTED " << rejected << '\n';
 }
+void admissible_brackets() {
+    const auto& s = ma::testing::setup();
+    const auto cold = s.mixture(1, 2e9, 250, .9);
+    const auto hot = gas(.001, 10000);
+    std::cout << "HBRACKET_START 11\n";
+    const auto first = pair(11, hot, cold, MacEnergy::from_double(1e8));
+    check(first.equilibrium_iterations > 0 && first.transfer.mantissa() > 0, "Admissible partial thermal bracket was rejected");
+    std::cout << "HBRACKET_START 12\n";
+    const auto reflected = pair(12, cold, gas(1e-8, 100000), MacEnergy::from_double(1e8));
+    check(reflected.transfer.mantissa() < 0, "Conditioned reflected thermal bracket was rejected");
+    std::cout << "HBRACKET_START 13\n";
+    const auto cooling = pair(13, s.mixture(1, 2e9, 1000, .9), gas(.001, 200), MacEnergy::from_double(1e8));
+    check(cooling.transfer.mantissa() > 0, "Asymmetric mixed thermal bracket was rejected");
 }
-int main() { try {
+void pressure_contacts() {
+    const auto& s = ma::testing::setup(); auto state = s.state(3, 3, false, true, true);
+    for (std::size_t i = 0; i < state.cells.size(); ++i) if (!state.grid.walls[i]) {
+        state.cells[i].mixture = s.mixture(1, 100000, 250 + 30 * static_cast<double>(i), .4 + .01 * static_cast<double>(i), .1 + .05 * static_cast<double>(i));
+        check(std::abs(s.eos->evaluate(state.cells[i].mixture, 1).mechanical_pressure_pa - 100000) < 5e-10 * 100000,
+            "Contact fixture is not at its declared pressure");
+    }
+    grid_case(6, state, .01, false, false);
+}
+}
+int main(int argc, char** argv) { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17); const auto& s = ma::testing::setup();
     for (const auto& m : s.eos->reference().materials()) std::cout << "MATERIAL " << s.registry.index(m.id) << ' ' << static_cast<int>(m.phase) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' << m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
+    if (argc == 2 && std::string_view(argv[1]) == "--source-regression") {
+        std::cout << "HSOURCE_BEGIN 1\n";
+        const auto initial = gas(.001, 2);
+        std::cout << "HSOURCE_INITIALIZED " << initial.energy << '\n';
+        const auto reading = s.eos->evaluate(initial, 1);
+        std::cout << "HSOURCE_READING " << reading.temperature_k << '\n';
+        std::cout << "PASS independent starting-inventory evaluation\n"; return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--bracket-regression") {
+        admissible_brackets(); std::cout << "PASS admissible mixed-EOS bracket regression\n"; return 0;
+    }
     analytic(); std::cout << "PASS exact constant-capacity pairs and semigroup\n";
     nonlinear_and_range(); std::cout << "PASS mixed EOS equilibrium and full-range heat\n";
     occupied(); std::cout << "PASS occupied wet grids, walls and conserved fields\n";
     inactive(); std::cout << "PASS stationary contacts, shear and uniform temperature\n";
     temporal(); std::cout << "PASS symmetric heat network time refinement\n";
     range_and_invalid(); std::cout << "PASS unresolved heat and immutable rejection\n";
+    admissible_brackets(); std::cout << "PASS admissible mixed-EOS bracket regression\n";
+    pressure_contacts(); std::cout << "PASS stationary uniform-pressure composition contacts\n";
     return 0;
 } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; } }

@@ -39,24 +39,57 @@ MacEnergy relaxation_fraction(MacEnergy x) {
 }
 bool constant_capacity(const ReferenceEquilibriumState& s) { return !s.has_gas || s.liquid_volume_m3 == 0; }
 double updated_energy(double u, MacEnergy q) { return sum(MacEnergy::from_double(u), q).project().value; }
+MacEnergy capacity_upper(const ReferenceEquilibriumState& s) {
+    // At fixed V, Cv <= Ceff <= Cv+nR for this zero-expansion elastic EOS.
+    // The outward allowance covers only construction of a root bracket.
+    MacEnergySum capacity; capacity.add(s.intrinsic_heat_capacity_j_per_k);
+    if (s.has_gas) capacity.add(MacEnergy::from_double(s.gas_pressure_pa).multiplied(s.gas_volume_m3).shared(1, s.temperature_k));
+    return sum(capacity.value(), capacity.value().shifted(-45));
+}
+MacEnergy root_temperature_bound(double uh, double uc, double nh, double nc, MacEnergy q,
+    const ReferenceEquilibriumState& a, const ReferenceEquilibriumState& b, double th, double tc) {
+    MacEnergySum bound; bound.add(MacEnergy::from_double(th).shifted(-45)); bound.add(MacEnergy::from_double(tc).shifted(-45));
+    MacEnergySum hot, cold;
+    for (auto v : {std::abs(uh), std::abs(nh)}) hot.add(v);
+    for (auto v : {std::abs(uc), std::abs(nc)}) cold.add(v);
+    hot.add(q.magnitude()); cold.add(q.magnitude());
+    bound.add(hot.value().shared(1, a.intrinsic_heat_capacity_j_per_k).shifted(-45));
+    bound.add(cold.value().shared(1, b.intrinsic_heat_capacity_j_per_k).shifted(-45));
+    return bound.value();
+}
 MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureInventory& hot,
     const MixtureInventory& cold, double vh, double vc, const ReferenceEquilibriumState& a,
-    const ReferenceEquilibriumState& b, std::size_t& iterations) {
+    const ReferenceEquilibriumState& b, std::size_t& iterations, std::size_t& rejected,
+    double& final_hot_t, double& final_cold_t, MacEnergy& final_bound) {
     if (constant_capacity(a) && constant_capacity(b))
         return harmonic_capacity(a.equilibrium_heat_capacity_at_cell_volume_j_per_k,
             b.equilibrium_heat_capacity_at_cell_volume_j_per_k).shifted(-1).multiplied(a.temperature_k - b.temperature_k);
-    const auto at_cold = model.initialize_at_temperature(hot.masses, b.temperature_k, vh).mixture.energy;
-    const auto at_hot = model.initialize_at_temperature(cold.masses, a.temperature_k, vc).mixture.energy;
-    const auto release = sum(MacEnergy::from_double(hot.energy), MacEnergy::from_double(at_cold).negated());
-    const auto receive = sum(MacEnergy::from_double(at_hot), MacEnergy::from_double(cold.energy).negated());
-    if (release.mantissa() <= 0 || receive.mantissa() <= 0) precision("Shock-heat equilibrium bracket is unresolved");
-    MacEnergy lo, hi = mac_scaled_difference(release, receive).mantissa() < 0 ? release : receive;
+    const auto ch = capacity_upper(a), cc = capacity_upper(b);
+    MacEnergy lo, hi = (mac_scaled_difference(ch, cc).mantissa() < 0 ? ch : cc).multiplied(a.temperature_k - b.temperature_k);
     for (std::size_t i = 0; i < 128; ++i) {
         ++iterations; const auto mid = sum(lo, hi).shifted(-1);
         auto h = hot, c = cold; h.energy = updated_energy(hot.energy, mid.negated()); c.energy = updated_energy(cold.energy, mid);
-        const auto th = model.evaluate(h, vh).temperature_k, tc = model.evaluate(c, vc).temperature_k;
+        ReferenceEquilibriumState next_hot, next_cold;
+        try { next_hot = model.evaluate(h, vh); next_cold = model.evaluate(c, vc); }
+        catch (const ReferenceError& e) {
+            // Increasing positive heat only cools hot and heats cold. A trial
+            // outside either endpoint's thermal/compression domain is an upper
+            // inadmissible heat bound, not an instruction to extrapolate it.
+            if (e.code() != ReferenceErrorCode::temperature_outside_model &&
+                e.code() != ReferenceErrorCode::compression_outside_model &&
+                e.code() != ReferenceErrorCode::insufficient_thermal_energy) throw;
+            if (same(mid, lo) || same(mid, hi)) precision("Shock-heat equilibrium is outside its valid thermal domains");
+            ++rejected; hi = mid; continue;
+        }
+        const auto th = next_hot.temperature_k, tc = next_cold.temperature_k;
         MacEnergyAccount temperature; temperature.add(th); temperature.add(-tc);
-        if (temperature.within_bound()) return mid;
+        const auto allowance = root_temperature_bound(hot.energy, cold.energy, h.energy, c.energy, mid, a, b, th, tc);
+        MacEnergySum remaining; remaining.add(allowance); remaining.add(temperature.residual().negated());
+        // A broader storage certificate is used only on the cooling side;
+        // actual final temperatures may never cross equilibrium under it.
+        if (temperature.within_bound() || (th >= tc && remaining.sign() >= 0)) {
+            final_hot_t = th; final_cold_t = tc; final_bound = allowance; return mid;
+        }
         if (same(mid, lo) || same(mid, hi)) precision("Shock-heat equilibrium lacks a resolved thermal partition");
         if (th > tc) lo = mid; else hi = mid;
     }
@@ -93,8 +126,12 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
     p.relaxation_number = sum(gdt.shared(1, p.capacity_left_j_per_k), gdt.shared(1, p.capacity_right_j_per_k));
     p.fraction = relaxation_fraction(p.relaxation_number);
     const bool forward = a.temperature_k > b.temperature_k;
-    p.equilibrium_transfer = forward ? equilibrium_transfer(model, left, right, vl, vr, a, b, p.equilibrium_iterations) :
-        equilibrium_transfer(model, right, left, vr, vl, b, a, p.equilibrium_iterations).negated();
+    p.equilibrium_transfer = forward ? equilibrium_transfer(model, left, right, vl, vr, a, b, p.equilibrium_iterations,
+        p.rejected_equilibrium_trials, p.equilibrium_temperature_left_k, p.equilibrium_temperature_right_k, p.equilibrium_temperature_bound) :
+        equilibrium_transfer(model, right, left, vr, vl, b, a, p.equilibrium_iterations,
+        p.rejected_equilibrium_trials, p.equilibrium_temperature_right_k, p.equilibrium_temperature_left_k, p.equilibrium_temperature_bound).negated();
+    p.equilibrium_temperature_residual = sum(MacEnergy::from_double(p.equilibrium_temperature_left_k),
+        MacEnergy::from_double(p.equilibrium_temperature_right_k).negated());
     p.transfer = p.equilibrium_transfer.shared(p.fraction, MacEnergy::from_double(1));
     if (p.transfer.is_zero()) precision("Shock heat lost a positive full-range transfer");
     p.after_left_j = updated_energy(left.energy, p.transfer.negated()); p.after_right_j = updated_energy(right.energy, p.transfer);

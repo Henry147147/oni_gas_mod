@@ -36,8 +36,9 @@ rounded binary64 fraction. No positive range contribution is replaced by its
 zero binary64 projection. Reports retain the full heat, fraction and relaxation
 number, and flag U updates too small to resolve in the primary binary64 field.
 
-The mixed root has 128 iterations and stops at 128 epsilons of its actual
-temperature operands. Energy checks use the same 128-epsilon operand rule.
+The mixed root has 128 iterations and checks actual temperature operands and
+the energy-storage certificate described below. Energy checks use the same
+128-epsilon operand rule.
 Temperatures must remain in their original interval without crossing thermal
 equilibrium beyond operand roundoff. Actual stored-state entropy must not
 decrease beyond 128 epsilons of the actual stored-U/temperature operands.
@@ -133,14 +134,13 @@ Private immutable cohorts under `local/occupied-staggered-validation`:
   terminal SHA256
   `10006712c02488f520e92a2c1d53b04d5e86fbe180a51b03315c030e775d5973`.
 
-Static review identifies a further mixed-EOS range case to address before
-default integration: the current nonlinear bracket evaluates each mixture at
-the other's starting temperature. An endpoint trial can exceed a material's
-valid range even when the required partial heat exchange is admissible. This
-needs an explicit regression and a bracket confined to admissible thermal
-states. The present controls do not cover that case, and no fix is claimed.
+The first cohort's nonlinear bracket evaluates each mixture at the other's
+starting temperature. Static review identifies a valid heat exchange for which
+that endpoint trial leaves the material range. The following changed-source
+regression and repair address that case; the original six-group receipts above
+do not establish this additional coverage.
 
-After that repair, owning integration must account for each actual heat stage,
+Owning integration must account for each actual heat stage,
 retain an explicit disabled reference and pass all owning prerequisites before
 another original strong-flow retry. Existing pressure/transport/owner source,
 scientific tests and default game DLL are unchanged by this component. There
@@ -153,3 +153,84 @@ change affects packaging of the two shared game DLLs only; the changed native
 backend files are outside this component's build. No identical native control
 is rerun for that merge. The private source-review SHA256 is
 `db2695e49247b7b2aa135beadb2ed6ef1edc6d3f5aca372a7ccfc80a8268f04c`.
+
+## Mixed-EOS bracket repair
+
+A new standalone regression runs before changing the accepted heat code. A
+small nitrogen inventory at 10,000 K exchanges heat with a 250 K, 2 GPa wet
+mixture. Both initial states and the common-temperature partition are valid.
+Trying the wet mixture at 10,000 K exceeds its compression domain. The first
+strict Windows build passes, then the regression exits 1 with normal closed
+pipes at `Cell cannot fit inside its compression and thermal domain`. The
+original six groups and strong-flow gate are not replayed. Private cohort
+`mac-shock-heat-windows-bracket-first-r1` has failed terminal SHA256
+`ccfa5de4a2d8c489f93c8585dd572be16b3f7247573783aa334a4430a3bf870c`.
+
+For this zero-expansion elastic EOS, at fixed volume,
+Cv <= Ceff <= Cv + nR. In the mixed branch the extra capacity is
+nR times pCL/(pCL+Vgas), where CL is liquid compliance; this fraction lies
+between zero and one. Thus Qeq is bounded above by
+min(Cv_hot+nR_hot, Cv_cold+nR_cold) times the initial temperature difference.
+The code constructs that bound with an outward 128-epsilon operand allowance
+and bisects heat directly. It never evaluates either mixture at the other's
+initial temperature. A trial beyond a thermal/compression domain narrows the
+upper heat bound; other EOS failures still propagate without a candidate.
+
+Cancellation in U +/- Q must not erase the roundoff incurred by those actual
+operands. Each successful nonlinear root therefore exports its two actual
+equilibrium temperatures, their full residual, rejected-trial count and bound.
+The bound is 128 epsilons of the two actual temperatures plus, for each cell,
+(abs(U_before)+abs(Q)+abs(U_after))/Cv. Since Ceff>=Cv, this bounds temperature
+uncertainty from storing the energy update. This additional storage certificate
+is accepted only on the cooling side of equilibrium. A temperature crossing
+still requires the original 128-epsilon temperature-operand bound. No stored
+U, heat or temperature is adjusted to make the certificate pass.
+
+The expanded suite has eight groups. In addition to the six original groups,
+three asymmetric/high-capacity-ratio mixed brackets must complete, including
+reflection and a 100,000 K small inventory. Uniform-pressure, nonuniform
+temperature/composition wet contacts must remain bit-identical under the heat
+operator. The saved reviewer must derive the storage certificate from actual
+U/mass/Cv operands and reject an altered equilibrium-temperature record as a
+fourth corruption. All previous physical and time-refinement limits remain
+unchanged.
+
+The first changed-source run completes the original six groups and new cases
+11/12, then its auxiliary 2 K case fails the pre-existing material-specific
+energy-reference precision guard. A separate source-only diagnostic initializes
+that inventory at U=-308.58960610408968 J, then ordinary EOS evaluation rejects
+it before any heat operation. This is not an admissible starting inventory for
+the heat test under the existing precision contract. The auxiliary asymmetric
+cooling case now uses 200 K. No EOS bound, heat method or original scientific
+input is changed for that fixture correction. Both failed receipts are retained:
+`mac-shock-heat-windows-r3`, terminal SHA256
+`49cd2ea4f30f6bab3431ba052d4d9a71dc73bd9f3a18a20efaed2571e36a6dba`,
+and `mac-shock-heat-windows-source-first-r1`, terminal SHA256
+`3b38ffe3c99347661f24803a5b4d7e4aebfe080c5bcb0e83e154521b70e0a32b`.
+
+The repaired eight-group suite passes strict Windows/MSVC and Linux/GCC
+builds. The saved reviewers pass 13,270 / 13,252 checks and reject all four
+heat/trace/geometry/root corruptions. Linux ASan/UBSan also passes all eight
+groups and 13,252 saved checks with empty native stderr, fatal findings and
+leak detection enabled. The bracket regressions actually reject one/two
+inadmissible intermediate trials in cases 11/12, then return valid partitions.
+Actual energy, entropy, monotone-temperature and time-refinement limits pass
+unchanged. The source-only 2 K precision failure remains separate evidence.
+
+Private accepted cohorts:
+
+- `mac-shock-heat-windows-r4`, source-freeze SHA256
+  `aa9ca66278936cf68a3a5dc4a831cf408b2889c771998c64d559a64c50d6c609`,
+  terminal SHA256
+  `e8d52f1b66467c7065f91a690587b6d4fe9d47a021942614127f0394b3697f40`.
+- `mac-shock-heat-linux-r2`, source-freeze SHA256
+  `c647246be9e79c2f5f6dfdef17f35b10a8e58aa0dab08d9a042bb937786861de`,
+  terminal SHA256
+  `970525ec22e1e5e5a58db8cdf8d1b96a037ca92a749bd2f8c3c2ef0ae90c1bca`.
+- `mac-shock-heat-linux-asan-r2`, source-freeze SHA256
+  `5f5c8b4f8ee0c75e66cabcd22317b2ac0a37f370ba007692728f45312a436743`,
+  terminal SHA256
+  `71196dbabf3cfc99066007957d531d90828f760ac6ad9c3d4cb1af893dacd7aa`.
+
+The component remains excluded from the owning timestep and game dispatch.
+There is no strong-flow retry or new game, production or release acceptance.
