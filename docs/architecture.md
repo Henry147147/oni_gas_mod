@@ -145,6 +145,11 @@ groups and independent EOS/work/Fourier checks pass, including elastic liquids
 and implicit acoustic refinement. This [path](../native/MAC_CLOSED_WORLD.md)
 still requires gravity, free surfaces, phase topology and world/game dispatch;
 it does not yet replace the prototype or meet production acceptance.
+Its opt-in [gravity extension](../native/MAC_GRAVITY.md) reconciles body work
+with actual face mass fluxes and reports the signed internal-energy adjustment
+separately from mixing heat. Initial conservation and hydrostatic controls pass,
+but stratified velocity refinement fails on both platforms. Spatial transport
+reconstruction is the next solver task; gravity remains outside accepted scope.
 
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,

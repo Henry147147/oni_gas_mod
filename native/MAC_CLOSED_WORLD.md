@@ -99,7 +99,13 @@ and 128 KiB per raw pipe. Runtime durations are not performance acceptance.
 The default game DLL remains unchanged; no Unity or previous failed physical
 gate was run for this change.
 
-Gravity, viscosity, diffusion, conduction, shocks, vacuum/free surfaces,
+The opt-in [gravity extension](MAC_GRAVITY.md) now closes finite work/potential
+accounts and retains hydrostatic rest in its initial controls, but its joint
+stratified-wave refinement gate fails on Windows/Linux. Zero gravity remains
+the default and the accepted scope above. Spatial reconstruction is required
+before retrying that gate; no gravity or production acceptance follows.
+
+Validated gravity, viscosity, diffusion, conduction, shocks, vacuum/free surfaces,
 immiscible interfaces, phase transitions, persistence, colony ownership and
 production performance remain required. The four-species test profile uses a
 zero-expansion elastic water surrogate; it is not a calibrated material catalog.

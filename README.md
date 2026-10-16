@@ -49,6 +49,9 @@ machines, pipes, and metabolism must use the same conserved state.
   now also passes eight Windows/Linux groups, including elastic liquids,
   interval rollback and pressure/velocity acoustic refinement. Gravity, free
   surfaces, production performance and game integration remain required.
+  The opt-in [gravity experiment](native/MAC_GRAVITY.md) passes initial energy
+  and hydrostatic controls but fails stratified velocity refinement on both
+  platforms; it remains gated while spatial transport is improved.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

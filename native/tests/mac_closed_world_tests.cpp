@@ -1,4 +1,4 @@
-#include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mac_fixture.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
@@ -10,112 +10,13 @@
 namespace {
 using namespace ma;
 using namespace ma::experimental;
-constexpr auto none = std::numeric_limits<std::size_t>::max();
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
 void near(double a, double b, double scale, double relative = 2e-11) {
     check(std::isfinite(a) && std::abs(a - b) <= relative * scale, "MAC closed independent comparison failed");
 }
-struct Setup {
-    SpeciesRegistry registry = SpeciesRegistry::standard();
-    std::shared_ptr<const FluidThermodynamics> eos;
-    Setup() {
-        std::vector<ReferenceMaterial> definitions;
-        for (const std::string id : {"nitrogen", "oxygen", "helium", "water"}) {
-            const auto& s = registry[registry.index(id)]; ReferenceMaterial m;
-            m.id = id; m.phase = s.phase == Phase::gas ? ReferencePhase::ideal_gas : ReferencePhase::elastic_liquid;
-            m.molar_mass_kg_per_mol = s.molar_mass; m.cv_j_per_kg_k = s.cv(); m.energy_offset_j_per_kg = s.internal_energy(0);
-            m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e6;
-            m.zero_pressure_density_kg_per_m3 = s.phase == Phase::gas ? 0 : 1000;
-            m.reference_bulk_modulus_pa = s.phase == Phase::gas ? 0 : 2.2e9;
-            m.maximum_density_ratio = s.phase == Phase::gas ? 1 : 2;
-            m.provenance = "Explicit constant-capacity, zero-expansion test surrogate"; definitions.push_back(std::move(m));
-        }
-        eos = std::make_shared<const FluidThermodynamics>(registry, "mac-closed-controls-v1", std::move(definitions));
-    }
-    MixtureInventory mixture(double volume, double p, double t, double water = 0, double oxygen = .22) const {
-        std::vector<double> masses(registry.size());
-        if (water < 1) {
-            const double coefficient = gas_constant * ((1 - oxygen) / registry[registry.index("nitrogen")].molar_mass +
-                oxygen / registry[registry.index("oxygen")].molar_mass + 1e-28 / registry[registry.index("helium")].molar_mass);
-            const double gas = (1 - water) * volume * p / (coefficient * t);
-            masses[registry.index("nitrogen")] = (1 - oxygen) * gas; masses[registry.index("oxygen")] = oxygen * gas;
-            masses[registry.index("helium")] = gas * 1e-28;
-        }
-        masses[registry.index("water")] = water * volume * 1000 * (1 + p / 2.2e9);
-        return eos->initialize_at_temperature(masses, t, volume).mixture;
-    }
-    MacTransportState state(std::size_t w, std::size_t h, bool periodic, bool wet = false, bool corner = false) const {
-        MacTransportState s; s.grid = {w, h, 1, 1, periodic, periodic && h > 1, std::vector<std::uint8_t>(w * h)};
-        if (corner) s.grid.walls[1 + w] = 1;
-        for (std::size_t i = 0; i < w * h; ++i) {
-            MacMaterialCell c{MixtureInventory(registry.size()), {}};
-            if (!s.grid.walls[i]) {
-                c.mixture = mixture(1, 100000, 300, wet ? .2 + .05 * std::sin(static_cast<double>(i)) : 0);
-                c.passive_quantities = {{17, c.mixture.mass() * (1 + .125 * static_cast<double>(i))}, {UINT64_C(0x80000000), c.mixture.mass() * 1e-30}};
-            }
-            s.cells.push_back(std::move(c));
-        }
-        const auto inertia = mac_face_inertias(registry, s, *eos); s.momentum_x.resize(inertia.x.size()); s.momentum_y.resize(inertia.y.size()); return s;
-    }
-};
-const Setup& setup() { static const Setup value; return value; }
-std::string fingerprint(const MacTransportState& s) {
-    std::ostringstream t; t << std::hexfloat << s.grid.width << ' ' << s.grid.height << ' ' << s.grid.spacing_m << ' ' << s.grid.depth_m <<
-        ' ' << s.grid.periodic_x << ' ' << s.grid.periodic_y;
-    for (auto value : s.grid.walls) t << ' ' << static_cast<int>(value);
-    for (const auto& c : s.cells) {
-        t << ' ' << c.mixture.energy; for (auto value : c.mixture.masses) t << ' ' << value;
-        t << ' ' << c.passive_quantities.size(); for (const auto& p : c.passive_quantities) t << ' ' << p.identity << ' ' << p.quantity;
-    }
-    for (auto value : s.momentum_x) t << ' ' << value;
-    for (auto value : s.momentum_y) t << ' ' << value;
-    return t.str();
-}
-void export_case(int id, const MacTransportState& before, const MacClosedSubstep& result, double dt) {
-    const auto& set = setup(); const auto& g = before.grid; const auto& r = result.transport;
-    std::cout << "CASE " << id << ' ' << g.width << ' ' << g.height << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << r.energy_residual_j << ' ' << r.energy_bound_j << '\n';
-    std::cout << "PCASE " << id << ' ' << dt << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << result.pressure_energy_residual_j << ' ' <<
-        result.pressure_energy_bound_j << ' ' << result.energy_residual_j << ' ' << result.energy_bound_j << ' ' <<
-        result.pressure_wall_impulse_x << ' ' << result.pressure_wall_impulse_y << '\n';
-    for (std::size_t i = 0; i < g.walls.size(); ++i) {
-        std::cout << "WALL " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << '\n';
-        if (!g.walls[i]) {
-            const auto at = static_cast<std::size_t>(std::find(result.active_cells.begin(), result.active_cells.end(), i) - result.active_cells.begin());
-            const auto initial = set.eos->evaluate(before.cells[i].mixture, g.volume_m3());
-            const auto final = set.eos->evaluate(result.state.cells[i].mixture, g.volume_m3());
-            std::cout << "PCELL " << id << ' ' << i << ' ' << before.cells[i].mixture.energy << ' ' << result.material_volumes_m3[i] << ' ' << result.pressure.volume_changes_m3[at] << ' ' <<
-                result.pressure.work_pressures_pa[at] << ' ' << result.pressure.endpoint_pressures_pa[at] << ' ' << final.mechanical_pressure_pa << ' ' <<
-                final.temperature_k << ' ' << initial.entropy_j_per_k << ' ' << final.entropy_j_per_k << ' ' << result.geometric_residuals_m3[i] << '\n';
-        }
-    }
-    for (int endpoint = 0; endpoint < 2; ++endpoint) {
-        const auto& s = endpoint == 0 ? result.pressure_state : result.state;
-        for (std::size_t i = 0; i < s.cells.size(); ++i) {
-            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << s.cells[i].mixture.energy << '\n';
-            for (std::size_t k = 0; k < set.registry.size(); ++k) if (s.cells[i].mixture.masses[k] != 0)
-                std::cout << "MASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << s.cells[i].mixture.masses[k] << '\n';
-            for (const auto& p : s.cells[i].passive_quantities) std::cout << "PASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
-        }
-    }
-    for (int axis = 0; axis < 2; ++axis) {
-        const auto& report = axis == 0 ? r.x : r.y;
-        const auto& j_initial = axis == 0 ? before.momentum_x : before.momentum_y;
-        const auto& j0 = axis == 0 ? result.pressure_state.momentum_x : result.pressure_state.momentum_y;
-        const auto& j1 = axis == 0 ? result.state.momentum_x : result.state.momentum_y;
-        const auto& flux = axis == 0 ? result.mass_fluxes_kg.x : result.mass_fluxes_kg.y;
-        const auto& sweep = axis == 0 ? result.volume_fluxes_m3.x : result.volume_fluxes_m3.y;
-        const auto& map = axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y;
-        for (std::size_t f = 0; f < j0.size(); ++f) {
-            std::cout << "PFACE " << id << ' ' << axis << ' ' << f << ' ' << j_initial[f] << ' ' << sweep[f] << ' ' <<
-                (map[f] == none ? 0 : result.pressure.velocities_m_per_s[map[f]]) << '\n';
-            std::cout << "FACE " << id << ' ' << axis << ' ' << f << ' ' << flux[f] << ' ' << j0[f] << ' ' << j1[f];
-            for (const double value : {report.old_inertia[f], report.new_inertia[f], report.old_kinetic[f], report.new_kinetic[f], report.transported_kinetic[f],
-                report.mixing_heat[f], report.wall_heat[f], report.wall_impulse[f], report.dual_mass_residual[f]}) std::cout << ' ' << value;
-            std::cout << '\n';
-        }
-        for (const auto& f : report.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << f.left << ' ' << f.right << ' ' << f.mass_kg << '\n';
-    }
-}
+using ma::testing::setup;
+using ma::testing::fingerprint;
+using ma::testing::export_case;
 MacTransportState corner_state() {
     const auto& set = setup(); auto s = set.state(4, 3, false, true, true); const auto& g = s.grid;
     for (std::size_t i = 0; i < s.cells.size(); ++i) if (!g.walls[i])

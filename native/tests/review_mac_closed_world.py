@@ -24,7 +24,7 @@ def dec(value):
     return D(value.numerator) / D(value.denominator)
 
 
-def parse(raw):
+def parse(raw, required_passes=8, require_acoustic=True):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
     common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS'}
@@ -58,11 +58,14 @@ def parse(raw):
             interval = tuple(map(number, row[1:]))
         else:
             raise ValueError('Unknown record: ' + kind)
-    cases, _, _, _ = base.parse(('\n'.join(ordinary) + '\n').encode('ascii'), required_passes=8)
-    check(set(pressure) == {0, 1} and len(materials) == 4 and set(waves) == {16, 32, 64}, 'Missing pressure/material/acoustic records')
+    cases, _, _, _ = base.parse(('\n'.join(ordinary) + '\n').encode('ascii'), required_passes=required_passes)
+    check(set(pressure) == {0, 1} and len(materials) == 4 and (set(waves) == {16, 32, 64} if require_acoustic else not waves), 'Missing pressure/material/acoustic records')
     check(set(samples) == {(n, x) for n in waves for x in range(n)}, 'Missing/extra acoustic samples')
-    check(interval is not None and interval[0] == interval[1] + interval[2] and interval[1] > 0 and interval[2] > 1, 'Interval retry counts')
-    check(abs(interval[3]) <= interval[4] and interval[4] > 0, 'Interval energy bound')
+    if require_acoustic:
+        check(interval is not None and interval[0] == interval[1] + interval[2] and interval[1] > 0 and interval[2] > 1, 'Interval retry counts')
+        check(abs(interval[3]) <= interval[4] and interval[4] > 0, 'Interval energy bound')
+    else:
+        check(interval is None, 'Unexpected interval record')
     for phase, molar, cv, _, rho, bulk in materials.values():
         check(molar > 0 and cv > 0 and ((rho == bulk == 0) if phase == 0 else (rho > 0 and bulk > 0)), 'Invalid material coefficients')
     return cases, materials, pressure, cells, faces, waves, samples

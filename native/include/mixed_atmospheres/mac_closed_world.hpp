@@ -8,6 +8,7 @@ struct MacClosedSettings {
     double maximum_timestep_s = .01;
     double maximum_outgoing_volume_fraction = .4;
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
+    double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -23,11 +24,20 @@ struct MacClosedSubstep {
     double pressure_energy_residual_j = 0, pressure_energy_bound_j = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double pressure_wall_impulse_x = 0, pressure_wall_impulse_y = 0;
+    double body_impulse_y = 0;
+    std::vector<double> gravity_body_work_y, gravity_potential_flux_y, gravity_internal_work_y;
+    std::vector<double> pre_gravity_internal_energy_j, gravity_internal_changes_j;
+    double gravity_internal_residual_j = 0, gravity_internal_bound_j = 0;
+    double potential_transport_residual_j = 0, potential_transport_bound_j = 0;
+    double gravity_internal_change_j = 0, entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t unresolved_momentum_updates = 0;
+    std::size_t unresolved_gravity_internal_updates = 0;
 };
 // Closed, occupied regular-grid Lagrange/projection split. Work pressure acts
 // directly on canonical face J; the same midpoint sweeps define material
-// volume and donor density for the compatible transport operator. No gravity,
+// volume and donor density for the compatible transport operator. Gravity work
+// is reconciled with actual potential-energy mass flux, with a signed internal
+// energy change kept separate from transport mixing/projection heat. No
 // diffusion, free surface, phase transition or game dispatch is supplied here.
 [[nodiscard]] MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, double seconds, const MacClosedSettings& = {});
@@ -36,10 +46,13 @@ struct MacClosedAdvanceReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
+    std::size_t unresolved_gravity_internal_updates = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;
     double maximum_geometric_residual_m3 = 0;
+    double gravity_internal_change_j = 0, body_impulse_y = 0;
+    double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
 };
 struct MacClosedAdvance;
 // Owns its registry, immutable EOS identity, canonical state and clock. Advance
