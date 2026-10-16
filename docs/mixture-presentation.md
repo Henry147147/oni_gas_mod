@@ -95,7 +95,9 @@ completed snapshot. Earlier two-gas screenshots and the V51 automatic fixture
 run do not establish this added criterion. The formatter and focused inspection
 controls implement it. All 29 Windows inspection groups pass, including a
 four-gas list, retained trace warnings/full details, and the exact configured
-trace boundary. New native hover verification remains required.
+trace boundary. The Windows V52 evidence below contains four actual hover
+captures, but its final review deadline fails; the complete Windows/Linux gate
+remains open.
 
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
@@ -192,6 +194,40 @@ avoid an unknown-view warning each frame. The native F1 legend explicitly
 limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
+
+Windows V52 exercises the new contents list through native `SelectTool` hover,
+with no selected tile. At 101.325 kPa and 20 °C the display inventory contains
+nitrogen 60.9997%, oxygen 25%, carbon dioxide 10%, steam 4%, hydrogen 1 ppm and
+chlorine 2 ppm. Four actual Unity screenshots show all four non-trace rows at
+the default cutoff, steam included exactly at its configured cutoff, steam
+omitted when the cutoff is raised one binary64 step, and all four rows at 125%
+UI scale. Displayed percentages retain the original gas-mole denominator.
+Hydrogen and chlorine are omitted from contents; the explicit chlorine warning
+still reports 0.0002% against its 0.0001% limit. Each capture comes after three
+distinct native hover frames and retains its completed revision, publication
+generation and session epoch.
+
+**V52 fails overall.** The game accepts the first three screenshot-review
+receipts, then reaches the fixed 180-second deadline while awaiting the final
+125% UI review receipt. Root reviews that screenshot, but writes its receipt
+after the primary failure; it cannot count as accepted completion. The failed
+report and all original screenshots/receipts are preserved, with no rerun or
+deadline change. A subsequent source correction records aborts in the helper's
+own report and hides its inactive test banner; it has build/source review only,
+not new game acceptance. The ordinary hover formatter is unchanged by that
+reporting correction.
+
+The evidence is private under `local/colony-runs/tile-hover-contents-windows-v52`
+and `local/tile-hover-contents-windows-v52-root`. The package manifest SHA256 is
+`67495d220f82ebb771ce751207b1b6acd35d48c4d9c59eeb1280ec7b97d34192`.
+Read-only review matches all 68 frozen source files, seven package payloads,
+four held observations/screenshots and their receipts. After normal Alt-F4,
+both presentation shutdown boundaries pass, ONI is closed, and all 283 personal
+files plus 13 settings/cache files match their original membership and bytes.
+The runner exits 1; the game's OS exit code is not independently captured.
+These are explicit immutable display fixtures with native ONI physics, not an
+authoritative mixed-fluid colony. There is no new Linux hover, GPU readback,
+performance, independent-review or first-playable acceptance.
 
 On 2026-10-16 the Windows V51 fresh-world fixture run passes the three-frame
 pacing change introduced by the Linux run. It uses source `2b91864` plus a

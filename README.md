@@ -45,8 +45,10 @@ machines, pipes, and metabolism must use the same conserved state.
   oxygen partial-pressure and breathability overlays. Windows disposable
   fixtures exercise changing mixtures, paused inspection, zoom and UI scaling.
   Tile hover lists every non-trace gas and its mole percentage; hazardous trace
-  warnings remain visible. This is an explicit [first-playable requirement](docs/completion-plan.md#d-first-playable-development-colony),
-  with new four-gas native-hover evidence still required.
+  warnings remain visible. This is an explicit [first-playable requirement](docs/completion-plan.md#d-first-playable-development-colony).
+  Windows four-gas hover captures show the complete list and trace warnings;
+  the validation run fails its final review deadline. Completed Windows/Linux
+  native-hover acceptance remains required.
 - An explicit two-reservoir ownership experiment with conserved transfers,
   native-empty storage, native meter/logic queries, mutation fences and orphan
   recovery. Windows Unity acceptance passes; native pipe/heat/power gameplay

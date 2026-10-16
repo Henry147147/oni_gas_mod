@@ -5,6 +5,7 @@ param(
     [string]$Output,
     [switch]$ReuseGeneratedWorld,
     [switch]$Presentation,
+    [switch]$TileHover,
     [switch]$IdleReservoirLease,
     [switch]$PrivateFileProtocol,
     [switch]$LoadRejection,
@@ -14,6 +15,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($IdleReservoirLease -and !$Presentation) { throw 'The idle reservoir lease check requires -Presentation.' }
+if ($TileHover -and ($Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Tile hover uses its own isolated visual fixture.' }
 if ($PrivateFileProtocol -and !$IdleReservoirLease) { throw 'Private file protocol validation requires -IdleReservoirLease.' }
 if ($LoadRejection -and ($Presentation -or $IdleReservoirLease -or $PrivateFileProtocol)) { throw 'Load rejection uses a separate ordinary native colony.' }
 $oniWorkspace = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
@@ -81,7 +83,7 @@ $oniExitCode = 1
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
     $oniValidationConfiguration = @{
-        Mode = $(if ($LoadRejection) { 'load-rejection' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
+        Mode = $(if ($LoadRejection) { 'load-rejection' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }

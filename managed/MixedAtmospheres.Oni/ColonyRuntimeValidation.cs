@@ -78,7 +78,7 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
@@ -219,6 +219,16 @@ namespace MixedAtmospheres.Oni
             if (Game.Instance == null) return;
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
+            if (configuration.Mode == "tile-hover")
+            {
+                try { TileHoverContentsValidation.Tick(); }
+                catch (Exception error)
+                {
+                    try { TileHoverContentsValidation.Abort(error); }
+                    finally { Fail(error); }
+                }
+                return;
+            }
             if (configuration.Mode == "presentation")
             {
                 try { MixtureVisualValidation.Tick(); }
@@ -244,9 +254,9 @@ namespace MixedAtmospheres.Oni
         }
 
         internal static void SetStage(string stage) { Report.Stage = stage; WriteReport(); }
-        internal static void CompletePresentation()
+        internal static void CompletePresentation(string kind = "actual-game-mixture-presentation-fixture-validation")
         {
-            Report.Kind = "actual-game-mixture-presentation-fixture-validation";
+            Report.Kind = kind;
             Report.Status = "passed";
             Report.GameStarted = true;
             Report.Duplicants = Components.LiveMinionIdentities.Count;

@@ -48,6 +48,9 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo FlowGrid = AccessTools.Field(typeof(ConduitFlow), "grid");
         private static int generation, sessionBindingCount;
         private static long hoverDraws, detailsDraws, ownedContainerDraws, nativeContainerDraws;
+        // Private in-game evidence only. Ordinary hover has no observer and
+        // performs no diagnostic capture or additional list allocation.
+        internal static System.Action<int, MixturePresentation, IReadOnlyList<string>, bool>? CellHoverObserver;
         public static bool CellHoverHookReady { get; internal set; }
         public static bool DetailsHookReady { get; internal set; }
         public static long HoverDrawCount => Interlocked.Read(ref hoverDraws);
@@ -67,6 +70,7 @@ namespace MixedAtmospheres.Oni
             Owners = new ConditionalWeakTable<GameObject, OwnerBindings>();
             Cache = new ConditionalWeakTable<GameObject, OwnerCache>();
             sessionBindingCount = 0;
+            CellHoverObserver = null;
             ++generation;
             Interlocked.Exchange(ref hoverDraws, 0); Interlocked.Exchange(ref detailsDraws, 0);
             Interlocked.Exchange(ref ownedContainerDraws, 0); Interlocked.Exchange(ref nativeContainerDraws, 0);
@@ -265,11 +269,13 @@ namespace MixedAtmospheres.Oni
             drawer.BeginShadowBar(selected);
             drawer.DrawText(FormatHeader(reading).ToUpperInvariant(), card.Styles_Title.Standard);
             Line(drawer, card, FormatState(reading));
-            foreach (var line in FormatCompactComposition(reading)) Line(drawer, card, line);
+            var composition = FormatCompactComposition(reading);
+            foreach (var line in composition) Line(drawer, card, line);
             if (reading.Warnings.Count == 0 && reading.IsBreathable) Line(drawer, card, "Breathing checks passed");
             foreach (var warning in reading.Warnings) Line(drawer, card, warning, true);
             drawer.EndShadowBar();
             Interlocked.Increment(ref hoverDraws);
+            CellHoverObserver?.Invoke(cell, reading, composition, selected);
             return true;
         }
 

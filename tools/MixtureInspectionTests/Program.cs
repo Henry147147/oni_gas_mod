@@ -534,8 +534,10 @@ internal static class Program
             table.GetType().GetMethod("Add")!.Invoke(table, new[] { prefab, value });
         }
         typeof(MixtureInspection).GetField("sessionBindingCount", BindingFlags.Static | BindingFlags.NonPublic)!.SetValue(null, 2);
+        MixtureInspection.CellHoverObserver = (_, _, _, _) => { };
         MixturePresentationLifecycle.EndSession();
         Check(MixtureInspection.SessionBindingCount == 0, "Previous colony retained its binding count.");
+        Check(MixtureInspection.CellHoverObserver == null, "Previous colony retained its private hover observer.");
         foreach (var name in new[] { "Owners", "Cache" })
         {
             var table = typeof(MixtureInspection).GetField(name, BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;

@@ -17,6 +17,22 @@ also check the UI cannot create fluid inventories and that unregister/error
 paths are present. They do not execute Unity native engine calls or claim
 visual runtime acceptance.
 
+The 29 current Windows groups include an uncapped four-gas hover contents
+list, the exact configurable trace cutoff, unchanged percentages after trace
+omission, retained hazardous-trace warnings/full details, and clearing the
+private hover observer on session teardown. The first-playable criterion
+requires every non-trace gas directly on tile hover, without selection.
+
+The separate Windows runner accepts `-TileHover` to start the private native
+four-case fixture. It waits for three actual hover frames per case and then a
+pixel-review receipt bound to the held case/cell/revision/publication and screen
+dimensions. Each receipt confirms that all non-trace rows and hazardous-trace
+warnings are visible, traces are omitted from contents, and no selection is
+required. The fixed deadline is 180 seconds per case. This opt-in fixture uses
+native ONI physics and synthetic display inventories; it does not certify
+production fluid ownership. V52's final receipt missed that deadline, so its
+overall result remains failed. See [the native evidence](../../docs/mixture-presentation.md#verification-and-limits).
+
 In the disposable Unity visual fixture, register a real container owner with
 `MixtureInspection.RegisterInventory(owner, id, provider, volume, label)` or
 bind an already registered adapter with `RegisterInventoryOwner`. After a
