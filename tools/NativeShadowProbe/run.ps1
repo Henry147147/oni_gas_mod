@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope')][string]$Mode = 'baseline',
     [string]$Dotnet = 'dotnet.exe'
 )
 $ErrorActionPreference = 'Stop'

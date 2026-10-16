@@ -22,6 +22,15 @@ Modes:
 
 - `baseline`: initialize oxygen, water, vacuum and solid cells, advance twelve
   native frames, and verify that solid heat conduction operates.
+- `multi-region`: run the twelve timesteps with two active regions and require
+  heat transfer in both, without multiplying elapsed physical time.
+- `fluid-actors`: register a native oxygen consumer and emitter in separate
+  sealed cells. One registration timestep precedes eight active timesteps
+  (with changed rates halfway) and four timesteps after removal. Check two
+  registration callbacks, eight consumed-mass records, the emitter's interval
+  clock reset on modification, cell/world mass ledgers and continuing solid
+  heat transfer. Emitted-mass entries are handle-indexed status slots, including
+  zero-mass waiting placeholders; they are sampled once per physical frame.
 - `sanitize`: replace initialized fluids with vacuum, call PrepareGameData
   **without submitting a frame**, and inspect whether sanitation is already
   committed. Refuse to step if this fails. Then assert no native fluid cells
@@ -75,6 +84,16 @@ load-shadow passes. The sanitize experiment fails as expected: without a
 frame, the edits do not become visible. Keep that failure as evidence against
 using this activation path. Do not reinterpret a zero-frame snapshot as an
 acknowledgement of queued cell mutations.
+
+The new `fluid-actors` case passes on Windows 744825, both unhooked and under
+the forwarding observer, with identical physical and event reports. It requires
+thirteen actual native timestep returns and physical updates, not thirteen
+queries: registration publishes on the first physical update. The eight active
+steps consume 0.3 kg; six positive emission samples produce 0.28125 kg, with two
+waiting samples after interval-clock resets. Four later steps show no transfers
+after removal. Linux actor execution, blocked/unblocked callbacks, multiple
+actor handles and Unity gameplay routing remain unverified. See the
+[backend evidence](../../docs/native-backend-integration.md#current-evidence-and-limits).
 
 The frozen Windows-v4 and isolated Linux-v5 seven-mode matrices both exercise
 `reject-custom-envelope`. In each, an ordinary native-load control preserves

@@ -13,7 +13,7 @@ import resource
 import subprocess
 import sys
 
-MODES = ("baseline", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
+MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 
 
 def no_core_dump() -> None:

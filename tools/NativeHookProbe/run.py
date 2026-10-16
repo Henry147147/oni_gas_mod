@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-MODES = ("baseline", "multi-region", "transition", "filtered-transition", "load-shadow")
+MODES = ("baseline", "multi-region", "transition", "filtered-transition", "load-shadow", "fluid-actors")
 VOLATILE = {"processId", "startedUtc", "completedUtc", "nativeObserver", "nativeObserverTrace",
             "nativeObserverDetached", "nativeObserverLiveDetachRejected"}
 
@@ -32,12 +32,15 @@ def check_observation(report: dict, mode: str) -> dict:
     hooks = {item["Name"]: item for item in status["Hooks"]}
     if len(hooks) != 23 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
         raise ValueError("Hook entry/exit imbalance")
-    if hooks["update-data"]["Entries"] != 12:
+    if hooks["update-data"]["Entries"] != (13 if mode == "fluid-actors" else 12):
         raise ValueError("Native physical update count differs from requested timesteps")
     if not hooks["initialize"]["Entries"] or not hooks["pressure"]["Entries"]:
         raise ValueError("Native control/physics hooks were not exercised")
     if hooks["messages"]["Entries"] < 2:
         raise ValueError("Empty and populated native batch branches were not exercised")
+    if mode == "fluid-actors" and (not report["fluidActorRegistrationModificationRemovalPassed"] or
+                                  hooks["consumer"]["Entries"] != 13 or hooks["emitter"]["Entries"] != 13):
+        raise ValueError("Native fluid actor registration, transfers or removal control is missing")
     trace = report["nativeObserverTrace"]
     if status["TraceEventsDropped"] or len(trace) != status["TraceEventsReserved"]:
         raise ValueError("Diagnostic trace truncated or incomplete")

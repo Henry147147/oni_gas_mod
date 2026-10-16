@@ -209,7 +209,7 @@ Verified on 2026-10-16:
 | Actual Linux Unity menu | `20261016T165746Z-b78a1c`: scoped probe and forwarding observer pass in the real Mono player. |
 | Actual Linux Unity colony | `20261016T171241Z-991b86`: ten live timestep returns, ten physical updates, thirteen byte-identical snapshots, 47 channels. Original ONI owns physics. |
 | Latest dependency-bound Linux Unity colony | `20261016T172520Z-92bc7f`: the trampoline-capacity repair also passes in Mono; ten additional timestep returns/physical updates, fourteen byte-identical snapshots and 47 channels, with no mod failure lines. |
-| Windows MSVC Release | Actual x64 MSVC build passes strict warnings, ABI/hash/lifecycle controls and short-JMP/Jcc relocation/restoration controls. Five separate unhooked/observed licensed-native comparisons pass with identical physical/event/save reports, twelve actual timesteps/physical updates each and complete bounded control traces. |
+| Windows MSVC Release | Actual x64 MSVC build passes strict warnings, ABI/hash/lifecycle controls and short-JMP/Jcc relocation/restoration controls. Six separate unhooked/observed licensed-native comparisons pass with identical physical/event/save reports and complete bounded control traces: twelve actual timesteps/physical updates for each original case; thirteen for the new actor case. |
 | Actual Windows Unity colony | V60 passes in ONI 744825 / Unity 6000.3.5f2: ten additional native timestep returns and physical updates, 160 byte-identical snapshots, 47 channels, nine worlds and three duplicants. Native ONI owns physics. The colony was inspected through the Windows UI and closed normally; original mods, preferences and generated-world files were restored byte-for-byte. |
 | Linux release baseline | This host's library requires glibc 2.38. A glibc-2.35 release build remains required. No release package is certified. |
 
@@ -242,13 +242,36 @@ gate. V59's completed failed-run review SHA256 is
 No installed game binary was modified. These runs establish forwarding only;
 they add no authoritative mixture rendering, takeover or performance result.
 
+The added Windows `fluid-actors` control registers an oxygen consumer and
+emitter in separate sealed cells, publishes both registration callbacks on one
+physical update, runs eight active timesteps with changed rates halfway, then
+runs four timesteps after removal. The eight consumed-mass records total
+0.3 kg. Six positive emitter samples total 0.28125 kg; the two waiting samples
+verify that native `Modify` resets the interval clock. Emitted-mass data is a
+handle-indexed status table, including zero-mass placeholders, rather than an
+event stream. Removal stops both chamber transfers while native solid heat
+continues. Native binary32 diagnostic bounds are 2e-6 kg per chamber and 1e-4 kg
+for the world; these do not replace the custom solver's production drift gates.
+
+All six comparisons pass with the final source in
+`local/native-fluid-actors-windows-r6`, with thirteen native timestep returns,
+thirteen physical updates, 312 complete trace events and identical physical/event
+actor reports. A separate report review rejects four corruptions:
+lost registration, wrong consumed mass, wrong emission cadence and mass change
+after removal. Completed review SHA256:
+`48e08f873240248614ffc4c4268c914d36791ac68e078333f74ff76945b31ec9`.
+Earlier build timeouts and failed fixture assumptions (query-only registration,
+zero-mass slots and immediate emission after modification) remain retained in
+the preceding r1–r5 directories. This is single-agent review of isolated Windows
+native behavior; Linux actor execution and Unity actor routing remain required.
+
 Linux's outer `Step` runs additional synchronization-only passes; its entry count
 is not elapsed physical time. The isolated trace therefore distinguishes actual
 positive `ProcessNextFrame` returns and `UpdateData` calls. Trace storage holds
 4,096 control events and reports truncation explicitly. Full Unity traces fill
 that capacity during world generation, so their prefix is not complete phase
-coverage. Emitters and every inlined/virtual dispatch path still need dedicated
-controls. Windows has 22 locations because `Step` has no standalone symbol;
+coverage. Emitter blocked/unblocked callbacks, multiple handles, Linux actors
+and every inlined/virtual dispatch path still need dedicated controls. Windows has 22 locations because `Step` has no standalone symbol;
 Linux has 23. These results grant no authoritative mixture ownership.
 
 ## Implementation gates

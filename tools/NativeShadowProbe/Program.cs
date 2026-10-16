@@ -9,7 +9,7 @@ using MixedAtmospheres.Oni;
 // Original interface harness for the user's local licensed Windows/Linux ONI build.
 // It runs in a separate OS process and never shares Unity's native singleton.
 // Game data and native binaries are supplied externally, never distributed here.
-internal static unsafe class Program
+internal static unsafe partial class Program
 {
     private const int Width = 64, Height = 64, Cells = Width * Height;
     private const int OxygenCell = 20 + 20 * Width, WaterCell = 30 + 20 * Width;
@@ -20,7 +20,7 @@ internal static unsafe class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
         {
             Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
@@ -75,6 +75,7 @@ internal static unsafe class Program
                     Require(initial.FluidCells == 2, "Unexpected initial native fluids.");
                 }
                 if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
+                else if (args[2] == "fluid-actors") VerifyFluidActors(sim, contract, initial, report);
                 else
                 {
                 if (args[2] is "baseline" or "multi-region")
@@ -210,6 +211,7 @@ internal static unsafe class Program
                     "Observer lifecycle or ownership status differs.");
                 Require(reading.Hooks.All(hook => hook.Entries == hook.Exits), "Native hook entry/exit imbalance after shutdown.");
                 if (args[2] is "baseline" or "multi-region") Require(reading.PositiveTimestepReturns == 12, "Expected twelve positive native timestep returns.");
+                if (args[2] == "fluid-actors") Require(reading.PositiveTimestepReturns == 13, "Expected one registration timestep and twelve native actor timesteps.");
                 observer.Dispose();
                 report["nativeObserverDetached"] = !observer.Capture().Attached;
                 report["nativeObserverLiveDetachRejected"] = true;
@@ -240,7 +242,7 @@ internal static unsafe class Program
         return new OniNativeObserver(Path.GetFullPath(gameDirectory));
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
-    private static bool ContainsFluidFixture(string mode) => mode is "baseline" or "multi-region" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope";
+    private static bool ContainsFluidFixture(string mode) => mode is "baseline" or "multi-region" or "fluid-actors" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope";
     private static void VerifyCustomEnvelopeRejection(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report)
     {
         Stage("unmodified-native-load-positive-control");
@@ -294,6 +296,8 @@ internal static unsafe class Program
             { element = contract.Granite; mass = 1000; temperature = cell == ColdCell ? 300 : 600; }
             if (mode == "multi-region" && (cell == SecondaryColdCell || cell == SecondaryHotCell))
             { element = contract.Granite; mass = 1000; temperature = cell == SecondaryColdCell ? 300 : 600; }
+            if (mode == "fluid-actors" && IsActorChamberWall(cell))
+            { element = contract.Unobtanium; mass = 20000; temperature = 293.15f; }
             if (ContainsFluidFixture(mode))
             {
                 if (cell == OxygenCell) { element = contract.Oxygen; mass = 2; temperature = 293.15f; }
@@ -424,6 +428,9 @@ internal static unsafe class Program
         public int SubstanceChangeEvents { get; init; }
         public int FallingLiquidEvents { get; init; }
         public int OreEvents { get; init; }
+        public ComponentEvent[] ComponentEvents { get; init; } = [];
+        public RemovedMassEvent[] RemovedMass { get; init; } = [];
+        public EmitterMassSlot[] EmitterMassSlots { get; init; } = [];
         [System.Text.Json.Serialization.JsonIgnore] public ushort[] Elements { get; init; } = [];
         [System.Text.Json.Serialization.JsonIgnore] public CellState[] CellData { get; init; } = [];
         public static Snapshot Read(IntPtr pointer, Contract contract)
@@ -462,7 +469,8 @@ internal static unsafe class Program
                 FluidMass = fluidMass, TotalMass = totalMass, ColdTemperature = temperatures[ColdCell], HotTemperature = temperatures[HotCell],
                 SecondaryColdTemperature = temperatures[SecondaryColdCell], SecondaryHotTemperature = temperatures[SecondaryHotCell],
                 TransitionElement = indices[TransitionCell], SubstanceChangeEvents = Marshal.ReadInt32(pointer, 136),
-                FallingLiquidEvents = Marshal.ReadInt32(pointer, 160), OreEvents = Marshal.ReadInt32(pointer, 184)
+                FallingLiquidEvents = Marshal.ReadInt32(pointer, 160), OreEvents = Marshal.ReadInt32(pointer, 184),
+                ComponentEvents = ReadComponentEvents(pointer), RemovedMass = ReadRemovedMass(pointer), EmitterMassSlots = ReadEmitterMassSlots(pointer)
             };
         }
     }
@@ -581,12 +589,13 @@ internal static unsafe class Program
             } while (clock.ElapsedMilliseconds < 250);
             return result;
         }
-        public Snapshot PrepareAfterFrame(Contract contract)
+        public Snapshot PrepareAfterFrame(Contract contract, Action<Snapshot>? observe = null)
         {
             var clock = Stopwatch.StartNew();
             do
             {
                 var result = Prepare(contract);
+                observe?.Invoke(result);
                 if (result.FramesProcessed != 0) return result;
                 Thread.Sleep(1);
             } while (clock.ElapsedMilliseconds < 3000);

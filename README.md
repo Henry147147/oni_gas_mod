@@ -30,9 +30,11 @@ for ownership, interfaces, failures and implementation gates.
 ## What currently works
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
-  code fingerprints, bounded traces and lifecycle fences. Five isolated native
-  comparisons and actual Unity colony forwarding checks pass on Windows and
-  Linux; Windows also passes strict MSVC ABI and relocation controls. This
+  code fingerprints, bounded traces and lifecycle fences. Six isolated native
+  comparisons pass on Windows and the original five pass on Linux, alongside
+  actual Unity colony forwarding checks on both. Windows also passes strict
+  MSVC ABI and relocation controls. Registered native emitter/consumer controls
+  verify mass transfers, interval resets and removal on Windows. This
   observer preserves native physics.
   See [instructions and evidence](docs/native-backend-integration.md#build-and-observe).
 
