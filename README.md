@@ -46,9 +46,9 @@ machines, pipes, and metabolism must use the same conserved state.
   fixtures exercise changing mixtures, paused inspection, zoom and UI scaling.
   Tile hover lists every non-trace gas and its mole percentage; hazardous trace
   warnings remain visible. This is an explicit [first-playable requirement](docs/completion-plan.md#d-first-playable-development-colony).
-  Windows four-gas hover captures show the complete list and trace warnings;
-  the validation run fails its final review deadline. Completed Windows/Linux
-  native-hover acceptance remains required.
+  Windows V54 passes the four-gas native hover fixture, including the trace
+  cutoff and 125% UI scale. Linux hover and production colony binding remain
+  required; the earlier failed UI runs remain recorded.
 - An explicit two-reservoir ownership experiment with conserved transfers,
   native-empty storage, native meter/logic queries, mutation fences and orphan
   recovery. Windows Unity acceptance passes; native pipe/heat/power gameplay

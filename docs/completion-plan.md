@@ -132,6 +132,12 @@ in [mixture presentation](mixture-presentation.md):
   measured publication budget. Report p50/p95 game costs and peak memory.
   This supplements the separate production-solver performance gate.
 
+Windows V54 passes the scoped four-gas native hover fixture, including the
+exact trace cutoff, retained contaminant warning and 125% UI scale; see
+[evidence and limits](mixture-presentation.md#verification-and-limits). That
+display fixture leaves native ONI in charge of physics. Linux hover and an
+authoritative completed colony state remain part of this milestone.
+
 Exit: duplicants survive and operate for ten cycles with conservation
 diagnostics, and the presentation, screenshot and performance criteria above
 pass on Windows and Linux. This does not authorize public release.

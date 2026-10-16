@@ -45,6 +45,12 @@ The protocol-only checks run with `python -m unittest discover -s tools/tests
 -p test_tile_hover_receipt.py -v` on Windows with PowerShell 7 available;
 `MA_PWSH` can select its executable. They do not perform pixel review.
 
+Windows V54 completes all four actual native hover cases with that producer;
+root reviews every native tooltip and saved Unity image before continuation.
+The full report remains a display-fixture pass with native ONI physics, and
+does not establish Linux hover or first-playable colony acceptance. V52 and
+V53 retain their failed outcomes.
+
 In the disposable Unity visual fixture, register a real container owner with
 `MixtureInspection.RegisterInventory(owner, id, provider, volume, label)` or
 bind an already registered adapter with `RegisterInventoryOwner`. After a

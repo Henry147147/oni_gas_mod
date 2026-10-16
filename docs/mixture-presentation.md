@@ -95,9 +95,9 @@ completed snapshot. Earlier two-gas screenshots and the V51 automatic fixture
 run do not establish this added criterion. The formatter and focused inspection
 controls implement it. All 29 Windows inspection groups pass, including a
 four-gas list, retained trace warnings/full details, and the exact configured
-trace boundary. The Windows V52 evidence below contains four actual hover
-captures, but its final review deadline fails; the complete Windows/Linux gate
-remains open.
+trace boundary. Windows V54 below completes the four-case native UI fixture.
+Linux hover and presentation from an authoritative completed colony snapshot
+remain required for the full first-playable gate.
 
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
@@ -195,6 +195,41 @@ limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
 
+Windows V54 passes the complete native hover fixture from clean source
+`6fc628a`, using the atomic receipt producer and the same four cases and
+180-second per-case deadlines. Default hover shows nitrogen 60.9997%, oxygen
+25%, carbon dioxide 10% and steam 4%. Steam remains visible exactly at its
+configured cutoff and disappears when the cutoff rises one binary64 step;
+the other percentages remain unchanged. Hydrogen/chlorine traces are omitted
+from contents, while the chlorine warning still reports 0.0002% against its
+0.0001% limit. All four rows and the warning remain fully visible at 125% UI
+scale. No tile selection or click is required.
+
+Root reviews all four native tooltips and their 2560-by-1440 Unity PNGs. Each
+held observation records three distinct hover frames. All four bound receipts
+are accepted; revisions/publication generations 13/16/19/22 and session epochs
+11/12/13/14 agree with their saved observations. The primary and helper reports
+finish passed with empty errors. Final cleanup restores the UI scale, removes
+the private banner and returns the native packet tooltip. No game input is
+injected before normal Alt-F4.
+
+Read-only review matches all 70 frozen source/tool files, seven package
+payloads and four image/receipt pairs. Package manifest SHA256 is
+`c78dd05b805ee8f43938b795b18966f54ccfafc61bbcdf0869cda5ef7c5cb3cf`.
+Private evidence is under `local/colony-runs/tile-hover-contents-windows-v54`
+and `local/tile-hover-contents-windows-v54-root`. The six scoped integration
+probe checks and both presentation shutdown boundaries pass. ONI closes
+normally, the runner exits 0, and all 283 personal files plus 13 settings/cache
+files match their original membership and bytes. The game's OS exit code is
+not independently captured.
+
+This is a mostly paused, nine-world native Spaced Out! colony with three
+duplicants and explicit immutable display inventories. Native ONI owns physics.
+V54 closes the Windows fixture's tooltip/pixel-review protocol; it does not
+establish Linux four-gas hover, authoritative fluid ownership, GPU readback,
+performance, independent review or first-playable acceptance. V52/V53 below
+retain their original failed outcomes.
+
 Windows V52 exercises the new contents list through native `SelectTool` hover,
 with no selected tile. At 101.325 kPa and 20 °C the display inventory contains
 nitrogen 60.9997%, oxygen 25%, carbon dioxide 10%, steam 4%, hydrogen 1 ppm and
@@ -246,7 +281,7 @@ four explicit operator pixel-review assertions and a matching held report. It
 writes a bounded temporary file, closes its writer, then renames it in the same
 directory without replacing an existing receipt. It changes no game criterion
 and adds no native read retry. Four Windows protocol tests pass: an eager reader
-checks all 64 receipts while the producer handle is confirmed live, and missing
+checks 64 complete receipts, with a live producer confirmed before each read, and missing
 assertions, invalid/stale observations and attempted overwrite reject. These
 use synthetic protocol data and establish no pixels or game acceptance.
 
