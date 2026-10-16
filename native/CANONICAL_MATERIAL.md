@@ -7,9 +7,11 @@ The prospective replacement retains canonical momentum as primary state and
 keeps stored internal energy separate from resolved kinetic energy. No new
 state owner, pressure step, remap, runtime mode or physical acceptance is supplied
 by the diagnostics component alone. The separate experimental owner below has a
-known failed translation gate and is not selected by the game. Its current
-retained-storage migration supports initialization and inspection only; public
-advance rejects before entering the former scalar pressure operator.
+historical failed scalar-translation gate and is not selected by the game. The
+current retained operator supports initialization, inspection and a complete
+fixed-h pressure advance, with the bounded new controls below. Production 2D
+transport, vacuum/phase topology, remap, persistence and colony integration are
+still unfinished.
 
 ## Experimental material owner
 
@@ -23,7 +25,7 @@ caller inputs and its originating state. Supplied stored internal energy is
 preserved; temperature initialization records its separate elastic addition.
 Resolved kinetic variance is never converted to heat.
 
-The former scalar fixed-h pressure step used actual stored initial momentum in its nonlinear
+The retained fixed-h pressure step uses complete stored initial momentum in its nonlinear
 residual, stores free momentum from force, solves the full consistent system for
 velocity, then computes dependent constrained momentum and measured reactions.
 It checks actual impulse representation, geometry, actual-EOS stored m/U/V,
@@ -32,14 +34,15 @@ before an atomic immutable publication. It performs no remap or timestep retry.
 Unsupported topology, range and resource failures preserve the complete input
 and previous output and seal a separate bounded witness.
 
-The explicit `ma_canonical_material`, `ma_canonical_material_tests` and
-`ma_canonical_retained_initialization_tests` targets
+The explicit `ma_canonical_material`, `ma_canonical_material_tests`,
+`ma_canonical_retained_initialization_tests` and `ma_canonical_retained_step_tests` targets
 are excluded from default builds and CTest. The library has one-way dependencies
 on `ma_core` and retained arithmetic; the game DLL and world dispatch do not depend on it.
 `canonical_material_diagnostic_bytes` exports tagged, length-delimited data for
 complete state comparisons, including model/registry and every report field.
-Its v2 schema includes complete primary high/low values, geometry certificates,
-scalar projections and initialization product/remainder ledgers. It uses raw
+Its v3 schema includes complete primary high/low values, geometry certificates,
+scalar projections, initialization product/remainder ledgers and the complete
+retained-step diagnostic section. It uses raw
 binary64 bits and no EOS query. It is not a restart/save format.
 
 ## Retained initialization and inspection
@@ -61,7 +64,7 @@ include retained U and complete geometric-volume terms, with unchanged accuracy
 bounds; this is not an exact retained-arithmetic EOS solver. A child arithmetic
 failure is copied into the parent's model/stage/node/owner witness.
 
-Four new initialization groups pass on their first strict Windows/MSVC and WSL
+At commit `62ee096`, four initialization groups pass on their first strict Windows/MSVC and WSL
 Linux/GNU invocations. Two eight-node nitrogen inputs include adjacent absolute
 coordinates `-2^-60` and zero which become the same rounded relative coordinate
 with a 1 m origin. Their retained interval remains positive; the two areas give
@@ -97,13 +100,110 @@ are retained. The 180-second aggregate build, 30-second invocation, 128-KiB pipe
 and 2-MiB snapshot bounds are unchanged. EOS initialization runs; no pressure
 advance, old failed physical gate, game, performance or first-playable gate runs.
 
-`canonical_material_advance_ready()` deliberately returns false. The retained
-force residual, stored impulse, geometry/energy changes and complete finite
-work/momentum/moment accounting must migrate together before it can return true.
-The previous scalar step cannot consume these projections as primary state.
+That initialization stage deliberately closed public advance. The current
+retained pressure implementation below replaces that guard; the initialization
+control's rejection check now uses zero h and still enters no EOS/advance physics.
+The v2 evidence and its failed cross-platform bitwise comparison remain intact.
+The current data checker accepts the v3 diagnostic schema.
+
+The updated initialization/zero-step target also passes four groups on its first
+v3 Windows/MSVC and WSL Linux/GNU invocations. Its independent decoder checks
+128 exact momentum products, 32 witness numbers, both 35,975-byte snapshots and
+two corrupted copies per platform. Evidence and original source copies are under
+`retained-owner-init-v3-windows-r1` and `retained-owner-init-v3-linux-r1` in the
+same private evidence directory. A scope-count audit mistakenly matched the
+diagnostics translation unit as well; the wrapper continued before resolving
+that assertion. All eleven matched GNU units were then verified to use the
+required strict flags. That failed audit is retained, with no native rerun.
+Historical v2 captures use the checker from `62ee096`; the current command below
+accepts v3 captures. No first-stage failure is replaced by the current evidence.
 
 ```text
 python native/tests/review_canonical_retained_initialization.py capture.stdout snapshot-directory
+```
+
+## Complete retained pressure operation
+
+The public standalone advance now consumes full primary momentum in the
+force residual and stores free momentum from the complete force-impulse pair.
+Each stored update retains its full before/increment/sum/change certificates;
+omitted sum components remain explicit signed remainders. The erasure/sign test
+applies to the complete physical increment. It does not require every smallest
+rounding component to survive independently. Constrained endpoint momentum is
+constructed from full row-product pairs. Its required impulse includes both
+initial and final compatibility, `L*delta_u + c0 - c1`; final compatibility is
+measured rather than assigned zero.
+
+Recentered origin/relative coordinates, balanced isentropic U and completed time
+all use retained updates. Physical displacement and owner volume changes come
+from complete completed-state certificates. Prescribed displacement is checked
+as an exact zero expression before boundary work, using a fixed bounded
+Grow-Expansion classifier. It supplies no replacement state. The existing EOS
+continues to consume explicit scalar U/V projections, with unchanged independent
+closure, work-pressure, entropy and arithmetic bounds.
+
+`CanonicalFiniteExpression` stores a bounded signed operand list and its scalar
+Neumaier projection; its exact projection residual is that operand sum minus the
+stored projection. It is diagnostic data, not additional primary state or an
+arbitrary-precision fallback. The finite energy/momentum/moment identities use
+full stored changes and exact FMA products before projection. They retain the
+cap-force work defect and the difference between actual assembled force and
+its individual components. Energy includes displacement times that assembly
+defect; momentum includes its impulse. No discrepancy is silently turned into
+heat, a theoretical zero or a timestep retry.
+
+The first strict Windows/MSVC and WSL Linux/GNU builds and native invocations
+pass four new groups. They advance three original inputs: nine nodes with
+nitrogen/oxygen/CO2/chlorine, supplied U and free zero-exterior-pressure ends;
+ten nodes with nitrogen/water and a moving prescribed right boundary; and eleven
+nodes with a fixed left origin, nonuniform interior velocity and `h=2^-56` s.
+The first two use `h=2^-17` s. The third retains nonzero relative movement behind
+unchanged scalar coordinates. Two inputs retain h at completed time `2^40` s,
+whose ordinary scalar projection does not change. All constituent mass bits,
+including chlorine at reference density `3e-6` kg/m3, remain unchanged. Three
+additional typed negatives cover zero h, aliasing and unsupported rounding,
+with unchanged input/previous output and zero constitutive charges/factorizations.
+
+The independent data-only decoder reconstructs 494 expression identities and
+83 stored-update certificates per platform. It checks constrained product/sum
+records, full geometric volumes, per-node compatibility and actual impulses,
+cap/assembly work, physical energy/momentum, stable first moments and the full
+bilinear change. All twelve complete accounting remainder expressions sum to
+exact zero as real `Fraction` sums. Their finite Neumaier projections can still
+be tiny nonzero values; those are retained and checked against their unchanged
+bounds. Physical energy error is measured separately, not forced to zero. An
+independent exact force residual is at most `4.70e-14`, below the existing
+`2e-12` target. Three copies with altered normal primary low bits reject.
+
+Six complete v3 snapshots per platform remain below 191 kB each. The decoder
+reads their primary/owner-geometry prefixes and retained-step suffixes and
+hashes the opaque intervening diagnostic fields; it does not claim a semantic
+decode of every cache/model field or provide a restart reader. The raw numerical
+outputs are not bit-identical: 70 of 440 rows differ between platforms. Fixed
+input and matrix rows match; each platform independently satisfies all exact
+accounting and existing EOS/force checks. Whole-snapshot determinism and
+cross-platform colony saves are not established.
+
+Evidence is private under
+`local/occupied-staggered-validation/retained-pressure-windows-r1` and
+`retained-pressure-linux-r1`. Both native exits are zero, with both raw pipes
+reaching EOF and closing without timeout/cap/capture errors. Complete original
+source copies, source freezes, executable hashes, strict build flags, inputs,
+snapshots and exact data reviews are retained. The build/invocation/pipe/snapshot
+bounds remain 180 s, 30 s, 128 KiB per pipe and 2 MiB per snapshot. There is no
+performance, game or first-playable acceptance in these controls, nor an
+independent agent implementation review. No old failed physical gate was rerun.
+
+`canonical_material_advance_ready()` now reports this standalone implementation
+available. Neither the C ABI, default DLL nor world dispatch selects it. Interface
+capacity remains 8–33 nodes/seven owners/1–4 supported profiles; the new physical
+controls cover 9/10/11-node inputs, not arbitrary inputs within those limits.
+The historical seven-case target is retained as old evidence, not the current
+verification target. Production transport/remap, broader physical validation,
+game ownership, performance, persistence and surviving colonies remain required.
+
+```text
+python native/tests/review_canonical_retained_step.py capture.stdout snapshot-directory
 ```
 
 ## Historical scalar-owner validation
@@ -130,9 +230,10 @@ unchanged. The retained native exit was 1; raw stdout SHA-256 is
 stderr SHA-256 is
 `f8290ddc4777966f89246a4b9bda59d55eeb0ffb7e43a55646b87c4e161dad76`.
 Both streams reached EOF and closed without timeout, cap or capture errors.
-This failed gate is retained without rerun or a relaxed criterion. A storage
-representation change is needed before this method can be considered generally
-usable. No production 2D/multiphase, Unity, save/load or colony gate follows.
+This failed gate is retained without rerun or a relaxed criterion. It motivated
+the retained representation above; the new controls do not retroactively accept
+this old input. No production 2D/multiphase, Unity, save/load or colony gate
+follows from these historical checks.
 The updated diagnostic component's 16 groups still pass on both platforms,
 with identical normalized output and the separate 642-number decimal review.
 
@@ -155,8 +256,9 @@ stored-value/increment/remainder identities for every row, confirms ten nonzero
 explicit remainders and the full 64-update chain, and rejects a corrupted stored
 low bit. Numerical rows match between platforms. These are arithmetic controls;
 no EOS or physical step is invoked by those standalone controls. The component
-now also supports the owner's initialization above; pressure-step migration is
-unfinished. The failed translation gate remains negative.
+now also supports the owner's initialization above. Complete pressure updates
+use the separately recorded pair sum/change certificates. Production integration
+is unfinished, and the failed translation gate remains negative.
 
 ```text
 python native/tests/review_retained_scalar.py capture.stdout
@@ -202,8 +304,9 @@ invocation limit and 128-KiB limit per pipe. Private evidence is under
 `retained-product-linux-r1`. There is no EOS, material step, old physical corpus,
 game activation, performance or first-playable acceptance in these checks.
 Retained positions, owner U/volume and initial momentum now support owner
-initialization above. Stored pressure impulses and their complete physical
-ledgers still need integration. The failed canonical
+initialization above. Stored pressure impulses and their complete finite
+ledgers are now integrated in the isolated retained operator above. Production
+transport/remap and game ownership remain unfinished. The failed canonical
 translation gate remains negative and was not rerun.
 
 ```text
@@ -249,9 +352,9 @@ and 128-KiB raw-pipe bounds as the product controls. Both streams reach EOF and
 close without capture errors. No EOS, mechanics, failed physical corpus, game
 or performance gate runs. The earlier addition/product implementations are
 unchanged. All three operations now support retained owner initialization and
-its explicit EOS projections. Integration of completed pressure-state changes
-and complete physical ledgers remains required; the failed translation gate
-remains negative.
+its explicit EOS projections. The isolated pressure operation above also uses
+them for completed state changes and complete finite ledgers. Production
+integration remains required; the failed translation gate remains negative.
 
 ```text
 python native/tests/review_retained_scalar_difference.py capture.stdout

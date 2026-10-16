@@ -91,6 +91,38 @@ struct CanonicalInitializationLedger {
     // preserve the finite initialization account for the actual stored pi.
     std::vector<std::array<double, 2>> momentum_product_terms, momentum_sum_remainders;
 };
+struct CanonicalFiniteExpression {
+    // An exact signed real sum of known binary64 operands. This is diagnostic
+    // data, never another primary state or an adaptive precision fallback.
+    CanonicalVector terms;
+    double projection = 0;
+};
+struct CanonicalExpressionRecord {
+    std::string name;
+    std::uint32_t node = canonical_absent_index, owner = canonical_absent_index;
+    CanonicalFiniteExpression expression;
+};
+struct CanonicalStoredUpdate {
+    std::string name;
+    std::uint32_t node = canonical_absent_index, owner = canonical_absent_index;
+    RetainedScalar before, increment;
+    // Exact sum certificate, followed by the exact completed-state change.
+    // before + increment = update.value + update.roundoff_remainders.
+    RetainedScalarDifference update, represented_change;
+};
+struct CanonicalMomentumConstruction {
+    std::uint32_t node = canonical_absent_index;
+    std::vector<std::array<double, 2>> product_terms, sum_remainders;
+    RetainedScalar value;
+};
+struct CanonicalRetainedStepLedger {
+    RetainedScalarDifference origin_change, time_change;
+    std::vector<RetainedScalarDifference> relative_position_change, momentum_change, velocity_change, internal_energy_change;
+    std::vector<CanonicalFiniteExpression> displacement, volume_change;
+    std::vector<CanonicalStoredUpdate> updates;
+    std::vector<CanonicalMomentumConstruction> constrained_momentum;
+    std::vector<CanonicalExpressionRecord> expressions;
+};
 struct CanonicalStepReport {
     double seconds = 0, represented_seconds = 0;
     double force_residual_ratio = 0, linear_residual_ratio = 0;
@@ -123,6 +155,7 @@ struct CanonicalStepReport {
     CanonicalVector eos_represented_volume_change, eos_represented_energy_change;
     CanonicalVector cap_impulse_left, cap_impulse_right, cap_work_left, cap_work_right;
     std::vector<bool> endpoint_volume_resolves, endpoint_energy_resolves; // EOS endpoint flags, distinct from actual geometry storage.
+    CanonicalRetainedStepLedger retained;
 };
 struct CanonicalSnapshot {
     // These allocations are actually const and deep owned. No mutable caller
@@ -196,8 +229,8 @@ private:
 };
 void initialize_canonical_material_into(const CanonicalInitialization& input, CanonicalMaterialState& output,
     CanonicalBudgetContext& budget, CanonicalFailureWitness& witness);
-// False during the retained-state migration. The public advance boundary
-// rejects before calling the old scalar pressure operator or querying its EOS.
+// Availability of this standalone retained implementation. This does not select
+// a game runtime or establish production/colony acceptance.
 [[nodiscard]] bool canonical_material_advance_ready() noexcept;
 // One fixed-h operation with strong input/previous-output preservation. There is
 // no timestep retry, scheduler registration, variance heat or endpoint fallback.

@@ -76,7 +76,7 @@ class SnapshotPrefix:
                     volume=volume, volume_count=volume_count, projected=projected, residual=residual)
 
     def decode(self):
-        self.text('ma-canonical-material-diagnostics-v2')
+        self.text('ma-canonical-material-diagnostics-v3')
         self.text('primary')
         primary = {}
         for name, count in [('relative_positions_m', 8), ('momentum', 8), ('internal_energy_j', 7)]:
@@ -169,7 +169,7 @@ def check_witness(name, witness):
     assert witness['failed'] is True and witness['capture_valid'] is True
     assert witness['model_identity'] == 'retained-owner-init-first' and witness['completed_step'] == 0
     assert witness['code'] == (1 if name == 'GUARD' else 2)
-    assert witness['stage'] == (13 if name == 'GUARD' else 3)
+    assert witness['stage'] == (6 if name == 'GUARD' else 3)
     context = witness['context']
     assert context['factorizations'] == context['constitutive_charges'] == context['top_level_queries'] == 0
     assert context['newton_updates'] == context['backtracks'] == context['oracle_iterations'] == 0
@@ -212,7 +212,7 @@ def review(path, directory):
             records[name].append(json.loads(content, object_pairs_hook=decoder.unique, parse_constant=decoder.invalid_constant,
                                             parse_int=lambda value: -0.0 if value == '-0' else int(value)))
     assert passes == ['retained_geometry_initialization', 'retained_initial_momentum_and_supplied_u',
-                      'owned_view_and_control_independent_diagnostics', 'closed_step_boundary_and_relay_atomicity']
+                      'owned_view_and_control_independent_diagnostics', 'zero_step_and_relay_atomicity']
     assert {name: len(values) for name, values in records.items()} == dict(META=2, NODE=16, CELL=14, ROW=128, GUARD=1, RELAY=1)
     assert [meta['case'] for meta in records['META']] == [0, 1]
     cases, corruptions = [], 0

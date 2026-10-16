@@ -329,6 +329,32 @@ struct ReferenceMetrics {
 [[nodiscard]] double physical_position(Kernel& k, const Data& data, std::size_t node);
 void initialize_retained_momentum(Kernel& k, Data& data, const Vec& requested_velocity);
 void validate_scalar_projections(Kernel& k, const Data& data);
+using Terms = CanonicalVector;
+[[nodiscard]] Terms terms(std::initializer_list<double> values);
+[[nodiscard]] Terms terms(const RetainedScalar& value);
+[[nodiscard]] Terms terms(const RetainedScalarDifference& value);
+[[nodiscard]] Terms terms(const CanonicalGeometryMeasure& value);
+[[nodiscard]] Terms joined(Kernel& k, std::initializer_list<Terms> values);
+[[nodiscard]] Terms negated(const Terms& values);
+[[nodiscard]] Terms scaled(Kernel& k, const Terms& values, double coefficient);
+[[nodiscard]] Terms products(Kernel& k, const Terms& left, const Terms& right);
+[[nodiscard]] Terms row_terms(Kernel& k, const Matrix& matrix, const std::vector<Terms>& values, std::size_t node);
+[[nodiscard]] double projected(Kernel& k, const Terms& values);
+[[nodiscard]] double magnitude(Kernel& k, const Terms& values);
+[[nodiscard]] bool exact_zero(Kernel& k, const Terms& values);
+[[nodiscard]] CanonicalFiniteExpression expression(Kernel& k, const Terms& values);
+[[nodiscard]] double recorded(Kernel& k, CanonicalStepReport& report, std::string_view name, const Terms& values,
+    std::uint32_t node = canonical_absent_index, std::uint32_t owner = canonical_absent_index);
+[[nodiscard]] RetainedScalar stored_update(Kernel& k, CanonicalStepReport& report, std::string_view name,
+    const RetainedScalar& before, double increment, std::uint32_t node = canonical_absent_index,
+    std::uint32_t owner = canonical_absent_index);
+[[nodiscard]] RetainedScalar stored_update(Kernel& k, CanonicalStepReport& report, std::string_view name,
+    const RetainedScalar& before, const RetainedScalar& increment, std::uint32_t node = canonical_absent_index,
+    std::uint32_t owner = canonical_absent_index);
+[[nodiscard]] CanonicalMomentumConstruction momentum_row(Kernel& k, const Data& data, const Vec& velocity, std::size_t node);
+[[nodiscard]] const Terms& recorded_terms(Kernel& k, const CanonicalStepReport& report, std::string_view name,
+    std::uint32_t node = canonical_absent_index, std::uint32_t owner = canonical_absent_index);
+void finite_ledgers(Kernel& k, const Data& old, Data& next, const Vec& u0, CanonicalStepReport& report);
 [[nodiscard]] ReferenceMetrics reference_metrics(Kernel& k, const Data& data, const CanonicalReferencePiece& piece);
 [[nodiscard]] double owner_volume(Kernel& k, const Data& data, std::size_t owner);
 [[nodiscard]] Vec volume_change(Kernel& k, const Data& data, const Vec& displacement);

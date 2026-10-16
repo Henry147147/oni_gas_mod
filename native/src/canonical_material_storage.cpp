@@ -117,5 +117,5 @@ void validate_scalar_projections(Kernel& k, const Data& d) {
 }
 
 namespace ma::experimental {
-bool canonical_material_advance_ready() noexcept { return false; }
+bool canonical_material_advance_ready() noexcept { return true; }
 }

@@ -27,7 +27,7 @@ double owner_volume(Kernel& k, const Data& d, std::size_t owner) {
 Vec volume_change(Kernel& k, const Data& d, const Vec& displacement) {
     Vec result(7);
     for (std::size_t i = 0; i < 7; ++i)
-        result[i] = k.mul(d.area_m2, difference(k, displacement[d.owner_right[i]], displacement[d.owner_left[i]]));
+        result[i] = projected(k, scaled(k, terms({displacement[d.owner_right[i]], -displacement[d.owner_left[i]]}), d.area_m2));
     return result;
 }
 Vec exterior_force(Kernel& k, const Data& d) {

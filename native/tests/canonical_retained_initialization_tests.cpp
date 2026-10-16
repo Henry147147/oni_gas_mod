@@ -146,15 +146,14 @@ int main(int argc, char** argv) {
         }
         check(std::fegetround() == FE_TONEAREST, "Diagnostic control did not restore nearest rounding");
         std::cout << "PASS owned_view_and_control_independent_diagnostics\n";
-        check(!canonical_material_advance_ready(), "Unmigrated pressure path became selectable");
         CanonicalMaterialState previous = state1; CanonicalBudgetContext guard_budget; CanonicalFailureWitness guard; bool rejected = false;
-        try { advance_canonical_material_into(state1, .001, previous, guard_budget, guard); }
+        try { advance_canonical_material_into(state1, 0, previous, guard_budget, guard); }
         catch (const CanonicalFailure&) { rejected = true; }
         if (guard.failed()) witness("GUARD", guard);
-        check(rejected && guard.code() == CanonicalFatalCode::unsupported_configuration && guard.stage() == CanonicalStage::publication &&
+        check(rejected && guard.code() == CanonicalFatalCode::unsupported_configuration && guard.stage() == CanonicalStage::pressure_trial &&
             guard_budget.counts().constitutive_charges == 0 && guard_budget.counts().factorizations == 0 &&
             before1 == canonical_material_diagnostic_bytes(*previous.read_view()) && before1 == canonical_material_diagnostic_bytes(view1),
-            "Closed step boundary ran physics or changed complete state");
+            "Zero-step boundary ran physics or changed complete state");
         auto bad = fixture(0); bad.area_m2 = std::numeric_limits<double>::min();
         CanonicalBudgetContext relay_budget; CanonicalFailureWitness relay; rejected = false;
         try { initialize_canonical_material_into(bad, previous, relay_budget, relay); }
@@ -164,7 +163,7 @@ int main(int argc, char** argv) {
             relay.model_identity() == bad.diagnostic_model_identity && relay.context().node == 0 && relay.context().owner == 0 &&
             relay_budget.counts().constitutive_charges == 0 && before1 == canonical_material_diagnostic_bytes(*previous.read_view()),
             "Arithmetic failure did not preserve owner context and previous publication");
-        std::cout << "PASS closed_step_boundary_and_relay_atomicity\n";
+        std::cout << "PASS zero_step_and_relay_atomicity\n";
         return 0;
     } catch (const CanonicalFailure& error) { std::cerr << "FAIL canonical initialization: " << error.what() << '\n'; return 1; }
     catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }

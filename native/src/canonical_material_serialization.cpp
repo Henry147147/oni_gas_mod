@@ -40,6 +40,11 @@ void emit(Bytes&, const RetainedScalar&);
 void emit(Bytes&, const RetainedScalarDifference&);
 void emit(Bytes&, const CanonicalGeometryMeasure&);
 void emit(Bytes&, const CanonicalPrimaryValues&);
+void emit(Bytes&, const CanonicalFiniteExpression&);
+void emit(Bytes&, const CanonicalExpressionRecord&);
+void emit(Bytes&, const CanonicalStoredUpdate&);
+void emit(Bytes&, const CanonicalMomentumConstruction&);
+void emit(Bytes&, const CanonicalRetainedStepLedger&);
 template<class T> requires (std::is_integral_v<T> || std::is_enum_v<T>)
 void emit(Bytes& w, T value) { w.integer(static_cast<std::uint64_t>(value)); }
 template<class T, std::size_t N> void emit(Bytes& w, const std::array<T, N>& values) {
@@ -62,6 +67,19 @@ void emit(Bytes& w, const CanonicalGeometryMeasure& r) {
 void emit(Bytes& w, const CanonicalPrimaryValues& r) {
     FIELD(relative_positions_m); FIELD(momentum); FIELD(internal_energy_j);
     FIELD(origin_m); FIELD(completed_time_seconds);
+}
+void emit(Bytes& w, const CanonicalFiniteExpression& r) { FIELD(terms); FIELD(projection); }
+void emit(Bytes& w, const CanonicalExpressionRecord& r) { FIELD(name); FIELD(node); FIELD(owner); FIELD(expression); }
+void emit(Bytes& w, const CanonicalStoredUpdate& r) {
+    FIELD(name); FIELD(node); FIELD(owner); FIELD(before); FIELD(increment); FIELD(update); FIELD(represented_change);
+}
+void emit(Bytes& w, const CanonicalMomentumConstruction& r) {
+    FIELD(node); FIELD(product_terms); FIELD(sum_remainders); FIELD(value);
+}
+void emit(Bytes& w, const CanonicalRetainedStepLedger& r) {
+    FIELD(origin_change); FIELD(time_change); FIELD(relative_position_change); FIELD(momentum_change);
+    FIELD(velocity_change); FIELD(internal_energy_change); FIELD(displacement); FIELD(volume_change);
+    FIELD(updates); FIELD(constrained_momentum); FIELD(expressions);
 }
 void emit(Bytes& w, const SpeciesDefinition& r) {
     FIELD(id); FIELD(name); FIELD(phase);
@@ -142,6 +160,7 @@ void emit(Bytes& w, const CanonicalStepReport& r) {
     FIELD(entropy_change); FIELD(entropy_cache_difference); FIELD(eos_represented_volume_change); FIELD(eos_represented_energy_change);
     FIELD(cap_impulse_left); FIELD(cap_impulse_right); FIELD(cap_work_left); FIELD(cap_work_right);
     FIELD(endpoint_volume_resolves); FIELD(endpoint_energy_resolves);
+    FIELD(retained);
 }
 void emit(Bytes& w, const CanonicalSnapshot& r) {
     FIELD(primary); FIELD(owner_geometry);
@@ -160,7 +179,7 @@ void emit(Bytes& w, const CanonicalSnapshot& r) {
 #undef FIELD
 }
 std::vector<std::byte> canonical_material_diagnostic_bytes(const CanonicalReadView& view) {
-    Bytes output; output.text("ma-canonical-material-diagnostics-v2");
+    Bytes output; output.text("ma-canonical-material-diagnostics-v3");
     emit(output, view.snapshot()); return std::move(output.data);
 }
 }
