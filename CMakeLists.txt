@@ -107,6 +107,21 @@ foreach(target ma_canonical_diagnostics ma_canonical_diagnostics_tests)
     endif()
 endforeach()
 
+# Bounded stored-increment arithmetic only; no EOS or material-step dependency.
+add_library(ma_retained_scalar STATIC EXCLUDE_FROM_ALL native/src/retained_scalar.cpp)
+target_link_libraries(ma_retained_scalar PUBLIC ma_canonical_diagnostics)
+add_executable(ma_retained_scalar_tests EXCLUDE_FROM_ALL native/tests/retained_scalar_tests.cpp)
+target_link_libraries(ma_retained_scalar_tests PRIVATE ma_retained_scalar)
+if(MSVC)
+    target_compile_options(ma_retained_scalar PRIVATE /W4 /WX /permissive- /fp:strict)
+    target_compile_options(ma_retained_scalar_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+else()
+    target_compile_options(ma_retained_scalar PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+    target_compile_options(ma_retained_scalar_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+endif()
+
 # Actual-EOS retained material owner, still isolated from ma_core and the DLL.
 # No default build or CTest dispatch selects this experimental fixed-h method.
 add_library(ma_canonical_material STATIC EXCLUDE_FROM_ALL

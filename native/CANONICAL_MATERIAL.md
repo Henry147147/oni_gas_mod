@@ -65,6 +65,31 @@ usable. No production 2D/multiphase, Unity, save/load or colony gate follows.
 The updated diagnostic component's 16 groups still pass on both platforms,
 with identical normalized output and the separate 642-number decimal review.
 
+## Retained increment arithmetic
+
+`experimental/retained_scalar.hpp` supplies an immutable normalized high/low
+stored value and a bounded six-TwoSum update. The result retains increments
+smaller than the high component's ULP, reports a two-component represented
+increment and returns its signed third-component rounding remainder explicitly.
+It rejects a completely erased or reversed nonzero increment, nonfinite or
+subnormal arithmetic, overflow and unsupported floating-point controls. The
+input remains unchanged on rejection. The remainder is available for accounting;
+it is not hidden heat or a claim of arbitrary precision.
+
+The excluded `ma_retained_scalar` and `ma_retained_scalar_tests` targets link
+diagnostics only. Five groups pass on Windows/MSVC and Linux/GNU: 124 raw-bit
+updates across five exponent scales, cancellation and repeated small increments,
+plus seven typed rejections. A separate `Fraction` checker establishes the exact
+stored-value/increment/remainder identities for every row, confirms ten nonzero
+explicit remainders and the full 64-update chain, and rejects a corrupted stored
+low bit. Numerical rows match between platforms. These are arithmetic controls;
+no EOS or physical step is invoked, and this component is not yet integrated
+into the canonical owner. Its failed translation gate remains negative.
+
+```text
+python native/tests/review_retained_scalar.py capture.stdout
+```
+
 ## Bounded failure evidence
 
 `experimental/canonical_material_diagnostics.hpp` provides a caller-owned
