@@ -151,6 +151,7 @@ double local_potential(double mass, double gravity, DD center) {
     auto pe = product(mg, center.hi); pe.add(product(mg, center.lo)); return pe.value();
 }
 void validate_plan(const OccupiedStaggeredState& state, const StaggeredRezonePlan& plan) {
+    if (state.retains_local_geometry()) fail(FluidFatalCode::unsupported_configuration, "Scalar rezone plan cannot represent retained local coordinates");
     if (!state.initialized()) fail(FluidFatalCode::unsupported_configuration, "Uninitialized remap state");
     if (state.cells().empty()) {
         if (!plan.node_relative_positions_m.empty() || !plan.target_cell_ids.empty())
@@ -172,6 +173,7 @@ void validate_plan(const OccupiedStaggeredState& state, const StaggeredRezonePla
 }
 
 StaggeredRezonePlan plan_staggered_cartesian_rezone(const OccupiedStaggeredState& state, const StaggeredCartesianGrid& grid) {
+    if (state.retains_local_geometry()) fail(FluidFatalCode::unsupported_configuration, "Scalar Cartesian planner cannot represent retained local coordinates");
     if (!state.initialized() || !std::isfinite(grid.spacing_m) || grid.spacing_m <= 0 ||
         !std::isfinite(grid.origin_relative_high_m) || !std::isfinite(grid.origin_relative_low_m) ||
         grid.end_cell <= grid.first_cell || grid.first_cell < -(INT64_C(1) << 52) || grid.end_cell > (INT64_C(1) << 52))

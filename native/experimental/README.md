@@ -26,6 +26,26 @@ wide-range EOS for real water, and there is no universal material called magma.
 Every profile must provide provenance, finite temperature bounds and a maximum
 compression ratio. Metadata contains the EOS/profile versions and all parameters.
 
+### Cached profile identity
+
+The validated constructor serializes profile metadata once. `metadata()` on an
+lvalue borrows the model's immutable string; a temporary returns an owned string
+so it cannot leave a dangling reference. Copy, move and assignment carry the
+complete profile and its identity together. The serialization schema and
+thermodynamic formulas are unchanged. Callers must retain the owning model while
+using a borrowed identity, as with `materials()` and `profile_version()`.
+
+All 27 independent reference groups pass on Windows/MSVC and WSL Linux/GNU,
+including identity replacement and temporary-lifetime checks. The retained
+vacuum-expansion control now completes within its original runtime bound, with
+completed physical records byte-identical to those before caching. This removes
+repeated formatting in reference pressure operations; it does not establish the
+100,000-cell production performance gate. Earlier failures, the timeout and
+current source-bound evidence are recorded in
+[the retained vacuum checks](../GAS_VACUUM.md#retained-nodal-replacement-path).
+
+### Equilibrium closure
+
 Gas and liquid share pressure and temperature. At a trial pressure each liquid
 occupies `(m/rho0)/(1+p/K0)`. For conserved U the remaining caloric temperature is
 `(U-offset-elastic(p))/sum(m Cv)`. Actual ideal-gas moles supply `Vg=nRT/p`.

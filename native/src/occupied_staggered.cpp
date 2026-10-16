@@ -49,13 +49,25 @@ double volume(double area, double left, double right) {
     if (!(right > left)) precision("Retained occupied material interval is not positively representable");
     return multiply(area, right - left);
 }
+double volume(double area, const StaggeredNode& left, const StaggeredNode& right, bool retained) {
+    if (!retained) return volume(area, left.relative_position_m, right.relative_position_m);
+    Sum width; width.add(right.relative_position_m); width.add(-left.relative_position_m);
+    width.add(right.relative_position_low_m); width.add(-left.relative_position_low_m);
+    if (!(width.value() > 0)) precision("Retained coordinate pair has no positive local material width");
+    return multiply(area, width.value());
+}
+Sum position_change(const StaggeredNode& next, const StaggeredNode& old, bool retained) {
+    Sum change; change.add(next.relative_position_m); change.add(-old.relative_position_m);
+    if (retained) { change.add(next.relative_position_low_m); change.add(-old.relative_position_low_m); }
+    return change;
+}
 void supported_state(const ReferenceEquilibriumState& thermo, double occupied) {
     if (thermo.vacuum_volume_m3 > 32 * eps * occupied)
         topology("Retained material interval needs an unsupported internal vacuum gap");
 }
 void derive_cell(StaggeredCell& cell, const StaggeredNode& left, const StaggeredNode& right,
-                 double area, const FluidThermodynamics& model) {
-    cell.occupied_volume_m3 = volume(area, left.relative_position_m, right.relative_position_m);
+                 double area, const FluidThermodynamics& model, bool retained) {
+    cell.occupied_volume_m3 = volume(area, left, right, retained);
     const double ul = left.velocity_m_per_s(), ur = right.velocity_m_per_s();
     finite(ul); finite(ur);
     const double mass = cell.mixture.mass(), mean = std::midpoint(ul, ur);
@@ -91,6 +103,7 @@ OccupiedStaggeredState initialize_occupied_staggered(const StaggeredInitializati
     if (input.positions_m.size() != (count == 0 ? 0 : count + 1) || input.velocities_m_per_s.size() != input.positions_m.size())
         topology("Retained staggered state requires all material nodes together");
     OccupiedStaggeredState state;
+    state.retain_local_geometry_ = input.retain_local_geometry;
     // A shared_ptr<const T> alone permits a caller's shared_ptr<T> alias to
     // replace the underlying model later. Own a genuinely const deep copy,
     // including registry, EOS profile vectors and their index mappings.
@@ -118,13 +131,16 @@ OccupiedStaggeredState initialize_occupied_staggered(const StaggeredInitializati
         const double inertia = (j == 0 ? 0 : multiply(0.5, masses[j - 1])) +
                                (j == count ? 0 : multiply(0.5, masses[j]));
         finite(inertia); if (!(inertia > 0)) precision("Retained node inertia is not positive");
-        const double position = input.positions_m[j] - input.positions_m[state.anchor_]; finite(position);
-        state.nodes_.push_back({position, inertia, velocity_momentum(inertia, input.velocities_m_per_s[j]), fixed});
+        double position = input.positions_m[j] - input.positions_m[state.anchor_], low = 0; finite(position);
+        if (state.retain_local_geometry_) {
+            position = input.positions_m[j]; translate_origin(position, low, -input.positions_m[state.anchor_]);
+        }
+        state.nodes_.push_back({position, inertia, velocity_momentum(inertia, input.velocities_m_per_s[j]), fixed, low});
     }
     long double old_kinetic = 0, new_kinetic = 0, requested_internal = 0, represented_internal = 0;
     for (std::size_t i = 0; i < count; ++i) {
         auto& cell = state.cells_[i]; cell.mixture = input.cells[i].mixture;
-        derive_cell(cell, state.nodes_[i], state.nodes_[i + 1], state.area_, *state.model_);
+        derive_cell(cell, state.nodes_[i], state.nodes_[i + 1], state.area_, *state.model_, state.retain_local_geometry_);
         const double input_volume = volume(state.area_, input.positions_m[i], input.positions_m[i + 1]);
         if (std::abs(cell.occupied_volume_m3 - input_volume) > 32 * eps * input_volume)
             precision("Rebasing retained geometry loses local occupied volume");
@@ -149,7 +165,7 @@ OccupiedStaggeredState initialize_occupied_staggered(const StaggeredInitializati
             requested_internal += change; represented_internal += represented;
             if (std::abs(represented - change) > 32 * static_cast<long double>(eps) * std::abs(change))
                 ++state.initialization_.unresolved_energy_conversions;
-            derive_cell(cell, state.nodes_[i], state.nodes_[i + 1], state.area_, *state.model_);
+            derive_cell(cell, state.nodes_[i], state.nodes_[i + 1], state.area_, *state.model_, state.retain_local_geometry_);
         }
     }
     long double canonical_kinetic = 0, canonical_momentum = 0, supplied_momentum = 0;
@@ -275,13 +291,19 @@ StaggeredStepReport advance_occupied_staggered(OccupiedStaggeredState& state, do
     for (std::size_t j = 0; j < nodes.size(); ++j) {
         const double relative_delta = mean_velocities[j] == mean_velocities[state.anchor_] ? 0 :
             multiply(dt, mean_velocities[j] - mean_velocities[state.anchor_]);
-        auto& position = candidate.nodes_[j].relative_position_m;
-        position += relative_delta; finite(position);
-        if (relative_delta != 0 && position == state.nodes_[j].relative_position_m) ++report.unresolved_position_updates;
+        auto& node = candidate.nodes_[j];
+        if (state.retain_local_geometry_) {
+            translate_origin(node.relative_position_m, node.relative_position_low_m, relative_delta);
+            auto error = position_change(node, state.nodes_[j], true); error.add(-relative_delta);
+            if (std::abs(error.value()) > 32 * eps * std::abs(relative_delta)) ++report.unresolved_position_updates;
+        } else {
+            node.relative_position_m += relative_delta; finite(node.relative_position_m);
+            if (relative_delta != 0 && node.relative_position_m == state.nodes_[j].relative_position_m) ++report.unresolved_position_updates;
+        }
     }
     for (std::size_t i = 0; i < state.cells_.size(); ++i) {
         const auto& old = state.cells_[i]; auto& next = candidate.cells_[i]; next.mixture = pressure.cells[i].mixture;
-        derive_cell(next, candidate.nodes_[i], candidate.nodes_[i + 1], state.area_, *state.model_);
+        derive_cell(next, candidate.nodes_[i], candidate.nodes_[i + 1], state.area_, *state.model_, state.retain_local_geometry_);
         Sum geometry; geometry.add(next.occupied_volume_m3); geometry.add(-old.occupied_volume_m3);
         geometry.add(-pressure.volume_changes_m3[i]); geometry.add(pressure.volume_residuals_m3[i]);
         const double error = geometry.value(); finite(error);
@@ -293,9 +315,11 @@ StaggeredStepReport advance_occupied_staggered(OccupiedStaggeredState& state, do
         accounting_scale += std::abs(static_cast<long double>(next.mixture.energy) - old.mixture.energy) +
             std::abs(static_cast<long double>(pressure.work_pressures_pa[i]) * pressure.volume_changes_m3[i]);
         // Half-cell inertia is the quadrature of occupied centroid gravity.
+        const auto left_change = position_change(candidate.nodes_[i], state.nodes_[i], state.retain_local_geometry_);
+        const auto right_change = position_change(candidate.nodes_[i + 1], state.nodes_[i + 1], state.retain_local_geometry_);
         const long double delta_centroid = static_cast<long double>(actual_translation.high) + actual_translation.low +
-            0.5L * (static_cast<long double>(candidate.nodes_[i].relative_position_m) - state.nodes_[i].relative_position_m) +
-            0.5L * (static_cast<long double>(candidate.nodes_[i + 1].relative_position_m) - state.nodes_[i + 1].relative_position_m);
+            0.5L * (static_cast<long double>(left_change.high) + left_change.low) +
+            0.5L * (static_cast<long double>(right_change.high) + right_change.low);
         potential_change += old.mixture.mass() * state.gravity_ * delta_centroid;
         scale += old.thermodynamics.thermal_energy_j + next.thermodynamics.thermal_energy_j +
             old.thermodynamics.elastic_energy_j + next.thermodynamics.elastic_energy_j;

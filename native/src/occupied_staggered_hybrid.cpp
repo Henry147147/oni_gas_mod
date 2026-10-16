@@ -368,6 +368,7 @@ HybridRezonePlan& HybridRezonePlan::operator=(const HybridRezonePlan& other) {
     return *this;
 }
 HybridStaggeredState bind_material_endcaps(const OccupiedStaggeredState& original, const HybridGeometryLimits& limits) {
+    if (original.retains_local_geometry()) configuration("Scalar hybrid geometry cannot represent retained local coordinates");
     if (!original.initialized()) configuration("Cannot bind an uninitialized retained material state");
     const auto count = original.cells().size();
     capacity(count, limits.maximum_material_cells, "Hybrid source material-cell capacity exceeded");

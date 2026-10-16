@@ -261,9 +261,10 @@ LiquidThermodynamicReference::LiquidThermodynamicReference(std::string profile_v
             material.reference_bulk_modulus_pa == 0 && material.maximum_density_ratio == 1,
             ReferenceErrorCode::invalid_model, "Ideal gases cannot carry liquid cold-curve parameters");
     }
+    metadata_ = build_metadata();
 }
 
-std::string LiquidThermodynamicReference::metadata() const {
+std::string LiquidThermodynamicReference::build_metadata() const {
     std::ostringstream text; text.imbue(std::locale::classic()); text << std::setprecision(std::numeric_limits<double>::max_digits10) << std::scientific;
     text << liquid_reference_eos_version << '\n' << profile_version_.size() << ':' << profile_version_ << '\n';
     text << "R=" << reference_gas_constant << ";entropy_Tref=" << entropy_reference_temperature_k << ";zero_thermal_expansion;zero_tension;state_closure_only\n";

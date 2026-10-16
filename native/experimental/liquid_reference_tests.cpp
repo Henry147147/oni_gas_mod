@@ -7,6 +7,8 @@
 #include <iostream>
 #include <limits>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace ma::experimental;
@@ -282,12 +284,27 @@ void unrepresentable_reference_energy() {
 }
 
 void metadata_and_invalid_model() {
+    static_assert(std::is_same_v<decltype(std::declval<const LiquidThermodynamicReference&>().metadata()), const std::string&>);
+    static_assert(std::is_same_v<decltype(std::declval<LiquidThermodynamicReference&&>().metadata()), std::string>);
     const auto baseline = liquids(); const auto repeat = liquids();
     require(baseline.metadata() == repeat.metadata() && baseline.metadata().find(liquid_reference_eos_version) != std::string::npos &&
         baseline.metadata().find("zero_thermal_expansion") != std::string::npos && baseline.metadata().find("not validated water data") != std::string::npos,
         "Explicit stable EOS metadata or surrogate provenance is absent");
     auto changed = water(); changed.reference_bulk_modulus_pa *= 2;
     require(baseline.metadata() != LiquidThermodynamicReference("test-surrogates-v1", {changed, magma()}).metadata(), "Stiffness change was omitted from metadata");
+    const auto& retained_identity = baseline.metadata();
+    require(&retained_identity == &baseline.metadata(), "Repeated metadata lookup did not retain immutable identity storage");
+    auto copied = baseline;
+    require(copied.metadata() == retained_identity, "Copy changed the thermodynamic profile identity");
+    auto moved = std::move(copied);
+    require(moved.metadata() == retained_identity, "Move changed the thermodynamic profile identity");
+    moved = LiquidThermodynamicReference("replacement-v1", {changed, magma()});
+    require(moved.metadata() != retained_identity && moved.metadata().find("replacement-v1") != std::string::npos,
+        "Profile replacement left stale cached identity");
+    moved = baseline;
+    require(moved.metadata() == retained_identity, "Copy assignment did not restore the complete model identity");
+    const auto& temporary_identity = LiquidThermodynamicReference("test-surrogates-v1", {water(), magma()}).metadata();
+    require(temporary_identity == retained_identity, "Temporary metadata did not retain owned lifetime or schema");
     for (int parameter = 0; parameter < 5; ++parameter) {
         auto bad = water();
         if (parameter == 0) bad.cv_j_per_kg_k = 0;

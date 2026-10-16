@@ -72,7 +72,7 @@ void compatible_momenta(StaggeredInitialization& input) {
             std::midpoint(input.velocities_m_per_s[i], input.velocities_m_per_s[i + 1]);
 }
 std::string fingerprint(const OccupiedStaggeredState& state) {
-    std::ostringstream out; out << std::hexfloat << state.initialized() << state.model().get() << state.model_metadata();
+    std::ostringstream out; out << std::hexfloat << state.initialized() << state.model().get() << state.model_metadata() << state.retains_local_geometry();
     for (double x : {state.origin_high_m(), state.origin_low_m(), state.time_seconds(), state.area_m2(), state.gravity_m_per_s2(),
                     state.cumulative_energy_balance_error_j(), state.cumulative_geometry_volume_residual_m3()}) out << x << ';';
     const auto& l = state.initialization_ledger();
@@ -81,7 +81,7 @@ std::string fingerprint(const OccupiedStaggeredState& state) {
         l.represented_total_energy_change_j, l.kinetic_partition_roundoff_j, l.momentum_reconciliation_kg_m_per_s,
         l.maximum_momentum_arithmetic_bound_kg_m_per_s}) out << x << ';';
     out << l.unresolved_energy_conversions;
-    for (const auto& n : state.nodes()) out << n.relative_position_m << n.inertia_kg << n.momentum_kg_m_per_s << n.fixed;
+    for (const auto& n : state.nodes()) out << n.relative_position_m << n.relative_position_low_m << n.inertia_kg << n.momentum_kg_m_per_s << n.fixed;
     for (const auto& c : state.cells()) {
         out << c.mixture.energy << c.occupied_volume_m3 << c.bulk_momentum_kg_m_per_s << c.mechanical_variance_j;
         for (double x : c.mixture.masses) out << x << ';';

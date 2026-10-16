@@ -83,6 +83,85 @@ state extension is reviewed separately in [STAGGERED_1D_DESIGN.md](STAGGERED_1D_
 
 ## Maintained checks and evidence
 
+### Retained nodal replacement path
+
+An explicit retained-material driver now advances canonical nodal momentum
+through the same physical problem, EOS, trace, time and Courant number above.
+Its fixed-grid mass, linear-velocity and pressure overlap integrals are read-only
+samples. They never reset the advancing material mesh. This driver selects
+`retain_local_geometry`, using both parts of each local coordinate for actual
+cell volume and gravity work. See [the storage contract](OCCUPIED_STAGGERED.md#coordinates-and-bounded-numerical-domain).
+
+Current Windows/MSVC and WSL Linux/GNU runs complete N512/1024/2048 with
+strictly decreasing front-position **and** recent-speed errors. Rounded results
+agree across platforms:
+
+| Fixed probe grid N | Front error (m) | Recent speed/c0 | Density L1 | Pressure L1 | Velocity L1/c0 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 1.206040 | 3.015870 | 0.00585337 | 0.00349883 | 0.0192492 |
+| 1024 | 1.061948 | 3.248432 | 0.00321100 | 0.00175361 | 0.00976444 |
+| 2048 | 0.937363 | 3.450139 | 0.00181847 | 0.00092327 | 0.00496433 |
+
+The exact speed remains 5.019492c0. Even the finest front is 0.937 m short
+and 1.569c0 too slow; its last material cell has density about 0.00935 kg/m3
+and pressure 145.33 Pa. Passing this bounded trend establishes neither
+production front accuracy nor an Eulerian, 2-D, remap or general free-surface
+result. The integrated `FluidWorld` failure at the top of this document remains
+open. Scalar U/momentum and unresolved-update counters remain explicit; these
+runs are not claims of exact arithmetic conservation.
+
+The first retained N512 attempts on both platforms rejected step zero because
+scalar node updates lost local volume when added to larger coordinates. The
+typed failures preserved the inspected primary state and readings. The paired
+coordinate repair retains that information with the same 32-epsilon volume
+bound. Three focused geometry groups pass on both platforms; exact-rational
+review checks 128 widths, 127 adjacent-node identities, a very short rebased
+interval and complete gravity work from nine nodes. Altered low parts reject.
+The original seventeen retained groups also pass after the change.
+
+The next Linux run completed all fine grids; Windows completed N512/N1024 and
+reached its fixed 180-second limit on N2048. EOS identity queries were repeatedly
+serializing unchanged profile metadata. Caching that identity once at model
+construction lets both current runs finish within the same limit. The original
+serialization body, physical formulas, inputs and all bounds remain unchanged.
+All completed prior fine-grid records are byte-identical after the cache change,
+as are coarse physical/profile/geometry records. Twenty-seven independent EOS
+groups pass, including cached identity ownership and replacement checks.
+
+An independent 80-digit reference checks all 32 exported coarse analytic
+samples and closed analytic mass, momentum and thermal/kinetic energy. A
+separate high-precision reviewer checks the three-grid front trend. Corrupted
+analytic data and a nonrefining speed record reject. The first analytic reviewer
+incorrectly required a printed binary64 sound speed to satisfy an exact
+high-precision squared identity; its retained failure is repaired by deriving
+the reference square root independently. No native physics replay was needed
+for that reviewer correction. None of these reviews is an independent agent
+implementation review.
+
+The explicit targets are `ma_retained_gas_vacuum_tests` and
+`ma_retained_geometry_tests`. Both are excluded from default builds and CTest;
+the latter requires `MA_BUILD_STAGGERED_EXPERIMENTS=ON` to check scalar-consumer
+guards. Run `--case 32 .025 [profile.csv]` for the bounded case and
+`--front-gate` for the three fine grids. The Python reviewers are
+`native/tests/review_retained_gas_vacuum.py`, `review_retained_geometry.py` and
+`review_retained_vacuum_front.py`; each consumes saved output without native
+execution. Enabling unfinished libraries does not accept their existing failed
+remap tests.
+
+Private source/build/compiler/executable hashes, bounded captures, numerical
+reviews and preserved failures are under
+`local/occupied-staggered-validation/retained-vacuum-{windows,linux}-r1` through
+`r4`. R1 was rejected before any build for a Linux path-plan error. R4 is the
+current source: root and independent EOS builds have a combined 180-second
+limit; focused runtime calls have 30 seconds; each full front call has 180
+seconds; every raw pipe is limited to 128 KiB. Passing captures have exit zero,
+clean EOF/close records, no cap/capture errors and verified source closure.
+The new drivers use warnings as errors and explicit strict/no-contraction
+settings; upstream FP settings remain unchanged. The default game native DLL
+is unchanged, and there is no new game or performance acceptance.
+
+### Existing integrated-world checks
+
 `ma_gas_vacuum_tests` / CTest `gas_vacuum_consistency` checks the independent
 analytic integrals, bounded N32/64/128 interior trends, fixed-grid N64 timestep
 consistency, each constituent/trace, total energy, entropy, exact exterior

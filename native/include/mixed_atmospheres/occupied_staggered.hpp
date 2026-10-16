@@ -29,6 +29,9 @@ struct StaggeredInitialization {
     double frame_origin_m = 0, area_m2 = 1, gravity_m_per_s2 = 0;
     StaggeredBoundary left = StaggeredBoundary::traction_free, right = StaggeredBoundary::traction_free;
     StaggeredInitializationEnergy energy = StaggeredInitializationEnergy::preserve_temperature;
+    // Explicit material-only coordinate representation. Legacy Cartesian/
+    // hybrid rezone APIs require scalar positions and reject this option.
+    bool retain_local_geometry = false;
 };
 struct StaggeredInitializationLedger {
     double prior_bulk_kinetic_energy_j = 0, retained_kinetic_energy_j = 0;
@@ -44,6 +47,8 @@ struct StaggeredInitializationLedger {
 struct StaggeredNode {
     double relative_position_m = 0, inertia_kg = 0, momentum_kg_m_per_s = 0;
     bool fixed = false;
+    // Low component, used only when retains_local_geometry() is true.
+    double relative_position_low_m = 0;
     [[nodiscard]] double velocity_m_per_s() const noexcept { return momentum_kg_m_per_s / inertia_kg; }
 };
 struct StaggeredCell {
@@ -92,6 +97,7 @@ public:
     [[nodiscard]] double area_m2() const noexcept { return area_; }
     [[nodiscard]] double gravity_m_per_s2() const noexcept { return gravity_; }
     [[nodiscard]] double time_seconds() const noexcept { return time_; }
+    [[nodiscard]] bool retains_local_geometry() const noexcept { return retain_local_geometry_; }
     [[nodiscard]] const StaggeredInitializationLedger& initialization_ledger() const noexcept { return initialization_; }
     [[nodiscard]] double cumulative_energy_balance_error_j() const noexcept { return cumulative_energy_error_; }
     [[nodiscard]] double cumulative_geometry_volume_residual_m3() const noexcept { return cumulative_geometry_error_; }
@@ -109,6 +115,7 @@ private:
     double origin_high_ = 0, origin_low_ = 0, area_ = 1, gravity_ = 0, time_ = 0;
     double cumulative_energy_error_ = 0, cumulative_geometry_error_ = 0;
     std::size_t anchor_ = 0;
+    bool retain_local_geometry_ = false;
 };
 [[nodiscard]] OccupiedStaggeredState initialize_occupied_staggered(const StaggeredInitialization& input);
 void initialize_occupied_staggered_into(const StaggeredInitialization& input, OccupiedStaggeredState& output);

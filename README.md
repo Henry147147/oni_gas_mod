@@ -35,6 +35,12 @@ machines, pipes, and metabolism must use the same conserved state.
   gravity and zero-gravity controls pass, including tiny stored changes; earlier
   failures and explicit retests are [documented](native/CANONICAL_MATERIAL.md#current-source-validation).
   This reference is excluded from game dispatch and default builds.
+- An explicit retained-coordinate material path preserves short cell widths
+  and gravity work. Windows/Linux vacuum-expansion checks show decreasing
+  front-position and speed errors on three fine grids, with substantial
+  absolute error still remaining. EOS identity caching removes repeated
+  profile serialization. These are [solver foundations](native/GAS_VACUUM.md#retained-nodal-replacement-path);
+  production vacuum, remap and game ownership remain unfinished.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

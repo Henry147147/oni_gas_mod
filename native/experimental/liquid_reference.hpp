@@ -145,7 +145,10 @@ public:
     LiquidThermodynamicReference(std::string profile_version, std::vector<ReferenceMaterial> materials);
     [[nodiscard]] const std::vector<ReferenceMaterial>& materials() const noexcept { return materials_; }
     [[nodiscard]] const std::string& profile_version() const noexcept { return profile_version_; }
-    [[nodiscard]] std::string metadata() const;
+    // Immutable identity is serialized once at construction. Borrow from an
+    // lvalue; a temporary returns an owned copy so its metadata cannot dangle.
+    [[nodiscard]] const std::string& metadata() const & noexcept { return metadata_; }
+    [[nodiscard]] std::string metadata() const && { return metadata_; }
     [[nodiscard]] LiquidReferenceResponse liquid_response(std::size_t material, double pressure_pa) const;
     [[nodiscard]] ReferenceEquilibriumState evaluate(const ReferenceConservedCell& cell,
         ReferenceRootOptions options = {}) const;
@@ -178,5 +181,7 @@ public:
 private:
     std::string profile_version_;
     std::vector<ReferenceMaterial> materials_;
+    std::string metadata_;
+    [[nodiscard]] std::string build_metadata() const;
 };
 }

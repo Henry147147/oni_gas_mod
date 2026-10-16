@@ -111,6 +111,16 @@ topology error.
 
 ## Coordinates and bounded numerical domain
 
+`StaggeredInitialization.retain_local_geometry` explicitly enables two-part
+local coordinates. Each node retains `relative_position_m` and
+`relative_position_low_m`; rebasing, updates, cell widths and gravity work use
+both parts. The existing local-volume bound remains `32*epsilon*V_endpoint`.
+The default scalar representation remains available for the unfinished scalar
+Cartesian/hybrid experiments. Their planners, remap entry point and endcap
+binder reject the paired representation explicitly, including an empty low
+part, so they cannot silently discard its geometry. Pair-aware remap remains
+required before composing that path with transport.
+
 Nodes use relative material coordinates and a compensated two-double global
 origin. A rigid endpoint is the coordinate anchor if present, otherwise the
 left free node is the anchor. Common translation changes the origin without
@@ -129,6 +139,17 @@ double; requested/represented increments and its addition error are reported,
 and a timestep that cannot advance represented time fails atomically.
 
 ## Acceptance scope and reproducible tests
+
+The additional explicit local-geometry controls pass three groups on Windows
+and Linux. Saved operands undergo exact-rational review: 128 positive widths,
+127 shared-node identities, a short interval retained beside a `1e100` high
+coordinate, nine-node/eight-cell gravity work and corrupted-low-part rejection.
+The original seventeen groups and independent twenty-seven thermodynamic groups
+pass on current source. The new gas/vacuum driver completes a bounded three-grid
+front trend with substantial remaining absolute error; see
+[results, preserved failures and scope](GAS_VACUUM.md#retained-nodal-replacement-path).
+The new geometry checks exercise gas material; paired liquid mechanics, remap
+composition and production topology still need validation.
 
 The dedicated CTest entry is `retained_occupied_staggered`. It covers explicit
 initialization policies and conflicts; canonical K/P/variance identities with
