@@ -95,3 +95,8 @@ Completed scoped-review SHA256 values are
 build/native/data results and the retained strong failure. No new sanitizer,
 independent-agent, Unity, production/performance or shipping acceptance follows.
 The default game DLL is unchanged.
+
+The subsequent [compatible momentum limiter](MAC_MOMENTUM_LIMITER.md) passes
+separate paired-work, positivity, full-range and smooth-advection controls on
+both platforms. It is not connected to this owner yet. Its component evidence
+does not change the failed collision gate or authorize an unchanged retry.
