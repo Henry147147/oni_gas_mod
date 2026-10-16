@@ -10,6 +10,9 @@ namespace MixedAtmospheres.Oni
         internal const int MinimumActorValidationFrames = 80;
         private static GameObject? actorConsumerObject;
         private static ElementConsumer? actorConsumer;
+        private static ElementConsumer? outsideActorConsumer;
+        private static GameObject? outsideActorObject;
+        private static bool actorConfigurationBatchVerified, nativeActorBatchVerified;
         private static int actorFixtureStage, fixtureEmitter = -1, fixtureRegistrations, fixtureBlockedCallbacks, fixtureUnblockedCallbacks;
         private static int fixtureConsumptionCallbacks;
         private static ulong actorStageFrame, actorRemovalFrame, removalConsumerSamples, removalEmitterSamples;
@@ -55,13 +58,24 @@ namespace MixedAtmospheres.Oni
                 actorConsumer.EnableConsumption(true); actorConsumerObject.SetActive(true);
                 actorConsumer.InitializeComponent(); actorConsumer.Spawn();
                 Require(actorConsumer.isSpawned, "The real ElementConsumer did not spawn.");
+                outsideActorObject = new GameObject("MA private native actor batch control");
+                outsideActorObject.SetActive(false);
+                outsideActorObject.transform.position = Grid.CellToPosCCC(target + Width + 3, Grid.SceneLayer.Ore);
+                outsideActorConsumer = outsideActorObject.AddComponent<ElementConsumer>();
+                outsideActorConsumer.elementToConsume = SimHashes.Oxygen; outsideActorConsumer.configuration = ElementConsumer.Configuration.Element;
+                outsideActorConsumer.consumptionRadius = 0; outsideActorConsumer.consumptionRate = 0;
+                outsideActorConsumer.showInStatusPanel = false; outsideActorConsumer.showDescriptor = false;
+                outsideActorConsumer.ignoreActiveChanged = true; outsideActorConsumer.storeOnConsume = false;
+                outsideActorConsumer.EnableConsumption(false); outsideActorObject.SetActive(true);
+                outsideActorConsumer.InitializeComponent(); outsideActorConsumer.Spawn();
                 actorStageFrame = latest.CompletedFrames; actorFixtureStage = 1; return;
             }
             if (actorFixtureStage == 1)
             {
                 var handle = (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(actorConsumer);
                 Require(latest.CompletedFrames - actorStageFrame <= 15, "Native actor registration did not reach the real components.");
-                if (fixtureEmitter == -1 || !actorBindings.TryGetValue((1U, handle), out var binding) || !binding.Configured) return;
+                if (fixtureEmitter == -1 || !actorBindings.TryGetValue((1U, handle), out var binding) || !binding.Configured ||
+                    (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(outsideActorConsumer) == -1) return;
                 ConfigureFixtureEmitter(10000, .03125f); actorStageFrame = latest.CompletedFrames; actorFixtureStage = 2; return;
             }
             if (fixtureEmitter != -1 && currentSnapshot != null && actorFixtureStage < 6)
@@ -77,6 +91,7 @@ namespace MixedAtmospheres.Oni
             if (actorFixtureStage == 2)
             {
                 actorConsumer!.consumptionRate = .025f; actorConsumer.RefreshConsumptionRate();
+                VerifyActorConfigurationBatches();
                 ConfigureFixtureEmitter(10000, .0625f);
             }
             else if (actorFixtureStage == 3) ConfigureFixtureEmitter(.1f, .0625f);
@@ -92,6 +107,7 @@ namespace MixedAtmospheres.Oni
             {
                 consumerAccumulatedMass = actorConsumer!.consumedMass;
                 UnityEngine.Object.Destroy(actorConsumerObject);
+                UnityEngine.Object.Destroy(outsideActorObject);
                 SimMessages.RemoveElementEmitter(-1, fixtureEmitter);
                 actorRemovalFrame = latest.CompletedFrames;
             }
@@ -102,6 +118,25 @@ namespace MixedAtmospheres.Oni
             }
             else return;
             actorStageFrame = latest.CompletedFrames; ++actorFixtureStage;
+        }
+        private static unsafe void VerifyActorConfigurationBatches()
+        {
+            var handle = (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(actorConsumer);
+            var payload = stackalloc int[6] { handle, target, BitConverter.SingleToInt32Bits(.04f),
+                handle, target, BitConverter.SingleToInt32Bits(.025f) };
+            var nativeBefore = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "messages").Entries;
+            var beforeBatches = actorBatchesRouted; var beforeConfigurations = actorStatus.AcceptedConfigurations;
+            NativeMessageBoundary.HandleBatch(1575539738, 12, 2, (byte*)payload);
+            actorConfigurationBatchVerified = actorBatchesRouted == beforeBatches + 1 &&
+                actorStatus.AcceptedConfigurations == beforeConfigurations + 2 &&
+                NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "messages").Entries == nativeBefore;
+            Require(actorConfigurationBatchVerified, "Owned actor configuration batch did not commit atomically before native dispatch.");
+            var outsideHandle = (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(outsideActorConsumer);
+            payload[0] = outsideHandle; payload[1] = target + Width + 3; payload[2] = 0;
+            NativeMessageBoundary.HandleBatch(1575539738, 12, 1, (byte*)payload);
+            nativeActorBatchVerified = actorBatchesRouted == beforeBatches + 1 &&
+                NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "messages").Entries == nativeBefore + 1;
+            Require(nativeActorBatchVerified, "An outside actor batch did not retain its original native route.");
         }
         private static void VerifyActorFixture()
         {
@@ -115,7 +150,8 @@ namespace MixedAtmospheres.Oni
                 if (scale == 0) Require(current == 0, "An actor created an unaccounted constituent.");
                 else actorMassResidual = Math.Max(actorMassResidual, Math.Abs(current - actorBeforeMasses[k] - change) / scale);
             }
-            actorFixtureVerified = actorFixtureStage == 8 && actorConsumerObject == null && fixtureRegistrations == 1 &&
+            actorFixtureVerified = actorFixtureStage == 8 && actorConsumerObject == null && outsideActorObject == null && fixtureRegistrations == 1 &&
+                actorConfigurationBatchVerified && nativeActorBatchVerified &&
                 fixtureConsumptionCallbacks > 10 && fixtureBlockedCallbacks == 1 && fixtureUnblockedCallbacks == 1 &&
                 emitterGameStatusObserved && actorStatus.LiveActors == 0 && latest.CompletedFrames - actorRemovalFrame >= 8 &&
                 actorStatus.ConsumerSamples == removalConsumerSamples && actorStatus.EmitterSamples == removalEmitterSamples &&
@@ -133,6 +169,8 @@ namespace MixedAtmospheres.Oni
         {
             Verified = actorFixtureVerified, Stage = actorFixtureStage, Native = actorStatus,
             MessagesRouted = actorMessagesRouted, ConsumerPublications = actorConsumerPublications, EmitterPublications = actorEmitterPublications,
+            ConfigurationBatchesRouted = actorBatchesRouted, ConfigurationBatchVerified = actorConfigurationBatchVerified,
+            NativeActorBatchVerified = nativeActorBatchVerified,
             BlockedPublications = actorBlockedPublications, UnblockedPublications = actorUnblockedPublications,
             ActualConsumerCallbacks = fixtureConsumptionCallbacks, ActualEmitterRegistrations = fixtureRegistrations,
             ActualBlockedCallbacks = fixtureBlockedCallbacks, ActualUnblockedCallbacks = fixtureUnblockedCallbacks,

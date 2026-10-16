@@ -17,6 +17,7 @@ namespace MixedAtmospheres.Oni
         private static readonly Dictionary<int, ActorBinding> pendingActorRegistrations = new Dictionary<int, ActorBinding>();
         private static readonly Dictionary<(uint kind, int handle), ActorBinding> actorBindings = new Dictionary<(uint, int), ActorBinding>();
         private static long actorMessagesRouted, actorConsumerPublications, actorEmitterPublications, actorBlockedPublications, actorUnblockedPublications;
+        private static long actorBatchesRouted;
         private static ActorStatus actorStatus;
         private static ulong emissionStatusFrame;
         private static readonly Dictionary<int, Sim.EmittedMassInfo> completedEmissionStatus = new Dictionary<int, Sim.EmittedMassInfo>();
@@ -37,7 +38,6 @@ namespace MixedAtmospheres.Oni
                 if (length != expected || payload == null) throw new ArgumentException("Invalid registered actor message.");
                 var data = new ReadOnlySpan<byte>(payload, length);
                 int Int(int offset) => BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(payload + offset, 4));
-                float Float(int offset) => BitConverter.Int32BitsToSingle(Int(offset));
                 if (message == 2024405073)
                 {
                     if (!OwnsPublicCell(Int(0))) return false;
@@ -73,19 +73,29 @@ namespace MixedAtmospheres.Oni
                 }
                 if (binding == null || binding.Removed || !binding.Virgin)
                     throw new NotSupportedException("Only an inactive native registration can enter the custom actor owner.");
-                var command = new ActorCommand { Handle = key.Item2, Kind = kind, PublicCell = checked((uint)cell), Species = binding.Species };
-                if (kind == 1) command.MassKg = Float(8);
-                else
-                {
-                    command.MassKg = Float(12); command.Interval = Float(8); command.Temperature = Float(16); command.MaximumGasDensity = Float(20);
-                    if (Int(24) != 0 || data[30] != 0) throw new NotSupportedException("Owned emitters require disease-free, single-cell output.");
-                    if (command.MassKg > 0) command.Species = GasSpecies(BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(28)));
-                }
+                var command = DecodeActorConfiguration(message, payload, binding);
                 ConfigureActorAtCurrentFrame(command); binding.Configured = true; binding.Cell = command.PublicCell; binding.Species = command.Species;
                 ++actorMessagesRouted;
                 return true; // The native transfer remains at its initial zero rate.
             }
             catch (Exception caught) { Fail(caught); throw; }
+        }
+        private static ActorCommand DecodeActorConfiguration(int message, byte* payload, ActorBinding binding)
+        {
+            if (binding.Removed || !binding.Virgin)
+                throw new NotSupportedException("Only an inactive native registration can enter the custom actor owner.");
+            int Int(int offset) => BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(payload + offset, 4));
+            float Float(int offset) => BitConverter.Int32BitsToSingle(Int(offset));
+            var kind = message == 1575539738 ? 1U : 2U;
+            var command = new ActorCommand { Handle = Int(0), Kind = kind, PublicCell = checked((uint)Int(4)), Species = binding.Species };
+            if (kind == 1) command.MassKg = Float(8);
+            else
+            {
+                command.MassKg = Float(12); command.Interval = Float(8); command.Temperature = Float(16); command.MaximumGasDensity = Float(20);
+                if (Int(24) != 0 || payload[30] != 0) throw new NotSupportedException("Owned emitters require disease-free, single-cell output.");
+                if (command.MassKg > 0) command.Species = GasSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
+            }
+            return command;
         }
         private static void ConfigureActorAtCurrentFrame(ActorCommand command)
         {
@@ -100,15 +110,69 @@ namespace MixedAtmospheres.Oni
             }
             throw new InvalidOperationException("Native actor frame kept changing during reservation.");
         }
-        internal static void CheckActorBatch(int message, int length, int count, byte* payload)
+        internal static bool TryHandleActorBatch(int message, int length, int count, byte* payload)
         {
-            if (!ActorMessage(message) || count == 0) return;
-            if (count < 0 || length < 8 || payload == null) throw new ArgumentException("Invalid registered actor batch.");
-            _ = checked(length * count);
-            // Batch admission must preflight the whole owner set. Until that
-            // transaction exists, refuse every actor batch in an owned session.
-            var rejection = new NotSupportedException("Registered actor batches require an atomic owner admission.");
-            Fail(rejection); throw rejection;
+            if (!active || !ActorMessage(message) || count == 0) return false;
+            try
+            {
+                var expected = message == 2024405073 || message == 1575539738 ? 12 : message == -505471181 ? 16 : message == 403589164 ? 32 : 8;
+                if (count < 0 || length != expected || payload == null) throw new ArgumentException("Invalid registered actor batch.");
+                _ = checked(length * count);
+                var commands = new List<ActorCommand>(); var bindings = new List<ActorBinding>();
+                var nativeBindings = new List<ActorBinding>(); var removals = new List<ActorBinding>();
+                var nativeCount = 0;
+                for (var index = 0; index < count; ++index)
+                {
+                    var item = payload + checked(index * length);
+                    int Int(int offset) => BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(item + offset, 4));
+                    if (message == 2024405073)
+                    {
+                        if (OwnsPublicCell(Int(0))) throw new NotSupportedException("Owned actor batch registration requires callback admission.");
+                        ++nativeCount; continue;
+                    }
+                    if (message == -505471181) { ++nativeCount; continue; }
+                    var kind = message == 1575539738 || message == 894417742 ? 1U : 2U;
+                    actorBindings.TryGetValue((kind, Int(0)), out var binding);
+                    if (message == 894417742 || message == -1524118282)
+                    {
+                        if (binding?.Configured == true) throw new NotSupportedException("Owned actor batch removal requires native retirement admission.");
+                        if (binding != null) removals.Add(binding);
+                        ++nativeCount; continue;
+                    }
+                    if (!OwnsPublicCell(Int(4)))
+                    {
+                        if (binding?.Configured == true) throw new NotSupportedException("Moving a registered actor across owners requires a reservation.");
+                        if (binding != null) nativeBindings.Add(binding);
+                        ++nativeCount; continue;
+                    }
+                    if (binding == null) throw new NotSupportedException("Native actor batch contains an unadmitted handle.");
+                    commands.Add(DecodeActorConfiguration(message, item, binding)); bindings.Add(binding);
+                }
+                if (commands.Count == 0)
+                {
+                    foreach (var binding in nativeBindings) binding.Virgin = false;
+                    foreach (var binding in removals) binding.Removed = true;
+                    return false;
+                }
+                if (nativeCount != 0 || count > 256) throw new NotSupportedException("Actor configuration batches require one owner and at most 256 commands.");
+                var requests = commands.ToArray();
+                for (var attempt = 0; attempt < 8; ++attempt)
+                {
+                    var source = Status.Empty; Check(Copy(ref source, new Cell[cells.Length], (uint)cells.Length));
+                    for (var i = 0; i < requests.Length; ++i)
+                    {
+                        requests[i].Size = 80; requests[i].Version = 1; requests[i].Session = source.Session; requests[i].ExpectedFrame = source.CompletedFrames;
+                    }
+                    var result = ActorStatus.Empty; var code = ConfigureActors(requests, (uint)requests.Length, ref result);
+                    if (code == 3) continue;
+                    Check(code);
+                    for (var i = 0; i < requests.Length; ++i)
+                    { bindings[i].Configured = true; bindings[i].Cell = requests[i].PublicCell; bindings[i].Species = requests[i].Species; }
+                    actorStatus = result; actorMessagesRouted += requests.Length; ++actorBatchesRouted; return true;
+                }
+                throw new InvalidOperationException("Native actor batch frame kept changing during reservation.");
+            }
+            catch (Exception caught) { Fail(caught); throw; }
         }
         private static void CaptureActorRegistrations(Sim.GameDataUpdate* source)
         {

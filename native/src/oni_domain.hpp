@@ -20,6 +20,7 @@ void copy_domain_transfer_status(MAOniDomainTransferStatus&);
 void copy_domain_receipts(MAOniDomainStatus&,MAOniDomainCell*,std::uint32_t,MAOniDomainReceipt*,std::uint32_t,std::uint32_t&);
 void ack_domain_receipts(std::uint64_t session,std::uint64_t through);
 void configure_domain_actor(const MAOniDomainActor&,MAOniDomainActorStatus&);
+void configure_domain_actors(const MAOniDomainActor*,std::uint32_t,MAOniDomainActorStatus&);
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);

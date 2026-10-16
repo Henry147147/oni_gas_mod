@@ -122,6 +122,8 @@ typedef struct MAOniDomainActorStatus {
 } MAOniDomainActorStatus;
 MA_ONI_API uint32_t ma_oni_domain_actor_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor*, MAOniDomainActorStatus*);
+/* Ordered, atomic configuration batch; no command is admitted on late failure. */
+MA_ONI_API MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor*, uint32_t count, MAOniDomainActorStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus*);
 
 /* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values

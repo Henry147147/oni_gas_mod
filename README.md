@@ -43,6 +43,8 @@ for ownership, interfaces, failures and implementation gates.
   transferring custom physical gas; a real Unity consumer, changed rates,
   blocked/unblocked callbacks and removal pass in the Linux colony. General
   production devices and persistence remain unfinished.
+  Owned actor configuration batches now commit atomically, and unrelated
+  native actor batches keep their normal route; both pass in the Linux game.
   Carbon dioxide is now a physical constituent too: its real-game injection,
   consumption, transport, callbacks and energy/mass accounts pass on Linux.
   Internal fluid conduction now runs on the same native clock, with closed

@@ -528,30 +528,38 @@ void ack_domain_receipts(std::uint64_t session,std::uint64_t through) {
     receipts.erase(receipts.begin(),found+1); acknowledged_receipt=through;
 }
 void configure_domain_actor(const MAOniDomainActor& input,MAOniDomainActorStatus& output) {
+    configure_domain_actors(&input,1,output);
+}
+void configure_domain_actors(const MAOniDomainActor* inputs,std::uint32_t count,MAOniDomainActorStatus& output) {
     std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);
     const ArithmeticScope arithmetic;
     if (!enabled.load(std::memory_order_acquire) || status.state != 1) throw std::logic_error("Native domain is not accepting actors");
-    if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
-        (input.kind != 1 && input.kind != 2) || input.native_handle == -1)
-        throw std::invalid_argument("Native actor ABI, handle or kind differs");
-    if (input.session != status.session || input.expected_frame != status.completed_frames)
-        throw std::logic_error("Native actor source session/frame is stale");
-    const auto key=std::make_pair(input.kind,input.native_handle); auto next=actors;
-    if (input.flags) {
-        if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
-    } else {
-        (void)domain_index(input.public_cell);
-        if (geometry.scenario == 1 || input.species >= ids.size() || input.species == 3 ||
-            !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
-            !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
-            (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||
-                input.maximum_gas_density_kg_m3 <= 0 || static_cast<double>(static_cast<float>(input.mass_kg)) != input.mass_kg)))
-            throw std::invalid_argument("Native point actor phase, material, rate or interval is unsupported");
-        if (!next.contains(key) && next.size() >= 256) throw std::length_error("Native actor capacity exhausted");
-        auto& value=next[key]; value.config=input; value.elapsed=0; value.rate_remainder=0;
+    if (!inputs || !count || count > 256) throw std::invalid_argument("Native actor batch must contain 1..256 commands");
+    auto next=actors;
+    for (std::uint32_t index=0;index<count;++index) {
+        const auto& input=inputs[index];
+        if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
+            (input.kind != 1 && input.kind != 2) || input.native_handle == -1)
+            throw std::invalid_argument("Native actor ABI, handle or kind differs");
+        if (input.session != status.session || input.expected_frame != status.completed_frames)
+            throw std::logic_error("Native actor source session/frame is stale");
+        const auto key=std::make_pair(input.kind,input.native_handle);
+        if (input.flags) {
+            if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
+        } else {
+            (void)domain_index(input.public_cell);
+            if (geometry.scenario == 1 || input.species >= ids.size() || input.species == 3 ||
+                !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
+                !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
+                (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||
+                    input.maximum_gas_density_kg_m3 <= 0 || static_cast<double>(static_cast<float>(input.mass_kg)) != input.mass_kg)))
+                throw std::invalid_argument("Native point actor phase, material, rate or interval is unsupported");
+            if (!next.contains(key) && next.size() >= 256) throw std::length_error("Native actor capacity exhausted");
+            auto& value=next[key]; value.config=input; value.elapsed=0; value.rate_remainder=0;
+        }
     }
-    if (accepted_actor_configurations == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native actor configuration overflow");
-    actors=std::move(next); ++accepted_actor_configurations; output=actor_status();
+    if (accepted_actor_configurations > std::numeric_limits<std::uint64_t>::max()-count) throw std::overflow_error("Native actor configuration overflow");
+    actors=std::move(next); accepted_actor_configurations+=count; output=actor_status();
 }
 void copy_domain_actor_status(MAOniDomainActorStatus& output) {
     std::lock_guard lock(state_mutex); output=actor_status();

@@ -108,10 +108,26 @@ int main() {
         MAOniDomainActorStatus actor_status{};
         MAOniDomainActor consumer{80,1,final.session,final.completed_frames,static_cast<std::int32_t>(0x81000001U),1,10+10*64,1,0,0,.05F,0,0,0};
         MAOniDomainActor emitter{80,1,final.session,final.completed_frames,0x12000002,2,11+10*64,1,0,0,.01F,.2,300,10000};
-        ma::oni::configure_domain_actor(consumer,actor_status); ma::oni::configure_domain_actor(emitter,actor_status);
+        const std::array<MAOniDomainActor,2> actor_batch{consumer,emitter};
+        ma::oni::configure_domain_actors(actor_batch.data(),2,actor_status);
         const auto held_actors=actor_status; auto invalid_actor=consumer; invalid_actor.species=3; rejected=false;
         try { ma::oni::configure_domain_actor(invalid_actor,actor_status); } catch (const std::invalid_argument&) { rejected=true; }
         require(rejected && std::memcmp(&held_actors,&actor_status,sizeof(actor_status))==0,"invalid actor changed its registration/output");
+        auto bad_actor_batch=actor_batch; bad_actor_batch[0].mass_kg=.1F; bad_actor_batch[1].species=3;
+        rejected=false;
+        try { ma::oni::configure_domain_actors(bad_actor_batch.data(),2,actor_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_actors,&actor_status,sizeof(actor_status))==0,
+            "Late actor batch failure admitted an earlier rate or changed output");
+        bad_actor_batch=actor_batch; bad_actor_batch[0].flags=bad_actor_batch[1].flags=1; bad_actor_batch[1].native_handle=999;
+        rejected=false;
+        try { ma::oni::configure_domain_actors(bad_actor_batch.data(),2,actor_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_actors,&actor_status,sizeof(actor_status))==0,
+            "Late batch failure retired an earlier actor");
+        bad_actor_batch=actor_batch; --bad_actor_batch[1].expected_frame;
+        rejected=false;
+        try { ma::oni::configure_domain_actors(bad_actor_batch.data(),2,actor_status); } catch (const std::logic_error&) { rejected=true; }
+        require(rejected && std::memcmp(&held_actors,&actor_status,sizeof(actor_status))==0,
+            "Stale later batch command changed the actor registry");
         std::size_t blocked_edges=0,unblocked_edges=0; double consumed_total=0,emitted_total=0;
         const auto initial_actor_mass=transfer_status.mass_changes_kg[1];
         for (std::uint64_t frame=13;frame<=19;++frame) {
@@ -119,7 +135,11 @@ int main() {
                 emitter.expected_frame=frame-1; emitter.maximum_gas_density_kg_m3=frame==15 ? .1 : 10000;
                 ma::oni::configure_domain_actor(emitter,actor_status);
             }
-            if (frame==19) { consumer.expected_frame=frame-1; consumer.mass_kg=.025F; ma::oni::configure_domain_actor(consumer,actor_status); }
+            if (frame==19) {
+                consumer.expected_frame=frame-1; consumer.mass_kg=.025F;
+                auto ordered=std::array<MAOniDomainActor,2>{consumer,consumer}; ordered[0].mass_kg=.04F;
+                ma::oni::configure_domain_actors(ordered.data(),2,actor_status);
+            }
             ma::oni::advance_domain(frame,.2,2);
             ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
             require(final.state==1 && final.completed_frames==frame,"registered actor frame failed");

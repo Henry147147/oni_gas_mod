@@ -500,4 +500,13 @@ MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor* input,MAOniDom
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
+MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor* inputs,std::uint32_t count,MAOniDomainActorStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native actor batch output ABI");
+        try { ma::oni::configure_domain_actors(inputs,count,*output); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+    });
+}
 }

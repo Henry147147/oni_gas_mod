@@ -227,12 +227,33 @@ available during synchronization-only queries. Native positive transfers for
 an admitted handle fail verification. Block notifications use ONI's normal
 callback manager. Removal retires the custom actor and ONI's inactive handle.
 
+Owned actor rate/interval configuration batches now prepare all commands
+against one session/frame and commit the ordered registry update together.
+The additive `ma_oni_domain_configure_actors` entry point keeps actor ABI 1;
+it accepts at most 256 commands. A late invalid material, stale frame or
+missing removal handle changes no earlier configuration or output. Repeated
+handles follow command order, with the final configuration governing the next
+physical timestep. Registration, configured rates and physical execution are
+separate; configuring a batch advances no time and emits no mass callbacks.
+
+The managed native-message bridge preflights ownership before admission.
+Supported batches containing only owned consumer/emitter configurations use
+the custom registry; batches of unowned actors retain native dispatch.
+Moving an owned handle outside, mixing owners, or batching owned native
+registration/removal still requires additional admission/retirement work and
+rejects before dispatch. Forwarding an inactive registration to a native
+outside transfer retires its eligibility for later custom admission.
+
 `native-actor-domain` spawns an actual Unity `ElementConsumer`, registers an
 emitter through the ordinary game API, changes both rates, blocks/unblocks
 output, disables and removes the actors, then verifies continuing physical
 frames without further actor transfers. It does not reserve producer inventory,
 power or output work, and it does not enable pumps, spatial consumers, disease,
 construction or general building gameplay.
+The same control also sends two ordered rate changes for the actual owned
+consumer in one batch, verifies the batch avoids original native dispatch,
+and forwards a zero-rate batch for a second actual Unity consumer outside the
+domain. Subsequent physical callbacks must reflect the final owned rate.
 
 ## Run the actual Linux colony controls
 
@@ -305,6 +326,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T220819Z-dbcb0f` | Passes internal fluid conduction on the reconstructed-momentum owner: 122 native frames, 120 after priming, 2,562 solver substeps and 5,124 thermal stages. It redistributes 1.01282699 J internally with entropy increase 1.31980e-5 J/K; U+K residual against the external 1,500 J heat input is -3.03e-9 J. Maximum relative mass/energy drift is 1.54e-15 / 5.51e-15. Thermal diagnostics report 35,868 contacts, 4,881 iterations and 222 updates below stored energy resolution. Exact native tuples, game grid/rendering, external native solid heat and both save guards pass, with no mod failure lines. Source is `83b1541` plus the recorded conduction changes; private package manifests retain binary hashes. |
 | `20261016T221722Z-2eb0f8` | Repeats the complete conduction pass after pulling the separate compression-heat component from main. All physical counters and thermal metrics match the earlier run; both save guards and exact compatibility cells pass, with no mod failure lines. Source is `7a781d2`; the separate component is preserved without adding it to this owner. All twelve cross-compiled native tests execute under Wine; six Windows forwarding comparisons remain identical. |
 | `20261016T222138Z-5dd9d7` | Passes native-clock gravity and actual gas transfers: 121 native frames, 120 after priming, 2,541 substeps and zero rejected attempts. Initial/current potential is 68.4864608 / 68.7330484 J; the actual 0.05 kg injection and 0.02 kg consumption carry net 0.147150006 J of boundary potential. Both game callbacks fire once. Cumulative downward body impulse is -1,664.20014 kg m/s, with signed internal gravity work -0.0520605 J. U+K+G transfer residual is -3.48e-9 J; maximum relative mass/energy drift is 2.01e-15 / 6.09e-15. Exact native cells, game grid/rendering, native solid heat and both save guards pass, with no mod failure lines. Source is `5d39a15` plus the recorded gravity changes. |
+| `20261016T223037Z-cf58d3` | Passes atomic owned actor configuration and outside native-batch forwarding with actual Unity consumers. The two ordered owned rate commands avoid native dispatch; the outside zero-rate consumer batch reaches the native batch entry exactly once. Over 120 post-priming frames, 32 consumer callbacks account for 0.2000000053 kg and 40 emitter samples account for 1.09375 kg. Blocked/unblocked callbacks, exact native cells, physical game status, grid/rendering, solid heat and both save guards pass. Removal is followed by 74 further frames without actor transfers. U+K residual is -2.58e-9 J; relative constituent drift is 1.01e-15. No mod failure lines. Source is `4f03eac` plus the recorded batch changes, including the pulled separate heat-component repair. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
