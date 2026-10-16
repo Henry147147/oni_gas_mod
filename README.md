@@ -45,6 +45,10 @@ machines, pipes, and metabolism must use the same conserved state.
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
   frame coordination and the production solver remain unfinished.
+- Immutable physical cell edits now retain actual U and momentum and check
+  declared external mass, energy, impulse and metadata accounts. Windows/Linux
+  boundary and numerical controls pass. This [transaction preparation](native/COUPLED_ABI.md#conserved-physical-mutation-preparation)
+  still needs machine process models, power reservations and game routing.
 - A closed-reference colony coordinator advances every admitted world before
   publishing one immutable frame. Windows/Linux controls verify later-world
   rollback and shared attempt budgets. Physical internal energy and momentum

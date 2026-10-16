@@ -12,6 +12,7 @@ var library = Path.GetFullPath(args[0]); var module = NativeLibrary.Load(library
 NativeLibrary.SetDllImportResolver(typeof(CoupledSimulationWorld).Assembly, (name, _, _) => name == "mixed_atmospheres_coupled" ? module : IntPtr.Zero);
 Console.WriteLine("Coupled native library SHA256: " + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(library))).ToLowerInvariant());
 var definitions = CoupledSimulationWorld.ReadMaterialDefinitions().ToDictionary(value => value.Id);
+MutationTests.Run(definitions, (name, action) => { action(); Console.WriteLine("PASS " + name); });
 void Check(bool condition, string reason) { if (!condition) throw new Exception(reason); }
 void Near(double a, double b, double scale, double tolerance = 1e-10) { Check(double.IsFinite(a) && double.IsFinite(b) && Math.Abs(a - b) <= tolerance * scale, "Independent coupled value differs"); }
 void Reject(Action action) { var rejected = false; try { action(); } catch { rejected = true; } Check(rejected, "Invalid operation accepted"); }

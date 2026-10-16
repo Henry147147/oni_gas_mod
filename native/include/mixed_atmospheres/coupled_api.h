@@ -13,6 +13,8 @@ extern "C" {
 typedef struct ma_coupled_world ma_coupled_world;
 // Optional sparse-metadata extension v1; base ABI/layouts remain v1.
 #define MA_COUPLED_PASSIVE_ABI_VERSION 1U
+// Additive conserved-edit extension. It does not change the base ABI layouts.
+#define MA_COUPLED_MUTATION_ABI_VERSION 1U
 typedef struct ma_coupled_passive { uint64_t identity; double quantity; } ma_coupled_passive;
 
 typedef struct ma_coupled_config {
@@ -58,10 +60,34 @@ typedef struct ma_coupled_step_result {
     uint64_t reserved[2];
 } ma_coupled_step_result;
 
+typedef struct ma_coupled_cell_edit {
+    uint64_t cell_index;
+    ma_coupled_cell_input value;
+} ma_coupled_cell_edit;
+
+// Signed external changes into the world, including transported material's
+// U+K+PE, shaft work, heat and carried momentum/external impulse. These are
+// caller-declared accounts, not a power reservation or a process model.
+typedef struct ma_coupled_mutation_budget {
+    double material_energy, shaft_work, heat, momentum_x, momentum_y;
+    uint64_t reserved[3];
+} ma_coupled_mutation_budget;
+
+typedef struct ma_coupled_mutation_result {
+    uint64_t revision, edited_cells;
+    double internal_energy_change, kinetic_energy_change, potential_energy_change;
+    double energy_residual, energy_bound;
+    double momentum_x_residual, momentum_y_residual, momentum_x_bound, momentum_y_bound;
+    double maximum_species_mass_residual, maximum_species_mass_bound_ratio;
+    double maximum_passive_residual, maximum_passive_bound_ratio;
+    uint64_t reserved;
+} ma_coupled_mutation_result;
+
 MA_API uint32_t MA_CALL ma_coupled_abi_version(void);
 // Separate per-thread diagnostic buffer, valid until the next coupled API call.
 MA_API const char* MA_CALL ma_coupled_last_error(void);
 MA_API uint32_t MA_CALL ma_coupled_passive_abi_version(void);
+MA_API uint32_t MA_CALL ma_coupled_mutation_abi_version(void);
 MA_API ma_status MA_CALL ma_coupled_species_count(uint32_t* output);
 MA_API ma_status MA_CALL ma_coupled_species_definition(uint32_t index, ma_coupled_species* output);
 MA_API ma_status MA_CALL ma_coupled_species_id(uint32_t index, char* buffer, uint64_t capacity, uint64_t* required);
@@ -106,6 +132,33 @@ MA_API ma_status MA_CALL ma_coupled_copy_full_snapshot(const ma_coupled_world* w
     ma_coupled_passive* entries, uint64_t entry_capacity);
 // The base copy function rejects metadata-bearing handles; it cannot silently
 // provide an incomplete export. Empty metadata still permits the base API.
+
+// Immutable, authenticated transaction preparation. Edits are complete physical
+// m/U/P/metadata replacements in strictly increasing cell-index order. Every
+// unedited value, time, wall and configuration is retained. No U reconstruction
+// through total energy and no temperature conversion. Geometry/wall changes,
+// vacuum and other unsupported closed-model states reject.
+//
+// Declare one signed mass delta per registry species and sorted, unique signed
+// passive deltas (absent identities mean zero). All actual edited-cell changes
+// must agree with these accounts and the energy/momentum budget within a fixed
+// 128-epsilon bound from the actual local operands, without a unit floor.
+// This is conservation checking, not entropy, pump, chemical or power validation;
+// a caller must prepare/reserve its other owners and physical process before
+// publishing the candidate. Never use display-derived U as physical input.
+//
+// Nonzero declared changes must have a nonzero actual change of the same sign;
+// arithmetic tolerance cannot certify an entirely erased transfer.
+// 1..4096 edits; complete mass rows and edit_count+1 sparse offsets are required.
+// On failure output is null and result is unchanged. The source is always
+// immutable. On success revision increments once and simulation time is unchanged.
+MA_API ma_status MA_CALL ma_coupled_prepare_mutation(const ma_coupled_world* source,
+    uint64_t expected_revision, const ma_coupled_cell_edit* edits, uint64_t edit_count,
+    const double* masses, uint64_t mass_count,
+    const uint64_t* offsets, uint64_t offset_count, const ma_coupled_passive* entries, uint64_t entry_count,
+    const ma_coupled_mutation_budget* budget, const double* mass_deltas, uint64_t mass_delta_count,
+    const ma_coupled_passive* passive_deltas, uint64_t passive_delta_count,
+    ma_coupled_world** output, ma_coupled_mutation_result* result);
 
 #ifdef __cplusplus
 }

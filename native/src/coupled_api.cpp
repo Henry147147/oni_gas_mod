@@ -1,10 +1,12 @@
 #include "mixed_atmospheres/coupled_api.h"
 #include "mixed_atmospheres/fluid_world.hpp"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <map>
 #include <stdexcept>
 #include <vector>
 
@@ -15,6 +17,9 @@ static_assert(sizeof(ma_coupled_cell) == 64);
 static_assert(sizeof(ma_coupled_snapshot) == 80);
 static_assert(sizeof(ma_coupled_step_result) == 128);
 static_assert(sizeof(ma_coupled_passive) == 16);
+static_assert(sizeof(ma_coupled_cell_edit) == 48);
+static_assert(sizeof(ma_coupled_mutation_budget) == 64);
+static_assert(sizeof(ma_coupled_mutation_result) == 128);
 
 struct ma_coupled_world {
     ma_coupled_config config;
@@ -75,10 +80,39 @@ void capture(ma_coupled_world& w, uint64_t revision) {
     w.snapshot = {revision, w.value.time(), static_cast<uint64_t>(w.cells.size()), static_cast<uint64_t>(w.masses.size()),
         static_cast<uint32_t>(count), 0, totals.internal_energy, totals.kinetic_energy, totals.potential_energy, {0, 0}};
 }
+// Only edited rows contribute. This avoids cancellation against an unrelated
+// world's total, and keeps a trace's bound independent of bulk constituents.
+struct MutationAccount {
+    double high = 0, low = 0, scale = 0;
+    void add(double value) {
+        ma::require_finite(value, "mutation account operand");
+        const double sum = high + value, z = sum - high;
+        const double error = (high - (sum - z)) + (value - z);
+        const double tail = low + error, next = sum + tail, q = next - sum;
+        low = (sum - (next - q)) + (tail - q); high = next;
+        scale += std::abs(value);
+        ma::require_finite(high, "mutation account sum"); ma::require_finite(low, "mutation account tail");
+        ma::require_finite(scale, "mutation account scale");
+    }
+    [[nodiscard]] double value() const { return high + low; }
+    [[nodiscard]] double bound() const { return (128 * std::numeric_limits<double>::epsilon()) * scale; }
+    [[nodiscard]] double ratio() const {
+        const auto error = std::abs(value()), limit = bound();
+        if (error == 0) return 0;
+        if (!(limit > 0) || error > limit) throw std::domain_error("Coupled mutation does not balance its declared external account");
+        return error / limit;
+    }
+};
+void mutation_direction(double actual, double declared) {
+    ma::require_finite(declared, "declared mutation change");
+    if (declared != 0 && (actual == 0 || std::signbit(actual) != std::signbit(declared)))
+        throw std::domain_error("Declared nonzero coupled mutation change is erased or reversed");
+}
 }
 extern "C" {
 uint32_t MA_CALL ma_coupled_abi_version(void) { return MA_COUPLED_ABI_VERSION; }
 uint32_t MA_CALL ma_coupled_passive_abi_version(void) { return MA_COUPLED_PASSIVE_ABI_VERSION; }
+uint32_t MA_CALL ma_coupled_mutation_abi_version(void) { return MA_COUPLED_MUTATION_ABI_VERSION; }
 const char* MA_CALL ma_coupled_last_error(void) { return error_text; }
 ma_status MA_CALL ma_coupled_species_count(uint32_t* output) {
     return guard([&] { require(output, "Null coupled species count"); *output = static_cast<uint32_t>(registry().size()); });
@@ -189,6 +223,99 @@ ma_status MA_CALL ma_coupled_copy_full_snapshot(const ma_coupled_world* w, ma_co
         std::copy(w->passive_offsets.begin(), w->passive_offsets.end(), offsets);
         if (!w->passive_entries.empty()) std::copy(w->passive_entries.begin(), w->passive_entries.end(), entries);
         *snapshot = w->snapshot;
+    });
+}
+ma_status MA_CALL ma_coupled_prepare_mutation(const ma_coupled_world* source,
+    uint64_t expected_revision, const ma_coupled_cell_edit* edits, uint64_t edit_count,
+    const double* masses, uint64_t mass_count, const uint64_t* offsets, uint64_t offset_count,
+    const ma_coupled_passive* entries, uint64_t entry_count, const ma_coupled_mutation_budget* budget,
+    const double* mass_deltas, uint64_t mass_delta_count,
+    const ma_coupled_passive* passive_deltas, uint64_t passive_delta_count,
+    ma_coupled_world** output, ma_coupled_mutation_result* result) {
+    if (output) *output = nullptr;
+    return guard([&] {
+        require(source && edits && masses && offsets && budget && mass_deltas && output && result,
+            "Null coupled mutation argument");
+        require(source->snapshot.revision == expected_revision && expected_revision != std::numeric_limits<uint64_t>::max(),
+            "Coupled mutation source revision is stale or exhausted");
+        const auto count = source->value.registry().size();
+        require(edit_count > 0 && edit_count <= 4096 && mass_count == edit_count * count && mass_delta_count == count,
+            "Coupled mutation shape differs");
+        require(offset_count == edit_count + 1 && offsets[0] == 0 && offsets[edit_count] == entry_count &&
+            entry_count <= 8000000 && (entries || entry_count == 0), "Coupled mutation metadata shape differs");
+        require(passive_delta_count <= 65537 && (passive_deltas || passive_delta_count == 0),
+            "Invalid coupled mutation metadata account");
+        require(budget->reserved[0] == 0 && budget->reserved[1] == 0 && budget->reserved[2] == 0,
+            "Invalid coupled mutation budget flags");
+        for (uint64_t i = 0; i < edit_count; ++i) {
+            require(edits[i].cell_index < source->cells.size() && (i == 0 || edits[i].cell_index > edits[i - 1].cell_index),
+                "Coupled mutation cells must be sorted, unique and in range");
+            require(edits[i].value.wall == 0 && edits[i].value.reserved == 0 && source->cells[edits[i].cell_index].wall == 0,
+                "Coupled mutation cannot change walls or geometry");
+            require(offsets[i] <= offsets[i + 1] && offsets[i + 1] <= entry_count && offsets[i + 1] - offsets[i] <= 65537,
+                "Invalid coupled mutation metadata offsets");
+        }
+        auto candidate = std::make_unique<ma_coupled_world>(*source);
+        std::vector<MutationAccount> species(count);
+        std::map<uint64_t, MutationAccount> passives;
+        MutationAccount internal, kinetic, potential, energy, px, py;
+        for (uint64_t i = 0; i < edit_count; ++i) {
+            const auto& edit = edits[i]; const auto& input = edit.value;
+            const auto x = static_cast<uint32_t>(edit.cell_index % source->config.width);
+            const auto y = static_cast<uint32_t>(edit.cell_index / source->config.width);
+            const auto& old = source->value.cell(x, y);
+            ma::MixtureInventory mixture(count); mixture.energy = input.internal_energy;
+            std::copy_n(masses + i * count, count, mixture.masses.begin());
+            require(mixture.mass() > 0, "Closed coupled mutation cannot create vacuum");
+            ma::PassiveQuantities metadata;
+            for (uint64_t p = offsets[i]; p < offsets[i + 1]; ++p) metadata.push_back({entries[p].identity, entries[p].quantity});
+            candidate->value.set_conserved_cell(x, y, mixture, input.momentum_x, input.momentum_y, input.liquid_pressure, metadata);
+            const auto& next = candidate->value.cell(x, y);
+            for (std::size_t s = 0; s < count; ++s) { species[s].add(next.mixture.masses[s]); species[s].add(-old.mixture.masses[s]); }
+            for (const auto& p : next.passive_quantities) passives[p.identity].add(p.quantity);
+            for (const auto& p : old.passive_quantities) passives[p.identity].add(-p.quantity);
+            internal.add(next.mixture.energy); internal.add(-old.mixture.energy);
+            kinetic.add(next.kinetic_energy()); kinetic.add(-old.kinetic_energy());
+            const double phi = source->config.gravity * (static_cast<double>(y) + .5) * source->config.cell_size;
+            const double old_pe = old.mixture.mass() * phi, new_pe = next.mixture.mass() * phi;
+            potential.add(new_pe); potential.add(-old_pe);
+            for (const double value : {next.mixture.energy, -old.mixture.energy, next.kinetic_energy(), -old.kinetic_energy(), new_pe, -old_pe}) energy.add(value);
+            px.add(next.momentum_x); px.add(-old.momentum_x); py.add(next.momentum_y); py.add(-old.momentum_y);
+        }
+        for (std::size_t s = 0; s < count; ++s) {
+            mutation_direction(species[s].value(), mass_deltas[s]); species[s].add(-mass_deltas[s]);
+        }
+        uint64_t previous = 0;
+        for (uint64_t i = 0; i < passive_delta_count; ++i) {
+            const auto& delta = passive_deltas[i];
+            require(delta.identity > previous && delta.identity <= ma::radiation_passive_identity,
+                "Coupled mutation metadata account identities must be sorted, unique and known");
+            mutation_direction(passives[delta.identity].value(), delta.quantity);
+            passives[delta.identity].add(-delta.quantity); previous = delta.identity;
+        }
+        MutationAccount supplied_energy; supplied_energy.add(budget->material_energy);
+        supplied_energy.add(budget->shaft_work); supplied_energy.add(budget->heat);
+        mutation_direction(energy.value(), supplied_energy.value());
+        mutation_direction(px.value(), budget->momentum_x); mutation_direction(py.value(), budget->momentum_y);
+        energy.add(-budget->material_energy); energy.add(-budget->shaft_work); energy.add(-budget->heat);
+        px.add(-budget->momentum_x); py.add(-budget->momentum_y);
+        // Complete every conservation check before exporting the candidate.
+        static_cast<void>(energy.ratio()); static_cast<void>(px.ratio()); static_cast<void>(py.ratio());
+        ma_coupled_mutation_result report{}; report.revision = expected_revision + 1; report.edited_cells = edit_count;
+        report.internal_energy_change = internal.value(); report.kinetic_energy_change = kinetic.value();
+        report.potential_energy_change = potential.value(); report.energy_residual = energy.value(); report.energy_bound = energy.bound();
+        report.momentum_x_residual = px.value(); report.momentum_y_residual = py.value();
+        report.momentum_x_bound = px.bound(); report.momentum_y_bound = py.bound();
+        for (const auto& account : species) {
+            report.maximum_species_mass_bound_ratio = std::max(report.maximum_species_mass_bound_ratio, account.ratio());
+            report.maximum_species_mass_residual = std::max(report.maximum_species_mass_residual, std::abs(account.value()));
+        }
+        for (const auto& [identity, account] : passives) {
+            static_cast<void>(identity);
+            report.maximum_passive_bound_ratio = std::max(report.maximum_passive_bound_ratio, account.ratio());
+            report.maximum_passive_residual = std::max(report.maximum_passive_residual, std::abs(account.value()));
+        }
+        capture(*candidate, report.revision); *result = report; *output = candidate.release();
     });
 }
 }

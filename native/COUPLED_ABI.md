@@ -276,10 +276,85 @@ warning remains visible. The scene is six synthetic cells backed by the closed
 reference; native ONI retains the surrounding colony. See
 [game evidence and startup failures](../docs/mixture-presentation.md#completed-coupled-reference-scene-on-windows).
 
+## Conserved physical mutation preparation
+
+The additive mutation extension has its own version query,
+`ma_coupled_mutation_abi_version()` (version 1). Base ABI/configuration layouts
+remain unchanged. `ma_coupled_prepare_mutation` prepares an immutable child
+from an exact native source revision and 1–4096 complete, sorted, unique cell
+edits. Each edit supplies actual constituent masses, **stored U**, momentum and
+complete sparse metadata. No temperature conversion or total-energy round trip
+reconstructs the physical state. Time, settings, walls and every unedited cell
+are retained; the native revision increments once. Geometry changes, vacuum and
+other unsupported closed-reference states reject.
+
+The caller declares signed external mass changes for every registry species,
+sorted disease/radiation changes, transported material energy (U+K+PE), shaft
+work, heat and momentum/impulse. The native boundary checks changes of the
+edited cells against those accounts before returning a candidate. Each
+constituent and metadata identity has its own 128-binary64-epsilon bound from
+its actual old/new/declared operands. Energy and momentum use the same local
+rule; there is no unit-sized absolute floor or unrelated-world total in the
+comparison. A nonzero declared change must also have a nonzero actual change
+of the same sign. Rounding tolerance cannot certify an entirely erased transfer.
+Returned diagnostics retain separate changes of U, K and PE and actual signed
+energy/momentum residuals and bounds. These are finite arithmetic accounts,
+not exact conservation claims.
+
+This is raw transaction preparation. It does **not** validate entropy, a pump
+or reaction model, reserve power, change another owner, or publish to ONI. The
+caller must prepare and reserve its device/container/power state and validate
+the physical process before committing all owners. In particular, a declared
+budget is not evidence that power or material exists elsewhere. A display
+snapshot cannot replace those owners' physical accounts and reservations. The existing
+ONI router and all-world coordinator are not connected to this extension yet.
+
+Core exposes `CoupledCellEdit`, an owning `CoupledMutationBudget`, and
+`CoupledSimulationWorld.PrepareMutation(expectedRevision, edits, budget)`.
+The returned `CoupledMutation` owns a child world and immutable diagnostics;
+the caller disposes its `World`. Inputs and budgets copy caller collections,
+signed disease hashes retain their identity, and metadata-bearing candidates
+use complete snapshot export. A stale revision or any later validation failure
+leaves the source unchanged; native failure returns a null candidate and leaves
+the result buffer unchanged. Child worlds can continue through the actual
+pressure/transport step and survive retirement of their source.
+
+First Windows/MSVC and WSL Linux/GNU runs pass all seven new native groups and
+all 22 current managed groups (five new and seventeen prior groups). The six
+base ABI and six passive native groups also pass after the shared ABI change.
+Controls cover the known P/M*M counterexample, exact supplied U/P, heat and work,
+a balanced wet bulk transfer with kinetic mixing heat, oxygen supply including
+elevation/material energy, positive constituent/disease traces, signed metadata
+removal, native advancement from an edited owner, concurrent forks, and late
+whole-call rollback. Seven undeclared/erased accounts and nine malformed native
+requests reject. These raw inputs are boundary controls, not pump calibration.
+
+The separate saved-data reviewer performs 304 exact-rational balance and
+independent ideal-gas/caloric checks over four exported cases per platform.
+Altered trace and heat records reject without another native invocation:
+
+```text
+python native/tests/review_coupled_mutations.py capture.stdout
+```
+
+The explicit `ma_coupled_mutation_tests` target is excluded from default builds
+and CTest, alongside the existing coupled ABI controls. Source-frozen evidence
+and completed reviews are private under
+`local/occupied-staggered-validation/coupled-mutations-{windows,linux}-r1`.
+Native builds have a combined 180-second limit, managed builds 180 seconds,
+and each runtime/review 30 seconds with 128-KiB raw pipes. All first captures
+exit zero with verified source closure and clean EOFs, without timeout, cap or
+capture errors. Windows prelaunch audit initially expected literal compiler
+switches in project XML; the retained erratum checks CMake's translated Release
+properties and actual compiler commands instead. No compiled source or runtime
+was replayed for that audit correction. The default game DLL is unchanged.
+No old failed physical/performance gate, game or independent-agent review runs.
+
 ## Remaining integration work
 
 The ONI `ExperimentalFluidFrameCoordinator` callback/message router is still
-unconnected to this separate Core coordinator. Actor transactions, native
+unconnected to this separate Core coordinator. Actor integration of conserved
+physical edits, native
 dispatch/acknowledgement, supported material/phase coverage, production world/
 container presentation and actual save/reload need integration. Fork/capture allocation and
 complete-frame copying also require production performance work. These controls
