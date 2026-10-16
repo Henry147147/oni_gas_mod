@@ -109,22 +109,28 @@ endforeach()
 
 # Bounded stored-increment arithmetic only; no EOS or material-step dependency.
 add_library(ma_retained_scalar STATIC EXCLUDE_FROM_ALL
-    native/src/retained_scalar.cpp native/src/retained_scalar_product.cpp)
+    native/src/retained_scalar.cpp native/src/retained_scalar_product.cpp
+    native/src/retained_scalar_difference.cpp)
 target_link_libraries(ma_retained_scalar PUBLIC ma_canonical_diagnostics)
 add_executable(ma_retained_scalar_tests EXCLUDE_FROM_ALL native/tests/retained_scalar_tests.cpp)
 target_link_libraries(ma_retained_scalar_tests PRIVATE ma_retained_scalar)
 add_executable(ma_retained_scalar_product_tests EXCLUDE_FROM_ALL native/tests/retained_scalar_product_tests.cpp)
 target_link_libraries(ma_retained_scalar_product_tests PRIVATE ma_retained_scalar)
+add_executable(ma_retained_scalar_difference_tests EXCLUDE_FROM_ALL native/tests/retained_scalar_difference_tests.cpp)
+target_link_libraries(ma_retained_scalar_difference_tests PRIVATE ma_retained_scalar)
 if(MSVC)
     target_compile_options(ma_retained_scalar PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_retained_scalar_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_retained_scalar_product_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+    target_compile_options(ma_retained_scalar_difference_tests PRIVATE /W4 /WX /permissive- /fp:strict)
 else()
     target_compile_options(ma_retained_scalar PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
     target_compile_options(ma_retained_scalar_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
     target_compile_options(ma_retained_scalar_product_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
+        -fno-fast-math -ffp-contract=off -frounding-math)
+    target_compile_options(ma_retained_scalar_difference_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror
         -fno-fast-math -ffp-contract=off -frounding-math)
 endif()
 

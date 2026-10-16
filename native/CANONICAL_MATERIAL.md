@@ -137,6 +137,52 @@ translation gate remains negative and was not rerun.
 python native/tests/review_retained_scalar_product.py capture.stdout
 ```
 
+## Differences of retained values
+
+`subtract_retained_scalar` measures the change between two complete high/low
+values. It starts with the left pair, then adds the two negated right components
+using fixed-size zero-eliminating Grow-Expansion, based on Theorem 10 of
+[Shewchuk's arithmetic paper](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf).
+The certificate has at most four nonoverlapping components in increasing
+magnitude. The highest two are normalized into the stored result; any lower
+components are returned as two separate signed rounding operands. Thus the
+exact difference equals both the certificate's sum and the stored result plus
+its explicit remainders. A nonzero total cannot become zero or change sign.
+This is a bounded operation certificate, not an adaptive precision state.
+
+The difference path performs at most six TwoSums and retains up to 12 tape
+numbers on failure. It copies both original input pairs and known arithmetic
+operands/results. It rejects nonfinite/subnormal arithmetic, overflow and
+unsupported controls, and preserves an already sealed first failure. The
+library does not change floating-point controls or mutate either input.
+
+The separate excluded `ma_retained_scalar_difference_tests` target passes seven
+groups on strict Windows/MSVC and WSL Linux/GNU. Its first invocation records
+290 differences: equal-high cancellation, low-component cancellation, widely
+separated signed values, a chain of 64 completed small updates, and zero/alias/
+identity edges. The native driver directly checks input preservation. The
+independent exact-rational decoder verifies all difference and remainder
+identities, normalization, sign, nonoverlapping bit ranges and the complete
+update chain. There are 24 exact zeros, 106 one-component differences and 160
+four-component certificates with explicit remainders. Four typed negatives
+cover overflow, subnormal high/low differences and unsupported rounding; 35
+copied witness numbers check, and an altered result bit rejects. All 290
+numerical rows match across platforms.
+
+Fresh source/build/first-invocation evidence is private under
+`local/occupied-staggered-validation/retained-difference-windows-r1` and
+`retained-difference-linux-r1`, using the same 180-second build, 30-second native
+and 128-KiB raw-pipe bounds as the product controls. Both streams reach EOF and
+close without capture errors. No EOS, mechanics, failed physical corpus, game
+or performance gate runs. The earlier addition/product implementations are
+unchanged. Integrating all three arithmetic operations into canonical state,
+EOS projections and complete physical ledgers remains required; the failed
+translation gate remains negative.
+
+```text
+python native/tests/review_retained_scalar_difference.py capture.stdout
+```
+
 ## Bounded failure evidence
 
 `experimental/canonical_material_diagnostics.hpp` provides a caller-owned
