@@ -145,3 +145,11 @@ retain an explicit disabled reference and pass all owning prerequisites before
 another original strong-flow retry. Existing pressure/transport/owner source,
 scientific tests and default game DLL are unchanged by this component. There
 is no new game, production, strong-flow or release acceptance.
+
+The checkpoint is rebased over the shared Windows-domain and fault-freeze
+changes at `83b1541`. A source comparison confirms the heat implementation,
+reviewer and all its static dependencies are unchanged. The incoming CMake
+change affects packaging of the two shared game DLLs only; the changed native
+backend files are outside this component's build. No identical native control
+is rerun for that merge. The private source-review SHA256 is
+`db2695e49247b7b2aa135beadb2ed6ef1edc6d3f5aca372a7ccfc80a8268f04c`.
