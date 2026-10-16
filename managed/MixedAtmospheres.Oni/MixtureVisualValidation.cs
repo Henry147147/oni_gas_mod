@@ -34,6 +34,11 @@ namespace MixedAtmospheres.Oni
         private static ColonyFluidState? state;
         private static byte[] checkpoint = Array.Empty<byte>();
         private static float next;
+        // Software renderers (Linux llvmpipe) can take seconds per frame, so
+        // wall-clock pacing alone may leave one frame per step. A probe write
+        // is fresh only after a texture batch follows the last republish.
+        private const int MinimumFramesPerStep = 3;
+        private static int nextFrame;
         private static int step, x0, y0, originalWorld;
         private static Vector3 cameraCenter;
         private static bool initialized;
@@ -72,9 +77,14 @@ namespace MixedAtmospheres.Oni
         private static void TickCore()
         {
             if (initialized) FrameMilliseconds.Add(Time.unscaledDeltaTime * 1000.0);
-            if (Time.realtimeSinceStartup < next) return;
+            if (Time.realtimeSinceStartup < next || Time.frameCount < nextFrame) return;
             next = Time.realtimeSinceStartup + 1.5f;
+            nextFrame = Time.frameCount + MinimumFramesPerStep;
             if (!initialized) { Initialize(); return; }
+            // The container-surface coroutine registers and unregisters six
+            // inventories, republishing each time. Finish it before the first
+            // texture acceptance instead of relying on elapsed seconds.
+            if (step == 0 && containers == null) return;
             // OnReset/reallocation invalidates the exact destination buffers.
             // Re-arm only in this explicit private driver, before advancing its
             // next phase, and wait for a fresh completed renderer batch.

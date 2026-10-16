@@ -7,7 +7,53 @@ mouse input. A physical monitor is unnecessary. Keep rendering enabled:
 batch mode does not accept interactive input. This runner uses a normal
 windowed player on the virtual desktop.
 
-## Current machine: 2026-10-15
+## Current machine: 2026-10-16
+
+The user signed the private Steam client in and installed ONI through it at
+`<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded`
+(Steam build 24423041, game build U59-744825). Its `Assembly-CSharp.dll`
+(`6db65299…2ee1`) is byte-identical to the depot copy at
+`/mnt/data/share/oni/OxygenNotIncluded-linux`, which remains the runner's
+default; pass `--game-dir` (or `ONI_GAME_DIR`) to use the Steam install. That
+copy updates with Steam, and the mod's inspected-build gates will reject a
+newer game until re-inspected.
+
+Both runs used the Steam install and a package built at 933f0d2. The second
+package included the uncommitted pacing fix below.
+
+- `menu`: `passed-scoped-main-menu`. All six probe checks passed, the main
+  menu was reached, the contract export completed and there were no mod
+  failure lines. Evidence: `<state>/runs/20261016T000301Z-c5a190`.
+- `presentation`: `passed-presentation` in a Spaced Out! colony (736×304,
+  9 worlds, 3 duplicants). It produced 34 numbered Unity captures; all 18
+  texture-write proofs, the warning/liquid label checks, both appearance
+  comparisons, 9 container/Core agreements, 5 conservation checks, the
+  container, nitrogen, owned-reservoir and shutdown reports all passed, with no
+  mod failure lines. Evidence: `<state>/runs/20261016T001005Z-a5b1a6`.
+
+The first presentation attempt (`20261016T000350Z-5d338d`) failed at
+`01-normal-air-world.png` with `Fresh: false`. Every written, read-back and
+expected byte matched, but the write came from publication generation 19 and
+the capture from 25. On llvmpipe, frames during fixture setup took 1.9 s at
+p50 and up to 16 s. The 1.5 s step pacing therefore gave about one frame per
+step. The container-surface coroutine's six registrations and
+unregistrations then landed between the texture batch and the capture. The
+fixture now also waits three Unity frames per step and for that coroutine
+before the first texture acceptance. The 20 s spawned-surface and 30 s
+owned-reservoir waits now also need 60 frames before timing out. At normal
+frame rates the seconds still decide, so Windows pacing is unchanged; this
+has not been re-run on Windows. After world generation the passing run
+measured 203 ms p50 and 374 ms p95 per frame. That is software-rendering cost,
+not game-scale performance evidence.
+
+The account's 18 Workshop subscriptions are installed into each run's fresh
+profile but remain disabled; only the probe is enabled. During the first
+presentation run Steam showed "Refresh sign in · This account logged in on
+another computer", and Klei's account service returned `E_INVALID_TICKET`.
+Steamworks still initialized for the next launch, but a later launch may need
+the account signed in again through the viewer.
+
+## Earlier machine state: 2026-10-15
 
 The tools, separate Steam profile and browser viewer are installed below
 `/home/henry/.local/share/oni-headless`. No privileged packages, system policies,

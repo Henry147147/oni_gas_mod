@@ -39,6 +39,7 @@ namespace MixedAtmospheres.Oni
         private Storage storageA = null!, storageB = null!;
         private int eventsA, eventsB, phase;
         private float started;
+        private int startedFrame;
         private bool complete;
         internal string Caption { get; private set; } = "Preparing actual owned reservoirs";
 
@@ -94,7 +95,7 @@ namespace MixedAtmospheres.Oni
                 "Containers-only eligibility fixture retained world inventory or lost an empty allocation.");
             Require(state.CaptureSnapshot().SampleContainer(a).Inventory.TotalMassKg > 0, "Reservoir source must contain conserved gas.");
             objects = MixtureContainerVisualValidation.CreateEmptyReservoirPair(placements);
-            captureThread = Thread.CurrentThread.ManagedThreadId; snapshotRequested = true; started = Time.realtimeSinceStartup;
+            captureThread = Thread.CurrentThread.ManagedThreadId; snapshotRequested = true; started = Time.realtimeSinceStartup; startedFrame = Time.frameCount;
             WriteReport();
         }
 
@@ -159,7 +160,8 @@ namespace MixedAtmospheres.Oni
             if (complete) return true;
             if ((phase == 0 || phase == 1) && (boundarySnapshot == null || !objects.IsReady))
             {
-                Require(Time.realtimeSinceStartup - started < 30, "Timed out waiting for native snapshot and reservoir spawn: " + objects.PendingReason); return false;
+                // Seconds and frames, as for the spawned-surface wait.
+                Require(Time.realtimeSinceStartup - started < 30 || Time.frameCount - startedFrame <= 60, "Timed out waiting for native snapshot and reservoir spawn: " + objects.PendingReason); return false;
             }
             switch (phase++)
             {

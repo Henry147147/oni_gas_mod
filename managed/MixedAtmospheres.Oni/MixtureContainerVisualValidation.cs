@@ -181,7 +181,9 @@ namespace MixedAtmospheres.Oni
                     // reported separately, never faked by a network shortcut.
                     PendingReason = ""; return true;
                 }
-                if (Time.realtimeSinceStartup - createdTime > 20) throw new TimeoutException(PendingReason);
+                // Seconds and frames: a software renderer may spend 20 s on
+                // only a few frames, which is no evidence of a stuck spawn.
+                if (Time.realtimeSinceStartup - createdTime > 20 && Time.frameCount - createdFrame > 60) throw new TimeoutException(PendingReason);
                 return false;
             }
         }

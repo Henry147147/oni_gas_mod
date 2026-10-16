@@ -158,11 +158,13 @@ and native-boundary evidence are in [the environment report](tools/ONI_ENVIRONME
 A repeatable [native Linux headless playtest runner](tools/ONI_HEADLESS.md) is
 now installed on this host. It provides a private rendered virtual desktop,
 Steam sign-in, isolated disposable profiles, UI input and captured runtime
-evidence. The current package passes all six Linux startup probe checks in the
-actual Linux game; the game then exits before the main menu because the private
-Steam client has no signed-in account, so main-menu and colony tests remain
-blocked on a one-time Steam sign-in through the runner's viewer. The runner now
-fails a menu run on any mod-originated error after the main-menu marker and lets
+evidence. On 2026-10-16, with the private Steam client signed in and ONI
+installed through it, the Linux game passed the `menu` gate (six probe checks,
+main menu, contract export) and the full `presentation` gate in a disposable
+Spaced Out! colony: 34 Unity captures, 18 exact texture-write proofs,
+container, nitrogen and owned-reservoir fixtures, with no mod error lines.
+Native ONI still owns colony physics there. The runner fails a menu run on any
+mod-originated error after the main-menu marker and lets
 the game see the running Steam client. The adapter's `OnLoad` removes its own
 Harmony patches on any failure, and the nitrogen elements register only while the
 adapter supplies their substance table, so a failed load leaves no partial state.
