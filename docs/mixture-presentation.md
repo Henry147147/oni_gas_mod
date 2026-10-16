@@ -147,6 +147,12 @@ properties, inaccurate source count hints, duplicates and concurrent readers.
 
 ## Appearance and game adapters
 
+The physical Core companion explicitly marks its source as a read-only physical
+projection. Display sampling remains available; its legacy inventory ledgers,
+standalone inventory writers and Core checkpoint codec reject. Actual native
+U/P/EOS readings and physical frame boundary accounts remain separate from the
+rounded display total-energy projection.
+
 Base colour is weighted by gas mole fraction **in linear RGB**, then encoded
 as sRGB. A stable species-ID hash supplies a smooth world-anchored 4-by-4-cell
 pattern. Each gas's contribution is blended continuously; crossing a dominant
@@ -206,6 +212,50 @@ avoid an unknown-view warning each frame. The native F1 legend explicitly
 limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
+
+### Completed colony transactions on Windows
+
+Windows ONI V58 passes four native-hover and Unity-PNG cases using the physical
+frame transaction path. An explicit synthetic inlet adds 0.125 kg oxygen and a
+separate 4,096 J heat account, then the actual reference solver advances before
+one completed physical/presentation publication. The surrounding 736-by-304,
+nine-world colony with three duplicants remains native ONI; only six synthetic
+closed-reference cells supply these readings.
+
+| Inspected case | Completed frame | Heading | Pressure (kPa) | Temperature (K) |
+| --- | ---: | --- | ---: | ---: |
+| Initial mixture | 1 | Nitrogen–steam | 51.9995 | 264.8920 |
+| Changed mixture | 2 | Nitrogen–steam | 69.6995 | 294.9469 |
+| Physical inlet/heat edit | 3 | Nitrogen–oxygen | 69.7185 | 294.6263 |
+| Colour-only recapture | 3 | Nitrogen–oxygen | 69.7185 | 294.6263 |
+
+After the physical edit, hover visibly lists nitrogen 29.6869%, oxygen 29.0195%,
+steam 24.6906% and carbon dioxide 16.603% by moles. Helium/chlorine stay omitted
+from the bulk contents list and remain present in all six constituent records.
+Chlorine's specific warning remains visible at `3.17141E-05%`. All four tooltip
+lists were inspected against their completed observations; no selection or
+details panel was needed. Colour-only recapture retains identical reported
+physical facts, constituent rows, warnings and boundary receipt/account values.
+
+The accepted native receipt records source revision 2, prepared revision 3, the
+oxygen/heat accounts and an energy residual about `-3.30e-10 J` within its
+`1.95e-7 J` arithmetic bound. This is explicit boundary input, not proof of a
+powered pump/heater, another owner's reservation or complete colony ownership.
+The game exits normally and original mods, preferences and world-generation
+files restore byte-for-byte. The default game native DLL is unchanged.
+
+The current coupled/Core/presentation suites pass 29/89/41 groups on both
+Windows and WSL Linux. Exact declared-account records have a separate rational
+review and corrupted-unit/rounded-bit rejection. No C++ control or earlier
+failed numerical/performance gate was replayed. The game acceptance is Windows
+only and supplies neither production containers, native callback routing,
+physical save/reload, sustained performance nor first-playable acceptance.
+
+Private game evidence is under `local/colony-runs/colony-boundary-windows-v58`;
+its source/binary/pixel/receipt/restoration review is
+`local/occupied-staggered-validation/colony-boundary-game-windows-r1/COMPLETED_REVIEW.json`,
+SHA256 `ad784416b096c151067092ccbbe2ebce393de4f49004b6515a0b8c65d597f18d`.
+See [frame transaction and projection contracts](../native/COUPLED_ABI.md#all-world-frame-transactions-and-boundary-accounts).
 
 ### Completed coupled reference scene on Windows
 

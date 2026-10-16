@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
 using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 
@@ -39,5 +40,25 @@ namespace MixedAtmospheres.Oni
             Width = checked((uint)width), Height = checked((uint)height), Gravity = 0, Diffusivity = 10,
             Viscosity = 0, ThermalConduction = false, MaximumTimestepSeconds = .001
         };
+        // Explicit synthetic external inlet/heat accounts for this zero-gravity
+        // validator only. This does not represent a powered ONI machine.
+        internal static CoupledWorldMutation InventoryAddition(CoupledColonyFrame source, int globalCell)
+        {
+            var sample = source.SampleCell(globalCell); var old = sample.PhysicalState;
+            var placement = source.Projection.Worlds.Single(value => value.WorldId == sample.WorldId);
+            var local = globalCell % source.Projection.Width - placement.OffsetX +
+                (globalCell / source.Projection.Width - placement.OffsetY) * placement.Width;
+            const double amount = .125, heat = 4096;
+            var oxygen = source.Materials.Single(value => value.Id == "oxygen");
+            var parcelU = amount * (oxygen.EnergyOffsetJoulesPerKg + oxygen.SpecificHeatCv * old.TemperatureKelvin);
+            var masses = old.MassesKg.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal);
+            masses.TryGetValue("oxygen", out var present); masses["oxygen"] = present + amount;
+            var momentumSquared = old.MomentumX * old.MomentumX + old.MomentumY * old.MomentumY;
+            var mixingHeat = momentumSquared / (2 * old.TotalMassKg) - momentumSquared / (2 * masses.Values.Sum());
+            var value = new CoupledCellInitialization(masses, old.InternalEnergyJoules + parcelU + mixingHeat + heat,
+                old.MomentumX, old.MomentumY, old.PressurePa).WithPassiveMetadata(old.DiseaseCounts, old.RadiationQuantity);
+            return new CoupledWorldMutation(sample.WorldId, new[] { new CoupledCellEdit((ulong)local, value) },
+                new CoupledMutationBudget(new Dictionary<string, double> { ["oxygen"] = amount }, materialEnergyJoules: parcelU, heatJoules: heat));
+        }
     }
 }

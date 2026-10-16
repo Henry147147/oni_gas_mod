@@ -134,3 +134,4 @@ Test("passive initialization, rollback, immutable reads and nonfluid ownership",
 });
 ColonyCoordinatorTests.Run(Test, Check, Reject, (a, b, scale) => Near(a, b, scale));
 ColonyCoordinatorTests.RunPresentation(Test, Check, Reject);
+ColonyCoordinatorTests.RunMutations(Test, Check, Reject);

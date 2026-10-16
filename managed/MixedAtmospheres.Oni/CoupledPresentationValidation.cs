@@ -19,7 +19,7 @@ namespace MixedAtmospheres.Oni
             public long Revision = -1, PublicationGeneration = -1;
             public bool AllNonTraceRowsVisible = false, TraceRowsOmitted = false, HazardWarningVisible = false, NoSelection = false;
         }
-        private static readonly string[] Names = { "completed-mixture", "changed-mixture", "colour-only" };
+        private static readonly string[] Names = { "completed-mixture", "changed-mixture", "physical-edit", "colour-only" };
         private static readonly List<object> Evidence = new List<object>();
         private static CoupledColonySimulation? simulation;
         private static CoupledColonyFrame? held;
@@ -70,6 +70,8 @@ namespace MixedAtmospheres.Oni
                     else
                     {
                         if (currentCase == 1) held = simulation!.AdvanceFrame(2, .03);
+                        else if (currentCase == 2) held = simulation!.AdvanceFrame(held!, 3, .03,
+                            new[] { CoupledPresentationScenario.InventoryAddition(held!, target) });
                         else MixturePresentationRuntime.Configure(held!.Presentation!.Model.WithVisualOptions(new MixtureVisualOptions { PatternEnabled = false }));
                         BeginCase();
                     }
@@ -167,7 +169,8 @@ namespace MixedAtmospheres.Oni
                     held.CompletedFrame, held.SimulationTimeSeconds, PhysicalU = physical.InternalEnergyJoules, physical.PressurePa, physical.TemperatureKelvin,
                     Header = MixtureInspection.FormatHeader(reading), State = MixtureInspection.FormatState(reading), Contents = contents.ToArray(),
                     Warnings = reading.Warnings.ToArray(), AllConstituents = reading.Constituents, NoSelection = true,
-                    PatternEnabled = MixturePresentationRuntime.CurrentModel!.VisualOptions.PatternEnabled
+                    PatternEnabled = MixturePresentationRuntime.CurrentModel!.VisualOptions.PatternEnabled,
+                    BoundaryChanges = held.BoundaryChanges, HeatAccountUnits = held.BoundaryLedger.HeatJoules.Binary64Units.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 };
             }
             catch (Exception caught) { callbackError = caught.ToString(); }

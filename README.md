@@ -53,13 +53,16 @@ machines, pipes, and metabolism must use the same conserved state.
   publishing one immutable frame. Windows/Linux controls verify later-world
   rollback and shared attempt budgets. Physical internal energy and momentum
   stay in native owners; the read-only colony projection never resets them.
-  Actor transactions, ONI hooks and persistence remain unfinished.
+  Physical edits now commit with all-world advances, exact declared boundary
+  accounts and presentation. Machine reservations, ONI hooks and persistence
+  remain unfinished.
 - Completed physical frames can prepare the shared mixture presentation before
   publication, retaining actual U, temperature, pressure and every constituent
-  across appearance changes. Seventeen Windows/Linux boundary groups and
-  forty-one presentation regressions pass. A Windows game scene verifies four
-  bulk gases on hover, changing composition and hazardous trace warnings;
-  [scope and evidence](docs/mixture-presentation.md#completed-coupled-reference-scene-on-windows)
+  across appearance changes. The current Windows/Linux suites pass 29 coupled,
+  89 Core and 41 presentation groups. A Windows game scene verifies four bulk
+  gases on hover, an actual reference-owner inventory edit, a changing mixture
+  heading and hazardous trace warnings;
+  [scope and evidence](docs/mixture-presentation.md#completed-colony-transactions-on-windows)
   remain separate from production colony acceptance.
 - Sparse disease counts and passive radiation metadata follow the coupled
   reference's material transfers and appear in its completed snapshots.

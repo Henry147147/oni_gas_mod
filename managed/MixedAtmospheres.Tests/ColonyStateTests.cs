@@ -332,6 +332,24 @@ internal static class ColonyStateTests
             reject(() => new FluidInventory(new Dictionary<string, double>(), 1));
         });
 
+        test("physical projections retain readings but reject inventory writers, ledgers and standalone checkpoints", () =>
+        {
+            var state = Create(); var basis = state.CaptureSnapshot();
+            check(!basis.IsReadOnlyPhysicalProjection && basis.InitialInventory.TotalMassKg > 0);
+            using var prepared = state.Prepare(basis, new Dictionary<int, FluidInventory>(), new Dictionary<int, int>(), null,
+                basis.NextContainerGeneration, FluidInventory.Empty, FluidInventory.Empty, 0, 0, 0, physicalProjection: true);
+            var projection = prepared.Snapshot; check(projection.IsReadOnlyPhysicalProjection);
+            reject(() => _ = projection.InitialInventory); reject(() => _ = projection.SuppliedInventory);
+            reject(() => _ = projection.RemovedInventory); reject(() => _ = projection.ExternalHeatJoules);
+            reject(() => ColonyFluidState.SavePinnedSnapshot(projection));
+            prepared.Commit(); reject(() => state.Save()); reject(() => state.BeginTransaction().Dispose());
+            check(projection.SampleCell(gas).Inventory.TotalMassKg == basis.SampleCell(gas).Inventory.TotalMassKg);
+            using var next = state.Prepare(projection, new Dictionary<int, FluidInventory>(), new Dictionary<int, int>(), null,
+                projection.NextContainerGeneration, FluidInventory.Empty, FluidInventory.Empty, 0, 1, .1);
+            next.Commit(); check(state.CaptureSnapshot().IsReadOnlyPhysicalProjection);
+            reject(() => state.Save()); check(ReferenceEquals(state.CaptureSnapshot(), next.Snapshot));
+        });
+
         test("ten thousand closed transfers retain every trace constituent and balance the restored ledger", () =>
         {
             var state = Create(); using (var transaction = state.BeginTransaction())

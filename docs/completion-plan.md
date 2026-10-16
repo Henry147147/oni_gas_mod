@@ -141,6 +141,11 @@ Windows V57 additionally verifies hover against a completed native physical
 frame in a six-cell closed-reference scene, including changing composition and
 colour-only recapture. It retains the surrounding native colony and does not
 complete this production-owner, Linux, save or performance gate.
+Windows V58 additionally passes a physical oxygen/heat edit through the all-world
+coordinator: the mixture heading and all four bulk rows change with the completed
+native state, while hazardous trace warnings remain visible. Colour-only retains
+the same physical facts and accounts. Its six-cell reference scene still does
+not complete this gate; see [the scoped evidence](mixture-presentation.md#completed-colony-transactions-on-windows).
 
 Exit: duplicants survive and operate for ten cycles with conservation
 diagnostics, and the presentation, screenshot and performance criteria above

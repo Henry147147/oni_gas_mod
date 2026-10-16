@@ -38,13 +38,18 @@ namespace MixedAtmospheres.Core
         /// <summary>Measured U error of the scalar total-energy projection; never heat or a replacement physical U.</summary>
         public IReadOnlyDictionary<int, double> InternalEnergyProjectionErrorsJoules { get; }
         public IReadOnlyList<CoupledMaterialDefinition> Materials { get; }
+        public IReadOnlyDictionary<int, CoupledBoundaryReceipt> BoundaryChanges { get; }
+        public CoupledBoundaryLedger BoundaryLedger { get; }
         internal CoupledColonyFrame(ColonyFrameSnapshot projection, Dictionary<int, CoupledWorldSnapshot> worlds,
             Dictionary<int, CoupledStepDiagnostics> diagnostics, Dictionary<int, double> errors, IReadOnlyList<CoupledMaterialDefinition> materials,
-            MixturePresentationModel? presentationModel)
+            MixturePresentationModel? presentationModel, Dictionary<int, CoupledBoundaryReceipt>? boundaryChanges = null,
+            CoupledBoundaryLedger? boundaryLedger = null)
         {
             Projection = projection; Worlds = new ReadOnlyDictionary<int, CoupledWorldSnapshot>(worlds);
             Diagnostics = new ReadOnlyDictionary<int, CoupledStepDiagnostics>(diagnostics);
             InternalEnergyProjectionErrorsJoules = new ReadOnlyDictionary<int, double>(errors); Materials = materials;
+            BoundaryChanges = new ReadOnlyDictionary<int, CoupledBoundaryReceipt>(boundaryChanges ?? new Dictionary<int, CoupledBoundaryReceipt>());
+            BoundaryLedger = boundaryLedger ?? CoupledBoundaryLedger.Empty;
             Presentation = presentationModel == null ? null : MixturePresentationPublication.Prepare(this, presentationModel);
         }
         public bool TrySampleCell(int globalCell, out CoupledColonyCell cell)
@@ -163,7 +168,7 @@ namespace MixedAtmospheres.Core
                 var frames = owned.ToDictionary(entry => entry.Key, entry => entry.Value.CaptureSnapshot());
                 var updates = Project(basis, frames, out var errors);
                 using var prepared = projection.Prepare(basis, updates, new Dictionary<int, int>(), null, basis.NextContainerGeneration,
-                    FluidInventory.Empty, FluidInventory.Empty, 0, 0, 0);
+                    FluidInventory.Empty, FluidInventory.Empty, 0, 0, 0, physicalProjection: true);
                 var initial = new CoupledColonyFrame(prepared.Snapshot, frames, new Dictionary<int, CoupledStepDiagnostics>(), errors, definitions, presentationModel);
                 // Allocate the complete outer owner before the publication point too.
                 var result = new CoupledColonySimulation(projection, owned, definitions, initial, presentationModel);
@@ -211,12 +216,37 @@ namespace MixedAtmospheres.Core
         }
         public CoupledColonyFrame CaptureFrame() { lock (sync) { CheckOpen(); return current; } }
         public CoupledColonyFrame AdvanceFrame(long completedFrame, double seconds, ulong attemptBudget = 100000)
+            => AdvanceFrameCore(null, completedFrame, seconds, Array.Empty<CoupledWorldMutation>(), attemptBudget);
+
+        /// <summary>Prepare physical edits, every world's advance, boundary accounts and presentation before one all-world publication.</summary>
+        public CoupledColonyFrame AdvanceFrame(CoupledColonyFrame expectedSource, long completedFrame, double seconds,
+            IReadOnlyList<CoupledWorldMutation> mutations, ulong attemptBudget = 100000)
+        {
+            if (expectedSource == null) throw new ArgumentNullException(nameof(expectedSource));
+            if (mutations == null) throw new ArgumentNullException(nameof(mutations));
+            if (mutations.Count > ColonyGeometry.MaximumWorlds) throw new ArgumentException("Too many world mutation plans.");
+            var owned = mutations.ToArray();
+            if (owned.Length > ColonyGeometry.MaximumWorlds || owned.Any(value => value == null)) throw new ArgumentException("Invalid world mutation collection.");
+            return AdvanceFrameCore(expectedSource, completedFrame, seconds, owned, attemptBudget);
+        }
+
+        private CoupledColonyFrame AdvanceFrameCore(CoupledColonyFrame? expectedSource, long completedFrame, double seconds,
+            IReadOnlyList<CoupledWorldMutation> mutations, ulong attemptBudget)
         {
             lock (sync)
             {
                 CheckOpen(); FluidChecks.Positive(seconds, nameof(seconds));
+                if (expectedSource != null && !ReferenceEquals(expectedSource, current))
+                    throw new InvalidOperationException("Physical edit source is stale or belongs to another colony.");
                 if (seconds > 10 || attemptBudget == 0 || completedFrame != checked(current.CompletedFrame + 1))
                     throw new ArgumentException("Advance exactly the next global frame with a bounded positive duration/budget.");
+                var plans = new Dictionary<int, CoupledWorldMutation>();
+                foreach (var mutation in mutations)
+                {
+                    if (!owners.ContainsKey(mutation.WorldId) || plans.ContainsKey(mutation.WorldId))
+                        throw new ArgumentException("Mutation world must be admitted and appear exactly once.");
+                    plans.Add(mutation.WorldId, mutation);
+                }
                 // Native retirement can fail, so do it before any new frame is
                 // staged. Keep at most one retired generation between calls.
                 if (retiredOwners != null) { foreach (var owner in retiredOwners.Values) owner.Dispose(); retiredOwners = null; }
@@ -224,19 +254,34 @@ namespace MixedAtmospheres.Core
                 if (time <= current.SimulationTimeSeconds) throw new InvalidOperationException("Simulation clock cannot represent this advance.");
                 var nextOwners = new Dictionary<int, CoupledSimulationWorld>(); var frames = new Dictionary<int, CoupledWorldSnapshot>();
                 var diagnostics = new Dictionary<int, CoupledStepDiagnostics>();
+                var boundaryChanges = new Dictionary<int, CoupledBoundaryReceipt>();
                 try
                 {
                     var remaining = attemptBudget;
                     foreach (var source in owners.OrderBy(entry => entry.Key))
                     {
                         if (remaining == 0) throw new InvalidOperationException("All-world attempt budget exhausted before publication.");
-                        var advanced = source.Value.Advance(seconds, remaining);
+                        CoupledSimulationWorld? edited = null;
+                        CoupledAdvance advanced;
+                        var sourceRevision = current.Worlds[source.Key].Revision;
+                        try
+                        {
+                            if (plans.TryGetValue(source.Key, out var plan))
+                            {
+                                var mutation = source.Value.PrepareMutation(sourceRevision, plan.Edits, plan.Budget); edited = mutation.World;
+                                if (mutation.Diagnostics.Revision != checked(sourceRevision + 1) || mutation.Diagnostics.EditedCells != (ulong)plan.Edits.Count)
+                                    throw new InvalidOperationException("Native mutation revision or coverage differs.");
+                                boundaryChanges.Add(source.Key, new CoupledBoundaryReceipt(source.Key, sourceRevision, mutation));
+                            }
+                            advanced = (edited ?? source.Value).Advance(seconds, remaining);
+                        }
+                        finally { edited?.Dispose(); }
                         try { nextOwners.Add(source.Key, advanced.World); } catch { advanced.World.Dispose(); throw; }
                         var attempts = checked(advanced.Diagnostics.Substeps + advanced.Diagnostics.RejectedSubsteps);
                         if (attempts == 0 || attempts > remaining) throw new InvalidOperationException("Native attempt accounting differs.");
                         remaining -= attempts;
                         var captured = advanced.World.CaptureSnapshot();
-                        if (captured.CompletedTimeSeconds != time || captured.Revision != checked(current.Worlds[source.Key].Revision + 1) ||
+                        if (captured.CompletedTimeSeconds != time || captured.Revision != checked(sourceRevision + (plans.ContainsKey(source.Key) ? 2UL : 1UL)) ||
                             advanced.Diagnostics.CompletedTimeSeconds != time || advanced.Diagnostics.Revision != captured.Revision)
                             throw new InvalidOperationException("Native worlds did not complete the identical frame clock.");
                         frames.Add(source.Key, captured); diagnostics.Add(source.Key, advanced.Diagnostics);
@@ -246,7 +291,8 @@ namespace MixedAtmospheres.Core
                     var updates = Project(basis, frames, out var errors);
                     using var prepared = projectionState.Prepare(basis, updates, new Dictionary<int, int>(), null, basis.NextContainerGeneration,
                         FluidInventory.Empty, FluidInventory.Empty, 0, completedFrame, time);
-                    var candidate = new CoupledColonyFrame(prepared.Snapshot, frames, diagnostics, errors, materials, presentationModel);
+                    var ledger = current.BoundaryLedger.Append(boundaryChanges);
+                    var candidate = new CoupledColonyFrame(prepared.Snapshot, frames, diagnostics, errors, materials, presentationModel, boundaryChanges, ledger);
                     prepared.ReserveWriter(); prepared.Commit(candidate);
                     retiredOwners = owners; owners = nextOwners; current = candidate;
                     return candidate;

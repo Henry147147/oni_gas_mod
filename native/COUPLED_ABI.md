@@ -306,8 +306,9 @@ or reaction model, reserve power, change another owner, or publish to ONI. The
 caller must prepare and reserve its device/container/power state and validate
 the physical process before committing all owners. In particular, a declared
 budget is not evidence that power or material exists elsewhere. A display
-snapshot cannot replace those owners' physical accounts and reservations. The existing
-ONI router and all-world coordinator are not connected to this extension yet.
+snapshot cannot replace those owners' physical accounts and reservations. The
+all-world coordinator can now submit these edits as described below; the ONI
+callback router and machine owners remain unconnected.
 
 Core exposes `CoupledCellEdit`, an owning `CoupledMutationBudget`, and
 `CoupledSimulationWorld.PrepareMutation(expectedRevision, edits, budget)`.
@@ -350,11 +351,89 @@ properties and actual compiler commands instead. No compiled source or runtime
 was replayed for that audit correction. The default game DLL is unchanged.
 No old failed physical/performance gate, game or independent-agent review runs.
 
+## All-world frame transactions and boundary accounts
+
+`CoupledColonySimulation.AdvanceFrame(expectedSource, nextFrame, seconds,
+mutations, attemptBudget)` requires the identical currently published physical
+frame. Each owning `CoupledWorldMutation` names one admitted world, complete
+local cell edits and its declared external budget. Unknown or duplicate worlds,
+foreign/stale source frames and invalid input collections reject. Normal
+`AdvanceFrame(nextFrame, seconds, attemptBudget)` retains its existing behavior.
+
+For each world, the coordinator prepares an optional native mutation, advances
+that candidate through the actual solver and captures the result. One attempt
+budget still covers all worlds. A mutated world's native revision increments
+twice; an unedited world's increments once. Both complete the same global
+frame/time. Temporary mutation owners retire after their advances. All native
+candidates, current boundary receipts, cumulative accounts and the presentation
+are prepared before one writer reservation and commit. Any later-world failure
+or exhausted budget leaves the identical previous publication and accounts.
+No rejected edit is counted by a later successful frame.
+
+`CoupledColonyFrame.BoundaryChanges` contains only this frame's accepted
+`CoupledBoundaryReceipt` values: world/source/prepared revisions, immutable
+budget and native diagnostics. These receipts contain no native handles.
+`BoundaryLedger` accumulates declared external mass, material energy, shaft
+work, heat, impulse, disease and passive radiation separately. It retains no
+past frames or receipts. Zero net identity accounts are removed; cumulative
+disease identity capacity is 65,536.
+
+Each `CoupledAccountQuantity.Binary64Units` is the exact integer sum of the
+declared binary64 operands in units of `2^-1074`. This is boundary bookkeeping,
+not a new physical state, EOS or precision fallback. `TryGetRoundedValue`
+explicitly rounds to nearest binary64 with ties to even; it returns false when
+the rounded result would overflow. The exact integer remains available. Tiny
+operands survive later cancellation. These exact declared accounts do not
+erase native physical residuals, prove entropy/process correctness or reserve
+another owner's resources.
+
+The Core companion now marks `IsReadOnlyPhysicalProjection`. Display sampling
+and the measured U projection errors remain available. Standalone inventory
+transactions, legacy initial/supplied/removed/heat ledger access and Core
+checkpoints reject for that role. They cannot preserve the native physical
+state or describe its gravity/work accounts. Existing ordinary Core inventory
+authorities and checkpoint format remain unchanged. Native restart support is
+still required.
+
+First Windows and WSL Linux runs each pass all 29 coupled groups, all 89 Core
+groups and all 41 presentation groups. Seven new coupled groups exercise
+two-world inlet/heat publication, native/presentation agreement, later-world
+metadata failure after one completed world, shared-budget rollback, exact source
+identity, owning inputs, the shared four-gas game scenario, account rounding and
+retired reads. The added Core group checks the projection writer/ledger/save
+guard. A separate rational reviewer checks ten saved exact-account records,
+including subnormals, ties, cancellation and overflow; altered unit and rounded
+bits reject without another native invocation:
+
+```text
+python native/tests/review_coupled_boundary_ledger.py coupled.stdout
+```
+
+Evidence is private under
+`local/occupied-staggered-validation/colony-boundary-{windows,linux}-r1`.
+Three managed builds share a 180-second bound per platform; the Windows ONI
+assembly build has a separate 180 seconds. Each runtime/review has 30 seconds
+and 128-KiB raw pipes. Every first capture exits zero with clean EOFs, verified
+source closure and no timeout/cap/capture error. Native compiled sources and
+the prior approved mutation libraries are pinned and unchanged; no C++ control
+or historical failed physics/performance gate was replayed. There is no
+independent agent review.
+
+Windows ONI V58 passes four native hover/Unity-PNG cases: original mixture,
+changed mixture, a physical oxygen inlet plus heat account, and colour-only
+recapture. The actual heading changes from nitrogen–steam to nitrogen–oxygen;
+all four non-trace gases remain visible and chlorine still warns. The physical
+edit's 0.125 kg oxygen and 4,096 J heat accounts appear with its accepted native
+receipt. Colour-only retains identical physical facts and accounts. Original
+settings are restored byte-for-byte and the default game DLL is unchanged.
+This remains a six-cell synthetic closed-reference scene in a surrounding
+native colony; see [game evidence and limits](../docs/mixture-presentation.md#completed-colony-transactions-on-windows).
+
 ## Remaining integration work
 
 The ONI `ExperimentalFluidFrameCoordinator` callback/message router is still
-unconnected to this separate Core coordinator. Actor integration of conserved
-physical edits, native
+unconnected to this separate Core coordinator. Device/container/power
+reservations around conserved physical edits, native
 dispatch/acknowledgement, supported material/phase coverage, production world/
 container presentation and actual save/reload need integration. Fork/capture allocation and
 complete-frame copying also require production performance work. These controls

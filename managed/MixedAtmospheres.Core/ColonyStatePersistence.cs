@@ -22,6 +22,8 @@ namespace MixedAtmospheres.Core
 
         internal static byte[] SaveSnapshot(ColonyFrameSnapshot snapshot, byte[] magic)
         {
+            if (snapshot.IsReadOnlyPhysicalProjection)
+                throw new NotSupportedException("A display projection cannot restart its physical owner. A native physical checkpoint is required.");
             using var stream = new MemoryStream();
             using (var writer = new BinaryWriter(stream, StrictUtf8, true))
             {

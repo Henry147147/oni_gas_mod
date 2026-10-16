@@ -127,22 +127,36 @@ namespace MixedAtmospheres.Core
         public IReadOnlyDictionary<int, FluidInventory> Inventories { get; }
         public IReadOnlyDictionary<string, FluidContainerSnapshot> Containers { get; }
         internal long NextContainerGeneration { get; }
-        public FluidInventory InitialInventory { get; }
-        public FluidInventory SuppliedInventory { get; }
-        public FluidInventory RemovedInventory { get; }
-        public double ExternalHeatJoules { get; }
+        /// <summary>True when this is a display projection of a separately owned physical frame.</summary>
+        public bool IsReadOnlyPhysicalProjection { get; }
+        internal FluidInventory InitialInventoryAccount { get; }
+        internal FluidInventory SuppliedInventoryAccount { get; }
+        internal FluidInventory RemovedInventoryAccount { get; }
+        internal double ExternalHeatAccount { get; }
+        public FluidInventory InitialInventory { get { RequireInventoryLedger(); return InitialInventoryAccount; } }
+        public FluidInventory SuppliedInventory { get { RequireInventoryLedger(); return SuppliedInventoryAccount; } }
+        public FluidInventory RemovedInventory { get { RequireInventoryLedger(); return RemovedInventoryAccount; } }
+        public double ExternalHeatJoules { get { RequireInventoryLedger(); return ExternalHeatAccount; } }
 
         internal ColonyFrameSnapshot(ColonyGeometry geometry, FluidMaterialCatalog catalog, long revision,
             long completedFrame, double simulationTime, Dictionary<int, FluidInventory> inventories,
             FluidInventory initial, FluidInventory supplied, FluidInventory removed, double heat,
-            Guid? colonyId = null, IReadOnlyDictionary<string, FluidContainerSnapshot>? containers = null, long nextContainerGeneration = 1)
+            Guid? colonyId = null, IReadOnlyDictionary<string, FluidContainerSnapshot>? containers = null, long nextContainerGeneration = 1,
+            bool isReadOnlyPhysicalProjection = false)
         {
             Geometry = geometry; Catalog = catalog; Revision = revision; CompletedFrame = completedFrame; SimulationTimeSeconds = simulationTime;
             Inventories = new ReadOnlyDictionary<int, FluidInventory>(inventories);
-            InitialInventory = initial; SuppliedInventory = supplied; RemovedInventory = removed; ExternalHeatJoules = heat;
+            InitialInventoryAccount = initial; SuppliedInventoryAccount = supplied; RemovedInventoryAccount = removed; ExternalHeatAccount = heat;
+            IsReadOnlyPhysicalProjection = isReadOnlyPhysicalProjection;
             ColonyId = colonyId ?? Guid.NewGuid();
             if (ColonyId == Guid.Empty || nextContainerGeneration <= 0) throw new ArgumentException("Invalid colony/container allocation identity.");
             Containers = containers ?? FluidContainerSnapshot.EmptyTable; NextContainerGeneration = nextContainerGeneration;
+        }
+
+        private void RequireInventoryLedger()
+        {
+            if (IsReadOnlyPhysicalProjection)
+                throw new NotSupportedException("A physical display projection has no standalone inventory ledger. Use its completed physical frame and boundary accounts.");
         }
 
         public FluidCellSnapshot SampleCell(int globalCellIndex)
@@ -333,13 +347,21 @@ namespace MixedAtmospheres.Core
 
         public ColonyFrameSnapshot CaptureSnapshot() { lock (sync) return current.Snapshot; }
         public ColonyFramePublication CapturePublication() { lock (sync) return current; }
-        public FluidTransaction BeginTransaction() { lock (sync) return new FluidTransaction(this, current.Snapshot); }
+        public FluidTransaction BeginTransaction()
+        {
+            lock (sync)
+            {
+                if (current.Snapshot.IsReadOnlyPhysicalProjection)
+                    throw new NotSupportedException("A physical projection cannot accept inventory transactions. Edit its native physical owner.");
+                return new FluidTransaction(this, current.Snapshot);
+            }
+        }
 
         internal PreparedFluidCommit Prepare(ColonyFrameSnapshot basis,
             Dictionary<int, FluidInventory> changes, Dictionary<int, int> geometryChanges,
             IReadOnlyDictionary<string, FluidContainerSnapshot?>? containerChanges, long nextContainerGeneration,
             FluidInventory supplied, FluidInventory removed, double heat,
-            long completedFrame, double simulationTime)
+            long completedFrame, double simulationTime, bool physicalProjection = false)
         {
             lock (sync)
             {
@@ -358,9 +380,9 @@ namespace MixedAtmospheres.Core
                 foreach (var entry in geometryChanges)
                     if (entry.Value != geometry.VacuumHash && inventories.ContainsKey(entry.Key))
                         throw new InvalidOperationException("A solid geometry update cannot erase fluid inventory or metadata.");
-                var nextSupplied = FluidInventory.Combine(basis.SuppliedInventory, supplied);
-                var nextRemoved = FluidInventory.Combine(basis.RemovedInventory, removed);
-                var nextHeat = basis.ExternalHeatJoules + heat; FluidChecks.Finite(nextHeat, nameof(heat));
+                var nextSupplied = FluidInventory.Combine(basis.SuppliedInventoryAccount, supplied);
+                var nextRemoved = FluidInventory.Combine(basis.RemovedInventoryAccount, removed);
+                var nextHeat = basis.ExternalHeatAccount + heat; FluidChecks.Finite(nextHeat, nameof(heat));
                 var containers = basis.Containers;
                 if (containerChanges != null)
                 {
@@ -372,8 +394,8 @@ namespace MixedAtmospheres.Core
                 }
                 if (nextContainerGeneration < basis.NextContainerGeneration) throw new InvalidOperationException("Container allocation generation cannot go backwards.");
                 var candidate = new ColonyFrameSnapshot(geometry, basis.Catalog, checked(basis.Revision + 1),
-                    completedFrame, simulationTime, inventories, basis.InitialInventory, nextSupplied, nextRemoved, nextHeat,
-                    basis.ColonyId, containers, nextContainerGeneration);
+                    completedFrame, simulationTime, inventories, basis.InitialInventoryAccount, nextSupplied, nextRemoved, nextHeat,
+                    basis.ColonyId, containers, nextContainerGeneration, basis.IsReadOnlyPhysicalProjection || physicalProjection);
                 return new PreparedFluidCommit(this, basis, candidate);
             }
         }
