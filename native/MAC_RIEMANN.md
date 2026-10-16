@@ -1,6 +1,6 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows compression-owner source completes
+The gate remains failed. The latest Windows symmetric compression-owner source completes
 Sod N64/128/256 and satisfies collision velocity refinement, then fails collision
 pressure refinement at N128. Linux passes all prerequisites and does not repeat
 that known failure. Earlier velocity/range failures remain recorded below.
@@ -74,6 +74,15 @@ immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
 ## Current compression owner and pressure-refinement failure
+
+The subsequent [symmetric coupling](MAC_COMPRESSION_COUPLING.md) passes all 66
+native groups and saved reviews on Windows/Linux, including a manufactured
+temporal control and actual endpoint entropy. Its one Windows retry completes
+Sod but retains collision pressure ratios 0.817665/1.380639/0.633633 for
+density/pressure/velocity. The partial reviewer checks 59,205 identities over
+five profiles; no collision N256, separation case or full review follows.
+Linux does not repeat the known shared failure. The post-only cohort below is
+retained; a spatial accuracy repair remains required before another retry.
 
 [Compatible compression](MAC_COMPRESSION.md) passes six component groups and
 four new owning-interval groups; all 65 native groups and their saved reviews

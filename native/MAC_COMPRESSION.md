@@ -3,7 +3,11 @@
 The component and owning interval pass all 65 native groups on Windows/Linux,
 including 6,095 component and 11,214 owner saved-data checks. It is excluded
 from the default build, C ABI and game. The unchanged strong-flow
-gate is still failed on pressure refinement. The purpose is to address oscillations behind shocks in
+gate is still failed on pressure refinement. The later
+[symmetric coupling](MAC_COMPRESSION_COUPLING.md) now brackets pressure/transport
+with half compression steps and reports actual interval endpoint entropy; its
+66 native groups pass but pressure refinement still fails. This document retains
+the preceding post-only cohort. The purpose is to address oscillations behind shocks in
 the retained collision profiles, without changing the accepted point-velocity
 oracle, grids, timestep or error limits.
 

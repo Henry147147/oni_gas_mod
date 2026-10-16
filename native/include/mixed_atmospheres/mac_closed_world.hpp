@@ -14,8 +14,8 @@ struct MacClosedSettings {
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
     double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
     MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
-    // The owning interval applies this separate dissipative stage after each
-    // accepted pressure/transport candidate. The primitive substep stays separate.
+    // The owning interval applies compression half steps around each
+    // pressure/transport candidate. The primitive substep stays separate.
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
     void validate() const;
 };

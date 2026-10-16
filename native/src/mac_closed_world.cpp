@@ -305,7 +305,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat;
-    MacScaledSum wx, wy; Account gravity_change, body_impulse, entropy, entropy_roundoff;
+    MacScaledSum wx, wy; Account gravity_change, body_impulse;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
     while (result.world.time_s_ < endpoint) {
@@ -317,30 +317,35 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
             if (!(dt > 0) || result.world.time_s_ + dt <= result.world.time_s_)
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed retry time cannot be represented");
             try {
-                auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, result.world.state_, dt, settings_);
-                MacCompressionReport compression;
+                MacCompressionReport before_compression, after_compression; MacTransportState prepared;
+                const MacTransportState* pressure_source = &result.world.state_;
                 if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
-                    auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, dt);
-                    compression = std::move(damped.report); candidate.state = std::move(damped.state);
+                    auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt);
+                    before_compression = std::move(damped.report); prepared = std::move(damped.state); pressure_source = &prepared;
+                }
+                auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, *pressure_source, dt, settings_);
+                if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
+                    auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt);
+                    after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
                 }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
-                bounds.add(compression.energy_bound); compression_heat.add(compression.heat);
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
                 wx.add(candidate.full_pressure_wall_impulse_x); wy.add(candidate.full_pressure_wall_impulse_y);
                 for (const auto& reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
                 for (const auto& reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
-                wx.add(compression.wall_impulse_x); wy.add(compression.wall_impulse_y);
-                result.report.compression_events += compression.events.size();
-                result.report.unresolved_compression_heat_updates += compression.unresolved_heat_updates;
-                result.report.unresolved_compression_momentum_updates += compression.unresolved_momentum_updates;
+                for (const auto* compression : {&before_compression, &after_compression}) {
+                    bounds.add(compression->energy_bound); compression_heat.add(compression->heat);
+                    wx.add(compression->wall_impulse_x); wy.add(compression->wall_impulse_y);
+                    result.report.compression_events += compression->events.size();
+                    result.report.unresolved_compression_heat_updates += compression->unresolved_heat_updates;
+                    result.report.unresolved_compression_momentum_updates += compression->unresolved_momentum_updates;
+                }
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
                 result.report.unresolved_momentum_updates += candidate.unresolved_momentum_updates;
                 result.report.unresolved_gravity_internal_updates += candidate.unresolved_gravity_internal_updates;
                 gravity_change.add(candidate.gravity_internal_change_j); body_impulse.add(candidate.body_impulse_y);
-                entropy.add(candidate.entropy_change_j_per_k); entropy_roundoff.add(candidate.entropy_roundoff_j_per_k);
-                entropy.add(compression.entropy_change_j_per_k); entropy_roundoff.add(compression.entropy_roundoff_j_per_k);
                 for (const auto residual : candidate.geometric_residuals_m3)
                     result.report.maximum_geometric_residual_m3 = std::max(result.report.maximum_geometric_residual_m3, std::abs(residual));
                 result.world.state_ = std::move(candidate.state); result.world.time_s_ += dt;
@@ -362,6 +367,16 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     result.report.full_wall_impulse_x = wx.value(); result.report.full_wall_impulse_y = wy.value();
     result.report.wall_impulse_x = wx.value().project().value; result.report.wall_impulse_y = wy.value().project().value;
     result.report.gravity_internal_change_j = gravity_change.value(); result.report.body_impulse_y = body_impulse.value();
+    // Report the requested interval's actual endpoints for every gravity mode.
+    // Individual stage entropy diagnostics remain in their own reports.
+    Account entropy, entropy_roundoff;
+    for (std::size_t cell = 0; cell < state_.cells.size(); ++cell) if (!state_.grid.walls[cell]) {
+        const auto& old = state_.cells[cell].mixture; const auto& next = result.world.state_.cells[cell].mixture;
+        const auto a = thermodynamics_->evaluate(old, state_.grid.volume_m3());
+        const auto b = thermodynamics_->evaluate(next, state_.grid.volume_m3());
+        entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
+        entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));
+    }
     result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
     return result;
 }

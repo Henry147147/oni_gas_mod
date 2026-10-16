@@ -179,7 +179,10 @@ and Linux ASan/UBSan checks pass. The later
 [compatible compression stage](../native/MAC_COMPRESSION.md) now runs inside the
 owning interval before each candidate commits. Positive heat and wall impulse
 remain separate from transport mixing; all 65 native groups and saved reviews
-pass on Windows/Linux. The latest Windows strong retry passes Sod and collision
+pass on Windows/Linux in that cohort. The subsequent
+[symmetric coupling](../native/MAC_COMPRESSION_COUPLING.md) passes all 66 groups,
+including analytic pair time refinement and actual interval endpoint entropy.
+The latest Windows strong retry passes Sod and collision
 velocity refinement but fails pressure refinement. Linux does not repeat that
 known failure. Collision accuracy still requires work before production
 ownership; no full strong-flow acceptance follows.

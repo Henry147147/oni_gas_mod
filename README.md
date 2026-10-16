@@ -85,8 +85,9 @@ for ownership, interfaces, failures and implementation gates.
   passes five more. [Bounded large integer exponents](native/MAC_EXPONENT_RANGE.md)
   pass six more and Linux ASan/UBSan checks; that Linux cohort completes Sod
   N64/128/256. [Compatible compression](native/MAC_COMPRESSION.md) now integrates
-  with the owning interval: all 65 native groups and saved reviews pass on
-  Windows/Linux, including four new owner groups. The latest Windows
+  with the owning interval. [Symmetric coupling](native/MAC_COMPRESSION_COUPLING.md)
+  now passes all 66 native groups and saved reviews on Windows/Linux, including
+  five owner groups and actual endpoint entropy. The latest Windows
   [strong-gas gate](native/MAC_RIEMANN.md) passes Sod and collision velocity
   refinement, but fails collision pressure refinement. Linux does not repeat
   that known failure. Earlier results and diagnostics are preserved.

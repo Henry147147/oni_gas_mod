@@ -1,9 +1,11 @@
 # Closed MAC pressure and transport
 
 The owning interval now also applies a separate
-[compatible compression stage](MAC_COMPRESSION.md) by default after each
-pressure/transport candidate and before publication. The primitive described
-below stays separately inspectable. All 65 current native groups and saved
+[compatible compression stage](MAC_COMPRESSION.md) by default in symmetric
+half steps around each pressure/transport candidate, before publication.
+The [coupling and endpoint entropy](MAC_COMPRESSION_COUPLING.md) have separate
+controls. The primitive described below stays separately inspectable.
+All 66 current native groups and saved
 reviews pass on Windows/Linux; strong collision pressure refinement remains
 failed, with no production or game acceptance.
 
