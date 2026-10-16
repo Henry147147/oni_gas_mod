@@ -18,6 +18,8 @@ struct MacClosedSubstep {
     MacTransportState state;
     MacTransportState pressure_state;
     OccupiedMaterialPressureStep pressure;
+    std::vector<double> root_input_velocities{}, root_output_velocities{};
+    std::vector<MacScaled> full_pressure_velocities{};
     MacMassFluxes volume_fluxes_m3, mass_fluxes_kg;
     MacTransportReport transport;
     std::optional<MacParcelPlan> reconstruction;
@@ -38,6 +40,7 @@ struct MacClosedSubstep {
     double potential_transport_residual_j = 0, potential_transport_bound_j = 0;
     double gravity_internal_change_j = 0, entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t unresolved_momentum_updates = 0;
+    std::size_t rounded_pressure_velocity_inputs = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
 };
 // Closed, occupied regular-grid Lagrange/projection split. Work pressure acts
@@ -57,6 +60,7 @@ struct MacClosedAdvanceReport {
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;
+    MacScaled full_wall_impulse_x{}, full_wall_impulse_y{};
     double maximum_geometric_residual_m3 = 0;
     double gravity_internal_change_j = 0, body_impulse_y = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;

@@ -57,13 +57,14 @@ void signed_cancellation() {
 }
 void unresolved_destination() {
     const auto& set = ma::testing::setup(); auto source = gas(3.0517578125e-5, .000244140625); source.momentum_x[0] = 2.5697272365554806e-293;
-    const auto held = ma::testing::fingerprint(source); bool rejected = false;
-    try {
+    const auto held = ma::testing::fingerprint(source);
         const auto plan = reconstruct_mac_parcels(set.registry, *set.eos, source, std::vector<double>(4, source.grid.volume_m3()),
             sweeps(source, source.grid.volume_m3() * 4.2934097091770358e-297 / 3.0517578125e-5));
-        static_cast<void>(advance_mac_parcel_transport(set.registry, source, *set.eos, plan));
-    } catch (const FluidFatalError& error) { rejected = error.code() == FluidFatalCode::numerical_precision; }
-    check(rejected && ma::testing::fingerprint(source) == held, "Unresolved accumulated J was accepted or changed source");
+    const auto result = advance_mac_parcel_transport(set.registry, source, *set.eos, plan);
+    const auto momentum = mac_field_values(result.state.momentum_x, result.state.full_momentum_x);
+    check(!result.state.full_momentum_x.empty() && momentum[1].mantissa() > 0 && result.state.momentum_x[1] == 0 && ma::testing::fingerprint(source) == held,
+        "New subrange canonical J was not preserved or changed source");
+    ma::testing::export_transport(3, source, result, plan);
 }
 }
 int main() {
@@ -72,7 +73,7 @@ int main() {
         identified_share(); std::cout << "PASS incoming momentum below binary64 reaches its accumulator\n";
         minimum_uniform(); std::cout << "PASS retained and incoming subnormal J recombine exactly\n";
         signed_cancellation(); std::cout << "PASS signed subrange J cancellation and positive mixing heat\n";
-        unresolved_destination(); std::cout << "PASS unresolved accumulated primary J rejects atomically\n";
+        unresolved_destination(); std::cout << "PASS accumulated primary J persists in full canonical storage\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }

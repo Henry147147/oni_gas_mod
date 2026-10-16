@@ -25,7 +25,7 @@ def parse(raw):
             check(len(row) == 6, 'Primary EOS shape'); unique(eos, tuple(map(int, row[1:4])), tuple(map(number, row[4:])))
         else:
             common.append(line)
-    cases, waves, samples, timestep = base.parse(('\n'.join(common)+'\n').encode('ascii'), required_passes=5, required_cases=range(5))
+    cases, waves, samples, timestep = base.parse(('\n'.join(common)+'\n').encode('ascii'), required_passes=5, required_cases=range(6))
     check(not waves and not samples and timestep is None and len(materials) == 4 and set(reports) == set(cases), 'Primary fixture coverage')
     return cases, materials, reports, eos
 
@@ -71,6 +71,8 @@ def review(data):
     case = cases[4]; quarter = F(1, 2**1076)
     check(len(case['parcels']) == 4 and all(case['pmasses'][*k, helium] == quarter for k in case['parcels']), 'New trace does not have four exact quarter-denormal contributions')
     check((0, 4, helium) not in case['masses'] and case['masses'][1, 4, helium] == 4 * quarter, 'New trace was rounded before accumulation')
+    case=cases[5]
+    check(case['wide_duals'] and all(0<abs(v)<F(1,2**1075) for v in case['wide_duals'].values() if v), 'Bulk flux range extension was bypassed')
 
 
 def main():

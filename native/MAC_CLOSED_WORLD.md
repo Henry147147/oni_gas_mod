@@ -142,3 +142,13 @@ immiscible interfaces, phase transitions, persistence, colony ownership and
 production performance remain required. The four-species test profile uses a
 zero-expansion elastic water surrogate; it is not a calibrated material catalog.
 Earlier remap, vacuum and performance failures remain separate and unchanged.
+
+
+The later [full canonical/flux range cohort](MAC_CANONICAL_RANGE.md) repeats all
+eight native controls and passes a current 6,538-check review on both platforms.
+Its five new groups additionally validate two uniform zero-gravity owner steps
+with full J, velocity, volume/bulk/dual sweeps, explicit root projections and
+wall reaction/heat. Full vertical-gravity work rejects explicitly; ordinary
+gravity controls remain separate evidence. Linux completes one Sod N64 profile
+before integer-exponent capacity rejects N128. This is not a complete strong-flow
+or production/game result.

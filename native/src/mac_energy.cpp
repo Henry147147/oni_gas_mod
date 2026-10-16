@@ -56,12 +56,32 @@ MacEnergy MacEnergy::variance(double mass, double difference) {
     int em = 0, eu = 0; const double m = std::frexp(mass, &em), u = std::frexp(difference, &eu);
     return normalized(.5 * m * u * u, static_cast<std::int64_t>(em) + 2 * static_cast<std::int64_t>(eu));
 }
+MacEnergy MacEnergy::kinetic(double inertia, MacEnergy momentum) {
+    finite(inertia);
+    if (inertia < 0 || (inertia == 0 && !momentum.is_zero())) throw std::invalid_argument("MAC kinetic energy has no positive inertia");
+    if (momentum.is_zero()) return {};
+    int ei = 0; const double mi = std::frexp(inertia, &ei), mj = momentum.mantissa();
+    return normalized(.5 * mj * (mj / mi), 2 * static_cast<std::int64_t>(momentum.exponent()) - ei);
+}
+MacEnergy MacEnergy::variance(MacEnergy mass, MacEnergy difference) {
+    if (mass.mantissa() < 0) throw std::invalid_argument("Negative MAC variance mass");
+    if (mass.is_zero() || difference.is_zero()) return {};
+    return normalized(.5 * mass.mantissa() * difference.mantissa() * difference.mantissa(),
+        static_cast<std::int64_t>(mass.exponent()) + 2 * static_cast<std::int64_t>(difference.exponent()));
+}
 MacEnergy MacEnergy::shared(double part, double total) const {
     finite(part); finite(total); if (part < 0 || total <= 0) throw std::invalid_argument("Invalid MAC derived energy share");
     if (part == 0 || is_zero()) return {};
     if (part == total) return *this;
     int ep = 0, et = 0; const double p = std::frexp(part, &ep), t = std::frexp(total, &et);
     return normalized(mantissa_ * p / t, static_cast<std::int64_t>(exponent_) + ep - et);
+}
+MacEnergy MacEnergy::shared(MacEnergy part, MacEnergy total) const {
+    if (part.mantissa() < 0 || total.mantissa() <= 0) throw std::invalid_argument("Invalid MAC scaled share");
+    if (part.is_zero() || is_zero()) return {};
+    if (part.mantissa() == total.mantissa() && part.exponent() == total.exponent()) return *this;
+    return normalized(mantissa_ * part.mantissa() / total.mantissa(),
+        static_cast<std::int64_t>(exponent_) + part.exponent() - total.exponent());
 }
 MacEnergy MacEnergy::multiplied(double factor) const {
     finite(factor); if (factor == 0 || is_zero()) return {};

@@ -1,5 +1,10 @@
 # Scaled primary parcel contributions
 
+This records the original binary64-bulk-flux cohort. The subsequent
+[full canonical/flux representation](MAC_CANONICAL_RANGE.md) retains the
+formerly rejected below-range bulk flux; the updated suite now requires that
+positive result. Unresolved constituent cell storage still rejects atomically.
+
 Five new native groups and all prerequisites pass on Windows and Linux.
 This work addresses the retained
 [Linux helium-parcel rejection](MAC_ENERGY_TRANSPORT.md), without changing the

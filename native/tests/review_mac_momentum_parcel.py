@@ -31,11 +31,13 @@ def review(cases):
             check(row[2] == (0 if i % 2 == 0 else -2) * unit, 'Signed subrange cancellation differs')
     report = cases[2]['wide_report']
     check(report is not None and report[1] > 0 and report[4][2] > 0 and report[2] == 0, 'Subrange mixing/U rounding was hidden')
+    case=cases[3];row=case['faces'][0,1]
+    check(row[1]==0 and 0<row[2]<F(1,2**1075) and float(row[2])==0, 'New canonical J did not persist below binary64 range')
 
 
 def main():
     raw = Path(sys.argv[1]).read_bytes(); check(len(raw) <= 524288, 'Momentum capture cap')
-    cases, waves, samples, timestep = base.parse(raw, required_passes=4, required_cases=(0, 1, 2))
+    cases, waves, samples, timestep = base.parse(raw, required_passes=4, required_cases=(0, 1, 2, 3))
     check(not waves and not samples and timestep is None, 'Unexpected momentum fixture records')
     review(cases); checks = base.CHECKS
     for corruption in ('dual-flux', 'stored-J', 'trace'):

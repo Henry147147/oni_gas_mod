@@ -137,3 +137,11 @@ bounded primary cell storage; unresolved destinations still reject atomically.
 Five new groups and a 7,681-check review pass on both platforms. The Linux
 strong-flow retry then stops at an incoming canonical-momentum share below
 binary64 range. Its full strong-flow gate remains failed.
+
+[Full canonical/flux range](MAC_CANONICAL_RANGE.md) now carries the actual
+scaled J and fluxes behind validated binary64 projections, including full
+wall reactions and positive wall heat. Five new Windows/Linux groups and a
+7,040-check review pass. The updated contribution/parcels suites retain the
+formerly unrepresentable new J and bulk flux. Primary constituent/U storage
+remains binary64. Linux completes Sod N64 before an integer-exponent capacity
+rejection on N128; full strong-flow acceptance remains open.

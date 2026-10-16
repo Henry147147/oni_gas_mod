@@ -59,6 +59,22 @@ def prepare_scaled_parcels(case):
             close(actual, prototype * volume / reference, actual, 'Scaled parcel constituent differs', 8)
 
 
+def prepare_extended_fields(case):
+    for key, (mask, values) in case['wide_momentum'].items():
+        check(key in case['faces'], 'Orphan full canonical face'); row=list(case['faces'][key]); expected=0
+        for bit, (at, value) in enumerate(zip((1,2,10,0,11),values)):
+            check(row[at]==F(float(value)), 'Canonical/flux legacy projection differs')
+            if row[at]!=value: expected |= 1<<bit
+            row[at]=value
+        check(mask==expected and mask>0, 'Canonical/flux projection mask differs'); case['faces'][key]=tuple(row)
+    for key, value in case['wide_duals'].items():
+        check(key in case['duals'] and F(float(value))==case['duals'][key] and value!=case['duals'][key], 'Full dual projection differs')
+        case['duals'][key]=value
+    for key, value in case['wide_volumes'].items():
+        check(key in case['parcels'] and F(float(value))==case['parcels'][key][2] and value>0, 'Full parcel volume differs')
+        donor,target,_,energy=case['parcels'][key];case['parcels'][key]=(donor,target,value,energy)
+
+
 def prepare_scaled_energy(case):
     check(set(case['widefaces']).issubset(case['faces']),'Orphan wide face energy')
     rounded_faces=0
@@ -94,7 +110,16 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
             unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
                 masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={},
-                widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={}))
+                widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={},wide_momentum={},wide_duals={},wide_volumes={}))
+        elif kind in ('XFACE','XDUAL','XVOLUME'):
+            identifier=int(row[1]);check(identifier in cases,'Orphan full range record');case=cases[identifier]
+            if kind=='XFACE':
+                check(len(row)==15,'Full canonical face shape');unique(case['wide_momentum'],tuple(map(int,row[2:4])),
+                    (int(row[4]),tuple(scaled_energy(row[i],row[i+1]) for i in range(5,15,2))))
+            elif kind=='XDUAL':
+                check(len(row)==7,'Full dual shape');unique(case['wide_duals'],tuple(map(int,row[2:5])),scaled_energy(row[5],row[6]))
+            else:
+                check(len(row)==6,'Full parcel volume shape');unique(case['wide_volumes'],tuple(map(int,row[2:4])),scaled_energy(row[4],row[5]))
         elif kind in ('SPARCEL', 'SPMASS', 'SPPASSIVE'):
             identifier=int(row[1]);check(identifier in cases,'Orphan scaled parcel record');case=cases[identifier]
             if kind=='SPARCEL':
@@ -165,6 +190,7 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
             raise ValueError('Unknown saved record: ' + kind)
     check(set(cases) == set(required_cases) and len(passes) == required_passes and len(set(passes)) == required_passes, 'Missing case/pass groups')
     for case in cases.values():
+        prepare_extended_fields(case)
         prepare_scaled_parcels(case)
         prepare_scaled_energy(case)
     return cases, waves, samples, timestep

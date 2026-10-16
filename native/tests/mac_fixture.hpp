@@ -64,7 +64,23 @@ inline std::string fingerprint(const MacTransportState& s) {
     }
     for (auto value : s.momentum_x) t << ' ' << value;
     for (auto value : s.momentum_y) t << ' ' << value;
+    for (const auto* values : {&s.full_momentum_x, &s.full_momentum_y}) {
+        t << " full " << values->size(); for (auto value : *values) t << ' ' << value.mantissa() << ' ' << value.exponent();
+    }
     return t.str();
+}
+inline void export_extended_face(int id, int axis, std::size_t face, MacScaled old_j, MacScaled new_j, MacScaled impulse, MacScaled flux, MacScaled residual) {
+    const std::array<MacScaled, 5> fields{old_j, new_j, impulse, flux, residual}; unsigned mask = 0;
+    for (std::size_t k = 0; k < fields.size(); ++k) if (fields[k].project().rounded) mask |= 1U << k;
+    if (mask == 0) return;
+    std::cout << "XFACE " << id << ' ' << axis << ' ' << face << ' ' << mask;
+    for (auto field : fields) std::cout << ' ' << field.mantissa() << ' ' << field.exponent();
+    std::cout << '\n';
+}
+inline void export_dual(int id, int axis, const MacDualFlux& flux) {
+    std::cout << "DUAL " << id << ' ' << axis << ' ' << flux.left << ' ' << flux.right << ' ' << flux.mass_kg << '\n';
+    const auto value = mac_dual_mass(flux);
+    if (value.project().rounded) std::cout << "XDUAL " << id << ' ' << axis << ' ' << flux.left << ' ' << flux.right << ' ' << value.mantissa() << ' ' << value.exponent() << '\n';
 }
 inline void export_face_energy(int id, int axis, std::size_t face, const MacFaceEnergy& values) {
     if (values.rounded_projection_mask == 0) return;
@@ -90,6 +106,7 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
         for (const auto& p : c.passive_quantities) std::cout << "RPASSIVE " << id << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
     }
     for (const auto& p : plan.parcels) {
+        if (!p.full_volume_m3.is_zero()) std::cout << "XVOLUME " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.full_volume_m3.mantissa() << ' ' << p.full_volume_m3.exponent() << '\n';
         if (p.reference_volume_m3 != 0) {
             const auto energy = mac_parcel_quantity(p, p.contents.mixture.energy);
             std::cout << "SPARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' <<
@@ -125,13 +142,17 @@ inline void export_transport(int id, const MacTransportState& before, const MacT
         const auto& f = axis == 0 ? r.x : r.y;
         const auto& j0 = axis == 0 ? before.momentum_x : before.momentum_y; const auto& j1 = axis == 0 ? after.state.momentum_x : after.state.momentum_y;
         const auto& flux = axis == 0 ? r.primal_mass_fluxes_kg.x : r.primal_mass_fluxes_kg.y;
+        const auto full_j0 = axis == 0 ? mac_field_values(before.momentum_x, before.full_momentum_x) : mac_field_values(before.momentum_y, before.full_momentum_y);
+        const auto full_j1 = axis == 0 ? mac_field_values(after.state.momentum_x, after.state.full_momentum_x) : mac_field_values(after.state.momentum_y, after.state.full_momentum_y);
+        const auto full_flux = axis == 0 ? mac_field_values(r.primal_mass_fluxes_kg.x, r.primal_mass_fluxes_kg.full_x) : mac_field_values(r.primal_mass_fluxes_kg.y, r.primal_mass_fluxes_kg.full_y);
         for (std::size_t i = 0; i < j0.size(); ++i) {
             std::cout << "FACE " << id << ' ' << axis << ' ' << i << ' ' << flux[i] << ' ' << j0[i] << ' ' << j1[i];
             for (const auto value : {f.old_inertia[i], f.new_inertia[i], f.old_kinetic[i], f.new_kinetic[i], f.transported_kinetic[i], f.mixing_heat[i], f.wall_heat[i], f.wall_impulse[i], f.dual_mass_residual[i]}) std::cout << ' ' << value;
             std::cout << '\n';
             export_face_energy(id, axis, i, f.energies[i]);
+            export_extended_face(id, axis, i, full_j0[i], full_j1[i], f.full_wall_impulse[i], full_flux[i], f.full_dual_mass_residual[i]);
         }
-        for (const auto& v : f.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << v.left << ' ' << v.right << ' ' << v.mass_kg << '\n';
+        for (const auto& v : f.fluxes) export_dual(id, axis, v);
     }
     export_reconstruction(id, g.volume_m3(), plan);
     export_energy_report(id, r);
@@ -170,6 +191,11 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
         const auto& flux = axis == 0 ? result.mass_fluxes_kg.x : result.mass_fluxes_kg.y;
         const auto& sweep = axis == 0 ? result.volume_fluxes_m3.x : result.volume_fluxes_m3.y;
         const auto& map = axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y;
+        const auto initial = axis == 0 ? mac_field_values(before.momentum_x, before.full_momentum_x) : mac_field_values(before.momentum_y, before.full_momentum_y);
+        const auto pressure_j = axis == 0 ? mac_field_values(result.pressure_state.momentum_x, result.pressure_state.full_momentum_x) : mac_field_values(result.pressure_state.momentum_y, result.pressure_state.full_momentum_y);
+        const auto final_j = axis == 0 ? mac_field_values(result.state.momentum_x, result.state.full_momentum_x) : mac_field_values(result.state.momentum_y, result.state.full_momentum_y);
+        const auto full_flux = axis == 0 ? mac_field_values(result.mass_fluxes_kg.x, result.mass_fluxes_kg.full_x) : mac_field_values(result.mass_fluxes_kg.y, result.mass_fluxes_kg.full_y);
+        const auto full_sweep = axis == 0 ? mac_field_values(result.volume_fluxes_m3.x, result.volume_fluxes_m3.full_x) : mac_field_values(result.volume_fluxes_m3.y, result.volume_fluxes_m3.full_y);
         for (std::size_t f = 0; f < j0.size(); ++f) {
             std::cout << "PFACE " << id << ' ' << axis << ' ' << f << ' ' << j_initial[f] << ' ' << sweep[f] << ' ' <<
                 (map[f] == none ? 0 : result.pressure.velocities_m_per_s[map[f]]) << '\n';
@@ -178,8 +204,17 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
                 report.mixing_heat[f], report.wall_heat[f], report.wall_impulse[f], report.dual_mass_residual[f]}) std::cout << ' ' << value;
             std::cout << '\n';
             export_face_energy(id, axis, f, report.energies[f]);
+            export_extended_face(id, axis, f, pressure_j[f], final_j[f], report.full_wall_impulse[f], full_flux[f], report.full_dual_mass_residual[f]);
+            const auto helper = map[f] == none ? MacScaled{} : result.full_pressure_velocities[map[f]];
+            const std::array<MacScaled, 3> values{initial[f], full_sweep[f], helper}; unsigned mask = 0;
+            for (std::size_t k = 0; k < values.size(); ++k) if (values[k].project().rounded) mask |= 1U << k;
+            if (mask != 0) {
+                std::cout << "XPFACE " << id << ' ' << axis << ' ' << f << ' ' << mask;
+                for (auto value : values) std::cout << ' ' << value.mantissa() << ' ' << value.exponent();
+                std::cout << ' ' << (map[f] == none ? 0 : result.root_input_velocities[map[f]]) << ' ' << (map[f] == none ? 0 : result.root_output_velocities[map[f]]) << '\n';
+            }
         }
-        for (const auto& f : report.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << f.left << ' ' << f.right << ' ' << f.mass_kg << '\n';
+        for (const auto& f : report.fluxes) export_dual(id, axis, f);
     }
     if (result.reconstruction) export_reconstruction(id, g.volume_m3(), *result.reconstruction);
     export_energy_report(id, r);

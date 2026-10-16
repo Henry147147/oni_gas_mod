@@ -61,11 +61,10 @@ struct Topology {
         }
     }
 };
-void validate_momentum(const std::vector<Pair>& pairs, const std::vector<double>& inertia, const std::vector<double>& j) {
+void validate_momentum(const std::vector<Pair>& pairs, const std::vector<double>& inertia, const std::vector<MacScaled>& j) {
     require(j.size() == pairs.size(), "MAC closed momentum shape differs");
     for (std::size_t i = 0; i < pairs.size(); ++i) {
-        require_finite(j[i], "MAC closed canonical momentum");
-        if (pairs[i].left == none || pairs[i].right == none) require(j[i] == 0, "MAC closed fixed normal face has momentum");
+        if (pairs[i].left == none || pairs[i].right == none) require(j[i].is_zero(), "MAC closed fixed normal face has momentum");
         static_cast<void>(MacEnergy::kinetic(inertia[i], j[i]).project());
     }
 }
@@ -80,7 +79,8 @@ MacEnergyAccount energy_difference(const MacTransportState& old, const MacTransp
         }
     }
     for (int axis = 0; axis < 2; ++axis) {
-        const auto& a = axis == 0 ? old.momentum_x : old.momentum_y; const auto& b = axis == 0 ? next.momentum_x : next.momentum_y;
+        const auto a = axis == 0 ? mac_field_values(old.momentum_x, old.full_momentum_x) : mac_field_values(old.momentum_y, old.full_momentum_y);
+        const auto b = axis == 0 ? mac_field_values(next.momentum_x, next.full_momentum_x) : mac_field_values(next.momentum_y, next.full_momentum_y);
         const auto& mass0 = axis == 0 ? i0.x : i0.y; const auto& mass1 = axis == 0 ? i1.x : i1.y;
         for (std::size_t f = 0; f < a.size(); ++f) { balance.add(MacEnergy::kinetic(mass1[f], b[f])); balance.add(MacEnergy::kinetic(mass0[f], a[f]).negated()); }
     }
@@ -100,7 +100,10 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     settings.validate(); require(std::isfinite(dt) && dt > 0 && dt <= settings.maximum_timestep_s, "Invalid MAC closed substep time");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid; const Topology topology(g);
     require(settings.gravity_m_per_s2 == 0 || !g.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
-    validate_momentum(topology.x, inertia.x, source.momentum_x); validate_momentum(topology.y, inertia.y, source.momentum_y);
+    const auto jx0 = mac_field_values(source.momentum_x, source.full_momentum_x), jy0 = mac_field_values(source.momentum_y, source.full_momentum_y);
+    validate_momentum(topology.x, inertia.x, jx0); validate_momentum(topology.y, inertia.y, jy0);
+    if (settings.gravity_m_per_s2 != 0 && !source.full_momentum_y.empty())
+        throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity work is not implemented");
     MacClosedSubstep result; result.pressure_state = source; result.active_cells = topology.active;
     result.material_volumes_m3.resize(source.cells.size()); result.geometric_residuals_m3.resize(source.cells.size());
     result.pressure_nodes_x.assign(topology.x.size(), none); result.pressure_nodes_y.assign(topology.y.size(), none);
@@ -115,11 +118,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     std::vector<OccupiedMaterialNode> nodes;
     for (int axis = 0; axis < 2; ++axis) {
         const auto& pairs = axis == 0 ? topology.x : topology.y; const auto& m = axis == 0 ? inertia.x : inertia.y;
-        const auto& j = axis == 0 ? source.momentum_x : source.momentum_y; auto& map = axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y;
+        const auto& j = axis == 0 ? jx0 : jy0; auto& map = axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y;
         for (std::size_t f = 0; f < pairs.size(); ++f) if (m[f] > 0) {
             map[f] = nodes.size(); const auto& pair = pairs[f];
+            const auto velocity = j[f].shared(1, m[f]).project(); if (velocity.rounded) ++result.rounded_pressure_velocity_inputs;
             nodes.push_back({pair.left == none ? none : topology.local[pair.left], pair.right == none ? none : topology.local[pair.right],
-                area, m[f], j[f] / m[f], axis == 0 ? 0 : -settings.gravity_m_per_s2, pair.left == none || pair.right == none});
+                area, m[f], velocity.value, axis == 0 ? 0 : -settings.gravity_m_per_s2, pair.left == none || pair.right == none});
         }
     }
     ReferenceRootOptions work_root;
@@ -130,17 +134,29 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     work_root.relative_pressure_tolerance = eps / 4;
     if (!materials.empty()) result.pressure = advance_occupied_material_pressure(model, materials, nodes, dt, settings.preconditioner,
         LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root);
+    result.root_output_velocities = result.pressure.velocities_m_per_s;
+    result.root_input_velocities.reserve(nodes.size()); result.full_pressure_velocities.resize(nodes.size());
+    for (const auto& node : nodes) result.root_input_velocities.push_back(node.velocity_m_per_s);
+    for (int axis = 0; axis < 2; ++axis) {
+        const auto& j = axis == 0 ? jx0 : jy0; const auto& m = axis == 0 ? inertia.x : inertia.y;
+        const auto& map = axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y;
+        for (std::size_t f = 0; f < map.size(); ++f) if (map[f] != none) {
+            const auto at = map[f]; MacScaledSum corrected;
+            corrected.add(result.root_output_velocities[at]); corrected.add(j[f].shared(1, m[f])); corrected.add(-result.root_input_velocities[at]);
+            result.full_pressure_velocities[at] = mac_scaled_primary(corrected);
+            result.pressure.velocities_m_per_s[at] = result.full_pressure_velocities[at].project().value;
+        }
+    }
     for (std::size_t i = 0; i < topology.active.size(); ++i) {
         const auto cell = topology.active[i]; result.pressure_state.cells[cell].mixture = result.pressure.cells[i].mixture;
         result.material_volumes_m3[cell] = result.pressure.cells[i].volume_m3;
     }
-    std::vector<Account> sweeps(source.cells.size()), outgoing(source.cells.size()); Account wx, wy, px, py, body_impulse;
+    std::vector<MacScaledSum> sweeps(source.cells.size()), outgoing(source.cells.size()); Account wx, wy, body_impulse; MacScaledAccount px, py;
+    std::vector<MacScaled> jx1 = jx0, jy1 = jy0, qx(topology.x.size()), qy(topology.y.size()), fx(topology.x.size()), fy(topology.y.size());
     for (int axis = 0; axis < 2; ++axis) {
         const auto& pairs = axis == 0 ? topology.x : topology.y; const auto& m = axis == 0 ? inertia.x : inertia.y;
-        const auto& old_j = axis == 0 ? source.momentum_x : source.momentum_y;
-        auto& new_j = axis == 0 ? result.pressure_state.momentum_x : result.pressure_state.momentum_y;
-        auto& q = axis == 0 ? result.volume_fluxes_m3.x : result.volume_fluxes_m3.y;
-        auto& flux = axis == 0 ? result.mass_fluxes_kg.x : result.mass_fluxes_kg.y;
+        const auto& old_j = axis == 0 ? jx0 : jy0;
+        auto& new_j = axis == 0 ? jx1 : jy1; auto& q = axis == 0 ? qx : qy; auto& flux = axis == 0 ? fx : fy;
         auto& reaction = axis == 0 ? wx : wy; auto& momentum = axis == 0 ? px : py;
         for (std::size_t f = 0; f < pairs.size(); ++f) if (m[f] > 0) {
             const auto& pair = pairs[f];
@@ -151,33 +167,48 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             const double impulse = settings.gravity_m_per_s2 == 0 ? dt * area * (pl - pr) : dt * (area * (pl - pr) + gravity_force);
             require_finite(impulse, "MAC pressure impulse");
             const bool fixed = pair.left == none || pair.right == none;
-            new_j[f] = fixed ? 0 : old_j[f] + impulse; require_finite(new_j[f], "MAC pressure canonical momentum");
+            MacScaledSum updated; updated.add(old_j[f]); updated.add(impulse); new_j[f] = fixed ? MacScaled{} : mac_scaled_primary(updated);
             if (fixed) { reaction.add(-impulse); momentum.add(impulse); }
-            else if (impulse != 0 && std::abs((new_j[f] - old_j[f]) - impulse) > 32 * eps * std::abs(impulse)) ++result.unresolved_momentum_updates;
-            momentum.add(new_j[f]); momentum.add(-old_j[f]); momentum.add(-gravity_impulse);
+            else if (impulse != 0) {
+                MacScaledSum difference; difference.add(new_j[f]); difference.add(old_j[f].negated()); difference.add(-impulse);
+                MacScaledSum allowance; allowance.add(MacScaled::from_double(std::abs(impulse)).shifted(-47));
+                for (std::size_t k = 0; k < difference.size(); ++k) allowance.add(difference.sign() < 0 ? difference.component(k) : difference.component(k).negated());
+                if (allowance.sign() < 0) ++result.unresolved_momentum_updates;
+            }
+            momentum.add(new_j[f]); momentum.add(old_j[f].negated()); momentum.add(-gravity_impulse);
             if (axis == 1) body_impulse.add(gravity_impulse);
             if (axis == 1 && settings.gravity_m_per_s2 != 0) {
-                result.gravity_body_work_y[f] = gravity_impulse * std::midpoint(old_j[f] / m[f], new_j[f] / m[f]);
+                result.gravity_body_work_y[f] = gravity_impulse * std::midpoint(old_j[f].shared(1, m[f]).require_representable(), new_j[f].shared(1, m[f]).require_representable());
             }
             if (fixed) continue;
-            q[f] = dt * area * std::midpoint(old_j[f] / m[f], new_j[f] / m[f]); require_finite(q[f], "MAC pressure volume sweep");
-            sweeps[pair.left].add(q[f]); sweeps[pair.right].add(-q[f]);
-            if (q[f] != 0) {
-                const auto donor = q[f] > 0 ? pair.left : pair.right;
-                outgoing[donor].add(std::abs(q[f]));
+            MacScaledSum midpoint; midpoint.add(old_j[f]); midpoint.add(new_j[f]);
+            q[f] = midpoint.value().shifted(-1).shared(1, m[f]).multiplied(dt).multiplied(area);
+            sweeps[pair.left].add(q[f]); sweeps[pair.right].add(q[f].negated());
+            if (!q[f].is_zero()) {
+                const auto donor = q[f].mantissa() > 0 ? pair.left : pair.right;
+                outgoing[donor].add(q[f].magnitude());
                 if (settings.reconstruction == MacMaterialReconstruction::donor_cell)
-                    flux[f] = product_ratio(q[f], source.cells[donor].mixture.mass(), result.material_volumes_m3[donor]);
+                    flux[f] = q[f].shared(source.cells[donor].mixture.mass(), result.material_volumes_m3[donor]);
             }
         }
     }
+    store_mac_field(result.pressure_state.momentum_x, result.pressure_state.full_momentum_x, jx1);
+    store_mac_field(result.pressure_state.momentum_y, result.pressure_state.full_momentum_y, jy1);
+    result.volume_fluxes_m3 = mac_fluxes(qx, qy); result.mass_fluxes_kg = mac_fluxes(fx, fy);
+    if (settings.gravity_m_per_s2 != 0 && !result.volume_fluxes_m3.full_y.empty())
+        throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity sweep is not implemented");
     result.pressure_wall_impulse_x = wx.value(); result.pressure_wall_impulse_y = wy.value();
     result.body_impulse_y = body_impulse.value();
-    px.check("MAC pressure X momentum plus wall reaction failed"); py.check("MAC pressure Y momentum plus wall reaction failed");
+    if (!px.within_bound() || !py.within_bound()) throw std::domain_error("MAC pressure full momentum plus wall reaction failed");
     for (auto cell : topology.active) {
-        if (outgoing[cell].value() > settings.maximum_outgoing_volume_fraction * result.material_volumes_m3[cell])
+        MacScaledSum limit; limit.add(MacScaled::from_double(result.material_volumes_m3[cell]).multiplied(settings.maximum_outgoing_volume_fraction));
+        for (std::size_t k = 0; k < outgoing[cell].size(); ++k) limit.add(outgoing[cell].component(k).negated());
+        if (limit.sign() < 0)
             throw std::domain_error("MAC pressure material-volume CFL exceeded");
-        Account geometry; geometry.add(result.material_volumes_m3[cell]); geometry.add(-g.volume_m3()); geometry.add(-sweeps[cell].value());
-        geometry.check("MAC pressure material-volume closure exceeds its operand bound"); result.geometric_residuals_m3[cell] = geometry.value();
+        MacScaledAccount geometry; geometry.add(result.material_volumes_m3[cell]); geometry.add(-g.volume_m3());
+        for (std::size_t k = 0; k < sweeps[cell].size(); ++k) geometry.add(sweeps[cell].component(k).negated());
+        if (!geometry.within_bound()) throw std::domain_error("MAC pressure full material-volume closure exceeds its operand bound");
+        result.geometric_residuals_m3[cell] = geometry.residual().project().value;
     }
     auto pressure_balance = energy_difference(source, result.pressure_state, inertia, inertia);
     if (settings.gravity_m_per_s2 != 0) for (const double work : result.gravity_body_work_y) pressure_balance.add(-work);
@@ -193,6 +224,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model, result.material_volumes_m3);
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
     if (settings.gravity_m_per_s2 != 0) {
+        if (!result.mass_fluxes_kg.full_y.empty()) throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity mass work is not implemented");
         Account potential, gravity_internal, change, entropy, entropy_roundoff;
         std::vector<Account> correction(source.cells.size());
         for (std::size_t f = 0; f < topology.y.size(); ++f) {
@@ -246,7 +278,8 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require(thermodynamics_ != nullptr, "MAC closed owner requires an immutable EOS"); settings_.validate();
     const auto inertia = mac_face_inertias(registry_, state_, *thermodynamics_); const Topology topology(state_.grid);
     require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
-    validate_momentum(topology.x, inertia.x, state_.momentum_x); validate_momentum(topology.y, inertia.y, state_.momentum_y);
+    validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
+    validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
 }
 MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) const {
     require_mac_energy_environment();
@@ -255,7 +288,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall;
-    Account wx, wy, gravity_change, body_impulse, entropy, entropy_roundoff;
+    MacScaledSum wx, wy; Account gravity_change, body_impulse, entropy, entropy_roundoff;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
     while (result.world.time_s_ < endpoint) {
@@ -271,8 +304,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
                 wx.add(candidate.pressure_wall_impulse_x); wy.add(candidate.pressure_wall_impulse_y);
-                for (const double reaction : candidate.transport.x.wall_impulse) wx.add(reaction);
-                for (const double reaction : candidate.transport.y.wall_impulse) wy.add(reaction);
+                for (const auto reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
+                for (const auto reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
@@ -296,7 +329,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     result.report.energy_bound_j = projected_energy(result.report.energy_bound_wide_j, result.report.rounded_energy_projections);
     result.report.mixing_heat_j = projected_energy(result.report.mixing_heat_wide_j, result.report.rounded_energy_projections);
     result.report.wall_heat_j = projected_energy(result.report.wall_heat_wide_j, result.report.rounded_energy_projections);
-    result.report.wall_impulse_x = wx.value(); result.report.wall_impulse_y = wy.value();
+    result.report.full_wall_impulse_x = wx.value(); result.report.full_wall_impulse_y = wy.value();
+    result.report.wall_impulse_x = wx.value().project().value; result.report.wall_impulse_y = wy.value().project().value;
     result.report.gravity_internal_change_j = gravity_change.value(); result.report.body_impulse_y = body_impulse.value();
     result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
     return result;

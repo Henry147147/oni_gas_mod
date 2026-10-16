@@ -117,10 +117,12 @@ void unsupported_primary_storage() {
     source = gas(1, 1e-28); source.cells[0].passive_quantities = {{17, std::numeric_limits<double>::denorm_min()}};
     rejects(source, [&] { static_cast<void>(reconstruct_mac_parcels(set.registry, *set.eos, source, std::vector<double>(4, 1), sweeps(source, .125))); });
     source = gas(1e-250, 1e-278);
-    rejects(source, [&] {
-        const auto p = reconstruct_mac_parcels(set.registry, *set.eos, source, std::vector<double>(4, 1), sweeps(source, 1e-100));
-        static_cast<void>(advance_mac_parcel_transport(set.registry, source, *set.eos, p));
-    });
+    const auto held = ma::testing::fingerprint(source);
+    const auto plan = reconstruct_mac_parcels(set.registry, *set.eos, source, std::vector<double>(4, 1), sweeps(source, 1e-100));
+    const auto result = advance_mac_parcel_transport(set.registry, source, *set.eos, plan);
+    check(!result.report.primal_mass_fluxes_kg.full_x.empty() && ma::testing::fingerprint(source) == held && ma::testing::fingerprint(result.state) == held,
+        "Full bulk flux was not retained or changed uniform state");
+    export_case(5, source, plan, result);
 }
 void invalid_scale() {
     const auto& set = ma::testing::setup(); const auto source = gas(1, 1e-28); const auto held = ma::testing::fingerprint(source);
@@ -141,7 +143,7 @@ int main() {
         original_range(); std::cout << "PASS original below-range and rounded-subnormal helium contributions\n";
         sparse_passive(); std::cout << "PASS sparse passive below binary64 range\n";
         accumulated_new_trace(); std::cout << "PASS four subrange parcels form a positive new stored trace\n";
-        unsupported_primary_storage(); std::cout << "PASS unresolved destination and donor/bulk storage reject atomically\n";
+        unsupported_primary_storage(); std::cout << "PASS unresolved cell storage rejects and full bulk flux is retained\n";
         invalid_scale(); std::cout << "PASS invalid and inconsistent parcel scales reject atomically\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }

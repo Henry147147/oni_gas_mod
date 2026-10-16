@@ -24,10 +24,11 @@ def dec(value):
     return D(value.numerator) / D(value.denominator)
 
 
-def parse(raw, required_passes=8, require_acoustic=True):
+def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1)):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
-    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER', 'SPARCEL', 'SPMASS', 'SPPASSIVE'}
+    extended_pressure = {}
+    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE', 'EFACE', 'ECASE', 'EOWNER', 'SPARCEL', 'SPMASS', 'SPPASSIVE', 'XFACE', 'XDUAL', 'XVOLUME'}
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record')
         kind = row[0]
@@ -45,6 +46,9 @@ def parse(raw, required_passes=8, require_acoustic=True):
         elif kind == 'PFACE':
             check(len(row) == 7, 'Pressure face shape')
             unique(faces, tuple(map(int, row[1:4])), tuple(map(number, row[4:])))
+        elif kind == 'XPFACE':
+            check(len(row)==13,'Full pressure face shape')
+            unique(extended_pressure,tuple(map(int,row[1:4])),(int(row[4]),tuple(base.scaled_energy(row[i],row[i+1]) for i in range(5,11,2)),number(row[11]),number(row[12])))
         elif kind == 'ACOUSTIC':
             check(len(row) == 13, 'Acoustic shape')
             values = tuple(map(number, row[2:]))
@@ -58,7 +62,14 @@ def parse(raw, required_passes=8, require_acoustic=True):
             interval = tuple(map(number, row[1:]))
         else:
             raise ValueError('Unknown record: ' + kind)
-    cases, _, _, _ = base.parse(('\n'.join(ordinary) + '\n').encode('ascii'), required_passes=required_passes)
+    cases, _, _, _ = base.parse(('\n'.join(ordinary) + '\n').encode('ascii'), required_passes=required_passes, required_cases=required_cases)
+    for key,(mask,values,root_in,root_out) in extended_pressure.items():
+        check(key in faces and key[0] in cases,'Orphan full pressure face'); expected=0
+        for bit,(legacy,full) in enumerate(zip(faces[key],values)):
+            check(legacy==F(float(full)),'Pressure face projection differs')
+            if legacy!=full:expected|=1<<bit
+        check(mask==expected and mask>0,'Pressure face projection mask differs');faces[key]=values
+        cases[key[0]].setdefault('root_projection',{})[key[1:]]=(root_in,root_out)
     for identifier,case in cases.items():
         if case['owner_energy'] is not None:
             count,values=case['owner_energy'];row=pressure[identifier];projections=row[3:7]
@@ -101,20 +112,27 @@ def equilibrium(masses, materials, energy_f, volume_f):
         gas_volume = moles * dec(R) * temperature / p if p else D(0)
         return liquid + gas_volume - volume, temperature, gas_volume
     check(all(s in materials for s in masses), 'Constituent without saved material identity')
-    lo, hi = D(0), D(1)
-    for _ in range(100):
-        if point(hi)[0] <= 0:
-            break
-        hi *= 2
+    if all(materials[species][0] == 0 for species in masses):
+        _, _, capacity, offset, moles = eos_values(masses, materials, D(0))
+        check(capacity > 0 and moles > 0 and volume > 0, 'Invalid occupied ideal-gas reference')
+        temperature = (energy - offset) / capacity
+        p = moles * dec(R) * temperature / volume
+        gas_volume = volume
     else:
-        raise ValueError('Independent EOS pressure bracket failed')
-    for _ in range(240):
-        mid = (lo + hi) / 2
-        if point(mid)[0] > 0:
-            lo = mid
+        lo, hi = D(0), D(1)
+        for _ in range(100):
+            if point(hi)[0] <= 0:
+                break
+            hi *= 2
         else:
-            hi = mid
-    p = (lo + hi) / 2; _, temperature, gas_volume = point(p)
+            raise ValueError('Independent EOS pressure bracket failed')
+        for _ in range(240):
+            mid = (lo + hi) / 2
+            if point(mid)[0] > 0:
+                lo = mid
+            else:
+                hi = mid
+        p = (lo + hi) / 2; _, temperature, gas_volume = point(p)
     check(temperature > 0 and p > 0 and gas_volume > 0, 'Independent EOS left occupied positive branch')
     _, _, capacity, _, _ = eos_values(masses, materials, p)
     entropy = capacity * (temperature / dec(F(298.15))).ln()
@@ -187,6 +205,12 @@ def review_pressure(case_id, data):
                 else:
                     check(flux == 0, 'Mass flow without a sweep')
             if i0:
+                if (axis,f) in case.get('root_projection',{}):
+                    root_in,root_out=case['root_projection'][axis,f]
+                    expected_in=F(float(j_initial/i0))
+                    close(root_in,expected_in,abs(expected_in),'Pressure root input projection')
+                    corrected=root_out+j_initial/i0-root_in
+                    close(helper_u,corrected,abs(helper_u)+abs(corrected),'Pressure helper full input correction')
                 close(helper_u, j_pressure / i0, abs(j_initial / i0) + abs(impulse / i0) + abs(helper_u), 'Pressure helper/canonical velocity', 256)
             k0 = j_initial * j_initial / (2 * i0) if i0 else F(0)
             pterms.extend((row[5], -k0)); all_terms.extend((row[6], -k0))

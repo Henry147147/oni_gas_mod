@@ -8,16 +8,20 @@ namespace ma::experimental {
 // energy operations; no rounding/FTZ/DAZ/exception setting is changed here.
 void require_mac_energy_environment();
 struct MacEnergyProjection { double value = 0; bool rounded = false; };
-// Derived energy/accounting number: mantissa * 2^exponent, with a binary64
-// significand and an independent exponent. This is not a primary inventory.
+// Range arithmetic: mantissa * 2^exponent, with a binary64 significand and an
+// independent exponent. MacScaled supplies a unit-neutral name for explicit
+// canonical/flux fields as well as derived energy and accounting operands.
 class MacEnergy {
 public:
     MacEnergy() noexcept = default;
     [[nodiscard]] static MacEnergy from_double(double);
     [[nodiscard]] static MacEnergy from_parts(double mantissa, int exponent);
     [[nodiscard]] static MacEnergy kinetic(double inertia, double momentum);
+    [[nodiscard]] static MacEnergy kinetic(double inertia, MacEnergy momentum);
     [[nodiscard]] static MacEnergy variance(double mass, double velocity_difference);
+    [[nodiscard]] static MacEnergy variance(MacEnergy mass, MacEnergy velocity_difference);
     [[nodiscard]] MacEnergy shared(double part, double total) const;
+    [[nodiscard]] MacEnergy shared(MacEnergy part, MacEnergy total) const;
     [[nodiscard]] MacEnergy multiplied(double factor) const;
     [[nodiscard]] MacEnergy shifted(int power_of_two) const;
     [[nodiscard]] MacEnergy negated() const noexcept;

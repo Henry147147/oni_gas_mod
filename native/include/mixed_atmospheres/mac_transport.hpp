@@ -2,6 +2,7 @@
 #include "mixture.hpp"
 #include "passive_quantities.hpp"
 #include "mac_energy.hpp"
+#include "mac_fields.hpp"
 #include <cstdint>
 #include <span>
 
@@ -26,12 +27,16 @@ struct MacMaterialCell { MixtureInventory mixture; PassiveQuantities passive_qua
 struct MacTransportState {
     MacGrid grid;
     std::vector<MacMaterialCell> cells;
-    // Canonical normal momentum, not reconstructed from cell momentum.
+    // Normal face momentum, never reconstructed from cell momentum. These
+    // doubles are explicit projections when the corresponding full field exists.
     std::vector<double> momentum_x, momentum_y;
+    // Authoritative when nonempty; momentum_x/y are explicit projections.
+    std::vector<MacScaled> full_momentum_x{}, full_momentum_y{};
 };
 struct MacMassFluxes {
     // Integrated kg, oriented toward positive x/y; one value per primal face.
     std::vector<double> x, y;
+    std::vector<MacScaled> full_x{}, full_y{};
 };
 struct MacPrimalParcel {
     std::size_t axis = 0, face = 0, donor = 0, target = 0;
@@ -40,6 +45,7 @@ struct MacPrimalParcel {
     // Zero: contents stores actual amounts (legacy form). Otherwise contents
     // is a prototype at this volume; actual amounts retain the common scale.
     double reference_volume_m3 = 0;
+    MacScaled full_volume_m3{};
 };
 // Complete conservative donor decomposition. The transport API validates
 // inventories, geometry, each donor's species/U/passive accounts and EOS. It
@@ -50,7 +56,20 @@ struct MacParcelPlan {
     std::vector<double> source_volumes_m3, retained_volumes_m3, limiter;
     std::size_t eos_backtracks = 0, unresolved_stencil_cells = 0;
 };
-struct MacDualFlux { std::size_t left = 0, right = 0; double mass_kg = 0; };
+struct MacDualFlux { std::size_t left = 0, right = 0; double mass_kg = 0; MacScaled full_mass_kg{}; };
+[[nodiscard]] inline MacScaled mac_projected_value(double projected, MacScaled full) {
+    if (full.is_zero()) return MacScaled::from_double(projected);
+    if (std::bit_cast<std::uint64_t>(full.project().value) != std::bit_cast<std::uint64_t>(projected))
+        throw std::invalid_argument("MAC scalar differs from its explicit projection");
+    return full;
+}
+[[nodiscard]] inline MacScaled mac_dual_mass(const MacDualFlux& flux) { return mac_projected_value(flux.mass_kg, flux.full_mass_kg); }
+[[nodiscard]] inline MacDualFlux mac_dual_flux(std::size_t left, std::size_t right, MacScaled value) {
+    const auto p = value.project(); return {left, right, p.value, p.rounded ? value : MacScaled{}};
+}
+[[nodiscard]] inline MacMassFluxes mac_fluxes(std::span<const MacScaled> x, std::span<const MacScaled> y) {
+    MacMassFluxes result; store_mac_field(result.x, result.full_x, x); store_mac_field(result.y, result.full_y, y); return result;
+}
 struct MacFaceEnergy {
     MacEnergy old_kinetic, new_kinetic, transported_kinetic, mixing_heat, wall_heat;
     // Corresponding legacy binary64 fields are projections, never account
@@ -63,12 +82,15 @@ struct MacFaceTransportReport {
     std::vector<MacDualFlux> fluxes;
     std::vector<MacFaceEnergy> energies;
     std::size_t rounded_energy_projections = 0;
+    std::vector<MacScaled> full_wall_impulse;
+    std::vector<MacScaled> full_dual_mass_residual{};
 };
 struct MacTransportReport {
     MacFaceTransportReport x, y;
     std::vector<double> species_mass_residual;
     double energy_residual_j = 0, energy_bound_j = 0;
     double momentum_x_residual = 0, momentum_y_residual = 0;
+    MacScaled full_momentum_x_residual{}, full_momentum_y_residual{};
     double mixing_heat_j = 0, wall_heat_j = 0;
     std::size_t unresolved_heat_updates = 0;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;

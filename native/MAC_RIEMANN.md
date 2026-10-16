@@ -1,7 +1,7 @@
 # Closed-gas Riemann gate
 
 The gate remains failed. Windows collision velocity refinement is unresolved;
-the latest Linux retry rejects accumulated canonical momentum below binary64 range.
+the latest Linux retry completes Sod N64 and then exceeds integer exponent capacity on N128.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. This gate changes tests and build declarations;
@@ -71,7 +71,20 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current Linux momentum repair and canonical storage rejection
+## Current Linux canonical range and exponent-capacity rejection
+
+[Full canonical/flux range](MAC_CANONICAL_RANGE.md) passes five new Windows/Linux
+groups, 7,040 saved checks and all prerequisite controls/reviews. The Linux retry
+completes Sod N64; a partial data review checks 5,996 identities and reproduces
+density/pressure/velocity errors 0.0125756323775/0.00981171744507/0.0170505310651.
+Sod N128 then requests exponent -3049816383 in a scaled share, beyond the
+representation's signed 32-bit range. The original guard rejects before
+overflow. No complete refinement group or full strong-flow review passes.
+A first-rejection diagnostic changes no arithmetic, source input or bound.
+Wider exponent storage and the separate Windows collision-accuracy repair
+remain required. The Windows failed gate is not replayed.
+
+## Momentum-contribution cohort: canonical storage rejection
 
 [Scaled momentum contributions](MAC_MOMENTUM_PARCELS.md) pass four new groups,
 3,391 saved checks and all prerequisite reviews on Windows/Linux. The Linux

@@ -1,5 +1,11 @@
 # Scaled momentum contributions
 
+This records the original binary64-canonical cohort. The subsequent
+[full canonical/flux representation](MAC_CANONICAL_RANGE.md) preserves the
+formerly rejected new face J, passes five additional groups and reaches a
+separate integer-exponent capacity limit after Linux Sod N64. Its updated
+momentum suite requires that destination value to survive in full storage.
+
 Four new controls and all prerequisites pass on Windows and Linux. The
 [primary-parcel cohort](MAC_PRIMARY_PARCELS.md) reaches an incoming momentum
 transfer of about 3.615258007097827e-585 kg·m/s before it fails. Its share still

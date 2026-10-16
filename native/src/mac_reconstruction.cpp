@@ -34,7 +34,7 @@ std::optional<double> scaled(double value, double part, double total) {
     if (!std::isfinite(answer) || answer == 0 || std::signbit(answer) != std::signbit(value)) return std::nullopt;
     return answer;
 }
-struct Edge { std::size_t axis, face, donor, target; double volume, cx = 0, cy = 0; };
+struct Edge { std::size_t axis, face, donor, target; MacScaled volume; double cx = 0, cy = 0; };
 struct Field { double centre = 0, sx = 0, sy = 0, lower = 0, upper = 0; bool positive = true; };
 double evaluated(const Field& field, double theta, double x, double y) {
     if (theta == 0) return field.centre;
@@ -46,10 +46,13 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
     require_mac_energy_environment();
     model.validate_registry(registry); static_cast<void>(mac_face_inertias(registry, source, model, volumes));
     const auto& g = source.grid; const auto count = source.cells.size(), species = registry.size();
+    const auto qx = mac_field_values(q.x, q.full_x), qy = mac_field_values(q.y, q.full_y);
+    static_cast<void>(mac_field_values(source.momentum_x, source.full_momentum_x));
+    static_cast<void>(mac_field_values(source.momentum_y, source.full_momentum_y));
     require(volumes.size() == count && q.x.size() == g.x_width() * g.height && q.y.size() == g.width * g.y_height() &&
         std::isfinite(maximum_outgoing) && maximum_outgoing > 0 && maximum_outgoing <= .45, "Invalid MAC reconstruction volume/CFL shapes");
     MacParcelPlan result; result.source_volumes_m3.assign(volumes.begin(), volumes.end()); result.retained_volumes_m3.resize(count); result.limiter.resize(count);
-    result.retained.reserve(count); std::vector<double> positive_energy(count); std::vector<Sum> outgoing(count);
+    result.retained.reserve(count); std::vector<double> positive_energy(count); std::vector<MacScaledSum> outgoing(count);
     std::vector<std::array<std::size_t, 4>> by_donor(count); for (auto& row : by_donor) row.fill(none);
     std::vector<bool> flat_coordinate(count, false);
     std::vector<Edge> edges; edges.reserve(q.x.size() + q.y.size()); std::size_t sparse_count = 0;
@@ -71,35 +74,38 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
         const auto ny = axis == 1 ? (direction < 0 ? (y + g.height - 1) % g.height : (y + 1) % g.height) : y;
         const auto index = nx + ny * g.width; return g.walls[index] ? none : index;
     };
-    const auto add = [&](std::size_t axis, std::size_t face, std::size_t left, std::size_t right, double sweep) {
-        require_finite(sweep, "MAC reconstruction sweep");
-        if (left == none || right == none || g.walls[left] || g.walls[right]) { require(sweep == 0, "Reconstruction sweep crosses wall/exterior"); return; }
-        if (sweep == 0) return;
-        const auto donor = sweep > 0 ? left : right, target = sweep > 0 ? right : left;
+    const auto exceeds = [](MacScaled a, MacScaled b) { MacScaledSum difference; difference.add(a); difference.add(b.negated()); return difference.sign() > 0; };
+    const auto midpoint = [](MacScaled a, MacScaled b) { MacScaledSum sum; sum.add(a); sum.add(b); return sum.value().shifted(-1); };
+    const auto add = [&](std::size_t axis, std::size_t face, std::size_t left, std::size_t right, MacScaled sweep) {
+        if (left == none || right == none || g.walls[left] || g.walls[right]) { require(sweep.is_zero(), "Reconstruction sweep crosses wall/exterior"); return; }
+        if (sweep.is_zero()) return;
+        const bool positive = sweep.mantissa() > 0; const auto donor = positive ? left : right, target = positive ? right : left;
         auto& list = by_donor[donor]; auto slot = std::find(list.begin(), list.end(), none);
         require(slot != list.end(), "Too many MAC reconstruction outflows"); *slot = edges.size();
-        const double volume = std::abs(sweep);
-        if (volume > maximum_outgoing * volumes[donor]) throw std::domain_error("MAC reconstructed face volume CFL exceeded");
-        const double normal = .5 * (sweep > 0 ? 1 : -1) * (1 - volume / volumes[donor]);
+        const auto volume = sweep.magnitude();
+        if (exceeds(volume, MacScaled::from_double(volumes[donor]).multiplied(maximum_outgoing))) throw std::domain_error("MAC reconstructed face volume CFL exceeded");
+        const double normal = .5 * (positive ? 1 : -1) * (1 - volume.shared(1, volumes[donor]).project().value);
         const auto x = donor % g.width, y = donor / g.width;
-        double transverse = axis == 0 ? -.5 * std::midpoint(q.y[g.y_face(x, y)], q.y[g.y_face(x, (y + 1) % g.y_height())]) / volumes[donor] :
-            -.5 * std::midpoint(q.x[g.x_face(x, y)], q.x[g.x_face((x + 1) % g.x_width(), y)]) / volumes[donor];
+        double transverse = (axis == 0 ? midpoint(qy[g.y_face(x, y)], qy[g.y_face(x, (y + 1) % g.y_height())]) :
+            midpoint(qx[g.x_face(x, y)], qx[g.x_face((x + 1) % g.x_width(), y)])).shared(1, volumes[donor]).multiplied(-.5).project().value;
         require_finite(normal, "MAC normal reconstruction coordinate");
         if (!std::isfinite(transverse)) { flat_coordinate[donor] = true; transverse = 0; }
         edges.push_back({axis, face, donor, target, volume, axis == 0 ? normal : transverse, axis == 0 ? transverse : normal}); outgoing[donor].add(volume);
     };
     for (std::size_t y = 0; y < g.height; ++y) for (std::size_t x = 0; x < g.x_width(); ++x)
         add(0, g.x_face(x, y), x > 0 || g.periodic_x ? (x + g.width - 1) % g.width + y * g.width : none,
-            x < g.width ? x + y * g.width : none, q.x[g.x_face(x, y)]);
+            x < g.width ? x + y * g.width : none, qx[g.x_face(x, y)]);
     for (std::size_t y = 0; y < g.y_height(); ++y) for (std::size_t x = 0; x < g.width; ++x)
         add(1, g.y_face(x, y), y > 0 || g.periodic_y ? x + ((y + g.height - 1) % g.height) * g.width : none,
-            y < g.height ? x + y * g.width : none, q.y[g.y_face(x, y)]);
+            y < g.height ? x + y * g.width : none, qy[g.y_face(x, y)]);
     require(edges.size() <= 16000000 / species, "MAC reconstructed parcel capacity exceeded");
     std::vector<std::optional<MacPrimalParcel>> prepared(edges.size());
     for (std::size_t i = 0; i < count; ++i) {
         if (g.walls[i]) continue;
-        if (outgoing[i].value() > maximum_outgoing * volumes[i]) throw std::domain_error("MAC reconstructed volume CFL exceeded");
-        const double retained_volume = volumes[i] - outgoing[i].value(); result.retained_volumes_m3[i] = retained_volume;
+        if (exceeds(outgoing[i].value(), MacScaled::from_double(volumes[i]).multiplied(maximum_outgoing))) throw std::domain_error("MAC reconstructed volume CFL exceeded");
+        MacScaledSum retained_amount; retained_amount.add(volumes[i]);
+        for (std::size_t k = 0; k < outgoing[i].size(); ++k) retained_amount.add(outgoing[i].component(k).negated());
+        const double retained_volume = store_mac_primary(retained_amount, true); result.retained_volumes_m3[i] = retained_volume;
         const std::array<std::size_t, 4> adjacent{neighbor(i, 0, -1), neighbor(i, 0, 1), neighbor(i, 1, -1), neighbor(i, 1, 1)};
         std::set<std::uint64_t> identities;
         for (const auto cell : {i, adjacent[0], adjacent[1], adjacent[2], adjacent[3]}) if (cell != none)
@@ -130,7 +136,8 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
         std::vector<std::pair<double, double>> points{{-.5, -.5}, {-.5, .5}, {.5, -.5}, {.5, .5}};
         Sum rx, ry;
         for (auto edge : by_donor[i]) if (edge != none) {
-            points.emplace_back(edges[edge].cx, edges[edge].cy); rx.add(-(edges[edge].volume / retained_volume) * edges[edge].cx); ry.add(-(edges[edge].volume / retained_volume) * edges[edge].cy);
+            const double ratio = edges[edge].volume.shared(1, retained_volume).project().value;
+            points.emplace_back(edges[edge].cx, edges[edge].cy); rx.add(-ratio * edges[edge].cx); ry.add(-ratio * edges[edge].cy);
         }
         points.emplace_back(rx.value(), ry.value()); double theta = flat ? 0 : 1;
         if (!flat) for (const auto& field : fields) {
@@ -171,7 +178,8 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
                 for (auto edge : by_donor[i]) if (edge != none) {
                     const auto& e = edges[edge]; auto prototype = values(theta, e.cx, e.cy);
                     admitted(prototype, volumes[i]);
-                    MacPrimalParcel parcel{e.axis, e.face, i, e.target, e.volume, std::move(prototype), volumes[i]};
+                    const auto volume_projection = e.volume.project();
+                    MacPrimalParcel parcel{e.axis, e.face, i, e.target, volume_projection.value, std::move(prototype), volumes[i], volume_projection.rounded ? e.volume : MacScaled{}};
                     auto projected = parcel.contents; bool rounded = false;
                     const auto projection = [&](double value) {
                         const auto p = mac_parcel_quantity(parcel, value).project(); rounded = rounded || p.rounded; return p.value;
@@ -182,7 +190,7 @@ MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const Flu
                     // Preserve the original actual-amount representation whenever
                     // every field projects exactly. Otherwise retain the complete
                     // common-scale prototype, including every positive trace.
-                    if (!rounded) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; }
+                    if (!rounded && parcel.full_volume_m3.is_zero()) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; }
                     admitted(mac_parcel_contents_at(parcel, volumes[i]), volumes[i]);
                     for (std::size_t s = 0; s < species; ++s) retained[s].add(mac_parcel_quantity(parcel, parcel.contents.mixture.masses[s]).negated());
                     retained[species].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy).negated());
