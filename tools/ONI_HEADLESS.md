@@ -36,6 +36,12 @@ disable/removal. Run `20261016T204654Z-021e13` passes 120 post-priming frames,
 32 actual consumer callbacks and 40 emission samples, with no actor transfers
 after removal and conserved mass/energy. These are explicit gas point boundaries;
 producer reservations, spatial/bulk actors and ordinary colony saves remain open.
+`native-carbon-domain` uses the five-species domain/transfer ABI 2 and verifies
+CO2 injection, selective consumption, both actual callbacks, chemical/internal
+energy, carried kinetic energy, complete mass accounts and transported CO2 in
+the completed presentation reading. Run `20261016T205811Z-f4c02b` passes 120
+post-priming frames with a U+K residual of -3.33e-9 J. This supplies physical
+CO2; metabolism, scrubbing process reservations and aquatic chemistry remain open.
 
 The optional native SimDLL forwarding observer has a separate `native-observer`
 mode. Build/package with `--native-observer`, then use that mode to validate

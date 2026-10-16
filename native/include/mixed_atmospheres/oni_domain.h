@@ -10,9 +10,10 @@ extern "C" {
  * caller must verify an empty, impermeable, adiabatic native border before
  * activation. No native inventory, machine, radiation or disease may enter it.
  * Unsupported operations fault the domain; original fluids never take over. */
-#define MA_ONI_DOMAIN_ABI_VERSION 1U
+#define MA_ONI_DOMAIN_ABI_VERSION 2U
+#define MA_ONI_DOMAIN_TRANSFER_ABI_VERSION 2U
 #define MA_ONI_DOMAIN_SEALED_TEST 1U
-#define MA_ONI_DOMAIN_SPECIES 4U /* nitrogen, oxygen, helium, water */
+#define MA_ONI_DOMAIN_SPECIES 5U /* nitrogen, oxygen, helium, water, carbon dioxide */
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
@@ -69,7 +70,7 @@ MA_ONI_API uint32_t ma_oni_domain_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t count, MAOniDomainHeatStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
-/* Gas point-source ABI 1. kind 1 injects at rest, kind 2 selectively removes.
+/* Gas point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
  * Receipts are retained until acknowledged after an owned snapshot publication.
  * Quantities are binary32-compatible when flags bit 0 is set; any remainder
  * stays in the physical source. These are not pump/aperture transactions. */

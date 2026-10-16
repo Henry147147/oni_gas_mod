@@ -49,11 +49,14 @@ int main() {
         std::uint32_t count=99;
         require(ma_oni_copy_trace(nullptr,0,&count)==MA_ONI_OK && count==0,"empty trace");
         require(ma_oni_copy_trace(nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT,"null trace count");
-        require(ma_oni_domain_abi_version()==1 && ma_oni_domain_active()==0,"sealed-domain extension ABI");
-        MAOniDomainStatus domain{}; domain.struct_size=sizeof(domain); domain.abi_version=1;
+        require(ma_oni_domain_abi_version()==2 && ma_oni_domain_active()==0,"sealed-domain extension ABI");
+        MAOniDomainStatus domain{}; domain.struct_size=sizeof(domain); domain.abi_version=2;
         require(ma_oni_domain_copy(&domain,nullptr,0)==MA_ONI_OK && domain.state==0,"inactive domain status");
+        auto obsolete_domain=domain; obsolete_domain.abi_version=1; const auto held_obsolete=obsolete_domain;
+        require(ma_oni_domain_copy(&obsolete_domain,nullptr,0)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&obsolete_domain,&held_obsolete,sizeof(obsolete_domain))==0,"obsolete four-species client was accepted or changed output");
         const auto unchanged=domain;
-        const MAOniDomainConfig domain_config{40,1,1,64,10,10,3,2,0,0};
+        const MAOniDomainConfig domain_config{40,2,1,64,10,10,3,2,0,0};
 #if defined(_WIN32)
         constexpr auto inactive_start_result=MA_ONI_INCOMPATIBLE;
 #else
@@ -67,7 +70,7 @@ int main() {
         require(ma_oni_domain_species(99,&species)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&species,&held_species,sizeof(species))==0,
                 "unknown domain species changed output");
         require(ma_oni_domain_species(4,&species)==MA_ONI_OK && species.molar_mass>0 && species.cv>0,
-                "absent carbon-dioxide presentation identity");
+                "absent physical carbon-dioxide definition");
         require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");
         MAOniDomainHeatStatus heat{56,1,0,0,0,0,0,0,0};
         require(ma_oni_domain_heat_status(&heat)==MA_ONI_OK && heat.state==0,"inactive heat status");
@@ -75,12 +78,12 @@ int main() {
         const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
         require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,
                 "unowned heat accepted or changed output");
-        require(ma_oni_domain_transfer_abi_version()==1 && sizeof(MAOniDomainTransfer)==64 &&
-                sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==96,"transfer extension ABI");
-        MAOniDomainTransferStatus transfers{}; transfers.struct_size=96; transfers.abi_version=1;
+        require(ma_oni_domain_transfer_abi_version()==2 && sizeof(MAOniDomainTransfer)==64 &&
+                sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104,"transfer extension ABI");
+        MAOniDomainTransferStatus transfers{}; transfers.struct_size=104; transfers.abi_version=2;
         require(ma_oni_domain_transfer_status(&transfers)==MA_ONI_OK && transfers.state==0,"inactive transfer status");
         const auto held_transfers=transfers;
-        const MAOniDomainTransfer transfer{64,1,0,0,0,1,1,0,-1,0,.05,300};
+        const MAOniDomainTransfer transfer{64,2,0,0,0,1,1,0,-1,0,.05,300};
         require(ma_oni_domain_queue_transfers(&transfer,1,&transfers)==MA_ONI_BUSY &&
                 std::memcmp(&transfers,&held_transfers,sizeof(transfers))==0,"unowned gas transfer changed output");
         require(ma_oni_domain_actor_abi_version()==1 && sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64,"actor extension ABI");

@@ -22,11 +22,11 @@ int main() {
     try {
         static_assert(sizeof(MAOniDomainConfig)==40);
         static_assert(sizeof(MAOniDomainStatus)==440);
-        static_assert(sizeof(MAOniDomainCell)==88);
+        static_assert(sizeof(MAOniDomainCell)==96);
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
-        static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==96);
+        static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
-        MAOniDomainConfig config{40,1,1,64,10,10,3,2,0,0};
+        MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);
         require(ma::oni::domain_active(),"domain did not activate");
@@ -79,8 +79,8 @@ int main() {
         require(std::abs(next_total-old_total-750) <= 128*std::numeric_limits<double>::epsilon()*scale,
             "external heat disappeared from U plus canonical kinetic energy");
         const std::array<MAOniDomainTransfer,2> transfers{{
-            {64,1,final.session,final.completed_frames,10+10*64,1,1,1,10,0,.05F,300},
-            {64,1,final.session,final.completed_frames,10+10*64,1,2,1,11,0,.02F,0}}};
+            {64,2,final.session,final.completed_frames,10+10*64,1,1,1,10,0,.05F,300},
+            {64,2,final.session,final.completed_frames,10+10*64,1,2,1,11,0,.02F,0}}};
         MAOniDomainTransferStatus transfer_status{}; ma::oni::queue_domain_transfers(transfers.data(),2,transfer_status);
         require(transfer_status.pending_batches==1 && transfer_status.committed_batches==0,"transfer committed before a native tick");
         std::array<MAOniDomainReceipt,4> receipts{}; std::uint32_t receipt_count=99;
@@ -202,6 +202,33 @@ int main() {
             transfer_status.mass_changes_kg[1]==before_actor_account.mass_changes_kg[1] &&
             transfer_status.material_energy_change_j==before_actor_account.material_energy_change_j,
             "late emitter failure published an earlier consumer, callback, clock or account");
+        ma::oni::shutdown_domain();
+        config.scenario=0; ma::oni::start_domain(config,1); final=capture(cells);
+        const auto carbon_initial=cells;
+        const std::array<MAOniDomainTransfer,2> carbon{{
+            {64,2,final.session,0,10+10*64,4,1,1,10,0,.05F,310},
+            {64,2,final.session,0,10+10*64,4,2,1,11,0,.02F,0}}};
+        ma::oni::queue_domain_transfers(carbon.data(),2,transfer_status);
+        auto obsolete_carbon=carbon; obsolete_carbon[1].abi_version=1;
+        const auto held_carbon_account=transfer_status; rejected=false;
+        try { ma::oni::queue_domain_transfers(obsolete_carbon.data(),2,transfer_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_carbon_account,&transfer_status,sizeof(transfer_status))==0,
+            "obsolete transfer ABI partially queued carbon dioxide");
+        ma::oni::advance_domain(1,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::copy_domain_transfer_status(transfer_status);
+        long double carbon_mass=0,carbon_energy_before=0,carbon_energy_after=0;
+        std::size_t carbon_cells=0;
+        for (std::size_t i=0;i<cells.size();++i) {
+            carbon_mass+=cells[i].masses[4]; carbon_cells+=cells[i].masses[4]>0;
+            carbon_energy_before+=carbon_initial[i].internal_energy+carbon_initial[i].resolved_kinetic_energy;
+            carbon_energy_after+=cells[i].internal_energy+cells[i].resolved_kinetic_energy;
+        }
+        require(final.state==1 && receipt_count==2 && receipts[0].species==4 && receipts[1].species==4 &&
+            transfer_status.abi_version==2 && transfer_status.mass_changes_kg[4]==static_cast<double>(.05F)-.02F &&
+            std::abs(carbon_mass-transfer_status.mass_changes_kg[4])<1e-16 && carbon_cells>1 &&
+            std::abs(carbon_energy_after-carbon_energy_before-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j)<1e-6,
+            "physical carbon-dioxide transfer, transport, complete mass publication or energy account failed");
         ma::oni::shutdown_domain();
         config.offset_x=63;
         try { ma::oni::start_domain(config,1); throw std::runtime_error("row-wrap geometry accepted"); }

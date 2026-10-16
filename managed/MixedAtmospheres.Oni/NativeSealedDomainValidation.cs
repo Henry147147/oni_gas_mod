@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
     internal static unsafe partial class NativeSealedDomainValidation
     {
         private const int Width = 3, Height = 2;
-        private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water" };
+        private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water", "carbon_dioxide" };
         private static bool prepared, active, arming, completed, failed;
         private static int x, y, target, hotSolid, coldSolid, preparedFrame, publications;
         private static float started, nextReport;
@@ -66,10 +66,12 @@ namespace MixedAtmospheres.Oni
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
+            ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain";
-        private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain";
+        private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || CarbonMode;
+        private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
 
         internal static void Tick()
@@ -161,15 +163,17 @@ namespace MixedAtmospheres.Oni
                         if (scale == 0) Require(current == 0, "Gas command created an unaccounted constituent.");
                         else transferMassError = Math.Max(transferMassError, Math.Abs(current - transfersBeforeMasses[k] - change) / scale);
                     }
-                    var oxygen = ElementLoader.FindElementByHash(SimHashes.Oxygen).idx;
+                    var element = ElementLoader.FindElementByHash(CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen).idx;
                     transfersVerified = transfersSubmitted && transfersAvoidedNativeDispatch && transferPacketsRouted == 2 &&
                         transferStatus.AcceptedBatches == 2 && transferStatus.CommittedBatches == 2 && transferStatus.PendingBatches == 0 &&
                         transferStatus.UnacknowledgedReceipts == 0 && receiptsPublished == 2 && emissionCallbacks == 1 && consumptionCallbacks == 1 &&
                         emissionResult.suceeded == 1 && emissionResult.mass == .05f && consumptionResult.mass == .02f &&
-                        emissionResult.elemIdx == oxygen && consumptionResult.elemIdx == oxygen &&
+                        emissionResult.elemIdx == element && consumptionResult.elemIdx == element &&
                         emissionResult.diseaseIdx == 255 && consumptionResult.diseaseIdx == 255 &&
                         emissionResult.diseaseCount == 0 && consumptionResult.diseaseCount == 0 && consumptionResult.temperature > 0 &&
-                        transferStatus.MassChangesKg[1] == (double).05f - .02f && transferStatus.KineticEnergyChange < 0 &&
+                        transferStatus.MassChangesKg[CarbonMode ? 4 : 1] == (double).05f - .02f && transferStatus.KineticEnergyChange < 0 &&
+                        (!CarbonMode || cells.Any(cell => cell.CarbonDioxide > 0) && publishedReadings!.Values.Any(value =>
+                            value.Constituents.Any(item => item.MaterialId == "carbon_dioxide" && item.MassKg > 0))) &&
                         transferMassError <= 1e-10 && Math.Abs(transferEnergyResidual) <= 1e-6;
                     Require(transfersVerified, "Actual gas messages, physical accounts or once-only game callbacks failed.");
                     releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
@@ -185,13 +189,13 @@ namespace MixedAtmospheres.Oni
         private static void Prepare()
         {
             Require(NativeBackendObservation.Enabled, "Native domain requires an explicitly enabled native backend.");
-            Require(Marshal.SizeOf<Configuration>() == 40 && Marshal.SizeOf<Status>() == 440 && Marshal.SizeOf<Cell>() == 88,
+            Require(Marshal.SizeOf<Configuration>() == 40 && Marshal.SizeOf<Status>() == 440 && Marshal.SizeOf<Cell>() == 96,
                 "Native domain ABI layout mismatch.");
-            Require(Version() == 1, "Unsupported native domain ABI.");
+            Require(Version() == 2, "Unsupported native domain ABI.");
             Require(HeatVersion() == 1 && Marshal.SizeOf<HeatCommand>() == 48 && Marshal.SizeOf<HeatStatus>() == 56,
                 "Unsupported native heat command ABI.");
-            Require(TransferVersion() == 1 && Marshal.SizeOf<TransferCommand>() == 64 && Marshal.SizeOf<Receipt>() == 88 &&
-                Marshal.SizeOf<TransferStatus>() == 96, "Unsupported native gas transfer ABI.");
+            Require(TransferVersion() == 2 && Marshal.SizeOf<TransferCommand>() == 64 && Marshal.SizeOf<Receipt>() == 88 &&
+                Marshal.SizeOf<TransferStatus>() == 104, "Unsupported native gas transfer ABI.");
             Require(ActorVersion() == 1 && Marshal.SizeOf<ActorCommand>() == 80 && Marshal.SizeOf<ActorStatus>() == 64,
                 "Unsupported native actor ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
@@ -254,8 +258,8 @@ namespace MixedAtmospheres.Oni
                 Math.Abs(Grid.Mass[Grid.XYToCell(x + index % Width, y + index / Width)] - ProjectionMass(index % Width)) > .001);
             Require(nativeFlowControlObserved, "Unhooked native pressure-gradient control did not flow.");
             var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
-            var names = new[] { "Nitrogen", "Oxygen", "Helium", "Water" };
-            var hashes = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water };
+            var names = new[] { "Nitrogen", "Oxygen", "Helium", "Water", "Carbon dioxide" };
+            var hashes = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water, SimHashes.CarbonDioxide };
             for (uint k = 0; k < Ids.Length; ++k)
             {
                 Check(Definition(k, out var value));
@@ -264,11 +268,7 @@ namespace MixedAtmospheres.Oni
                 Color color = ElementLoader.FindElementByHash(hashes[k]).substance.colour;
                 styles.Add(new MixtureSpeciesStyle(Ids[k], names[k], new MixtureSrgbColor(color.r, color.g, color.b)));
             }
-            Check(Definition(4, out var co2));
-            materials.Add(new FluidMaterial("carbon_dioxide", NativeMatterPhase.Gas, co2.MolarMass, co2.Cv, 0, co2.Offset, 1, 1e6));
-            Color co2Color = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).substance.colour;
-            styles.Add(new MixtureSpeciesStyle("carbon_dioxide", "Carbon dioxide", new MixtureSrgbColor(co2Color.r, co2Color.g, co2Color.b)));
-            catalog = new FluidMaterialCatalog("oni-sealed-domain-v1", materials);
+            catalog = new FluidMaterialCatalog("oni-sealed-domain-v2", materials);
             MixturePresentationRuntime.ResetProviders();
             MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide"));
             arming = true;
@@ -285,7 +285,7 @@ namespace MixedAtmospheres.Oni
         private static void ActivateOwner()
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
-            var configuration = new Configuration { Size = 40, Version = 1, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
+            var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
                 X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = Liquid ? 1U : 0U };
             latest = Status.Empty;
             Check(Begin(ref configuration, ref latest)); active = true; arming = false;
@@ -445,8 +445,9 @@ namespace MixedAtmospheres.Oni
                 if (consumptions.IsVersionValid(consumed)) consumptions.Release(consumed, "native gas control complete");
             };
             var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
-            SimMessages.EmitMass(target, (ushort)ElementLoader.FindElementByHash(SimHashes.Oxygen).idx, .05f, 300, 255, 0, emitted.index);
-            SimMessages.ConsumeMass(target, SimHashes.Oxygen, .02f, (byte)0, consumed.index);
+            var element = CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen;
+            SimMessages.EmitMass(target, (ushort)ElementLoader.FindElementByHash(element).idx, .05f, CarbonMode ? 310 : 300, 255, 0, emitted.index);
+            SimMessages.ConsumeMass(target, element, .02f, (byte)0, consumed.index);
             transfersAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
             Require(transfersAvoidedNativeDispatch && transferPacketsRouted == 2, "Game gas messages bypassed custom native routing.");
             transfersSubmitted = true;
@@ -454,7 +455,7 @@ namespace MixedAtmospheres.Oni
         private static bool OwnsPublicCell(int cell) => cell >= 0 && cell % Grid.WidthInCells >= x && cell % Grid.WidthInCells < x + Width &&
             cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height;
         private static SimHashes SpeciesHash(uint species) => species == 0 ? OniNitrogenElements.Gas : species == 1 ? SimHashes.Oxygen :
-            species == 2 ? SimHashes.Helium : species == 3 ? SimHashes.Water : throw new ArgumentOutOfRangeException(nameof(species));
+            species == 2 ? SimHashes.Helium : species == 3 ? SimHashes.Water : species == 4 ? SimHashes.CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(species));
         internal static bool TryHandleTransfers(int message, int length, int count, byte* payload)
         {
             if (!active || (message != 1727657959 && message != 797274363) || count == 0) return false;
@@ -479,7 +480,7 @@ namespace MixedAtmospheres.Oni
                         if (species >= Ids.Length || species == 3) throw new NotSupportedException("Native gas point source has an unimplemented material/phase.");
                         if (injection ? BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != 0 : data[14] != 0 || data[15] != 0)
                             throw new NotSupportedException("Gas point sources require disease-free injection and single-cell consumption.");
-                        requests[i] = new TransferCommand { Size = 64, Version = 1, Session = source.Session, ExpectedFrame = source.CompletedFrames,
+                        requests[i] = new TransferCommand { Size = 64, Version = 2, Session = source.Session, ExpectedFrame = source.CompletedFrames,
                             PublicCell = checked((uint)BinaryPrimitives.ReadInt32LittleEndian(data)), Species = species,
                             Kind = injection ? 1U : 2U, Flags = 1, Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
                             MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))),
@@ -567,7 +568,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
             Kind = "actual-game-sealed-native-fluid-domain", Status = completed ? "passed" : failed ? "failed" : "pending", Error = error,
-            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v1", Scenario = Liquid ? "compressed-liquid" : "mixed-air",
+            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = Liquid ? "compressed-liquid" : "mixed-air",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
@@ -582,6 +583,7 @@ namespace MixedAtmospheres.Oni
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             RegisteredActors = ActorReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
+            CarbonDioxideTransfersVerified = CarbonMode && transfersVerified,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,
             EmissionResult = emissionResult, ConsumptionResult = consumptionResult,
             TransferEnergyResidualJoules = transferEnergyResidual, TransferMaximumRelativeMassError = transferMassError,

@@ -18,7 +18,7 @@
 namespace ma::oni {
 namespace {
 using namespace experimental;
-constexpr std::array<const char*,4> ids{"nitrogen","oxygen","helium","water"};
+constexpr std::array<const char*,5> ids{"nitrogen","oxygen","helium","water","carbon_dioxide"};
 std::mutex state_mutex;
 std::mutex frame_mutex;
 std::atomic<bool> enabled{};
@@ -33,7 +33,7 @@ std::unique_ptr<MacClosedWorld> pending_world;
 std::uint64_t accepted_heat_batches{}, committed_heat_batches{};
 std::uint32_t pending_heat_batches{}, pending_heat_edits{};
 MacEnergySum committed_heat, pending_heat;
-std::array<MacScaledSum,4> committed_mass, pending_mass;
+std::array<MacScaledSum,MA_ONI_DOMAIN_SPECIES> committed_mass, pending_mass;
 MacEnergySum committed_material, pending_material, committed_kinetic, pending_kinetic;
 std::uint64_t accepted_transfer_batches{}, committed_transfer_batches{}, receipt_sequence{}, acknowledged_receipt{};
 std::uint32_t pending_transfer_batches{};
@@ -42,7 +42,7 @@ struct Actor { MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bo
 std::map<std::pair<std::uint32_t,std::int32_t>,Actor> actors;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
 std::vector<MAOniDomainCell> publication;
-std::array<long double,4> initial_masses{};
+std::array<long double,MA_ONI_DOMAIN_SPECIES> initial_masses{};
 long double initial_energy{};
 
 // Unity can use FTZ/DAZ. Select the required arithmetic locally and restore
@@ -76,10 +76,10 @@ std::shared_ptr<const FluidThermodynamics> model(const SpeciesRegistry& registry
         material.provenance="Sealed ONI development domain: explicit constant-capacity reference, not a complete game catalogue";
         materials.push_back(std::move(material));
     }
-    return std::make_shared<const FluidThermodynamics>(registry,"oni-sealed-domain-v1",std::move(materials));
+    return std::make_shared<const FluidThermodynamics>(registry,"oni-sealed-domain-v2",std::move(materials));
 }
-std::array<long double,4> masses(const MacClosedWorld& owner) {
-    std::array<long double,4> values{};
+std::array<long double,MA_ONI_DOMAIN_SPECIES> masses(const MacClosedWorld& owner) {
+    std::array<long double,MA_ONI_DOMAIN_SPECIES> values{};
     for (const auto& cell : owner.state().cells) for (std::size_t k=0;k<ids.size();++k)
         values[k]+=cell.mixture.masses[owner.registry().index(ids[k])];
     return values;
@@ -148,7 +148,7 @@ MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second)
 // account; neither actor preparation nor a later failed advance can publish it.
 struct GasWork {
     std::unique_ptr<MacClosedWorld> owner=std::make_unique<MacClosedWorld>(pending_world ? *pending_world : *world);
-    std::array<MacScaledSum,4> mass=pending_mass;
+    std::array<MacScaledSum,MA_ONI_DOMAIN_SPECIES> mass=pending_mass;
     MacEnergySum material=pending_material,kinetic=pending_kinetic;
     std::vector<MAOniDomainReceipt> outbox=pending_receipts;
     std::uint64_t sequence=receipt_sequence;
@@ -174,7 +174,7 @@ std::size_t domain_index(std::uint32_t public_cell) {
     return x-geometry.offset_x+(y-geometry.offset_y)*geometry.width;
 }
 void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
-    if (input.struct_size != sizeof(input) || input.abi_version != 1 || input.reserved || input.flags > 1 ||
+    if (input.struct_size != sizeof(input) || input.abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved || input.flags > 1 ||
         (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
         !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
         throw std::invalid_argument("Native gas transfer input differs from its ABI/model");
@@ -211,7 +211,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
     for (auto& [key,actor] : next) {
         (void)key;
         const auto& input=actor.config; ++steps;
-        MAOniDomainTransfer transfer{64,1,status.session,status.completed_frames,input.public_cell,input.species,
+        MAOniDomainTransfer transfer{64,MA_ONI_DOMAIN_TRANSFER_ABI_VERSION,status.session,status.completed_frames,input.public_cell,input.species,
             input.kind == 1 ? 2U : 1U,1,input.native_handle,0,0,input.temperature_k};
         if (input.kind == 1) {
             if (input.mass_kg == 0) continue;
@@ -314,14 +314,15 @@ void shutdown_domain() noexcept {
     world.reset();
     pending_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
     pending_transfer_batches=0; pending_receipts.clear(); pending_mass={}; pending_material={}; pending_kinetic={};
+    actors.clear();
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
 std::mutex& domain_frame_mutex() noexcept { return frame_mutex; }
 MAOniDomainSpecies domain_species(std::uint32_t index) {
-    if (index > ids.size()) throw std::invalid_argument("Unknown sealed-domain species index");
+    if (index >= ids.size()) throw std::invalid_argument("Unknown sealed-domain species index");
     const ArithmeticScope arithmetic;
     const auto registry=SpeciesRegistry::standard();
-    const auto& species=registry[registry.index(index == ids.size() ? "carbon_dioxide" : ids[index])];
+    const auto& species=registry[registry.index(ids[index])];
     return {species.molar_mass,species.cv(),species.internal_energy(0),species.phase == Phase::gas ? 0.0 : 1000.0};
 }
 bool suppress_domain_cell(std::uint32_t hook,int cell) noexcept {
@@ -428,7 +429,7 @@ void copy_domain_heat(MAOniDomainHeatStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic; output=heat_status();
 }
 MAOniDomainTransferStatus transfer_status() {
-    MAOniDomainTransferStatus value{}; value.struct_size=sizeof(value); value.abi_version=1; value.state=status.state;
+    MAOniDomainTransferStatus value{}; value.struct_size=sizeof(value); value.abi_version=MA_ONI_DOMAIN_TRANSFER_ABI_VERSION; value.state=status.state;
     value.pending_batches=pending_transfer_batches; value.session=status.session;
     value.accepted_batches=accepted_transfer_batches; value.committed_batches=committed_transfer_batches;
     value.unacknowledged_receipts=receipts.size();

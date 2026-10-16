@@ -121,11 +121,13 @@ before their different status layout is read. Two gas interaction slots are
 Linux-only; Windows has 24 concrete locations and Linux has 28. Windows's
 `Step`, gas interaction functions and Linux secondary-base emitter dispatch
 have no standalone profiled locations.
-The separate development-domain ABI 1 has 40-byte configuration, 440-byte
-status and 88-byte cell readings, with explicit start/copy/stop and material
+The separate development-domain ABI 2 has 40-byte configuration, 440-byte
+status and 96-byte five-species cell readings, with explicit start/copy/stop and material
 queries. It rejects activation on Windows. Production session initialization, commands, immutable
 physical-frame leases, checkpoints and shutdown follow separate gates. There
-is no independent managed advance creating a second clock.
+is no independent managed advance creating a second clock. Domain ABI 1's
+four-species layout is historical. Rebuild native/managed clients together;
+exact ABI checks reject older binaries before copying.
 
 Only new colonies opt into mixture ownership. Headless world-generation
 settling and vanilla saves retain the original simulator. Stage all generated

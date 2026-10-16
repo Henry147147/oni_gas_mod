@@ -109,6 +109,15 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 ("EmissionResult", "diseaseCount", 1)):
             bad = copy.deepcopy(self.report); bad[section][field] = value
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, transfers=True), (section, field))
+        carbon = copy.deepcopy(self.report)
+        carbon["GasTransfers"]["MassChangesKg"] = [0, 0, 0, 0, .030000001192092896]
+        carbon["EmissionResult"].update(elemIdx=42, temperature=310); carbon["ConsumptionResult"]["elemIdx"] = 42
+        carbon["CarbonDioxideTransfersVerified"] = True
+        carbon["Model"] = "oni-sealed-domain-v2"; carbon["NativeDomain"]["Version"] = 2
+        carbon["TargetReading"] = {"Constituents": [{"MaterialId": "carbon_dioxide", "MassKg": .005}]}
+        self.assertTrue(runner.native_domain_passed(carbon, self.observation, 30, carbon=True))
+        carbon["TargetReading"]["Constituents"] = []
+        self.assertFalse(runner.native_domain_passed(carbon, self.observation, 30, carbon=True))
 
     def test_registered_actors_require_actual_components_callbacks_and_removal(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, actors=True))

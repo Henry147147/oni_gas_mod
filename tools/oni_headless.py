@@ -488,7 +488,7 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
             and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -522,7 +522,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 account.get("CommittedHeatJoules") != 1500 or
                 type(report.get("HeatEnergyResidualJoules")) not in (int, float) or not abs(report["HeatEnergyResidualJoules"]) <= 1e-6):
             return False
-    if transfers:
+    if transfers or carbon:
         account = report.get("GasTransfers")
         emission, consumption = report.get("EmissionResult"), report.get("ConsumptionResult")
         injected = struct.unpack("f", struct.pack("f", .05))[0]
@@ -534,15 +534,23 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(report.get("TransferMaximumRelativeMassError")) not in (int, float) or not 0 <= report["TransferMaximumRelativeMassError"] <= 1e-10):
             return False
         masses = account.get("MassChangesKg")
-        if (not isinstance(masses, list) or masses != [0, injected - consumed, 0, 0]
+        if (not isinstance(masses, list) or (masses != [0, 0, 0, 0, injected - consumed] if carbon else masses not in ([0, injected - consumed, 0, 0], [0, injected - consumed, 0, 0, 0]))
                 or type(account.get("KineticEnergyChange")) not in (int, float) or not math.isfinite(account["KineticEnergyChange"]) or account["KineticEnergyChange"] >= 0
                 or type(account.get("MaterialEnergyChange")) not in (int, float) or not math.isfinite(account["MaterialEnergyChange"])
                 or not isinstance(emission, dict) or not isinstance(consumption, dict)
                 or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != .02
                 or type(emission.get("elemIdx")) is not int or emission["elemIdx"] != consumption.get("elemIdx")
-                or emission.get("temperature") != 300
+                or emission.get("temperature") != (310 if carbon else 300)
                 or type(consumption.get("temperature")) not in (int, float) or not 0 < consumption["temperature"] < float("inf")
                 or any(packet.get("diseaseIdx") != 255 or packet.get("diseaseCount") != 0 for packet in (emission, consumption))):
+            return False
+    if carbon:
+        reading = report.get("TargetReading")
+        if (report.get("CarbonDioxideTransfersVerified") is not True or report.get("Model") != "oni-sealed-domain-v2"
+                or physical.get("Version") != 2 or not isinstance(reading, dict)
+                or not isinstance(reading.get("Constituents"), list)
+                or not any(isinstance(row, dict) and row.get("MaterialId") == "carbon_dioxide" and
+                           type(row.get("MassKg")) in (int, float) and math.isfinite(row["MassKg"]) and row["MassKg"] > 0 for row in reading["Constituents"])):
             return False
     if actors:
         actor = report.get("RegisteredActors")
@@ -580,7 +588,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -679,12 +687,12 @@ def playtest(args, state: Path, session: dict) -> int:
         observer_ok = native_observer_passed(manifest, observer_report)
         domain_report = None
         domain_ok = False
-        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain"):
+        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain"):
             try:
                 domain_report = read_json(colony_file.parent / "native-domain.json")
             except (OSError, json.JSONDecodeError):
                 pass
-            domain_ok = native_domain_passed(domain_report, observer_report, args.frames, args.mode == "native-liquid-domain", args.mode == "native-heat-domain", args.mode == "native-transfer-domain", args.mode == "native-actor-domain")
+            domain_ok = native_domain_passed(domain_report, observer_report, args.frames, args.mode == "native-liquid-domain", args.mode == "native-heat-domain", args.mode in ("native-transfer-domain", "native-carbon-domain"), args.mode == "native-actor-domain", args.mode == "native-carbon-domain")
             if code == 0 and not domain_ok:
                 status, code = "failed-native-domain", 2
         elif code == 0 and not observer_ok:
@@ -732,7 +740,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)

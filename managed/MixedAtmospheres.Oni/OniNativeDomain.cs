@@ -25,15 +25,15 @@ namespace MixedAtmospheres.Oni
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)]
             private byte[] ErrorBytes;
             public string Error => Encoding.UTF8.GetString(ErrorBytes ?? Array.Empty<byte>()).TrimEnd('\0');
-            internal static Status Empty => new Status { Size = 440, Version = 1, ErrorBytes = new byte[256] };
+            internal static Status Empty => new Status { Size = 440, Version = 2, ErrorBytes = new byte[256] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Cell
         {
-            public double Nitrogen, Oxygen, Helium, Water, InternalEnergy, Pressure, Temperature, LiquidFraction;
+            public double Nitrogen, Oxygen, Helium, Water, CarbonDioxide, InternalEnergy, Pressure, Temperature, LiquidFraction;
             public double ResolvedKineticEnergy, MomentumX, MomentumY;
-            public double Mass(int index) => index == 0 ? Nitrogen : index == 1 ? Oxygen : index == 2 ? Helium : Water;
-            public double TotalMass => Nitrogen + Oxygen + Helium + Water;
+            public double Mass(int index) => index == 0 ? Nitrogen : index == 1 ? Oxygen : index == 2 ? Helium : index == 3 ? Water : index == 4 ? CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(index));
+            public double TotalMass => Nitrogen + Oxygen + Helium + Water + CarbonDioxide;
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Species
@@ -80,9 +80,9 @@ namespace MixedAtmospheres.Oni
         {
             public uint Size, Version, State, PendingBatches;
             public ulong Session, AcceptedBatches, CommittedBatches, UnacknowledgedReceipts;
-            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public double[] MassChangesKg;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 5)] public double[] MassChangesKg;
             public double MaterialEnergyChange, KineticEnergyChange;
-            internal static TransferStatus Empty => new TransferStatus { Size = 96, Version = 1, MassChangesKg = new double[4] };
+            internal static TransferStatus Empty => new TransferStatus { Size = 104, Version = 2, MassChangesKg = new double[5] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct ActorCommand

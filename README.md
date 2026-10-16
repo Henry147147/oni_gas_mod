@@ -43,6 +43,8 @@ for ownership, interfaces, failures and implementation gates.
   transferring custom physical gas; a real Unity consumer, changed rates,
   blocked/unblocked callbacks and removal pass in the Linux colony. General
   production devices and persistence remain unfinished.
+  Carbon dioxide is now a physical constituent too: its real-game injection,
+  consumption, transport, callbacks and energy/mass accounts pass on Linux.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

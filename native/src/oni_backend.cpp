@@ -437,17 +437,17 @@ MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat* inputs,std::uint32_t
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
-std::uint32_t ma_oni_domain_transfer_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_transfer_abi_version() { return MA_ONI_DOMAIN_TRANSFER_ABI_VERSION; }
 MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus* output) {
     return boundary([&] {
-        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native transfer status ABI");
         ma::oni::copy_domain_transfer_status(*output);
     });
 }
 MAOniResult ma_oni_domain_queue_transfers(const MAOniDomainTransfer* inputs,std::uint32_t count,MAOniDomainTransferStatus* output) {
     return boundary([&] {
-        if (!inputs || !count || count > 256 || !output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+        if (!inputs || !count || count > 256 || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native transfer batch/output ABI");
         try { ma::oni::queue_domain_transfers(inputs,count,*output); }
         catch (const ma::FluidFatalError& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }

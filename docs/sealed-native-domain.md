@@ -25,7 +25,8 @@ no managed advance timer.
 The physical model retains constituent mass, U and canonical face momentum.
 It uses the existing closed MAC pressure/transport solver, its compression
 coupling, a declared ideal-gas/elastic-liquid reference and immutable candidate
-advances. The air case contains nitrogen, oxygen and helium at trace abundance.
+advances. The initial air case contains nitrogen, oxygen and helium at trace abundance.
+Carbon dioxide is also a supported physical constituent in the current model.
 The water control initializes 1,100 kg in each cubic metre at 300 K: its
 mechanical pressure is 220 MPa, with elastic energy retained separately from
 thermal energy. These are explicit development materials, not a complete ONI
@@ -106,8 +107,8 @@ constituent, including trace helium, remains in the physical inventory.
 These are declared point-source boundaries; pumps still need accountable
 aperture flow, work and output reservations.
 
-The additive transfer ABI 1 has 64-byte commands, 88-byte receipts and a
-96-byte status. Heat and mass commands share an ordered immutable candidate.
+The current transfer ABI 2 has 64-byte commands, 88-byte receipts and a
+104-byte status with all five constituent accounts. Heat and mass commands share an ordered immutable candidate.
 Enqueue publishes no physical change or callback. The native worker commits
 the candidate, advance, constituent/energy accounts and receipts together.
 Session IDs, expected frames and receipt sequences reject stale work.
@@ -124,10 +125,16 @@ message dispatch, and independently checked mass and U+K accounts. Fault
 snapshots clear already delivered event lists before retaining the last physical
 frame, so a stopped publication cannot replay callbacks.
 
-Current transfers support nitrogen, oxygen and helium in occupied gas cells.
+Current transfers support nitrogen, oxygen, helium and carbon dioxide in occupied gas cells.
 Liquid/empty-cell transitions, disease-bearing injection, spatial consumption,
 mixed-owner batches, spatial/bulk actors and producer reservations require
 additional adapters. Unsupported requests reject before dispatch.
+
+The current domain ABI 2 uses 96-byte cells: nitrogen, oxygen, helium, water and
+carbon dioxide masses followed by the physical readings. Domain configuration
+and status stay 40/440 bytes; heat and actor extensions keep ABI 1. Native and
+managed clients reject the older four-species layout. The explicit reference
+model is `oni-sealed-domain-v2`; this is still a limited development catalogue.
 
 ## Registered gas actors
 
@@ -182,6 +189,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-transfer-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-actor-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-carbon-domain --frames 120 --timeout 1200
 ```
 
 Both runs use separate fresh profiles on the authenticated virtual desktop.
@@ -220,6 +229,9 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T200702Z-8e3b53` | Passes after merging the new geometric momentum transport: 122 native frames, 120 after priming, 2,562 substeps, two heat commands and net 1,500 J. U+K heat residual is −1.63e−9 J, maximum relative mass drift 2.06e−15 and energy drift 3.94e−15. Grid, rendering, unchanged native tuples, native solid heat and both save guards pass, with no mod failure lines. |
 | `20261016T202909Z-bef415` | Passes real gas injection/consumption and both actual game callbacks exactly once: 122 native frames, 120 after priming, 2,562 substeps. Net oxygen addition is 0.030000001192092896 kg (the exact difference of the game floats); mass residual is 2.01e−15 and U+K residual 1.62e−10 J. Extraction carries 0.0003848342 J of resolved kinetic energy. Both receipts are acknowledged, native compatibility tuples stay exact, grid/render/solid-heat/save checks pass and no mod failure lines occur. Package source is `6bb2b53` plus the recorded dirty gas-transfer changes; private manifests retain the individual library hashes. |
 | `20261016T204654Z-021e13` | Passes actual Unity `ElementConsumer` and registered emitter integration: 122 native frames, 120 after priming, 2,562 substeps. The consumer receives 32 positive samples totalling 0.20000000530853868 kg; 40 emitter status samples account for 1.09375 kg. Both blocked/unblocked game callbacks fire once. Rate changes, interval resets, disable/removal and 74 subsequent native frames without actor transfers pass. U+K residual is −1.78e−9 J and constituent-mass residual 1.03e−15. Original native tuples, actual game emitter status, grid, renderer, solid heat and both save guards pass. Package source is `ea948bd` plus the recorded actor changes. |
+| `20261016T205811Z-f4c02b` | Passes physical carbon-dioxide injection/consumption on domain/transfer ABI 2: 122 native frames, 120 after priming, 2,562 substeps. Actual game callbacks report 0.05 kg CO2 at 310 K injected and 0.02 kg consumed at 300.481354 K. The fifth mass account retains net 0.030000001192092896 kg; chemical/internal energy and carried kinetic energy remain in the U+K account. Energy residual is −3.33e−9 J and constituent-mass residual 1.85e−15. The actual mixture reading contains transported CO2; native tuples, grid, rendering, solid heat and save guards pass, with no mod failure lines. Package source is `203fd55` plus the recorded ABI/CO2 changes. |
+| `20261016T210133Z-3a5041` | Repeats the complete registered-actor pass on domain ABI 2 and the five-species model: 32 actual consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, retained original cells, game status/grid/rendering, conservation and removal checks. No mod failure lines. |
+| `20261016T210446Z-16a99c` | Repeats the compressed-water control on domain ABI 2: 32 native frames, 30 after priming, 672 substeps, 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. Native tuples, solid heat, actual grid/rendering and both save guards pass without mod failure lines. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

@@ -13,7 +13,7 @@ internal static unsafe partial class Program
 
     private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating)
     {
-        Require(OniNativeDomain.Version() == 1 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
+        Require(OniNativeDomain.Version() == 2 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
         var initialCells = Enumerable.Range(0, 6).Select(i => initial.CellData[DomainCell(i)]).ToArray();
         var snapshot = initial;
         Stage("native-unbalanced-flow-control");
@@ -32,7 +32,7 @@ internal static unsafe partial class Program
         }
         sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
         Require(Enumerable.Range(0, 6).All(i => (snapshot.CellData[DomainCell(i)].Properties & 3) == 3), "Native flow flags were not installed.");
-        var config = new OniNativeDomain.Configuration { Size = 40, Version = 1, Flags = 1, GridWidth = Width,
+        var config = new OniNativeDomain.Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = Width,
             X = DomainX, Y = DomainY, Width = DomainWidth, Height = DomainHeight, Scenario = liquid ? 1U : 0U };
         var status = OniNativeDomain.Status.Empty;
         var wrongPitch = config; wrongPitch.GridWidth -= 1;
