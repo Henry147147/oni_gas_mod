@@ -233,6 +233,65 @@ int main() {
             std::abs(carbon_energy_after-carbon_energy_before-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j)<1e-6,
             "physical carbon-dioxide transfer, transport, complete mass publication or energy account failed");
         ma::oni::shutdown_domain();
+        config.scenario=2; ma::oni::start_domain(config,1); final=capture(cells);
+        MAOniDomainGravityStatus gravity{}; ma::oni::copy_domain_gravity_status(gravity);
+        static_assert(sizeof(MAOniDomainGravityStatus)==96);
+        require(gravity.enabled==1 && gravity.gravity_m_per_s2==9.81 && gravity.potential_j>0 &&
+            gravity.initial_potential_j==gravity.potential_j && gravity.body_impulse_y==0,"Gravity activation did not retain its physical datum");
+        const auto initial_gravity=gravity; const auto gravity_cells=cells;
+        long double initial_total=gravity.potential_j;
+        for (const auto& cell : cells) initial_total+=cell.internal_energy+cell.resolved_kinetic_energy;
+        const std::array<MAOniDomainTransfer,2> elevated{{
+            {64,2,final.session,0,10+11*64,1,1,1,10,0,.05F,310},
+            {64,2,final.session,0,10+11*64,1,2,1,11,0,.02F,0}}};
+        ma::oni::queue_domain_transfers(elevated.data(),2,transfer_status);
+        ma::oni::copy_domain_gravity_status(gravity);
+        const auto boundary_potential=(static_cast<double>(.05F)-.02F)*9.81*1.5;
+        require(std::abs(gravity.pending_boundary_potential_j-boundary_potential)<1e-15 && gravity.committed_boundary_potential_j==0 &&
+            gravity.potential_j==initial_gravity.potential_j && gravity.completed_frame==0,"Gravity reservation published energy or used the wrong elevation");
+        auto bad_elevated=elevated; bad_elevated[1].public_cell=0; const auto before_bad_gravity=gravity;
+        rejected=false; try { ma::oni::queue_domain_transfers(bad_elevated.data(),2,transfer_status); } catch (const std::invalid_argument&) { rejected=true; }
+        ma::oni::copy_domain_gravity_status(gravity);
+        require(rejected && std::memcmp(&gravity,&before_bad_gravity,sizeof(gravity))==0,"Rejected transfer changed a pending potential account");
+        for (std::uint64_t frame=1;frame<=10;++frame) ma::oni::advance_domain(frame,.2,2);
+        final=capture(cells); ma::oni::copy_domain_gravity_status(gravity); ma::oni::copy_domain_transfer_status(transfer_status);
+        long double final_total=gravity.potential_j;
+        for (const auto& cell : cells) final_total+=cell.internal_energy+cell.resolved_kinetic_energy;
+        require(final.state==1 && gravity.completed_frame==10 && gravity.session==final.session && gravity.body_impulse_y<0 &&
+            gravity.potential_j!=initial_gravity.potential_j && cells[0].momentum_y!=gravity_cells[0].momentum_y &&
+            gravity.pending_boundary_potential_j==0 && std::abs(gravity.committed_boundary_potential_j-boundary_potential)<1e-15 &&
+            std::abs(final_total-initial_total-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j-boundary_potential)<1e-6 &&
+            gravity.maximum_energy_residual_j<1e-6,"Gravity force, carried boundary potential or U+K+G account failed");
+        // Registered actors cross different elevations, so equal emitted and
+        // consumed masses still require a nonzero boundary-potential account.
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        consumer={80,1,final.session,10,1,1,10+10*64,1,0,0,.05F,0,0,0};
+        emitter={80,1,final.session,10,2,2,10+11*64,1,0,0,.01F,.2,300,10000};
+        ma::oni::configure_domain_actor(consumer,actor_status); ma::oni::configure_domain_actor(emitter,actor_status);
+        double actor_potential=boundary_potential;
+        for (std::uint64_t frame=11;frame<=20;++frame) {
+            ma::oni::advance_domain(frame,.2,2);
+            ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+            for (std::uint32_t i=0;i<receipt_count;++i) {
+                const auto& receipt=receipts[i]; const auto height=receipt.public_cell/64-10+.5;
+                if (receipt.kind==3) actor_potential-=receipt.mass_kg*9.81*height;
+                else if (receipt.kind==4) actor_potential+=receipt.mass_kg*9.81*height;
+            }
+            if (receipt_count) ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        }
+        ma::oni::copy_domain_gravity_status(gravity); ma::oni::copy_domain_transfer_status(transfer_status);
+        final_total=gravity.potential_j;
+        for (const auto& cell : cells) final_total+=cell.internal_energy+cell.resolved_kinetic_energy;
+        require(final.state==1 && std::abs(gravity.committed_boundary_potential_j-actor_potential)<1e-14 &&
+            std::abs(final_total-initial_total-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j-actor_potential)<1e-6,
+            "Registered actors at different elevations lost boundary potential energy");
+        const auto held_gravity=gravity;
+        ma::oni::advance_domain(20,.2,2); ma::oni::copy_domain_gravity_status(gravity);
+        require(gravity.state==3 && gravity.completed_frame==held_gravity.completed_frame && gravity.potential_j==held_gravity.potential_j &&
+            gravity.body_impulse_y==held_gravity.body_impulse_y && gravity.committed_boundary_potential_j==held_gravity.committed_boundary_potential_j,
+            "Failed gravity frame published a potential, force or boundary account");
+        ma::oni::shutdown_domain();
         config.offset_x=63;
         try { ma::oni::start_domain(config,1); throw std::runtime_error("row-wrap geometry accepted"); }
         catch (const std::invalid_argument&) {}

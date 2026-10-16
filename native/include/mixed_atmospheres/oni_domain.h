@@ -17,7 +17,7 @@ extern "C" {
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
-    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water control */
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity */
 } MAOniDomainConfig;
 
 typedef struct MAOniDomainStatus {
@@ -133,6 +133,19 @@ typedef struct MAOniDomainThermalStatus {
 } MAOniDomainThermalStatus;
 MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);
+
+/* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
+ * owned rectangle, at cell centres. Boundary transfers carry the same datum.
+ * All values describe the completed frame; pending potential is reserved only. */
+typedef struct MAOniDomainGravityStatus {
+    uint32_t struct_size, abi_version, state, enabled;
+    uint64_t session, completed_frame;
+    double gravity_m_per_s2, initial_potential_j, potential_j;
+    double committed_boundary_potential_j, pending_boundary_potential_j;
+    double body_impulse_y, internal_work_j, maximum_energy_residual_j;
+} MAOniDomainGravityStatus;
+MA_ONI_API uint32_t ma_oni_domain_gravity_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_gravity_status(MAOniDomainGravityStatus*);
 
 #ifdef __cplusplus
 }

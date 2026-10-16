@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import struct
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -55,7 +55,21 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or any(type(thermal.get(key)) not in (int, float) or not math.isfinite(thermal[key]) or thermal[key] <= 0
                        for key in ("RedistributedEnergy", "EntropyChange"))):
             return False
-    if transfers or carbon:
+    if gravity:
+        field = report.get("Gravity")
+        if (report.get("GravityVerified") is not True or not isinstance(field, dict)
+                or field.get("Size") != 96 or field.get("Version") != 1 or field.get("Enabled") != 1 or field.get("State") != 1
+                or field.get("Session") != physical["Session"] or field.get("CompletedFrame") != physical["CompletedFrames"]
+                or field.get("Gravity") != 9.81 or field.get("PendingBoundaryPotential") != 0
+                or any(type(field.get(key)) not in (int, float) or not math.isfinite(field[key])
+                       for key in ("Potential", "InitialPotential", "CommittedBoundaryPotential", "BodyImpulseY", "InternalWork", "MaximumEnergyResidual"))
+                or field["Potential"] <= 0 or field["Potential"] == field["InitialPotential"] or field["BodyImpulseY"] >= 0
+                or not 0 <= field["MaximumEnergyResidual"] <= 1e-6
+                or type(report.get("ProjectedPotentialJoules")) not in (int, float)
+                or not abs(report["ProjectedPotentialJoules"] - field["Potential"]) < 1e-9
+                or not abs(field["CommittedBoundaryPotential"] - (struct.unpack("<f", struct.pack("<f", .05))[0] - struct.unpack("<f", struct.pack("<f", .02))[0]) * 9.81 * .5) < 1e-15):
+            return False
+    if transfers or carbon or gravity:
         account = report.get("GasTransfers")
         emission, consumption = report.get("EmissionResult"), report.get("ConsumptionResult")
         injected = struct.unpack("f", struct.pack("f", .05))[0]
@@ -123,7 +137,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity"), required=True)
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -133,7 +147,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction")
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

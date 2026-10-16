@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water','sealed-heat','sealed-conduction')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water','sealed-heat','sealed-conduction','sealed-gravity')][string]$Mode = 'baseline',
     [string]$Observer,
     [string]$GameDirectory,
     [string]$Dotnet = 'dotnet.exe'

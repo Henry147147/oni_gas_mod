@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from native_probe_process import add_runtime_arguments, ProbeRuntime
 
 MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
-DOMAIN_MODES = ("sealed-gas", "sealed-water", "sealed-heat", "sealed-conduction")
+DOMAIN_MODES = ("sealed-gas", "sealed-water", "sealed-heat", "sealed-conduction", "sealed-gravity")
 
 
 def no_core_dump() -> None:

@@ -43,6 +43,8 @@ std::map<std::pair<std::uint32_t,std::int32_t>,Actor> actors;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
 std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{};
 MacEnergySum thermal_redistribution,thermal_entropy;
+MacEnergySum committed_potential,pending_potential,body_impulse,gravity_internal_work;
+double initial_potential{},maximum_energy_residual{};
 std::vector<MAOniDomainCell> publication;
 std::array<long double,MA_ONI_DOMAIN_SPECIES> initial_masses{};
 long double initial_energy{};
@@ -86,6 +88,13 @@ std::array<long double,MA_ONI_DOMAIN_SPECIES> masses(const MacClosedWorld& owner
         values[k]+=cell.mixture.masses[owner.registry().index(ids[k])];
     return values;
 }
+double potential(const MacClosedWorld& owner) {
+    MacEnergySum total; const auto& state=owner.state();
+    for (std::size_t i=0;i<state.cells.size();++i)
+        total.add(MacEnergy::from_double(state.cells[i].mixture.mass()).multiplied(owner.settings().gravity_m_per_s2)
+            .multiplied((static_cast<double>(i/state.grid.width)+.5)*state.grid.spacing_m));
+    return total.value().require_representable();
+}
 long double energy(const MacClosedWorld& owner) {
     const auto& state=owner.state(); long double value=0;
     for (const auto& cell : state.cells) value+=cell.mixture.energy;
@@ -94,7 +103,7 @@ long double energy(const MacClosedWorld& owner) {
     const auto jy=mac_field_values(state.momentum_y,state.full_momentum_y);
     for (std::size_t i=0;i<jx.size();++i) value+=MacEnergy::kinetic(inertia.x[i],jx[i]).require_representable();
     for (std::size_t i=0;i<jy.size();++i) value+=MacEnergy::kinetic(inertia.y[i],jy[i]).require_representable();
-    return value;
+    return value+potential(owner);
 }
 std::vector<MAOniDomainCell> project(const MacClosedWorld& owner) {
     const auto& state=owner.state();
@@ -151,7 +160,7 @@ MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second)
 struct GasWork {
     std::unique_ptr<MacClosedWorld> owner=std::make_unique<MacClosedWorld>(pending_world ? *pending_world : *world);
     std::array<MacScaledSum,MA_ONI_DOMAIN_SPECIES> mass=pending_mass;
-    MacEnergySum material=pending_material,kinetic=pending_kinetic;
+    MacEnergySum material=pending_material,kinetic=pending_kinetic,potential=pending_potential;
     std::vector<MAOniDomainReceipt> outbox=pending_receipts;
     std::uint64_t sequence=receipt_sequence;
     void append(MAOniDomainReceipt receipt) {
@@ -160,9 +169,10 @@ struct GasWork {
         receipt.sequence=++sequence; receipt.session=status.session; outbox.push_back(receipt);
     }
     void validate_accounts() const {
-        (void)material.value().require_representable(); (void)kinetic.value().require_representable();
+        (void)material.value().require_representable(); (void)kinetic.value().require_representable(); (void)potential.value().require_representable();
         (void)combined_heat(committed_material,material).value().require_representable();
         (void)combined_heat(committed_kinetic,kinetic).value().require_representable();
+        (void)combined_heat(committed_potential,potential).value().require_representable();
         for (std::size_t i=0;i<mass.size();++i) {
             (void)mass[i].value().require_representable();
             (void)combined_heat(committed_mass[i],mass[i]).value().require_representable();
@@ -198,6 +208,7 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
     const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
     work.mass[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
     work.material.add(inject ? packet.internal_energy_j : -packet.internal_energy_j);
+    work.potential.add(inject ? packet.potential_energy : packet.potential_energy.negated());
     if (!inject) work.kinetic.add(packet.resolved_kinetic_energy.negated());
     work.append({0,0,0,input.public_cell,input.species,input.callback,receipt_kind,
         packet.mass_kg,packet.temperature_k,packet.internal_energy_j,packet.resolved_kinetic_energy.require_representable(),
@@ -253,7 +264,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
 
 void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
-        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 1 ||
+        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 2 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
@@ -283,11 +294,12 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
     MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=true;
+    settings.gravity_m_per_s2=config.scenario == 2 ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
     geometry=config;
     auto cells=project(*candidate);
-    const auto totals=masses(*candidate); const auto total_energy=energy(*candidate);
+    const auto totals=masses(*candidate); const auto total_energy=energy(*candidate); const auto next_potential=potential(*candidate);
     MAOniDomainStatus next{}; next.struct_size=sizeof(next); next.abi_version=MA_ONI_DOMAIN_ABI_VERSION;
     next.state=1; next.cells=static_cast<std::uint32_t>(cells.size()); next.session=++session_sequence;
     next.start_thread=thread; next.initial_oxygen_kg=cells.front().masses[1]; next.current_oxygen_kg=next.initial_oxygen_kg;
@@ -302,6 +314,8 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
     thermal_redistribution={}; thermal_entropy={};
+    committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
+    initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
     enabled.store(true,std::memory_order_release);
 }
@@ -369,12 +383,13 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         }
         auto next_heat=combined_heat(committed_heat,pending_heat);
         auto next_material=combined_heat(committed_material,work.material), next_kinetic=combined_heat(committed_kinetic,work.kinetic);
-        auto external_energy=combined_heat(combined_heat(next_heat,next_material),next_kinetic);
+        auto next_potential=combined_heat(committed_potential,work.potential);
+        auto external_energy=combined_heat(combined_heat(combined_heat(next_heat,next_material),next_kinetic),next_potential);
         const auto heat_projection=external_energy.value().require_representable();
         const auto expected_energy=initial_energy+heat_projection;
         const auto energy_scale=std::abs(initial_energy)+std::abs(heat_projection);
-        next.maximum_relative_energy_error=std::max(next.maximum_relative_energy_error,
-            static_cast<double>(std::abs(energy(result.world)-expected_energy)/energy_scale));
+        const auto energy_residual=std::abs(energy(result.world)-expected_energy);
+        next.maximum_relative_energy_error=std::max(next.maximum_relative_energy_error,static_cast<double>(energy_residual/energy_scale));
         if (next.maximum_relative_mass_error > 1e-8 || next.maximum_relative_energy_error > 1e-6)
             throw std::runtime_error("Native domain exceeded its mass/energy drift bound");
         next.substeps+=result.report.substeps; next.rejected_attempts+=result.report.rejected_attempts;
@@ -389,11 +404,17 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
         auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
         auto next_redistribution=thermal_redistribution,next_entropy=thermal_entropy;
+        auto next_impulse=body_impulse,next_gravity_work=gravity_internal_work;
+        next_impulse.add(result.report.body_impulse_y); next_gravity_work.add(result.report.gravity_internal_change_j);
+        (void)next_impulse.value().require_representable(); (void)next_gravity_work.value().require_representable();
         next_redistribution.add(result.report.conductive_redistribution_j); next_entropy.add(result.report.conductive_entropy_j_per_k);
         if (!std::isfinite(next_redistribution.value().project().value) || !std::isfinite(next_entropy.value().project().value))
             throw std::overflow_error("Native conduction diagnostic exceeds its scalar range");
         world=std::move(owner); publication=std::move(cells); status=next;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
+        committed_potential=std::move(next_potential); pending_potential={};
+        body_impulse=std::move(next_impulse); gravity_internal_work=std::move(next_gravity_work);
+        maximum_energy_residual=std::max(maximum_energy_residual,static_cast<double>(energy_residual));
         thermal_stages+=result.report.conduction_stages; thermal_contacts+=result.report.conduction_contacts;
         thermal_iterations+=result.report.conduction_iterations; unresolved_thermal_updates+=result.report.unresolved_conduction_updates;
         actors=std::move(next_actors); actor_steps=next_steps; consumer_samples=next_consumed; emitter_samples=next_emitted;
@@ -462,6 +483,7 @@ void queue_domain_transfers(const MAOniDomainTransfer* inputs,std::uint32_t coun
     work.validate_accounts();
     if (accepted_transfer_batches == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native transfer batch sequence overflow");
     pending_world=std::move(work.owner); pending_mass=std::move(work.mass);
+    pending_potential=std::move(work.potential);
     pending_material=std::move(work.material); pending_kinetic=std::move(work.kinetic); pending_receipts=std::move(work.outbox);
     receipt_sequence=work.sequence; ++accepted_transfer_batches; ++pending_transfer_batches;
     output=transfer_status();
@@ -519,7 +541,7 @@ void configure_domain_actor(const MAOniDomainActor& input,MAOniDomainActorStatus
         if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
     } else {
         (void)domain_index(input.public_cell);
-        if (geometry.scenario != 0 || input.species >= ids.size() || input.species == 3 ||
+        if (geometry.scenario == 1 || input.species >= ids.size() || input.species == 3 ||
             !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
             !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
             (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||
@@ -539,6 +561,14 @@ void copy_domain_thermal_status(MAOniDomainThermalStatus& output) {
     output={sizeof(MAOniDomainThermalStatus),1,status.state,world && world->settings().thermal_conduction ? 1U : 0U,
         status.session,status.completed_frames,thermal_stages,thermal_contacts,thermal_iterations,unresolved_thermal_updates,
         thermal_redistribution.value().project().value,thermal_entropy.value().project().value};
+}
+void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
+    std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
+    const auto gravity=world ? world->settings().gravity_m_per_s2 : 0;
+    output={sizeof(MAOniDomainGravityStatus),1,status.state,gravity != 0 ? 1U : 0U,status.session,status.completed_frames,
+        gravity,initial_potential,world ? potential(*world) : 0,committed_potential.value().require_representable(),
+        pending_potential.value().require_representable(),body_impulse.value().require_representable(),
+        gravity_internal_work.value().require_representable(),maximum_energy_residual};
 }
 
 }

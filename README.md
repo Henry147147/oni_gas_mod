@@ -48,6 +48,8 @@ for ownership, interfaces, failures and implementation gates.
   Internal fluid conduction now runs on the same native clock, with closed
   energy and entropy checks; a rendered Linux colony verifies the resulting
   heat redistribution. Fluid/solid heat exchange remains unfinished.
+  An opt-in gravity scene also passes in the Linux game, retaining physical
+  vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.
   Current Windows Unity takeover validation remains open.
 

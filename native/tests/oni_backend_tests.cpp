@@ -88,6 +88,9 @@ int main() {
         require(ma_oni_domain_thermal_abi_version()==1 && sizeof(MAOniDomainThermalStatus)==80,"conduction extension ABI");
         MAOniDomainThermalStatus thermal{}; thermal.struct_size=80; thermal.abi_version=1;
         require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_OK && thermal.state==0 && thermal.enabled==0,"inactive conduction status");
+        require(ma_oni_domain_gravity_abi_version()==1 && sizeof(MAOniDomainGravityStatus)==96,"gravity extension ABI");
+        MAOniDomainGravityStatus gravity{}; gravity.struct_size=96; gravity.abi_version=1;
+        require(ma_oni_domain_gravity_status(&gravity)==MA_ONI_OK && gravity.state==0 && gravity.enabled==0,"inactive gravity status");
         MAOniDomainActorStatus actors{}; actors.struct_size=64; actors.abi_version=1;
         require(ma_oni_domain_actor_status(&actors)==MA_ONI_OK && actors.state==0 && actors.live_actors==0,"inactive actor status");
         const auto held_actors=actors;

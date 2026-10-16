@@ -22,5 +22,6 @@ void ack_domain_receipts(std::uint64_t session,std::uint64_t through);
 void configure_domain_actor(const MAOniDomainActor&,MAOniDomainActorStatus&);
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
+void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::mutex& domain_frame_mutex() noexcept;
 }

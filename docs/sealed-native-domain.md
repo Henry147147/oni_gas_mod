@@ -131,6 +131,35 @@ This is a reserved external heat boundary, not a power/producer adapter.
 Mixed native/custom batches require a cross-owner reservation and currently
 reject before dispatch. Native heat outside the arena still uses ONI.
 
+## Gravity and carried potential energy
+
+Scenario 2 (`native-gravity-domain` in the game, `sealed-gravity` in the
+isolated licensed-library control) enables the closed owner's existing
+9.81 m/s2 downward gravity. Its force/work calculation uses the actual face
+mass fluxes. The energy account includes internal energy, resolved face
+kinetic energy and `sum(m*g*y)` at cell centres. The bottom of the owned
+rectangle is the potential datum; it is used consistently for all transfers.
+The other scenarios keep their explicitly zero-gravity controls.
+
+Gas injection carries potential at its destination elevation; extraction
+carries potential at its source elevation. This applies to both point
+messages and registered consumers/emitters. Equal masses at different
+elevations therefore still have a boundary-energy exchange. Pending transfers
+reserve this account without changing physical state. The native worker
+commits it with material/kinetic accounts, actor receipts and the physical
+advance. Invalid batches and failed timesteps retain the previous accounts.
+
+The additive gravity ABI 1 has a 96-byte status: session/frame, acceleration,
+initial/current potential, committed/pending boundary potential, cumulative
+body impulse, signed internal gravity work and maximum absolute total-energy
+residual. These are diagnostics of the physical owner. The game control
+independently reconstructs potential from all completed cell masses and
+heights, requires vertical momentum and force, injects/consumes actual gas
+through game callbacks, and checks the complete U+K+G boundary balance.
+The native regression also exercises registered actors at different elevations.
+This occupied sealed-room control does not establish free surfaces, arbitrary
+nonlinear buoyancy or whole-colony gravity coverage.
+
 ## Gas point sources and game callbacks
 
 Owned-cell `SimMessages.EmitMass` and single-cell `ConsumeMass` now reserve
@@ -230,6 +259,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-carbon-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-conduction-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-gravity-domain --frames 120 --timeout 1200
 ```
 
 These runs use separate fresh profiles on the authenticated virtual desktop.
@@ -272,6 +303,8 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T210133Z-3a5041` | Repeats the complete registered-actor pass on domain ABI 2 and the five-species model: 32 actual consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, retained original cells, game status/grid/rendering, conservation and removal checks. No mod failure lines. |
 | `20261016T210446Z-16a99c` | Repeats the compressed-water control on domain ABI 2: 32 native frames, 30 after priming, 672 substeps, 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. Native tuples, solid heat, actual grid/rendering and both save guards pass without mod failure lines. |
 | `20261016T220819Z-dbcb0f` | Passes internal fluid conduction on the reconstructed-momentum owner: 122 native frames, 120 after priming, 2,562 solver substeps and 5,124 thermal stages. It redistributes 1.01282699 J internally with entropy increase 1.31980e-5 J/K; U+K residual against the external 1,500 J heat input is -3.03e-9 J. Maximum relative mass/energy drift is 1.54e-15 / 5.51e-15. Thermal diagnostics report 35,868 contacts, 4,881 iterations and 222 updates below stored energy resolution. Exact native tuples, game grid/rendering, external native solid heat and both save guards pass, with no mod failure lines. Source is `83b1541` plus the recorded conduction changes; private package manifests retain binary hashes. |
+| `20261016T221722Z-2eb0f8` | Repeats the complete conduction pass after pulling the separate compression-heat component from main. All physical counters and thermal metrics match the earlier run; both save guards and exact compatibility cells pass, with no mod failure lines. Source is `7a781d2`; the separate component is preserved without adding it to this owner. All twelve cross-compiled native tests execute under Wine; six Windows forwarding comparisons remain identical. |
+| `20261016T222138Z-5dd9d7` | Passes native-clock gravity and actual gas transfers: 121 native frames, 120 after priming, 2,541 substeps and zero rejected attempts. Initial/current potential is 68.4864608 / 68.7330484 J; the actual 0.05 kg injection and 0.02 kg consumption carry net 0.147150006 J of boundary potential. Both game callbacks fire once. Cumulative downward body impulse is -1,664.20014 kg m/s, with signed internal gravity work -0.0520605 J. U+K+G transfer residual is -3.48e-9 J; maximum relative mass/energy drift is 2.01e-15 / 6.09e-15. Exact native cells, game grid/rendering, native solid heat and both save guards pass, with no mod failure lines. Source is `5d39a15` plus the recorded gravity changes. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

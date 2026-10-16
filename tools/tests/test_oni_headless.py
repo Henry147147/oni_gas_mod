@@ -101,8 +101,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 report = copy.deepcopy(self.report); report["NativeDomain"][field] = value
                 self.assertFalse(runner.native_domain_passed(report, self.observation, 30), (field, value))
 
-    def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
-        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
+    def add_gas_transfers(self):
         self.report.update(GasTransfersVerified=True, TransfersAvoidedNativeDispatch=True,
             TransferPacketsRouted=2, ReceiptsPublished=2, EmissionCallbacks=1, ConsumptionCallbacks=1,
             TransferEnergyResidualJoules=1e-9, TransferMaximumRelativeMassError=1e-15,
@@ -113,6 +112,10 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 "diseaseIdx": 255, "diseaseCount": 0},
             ConsumptionResult={"elemIdx": 176, "mass": .02, "temperature": 300.1,
                 "diseaseIdx": 255, "diseaseCount": 0})
+
+    def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
+        self.add_gas_transfers()
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
         corruptions = (("ReceiptsPublished", 1), ("EmissionCallbacks", 2), ("ConsumptionCallbacks", 0),
                        ("TransferEnergyResidualJoules", float("nan")), ("TransferMaximumRelativeMassError", 1e-8))
@@ -135,6 +138,23 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.assertTrue(runner.native_domain_passed(carbon, self.observation, 30, carbon=True))
         carbon["TargetReading"]["Constituents"] = []
         self.assertFalse(runner.native_domain_passed(carbon, self.observation, 30, carbon=True))
+
+    def test_gravity_requires_carried_potential_force_and_coherent_completed_energy(self):
+        self.add_gas_transfers()
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, gravity=True))
+        self.report.update(GravityVerified=True, ProjectedPotentialJoules=70.2,
+            Gravity={"Size": 96, "Version": 1, "State": 1, "Enabled": 1, "Session": 1, "CompletedFrame": 30,
+                "Gravity": 9.81, "Potential": 70.2, "InitialPotential": 70.0, "PendingBoundaryPotential": 0,
+                "CommittedBoundaryPotential": .030000001192092896*9.81*.5, "BodyImpulseY": -70,
+                "InternalWork": .01, "MaximumEnergyResidual": 1e-9})
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, gravity=True))
+        for field, value in (("Session", 2), ("CompletedFrame", 29), ("Gravity", 0), ("BodyImpulseY", 0),
+                ("Potential", float("nan")), ("InitialPotential", 70.2), ("CommittedBoundaryPotential", 0),
+                ("PendingBoundaryPotential", .1), ("MaximumEnergyResidual", 1e-4), ("InternalWork", float("inf"))):
+            bad=copy.deepcopy(self.report);bad["Gravity"][field]=value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, gravity=True), field)
+        self.report["EmissionCallbacks"]=0
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, gravity=True))
 
     def test_registered_actors_require_actual_components_callbacks_and_removal(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, actors=True))

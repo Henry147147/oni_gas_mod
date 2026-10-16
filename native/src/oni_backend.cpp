@@ -476,6 +476,14 @@ MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus* output) {
         ma::oni::copy_domain_thermal_status(*output);
     });
 }
+std::uint32_t ma_oni_domain_gravity_abi_version() { return 1; }
+MAOniResult ma_oni_domain_gravity_status(MAOniDomainGravityStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Native gravity output ABI differs");
+        ma::oni::copy_domain_gravity_status(*output);
+    });
+}
 MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)

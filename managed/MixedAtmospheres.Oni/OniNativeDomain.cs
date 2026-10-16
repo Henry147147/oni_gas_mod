@@ -110,6 +110,17 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct GravityStatus
+        {
+            public uint Size, Version, State, Enabled;
+            public ulong Session, CompletedFrame;
+            public double Gravity, InitialPotential, Potential, CommittedBoundaryPotential, PendingBoundaryPotential;
+            public double BodyImpulseY, InternalWork, MaximumEnergyResidual;
+            internal static GravityStatus Empty => new GravityStatus { Size = 96, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_gravity_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint GravityVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_gravity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyGravityStatus(ref GravityStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ActorVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actor", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActor(ref ActorCommand command, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyActorStatus(ref ActorStatus status);

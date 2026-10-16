@@ -40,6 +40,9 @@ producer reservations, spatial/bulk actors and ordinary colony saves remain open
 on the native clock, seeded by the same +2,000 J / -500 J game heat messages.
 It requires matching thermal session/frame diagnostics and exactly two thermal
 stages per solver substep, along with the existing physical/grid/render checks.
+`native-gravity-domain` enables downward gravity, checks vertical force/momentum
+and includes physical potential in the conservation balance. Actual gas
+injection/consumption callbacks must carry the matching boundary potential.
 `native-carbon-domain` uses the five-species domain/transfer ABI 2 and verifies
 CO2 injection, selective consumption, both actual callbacks, chemical/internal
 energy, carried kinetic energy, complete mass accounts and transported CO2 in
@@ -60,7 +63,7 @@ ten-native-timestep/physical-update gate with 47 byte-identical snapshot
 channels. The wrapper restores original mods, preferences and generated-world
 files after closing its disposable colony. Full Windows instructions and the
 retained failed timing control are in the same backend contract.
-It now also accepts `-NativeDomain gas|water|heat|transfer|actor|carbon|conduction` with a
+It now also accepts `-NativeDomain gas|water|heat|transfer|actor|carbon|conduction|gravity` with a
 Windows native package. Domain runs use the shared portable evidence checker
 and require Windows Unity reports. All six Windows-binary forwarding cases and
 three native-domain controls execute successfully under Wine here; those

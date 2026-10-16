@@ -207,6 +207,13 @@ before committing. This path currently supports occupied, single-phase,
 constant-capacity cells and insulated boundaries. Its reference conductivity
 mixture rule and real-game control do not establish variable-property,
 phase-change or fluid/solid thermal coupling.
+The native domain's separate gravity scenario now connects the existing MAC
+body-force/work calculation to the game's worker clock. Its completed-frame
+account includes U, face K and gravitational potential. Point transfers and
+registered actors carry potential at their source/destination elevations,
+with the same datum used for the internal account. A Linux Unity control
+checks the actual game callbacks and independently reconstructs potential
+from all cell masses; it remains a bounded occupied-domain experiment.
 
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature
