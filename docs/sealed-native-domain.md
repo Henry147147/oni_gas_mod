@@ -76,6 +76,41 @@ FTZ/DAZ off on its executing thread. It restores the complete caller environment
 before returning to Unity/native code. The normal strict arithmetic checks stay
 enabled inside the solver.
 
+## Internal fluid conduction
+
+The native domain enables `MacClosedSettings.thermal_conduction`. Each accepted
+physical substep prepares two conductive half stages around the existing
+compression/pressure/transport stages. All stages share one clock, revision
+and immutable candidate: a rejected thermal solve publishes no partial heat,
+mass, actor receipt or elapsed time. The option remains off by default for
+separate numerical controls whose physical equations exclude conduction.
+
+Occupied, single-phase cells use the reference EOS heat capacity at fixed
+volume. Gas conductivity is weighted by partial volume (equivalently mole
+fraction); liquid weights use actual compressed partial volumes. A face's
+conductance is its area divided by the sum of the two half-cell thermal
+resistances. The existing backward-Euler thermal network advances these
+contacts. Walls and exterior faces are insulated. Canonical constituent mass,
+passive inventory and face momentum do not change during this operator.
+
+Every stage checks local and global energy accounts and endpoint entropy at
+bounds derived from its operands. Independent two-body equations and analytic
+time refinement test the heat solve; source immutability and the owner's
+single clock are tested separately. The additive thermal diagnostic ABI 1
+uses an 80-byte status with session/frame, enabled state, stage/contact/iteration
+counts, redistributed energy and entropy change. It also counts heat updates
+smaller than the stored binary64 internal-energy resolution. These are reported
+explicitly; the diagnostic does not claim arbitrary precision.
+
+`native-conduction-domain` seeds a temperature gradient with the ordinary
++2,000 J / -500 J game heat commands. It requires positive internal heat
+redistribution and entropy, exactly two thermal stages per solver substep,
+matching diagnostic/session/frame values and the full existing game checks.
+`sealed-conduction` exercises the corresponding licensed native-library
+control outside Unity on Linux or Windows. Current support uses development
+constant properties, rejects gas/liquid coexistence and variable heat capacity,
+and excludes fluid/solid exchange, radiation and phase transitions.
+
 ## Conserved game heat commands
 
 `SimMessages.ModifyEnergy` now routes owned-cell heating/cooling into the native
@@ -193,9 +228,11 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-actor-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-carbon-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-conduction-domain --frames 120 --timeout 1200
 ```
 
-Both runs use separate fresh profiles on the authenticated virtual desktop.
+These runs use separate fresh profiles on the authenticated virtual desktop.
 `native-domain.json` records physical progress, conservation, suppressed native
 phases, projection controls, solid conduction and renderer publication. The
 runner requires these facts and the native backend report, in addition to the
@@ -234,6 +271,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T205811Z-f4c02b` | Passes physical carbon-dioxide injection/consumption on domain/transfer ABI 2: 122 native frames, 120 after priming, 2,562 substeps. Actual game callbacks report 0.05 kg CO2 at 310 K injected and 0.02 kg consumed at 300.481354 K. The fifth mass account retains net 0.030000001192092896 kg; chemical/internal energy and carried kinetic energy remain in the U+K account. Energy residual is −3.33e−9 J and constituent-mass residual 1.85e−15. The actual mixture reading contains transported CO2; native tuples, grid, rendering, solid heat and save guards pass, with no mod failure lines. Package source is `203fd55` plus the recorded ABI/CO2 changes. |
 | `20261016T210133Z-3a5041` | Repeats the complete registered-actor pass on domain ABI 2 and the five-species model: 32 actual consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, retained original cells, game status/grid/rendering, conservation and removal checks. No mod failure lines. |
 | `20261016T210446Z-16a99c` | Repeats the compressed-water control on domain ABI 2: 32 native frames, 30 after priming, 672 substeps, 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. Native tuples, solid heat, actual grid/rendering and both save guards pass without mod failure lines. |
+| `20261016T220819Z-dbcb0f` | Passes internal fluid conduction on the reconstructed-momentum owner: 122 native frames, 120 after priming, 2,562 solver substeps and 5,124 thermal stages. It redistributes 1.01282699 J internally with entropy increase 1.31980e-5 J/K; U+K residual against the external 1,500 J heat input is -3.03e-9 J. Maximum relative mass/energy drift is 1.54e-15 / 5.51e-15. Thermal diagnostics report 35,868 contacts, 4,881 iterations and 222 updates below stored energy resolution. Exact native tuples, game grid/rendering, external native solid heat and both save guards pass, with no mod failure lines. Source is `83b1541` plus the recorded conduction changes; private package manifests retain binary hashes. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread

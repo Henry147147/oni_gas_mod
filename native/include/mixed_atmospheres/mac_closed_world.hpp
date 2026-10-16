@@ -1,4 +1,5 @@
 #pragma once
+#include "mac_thermal.hpp"
 #include "mac_reconstruction.hpp"
 #include "mac_compression.hpp"
 #include "volume_work.hpp"
@@ -18,6 +19,7 @@ struct MacClosedSettings {
     // pressure/transport candidate. The primitive substep stays separate.
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
+    bool thermal_conduction = false;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -67,6 +69,9 @@ struct MacClosedAdvanceReport {
     std::size_t compression_events = 0, unresolved_compression_heat_updates = 0, unresolved_compression_momentum_updates = 0;
     std::size_t momentum_correction_events = 0, limited_momentum_corrections = 0;
     std::size_t unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
+    std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0, unresolved_conduction_updates = 0;
+    MacEnergy conductive_redistribution_j;
+    double conductive_entropy_j_per_k = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;

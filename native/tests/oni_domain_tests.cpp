@@ -42,6 +42,9 @@ int main() {
         require(final.state==1 && final.completed_frames==10 && std::abs(final.time_seconds-2)<1e-14,"native clock did not advance ten frames");
         require(final.maximum_relative_mass_error<1e-8 && final.maximum_relative_energy_error<1e-6,"domain conservation failed");
         require(final.current_oxygen_kg!=initial.initial_oxygen_kg && final.substeps>=200,"custom pressure/transport was bypassed");
+        MAOniDomainThermalStatus thermal{}; ma::oni::copy_domain_thermal_status(thermal);
+        require(thermal.enabled==1 && thermal.stages==2*final.substeps && thermal.contacts>0 && thermal.redistributed_energy_j>0,
+            "Native worker omitted the integrated conductive stages or diagnostics");
         require(cells.front().resolved_kinetic_energy>0 && cells.front().momentum_x!=0,"native readings discarded face kinetics");
         for (const auto& cell : cells) {
             double mass=0; for (const auto amount : cell.masses) mass+=amount;

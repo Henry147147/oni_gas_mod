@@ -69,10 +69,12 @@ asynchronous: snapshot polling must observe their completion before assertions.
 
 The current domain client uses ABI 2 and five physical species. The Linux
 wrapper accepts `--mode domains --observer /path/to/backend --game /path/to/game`
-for the sealed gas, compressed-water and heat controls. Each runs the actual
+for the sealed gas, compressed-water, heat and conduction controls. Each runs the actual
 native clock for sixty post-priming frames, preserves exact original native
 mass/temperature tuples, and advances after declining a scalar save. Individual
-`sealed-gas`, `sealed-water` and `sealed-heat` modes are also available.
+`sealed-gas`, `sealed-water`, `sealed-heat` and `sealed-conduction` modes are also available.
+Conduction additionally requires positive internal redistribution/entropy and
+two coherent thermal stages per accepted solver substep; its walls remain insulated.
 The Windows PowerShell wrapper accepts these modes with `-Observer` and
 `-GameDirectory`.
 

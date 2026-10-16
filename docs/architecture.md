@@ -197,6 +197,17 @@ This prototype is separate from the C ABI, managed `FluidWorld` and ONI adapter;
 those still use `GasWorld`. Its 100k-cell performance fails the production gate.
 See [the implemented path and limits](../native/SOLVER.md).
 
+The [sealed native domain](sealed-native-domain.md#internal-fluid-conduction)
+now enables internal conduction in the closed MAC owner. Each accepted substep
+has conductive half stages around pressure/transport, with one physical clock
+and one immutable publication. A backward-Euler thermal network uses harmonic
+face resistance and the actual EOS heat capacities. Mass and face momentum
+stay fixed during conduction; closed energy and endpoint entropy are checked
+before committing. This path currently supports occupied, single-phase,
+constant-capacity cells and insulated boundaries. Its reference conductivity
+mixture rule and real-game control do not establish variable-property,
+phase-change or fluid/solid thermal coupling.
+
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature
 for its phases, and lacks reconstructed interface geometry,

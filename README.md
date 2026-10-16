@@ -34,7 +34,7 @@ for ownership, interfaces, failures and implementation gates.
   completed mixture readings. Its Linux compressed-water equilibrium control
   passes actual grid, renderer and save-guard checks. The corrected mixed-air
   control also passes 120 native frames after projection priming. This remains an
-  opt-in, actor-free experiment with saving disabled.
+  opt-in development experiment with saving disabled.
   Owned-cell heating/cooling messages now commit conserved external heat on the
   native tick; the real-game control verifies both energy and presentation.
   Gas point injection and selective consumption also commit on that clock,
@@ -45,6 +45,9 @@ for ownership, interfaces, failures and implementation gates.
   production devices and persistence remain unfinished.
   Carbon dioxide is now a physical constituent too: its real-game injection,
   consumption, transport, callbacks and energy/mass accounts pass on Linux.
+  Internal fluid conduction now runs on the same native clock, with closed
+  energy and entropy checks; a rendered Linux colony verifies the resulting
+  heat redistribution. Fluid/solid heat exchange remains unfinished.
   The Windows binary also passes gas, water and heat controls under Wine.
   Current Windows Unity takeover validation remains open.
 

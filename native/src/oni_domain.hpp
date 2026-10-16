@@ -21,5 +21,6 @@ void copy_domain_receipts(MAOniDomainStatus&,MAOniDomainCell*,std::uint32_t,MAOn
 void ack_domain_receipts(std::uint64_t session,std::uint64_t through);
 void configure_domain_actor(const MAOniDomainActor&,MAOniDomainActorStatus&);
 void copy_domain_actor_status(MAOniDomainActorStatus&);
+void copy_domain_thermal_status(MAOniDomainThermalStatus&);
 std::mutex& domain_frame_mutex() noexcept;
 }

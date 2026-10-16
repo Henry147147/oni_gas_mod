@@ -42,6 +42,8 @@ namespace MixedAtmospheres.Oni
         private static bool nativeSaveGuardVerified;
         private static bool gameGridProjectionVerified;
         private static HeatStatus heatStatus;
+        private static ThermalStatus thermalStatus;
+        private static bool thermalVerified;
         private static bool heatSubmitted, heatVerified, heatAvoidedNativeDispatch;
         private static double heatBeforeEnergy, heatEnergyResidual;
         private static int heatPacketsRouted;
@@ -67,9 +69,10 @@ namespace MixedAtmospheres.Oni
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
-        private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain";
+        private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
+        private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || CarbonMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
@@ -178,6 +181,14 @@ namespace MixedAtmospheres.Oni
                     Require(transfersVerified, "Actual gas messages, physical accounts or once-only game callbacks failed.");
                     releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
                 }
+                if (ConductionMode)
+                {
+                    thermalVerified = heatVerified && thermalStatus.Enabled == 1 && thermalStatus.State == 1 &&
+                        thermalStatus.Session == latest.Session && thermalStatus.CompletedFrame == latest.CompletedFrames &&
+                        thermalStatus.Stages == 2 * latest.Substeps && thermalStatus.Contacts > 0 && thermalStatus.Iterations > 0 &&
+                        thermalStatus.RedistributedEnergy > 0 && thermalStatus.EntropyChange > 0;
+                    Require(thermalVerified, "Native internal conduction did not advance physical heat and entropy with the worker clock.");
+                }
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
@@ -198,6 +209,7 @@ namespace MixedAtmospheres.Oni
                 Marshal.SizeOf<TransferStatus>() == 104, "Unsupported native gas transfer ABI.");
             Require(ActorVersion() == 1 && Marshal.SizeOf<ActorCommand>() == 80 && Marshal.SizeOf<ActorStatus>() == 64,
                 "Unsupported native actor ABI.");
+            Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
@@ -316,6 +328,7 @@ namespace MixedAtmospheres.Oni
             retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[0].InternalEnergy == cells[0].InternalEnergy;
             latest = next; cells = values;
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
+            var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var transfers = TransferStatus.Empty; Check(CopyTransferStatus(ref transfers)); transferStatus = transfers;
         }
         internal static IntPtr AfterNativeMessage(int message, IntPtr pointer)
@@ -578,6 +591,7 @@ namespace MixedAtmospheres.Oni
             NativeSaveGuardVerified = nativeSaveGuardVerified,
             GameGridProjectionVerified = gameGridProjectionVerified, ProjectionPrimedAtNativeFrame = projectionPrimedAtFrame,
             HeatCommands = heatStatus, HeatCommandsVerified = heatVerified, HeatPacketsRouted = heatPacketsRouted,
+            ThermalConduction = thermalStatus, ThermalConductionVerified = thermalVerified,
             HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
             HeatEnergyResidualJoules = heatEnergyResidual,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,

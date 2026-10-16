@@ -331,7 +331,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat;
+    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution;
+    Account conductive_entropy;
     MacScaledSum wx, wy; Account gravity_change, body_impulse;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
@@ -345,7 +346,12 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed retry time cannot be represented");
             try {
                 MacCompressionReport before_compression, after_compression; MacTransportState prepared;
+                MacThermalReport before_conduction, after_conduction;
                 const MacTransportState* pressure_source = &result.world.state_;
+                if (settings_.thermal_conduction) {
+                    auto conducted=advance_mac_conduction(registry_,*thermodynamics_,*pressure_source,.5*dt);
+                    before_conduction=std::move(conducted.report); prepared=std::move(conducted.state); pressure_source=&prepared;
+                }
                 if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt);
                     before_compression = std::move(damped.report); prepared = std::move(damped.state); pressure_source = &prepared;
@@ -354,6 +360,10 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 if (settings_.compression_viscosity == MacCompressionViscosity::quadratic) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt);
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
+                }
+                if (settings_.thermal_conduction) {
+                    auto conducted=advance_mac_conduction(registry_,*thermodynamics_,candidate.state,.5*dt);
+                    after_conduction=std::move(conducted.report); candidate.state=std::move(conducted.state);
                 }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
@@ -366,6 +376,13 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     result.report.compression_events += compression->events.size();
                     result.report.unresolved_compression_heat_updates += compression->unresolved_heat_updates;
                     result.report.unresolved_compression_momentum_updates += compression->unresolved_momentum_updates;
+                }
+                if (settings_.thermal_conduction) for (const auto* conduction : {&before_conduction,&after_conduction}) {
+                    bounds.add(conduction->energy_bound); conductive_redistribution.add(conduction->redistributed_energy);
+                    conductive_entropy.add(conduction->entropy_change_j_per_k);
+                    ++result.report.conduction_stages; result.report.conduction_contacts+=conduction->contacts;
+                    result.report.conduction_iterations+=conduction->iterations;
+                    result.report.unresolved_conduction_updates+=conduction->unresolved_heat_updates;
                 }
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
@@ -392,6 +409,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     result.report.energy_residual_wide_j = total.residual(); result.report.energy_bound_wide_j = bounds.value();
     result.report.mixing_heat_wide_j = mix.value(); result.report.wall_heat_wide_j = wall.value();
     result.report.compression_heat_wide_j = compression_heat.value();
+    result.report.conductive_redistribution_j=conductive_redistribution.value();
+    result.report.conductive_entropy_j_per_k=conductive_entropy.value();
     result.report.compression_heat_j = projected_energy(result.report.compression_heat_wide_j, result.report.rounded_energy_projections);
     result.report.energy_residual_j = projected_energy(result.report.energy_residual_wide_j, result.report.rounded_energy_projections);
     result.report.energy_bound_j = projected_energy(result.report.energy_bound_wide_j, result.report.rounded_energy_projections);

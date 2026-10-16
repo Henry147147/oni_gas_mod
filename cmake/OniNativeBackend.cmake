@@ -93,9 +93,12 @@ if(MA_BUILD_TESTS)
     add_executable(ma_mac_boundary_transfer_tests native/tests/mac_boundary_transfer_tests.cpp)
     target_link_libraries(ma_mac_boundary_transfer_tests PRIVATE ma_mac_closed_world)
     add_test(NAME mac_gas_boundary_transfers COMMAND ma_mac_boundary_transfer_tests)
+    add_executable(ma_mac_thermal_tests native/tests/mac_thermal_tests.cpp)
+    target_link_libraries(ma_mac_thermal_tests PRIVATE ma_mac_closed_world)
+    add_test(NAME mac_occupied_conduction COMMAND ma_mac_thermal_tests)
 endif()
 if(MA_SANITIZERS AND NOT MSVC)
-    foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests ma_oni_domain_tests ma_mac_boundary_transfer_tests
+    foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests ma_oni_domain_tests ma_mac_boundary_transfer_tests ma_mac_thermal_tests
             ma_mac_closed_world ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter)
         if(TARGET ${target})
             target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)

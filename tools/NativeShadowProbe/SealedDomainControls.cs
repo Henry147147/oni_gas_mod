@@ -103,6 +103,12 @@ internal static unsafe partial class Program
                 var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500;
                 Require(heatQueued && Math.Abs(residual) <= 1e-6, "Native physical energy did not retain the declared heat exchange.");
                 report["heatCommandsPassed"] = true; report["heatEnergyResidualJoules"] = residual;
+                var thermal = OniNativeDomain.ThermalStatus.Empty;
+                Require(OniNativeDomain.CopyThermalStatus(ref thermal) == 0 && thermal.Enabled == 1 && thermal.State == 1 &&
+                    thermal.Session == status.Session && thermal.CompletedFrame == status.CompletedFrames &&
+                    thermal.Stages == 2 * status.Substeps && thermal.Contacts > 0 && thermal.RedistributedEnergy > 0 && thermal.EntropyChange > 0,
+                    "Worker-clock internal heat conduction did not produce coherent physical diagnostics.");
+                report["internalConductionPassed"] = true; report["thermalConduction"] = thermal;
             }
             report["sealedNativeDomainPassed"] = true; report["projectionPrimedAtFrame"] = primedAt;
             report["nativeCompatibilityCellsUnchanged"] = true;

@@ -100,6 +100,16 @@ namespace MixedAtmospheres.Oni
             public ulong Session, CompletedFrame, AcceptedConfigurations, ActorSteps, ConsumerSamples, EmitterSamples;
             internal static ActorStatus Empty => new ActorStatus { Size = 64, Version = 1 };
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ThermalStatus
+        {
+            public uint Size, Version, State, Enabled;
+            public ulong Session, CompletedFrame, Stages, Contacts, Iterations, UnresolvedUpdates;
+            public double RedistributedEnergy, EntropyChange;
+            internal static ThermalStatus Empty => new ThermalStatus { Size = 80, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ActorVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actor", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActor(ref ActorCommand command, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyActorStatus(ref ActorStatus status);

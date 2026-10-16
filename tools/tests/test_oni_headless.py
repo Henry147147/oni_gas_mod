@@ -29,7 +29,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                        "ProjectionPrimed": True, "NativeFlowFenceVerified": True, "NativeRendererAdvanced": True,
                        "SaveGuardVerified": True, "NativeSaveGuardVerified": True, "GameGridProjectionVerified": True, "ProjectionPrimedAtNativeFrame": 0,
                        "RenderedRevision": 30, "Publications": 35,
-                       "NativeDomain": {"State": 1, "CompletedFrames": 30, "NativeTicket": 100, "Substeps": 630,
+                       "NativeDomain": {"State": 1, "Session": 1, "CompletedFrames": 30, "NativeTicket": 100, "Substeps": 630,
                            "SolverThread": 2, "StartThread": 1, "MaximumRelativeMassError": 1e-15,
                            "MaximumRelativeEnergyError": 1e-14, "SuppressedPostProcess": 200, "SuppressedTemperature": 800,
                            "SuppressedPressure": 100, "SuppressedLiquid": 0, "SuppressedGas": 180, "TimeSeconds": 6.00000009,
@@ -78,6 +78,20 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, heat=True), field)
         self.report["HeatEnergyResidualJoules"] = float("nan")
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, heat=True))
+
+    def test_internal_conduction_requires_physical_stages_heat_entropy_and_coherent_frame(self):
+        self.report.update(HeatCommandsVerified=True, HeatAvoidedNativeDispatch=True, HeatPacketsRouted=2,
+            HeatEnergyResidualJoules=1e-9, HeatCommands={"PendingBatches": 0, "AcceptedBatches": 2,
+                "CommittedBatches": 2, "CommittedHeatJoules": 1500})
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, conduction=True))
+        self.report.update(ThermalConductionVerified=True, ThermalConduction={"Size": 80, "Version": 1,
+            "Enabled": 1, "State": 1, "Session": 1, "CompletedFrame": 30, "Stages": 1260,
+            "Contacts": 8820, "Iterations": 1200, "RedistributedEnergy": 1.2, "EntropyChange": .003})
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, conduction=True))
+        for field, value in (("Stages", 1259), ("Session", 2), ("CompletedFrame", 29), ("Contacts", 0),
+                ("RedistributedEnergy", float("nan")), ("EntropyChange", 0), ("Enabled", 0)):
+            bad = copy.deepcopy(self.report); bad["ThermalConduction"][field] = value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, conduction=True), field)
 
     def test_partial_or_malformed_physical_reports_do_not_raise_or_pass(self):
         for value in (None, {}, {"NativeDomain": None}, {"NativeDomain": []}):

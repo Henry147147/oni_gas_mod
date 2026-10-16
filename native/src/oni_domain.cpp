@@ -41,6 +41,8 @@ std::vector<MAOniDomainReceipt> pending_receipts, receipts;
 struct Actor { MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bool blocked{}; };
 std::map<std::pair<std::uint32_t,std::int32_t>,Actor> actors;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
+std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{};
+MacEnergySum thermal_redistribution,thermal_entropy;
 std::vector<MAOniDomainCell> publication;
 std::array<long double,MA_ONI_DOMAIN_SPECIES> initial_masses{};
 long double initial_energy{};
@@ -280,7 +282,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     }
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
-    MacClosedSettings settings; settings.maximum_timestep_s=.01;
+    MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=true;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
     geometry=config;
@@ -298,6 +300,8 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     accepted_transfer_batches=committed_transfer_batches=receipt_sequence=acknowledged_receipt=0;
     pending_transfer_batches=0; pending_receipts.clear(); receipts.clear();
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
+    thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
+    thermal_redistribution={}; thermal_entropy={};
     for (auto& value : suppressed) value=0;
     enabled.store(true,std::memory_order_release);
 }
@@ -384,7 +388,14 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         auto next_mass=committed_mass;
         for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
         auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
+        auto next_redistribution=thermal_redistribution,next_entropy=thermal_entropy;
+        next_redistribution.add(result.report.conductive_redistribution_j); next_entropy.add(result.report.conductive_entropy_j_per_k);
+        if (!std::isfinite(next_redistribution.value().project().value) || !std::isfinite(next_entropy.value().project().value))
+            throw std::overflow_error("Native conduction diagnostic exceeds its scalar range");
         world=std::move(owner); publication=std::move(cells); status=next;
+        thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
+        thermal_stages+=result.report.conduction_stages; thermal_contacts+=result.report.conduction_contacts;
+        thermal_iterations+=result.report.conduction_iterations; unresolved_thermal_updates+=result.report.unresolved_conduction_updates;
         actors=std::move(next_actors); actor_steps=next_steps; consumer_samples=next_consumed; emitter_samples=next_emitted;
         receipt_sequence=work.sequence;
         committed_heat=std::move(next_heat); committed_heat_batches=accepted_heat_batches;
@@ -522,6 +533,12 @@ void configure_domain_actor(const MAOniDomainActor& input,MAOniDomainActorStatus
 }
 void copy_domain_actor_status(MAOniDomainActorStatus& output) {
     std::lock_guard lock(state_mutex); output=actor_status();
+}
+void copy_domain_thermal_status(MAOniDomainThermalStatus& output) {
+    std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
+    output={sizeof(MAOniDomainThermalStatus),1,status.state,world && world->settings().thermal_conduction ? 1U : 0U,
+        status.session,status.completed_frames,thermal_stages,thermal_contacts,thermal_iterations,unresolved_thermal_updates,
+        thermal_redistribution.value().project().value,thermal_entropy.value().project().value};
 }
 
 }

@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import struct
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer") -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -19,7 +19,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
         return False
-    counters = ("CompletedFrames", "NativeTicket", "Substeps", "SolverThread", "StartThread")
+    counters = ("Session", "CompletedFrames", "NativeTicket", "Substeps", "SolverThread", "StartThread")
     if any(type(physical.get(key)) is not int or physical[key] <= 0 for key in counters):
         return False
     bounds = (("MaximumRelativeMassError", 1e-8), ("MaximumRelativeEnergyError", 1e-6))
@@ -37,13 +37,23 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     primed = report.get("ProjectionPrimedAtNativeFrame")
     if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
         return False
-    if heat:
+    if heat or conduction:
         account = report.get("HeatCommands")
         if (not isinstance(account, dict) or report.get("HeatCommandsVerified") is not True or
                 report.get("HeatAvoidedNativeDispatch") is not True or report.get("HeatPacketsRouted") != 2 or
                 account.get("PendingBatches") != 0 or account.get("AcceptedBatches") != 2 or account.get("CommittedBatches") != 2 or
                 account.get("CommittedHeatJoules") != 1500 or
                 type(report.get("HeatEnergyResidualJoules")) not in (int, float) or not abs(report["HeatEnergyResidualJoules"]) <= 1e-6):
+            return False
+    if conduction:
+        thermal = report.get("ThermalConduction")
+        if (report.get("ThermalConductionVerified") is not True or not isinstance(thermal, dict)
+                or thermal.get("Size") != 80 or thermal.get("Version") != 1 or thermal.get("Enabled") != 1 or thermal.get("State") != 1
+                or thermal.get("Session") != physical["Session"] or thermal.get("CompletedFrame") != physical["CompletedFrames"]
+                or thermal.get("Stages") != 2 * physical["Substeps"] or type(thermal.get("Contacts")) is not int or thermal["Contacts"] <= 0
+                or type(thermal.get("Iterations")) is not int or thermal["Iterations"] <= 0
+                or any(type(thermal.get(key)) not in (int, float) or not math.isfinite(thermal[key]) or thermal[key] <= 0
+                       for key in ("RedistributedEnergy", "EntropyChange"))):
             return False
     if transfers or carbon:
         account = report.get("GasTransfers")
@@ -113,7 +123,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction"), required=True)
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -123,7 +133,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform)
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

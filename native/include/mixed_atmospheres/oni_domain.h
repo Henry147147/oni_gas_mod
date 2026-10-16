@@ -124,6 +124,16 @@ MA_ONI_API uint32_t ma_oni_domain_actor_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor*, MAOniDomainActorStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus*);
 
+/* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
+ * are read-only projections, never authority for a producer transaction. */
+typedef struct MAOniDomainThermalStatus {
+    uint32_t struct_size, abi_version, state, enabled;
+    uint64_t session, completed_frame, stages, contacts, iterations, unresolved_updates;
+    double redistributed_energy_j, entropy_change_j_per_k;
+} MAOniDomainThermalStatus;
+MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);
+
 #ifdef __cplusplus
 }
 #endif
