@@ -14,6 +14,7 @@ static_assert(sizeof(ma_coupled_cell_input) == 40);
 static_assert(sizeof(ma_coupled_cell) == 64);
 static_assert(sizeof(ma_coupled_snapshot) == 80);
 static_assert(sizeof(ma_coupled_step_result) == 128);
+static_assert(sizeof(ma_coupled_passive) == 16);
 
 struct ma_coupled_world {
     ma_coupled_config config;
@@ -21,6 +22,8 @@ struct ma_coupled_world {
     ma_coupled_snapshot snapshot{};
     std::vector<ma_coupled_cell> cells;
     std::vector<double> masses;
+    std::vector<uint64_t> passive_offsets;
+    std::vector<ma_coupled_passive> passive_entries;
     ma_coupled_world(const ma_coupled_config& c, ma::FluidSolverSettings settings, const ma::SpeciesRegistry& registry)
         : config(c), value(c.width, c.height, c.cell_size, c.depth, settings, registry) {}
 };
@@ -53,15 +56,20 @@ ma::FluidSolverSettings settings(const ma_coupled_config& c) {
 }
 void capture(ma_coupled_world& w, uint64_t revision) {
     const auto& r = w.value.registry(); const auto count = r.size();
-    w.cells.clear(); w.masses.clear();
+    w.cells.clear(); w.masses.clear(); w.passive_offsets.clear(); w.passive_entries.clear();
     w.cells.reserve(static_cast<std::size_t>(w.config.width) * w.config.height);
     w.masses.reserve(w.cells.capacity() * count);
+    w.passive_offsets.reserve(static_cast<std::size_t>(w.config.width) * w.config.height + 1);
+    w.passive_offsets.push_back(0);
     for (uint32_t y = 0; y < w.config.height; ++y) for (uint32_t x = 0; x < w.config.width; ++x) {
         const auto& c = w.value.cell(x, y);
         const auto m = c.mixture.mass();
         w.cells.push_back({c.mixture.energy, c.momentum_x, c.momentum_y, w.value.pressure(x, y),
             c.wall || m == 0 ? 0 : c.mixture.temperature(r), c.wall ? 0 : w.value.liquid_fraction(x, y), m, c.wall ? 1U : 0U, 0});
         w.masses.insert(w.masses.end(), c.mixture.masses.begin(), c.mixture.masses.end());
+        for (const auto& entry : c.passive_quantities) w.passive_entries.push_back({entry.identity, entry.quantity});
+        require(w.passive_entries.size() <= 8000000, "Coupled passive snapshot record budget exceeded");
+        w.passive_offsets.push_back(static_cast<uint64_t>(w.passive_entries.size()));
     }
     const auto totals = w.value.totals();
     w.snapshot = {revision, w.value.time(), static_cast<uint64_t>(w.cells.size()), static_cast<uint64_t>(w.masses.size()),
@@ -70,6 +78,7 @@ void capture(ma_coupled_world& w, uint64_t revision) {
 }
 extern "C" {
 uint32_t MA_CALL ma_coupled_abi_version(void) { return MA_COUPLED_ABI_VERSION; }
+uint32_t MA_CALL ma_coupled_passive_abi_version(void) { return MA_COUPLED_PASSIVE_ABI_VERSION; }
 const char* MA_CALL ma_coupled_last_error(void) { return error_text; }
 ma_status MA_CALL ma_coupled_species_count(uint32_t* output) {
     return guard([&] { require(output, "Null coupled species count"); *output = static_cast<uint32_t>(registry().size()); });
@@ -92,26 +101,43 @@ ma_status MA_CALL ma_coupled_species_id(uint32_t index, char* buffer, uint64_t c
 }
 ma_status MA_CALL ma_coupled_create(const ma_coupled_config* c, const ma_coupled_cell_input* cells,
     uint64_t cell_count, const double* masses, uint64_t mass_count, ma_coupled_world** output) {
+    return ma_coupled_create_full(c, cells, cell_count, masses, mass_count, nullptr, 0, nullptr, 0, output);
+}
+ma_status MA_CALL ma_coupled_create_full(const ma_coupled_config* c, const ma_coupled_cell_input* cells,
+    uint64_t cell_count, const double* masses, uint64_t mass_count, const uint64_t* offsets, uint64_t offset_count,
+    const ma_coupled_passive* entries, uint64_t entry_count, ma_coupled_world** output) {
     if (output) *output = nullptr;
     return guard([&] {
         require(c && cells && masses && output, "Null coupled initialization argument");
         const auto solver = settings(*c); const auto& r = registry();
         require(c->width > 0 && c->height > 0 && cell_count == static_cast<uint64_t>(c->width) * c->height &&
                 cell_count <= 1000000 && mass_count == cell_count * r.size(), "Coupled initialization shape differs");
+        require(entry_count <= 8000000 && (entries || entry_count == 0), "Invalid coupled passive entry array");
+        if (offsets) {
+            require(offset_count == cell_count + 1 && offsets[0] == 0 && offsets[cell_count] == entry_count, "Coupled passive offset shape differs");
+            for (uint64_t i = 0; i < cell_count; ++i)
+                require(offsets[i] <= offsets[i + 1] && offsets[i + 1] <= entry_count, "Invalid coupled passive offsets");
+        } else require(offset_count == 0 && entry_count == 0, "Coupled passive offsets are absent");
         auto candidate = std::make_unique<ma_coupled_world>(*c, solver, r);
         for (uint64_t i = 0; i < cell_count; ++i) {
             const auto& input = cells[i]; require(input.wall <= 1 && input.reserved == 0, "Invalid coupled cell flags");
             ma::MixtureInventory mixture(r.size());
             std::copy_n(masses + i * r.size(), r.size(), mixture.masses.begin()); mixture.energy = input.internal_energy;
             const auto x = static_cast<uint32_t>(i % c->width), y = static_cast<uint32_t>(i / c->width);
+            ma::PassiveQuantities passives;
+            if (offsets) {
+                require(offsets[i + 1] - offsets[i] <= 65537, "Too many coupled cell passive identities");
+                for (uint64_t p = offsets[i]; p < offsets[i + 1]; ++p) passives.push_back({entries[p].identity, entries[p].quantity});
+                ma::validate_passive_quantities(passives);
+            }
             if (input.wall) {
                 mixture.validate(r);
                 require(mixture.mass() == 0 && mixture.energy == 0 && input.momentum_x == 0 &&
-                    input.momentum_y == 0 && input.liquid_pressure == 0, "Coupled wall is not empty");
+                    input.momentum_y == 0 && input.liquid_pressure == 0 && passives.empty(), "Coupled wall is not empty");
                 candidate->value.set_wall(x, y, true);
             } else {
                 require(mixture.mass() > 0, "Closed coupled reference does not support vacuum cells");
-                candidate->value.set_conserved_cell(x, y, mixture, input.momentum_x, input.momentum_y, input.liquid_pressure);
+                candidate->value.set_conserved_cell(x, y, mixture, input.momentum_x, input.momentum_y, input.liquid_pressure, passives);
             }
         }
         capture(*candidate, 0); *output = candidate.release();
@@ -141,8 +167,27 @@ ma_status MA_CALL ma_coupled_copy_snapshot(const ma_coupled_world* w, ma_coupled
     ma_coupled_cell* cells, uint64_t cell_capacity, double* masses, uint64_t mass_capacity) {
     return guard([&] {
         require(w && snapshot && cells && masses, "Null coupled snapshot argument");
+        require(w->passive_entries.empty(), "Use the complete snapshot API for passive metadata");
         if (cell_capacity < w->cells.size() || mass_capacity < w->masses.size()) throw BufferError("Coupled snapshot buffer is too small");
         std::copy(w->cells.begin(), w->cells.end(), cells); std::copy(w->masses.begin(), w->masses.end(), masses);
+        *snapshot = w->snapshot;
+    });
+}
+ma_status MA_CALL ma_coupled_passive_count(const ma_coupled_world* w, uint64_t* count) {
+    return guard([&] { require(w && count, "Null coupled passive count argument"); *count = static_cast<uint64_t>(w->passive_entries.size()); });
+}
+ma_status MA_CALL ma_coupled_copy_full_snapshot(const ma_coupled_world* w, ma_coupled_snapshot* snapshot,
+    ma_coupled_cell* cells, uint64_t cell_capacity, double* masses, uint64_t mass_capacity,
+    uint64_t* offsets, uint64_t offset_capacity, ma_coupled_passive* entries, uint64_t entry_capacity) {
+    return guard([&] {
+        require(w && snapshot && cells && masses && offsets, "Null coupled complete snapshot argument");
+        require(entries || w->passive_entries.empty(), "Null coupled passive snapshot entries");
+        if (cell_capacity < w->cells.size() || mass_capacity < w->masses.size() ||
+            offset_capacity < w->passive_offsets.size() || entry_capacity < w->passive_entries.size())
+            throw BufferError("Coupled complete snapshot buffer is too small");
+        std::copy(w->cells.begin(), w->cells.end(), cells); std::copy(w->masses.begin(), w->masses.end(), masses);
+        std::copy(w->passive_offsets.begin(), w->passive_offsets.end(), offsets);
+        if (!w->passive_entries.empty()) std::copy(w->passive_entries.begin(), w->passive_entries.end(), entries);
         *snapshot = w->snapshot;
     });
 }

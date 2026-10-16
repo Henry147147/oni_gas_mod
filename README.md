@@ -39,6 +39,9 @@ machines, pipes, and metabolism must use the same conserved state.
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
   frame coordination and the production solver remain unfinished.
+- Sparse disease counts and passive radiation metadata follow the coupled
+  reference's material transfers and appear in its completed snapshots.
+  Disease growth and radiation-dose physics remain required.
 - A shared gas/liquid bulk remap that preserves constituents, momentum and total
   energy; it retains traces, converts mixed-velocity energy to heat, and rejects
   condensed overfill before changing inputs.

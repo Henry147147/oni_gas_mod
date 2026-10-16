@@ -23,6 +23,7 @@ add_library(ma_core STATIC
     native/src/acoustics.cpp
     native/src/volume_work.cpp
     native/src/transport.cpp
+    native/src/passive_quantities.cpp
     native/src/thermal.cpp
     native/src/reaction.cpp
     native/src/phase_change.cpp
@@ -52,13 +53,19 @@ target_include_directories(mixed_atmospheres_coupled PUBLIC native/include)
 target_compile_definitions(mixed_atmospheres_coupled PRIVATE MA_EXPORTS)
 add_executable(ma_coupled_api_tests EXCLUDE_FROM_ALL native/tests/coupled_api_tests.cpp)
 target_link_libraries(ma_coupled_api_tests PRIVATE mixed_atmospheres_coupled ma_core)
+add_executable(ma_passive_transport_tests EXCLUDE_FROM_ALL native/tests/passive_transport_tests.cpp)
+target_link_libraries(ma_passive_transport_tests PRIVATE mixed_atmospheres_coupled ma_core)
 set_target_properties(mixed_atmospheres_coupled PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
 if(MSVC)
     target_compile_options(mixed_atmospheres_coupled PRIVATE /W4 /WX /permissive- /fp:precise)
+    set_source_files_properties(native/src/passive_quantities.cpp PROPERTIES COMPILE_OPTIONS /WX)
     target_compile_options(ma_coupled_api_tests PRIVATE /W4 /WX /permissive- /fp:precise)
+    target_compile_options(ma_passive_transport_tests PRIVATE /W4 /WX /permissive- /fp:precise)
 else()
     target_compile_options(mixed_atmospheres_coupled PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+    set_source_files_properties(native/src/passive_quantities.cpp PROPERTIES COMPILE_OPTIONS -Werror)
     target_compile_options(ma_coupled_api_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
+    target_compile_options(ma_passive_transport_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT MSVC)
     # Export only the extern "C" ma_* ABI. Archive members (ma_core,
@@ -93,7 +100,7 @@ if(MA_SANITIZERS AND NOT MSVC)
     # with undefined behavior diagnostics. Make every sanitizer finding fatal.
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
-    foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests)
+    foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests ma_passive_transport_tests)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()

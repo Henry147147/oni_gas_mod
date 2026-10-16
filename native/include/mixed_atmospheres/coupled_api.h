@@ -11,6 +11,9 @@ extern "C" {
 #define MA_COUPLED_ABI_VERSION 1U
 #define MA_COUPLED_CLOSED_REFERENCE_MODEL 1U
 typedef struct ma_coupled_world ma_coupled_world;
+// Optional sparse-metadata extension v1; base ABI/layouts remain v1.
+#define MA_COUPLED_PASSIVE_ABI_VERSION 1U
+typedef struct ma_coupled_passive { uint64_t identity; double quantity; } ma_coupled_passive;
 
 typedef struct ma_coupled_config {
     uint32_t struct_size, abi_version, width, height;
@@ -58,6 +61,7 @@ typedef struct ma_coupled_step_result {
 MA_API uint32_t MA_CALL ma_coupled_abi_version(void);
 // Separate per-thread diagnostic buffer, valid until the next coupled API call.
 MA_API const char* MA_CALL ma_coupled_last_error(void);
+MA_API uint32_t MA_CALL ma_coupled_passive_abi_version(void);
 MA_API ma_status MA_CALL ma_coupled_species_count(uint32_t* output);
 MA_API ma_status MA_CALL ma_coupled_species_definition(uint32_t index, ma_coupled_species* output);
 MA_API ma_status MA_CALL ma_coupled_species_id(uint32_t index, char* buffer, uint64_t capacity, uint64_t* required);
@@ -85,6 +89,23 @@ MA_API ma_status MA_CALL ma_coupled_advance(const ma_coupled_world* source, doub
 MA_API ma_status MA_CALL ma_coupled_copy_snapshot(const ma_coupled_world* world,
     ma_coupled_snapshot* snapshot, ma_coupled_cell* cells, uint64_t cell_capacity,
     double* masses, uint64_t mass_capacity);
+
+// Sparse row offsets have cell_count+1 entries, start at zero and end at entry
+// count. Within each cell, identities are positive, sorted and unique. Disease
+// identity = uint32 bits of its nonzero int32 hash. Radiation metadata identity
+// = 0x100000000; it contributes no energy, force, mass or heat capacity.
+// Finite positive quantities only. Upper limit: 8,000,000 sparse records.
+MA_API ma_status MA_CALL ma_coupled_create_full(const ma_coupled_config* config,
+    const ma_coupled_cell_input* cells, uint64_t cell_count, const double* masses, uint64_t mass_count,
+    const uint64_t* offsets, uint64_t offset_count, const ma_coupled_passive* entries, uint64_t entry_count,
+    ma_coupled_world** output);
+MA_API ma_status MA_CALL ma_coupled_passive_count(const ma_coupled_world* world, uint64_t* count);
+MA_API ma_status MA_CALL ma_coupled_copy_full_snapshot(const ma_coupled_world* world,
+    ma_coupled_snapshot* snapshot, ma_coupled_cell* cells, uint64_t cell_capacity,
+    double* masses, uint64_t mass_capacity, uint64_t* offsets, uint64_t offset_capacity,
+    ma_coupled_passive* entries, uint64_t entry_capacity);
+// The base copy function rejects metadata-bearing handles; it cannot silently
+// provide an incomplete export. Empty metadata still permits the base API.
 
 #ifdef __cplusplus
 }

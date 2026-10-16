@@ -14,6 +14,9 @@ double TransportCell::kinetic_energy() const {
 namespace {
 void validate(const SpeciesRegistry& registry, const TransportCell& cell) {
     cell.mixture.validate(registry);
+    validate_passive_quantities(cell.passive_quantities);
+    if (cell.mixture.mass() == 0 && !cell.passive_quantities.empty())
+        throw std::invalid_argument("Vacuum cannot carry passive fluid metadata");
     require_finite(cell.volume_m3, "transport cell volume");
     require_finite(cell.momentum_x, "transport x momentum");
     require_finite(cell.momentum_y, "transport y momentum");
@@ -80,6 +83,7 @@ std::vector<TransportCell> remap(const SpeciesRegistry& registry,
         result.push_back({MixtureInventory(registry.size()), target,
                           retained * cells[i].momentum_x, retained * cells[i].momentum_y});
         auto& next = result.back();
+        next.passive_quantities = scale_passive_quantities(cells[i].passive_quantities, retained);
         for (std::size_t s = 0; s < registry.size(); ++s)
             next.mixture.masses[s] = retained * cells[i].mixture.masses[s];
         updated_energy[i] = retained * total_energy[i];
@@ -92,6 +96,7 @@ std::vector<TransportCell> remap(const SpeciesRegistry& registry,
         const auto receiver = face.volume_m3 >= 0 ? face.right : face.left;
         const double fraction = std::abs(face.volume_m3) / cells[donor].volume_m3;
         auto& next = result[receiver];
+        add_passive_quantities(next.passive_quantities, cells[donor].passive_quantities, fraction);
         for (std::size_t s = 0; s < registry.size(); ++s)
             next.mixture.masses[s] += fraction * cells[donor].mixture.masses[s];
         next.momentum_x += fraction * cells[donor].momentum_x;

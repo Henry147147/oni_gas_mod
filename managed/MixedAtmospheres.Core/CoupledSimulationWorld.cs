@@ -43,7 +43,7 @@ namespace MixedAtmospheres.Core
             SpecificHeatCv = value.Cv; EnergyOffsetJoulesPerKg = value.EnergyOffset; CondensedDensityKgPerCubicMetre = value.Density;
         }
     }
-    public sealed class CoupledCellInitialization
+    public sealed partial class CoupledCellInitialization
     {
         public IReadOnlyDictionary<string, double> MassesKg { get; }
         public double InternalEnergyJoules { get; }
@@ -70,7 +70,7 @@ namespace MixedAtmospheres.Core
         }
         public static CoupledCellInitialization Wall() => new CoupledCellInitialization(new Dictionary<string, double>(), 0, 0, 0, 0, true);
     }
-    public sealed class CoupledCellSnapshot
+    public sealed partial class CoupledCellSnapshot
     {
         public IReadOnlyDictionary<string, double> MassesKg { get; }
         public double InternalEnergyJoules { get; }
@@ -142,21 +142,22 @@ namespace MixedAtmospheres.Core
     }
 
     /// <summary>Immutable forks of the explicit closed gas/liquid reference. Not the completed production solver.</summary>
-    public sealed class CoupledSimulationWorld : IDisposable
+    public sealed partial class CoupledSimulationWorld : IDisposable
     {
         public const string ModelIdentity = "mixed-atmospheres-closed-fluid-reference-v1";
         private readonly object sync = new object();
         private readonly CoupledWorldHandle handle;
         private readonly CoupledNativeConfig config;
         private readonly CoupledMaterialDefinition[] materials;
+        private readonly bool hasPassiveMetadata;
         private bool disposed;
         public IReadOnlyList<CoupledMaterialDefinition> Materials { get; }
         public uint Width => config.Width;
         public uint Height => config.Height;
         public double CellVolumeCubicMetres => config.CellSize * config.CellSize * config.Depth;
-        private CoupledSimulationWorld(CoupledWorldHandle owner, CoupledMaterialDefinition[] definitions)
+        private CoupledSimulationWorld(CoupledWorldHandle owner, CoupledMaterialDefinition[] definitions, bool passives)
         {
-            handle = owner; materials = definitions; Materials = Array.AsReadOnly(definitions);
+            handle = owner; materials = definitions; Materials = Array.AsReadOnly(definitions); hasPassiveMetadata = passives;
             CoupledNativeMethods.Check(CoupledNativeMethods.Config(owner, out config));
             if (config.Version != 1 || config.Model != 1) throw new NotSupportedException("Unsupported coupled physical model.");
         }
@@ -195,13 +196,14 @@ namespace MixedAtmospheres.Core
                     masses[i * definitions.Length + index] = entry.Value;
                 }
             }
-            CoupledNativeMethods.Check(CoupledNativeMethods.Create(config, inputs, (ulong)inputs.Length, masses, (ulong)masses.Length, out var pointer));
-            return Adopt(pointer, definitions);
+            var passives = source.Any(cell => cell.DiseaseCounts.Count != 0 || cell.RadiationQuantity != 0);
+            var pointer = CreateNative(config, inputs, masses, source, passives);
+            return Adopt(pointer, definitions, passives);
         }
-        private static CoupledSimulationWorld Adopt(IntPtr pointer, CoupledMaterialDefinition[] definitions)
+        private static CoupledSimulationWorld Adopt(IntPtr pointer, CoupledMaterialDefinition[] definitions, bool passives)
         {
             CoupledWorldHandle? owner = null;
-            try { owner = new CoupledWorldHandle(pointer); return new CoupledSimulationWorld(owner, definitions); }
+            try { owner = new CoupledWorldHandle(pointer); return new CoupledSimulationWorld(owner, definitions, passives); }
             catch { if (owner == null) CoupledNativeMethods.Destroy(pointer); else owner.Dispose(); throw; }
         }
         public CoupledAdvance Advance(double seconds, ulong attemptBudget = 100000)
@@ -209,7 +211,7 @@ namespace MixedAtmospheres.Core
             lock (sync)
             {
                 CheckOpen(); CoupledNativeMethods.Check(CoupledNativeMethods.Advance(handle, seconds, attemptBudget, out var pointer, out var result));
-                var child = Adopt(pointer, materials);
+                var child = Adopt(pointer, materials, hasPassiveMetadata);
                 try { return new CoupledAdvance(child, result); } catch { child.Dispose(); throw; }
             }
         }
@@ -219,7 +221,7 @@ namespace MixedAtmospheres.Core
             {
                 CheckOpen(); var cells = new CoupledNativeCell[checked((int)((ulong)config.Width * config.Height))];
                 var masses = new double[checked(cells.Length * materials.Length)];
-                CoupledNativeMethods.Check(CoupledNativeMethods.Snapshot(handle, out var header, cells, (ulong)cells.Length, masses, (ulong)masses.Length));
+                var header = ReadNativeSnapshot(cells, masses, out var offsets, out var entries);
                 if (header.Cells != (ulong)cells.Length || header.MassValues != (ulong)masses.Length || header.Species != materials.Length ||
                     header.Reserved != 0 || header.Reserved2 != 0 || header.Reserved3 != 0) throw new NotSupportedException("Coupled snapshot shape differs.");
                 var owned = new CoupledCellSnapshot[cells.Length];
@@ -228,7 +230,7 @@ namespace MixedAtmospheres.Core
                     var contents = new Dictionary<string, double>(StringComparer.Ordinal);
                     for (var s = 0; s < materials.Length; ++s) if (masses[i * materials.Length + s] != 0)
                         contents.Add(materials[s].Id, masses[i * materials.Length + s]);
-                    owned[i] = new CoupledCellSnapshot(cells[i], contents);
+                    owned[i] = hasPassiveMetadata ? ReadPassiveCell(cells[i], contents, i, offsets!, entries!) : new CoupledCellSnapshot(cells[i], contents);
                 }
                 return new CoupledWorldSnapshot(header, config.Width, config.Height, owned);
             }

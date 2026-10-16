@@ -2,6 +2,7 @@
 #include "grid.hpp"
 #include "pressure.hpp"
 #include "fluid_thermodynamics.hpp"
+#include "passive_quantities.hpp"
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -9,6 +10,7 @@
 
 namespace ma {
 struct FluidCell : GasCell {
+    PassiveQuantities passive_quantities;
     double liquid_pressure_pa = 101325;
     // Local axial coordinates, used only by the explicit 1-D geometry mode.
     // Vacuum has begin=end=0; occupied cells have 0<=begin<end<=cell_size.
@@ -95,7 +97,8 @@ public:
     // Conserved initialization/import: do not round momentum through P/M*M.
     void set_conserved_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                             double momentum_x, double momentum_y,
-                            double incompressible_pressure_pa = 101325);
+                            double incompressible_pressure_pa = 101325,
+                            std::span<const PassiveQuantity> passive_quantities = {});
     void set_occupied_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
                            double begin_m, double end_m, double axial_velocity_m_per_s = 0);
     void set_wall(std::size_t x, std::size_t y, bool wall);

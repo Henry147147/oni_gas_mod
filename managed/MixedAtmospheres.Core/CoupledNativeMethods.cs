@@ -54,7 +54,7 @@ namespace MixedAtmospheres.Core
         internal double InitialProjectionHeat, FinalProjectionHeat, PressureWorkRoundoff;
         internal ulong Reserved, Reserved2;
     }
-    internal static class CoupledNativeMethods
+    internal static partial class CoupledNativeMethods
     {
         private const string Library = "mixed_atmospheres_coupled";
         [DllImport(Library, EntryPoint = "ma_coupled_abi_version", CallingConvention = CallingConvention.Cdecl)]

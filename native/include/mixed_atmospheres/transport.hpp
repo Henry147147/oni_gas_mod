@@ -1,6 +1,7 @@
 #pragma once
 #include "mixture.hpp"
 #include "fluid_thermodynamics.hpp"
+#include "passive_quantities.hpp"
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -11,6 +12,7 @@ struct TransportCell {
     double volume_m3 = 1;
     double momentum_x = 0;
     double momentum_y = 0;
+    PassiveQuantities passive_quantities{};
     [[nodiscard]] double kinetic_energy() const;
 };
 struct SweptFace {

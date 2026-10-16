@@ -4,7 +4,7 @@ The coupled gas/liquid `FluidWorld` now has a versioned C ABI and managed owner.
 It is an explicit boundary to the **existing closed-domain reference**, not the
 finished production timestep. The default ONI DLL and gas ABI do not select it.
 Vacuum/free surfaces, immiscible geometry, phase transitions, dissolved gases,
-passive disease/radiation transport, persistence, performance and authoritative
+disease growth/decay, radiation-dose physics, persistence, performance and authoritative
 colony publication remain required.
 
 The excluded `mixed_atmospheres_coupled` shared target exports only the
@@ -72,14 +72,15 @@ build/Release/ma_coupled_api_tests.exe
 dotnet run --project tools/CoupledWorldTests -c Release -- <absolute coupled library path>
 ```
 
-On Linux the executable/library normally reside directly in the build directory.
+The sparse metadata controls additionally use the explicit
+`ma_passive_transport_tests` target. On Linux the executable/library normally reside directly in the build directory.
 Use the actual target paths for the selected generator. The managed test host
 loads the supplied absolute library path, pins its import resolver and prints
 the library SHA256 before tests. The game probe's resolver is unchanged.
 
 ## Verification and preserved failures
 
-Six native groups pass Windows/MSVC and WSL Linux/GNU. Six managed groups pass
+The initial boundary's six native groups pass Windows/MSVC and WSL Linux/GNU. Its original six managed groups pass
 both platforms under .NET 10.0.402, building the Core binding for .NET Standard
 2.1. The controls cover:
 
@@ -124,10 +125,67 @@ errors. The new wrapper/driver use warnings as errors; upstream solver FP
 settings are unchanged. Linux's ten dynamic exports are all `ma_coupled_*`.
 There is no independent agent implementation review or new game run.
 
+## Sparse disease and radiation metadata
+
+The closed reference now carries sparse passive quantities through actual
+remap and gas exchange. Disease identities retain the uint32 bits of their
+nonzero signed native hashes. Radiation uses the separate identity
+`0x100000000`; this is the existing passive native quantity, not energy or dose.
+It contributes no mass, pressure, heat capacity or force. Growth, decay,
+sterilization and radiation absorption/dose remain unimplemented.
+
+Advection uses the same retained donor and incoming face weights as material.
+Gas exchange carries `exchanged_gas_mass / total_cell_mass` of the cell's
+metadata, matching Core's well-mixed bulk-parcel policy. This is not a
+phase-specific biological model. Viscosity and heat conduction transfer no
+metadata. An independent paired-world check confirms that adding metadata
+changes none of the resulting constituent masses, U or x/y momentum.
+
+Closed whole-call totals are checked separately for every identity using
+compensated sums and a 256-binary64-epsilon relative bound, without an absolute
+or unit floor. Malformed/negative/nonfinite quantities, unknown tags, positive
+underflow and metadata on solid/vacuum/occupied-1D cells reject. The existing
+whole-call rollback includes these quantities. No quantity is discarded to
+make a failed step pass.
+
+The optional passive ABI extension has its own version 1 check. The base ABI
+and structure layouts remain version 1. `ma_coupled_create_full` consumes sorted
+per-cell sparse rows; `ma_coupled_passive_count` and
+`ma_coupled_copy_full_snapshot` export the matching completed rows. All output
+capacities are checked before any write. The base copy function refuses a
+metadata-bearing handle rather than silently returning an incomplete state.
+Limits are 65,536 disease identities plus radiation per cell and 8,000,000
+sparse records per ABI import/export. These bounds do not establish production
+memory or speed acceptance.
+
+Managed initialization uses `WithPassiveMetadata`; dictionaries are copied.
+Managed cell snapshots expose immutable `DiseaseCounts` and `RadiationQuantity`
+from the same native revision as masses and physical readings. Signed hashes,
+independent forks and snapshots retained after disposal are preserved. Missing
+extension support rejects metadata initialization explicitly.
+
+The current first Windows/MSVC and WSL Linux/GNU runs each pass six new native
+passive groups, the six previously passing base ABI groups, and eight managed
+groups (the original six plus two metadata groups). New checks include analytic
+quarter-donor and split/reversed-face transfers, quantities at `1e-60`, a
+two-compartment gas-exchange solution, physical noninterference, whole-call
+rollback, complete sparse export, output-buffer atomicity, signed hashes and
+actual four-cell 2D metadata arrival. The earlier failed driver revisions and
+historical failed physics/performance gates are not replayed.
+
+Private evidence is under
+`local/occupied-staggered-validation/coupled-passives-{windows,linux}-r1`.
+Both first builds and all six runtime invocations pass with frozen source,
+pre-invocation compiler/library/assembly audits, exit zero and clean raw EOFs.
+The helper, wrapper and control sources use warnings as errors; upstream FP
+settings remain unchanged. Linux exports fourteen `ma_coupled_*` functions.
+The same 180-second build, 30-second runtime and 128-KiB pipe limits apply.
+There is no new game, independent agent or performance acceptance.
+
 ## Remaining integration work
 
 The frame coordinator is not connected to this owner. It still needs matching
-material/geometry admission, passive metadata transport, transactions/mutations,
+material/geometry admission, game metadata routing, transactions/mutations,
 multi-world atomic publication and presentation binding. Fork/capture allocation
 and complete-frame copying also require production performance work. This
 boundary does not repair the older remap, vacuum-front or performance failures,

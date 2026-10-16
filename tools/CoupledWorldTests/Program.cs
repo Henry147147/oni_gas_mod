@@ -31,7 +31,9 @@ bool Same(CoupledWorldSnapshot a, CoupledWorldSnapshot b) => a.Revision == b.Rev
     a.Cells.Zip(b.Cells).All(pair => pair.First.InternalEnergyJoules == pair.Second.InternalEnergyJoules && pair.First.MomentumX == pair.Second.MomentumX &&
         pair.First.MomentumY == pair.Second.MomentumY && pair.First.PressurePa == pair.Second.PressurePa && pair.First.TemperatureKelvin == pair.Second.TemperatureKelvin &&
         pair.First.LiquidVolumeFraction == pair.Second.LiquidVolumeFraction && pair.First.TotalMassKg == pair.Second.TotalMassKg && pair.First.IsWall == pair.Second.IsWall &&
-        pair.First.MassesKg.Count == pair.Second.MassesKg.Count && pair.First.MassesKg.All(entry => pair.Second.MassesKg.TryGetValue(entry.Key, out var mass) && mass == entry.Value));
+        pair.First.MassesKg.Count == pair.Second.MassesKg.Count && pair.First.MassesKg.All(entry => pair.Second.MassesKg.TryGetValue(entry.Key, out var mass) && mass == entry.Value) &&
+        pair.First.RadiationQuantity == pair.Second.RadiationQuantity && pair.First.DiseaseCounts.Count == pair.Second.DiseaseCounts.Count &&
+        pair.First.DiseaseCounts.All(entry => pair.Second.DiseaseCounts.TryGetValue(entry.Key, out var count) && count == entry.Value));
 
 Test("coupled model identity, owned initialization and immutable configuration", () =>
 {
@@ -96,4 +98,36 @@ Test("unsupported vacuum, unknown species, overfill and invalid configuration re
     cells[3] = CoupledCellInitialization.Wall(); using var valid = CoupledSimulationWorld.Create(Config(), cells); Check(valid.CaptureSnapshot().Cells[3].IsWall, "Solid cell not retained");
     var config = Config(); config.Preconditioner = (CoupledPressurePreconditioner)99; Reject(() => CoupledSimulationWorld.Create(config, cells).Dispose());
     config = Config(); config.Width = uint.MaxValue; Reject(() => CoupledSimulationWorld.Create(config, cells).Dispose());
+});
+Test("sparse signed disease identities and radiation follow actual coupled transport", () =>
+{
+    var input = Enumerable.Range(0, 4).Select(i => Cell(px: .1).WithPassiveMetadata(
+        new Dictionary<int, double> { [i == 0 ? int.MinValue : 17 + i] = i == 0 ? 1e-30 : 1000 + i }, .125 * (i + 1))).ToArray();
+    using var world = CoupledSimulationWorld.Create(Config(), input); var before = world.CaptureSnapshot();
+    Check(before.Cells[0].DiseaseCounts[int.MinValue] == 1e-30, "Signed disease identity or tiny count changed");
+    using var child = world.Advance(1.0 / 1024).World; var after = child.CaptureSnapshot();
+    Check(Same(before, world.CaptureSnapshot()), "Passive advance changed source");
+    foreach (var identity in before.Cells.SelectMany(cell => cell.DiseaseCounts.Keys).Distinct())
+    {
+        var a = before.Cells.Sum(cell => cell.DiseaseCounts.TryGetValue(identity, out var count) ? count : 0);
+        var b = after.Cells.Sum(cell => cell.DiseaseCounts.TryGetValue(identity, out var count) ? count : 0);
+        Near(a, b, Math.Max(a, b)); Check(b > 0, "A disease identity disappeared");
+    }
+    Near(before.Cells.Sum(cell => cell.RadiationQuantity), after.Cells.Sum(cell => cell.RadiationQuantity), before.Cells.Sum(cell => cell.RadiationQuantity));
+    Check(after.Cells.Where((cell, i) => cell.DiseaseCounts.Keys.Any(id => !before.Cells[i].DiseaseCounts.ContainsKey(id))).Any(), "Metadata did not follow material flow");
+});
+Test("passive initialization, rollback, immutable reads and nonfluid ownership", () =>
+{
+    var disease = new Dictionary<int, double> { [-42] = 3, [17] = 1e-30 };
+    var cell = Cell().WithPassiveMetadata(disease, .25); disease[-42] = 999;
+    using var world = CoupledSimulationWorld.Create(Config(), Enumerable.Repeat(cell, 4).ToArray()); var before = world.CaptureSnapshot();
+    Check(before.Cells[0].DiseaseCounts[-42] == 3 && before.Cells[0].RadiationQuantity == .25, "Caller metadata mutation escaped");
+    Reject(() => world.Advance(.003, 1)); Check(Same(before, world.CaptureSnapshot()), "Failed step changed passive state");
+    Reject(() => ((IDictionary<int, double>)before.Cells[0].DiseaseCounts)[17] = 0);
+    Reject(() => Cell().WithPassiveMetadata(new Dictionary<int, double> { [0] = 1 }));
+    Reject(() => Cell().WithPassiveMetadata(new Dictionary<int, double> { [17] = double.NaN }));
+    Reject(() => CoupledCellInitialization.Wall().WithPassiveMetadata(new Dictionary<int, double> { [17] = 1 }));
+    Reject(() => Cell().WithPassiveMetadata(new Dictionary<int, double>(), -1));
+    using var child = world.Advance(.001, 1).World; world.Dispose();
+    Check(child.CaptureSnapshot().Cells[0].DiseaseCounts[-42] == 3 && before.Cells[0].DiseaseCounts[17] == 1e-30, "Disposed parent damaged metadata view");
 });

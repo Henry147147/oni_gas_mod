@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
+#include <map>
 
 namespace ma {
 namespace {
@@ -20,6 +21,15 @@ struct AccurateSum {
     }
     [[nodiscard]] double value() const { return sum + correction; }
 };
+std::map<std::uint64_t, double> passive_totals(const std::vector<FluidCell>& cells) {
+    std::map<std::uint64_t, AccurateSum> sums;
+    for (const auto& cell : cells) for (const auto& value : cell.passive_quantities) sums[value.identity].add(value.quantity);
+    std::map<std::uint64_t, double> result;
+    for (const auto& [identity, sum] : sums) {
+        const double value = sum.value(); require_finite(value, "total passive quantity"); result.emplace(identity, value);
+    }
+    return result;
+}
 }
 void FluidSolverSettings::validate() const {
     for (double value : {gravity, diffusivity_m2_per_s, viscosity_m2_per_s,
@@ -95,6 +105,9 @@ experimental::ReferenceEquilibriumState FluidWorld::thermodynamic_state(std::siz
 }
 
 void FluidWorld::validate_cell(const FluidCell& c, bool require_filled) const {
+    validate_passive_quantities(c.passive_quantities);
+    if ((c.wall || c.mixture.mass() == 0 || geometry_) && !c.passive_quantities.empty())
+        throw std::invalid_argument("Passive metadata requires occupied closed-mode fluid; solid/vacuum/1D geometry is unsupported");
     if (geometry_) {
         geometry_->thermodynamics->validate_inventory(c.mixture);
         require_finite(c.momentum_x, "occupied x momentum"); require_finite(c.momentum_y, "occupied y momentum");
@@ -147,13 +160,14 @@ void FluidWorld::set_cell(std::size_t x, std::size_t y, const MixtureInventory& 
     set_conserved_cell(x, y, mixture, mixture.mass() * ux, mixture.mass() * uy, liquid_pressure);
 }
 void FluidWorld::set_conserved_cell(std::size_t x, std::size_t y, const MixtureInventory& mixture,
-    double px, double py, double liquid_pressure) {
+    double px, double py, double liquid_pressure, std::span<const PassiveQuantity> passives) {
     if (geometry_) throw std::invalid_argument("Use set_occupied_cell with explicit geometry and conserved elastic energy");
     const auto index = offset(x, y);
     if (cells_[index].wall) throw std::invalid_argument("Displace wall before placing fluid");
     FluidCell next(registry_.size());
     next.mixture = mixture; next.momentum_x = px; next.momentum_y = py;
     next.liquid_pressure_pa = liquid_pressure;
+    next.passive_quantities.assign(passives.begin(), passives.end());
     validate_cell(next, false);
     cells_[index] = std::move(next);
 }
@@ -435,7 +449,7 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
         const auto& c = cells_[active[i]];
         // These material inventories are consumed only by remap from here on;
         // endpoint pressures/volumes remain separately available for publish.
-        moving.push_back({std::move(pressure.cells[i].mixture), pressure.cells[i].volume_m3, c.momentum_x, c.momentum_y});
+        moving.push_back({std::move(pressure.cells[i].mixture), pressure.cells[i].volume_m3, c.momentum_x, c.momentum_y, c.passive_quantities});
         mechanical[i] = c.kinetic_energy();
     }
     for (std::size_t f = 0; f < faces.size(); ++f) {
@@ -476,6 +490,17 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
             if (ga > 0 && gb > 0) {
                 const double exchange = std::min(ga, gb) * std::min(0.1, settings_.diffusivity_m2_per_s * dt / (dx_ * dx_));
                 const double fa = exchange / ga, fb = exchange / gb;
+                // Core metadata follows the same mass-limited bulk parcels as
+                // extraction. Gas exchange carries exchange/total_mass of each
+                // well-mixed cell's passive inventory, not exchange/gas_mass.
+                if (!a.passive_quantities.empty() || !b.passive_quantities.empty()) {
+                    const double qa = exchange / a.mixture.mass(), qb = exchange / b.mixture.mass();
+                    auto pa = scale_passive_quantities(a.passive_quantities, 1 - qa);
+                    auto pb = scale_passive_quantities(b.passive_quantities, 1 - qb);
+                    add_passive_quantities(pa, b.passive_quantities, qb);
+                    add_passive_quantities(pb, a.passive_quantities, qa);
+                    a.passive_quantities = std::move(pa); b.passive_quantities = std::move(pb);
+                }
                 const double ta = a.mixture.temperature(registry_), tb = b.mixture.temperature(registry_);
                 double heat = 0;
                 for (std::size_t s = 0; s < registry_.size(); ++s) if (registry_[s].phase == Phase::gas) {
@@ -526,6 +551,7 @@ FluidWorld::Candidate FluidWorld::advance(double dt) const {
     for (std::size_t i = 0; i < active.size(); ++i) {
         auto& c = result.cells[active[i]];
         c.mixture = std::move(remapped[i].mixture);
+        c.passive_quantities = std::move(remapped[i].passive_quantities);
         c.momentum_x = remapped[i].momentum_x; c.momentum_y = remapped[i].momentum_y;
         c.liquid_pressure_pa = pressure.endpoint_pressures_pa[i];
         try { validate_cell(c, true); }
@@ -544,6 +570,7 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
     }
     if (geometry_) validate_occupied_geometry();
     else for (const auto& c : cells_) validate_cell(c, true);
+    const auto passive_before = passive_totals(cells_);
     // advance() does not mutate this world. Move the original allocation aside
     // at the first validated commit, retaining it for whole-call rollback.
     // Failure before that commit already leaves the original cells untouched.
@@ -603,6 +630,16 @@ FluidStepResult FluidWorld::step(double seconds, std::uint64_t budget) {
             }
             result.seconds += dt; ++result.substeps;
             dt = std::min(settings_.maximum_timestep_s, 1.5 * dt);
+        }
+        if (!passive_before.empty()) {
+            const auto after = passive_totals(cells_);
+            if (after.size() != passive_before.size()) throw std::domain_error("Fluid passive identity set changed during closed transport");
+            for (const auto& [identity, quantity] : passive_before) {
+                const auto found = after.find(identity);
+                if (found == after.end() || found->second <= 0 || std::abs(found->second - quantity) >
+                    256 * std::numeric_limits<double>::epsilon() * std::max(quantity, found->second))
+                    throw std::domain_error("Fluid passive transport failed its relative conservation bound");
+            }
         }
         require_finite(time_ + seconds, "fluid simulation time");
         require_finite(cumulative_omitted_elastic_work_bound_j_ + result.omitted_elastic_work_bound_j, "cumulative omitted elastic work bound");
