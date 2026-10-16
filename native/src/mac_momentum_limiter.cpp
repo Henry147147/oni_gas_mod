@@ -29,7 +29,8 @@ bool resolved(MacEnergy before, MacEnergy after, MacEnergy change) {
     return allowance.sign() >= 0;
 }
 MacScaled update_momentum(MacScaled before, MacScaled change) {
-    MacScaledSum sum; sum.add(before); sum.add(change); return mac_scaled_primary(sum);
+    MacScaledSum sum; sum.add(before); sum.add(change); const auto value = represented(sum);
+    static_cast<void>(value.project()); return value;
 }
 void check_pair(const MacMomentumLimitedPair& p) {
     for (int side = 0; side < 2; ++side) {

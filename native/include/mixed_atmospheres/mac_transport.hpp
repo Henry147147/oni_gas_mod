@@ -3,12 +3,14 @@
 #include "passive_quantities.hpp"
 #include "mac_energy.hpp"
 #include "mac_fields.hpp"
+#include "mac_momentum_limiter.hpp"
 #include <cstdint>
 #include <span>
 
 namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
+enum class MacMomentumReconstruction { donor_cell, limited_linear };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Every fluid cell must remain occupied.
@@ -76,6 +78,11 @@ struct MacFaceEnergy {
     // operands. Bits 0..4 flag rounding in the order declared above.
     unsigned int rounded_projection_mask = 0;
 };
+struct MacMomentumReconstructionEvent {
+    std::size_t dual_edge = 0, transport_axis = 0;
+    MacScaled predictor_delta_velocity, bounded_delta_velocity;
+    MacMomentumLimitedPair pair;
+};
 struct MacFaceTransportReport {
     std::vector<double> old_inertia, new_inertia, old_kinetic, new_kinetic;
     std::vector<double> transported_kinetic, mixing_heat, wall_heat, wall_impulse, dual_mass_residual;
@@ -84,6 +91,11 @@ struct MacFaceTransportReport {
     std::size_t rounded_energy_projections = 0;
     std::vector<MacScaled> full_wall_impulse;
     std::vector<MacScaled> full_dual_mass_residual{};
+    MacMomentumReconstruction reconstruction = MacMomentumReconstruction::donor_cell;
+    std::vector<MacScaled> upwind_momentum, velocity_slope_x, velocity_slope_y, centered_courant_x, centered_courant_y;
+    std::vector<MacEnergy> upwind_mixing_heat, upwind_transported_kinetic;
+    std::vector<MacMomentumReconstructionEvent> corrections;
+    std::size_t limited_corrections = 0, unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
 };
 struct MacTransportReport {
     MacFaceTransportReport x, y;
@@ -97,6 +109,7 @@ struct MacTransportReport {
     std::size_t rounded_energy_projections = 0;
     MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
     std::size_t scaled_primary_parcels = 0;
+    std::vector<double> advected_internal_energy_j; // populated before heat deposition in reconstructed momentum mode
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };
@@ -111,9 +124,11 @@ struct MacFaceInertias { std::vector<double> x, y; };
 // kinetic removal become separately reported heat. CFL/precision/domain failures
 // return no candidate and never change the source. This is not a world step,
 // free-surface remap, entropy/process proof, gravity or game backend.
-[[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&);
 [[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&,
-    const FluidThermodynamics&, std::span<const double> source_volumes_m3);
+    MacMomentumReconstruction = MacMomentumReconstruction::donor_cell);
+[[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&,
+    const FluidThermodynamics&, std::span<const double> source_volumes_m3,
+    MacMomentumReconstruction = MacMomentumReconstruction::donor_cell);
 [[nodiscard]] MacTransportAdvance advance_mac_parcel_transport(const SpeciesRegistry&, const MacTransportState&,
-    const FluidThermodynamics&, const MacParcelPlan&);
+    const FluidThermodynamics&, const MacParcelPlan&, MacMomentumReconstruction = MacMomentumReconstruction::donor_cell);
 }

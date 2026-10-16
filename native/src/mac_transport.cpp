@@ -167,8 +167,95 @@ std::vector<MacScaled> retained(const std::vector<double>& m, const std::vector<
     }
     return result;
 }
-MacFaceTransportReport transport_faces(const std::vector<Neighbors>& faces, const std::vector<double>& m0, const std::vector<double>& m1,
-    const std::vector<MacScaled>& j0, std::vector<MacScaled>& j1, std::vector<MacDualFlux> edges) {
+MacScaled signed_product(MacScaled a, MacScaled b) {
+    return (b.mantissa() < 0 ? a.negated() : a).shared(b.magnitude(), MacScaled::from_double(1));
+}
+bool exceeds(MacScaled a, MacScaled b) { MacScaledSum sum; sum.add(a); sum.add(b.negated()); return sum.sign() > 0; }
+MacScaled limited_slope(MacScaled left, MacScaled right) {
+    if (left.is_zero() || right.is_zero() || (left.mantissa() < 0) != (right.mantissa() < 0)) return {};
+    return exceeds(left.magnitude(), right.magnitude()) ? right : left;
+}
+void validate_face_energy(const MacFaceEnergy& values) {
+    require(values.mixing_heat.mantissa() >= 0 && values.wall_heat.mantissa() >= 0 && values.transported_kinetic.mantissa() >= 0,
+        "Negative MAC transported kinetic energy or pending heat");
+    MacEnergyAccount balance; balance.add(values.transported_kinetic); balance.add(values.new_kinetic.negated());
+    balance.add(values.mixing_heat.negated()); balance.add(values.wall_heat.negated());
+    if (!balance.within_bound()) precision("MAC local derived kinetic/heat account exceeds its operand bound");
+}
+void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vector<Neighbors>& faces,
+    const std::vector<MacScaled>& old_velocity, std::vector<MacScaled>& momentum, MacFaceTransportReport& report) {
+    const auto count = faces.size(), width = x_component ? grid.x_width() : grid.width,
+        height = x_component ? grid.height : grid.y_height();
+    const auto is_free = [&](std::size_t i) { return i != absent && faces[i].left != absent && faces[i].right != absent; };
+    const auto neighbor = [&](std::size_t i, std::size_t axis, bool positive) {
+        const auto x = i % width, y = i / width;
+        const auto coordinate = axis == 0 ? x : y, length = axis == 0 ? width : height;
+        const auto periodic = axis == 0 ? grid.periodic_x : grid.periodic_y;
+        if (!periodic && (positive ? coordinate + 1 == length : coordinate == 0)) return absent;
+        const auto next = positive ? (coordinate + 1) % length : (coordinate + length - 1) % length;
+        const auto target = axis == 0 ? next + y * width : x + next * width;
+        return is_free(target) ? target : absent;
+    };
+    report.reconstruction = MacMomentumReconstruction::limited_linear; report.upwind_momentum = momentum;
+    report.velocity_slope_x.resize(count); report.velocity_slope_y.resize(count);
+    report.centered_courant_x.resize(count); report.centered_courant_y.resize(count);
+    report.upwind_mixing_heat.resize(count); report.upwind_transported_kinetic.resize(count);
+    std::vector<std::array<MacScaledSum, 2>> centered(count);
+    std::vector<MacEnergySum> transported(count);
+    const auto axis_of = [&](const MacDualFlux& edge) -> std::size_t { return edge.left % width == edge.right % width ? 1U : 0U; };
+    for (const auto& edge : report.fluxes) {
+        const auto half = mac_dual_mass(edge).shifted(-1); const auto axis = axis_of(edge);
+        centered[edge.left][axis].add(half); centered[edge.right][axis].add(half);
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        report.upwind_mixing_heat[i] = report.energies[i].mixing_heat;
+        report.upwind_transported_kinetic[i] = report.energies[i].transported_kinetic;
+        transported[i].add(report.energies[i].transported_kinetic);
+        if (!is_free(i)) continue;
+        for (std::size_t axis = 0; axis < 2; ++axis) {
+            auto& slope = axis == 0 ? report.velocity_slope_x[i] : report.velocity_slope_y[i];
+            auto& courant = axis == 0 ? report.centered_courant_x[i] : report.centered_courant_y[i];
+            const auto before = neighbor(i, axis, false), after = neighbor(i, axis, true);
+            if (before != absent && after != absent)
+                slope = limited_slope(mac_scaled_difference(old_velocity[i], old_velocity[before]), mac_scaled_difference(old_velocity[after], old_velocity[i]));
+            courant = centered[i][axis].value().shared(1, report.old_inertia[i]);
+        }
+    }
+    const auto one = MacScaled::from_double(1);
+    for (std::size_t k = 0; k < report.fluxes.size(); ++k) {
+        const auto& edge = report.fluxes[k]; const auto flux = mac_dual_mass(edge);
+        if (flux.is_zero() || !is_free(edge.left) || !is_free(edge.right)) continue;
+        const auto axis = axis_of(edge), donor = flux.mantissa() > 0 ? edge.left : edge.right,
+            target = flux.mantissa() > 0 ? edge.right : edge.left;
+        const auto slope = axis == 0 ? report.velocity_slope_x[donor] : report.velocity_slope_y[donor];
+        MacScaledSum predicted; predicted.add(slope.multiplied(flux.mantissa() > 0 ? .5 : -.5));
+        predicted.add(signed_product(report.centered_courant_x[donor], report.velocity_slope_x[donor]).multiplied(-.5));
+        predicted.add(signed_product(report.centered_courant_y[donor], report.velocity_slope_y[donor]).multiplied(-.5));
+        const auto delta = predicted.value(), difference = mac_scaled_difference(old_velocity[target], old_velocity[donor]);
+        MacScaled bounded;
+        if (!delta.is_zero() && !difference.is_zero() && (delta.mantissa() < 0) == (difference.mantissa() < 0))
+            bounded = exceeds(delta.magnitude(), difference.magnitude()) ? difference : delta;
+        const auto request = signed_product(flux, bounded);
+        if (request.is_zero()) continue;
+        auto pair = limit_mac_momentum_pair(report.new_inertia[edge.left], report.new_inertia[edge.right], momentum[edge.left], momentum[edge.right],
+            report.energies[edge.left].mixing_heat, report.energies[edge.right].mixing_heat, request);
+        momentum[edge.left] = pair.after_left; momentum[edge.right] = pair.after_right;
+        report.energies[edge.left].mixing_heat = pair.after_heat_left; report.energies[edge.right].mixing_heat = pair.after_heat_right;
+        transported[edge.left].add(pair.energy_flux.negated()); transported[edge.right].add(pair.energy_flux);
+        if (exceeds(one, pair.limiter)) ++report.limited_corrections;
+        report.unresolved_momentum_corrections += pair.unresolved_momentum_updates;
+        report.unresolved_remainder_corrections += pair.unresolved_heat_updates;
+        report.corrections.push_back({k, axis, delta, bounded, std::move(pair)});
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        if (transported[i].sign() < 0) precision("MAC corrected transported kinetic energy is negative");
+        report.energies[i].transported_kinetic = transported[i].value();
+        report.energies[i].new_kinetic = MacEnergy::kinetic(report.new_inertia[i], momentum[i]);
+    }
+}
+MacFaceTransportReport transport_faces(const MacGrid& grid, bool x_component, const std::vector<Neighbors>& faces,
+    const std::vector<double>& m0, const std::vector<double>& m1, const std::vector<MacScaled>& j0,
+    std::vector<MacScaled>& j1, std::vector<MacDualFlux> edges, MacMomentumReconstruction reconstruction) {
     const auto count = faces.size(); const auto keep = retained(m0, edges);
     MacFaceTransportReport report; report.old_inertia = m0; report.new_inertia = m1; report.fluxes = std::move(edges);
     report.energies.resize(count);
@@ -209,11 +296,10 @@ MacFaceTransportReport transport_faces(const std::vector<Neighbors>& faces, cons
         const auto flux = mac_dual_mass(edge); const auto donor = flux.mantissa() > 0 ? edge.left : edge.right, target = flux.mantissa() > 0 ? edge.right : edge.left;
         heat[target].add(MacEnergy::variance(flux.magnitude(), mac_scaled_difference(velocity[donor], provisional[target])));
     }
+    for (std::size_t i = 0; i < count; ++i) { report.energies[i].mixing_heat = heat[i].value(); validate_face_energy(report.energies[i]); }
+    if (reconstruction == MacMomentumReconstruction::limited_linear) reconstruct_momentum(grid, x_component, faces, velocity, j1, report);
     for (std::size_t i = 0; i < count; ++i) {
-        auto& values = report.energies[i]; values.mixing_heat = heat[i].value();
-        MacEnergyAccount balance; balance.add(values.transported_kinetic); balance.add(values.new_kinetic.negated());
-        balance.add(values.mixing_heat.negated()); balance.add(values.wall_heat.negated());
-        if (!balance.within_bound()) precision("MAC local derived kinetic/heat account exceeds its operand bound");
+        auto& values = report.energies[i]; validate_face_energy(values);
         const std::array<MacEnergy, 5> encoded{values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat};
         const std::array<double*, 5> legacy{&report.old_kinetic[i], &report.new_kinetic[i], &report.transported_kinetic[i], &report.mixing_heat[i], &report.wall_heat[i]};
         for (std::size_t k = 0; k < encoded.size(); ++k) {
@@ -307,8 +393,11 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
     return mac_fluxes(flux_x, flux_y);
 }
 MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
-    const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan = nullptr) {
+    const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan,
+    MacMomentumReconstruction reconstruction) {
     require_mac_energy_environment();
+    require(reconstruction == MacMomentumReconstruction::donor_cell || reconstruction == MacMomentumReconstruction::limited_linear,
+        "Invalid MAC momentum reconstruction mode");
     const Geometry geometry(source.grid); const auto m0 = masses(registry, source, model, source_volumes); const auto& g = source.grid;
     MacMassFluxes parcel_flux;
     if (plan) parcel_flux = validate_parcels(registry, *model, source, geometry, *plan);
@@ -362,10 +451,14 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
             if (stored != 0) next.passive_quantities.push_back({identity, stored});
         }
     }
+    if (reconstruction == MacMomentumReconstruction::limited_linear) {
+        result.report.advected_internal_energy_j.reserve(count);
+        for (const auto& cell : result.state.cells) result.report.advected_internal_energy_j.push_back(cell.mixture.energy);
+    }
     const auto m1 = masses(registry, result.state, model); auto& report = result.report;
     std::vector<MacScaled> jx1, jy1;
-    report.x = transport_faces(geometry.x, ix0, inertias(geometry.x, m1), jx0, jx1, dual_edges(g, actual_flux, true));
-    report.y = transport_faces(geometry.y, iy0, inertias(geometry.y, m1), jy0, jy1, dual_edges(g, actual_flux, false));
+    report.x = transport_faces(g, true, geometry.x, ix0, inertias(geometry.x, m1), jx0, jx1, dual_edges(g, actual_flux, true), reconstruction);
+    report.y = transport_faces(g, false, geometry.y, iy0, inertias(geometry.y, m1), jy0, jy1, dual_edges(g, actual_flux, false), reconstruction);
     store_mac_field(result.state.momentum_x, result.state.full_momentum_x, jx1); store_mac_field(result.state.momentum_y, result.state.full_momentum_y, jy1);
     MacEnergyAccount total_energy; MacEnergySum mixing, wall; MacScaledAccount px, py;
     std::vector<Sum> species_balance(species); std::map<std::uint64_t, Sum> passive_balance;
@@ -418,18 +511,19 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
     return result;
 }
 }
-MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux) {
-    return transport(registry, source, flux, nullptr, {});
+MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
+    MacMomentumReconstruction reconstruction) {
+    return transport(registry, source, flux, nullptr, {}, nullptr, reconstruction);
 }
 MacTransportAdvance advance_mac_transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
-    const FluidThermodynamics& model, std::span<const double> volumes) {
+    const FluidThermodynamics& model, std::span<const double> volumes, MacMomentumReconstruction reconstruction) {
     model.validate_registry(registry);
     require(volumes.size() == source.cells.size(), "MAC EOS transport requires every source volume");
-    return transport(registry, source, flux, &model, volumes);
+    return transport(registry, source, flux, &model, volumes, nullptr, reconstruction);
 }
 MacTransportAdvance advance_mac_parcel_transport(const SpeciesRegistry& registry, const MacTransportState& source,
-    const FluidThermodynamics& model, const MacParcelPlan& plan) {
+    const FluidThermodynamics& model, const MacParcelPlan& plan, MacMomentumReconstruction reconstruction) {
     model.validate_registry(registry);
-    return transport(registry, source, {}, &model, plan.source_volumes_m3, &plan);
+    return transport(registry, source, {}, &model, plan.source_volumes_m3, &plan, reconstruction);
 }
 }

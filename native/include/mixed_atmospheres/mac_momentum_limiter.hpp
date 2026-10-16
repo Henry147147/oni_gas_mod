@@ -1,5 +1,6 @@
 #pragma once
-#include "mac_transport.hpp"
+#include "mac_fields.hpp"
+#include <span>
 
 namespace ma::experimental {
 // A correction removes dJ from the left dual cell and adds it to the right.
