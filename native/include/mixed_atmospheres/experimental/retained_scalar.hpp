@@ -4,6 +4,7 @@
 
 namespace ma::experimental {
 struct RetainedScalarUpdate;
+struct RetainedScalarProduct;
 // An owning two-component stored value. The low component is retained state,
 // not a discarded error estimate. No mutable component reference is exposed.
 class RetainedScalar {
@@ -14,6 +15,7 @@ public:
 private:
     friend RetainedScalar make_retained_scalar(double, double, CanonicalFailureWitness&);
     friend RetainedScalarUpdate add_retained_scalar(const RetainedScalar&, double, CanonicalFailureWitness&);
+    friend RetainedScalarProduct multiply_retained_scalar(const RetainedScalar&, double, CanonicalFailureWitness&);
     RetainedScalar(double high, double low) noexcept : high_(high), low_(low) {}
     double high_ = 0, low_ = 0;
 };
@@ -25,10 +27,25 @@ struct RetainedScalarUpdate {
     // returned for accounting; no claim that a two-part value is arbitrary precision.
     double roundoff_remainder = 0;
 };
-// Both functions require the same read-only nearest/FTZ-off/DAZ-off environment
+struct RetainedScalarProduct {
+    RetainedScalar value;
+    // Exact products of each input component with the coefficient, in order
+    // high-product, high-error, low-product, low-error. No component is hidden.
+    std::array<double, 4> product_terms{};
+    // A finite two-component result need not hold the exact full product.
+    // These four signed components remain explicit accounting operands:
+    // coefficient * (input.high + input.low) = value.high + value.low + sum(remainders).
+    std::array<double, 4> roundoff_remainders{};
+};
+// These functions require the same read-only nearest/FTZ-off/DAZ-off environment
 // as canonical diagnostics. Normal binary64 operands/results or exact zero only.
 // A fresh caller witness receives the first typed failure; inputs never mutate.
 [[nodiscard]] RetainedScalar make_retained_scalar(double high, double low, CanonicalFailureWitness& witness);
 [[nodiscard]] RetainedScalarUpdate add_retained_scalar(const RetainedScalar& input, double increment,
+    CanonicalFailureWitness& witness);
+// Explicit FMA recovers each multiplication error. A zero FMA result is
+// admitted only when an integer significand check proves an exact product;
+// otherwise it could conceal an underflowed error. No FMA contraction is used.
+[[nodiscard]] RetainedScalarProduct multiply_retained_scalar(const RetainedScalar& input, double coefficient,
     CanonicalFailureWitness& witness);
 }

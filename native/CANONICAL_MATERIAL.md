@@ -90,6 +90,53 @@ into the canonical owner. Its failed translation gate remains negative.
 python native/tests/review_retained_scalar.py capture.stdout
 ```
 
+## Retained scalar multiplication
+
+`multiply_retained_scalar` scales the complete high/low stored value by a
+binary64 coefficient. Both component products use an explicit FMA to recover
+their rounding errors, following Algorithm 3.5 of [Ogita, Rump and Oishi](https://ogilab.w.waseda.jp/ogita/math/doc/2005_OgRuOi.pdf).
+Four fixed five-TwoSum compressions produce a normalized stored pair and four
+separate signed rounding operands. In the admitted range, the exact identity is
+`coefficient * (oldHigh + oldLow) = newHigh + newLow + sum(remainders)`.
+The return value exposes all four product terms as well as those remainders.
+They are an obligation for the physical caller's ledger, not implicit heat.
+
+Normal product alone cannot prove an error-free FMA transform: its error may
+underflow. Nonzero subnormal results reject. When the FMA returns zero, a
+bounded integer significand-width/trailing-zero predicate must prove that the
+product was exactly representable. The integer calculation only classifies
+bits; it does not supply an alternative physical result. A nonzero component
+product rounded to zero also rejects. The final stored total retains its sign
+and nonzero value. Diagnostics copy known input components, coefficient,
+current operands/result, any evaluated FMA addend and up to 44 tape values.
+No library operation changes floating-point controls or overwrites an existing
+sealed first failure.
+
+The new excluded `ma_retained_scalar_product_tests` target passes five groups
+on strict Windows/MSVC and WSL Linux/GNU. A separate exact-rational decoder
+checks all 136 captured products: 124 have nonzero high-product errors, 126
+have nonzero low-product errors, and 127 expose nonzero rounding remainders.
+It verifies both component products, the complete finite accounting identity,
+normalization and sign. Ten typed negatives include overflow, component
+underflow, hidden errors below and exactly at half the minimum subnormal,
+nonfinite coefficients and unsupported rounding. It checks 71 copied witness
+numbers and rejects an altered result bit. All 136 numerical rows agree across
+platforms; environment diagnostics remain platform-specific.
+
+The fresh build and first invocation captures retain both raw pipe EOFs, source
+closures, executable hashes, a 180-second aggregate build limit, 30-second
+invocation limit and 128-KiB limit per pipe. Private evidence is under
+`local/occupied-staggered-validation/retained-product-windows-r1` and
+`retained-product-linux-r1`. There is no EOS, material step, old physical corpus,
+game activation, performance or first-playable acceptance in these checks.
+Retained positions, owner U/volume, canonical impulses, EOS projections and
+their complete physical ledgers still need integration. The failed canonical
+translation gate remains negative and was not rerun.
+
+```text
+python native/tests/review_retained_scalar_product.py capture.stdout
+```
+
 ## Bounded failure evidence
 
 `experimental/canonical_material_diagnostics.hpp` provides a caller-owned
