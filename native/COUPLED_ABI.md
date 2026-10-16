@@ -228,13 +228,61 @@ library/assembly hashes, raw output and completed root reviews are under
 Both first builds/runs exit zero with clean EOFs, no capture errors or retries;
 limits remain 180 seconds per build, 30 seconds per runtime and 128 KiB per pipe.
 
+## Physical presentation companion
+
+`ReadMaterialCatalog()` provides the closed reference's explicit fluid catalogue.
+Pass a matching `presentationModel` to `CoupledColonySimulation.Create` to build
+`CoupledColonyFrame.Presentation` before the all-world commit. Construction of
+the entire presentation is fallible preparation: it cannot publish separately
+from the physical candidate. `PhysicalSource` retains that exact completed
+frame. A rejected frame preserves both prior references.
+
+`ReadThermodynamicCell` uses native U, momentum, total mass, T and mechanical p.
+The closed reference uses constant liquid densities, so liquid partial volumes
+are m/rho and gas headspace is the remaining cell volume. Gas thermodynamic
+partial volumes use native molar masses and exponent-scaled mole shares. No
+constituent is discarded or volume rescaled. This is an adapter for the named
+closed model, not an elastic-liquid EOS inversion or a phase-change model.
+
+`WithVisualOptions` rebuilds presentation from the retained physical source.
+The ONI completed-source adapter uses it for both current appearance changes
+and later completed frames, preserving actual readings when textures are
+disabled or contrast changes. It never reconstructs U/T/p from the scalar
+total-energy projection.
+
+All seventeen coupled managed groups pass Windows and WSL Linux. The original
+thirteen are repeated after shared Core changes; four added groups check
+physical facts, transported traces, liquid pressure, appearance and paired
+rollback. The six-cell scene source is shared with the game validator. Its
+four bulk gases and benign helium/hazardous chlorine traces must survive
+transport, and the next frame must change composition. The earlier sixteen
+groups passed first; adding the scene control makes seventeen. Evidence is in
+`local/occupied-staggered-validation/coupled-presentation-{windows,linux}-r1`
+and `r2`; native sources/libraries remain unchanged, with no C++ controls replayed.
+
+All forty-one existing presentation groups also pass on Windows and Linux after
+these shared changes. The null-source negative control explicitly selects the
+legacy overload, and the physical overload has its own null rejection in that
+same group. Linux's first regression capture imported the Windows helper and
+failed before launching a build; the matching Linux helper repairs that
+infrastructure error. First runtime outcomes pass without test changes or
+retries. Both the failed capture and successful records are retained under
+`local/occupied-staggered-validation/coupled-legacy-presentation-*`.
+
+Windows ONI V57 passes three actual native-hover/Unity-PNG cases: completed
+physical mixture, changed mixture and colour-only recapture. Every bulk gas
+appears directly on hover, traces stay in the full reading, and chlorine's
+warning remains visible. The scene is six synthetic cells backed by the closed
+reference; native ONI retains the surrounding colony. See
+[game evidence and startup failures](../docs/mixture-presentation.md#completed-coupled-reference-scene-on-windows).
+
 ## Remaining integration work
 
 The ONI `ExperimentalFluidFrameCoordinator` callback/message router is still
 unconnected to this separate Core coordinator. Actor transactions, native
-dispatch/acknowledgement, supported material/phase coverage, presentation
-binding and actual save/reload need integration. Fork/capture allocation and
+dispatch/acknowledgement, supported material/phase coverage, production world/
+container presentation and actual save/reload need integration. Fork/capture allocation and
 complete-frame copying also require production performance work. These controls
 repair none of the older remap, vacuum-front or performance failures, which
-were not replayed. There is no new game or independent agent review, and no
-first-playable or release gate is established.
+were not replayed. V57 is a scoped Windows game check; Linux Unity, independent
+agent review, production performance and first-playable/release gates remain open.

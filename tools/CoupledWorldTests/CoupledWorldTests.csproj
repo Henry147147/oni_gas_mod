@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/CoupledPresentationScenario.cs" Link="CoupledPresentationScenario.cs" />
   </ItemGroup>
 </Project>

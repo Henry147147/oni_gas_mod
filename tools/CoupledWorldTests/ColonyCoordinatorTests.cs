@@ -6,20 +6,22 @@ using System.Threading.Tasks;
 using MixedAtmospheres.Core;
 using MixedAtmospheres.Core.Interop;
 
-internal static class ColonyCoordinatorTests
+internal static partial class ColonyCoordinatorTests
 {
     private static readonly NativeWorldPlacement[] Placements = { new NativeWorldPlacement(9, 2, 2, 9, 2), new NativeWorldPlacement(7, 2, 2, 3, 2) };
     private static CoupledWorldConfiguration Configuration() => new CoupledWorldConfiguration
     {
         Width = 16, Height = 12, Gravity = 0, Diffusivity = 0, Viscosity = 0, ThermalConduction = false, MaximumTimestepSeconds = .001
     };
-    private static NativeColonyImport Import(bool uniform = false, bool vacuum = false, bool water = false, bool unknown = false)
+    private static NativeColonyImport Import(bool uniform = false, bool vacuum = false, bool water = false, bool unknown = false, bool chemistry = false)
     {
         var phases = new Dictionary<int, NativeMatterPhase> { [1] = NativeMatterPhase.Vacuum, [2] = NativeMatterPhase.Gas,
-            [3] = NativeMatterPhase.Gas, [4] = NativeMatterPhase.Solid, [5] = NativeMatterPhase.Liquid, [6] = NativeMatterPhase.Gas };
+            [3] = NativeMatterPhase.Gas, [4] = NativeMatterPhase.Solid, [5] = NativeMatterPhase.Liquid, [6] = NativeMatterPhase.Gas,
+            [7] = NativeMatterPhase.Gas, [8] = NativeMatterPhase.Gas };
         var bindings = new Dictionary<int, NativeFluidBinding> { [2] = new NativeFluidBinding("oxygen", NativeMatterPhase.Gas),
             [3] = new NativeFluidBinding("nitrogen", NativeMatterPhase.Gas), [5] = new NativeFluidBinding("water", NativeMatterPhase.Liquid),
-            [6] = new NativeFluidBinding("unsupported-vapor", NativeMatterPhase.Gas) };
+            [6] = new NativeFluidBinding("unsupported-vapor", NativeMatterPhase.Gas), [7] = new NativeFluidBinding("carbon_dioxide", NativeMatterPhase.Gas),
+            [8] = new NativeFluidBinding("chlorine", NativeMatterPhase.Gas) };
         byte[] Payload(NativeWorldPlacement placement)
         {
             const int count = 16; var raw = new byte[29 + 36 * count];
@@ -32,6 +34,7 @@ internal static class ColonyCoordinatorTests
             {
                 var i = x + 1 + (y + 1) * 4; var offset = 29 + i * 16;
                 Int(offset, uniform ? 3 : (x + y) % 2 == 0 ? 2 : 3);
+                if (chemistry) Int(offset, new[] { 3, 2, 7, 8 }[x + 2 * y]);
                 Float(offset + 4, uniform ? 300 : 298 + x * 4 + y * 2); Float(offset + 8, uniform ? 1 : 1.4f + x * .7f);
                 Float(offset + 12, .125f * (x + y + 1));
                 Int(29 + 16 * count + i * 8, i == 5 ? int.MinValue : -42); Int(29 + 16 * count + i * 8 + 4, 20 + i);

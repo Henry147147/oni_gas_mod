@@ -55,9 +55,8 @@ namespace MixedAtmospheres.Oni
                     if (model == null || !replacement.IsVisualVariantOf(model))
                         throw new InvalidOperationException("Material and breathing definitions must change through the completed publication source.");
                     var options = replacement.VisualOptions;
-                    var variant = completedPublication!.Model.WithVisualOptions(options);
-                    var prepared = variant.CaptureFrame(completedPublication.Source);
-                    visualOverride = options; model = variant; world = prepared; ++generation;
+                    var variant = completedPublication!.WithVisualOptions(options);
+                    visualOverride = options; model = variant.Model; world = variant.Frame; ++generation;
                     return;
                 }
                 var nextWorld = source == null ? null : replacement.CaptureFrame(source);
@@ -109,8 +108,9 @@ namespace MixedAtmospheres.Oni
             if (source != null && (next.Source.ColonyId != source.ColonyId || next.Source.Revision < source.Revision ||
                 next.Source.CompletedFrame < source.CompletedFrame))
                 throw new InvalidOperationException("A bound source cannot replace its colony or regress its completed frame.");
-            var nextModel = visualOverride == null ? next.Model : next.Model.WithVisualOptions(visualOverride);
-            var nextWorld = visualOverride == null ? next.Frame : nextModel.CaptureFrame(next.Source);
+            var displayed = visualOverride == null ? next : next.WithVisualOptions(visualOverride);
+            var nextModel = displayed.Model;
+            var nextWorld = displayed.Frame;
             // All preparation succeeds before replacing this UI view. Nothing
             // here commits or rolls back the authority/actor publication.
             completedPublication = next; source = next.Source; model = nextModel; world = nextWorld; ++generation;

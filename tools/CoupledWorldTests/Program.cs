@@ -132,3 +132,4 @@ Test("passive initialization, rollback, immutable reads and nonfluid ownership",
     Check(child.CaptureSnapshot().Cells[0].DiseaseCounts[-42] == 3 && before.Cells[0].DiseaseCounts[17] == 1e-30, "Disposed parent damaged metadata view");
 });
 ColonyCoordinatorTests.Run(Test, Check, Reject, (a, b, scale) => Near(a, b, scale));
+ColonyCoordinatorTests.RunPresentation(Test, Check, Reject);

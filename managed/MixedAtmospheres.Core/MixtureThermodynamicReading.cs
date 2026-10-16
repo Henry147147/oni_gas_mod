@@ -201,7 +201,7 @@ namespace MixedAtmospheres.Core
         // A positive fraction may underflow before multiplication by a large
         // headspace restores a representable partial volume. Normalize each
         // finite factor first; this never normalizes the supplied state.
-        private static double ProductRatio(double a, double b, double c, double divisor)
+        internal static double ProductRatio(double a, double b, double c, double divisor)
         {
             var ma = Mantissa(a, out var ea); var mb = Mantissa(b, out var eb);
             var mc = Mantissa(c, out var ec); var md = Mantissa(divisor, out var ed);

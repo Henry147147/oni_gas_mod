@@ -44,6 +44,13 @@ machines, pipes, and metabolism must use the same conserved state.
   rollback and shared attempt budgets. Physical internal energy and momentum
   stay in native owners; the read-only colony projection never resets them.
   Actor transactions, ONI hooks and persistence remain unfinished.
+- Completed physical frames can prepare the shared mixture presentation before
+  publication, retaining actual U, temperature, pressure and every constituent
+  across appearance changes. Seventeen Windows/Linux boundary groups and
+  forty-one presentation regressions pass. A Windows game scene verifies four
+  bulk gases on hover, changing composition and hazardous trace warnings;
+  [scope and evidence](docs/mixture-presentation.md#completed-coupled-reference-scene-on-windows)
+  remain separate from production colony acceptance.
 - Sparse disease counts and passive radiation metadata follow the coupled
   reference's material transfers and appear in its completed snapshots.
   Disease growth and radiation-dose physics remain required.

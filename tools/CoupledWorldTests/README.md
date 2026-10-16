@@ -7,7 +7,7 @@ run this .NET 10 host against its exact absolute path:
 dotnet run --project tools/CoupledWorldTests -c Release -- <absolute coupled library path>
 ```
 
-It pins the named coupled library, prints its SHA256 and runs thirteen groups using
+It pins the named coupled library, prints its SHA256 and runs seventeen groups using
 the .NET Standard 2.1 Core binding. Controls cover model/layout agreement,
 conserved/owned initialization, completed gas/liquid readings, 2D evolution and
 trace conservation, whole-call rollback, independent lifetimes, concurrent
@@ -21,6 +21,13 @@ They use original synthetic import blobs. No ONI process or licensed game
 assemblies are used. Physical U and momentum remain in the persistent native
 owners; the scalar total-energy Core projection is read-only and is never used
 to reinitialize physics.
+
+Four presentation groups check exact native U/T/p and constituent reads from a
+completed frame, transported hazardous traces, pure-liquid mechanical pressure,
+colour-only recapture and paired rollback. The shared original six-cell game
+scenario must evolve four bulk gases and two traces, retain the chlorine warning
+and change composition on the next frame. The host links that scenario source
+without linking Unity or any licensed game assembly.
 
 The [native boundary documentation](../../native/COUPLED_ABI.md) records matching
 Windows/Linux evidence, preserved first build/driver failures and scope limits.

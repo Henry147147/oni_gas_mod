@@ -28,6 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True, help="libmixed_atmospheres.so or mixed_atmospheres.dll")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
@@ -36,6 +37,10 @@ def main() -> None:
         parser.error("This probe was inspected against ONI 744825. Reinspect and update the contract before packaging another build.")
     if args.native.name not in ("libmixed_atmospheres.so", "mixed_atmospheres.dll") or not args.native.is_file():
         parser.error("Supply a built Linux or Windows native library")
+    coupled = args.coupled_reference
+    expected_coupled = "mixed_atmospheres_coupled.dll" if args.native.suffix == ".dll" else "libmixed_atmospheres_coupled.so"
+    if coupled is not None and (coupled.name != expected_coupled or not coupled.is_file()):
+        parser.error("Supply the matching platform's explicit coupled reference library")
     validator = args.private_file_protocol_validator
     if validator is not None and (args.native.suffix != ".dll" or not validator.is_file() or
                                   validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
@@ -63,6 +68,8 @@ def main() -> None:
     native_directory = output / "native" / rid
     native_directory.mkdir(parents=True)
     shutil.copy2(files[2], native_directory / files[2].name)
+    if coupled is not None:
+        shutil.copy2(coupled.resolve(), native_directory / coupled.name)
     if validator is not None:
         private_directory = output / "private-validation"
         private_directory.mkdir()

@@ -31,17 +31,21 @@ namespace MixedAtmospheres.Core
         public long CompletedFrame => Projection.CompletedFrame;
         public double SimulationTimeSeconds => Projection.SimulationTimeSeconds;
         public Guid ColonyId => Projection.ColonyId;
+        public FluidMaterialCatalog MaterialCatalog => Projection.Catalog;
+        public MixturePresentationPublication? Presentation { get; }
         public IReadOnlyDictionary<int, CoupledWorldSnapshot> Worlds { get; }
         public IReadOnlyDictionary<int, CoupledStepDiagnostics> Diagnostics { get; }
         /// <summary>Measured U error of the scalar total-energy projection; never heat or a replacement physical U.</summary>
         public IReadOnlyDictionary<int, double> InternalEnergyProjectionErrorsJoules { get; }
         public IReadOnlyList<CoupledMaterialDefinition> Materials { get; }
         internal CoupledColonyFrame(ColonyFrameSnapshot projection, Dictionary<int, CoupledWorldSnapshot> worlds,
-            Dictionary<int, CoupledStepDiagnostics> diagnostics, Dictionary<int, double> errors, IReadOnlyList<CoupledMaterialDefinition> materials)
+            Dictionary<int, CoupledStepDiagnostics> diagnostics, Dictionary<int, double> errors, IReadOnlyList<CoupledMaterialDefinition> materials,
+            MixturePresentationModel? presentationModel)
         {
             Projection = projection; Worlds = new ReadOnlyDictionary<int, CoupledWorldSnapshot>(worlds);
             Diagnostics = new ReadOnlyDictionary<int, CoupledStepDiagnostics>(diagnostics);
             InternalEnergyProjectionErrorsJoules = new ReadOnlyDictionary<int, double>(errors); Materials = materials;
+            Presentation = presentationModel == null ? null : MixturePresentationPublication.Prepare(this, presentationModel);
         }
         public bool TrySampleCell(int globalCell, out CoupledColonyCell cell)
         {
@@ -54,6 +58,38 @@ namespace MixedAtmospheres.Core
         }
         public CoupledColonyCell SampleCell(int globalCell) => TrySampleCell(globalCell, out var cell) ? cell :
             throw new ArgumentOutOfRangeException(nameof(globalCell), "Cell is outside every admitted world.");
+
+        /// <summary>Physical facts of this closed constant-density-liquid reference, without a total-energy round trip.</summary>
+        public MixtureThermodynamicReading ReadThermodynamicCell(int globalCell)
+        {
+            var sample = SampleCell(globalCell); var physical = sample.PhysicalState;
+            if (physical.IsWall) throw new ArgumentException("A solid cell has no mixture reading.", nameof(globalCell));
+            double liquidVolume = 0, gasMoles = 0;
+            // Match the native registry order and the admitted model's constant
+            // condensed density. This is not an elastic-liquid EOS inversion.
+            foreach (var definition in Materials)
+                if (physical.MassesKg.TryGetValue(definition.Id, out var mass))
+                {
+                    if (definition.Phase == CoupledMaterialPhase.Gas) gasMoles += mass / definition.MolarMassKgPerMol;
+                    else if (definition.Phase == CoupledMaterialPhase.Liquid) liquidVolume += mass / definition.CondensedDensityKgPerCubicMetre;
+                    else throw new InvalidOperationException("A fluid snapshot contains solid material.");
+                }
+            var gasVolume = gasMoles == 0 ? 0 : sample.VolumeCubicMetres - liquidVolume;
+            var constituents = new List<MixtureThermodynamicConstituent>(physical.MassesKg.Count);
+            foreach (var definition in Materials)
+                if (physical.MassesKg.TryGetValue(definition.Id, out var mass))
+                    constituents.Add(new MixtureThermodynamicConstituent(definition.Id,
+                        definition.Phase == CoupledMaterialPhase.Gas ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid,
+                        mass, definition.MolarMassKgPerMol, definition.Phase == CoupledMaterialPhase.Gas ?
+                        MixtureThermodynamicReading.ProductRatio(gasVolume, mass / definition.MolarMassKgPerMol, 1, gasMoles) :
+                        mass / definition.CondensedDensityKgPerCubicMetre));
+            var kinetic = (physical.MomentumX * physical.MomentumX + physical.MomentumY * physical.MomentumY) / (2 * physical.TotalMassKg);
+            return new MixtureThermodynamicReading(constituents, physical.TotalMassKg, physical.InternalEnergyJoules, kinetic,
+                physical.TemperatureKelvin, gasMoles == 0 ? 0 : physical.PressurePa, physical.PressurePa,
+                sample.VolumeCubicMetres, gasVolume, liquidVolume, 0, CoupledSimulationWorld.ModelIdentity, MaterialCatalog.Fingerprint,
+                Projection.Revision, "owned-cell:" + globalCell.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                physical.MomentumX, physical.MomentumY);
+        }
     }
 
     /// <summary>
@@ -65,17 +101,26 @@ namespace MixedAtmospheres.Core
         private readonly object sync = new object();
         private readonly ColonyFluidState projectionState;
         private readonly IReadOnlyList<CoupledMaterialDefinition> materials;
+        private readonly MixturePresentationModel? presentationModel;
         private Dictionary<int, CoupledSimulationWorld> owners;
         private Dictionary<int, CoupledSimulationWorld>? retiredOwners;
         private CoupledColonyFrame current;
         private bool disposed;
 
         private CoupledColonySimulation(ColonyFluidState projection, Dictionary<int, CoupledSimulationWorld> owned,
-            IReadOnlyList<CoupledMaterialDefinition> definitions, CoupledColonyFrame initial)
-        { projectionState = projection; owners = owned; materials = definitions; current = initial; }
+            IReadOnlyList<CoupledMaterialDefinition> definitions, CoupledColonyFrame initial, MixturePresentationModel? model)
+        { projectionState = projection; owners = owned; materials = definitions; current = initial; presentationModel = model; }
+
+        public static FluidMaterialCatalog ReadMaterialCatalog() => Catalog(CoupledSimulationWorld.ReadMaterialDefinitions());
+        private static FluidMaterialCatalog Catalog(IReadOnlyList<CoupledMaterialDefinition> definitions)
+            => new FluidMaterialCatalog(CoupledSimulationWorld.ModelIdentity + "/read-projection-v1",
+                definitions.Where(value => value.Phase != CoupledMaterialPhase.Solid).Select(value => new FluidMaterial(value.Id,
+                    value.Phase == CoupledMaterialPhase.Gas ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid,
+                    value.MolarMassKgPerMol, value.SpecificHeatCv,
+                    value.Phase == CoupledMaterialPhase.Liquid ? value.CondensedDensityKgPerCubicMetre : 0, value.EnergyOffsetJoulesPerKg)));
 
         public static CoupledColonySimulation Create(NativeColonyImport import, CoupledWorldConfiguration configuration,
-            IReadOnlyDictionary<int, double>? pureLiquidPressuresPa = null)
+            IReadOnlyDictionary<int, double>? pureLiquidPressuresPa = null, MixturePresentationModel? presentationModel = null)
         {
             if (import == null) throw new ArgumentNullException(nameof(import));
             if (configuration == null) throw new ArgumentNullException(nameof(configuration));
@@ -84,12 +129,9 @@ namespace MixedAtmospheres.Core
                 throw new ArgumentException("Coupled colony configuration must name the complete global grid.");
             var volume = config.CellSize * config.CellSize * config.Depth; FluidChecks.Positive(volume, "coupled cell volume");
             var definitions = CoupledSimulationWorld.ReadMaterialDefinitions();
-            var catalog = new FluidMaterialCatalog(CoupledSimulationWorld.ModelIdentity + "/read-projection-v1",
-                definitions.Where(value => value.Phase != CoupledMaterialPhase.Solid).Select(value => new FluidMaterial(value.Id,
-                    value.Phase == CoupledMaterialPhase.Gas ? NativeMatterPhase.Gas : NativeMatterPhase.Liquid,
-                    value.MolarMassKgPerMol, value.SpecificHeatCv,
-                    value.Phase == CoupledMaterialPhase.Liquid ? value.CondensedDensityKgPerCubicMetre : 0, value.EnergyOffsetJoulesPerKg)));
+            var catalog = Catalog(definitions);
             var projection = ColonyFluidState.Import(import, catalog, volume); var basis = projection.CaptureSnapshot();
+            presentationModel?.RequireCatalog(basis);
             var pressures = pureLiquidPressuresPa == null ? new Dictionary<int, double>() : pureLiquidPressuresPa.ToDictionary(entry => entry.Key, entry => entry.Value);
             var usedPressures = new HashSet<int>(); var staged = new List<(NativeWorldPlacement placement, CoupledCellInitialization[] cells)>();
             foreach (var placement in basis.Worlds.OrderBy(value => value.WorldId))
@@ -122,9 +164,9 @@ namespace MixedAtmospheres.Core
                 var updates = Project(basis, frames, out var errors);
                 using var prepared = projection.Prepare(basis, updates, new Dictionary<int, int>(), null, basis.NextContainerGeneration,
                     FluidInventory.Empty, FluidInventory.Empty, 0, 0, 0);
-                var initial = new CoupledColonyFrame(prepared.Snapshot, frames, new Dictionary<int, CoupledStepDiagnostics>(), errors, definitions);
+                var initial = new CoupledColonyFrame(prepared.Snapshot, frames, new Dictionary<int, CoupledStepDiagnostics>(), errors, definitions, presentationModel);
                 // Allocate the complete outer owner before the publication point too.
-                var result = new CoupledColonySimulation(projection, owned, definitions, initial);
+                var result = new CoupledColonySimulation(projection, owned, definitions, initial, presentationModel);
                 prepared.ReserveWriter(); prepared.Commit(initial); return result;
             }
             catch { foreach (var owner in owned.Values) owner.Dispose(); throw; }
@@ -204,7 +246,7 @@ namespace MixedAtmospheres.Core
                     var updates = Project(basis, frames, out var errors);
                     using var prepared = projectionState.Prepare(basis, updates, new Dictionary<int, int>(), null, basis.NextContainerGeneration,
                         FluidInventory.Empty, FluidInventory.Empty, 0, completedFrame, time);
-                    var candidate = new CoupledColonyFrame(prepared.Snapshot, frames, diagnostics, errors, materials);
+                    var candidate = new CoupledColonyFrame(prepared.Snapshot, frames, diagnostics, errors, materials, presentationModel);
                     prepared.ReserveWriter(); prepared.Commit(candidate);
                     retiredOwners = owners; owners = nextOwners; current = candidate;
                     return candidate;

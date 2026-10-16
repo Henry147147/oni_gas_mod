@@ -33,7 +33,8 @@ internal static class PreparedPresentationPublicationTests
             using var transaction = state.BeginTransaction(); transaction.Transfer(5, 6, .25);
             using var candidate = transaction.PrepareFrame(7, 1.4);
             reject(() => MixturePresentationPublication.Prepare(candidate.Snapshot, wrongModel));
-            reject(() => MixturePresentationPublication.Prepare(null!, presentationModel));
+            reject(() => MixturePresentationPublication.Prepare((ColonyFrameSnapshot)null!, presentationModel));
+            reject(() => MixturePresentationPublication.Prepare((CoupledColonyFrame)null!, presentationModel));
             reject(() => MixturePresentationPublication.Prepare(candidate.Snapshot, null!));
             check(ReferenceEquals(state.CapturePublication(), prior));
             var publication = MixturePresentationPublication.Prepare(candidate.Snapshot, presentationModel);

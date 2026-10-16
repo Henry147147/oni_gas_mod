@@ -12,6 +12,7 @@ namespace MixedAtmospheres.Core
         public ColonyFrameSnapshot Source { get; }
         public MixturePresentationModel Model { get; }
         public MixturePresentationFrame Frame { get; }
+        public CoupledColonyFrame? PhysicalSource { get; }
 
         private MixturePresentationPublication(ColonyFrameSnapshot source, MixturePresentationModel model)
         {
@@ -22,5 +23,19 @@ namespace MixedAtmospheres.Core
 
         public static MixturePresentationPublication Prepare(ColonyFrameSnapshot source, MixturePresentationModel model)
             => new MixturePresentationPublication(source, model);
+
+        private MixturePresentationPublication(CoupledColonyFrame source, MixturePresentationModel model)
+        {
+            PhysicalSource = source ?? throw new ArgumentNullException(nameof(source)); Source = source.Projection;
+            Model = model ?? throw new ArgumentNullException(nameof(model)); Frame = model.CaptureFrame(source);
+        }
+
+        public static MixturePresentationPublication Prepare(CoupledColonyFrame source, MixturePresentationModel model)
+            => new MixturePresentationPublication(source, model);
+
+        /// <summary>Rebuild appearance while preserving the completed physical source and its readings.</summary>
+        public MixturePresentationPublication WithVisualOptions(MixtureVisualOptions options)
+            => PhysicalSource == null ? Prepare(Source, Model.WithVisualOptions(options)) :
+                Prepare(PhysicalSource, Model.WithVisualOptions(options));
     }
 }

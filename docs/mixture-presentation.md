@@ -53,12 +53,24 @@ profile identity is separate from the presentation catalog's existing
 `MaterialModelVersion`/`MaterialModelFingerprint`. Legacy views have no supplied
 thermodynamic reading or claimed liquid mechanical pressure.
 
-This API does not run an EOS equilibrium solve, prove the supplied caloric/elastic state, own or
-advance a simulation, or establish completed-frame/save authority. The current
-frame/publication/runtime and all save formats still accept their existing
-legacy sources. Binding actual readings into a colony requires a future owner
-that pairs world geometry, container allocations and all readings from one
-completed source. The focused managed controls run with
+This reading API does not run an EOS equilibrium solve or advance a simulation.
+`CoupledColonySimulation` now optionally prepares a presentation companion from
+its completed native worlds before their all-world commit. Each cell's U,
+momentum, temperature and mechanical pressure come from that physical frame;
+partial volumes use this closed reference's explicit constant liquid densities
+and ideal-gas headspace. Its model identity is retained. The rounded scalar
+total-energy projection is never used to reconstruct physical readings.
+`MixturePresentationPublication.PhysicalSource` retains the identical immutable
+frame, and appearance recapture preserves it. The ONI completed-source adapter
+uses that recapture path for colour-only and contrast changes.
+
+Seventeen Windows/Linux coupled-boundary groups pass, including physical
+reading agreement, paired rollback, liquid pressure, appearance recapture and a
+six-cell scene with four bulk gases plus benign and hazardous transported
+traces. This closed-reference binding does not establish production world or
+container ownership, save authority, or first-playable acceptance. See the
+[publication contract](../native/COUPLED_ABI.md#closed-reference-colony-frame-coordination).
+The independent supplied-reading controls run with
 `dotnet run --project managed/MixedAtmospheres.Presentation.Tests -c Release -- --thermodynamic-readings`;
 that selection does not load or invoke the native reference solver.
 All 14 focused groups pass on Windows and Linux .NET 10. The combined 41-group
@@ -194,6 +206,66 @@ avoid an unknown-view warning each frame. The native F1 legend explicitly
 limits mixture assessment to owned cells; unowned cells retain native colours.
 
 ## Verification and limits
+
+### Completed coupled reference scene on Windows
+
+Windows ONI V57 passes three real hover/Unity-screenshot cases backed by the
+closed native reference: the completed mixture, a later physical frame with
+changed composition, and colour-only recapture of that same later frame. Each
+hover shows all four non-trace gases without selecting the tile:
+
+| Gas | First frame, mole % | Later frame, mole % |
+| --- | ---: | ---: |
+| Nitrogen | 49.8521 | 36.8073 |
+| Steam | 25.1562 | 26.5718 |
+| Oxygen | 19.2903 | 23.0891 |
+| Carbon dioxide | 5.7014 | 13.5318 |
+
+Helium and chlorine remain in the full six-constituent reading but are omitted
+from the bulk contents list. The tooltip explicitly points to full composition.
+Chlorine warnings remain visible at approximately 0.0927 ppm and 0.2458 ppm;
+this test explicitly configures a 0.001-ppm limit. Visible percentages retain
+their original gas-mole denominator, including the omitted traces.
+
+The pressure rises from 51,999.5203 to 69,699.4663 Pa and temperature from
+264.8920 to 294.9469 K as the reference advances from 0.03 to 0.06 seconds.
+The low-oxygen-partial-pressure warning clears when its configured minimum is
+met; CO2 and chlorine warnings remain. Colour-only recapture changes no physical
+frame, stored U, p, T, constituent row or warning. The actual hover callback
+checks its pinned reading against the native physical snapshot, and all three
+2560-by-1440 Unity PNGs received matching root pixel-review receipts.
+
+This is an original synthetic six-cell physical scene inside a fresh disposable
+736-by-304, nine-world colony with three duplicants. Native ONI owns the
+surrounding colony. It is not a ten-cycle owned-colony, phase-change, save/reload
+or performance result. The screenshots verify hover text and physical-source
+binding; they provide no new GPU readback or global colour-discrimination gate.
+Linux's seventeen coupled controls and forty-one presentation regressions pass
+under .NET, but this new physical scene has no Linux Unity acceptance.
+
+V55 failed before the scene because reused generated-world data lacked current
+cluster quality settings. V56 reached a fresh colony but was stopped after
+startup shutdown callbacks incorrectly aborted the uninitialized test. Its raw
+report remains pending and is not counted as a pass. V57 ignores those premature
+callbacks and records ten of them; the physical inputs and fixed 180-second
+case deadlines remain unchanged. Both earlier runs are retained.
+
+Evidence is under `local/colony-runs/coupled-presentation-windows-v55` through
+`v57`, with source/input freezes, assembly hashes and root reviews under
+`local/occupied-staggered-validation/coupled-presentation-game-windows-r1`
+and `r2`. The passing package manifest SHA256 is
+`72557ad6cce1c6081515b6fd9dae79500591ba0f9a93adbddcaaf75b46aec440`;
+its ONI assembly is
+`fa6ee51a5588aba52a98b84f0f48f44bfd540eaf39d613cd8257a959c6c16144`.
+The runner restored the original files byte-for-byte, independently checked
+against its restoration manifest. The default game native DLL is unchanged.
+
+The private mode requires packaging with `tools/package_probe.py
+--coupled-reference <matching platform library>` and launching the disposable
+runner with `-CoupledPresentation`. It loads that explicit library only for
+this scene. It does not select a production solver or enable colony takeover.
+
+### Fixed tile-hover fixture on Windows
 
 Windows V54 passes the complete native hover fixture from clean source
 `6fc628a`, using the atomic receipt producer and the same four cases and

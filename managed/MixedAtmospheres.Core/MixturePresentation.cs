@@ -603,5 +603,8 @@ namespace MixedAtmospheres.Core
 
         public MixturePresentationFrame CaptureFrame(ColonyFrameSnapshot frame, IEnumerable<MixtureContainerSample>? containers = null)
             => new MixturePresentationFrame(this, frame, containers);
+
+        public MixturePresentationFrame CaptureFrame(CoupledColonyFrame frame)
+            => new MixturePresentationFrame(this, (frame ?? throw new ArgumentNullException(nameof(frame))).Projection, null, frame);
     }
 }

@@ -36,15 +36,19 @@ namespace MixedAtmospheres.Core
         public MixturePresentation Vacuum { get; }
         public bool IsReadOnly => true;
 
-        internal MixturePresentationFrame(MixturePresentationModel model, ColonyFrameSnapshot frame, IEnumerable<MixtureContainerSample>? containers)
+        internal MixturePresentationFrame(MixturePresentationModel model, ColonyFrameSnapshot frame, IEnumerable<MixtureContainerSample>? containers,
+            CoupledColonyFrame? physicalSource = null)
         {
             if (frame == null) throw new ArgumentNullException(nameof(frame)); model.RequireCatalog(frame);
+            if (physicalSource != null && !ReferenceEquals(physicalSource.Projection, frame))
+                throw new ArgumentException("Physical readings and projected geometry must belong to the identical completed frame.");
             geometry = frame.Geometry; Revision = frame.Revision; CompletedFrame = frame.CompletedFrame;
             SimulationTimeSeconds = frame.SimulationTimeSeconds; MaterialModelVersion = frame.MaterialModelVersion;
             MaterialModelFingerprint = frame.MaterialModelFingerprint; ColonyId = frame.ColonyId;
             var cells = new Dictionary<int, MixturePresentation>(frame.Inventories.Count);
             foreach (var entry in frame.Inventories)
-                cells.Add(entry.Key, model.DescribeCell(entry.Value, frame.CellVolumeCubicMetres, frame.Revision, entry.Key));
+                cells.Add(entry.Key, physicalSource == null ? model.DescribeCell(entry.Value, frame.CellVolumeCubicMetres, frame.Revision, entry.Key) :
+                    model.Describe(physicalSource.ReadThermodynamicCell(entry.Key)));
             Cells = new ReadOnlyDictionary<int, MixturePresentation>(cells);
             var containerViews = new Dictionary<string, MixturePresentation>(StringComparer.Ordinal);
             var containerHandles = new Dictionary<string, FluidContainerHandle>(StringComparer.Ordinal);

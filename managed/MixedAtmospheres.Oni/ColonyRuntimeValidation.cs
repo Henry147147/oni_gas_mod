@@ -78,7 +78,7 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
@@ -219,6 +219,16 @@ namespace MixedAtmospheres.Oni
             if (Game.Instance == null) return;
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
+            if (configuration.Mode == "coupled-presentation")
+            {
+                try { CoupledPresentationValidation.Tick(); }
+                catch (Exception error)
+                {
+                    try { CoupledPresentationValidation.Abort(error); }
+                    finally { Fail(error); }
+                }
+                return;
+            }
             if (configuration.Mode == "tile-hover")
             {
                 try { TileHoverContentsValidation.Tick(); }
@@ -301,7 +311,11 @@ namespace MixedAtmospheres.Oni
                 new object[] { Path.Combine(OutputDirectory, filename), 1 });
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
-        internal static void Shutdown() { actualColonyActive = false; publisher?.Dispose(); publisher = null; }
+        internal static void Shutdown()
+        {
+            actualColonyActive = false; publisher?.Dispose(); publisher = null;
+            if (configuration?.Mode == "coupled-presentation") CoupledPresentationValidation.Abort();
+        }
     }
 
     // A game-internal test runner, enabled only by the private configuration.

@@ -136,7 +136,11 @@ Windows V54 passes the scoped four-gas native hover fixture, including the
 exact trace cutoff, retained contaminant warning and 125% UI scale; see
 [evidence and limits](mixture-presentation.md#verification-and-limits). That
 display fixture leaves native ONI in charge of physics. Linux hover and an
-authoritative completed colony state remain part of this milestone.
+authoritative production colony state remain part of this milestone.
+Windows V57 additionally verifies hover against a completed native physical
+frame in a six-cell closed-reference scene, including changing composition and
+colour-only recapture. It retains the surrounding native colony and does not
+complete this production-owner, Linux, save or performance gate.
 
 Exit: duplicants survive and operate for ten cycles with conservation
 diagnostics, and the presentation, screenshot and performance criteria above

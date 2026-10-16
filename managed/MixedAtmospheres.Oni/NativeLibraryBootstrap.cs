@@ -11,6 +11,28 @@ namespace MixedAtmospheres.Oni
     internal static class NativeLibraryBootstrap
     {
         private static IntPtr module;
+        private static IntPtr coupledReferenceModule;
+        internal static void LoadCoupledReference(string modDirectory)
+        {
+            if (coupledReferenceModule != IntPtr.Zero) return;
+            if (IntPtr.Size != 8) throw new PlatformNotSupportedException("A 64-bit host is required.");
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var path = Path.GetFullPath(Path.Combine(modDirectory, "native", "win-x64", "mixed_atmospheres_coupled.dll"));
+                if (!File.Exists(path)) throw new FileNotFoundException("Explicit coupled reference is missing", path);
+                coupledReferenceModule = LoadLibraryEx(path, IntPtr.Zero, 0x00000100 | 0x00001000);
+                if (coupledReferenceModule == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "Cannot load " + path);
+            }
+            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            {
+                var path = Path.GetFullPath(Path.Combine(modDirectory, "native", "linux-x64", "libmixed_atmospheres_coupled.so"));
+                if (!File.Exists(path)) throw new FileNotFoundException("Explicit coupled reference is missing", path);
+                coupledReferenceModule = Dlopen(path, 2 | 0x100);
+                if (coupledReferenceModule == IntPtr.Zero)
+                    throw new DllNotFoundException("Cannot load " + path + ": " + Marshal.PtrToStringAnsi(Dlerror()));
+            }
+            else throw new PlatformNotSupportedException("This mod targets Windows and Linux x64.");
+        }
         internal static void Load(string modDirectory)
         {
             if (module != IntPtr.Zero) return;
