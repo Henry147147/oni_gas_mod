@@ -158,15 +158,17 @@ exact/high-precision parcel/EOS checks pass. These smooth occupied-grid controls
 do not establish shocks, free surfaces or general nonlinear buoyancy.
 The new [strong-gas Riemann gate](../native/MAC_RIEMANN.md) remains failed:
 Windows completes Sod refinement but collision velocity error grows; Linux
-now rejects an unrepresentable incoming momentum contribution. The prior derived K
+now rejects an unrepresentable accumulated canonical momentum. The prior derived K
 failure is addressed by [wide energy accounts](../native/MAC_ENERGY_TRANSPORT.md),
 which pass four new Windows/Linux controls and repeat every transport/closed/
 gravity prerequisite. Full energy values and legacy projection masks remain
 distinct. First failures and separate saved-data diagnostics are retained.
 [Scaled primary parcels](../native/MAC_PRIMARY_PARCELS.md) pass five new groups
 and retain helium/passive contributions through accumulation at the original
-conservation bound. Primary cells and canonical J remain binary64. Momentum
-parcel range and collision accuracy still require work before production ownership.
+conservation bound. [Scaled momentum contributions](../native/MAC_MOMENTUM_PARCELS.md)
+pass four more groups and reach primary storage. Primary cells and canonical J
+remain binary64. Wider canonical state and collision accuracy still require
+work before production ownership.
 
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,

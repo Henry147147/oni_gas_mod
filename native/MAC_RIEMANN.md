@@ -1,7 +1,7 @@
 # Closed-gas Riemann gate
 
 The gate remains failed. Windows collision velocity refinement is unresolved;
-the latest Linux retry rejects an incoming momentum contribution below binary64 range.
+the latest Linux retry rejects accumulated canonical momentum below binary64 range.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. This gate changes tests and build declarations;
@@ -71,7 +71,17 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current Linux parcel repair and incoming momentum rejection
+## Current Linux momentum repair and canonical storage rejection
+
+[Scaled momentum contributions](MAC_MOMENTUM_PARCELS.md) pass four new groups,
+3,391 saved checks and all prerequisite reviews on Windows/Linux. The Linux
+retry passes incoming sharing but fails when storing about 3.615258007097827e-585
+kg·m/s on open x face 45, whose prior J was zero. The unchanged binary64 primary
+state cannot represent it. No Sod profile completes, no full/partial profile
+review follows, and no Windows collision retry occurs. A coherent wider
+canonical representation and a collision-accuracy repair remain required.
+
+## Primary-parcel cohort: incoming momentum rejection
 
 [Scaled primary parcels](MAC_PRIMARY_PARCELS.md) pass five new Windows/Linux
 groups, 7,681 saved checks and all transport/closed/gravity prerequisites.

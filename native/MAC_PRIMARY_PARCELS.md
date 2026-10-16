@@ -110,3 +110,9 @@ Completed scoped-review SHA256 values are
 (Linux). They bind frozen source, compiler/binary identity, all prerequisite
 captures/reviews and the retained Linux momentum diagnosis. No independent
 agent review or Unity launch occurred. The default game DLL is unchanged.
+
+The subsequent [momentum contribution cohort](MAC_MOMENTUM_PARCELS.md) passes
+four new groups and all these prerequisites on both platforms. Its Linux retry
+passes incoming sharing, then rejects an accumulated open-face canonical J
+below binary64 range. Wider intermediate transfers alone do not extend stored
+canonical state or establish strong-flow/game acceptance.

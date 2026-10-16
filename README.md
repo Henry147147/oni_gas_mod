@@ -57,8 +57,9 @@ machines, pipes, and metabolism must use the same conserved state.
   [Wide derived-energy accounts](native/MAC_ENERGY_TRANSPORT.md) now pass four
   additional Windows/Linux controls. [Scaled primary parcels](native/MAC_PRIMARY_PARCELS.md)
   pass five more, retaining below-range helium/passive contributions until
-  accumulation. The [strong-gas gate](native/MAC_RIEMANN.md) still fails collision
-  velocity refinement on Windows and incoming momentum transfer range on Linux;
+  accumulation. [Momentum contribution range](native/MAC_MOMENTUM_PARCELS.md)
+  passes four more. The [strong-gas gate](native/MAC_RIEMANN.md) still fails collision
+  velocity refinement on Windows and canonical momentum storage range on Linux;
   first results and diagnostics remain retained.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.

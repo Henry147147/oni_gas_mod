@@ -171,23 +171,27 @@ MacFaceTransportReport transport_faces(const std::vector<Neighbors>& faces, cons
     report.energies.resize(count);
     for (auto* values : {&report.old_kinetic, &report.new_kinetic, &report.transported_kinetic, &report.mixing_heat,
         &report.wall_heat, &report.wall_impulse, &report.dual_mass_residual}) values->resize(count);
-    std::vector<Sum> mass(count), momentum(count); std::vector<MacEnergySum> transported(count), heat(count);
+    std::vector<Sum> mass(count); std::vector<MacScaledSum> momentum(count);
+    std::vector<MacEnergySum> transported(count), heat(count);
     std::vector<double> velocity(count), provisional(count);
     for (std::size_t i = 0; i < count; ++i) {
         velocity[i] = m0[i] == 0 ? 0 : j0[i] / m0[i]; require_finite(velocity[i], "MAC source velocity");
         report.energies[i].old_kinetic = MacEnergy::kinetic(m0[i], j0[i]); mass[i].add(keep[i]);
-        if (m0[i] > 0) { momentum[i].add(share(j0[i], keep[i], m0[i])); transported[i].add(report.energies[i].old_kinetic.shared(keep[i], m0[i])); }
+        if (m0[i] > 0) {
+            momentum[i].add(MacScaled::from_double(j0[i]).shared(keep[i], m0[i]));
+            transported[i].add(report.energies[i].old_kinetic.shared(keep[i], m0[i]));
+        }
     }
     for (const auto& edge : report.fluxes) if (edge.mass_kg != 0) {
         const auto donor = edge.mass_kg > 0 ? edge.left : edge.right, target = edge.mass_kg > 0 ? edge.right : edge.left;
         const auto amount = std::abs(edge.mass_kg); require(m0[donor] > 0, "MAC dual flux has no occupied donor");
-        mass[target].add(amount); momentum[target].add(share(j0[donor], amount, m0[donor]));
+        mass[target].add(amount); momentum[target].add(MacScaled::from_double(j0[donor]).shared(amount, m0[donor]));
         transported[target].add(report.energies[donor].old_kinetic.shared(amount, m0[donor]));
     }
     j1.resize(count);
     for (std::size_t i = 0; i < count; ++i) {
         auto balance = mass[i]; balance.add(-m1[i]); balance.check(); report.dual_mass_residual[i] = balance.value();
-        const auto j = momentum[i].value(); provisional[i] = m1[i] == 0 ? 0 : j / m1[i];
+        const double j = store_mac_primary(momentum[i], false); provisional[i] = m1[i] == 0 ? 0 : j / m1[i];
         require_finite(provisional[i], "MAC transported velocity");
         j1[i] = faces[i].left == absent || faces[i].right == absent ? 0 : j;
         report.wall_impulse[i] = j1[i] - j;
