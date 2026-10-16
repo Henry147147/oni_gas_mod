@@ -123,7 +123,9 @@ ordinary game message APIs. It requires one successful emission callback and
 one consumption callback, unchanged original native cells, no original native
 message dispatch, and independently checked mass and U+K accounts. Fault
 snapshots clear already delivered event lists before retaining the last physical
-frame, so a stopped publication cannot replay callbacks.
+frame, so a stopped publication cannot replay callbacks. Handle-indexed emitter,
+chunk, building-temperature and disease status tables remain owned and available
+while paused; they are read by game components independently of frame events.
 
 Current transfers support nitrogen, oxygen, helium and carbon dioxide in occupied gas cells.
 Liquid/empty-cell transitions, disease-bearing injection, spatial consumption,

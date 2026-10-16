@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Buffers.Binary;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -70,17 +71,32 @@ internal static unsafe class Program
                 .SequenceEqual(new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, originalCount * sizeof(Sim.MassConsumedCallback))));
             Reject(() => { _ = retained!.Masses.Length; });
         });
-        Test("fault freeze retains physical buffers without replaying callbacks", () =>
+        Test("fault freeze retains physical buffers and status tables without replaying callbacks", () =>
         {
             using var source = new NativeFixture();
             using var copy = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
             var mass = copy.Pointer->mass[0]; var texture = ((byte*)copy.Pointer->propertyTextureLiquidData)[7];
+            var statusNames = new[] { nameof(Sim.GameDataUpdate.emittedMassEntries), nameof(Sim.GameDataUpdate.elementChunkInfos),
+                nameof(Sim.GameDataUpdate.buildingTemperatures), nameof(Sim.GameDataUpdate.diseaseEmittedInfos), nameof(Sim.GameDataUpdate.diseaseConsumedInfos) };
+            var statuses = statusNames.Select(field =>
+            {
+                var pointerOffset = (int)Marshal.OffsetOf<Sim.GameDataUpdate>(field);
+                var countOffset = (int)Marshal.OffsetOf<Sim.GameDataUpdate>("num" + char.ToUpperInvariant(field[0]) + field.Substring(1));
+                var count = *(int*)((byte*)copy.Pointer + countOffset);
+                var address = *(IntPtr*)((byte*)copy.Pointer + pointerOffset);
+                var stride = Marshal.SizeOf(typeof(Sim.GameDataUpdate).GetField(field)!.FieldType.GetElementType()!);
+                return (pointerOffset, countOffset, count, address, bytes: new ReadOnlySpan<byte>((void*)address, count * stride).ToArray());
+            }).ToArray();
             Check(copy.Pointer->numMassConsumedCallbacks > 0 && copy.Pointer->numFramesProcessed > 0);
             copy.ClearEventsForFault(); copy.ClearEventsForFault();
             Check(copy.Pointer->numFramesProcessed == 0 && copy.Pointer->numMassConsumedCallbacks == 0 &&
                 copy.Pointer->massConsumedCallbacks == null && copy.Pointer->numMassEmittedCallbacks == 0 &&
                 copy.Pointer->numCallbackInfo == 0 && copy.Pointer->mass[0] == mass &&
                 ((byte*)copy.Pointer->propertyTextureLiquidData)[7] == texture && source.Pointer->numMassConsumedCallbacks > 0);
+            Check(statuses.Length == 5 && statuses.All(status => status.count > 0));
+            foreach (var status in statuses) Check(*(int*)((byte*)copy.Pointer + status.countOffset) == status.count &&
+                *(IntPtr*)((byte*)copy.Pointer + status.pointerOffset) == status.address &&
+                new ReadOnlySpan<byte>((void*)status.address, status.bytes.Length).SequenceEqual(status.bytes));
         });
         Test("wrong event record type rejects unpublished overlay", () =>
         {

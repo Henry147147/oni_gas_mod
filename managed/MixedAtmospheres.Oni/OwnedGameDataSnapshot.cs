@@ -174,14 +174,20 @@ namespace MixedAtmospheres.Oni
         }
 
         // A frozen fault publication must not replay one-shot callbacks from
-        // the last successful frame. Cell/texture data stays owned and intact.
+        // the last successful frame. Keep handle-indexed status tables: game
+        // UI/components retain them even when no simulation frame is processed.
         internal void ClearEventsForFault()
         {
             RequireOpen();
             for (var index = 0; index < Channels.Length; ++index)
-                if (Channels[index].CountOffset >= 0) ReplaceBuffer(index, IntPtr.Zero, 0);
+                if (Channels[index].CountOffset >= 0 && !RetainedStatusTable(Channels[index].PointerField))
+                    ReplaceBuffer(index, IntPtr.Zero, 0);
             Pointer->numFramesProcessed = 0;
         }
+
+        private static bool RetainedStatusTable(string field) => field == nameof(Sim.GameDataUpdate.emittedMassEntries) ||
+            field == nameof(Sim.GameDataUpdate.elementChunkInfos) || field == nameof(Sim.GameDataUpdate.buildingTemperatures) ||
+            field == nameof(Sim.GameDataUpdate.diseaseEmittedInfos) || field == nameof(Sim.GameDataUpdate.diseaseConsumedInfos);
 
         private void ValidateOwnership()
         {
