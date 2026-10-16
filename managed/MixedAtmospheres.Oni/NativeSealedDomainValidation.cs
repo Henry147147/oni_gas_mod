@@ -72,7 +72,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode;
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
@@ -117,6 +117,7 @@ namespace MixedAtmospheres.Oni
                 if (TransferMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !transfersSubmitted)
                     SubmitGameGasTransfers();
                 if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
+                if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -207,6 +208,7 @@ namespace MixedAtmospheres.Oni
                 }
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
+                if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
                 ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
                 ColonyRuntimeValidation.CompletePresentation("actual-game-sealed-native-fluid-domain-validation");
@@ -227,6 +229,7 @@ namespace MixedAtmospheres.Oni
                 "Unsupported native actor ABI.");
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
+            Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
@@ -615,6 +618,7 @@ namespace MixedAtmospheres.Oni
             HeatEnergyResidualJoules = heatEnergyResidual,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             RegisteredActors = ActorReport(),
+            PhysicalCheckpoint = CheckpointReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
             CarbonDioxideTransfersVerified = CarbonMode && transfersVerified,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,

@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 import struct
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -116,6 +116,20 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(actor.get("EnergyResidualJoules")) not in (int, float) or not abs(actor["EnergyResidualJoules"]) <= 1e-6
                 or type(actor.get("MaximumRelativeMassError")) not in (int, float) or not 0 <= actor["MaximumRelativeMassError"] <= 1e-10):
             return False
+    if checkpoint:
+        saved = report.get("PhysicalCheckpoint")
+        if (not isinstance(saved, dict) or saved.get("Verified") is not True or saved.get("FormatVersion") != 1
+                or saved.get("OrdinaryGameSaveIntegrated") is not False
+                or any(type(saved.get(key)) is not int or saved[key] <= 0 for key in ("ImageBytes", "SourceFrame", "ResumedFrame"))
+                or not 32 < saved["ImageBytes"] <= 1024**3
+                or saved["ResumedFrame"] != saved["SourceFrame"] + 1 or saved["ResumedFrame"] > physical["CompletedFrames"]
+                or any(type(saved.get(key)) not in (int, float) or not math.isfinite(saved[key]) or saved[key] <= 0
+                       for key in ("SourcePhysicalTime", "ResumedPhysicalTime"))
+                or not abs(saved["ResumedPhysicalTime"] - saved["SourcePhysicalTime"] - physical["LastTimestepSeconds"]) < 1e-12
+                or any(not isinstance(saved.get(key), str) or len(saved[key]) != 64 or any(char not in "0123456789abcdef" for char in saved[key])
+                       for key in ("SourceSha256", "ExpectedSha256", "ActualSha256"))
+                or saved["SourceSha256"] == saved["ExpectedSha256"] or saved["ExpectedSha256"] != saved["ActualSha256"]):
+            return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
@@ -139,7 +153,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint"), required=True)
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -149,7 +163,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity")
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

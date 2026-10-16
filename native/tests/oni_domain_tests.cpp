@@ -6,6 +6,8 @@
 #include <cstring>
 #include <iostream>
 #include <future>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <thread>
@@ -18,8 +20,13 @@ MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
 }
 }
-int main() {
+int main(int argc,char** argv) {
     try {
+        if (argc==3 && std::string(argv[1])=="--read-checkpoint") {
+            std::ifstream input(argv[2],std::ios::binary); require(input.good(),"Could not open the cross-platform native-domain image");
+            const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(input),{}};
+            require(ma::oni::advance_domain_checkpoint(bytes,0)==bytes,"Native-domain checkpoint changed across platforms");
+        } else require(argc==1,"Invalid native domain test arguments");
         static_assert(sizeof(MAOniDomainConfig)==40);
         static_assert(sizeof(MAOniDomainStatus)==440);
         static_assert(sizeof(MAOniDomainCell)==96);
@@ -252,6 +259,23 @@ int main() {
             std::abs(carbon_mass-transfer_status.mass_changes_kg[4])<1e-16 && carbon_cells>1 &&
             std::abs(carbon_energy_after-carbon_energy_before-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j)<1e-6,
             "physical carbon-dioxide transfer, transport, complete mass publication or energy account failed");
+        rejected=false;
+        try { (void)ma::oni::checkpoint_domain(final.session,final.completed_frames); } catch (const std::logic_error&) { rejected=true; }
+        require(rejected,"A physical checkpoint omitted unacknowledged game callbacks");
+        ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        const auto checkpoint=ma::oni::checkpoint_domain(final.session,final.completed_frames);
+        require(ma::oni::advance_domain_checkpoint(checkpoint,0)==checkpoint,"Native physical image did not round trip exactly");
+        const auto continued=ma::oni::advance_domain_checkpoint(checkpoint,.2);
+        ma::oni::advance_domain(2,.2,2); final=capture(cells);
+        require(final.state==1 && ma::oni::checkpoint_domain(final.session,final.completed_frames)==continued,
+            "Restored native physical image diverged from the actual next worker timestep");
+        rejected=false;
+        try { (void)ma::oni::checkpoint_domain(final.session,1); } catch (const std::logic_error&) { rejected=true; }
+        require(rejected,"Stale checkpoint source epoch was accepted");
+        request={48,1,final.session,final.completed_frames,10+10*64,17,10,1000}; ma::oni::queue_domain_heat(&request,1,heat);
+        rejected=false;
+        try { (void)ma::oni::checkpoint_domain(final.session,final.completed_frames); } catch (const std::logic_error&) { rejected=true; }
+        require(rejected,"A checkpoint dropped reserved pending heat");
         ma::oni::shutdown_domain();
         config.scenario=2; ma::oni::start_domain(config,1); final=capture(cells);
         MAOniDomainGravityStatus gravity{}; ma::oni::copy_domain_gravity_status(gravity);

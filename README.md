@@ -54,6 +54,9 @@ for ownership, interfaces, failures and implementation gates.
   vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.
   Current Windows Unity takeover validation remains open.
+  Native physical checkpoints now preserve full state and reproduce the next
+  actual Linux worker frame byte for byte. Ordinary colony save/reload still
+  needs matching native/managed state and actor/outbox persistence.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

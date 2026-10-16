@@ -2,6 +2,8 @@
 #include "mixed_atmospheres/oni_domain.h"
 #include <cstdint>
 #include <mutex>
+#include <span>
+#include <vector>
 
 namespace ma::oni {
 // Called only from the native detours. No managed/game callbacks are made.
@@ -24,5 +26,7 @@ void configure_domain_actors(const MAOniDomainActor*,std::uint32_t,MAOniDomainAc
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
+std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);
+std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t>,double seconds);
 std::mutex& domain_frame_mutex() noexcept;
 }

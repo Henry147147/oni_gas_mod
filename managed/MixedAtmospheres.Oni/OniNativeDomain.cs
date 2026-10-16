@@ -125,6 +125,9 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actor", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActor(ref ActorCommand command, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actors", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActors([In] ActorCommand[] commands, uint count, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyActorStatus(ref ActorStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CheckpointVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyCheckpoint(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceCheckpoint([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint TransferVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_queue_transfers", CallingConvention = CallingConvention.Cdecl)] internal static extern int QueueTransfers([In] TransferCommand[] commands, uint count, ref TransferStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_transfer_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyTransferStatus(ref TransferStatus status);

@@ -149,6 +149,18 @@ typedef struct MAOniDomainGravityStatus {
 MA_ONI_API uint32_t ma_oni_domain_gravity_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_gravity_status(MAOniDomainGravityStatus*);
 
+/* Physical checkpoint extension, ABI 1. Export requires an exact completed
+ * session/frame with no pending work, actors or undelivered receipts. A null
+ * output with zero capacity queries size. All other errors change no output.
+ * Stateless advance validates/restores a physical image and returns its next
+ * image; seconds=0 validates and reserializes without advancing. Neither call
+ * permits an ordinary scalar colony save or replaces the live game owner. */
+MA_ONI_API uint32_t ma_oni_domain_checkpoint_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_checkpoint_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+MA_ONI_API MAOniResult ma_oni_domain_checkpoint_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+
 #ifdef __cplusplus
 }
 #endif

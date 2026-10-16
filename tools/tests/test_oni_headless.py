@@ -101,6 +101,18 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 report = copy.deepcopy(self.report); report["NativeDomain"][field] = value
                 self.assertFalse(runner.native_domain_passed(report, self.observation, 30), (field, value))
 
+    def test_checkpoint_requires_identical_actual_next_worker_image_and_retains_save_denial(self):
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True))
+        self.report["PhysicalCheckpoint"]={"Verified": True, "FormatVersion": 1, "ImageBytes": 5000, "SourceFrame": 5, "ResumedFrame": 6,
+            "SourcePhysicalTime": 1.0, "ResumedPhysicalTime": 1.200000003, "SourceSha256": "1"*64,
+            "ExpectedSha256": "2"*64, "ActualSha256": "2"*64, "OrdinaryGameSaveIntegrated": False}
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True))
+        for field,value in (("ImageBytes",0), ("SourceFrame",6), ("ResumedFrame",31), ("ActualSha256","3"*64),
+                ("SourceSha256","2"*64), ("ExpectedSha256","x"*64), ("ResumedPhysicalTime",float("nan")),
+                ("OrdinaryGameSaveIntegrated",True)):
+            bad=copy.deepcopy(self.report);bad["PhysicalCheckpoint"][field]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,checkpoint=True),field)
+
     def add_gas_transfers(self):
         self.report.update(GasTransfersVerified=True, TransfersAvoidedNativeDispatch=True,
             TransferPacketsRouted=2, ReceiptsPublished=2, EmissionCallbacks=1, ConsumptionCallbacks=1,

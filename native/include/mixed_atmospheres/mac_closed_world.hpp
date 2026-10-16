@@ -10,6 +10,8 @@ namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
 enum class MacCompressionViscosity { none, quadratic };
 struct MacClosedSettings {
+    // Physical setting additions require updating the checkpoint schema and
+    // its complete-identity/continuation controls in mac_checkpoint.cpp.
     double maximum_timestep_s = .01;
     double maximum_outgoing_volume_fraction = .4;
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
@@ -122,6 +124,11 @@ public:
     // Filled gas cells without passive metadata only; unsupported void/liquid
     // topology rejects atomically. Packets account for all carried mechanics.
     [[nodiscard]] MacGasTransferResult with_gas_transfers(std::span<const MacGasTransfer>) const;
+    // Physical owner checkpoint, not a scalar/display projection. Restoring
+    // requires the exact registry/EOS identity and validates the complete image.
+    [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;
+    [[nodiscard]] static MacClosedWorld from_checkpoint(SpeciesRegistry,
+        std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>);
 private:
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;

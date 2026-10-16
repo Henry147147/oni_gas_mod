@@ -215,6 +215,15 @@ with the same datum used for the internal account. A Linux Unity control
 checks the actual game callbacks and independently reconstructs potential
 from all cell masses; it remains a bounded occupied-domain experiment.
 
+The [native physical checkpoint](../native/MAC_CHECKPOINT.md) now retains this
+owner's complete U, full face J, constituent/passive inventories, geometry,
+settings and clock. Restoration validates binary registry/EOS identity before
+constructing a new owner. A real Linux game control checks that an independently
+restored/advanced image matches the actual next native worker frame byte for
+byte. Export currently requires drained commands, callbacks and actors. Complete
+colony persistence must also pair native solids/buildings, managed objects,
+world placement and actor/outbox state; scalar saves remain guarded.
+
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature
 for its phases, and lacks reconstructed interface geometry,

@@ -578,5 +578,19 @@ void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
         pending_potential.value().require_representable(),body_impulse.value().require_representable(),
         gravity_internal_work.value().require_representable(),maximum_energy_residual};
 }
+std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame) {
+    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);
+    if (!enabled.load(std::memory_order_acquire) || status.state != 1 || session != status.session || frame != status.completed_frames)
+        throw std::logic_error("Physical checkpoint source session/frame is unavailable");
+    if (pending_world || !actors.empty() || !receipts.empty())
+        throw std::logic_error("Physical checkpoint requires drained commands, actors and callback receipts");
+    const ArithmeticScope arithmetic; return world->checkpoint();
+}
+std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t> image,double seconds) {
+    const ArithmeticScope arithmetic;
+    if (!std::isfinite(seconds) || seconds < 0) throw std::invalid_argument("Invalid physical checkpoint interval");
+    auto registry=SpeciesRegistry::standard(); auto restored=MacClosedWorld::from_checkpoint(registry,model(registry),image);
+    return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096).world.checkpoint();
+}
 
 }

@@ -8,7 +8,7 @@ param(
     [switch]$TileHover,
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
-    [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity')][string]$NativeDomain,
+    [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity','checkpoint')][string]$NativeDomain,
     [string]$Python = 'python',
     [switch]$IdleReservoirLease,
     [switch]$PrivateFileProtocol,
@@ -20,7 +20,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
-$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain' }
+$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain' }
 $oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
 if ($CoupledPresentation -and ($TileHover -or $Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Coupled presentation uses its own explicit closed-reference scene.' }

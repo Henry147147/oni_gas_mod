@@ -11,7 +11,7 @@ internal static unsafe partial class Program
     private static int DomainCell(int index) => DomainX + index % DomainWidth + (DomainY + index / DomainWidth) * Width;
     private static float DomainProjectionTemperature(int column) => 280 + 20 * column;
 
-    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity)
+    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity, bool checkpoint)
     {
         Require(OniNativeDomain.Version() == 2 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
         var initialCells = Enumerable.Range(0, 6).Select(i => initial.CellData[DomainCell(i)]).ToArray();
@@ -58,6 +58,7 @@ internal static unsafe partial class Program
         }
         var values = new OniNativeDomain.Cell[6]; CellState[]? baseline = null; var primedAt = 0UL;
         var heatQueued = false; var heatBeforeEnergy = 0.0;
+        byte[]? checkpointExpected = null; ulong checkpointFrame = 0; var checkpointVerified = false;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
         Stage("advance-sealed-native-domain");
         for (var frame = 0; frame < 75; ++frame)
@@ -78,6 +79,28 @@ internal static unsafe partial class Program
             for (var i = 0; i < 6; ++i) Require(source[i] == baseline[i], "Uncovered native writer changed cell " + DomainCell(i) +
                 " at physical frame " + status.CompletedFrames + ": " + baseline[i] + " -> " + source[i]);
             Require(status.MaximumRelativeMassError <= 1e-8 && status.MaximumRelativeEnergyError <= 1e-6, "Custom conservation failed.");
+            if (checkpoint && !checkpointVerified && status.CompletedFrames-primedAt>=4)
+            {
+                if (checkpointExpected == null)
+                {
+                    Require(OniNativeDomain.CheckpointVersion()==1,"Physical checkpoint ABI mismatch.");
+                    var image=ReadPhysicalCheckpoint(status.Session,status.CompletedFrames);
+                    Require(ResumePhysicalCheckpoint(image,0).SequenceEqual(image),"Physical checkpoint validation changed its original bytes.");
+                    checkpointFrame=status.CompletedFrames; checkpointExpected=ResumePhysicalCheckpoint(image,status.LastTimestepSeconds);
+                    report["physicalCheckpointSourceFrame"]=checkpointFrame; report["physicalCheckpointBytes"]=image.Length;
+                    report["physicalCheckpointSourceSha256"]=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(image));
+                }
+                else
+                {
+                    var actual=ReadPhysicalCheckpoint(status.Session,status.CompletedFrames);
+                    Require(status.CompletedFrames==checkpointFrame+1 && actual.SequenceEqual(checkpointExpected),
+                        "Restored physical image differs from the actual next native worker frame.");
+                    checkpointVerified=true; report["physicalCheckpointVerified"]=true;
+                    report["physicalCheckpointResumedFrame"]=status.CompletedFrames;
+                    report["physicalCheckpointExpectedSha256"]=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(checkpointExpected));
+                    report["physicalCheckpointActualSha256"]=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(actual));
+                }
+            }
             if (heating && !heatQueued && status.CompletedFrames - primedAt >= 4)
             {
                 heatBeforeEnergy = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy);
@@ -95,6 +118,7 @@ internal static unsafe partial class Program
                 heatQueued = true;
             }
             if (status.CompletedFrames - primedAt < 60) continue;
+            Require(!checkpoint || checkpointVerified,"Physical checkpoint continuation was not observed.");
             Require(status.SolverThread != status.StartThread && status.SuppressedTemperature > 0 && status.SuppressedPostProcess > 0,
                 "Native worker/filter controls did not execute.");
             Require(snapshot.ColdTemperature > initial.ColdTemperature && snapshot.HotTemperature < initial.HotTemperature,
@@ -148,5 +172,21 @@ internal static unsafe partial class Program
             return;
         }
         throw new TimeoutException("Sealed domain did not complete sixty post-bootstrap frames.");
+    }
+    private static byte[] ReadPhysicalCheckpoint(ulong session,ulong frame)
+    {
+        Require(OniNativeDomain.CopyCheckpoint(session,frame,null,0,out var size)==0 && size>32,"Physical checkpoint size query failed.");
+        var image=new byte[checked((int)size)];
+        Require(OniNativeDomain.CopyCheckpoint(session,frame,image,size,out var copied)==0 && copied==size,"Physical checkpoint copy failed.");
+        return image;
+    }
+    private static byte[] ResumePhysicalCheckpoint(byte[] image,double seconds)
+    {
+        Require(OniNativeDomain.AdvanceCheckpoint(image,(uint)image.Length,seconds,null,0,out var size)==0 && size>32,
+            "Physical checkpoint restore/advance query failed.");
+        var result=new byte[checked((int)size)];
+        Require(OniNativeDomain.AdvanceCheckpoint(image,(uint)image.Length,seconds,result,size,out var copied)==0 && copied==size,
+            "Physical checkpoint restore/advance copy failed.");
+        return result;
     }
 }

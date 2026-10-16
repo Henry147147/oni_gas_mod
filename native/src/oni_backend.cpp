@@ -509,4 +509,28 @@ MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor* inputs,std::u
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
+std::uint32_t ma_oni_domain_checkpoint_abi_version() { return 1; }
+MAOniResult ma_oni_domain_checkpoint_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid physical checkpoint output");
+        std::vector<std::uint8_t> image;
+        try { image=ma::oni::checkpoint_domain(session,frame); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        if (output && capacity < image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Physical checkpoint buffer is too small");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
+MAOniResult ma_oni_domain_checkpoint_advance(const std::uint8_t* input,std::uint32_t count,double seconds,
+    std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!input || !count || !required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid physical checkpoint input/output");
+        std::vector<std::uint8_t> image;
+        try { image=ma::oni::advance_domain_checkpoint(std::span(input,count),seconds); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        if (output && capacity < image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Resumed physical checkpoint buffer is too small");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
 }

@@ -257,6 +257,13 @@ domain. Subsequent physical callbacks must reflect the final owned rate.
 
 ## Run the actual Linux colony controls
 
+The [physical checkpoint format](../native/MAC_CHECKPOINT.md) now preserves the
+complete native owner, including physical U and full canonical momentum.
+`native-checkpoint-domain` checks restored continuation against the exact next
+worker frame in the real game. Export requires a drained actor-free frame.
+Native/managed colony state pairing, actor/outbox persistence and ordinary
+save/reload remain unfinished, so both scalar-save guards remain enabled.
+
 Build the native backend and the normal ONI adapter, then create a fresh package:
 
 ```sh
@@ -282,6 +289,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-conduction-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-gravity-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-checkpoint-domain --frames 120 --timeout 1200
 ```
 
 These runs use separate fresh profiles on the authenticated virtual desktop.
@@ -327,6 +336,7 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T221722Z-2eb0f8` | Repeats the complete conduction pass after pulling the separate compression-heat component from main. All physical counters and thermal metrics match the earlier run; both save guards and exact compatibility cells pass, with no mod failure lines. Source is `7a781d2`; the separate component is preserved without adding it to this owner. All twelve cross-compiled native tests execute under Wine; six Windows forwarding comparisons remain identical. |
 | `20261016T222138Z-5dd9d7` | Passes native-clock gravity and actual gas transfers: 121 native frames, 120 after priming, 2,541 substeps and zero rejected attempts. Initial/current potential is 68.4864608 / 68.7330484 J; the actual 0.05 kg injection and 0.02 kg consumption carry net 0.147150006 J of boundary potential. Both game callbacks fire once. Cumulative downward body impulse is -1,664.20014 kg m/s, with signed internal gravity work -0.0520605 J. U+K+G transfer residual is -3.48e-9 J; maximum relative mass/energy drift is 2.01e-15 / 6.09e-15. Exact native cells, game grid/rendering, native solid heat and both save guards pass, with no mod failure lines. Source is `5d39a15` plus the recorded gravity changes. |
 | `20261016T223037Z-cf58d3` | Passes atomic owned actor configuration and outside native-batch forwarding with actual Unity consumers. The two ordered owned rate commands avoid native dispatch; the outside zero-rate consumer batch reaches the native batch entry exactly once. Over 120 post-priming frames, 32 consumer callbacks account for 0.2000000053 kg and 40 emitter samples account for 1.09375 kg. Blocked/unblocked callbacks, exact native cells, physical game status, grid/rendering, solid heat and both save guards pass. Removal is followed by 74 further frames without actor transfers. U+K residual is -2.58e-9 J; relative constituent drift is 1.01e-15. No mod failure lines. Source is `4f03eac` plus the recorded batch changes, including the pulled separate heat-component repair. |
+| `20261016T224334Z-cee2a7` | Passes physical checkpoint restore and exact continuation in the actual Linux game: the 3,503-byte source at frame 6 / 1.200000018 s independently restores/advances to the exact image published by native worker frame 7 / 1.400000021 s, with zero observation retries. Expected/actual SHA-256 is `ef895aa34a42ec337bbb0143d9ce870e0f873afdce4dbd673988c987817ba32c`. The full scene completes 122 frames, 120 after priming, 2,562 substeps and 24.4 s; relative mass/energy drift is 1.19e-15 / 5.72e-15. Exact native tuples, grid/rendering, native solid heat and both save guards pass without mod failure lines. Source is `e65ebe3` plus the recorded checkpoint changes. Windows native code under Wine also reads/reserializes this actual Linux game image without changing a byte; full colony save/reload remains open. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
