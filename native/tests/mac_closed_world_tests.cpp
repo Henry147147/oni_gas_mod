@@ -171,6 +171,17 @@ void rejected_domains() {
             LiquidFillRoundoffPolicy::strict_eos, tolerance)); } catch (const std::invalid_argument&) { caught = true; }
         check(caught && fingerprint(original) == held, "Unsupported occupied root accuracy was accepted");
     }
+    for (int control = 0; control < 3; ++control) {
+        ReferenceRootOptions options;
+        if (control == 0) options.relative_pressure_tolerance = 0;
+        if (control == 1) options.relative_volume_tolerance = std::numeric_limits<double>::quiet_NaN();
+        if (control == 2) options.maximum_iterations = 0;
+        bool caught = false;
+        try { static_cast<void>(advance_occupied_material_pressure(*set.eos, material, {}, .001, PressurePreconditioner::automatic,
+            LiquidFillRoundoffPolicy::strict_eos, 16 * std::numeric_limits<double>::epsilon(), options)); }
+        catch (const ReferenceError& error) { caught = error.code() == ReferenceErrorCode::invalid_model; }
+        check(caught && fingerprint(original) == held, "Invalid nested EOS options were accepted or changed input");
+    }
 }
 }
 int main() {
@@ -186,6 +197,6 @@ int main() {
         interval_atomicity(); std::cout << "PASS retained owner CFL retry and later whole-interval rollback\n";
         acoustic_refinement(); std::cout << "PASS joint implicit pressure/velocity acoustic refinement\n";
         transpose(); std::cout << "PASS transposed two-dimensional pressure/transport symmetry\n";
-        rejected_domains(); std::cout << "PASS ten domain rejections and three root-accuracy bounds\n"; return 0;
+        rejected_domains(); std::cout << "PASS ten domain rejections, three root-accuracy bounds and three nested EOS option rejections\n"; return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }

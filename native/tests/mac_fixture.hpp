@@ -65,6 +65,47 @@ inline std::string fingerprint(const MacTransportState& s) {
     for (auto value : s.momentum_y) t << ' ' << value;
     return t.str();
 }
+inline void export_reconstruction(int id, double nominal_volume, const MacParcelPlan& plan) {
+    std::cout << "RPLAN " << id << ' ' << nominal_volume << ' ' << plan.eos_backtracks << ' ' << plan.unresolved_stencil_cells << '\n';
+    for (std::size_t i = 0; i < plan.retained.size(); ++i) {
+        const auto& c = plan.retained[i];
+        std::cout << "RCELL " << id << ' ' << i << ' ' << plan.source_volumes_m3[i] << ' ' << plan.retained_volumes_m3[i] << ' ' << c.mixture.energy << ' ' << plan.limiter[i] << '\n';
+        for (std::size_t s = 0; s < c.mixture.masses.size(); ++s) if (c.mixture.masses[s] != 0) std::cout << "RMASS " << id << ' ' << i << ' ' << s << ' ' << c.mixture.masses[s] << '\n';
+        for (const auto& p : c.passive_quantities) std::cout << "RPASSIVE " << id << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
+    }
+    for (const auto& p : plan.parcels) {
+        std::cout << "PARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' << p.contents.mixture.energy << '\n';
+        for (std::size_t s = 0; s < p.contents.mixture.masses.size(); ++s) if (p.contents.mixture.masses[s] != 0)
+            std::cout << "PMASS " << id << ' ' << p.axis << ' ' << p.face << ' ' << s << ' ' << p.contents.mixture.masses[s] << '\n';
+        for (const auto& v : p.contents.passive_quantities) std::cout << "PPASSIVE " << id << ' ' << p.axis << ' ' << p.face << ' ' << v.identity << ' ' << v.quantity << '\n';
+    }
+}
+inline void export_transport(int id, const MacTransportState& before, const MacTransportAdvance& after, const MacParcelPlan& plan) {
+    const auto& g = before.grid; const auto& r = after.report;
+    std::cout << "CASE " << id << ' ' << g.width << ' ' << g.height << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << r.energy_residual_j << ' ' << r.energy_bound_j << '\n';
+    for (std::size_t i = 0; i < g.walls.size(); ++i) std::cout << "WALL " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << '\n';
+    for (int endpoint = 0; endpoint < 2; ++endpoint) {
+        const auto& s = endpoint == 0 ? before : after.state;
+        for (std::size_t i = 0; i < s.cells.size(); ++i) {
+            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << s.cells[i].mixture.energy << '\n';
+            for (std::size_t k = 0; k < s.cells[i].mixture.masses.size(); ++k) if (s.cells[i].mixture.masses[k] != 0)
+                std::cout << "MASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << s.cells[i].mixture.masses[k] << '\n';
+            for (const auto& p : s.cells[i].passive_quantities) std::cout << "PASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
+        }
+    }
+    for (int axis = 0; axis < 2; ++axis) {
+        const auto& f = axis == 0 ? r.x : r.y;
+        const auto& j0 = axis == 0 ? before.momentum_x : before.momentum_y; const auto& j1 = axis == 0 ? after.state.momentum_x : after.state.momentum_y;
+        const auto& flux = axis == 0 ? r.primal_mass_fluxes_kg.x : r.primal_mass_fluxes_kg.y;
+        for (std::size_t i = 0; i < j0.size(); ++i) {
+            std::cout << "FACE " << id << ' ' << axis << ' ' << i << ' ' << flux[i] << ' ' << j0[i] << ' ' << j1[i];
+            for (const auto value : {f.old_inertia[i], f.new_inertia[i], f.old_kinetic[i], f.new_kinetic[i], f.transported_kinetic[i], f.mixing_heat[i], f.wall_heat[i], f.wall_impulse[i], f.dual_mass_residual[i]}) std::cout << ' ' << value;
+            std::cout << '\n';
+        }
+        for (const auto& v : f.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << v.left << ' ' << v.right << ' ' << v.mass_kg << '\n';
+    }
+    export_reconstruction(id, g.volume_m3(), plan);
+}
 inline void export_case(int id, const MacTransportState& before, const MacClosedSubstep& result, double dt) {
     const auto& set = setup(); const auto& g = before.grid; const auto& r = result.transport;
     std::cout << "CASE " << id << ' ' << g.width << ' ' << g.height << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << r.energy_residual_j << ' ' << r.energy_bound_j << '\n';
@@ -109,5 +150,6 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
         }
         for (const auto& f : report.fluxes) std::cout << "DUAL " << id << ' ' << axis << ' ' << f.left << ' ' << f.right << ' ' << f.mass_kg << '\n';
     }
+    if (result.reconstruction) export_reconstruction(id, g.volume_m3(), *result.reconstruction);
 }
 }

@@ -47,11 +47,13 @@ machines, pipes, and metabolism must use the same conserved state.
   shear/composition refinement, solid-corner reactions and trace conservation.
   An owning [closed EOS pressure/transport solver](native/MAC_CLOSED_WORLD.md)
   now also passes eight Windows/Linux groups, including elastic liquids,
-  interval rollback and pressure/velocity acoustic refinement. Gravity, free
-  surfaces, production performance and game integration remain required.
-  The opt-in [gravity experiment](native/MAC_GRAVITY.md) passes initial energy
-  and hydrostatic controls but fails stratified velocity refinement on both
-  platforms; it remains gated while spatial transport is improved.
+  interval rollback and pressure/velocity acoustic refinement.
+  [Shared material reconstruction](native/MAC_RECONSTRUCTION.md) preserves
+  constituents, energy and traces while improving spatial transport. Its five
+  controls and the opt-in [smooth gravity gate](native/MAC_GRAVITY.md) now pass
+  on both platforms with separate saved-data reviews. Earlier failures remain
+  recorded. Shocks, free surfaces, phase interfaces, production performance
+  and game integration remain required.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

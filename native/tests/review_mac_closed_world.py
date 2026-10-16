@@ -27,7 +27,7 @@ def dec(value):
 def parse(raw, required_passes=8, require_acoustic=True):
     ordinary, materials, pressure, cells, faces, waves, samples = [], {}, {}, {}, {}, {}, {}
     interval = None
-    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS'}
+    common = {'CASE', 'WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL', 'PASS', 'RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE'}
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record')
         kind = row[0]
@@ -149,6 +149,8 @@ def review_pressure(case_id, data):
     case = cases[case_id]; pairs = base.topology(case)
     dt, spacing, depth, pres, pbound, total_res, total_bound, wx, wy = pressure_cases[case_id]
     volume, area = spacing * spacing * depth, spacing * depth
+    if case['rplan']:
+        close(case['rplan'][0], volume, volume, 'Reconstruction/pressure nominal volume')
     check(dt > 0 and volume > 0, 'Invalid pressure geometry/time')
     check(set(k[1] for k in pcells if k[0] == case_id) == {i for i, wall in case['walls'].items() if not wall}, 'Pressure cell coverage')
     check({k[1:] for k in pfaces if k[0] == case_id} == set(case['faces']), 'Pressure face coverage')
@@ -173,7 +175,7 @@ def review_pressure(case_id, data):
                 sweeps[adjacent[0]] += swept; sweeps[adjacent[1]] -= swept
                 if swept:
                     donor = adjacent[0] if swept > 0 else adjacent[1]
-                    expect_f = swept * sum(mass[donor].values(), F(0)) / pcells[case_id, donor][1]
+                    expect_f = (1 if swept > 0 else -1) * sum((m for (pa, pf, _), m in case['pmasses'].items() if (pa, pf) == (axis, f)), F(0)) if case['rplan'] else swept * sum(mass[donor].values(), F(0)) / pcells[case_id, donor][1]
                     close(flux, expect_f, abs(flux) + abs(expect_f), 'Material donor density mass flux')
                 else:
                     check(flux == 0, 'Mass flow without a sweep')
@@ -190,6 +192,7 @@ def review_pressure(case_id, data):
         if case['walls'][i]:
             continue
         u0, vlag, delta, work, endpoint_p, final_p, final_t, saved_s0, saved_s1, saved_geo = pcells[case_id, i]
+        if case['rplan']: check(case['rcells'][i][0] == vlag, 'Reconstruction source volume differs from physical pressure endpoint')
         u_lag, u_final = case['cells'][0, i], case['cells'][1, i]
         close(vlag, volume + delta, vlag + volume + abs(delta), 'Pressure endpoint volume addition', 32)
         close(vlag - volume - sweeps[i], F(0), vlag + volume + abs(sweeps[i]), 'Fixed-grid remap volume closure')

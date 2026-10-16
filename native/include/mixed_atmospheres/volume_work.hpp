@@ -75,10 +75,14 @@ struct OccupiedMaterialPressureStep : MaterialPressureStep {
 };
 // Explicit model-aware overload: no legacy caloric/nominal-volume validation,
 // no vacuum unknowns, and no fake material beyond a traction-free boundary.
+// The work-root options control the nested isentropic inversion. A caller
+// requesting near-roundoff volume closure must resolve that inversion more
+// accurately than the reference model's ordinary pressure tolerance.
 [[nodiscard]] OccupiedMaterialPressureStep advance_occupied_material_pressure(
     const FluidThermodynamics& thermodynamics, std::span<const MaterialCell> cells,
     std::span<const OccupiedMaterialNode> nodes, double seconds,
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic,
     LiquidFillRoundoffPolicy liquid_fill_roundoff = LiquidFillRoundoffPolicy::strict_eos,
-    double maximum_relative_volume_residual = 5e-13);
+    double maximum_relative_volume_residual = 5e-13,
+    experimental::ReferenceRootOptions isentropic_root_options = {});
 }

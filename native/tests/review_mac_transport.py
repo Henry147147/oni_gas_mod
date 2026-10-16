@@ -52,7 +52,22 @@ def parse(raw, required_passes=7):
             check(w > 0 and h > 0 and px in (0, 1) and py in (0, 1), 'CASE geometry')
             unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
-                masses={}, passives={}, faces={}, duals={}))
+                masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={}))
+        elif kind in ('RPLAN', 'RCELL', 'RMASS', 'RPASSIVE', 'PARCEL', 'PMASS', 'PPASSIVE'):
+            identifier = int(row[1]); check(identifier in cases, 'Orphan reconstruction record'); case = cases[identifier]
+            if kind == 'RPLAN':
+                check(len(row) == 5 and case['rplan'] is None, 'Reconstruction plan shape/duplicate')
+                case['rplan'] = (number(row[2]), int(row[3]), int(row[4]))
+            elif kind == 'RCELL':
+                check(len(row) == 7, 'Retained cell shape'); unique(case['rcells'], int(row[2]), tuple(map(number, row[3:])))
+            elif kind in ('RMASS', 'RPASSIVE'):
+                check(len(row) == 5, 'Retained inventory shape'); v = number(row[4]); check(v > 0, 'Nonpositive retained inventory')
+                unique(case['rmasses' if kind == 'RMASS' else 'rpassives'], tuple(map(int, row[2:4])), v)
+            elif kind == 'PARCEL':
+                check(len(row) == 8, 'Parcel shape'); unique(case['parcels'], tuple(map(int, row[2:4])), (int(row[4]), int(row[5]), number(row[6]), number(row[7])))
+            else:
+                check(len(row) == 6, 'Parcel inventory shape'); v = number(row[5]); check(v > 0, 'Nonpositive parcel inventory')
+                unique(case['pmasses' if kind == 'PMASS' else 'ppassives'], tuple(map(int, row[2:5])), v)
         elif kind in ('WALL', 'CELL', 'MASS', 'PASSIVE', 'FACE', 'DUAL'):
             identifier = int(row[1]); check(identifier in cases, 'Orphan case record')
             case = cases[identifier]
@@ -150,6 +165,8 @@ def packets(old_mass, edges):
 
 
 def review_case(case):
+    if case['rplan'] is None and any(case[k] for k in ('rcells', 'rmasses', 'rpassives', 'parcels', 'pmasses', 'ppassives')):
+        raise ValueError('Reconstruction payload has no plan record')
     faces = topology(case); expected_duals(case)
     nc = case['w'] * case['h']
     check(set(case['cells']) == {(e, i) for e in (0, 1) for i in range(nc)}, 'Missing/extra material cells')
@@ -171,6 +188,7 @@ def review_case(case):
             else:
                 primal.append((*adjacent, flux))
     material_packets = packets(mass[0], primal)
+    reconstructed = review_reconstructed_primal(case, faces) if case['rplan'] is not None else None
     for key in ('masses', 'passives'):
         values = case[key]; identities = {k for _, _, k in values}
         for identity in identities:
@@ -178,7 +196,7 @@ def review_case(case):
             new_total = sum((values.get((1, i, identity), F(0)) for i in range(nc)), F(0))
             close(new_total, old_total, old_total + new_total, 'Global constituent/passive balance')
             for i, donors in enumerate(material_packets):
-                expect = sum((amount * values.get((0, donor, identity), F(0)) / mass[0][donor]
+                expect = reconstructed[key][i].get(identity, F(0)) if reconstructed else sum((amount * values.get((0, donor, identity), F(0)) / mass[0][donor]
                               for donor, amount in donors if amount), F(0))
                 actual = values.get((1, i, identity), F(0))
                 close(actual, expect, abs(expect) + abs(actual), 'Constituent/passive packet mismatch')
@@ -221,13 +239,83 @@ def review_case(case):
             momentum_terms.extend((j1, -j0, -impulse)); energy_terms.extend((k1, -k0))
         close(sum(momentum_terms, F(0)), F(0), sum(map(abs, momentum_terms), F(0)), 'Global J plus wall impulse')
     for i, donors in enumerate(material_packets):
-        terms = [amount * case['cells'][0, d] / mass[0][d] for d, amount in donors if amount] + [cell_heat[i]]
+        terms = reconstructed['energy'][i] + [cell_heat[i]] if reconstructed else [amount * case['cells'][0, d] / mass[0][d] for d, amount in donors if amount] + [cell_heat[i]]
         expect = sum(terms, F(0)); actual = case['cells'][1, i]
         close(actual, expect, abs(actual) + sum(map(abs, terms), F(0)), 'Primal U plus assigned heat', 256)
     residual = sum(energy_terms, F(0)); scale = sum(map(abs, energy_terms), F(0))
     close(residual, F(0), scale, 'Physical global energy balance')
     close(case['residual'], residual, scale, 'Saved energy residual', 2)
     close(case['bound'], 128 * EPS * scale, 128 * EPS * scale, 'Saved energy bound', 512)
+
+
+def review_reconstructed_primal(case, faces):
+    nc = case['w'] * case['h']; nominal, backtracks, unresolved = case['rplan']
+    check(nominal > 0 and backtracks >= 0 and 0 <= unresolved <= nc, 'Invalid reconstruction plan metadata')
+    check(set(case['rcells']) == set(range(nc)), 'Retained cell coverage')
+    check(set(case['parcels']) == {k for k, v in case['faces'].items() if v[0]}, 'Reconstructed nonzero face coverage')
+    q = {}; incoming = [[] for _ in range(nc)]; outgoing = [[] for _ in range(nc)]
+    for key, (donor, target, volume, energy) in case['parcels'].items():
+        check(key in case['faces'] and 0 <= donor < nc and 0 <= target < nc and volume > 0, 'Invalid reconstructed parcel geometry')
+        pair = faces[key[0]][key[1]]; check((donor, target) in (pair, pair[::-1]) and None not in pair, 'Parcel endpoints differ from face')
+        q[key] = volume if donor == pair[0] else -volume; outgoing[donor].append(key); incoming[target].append(key)
+        mass = sum((v for (a, f, _), v in case['pmasses'].items() if (a, f) == key), F(0))
+        close(case['faces'][key][0], mass if donor == pair[0] else -mass, mass, 'Primal mass flux differs from constituent parcel')
+    for field, length in (('rmasses', 2), ('rpassives', 2), ('pmasses', 3), ('ppassives', 3)):
+        check(all(len(k) == length and k[-1] >= 0 and (0 <= k[0] < nc if length == 2 else k[:2] in case['parcels']) for k in case[field]), 'Invalid retained/parcel inventory index')
+    targets = {'masses': [{} for _ in range(nc)], 'passives': [{} for _ in range(nc)], 'energy': [[] for _ in range(nc)]}
+    def neighbor(i, axis, direction):
+        x, y = i % case['w'], i // case['w']
+        if axis == 0:
+            if not case['px'] and (x + direction < 0 or x + direction >= case['w']): return None
+            x = (x + direction) % case['w']
+        else:
+            if not case['py'] and (y + direction < 0 or y + direction >= case['h']): return None
+            y = (y + direction) % case['h']
+        n = x + y * case['w']; return None if case['walls'][n] else n
+    nx = case['w'] + (not case['px']); ny = case['h'] + (not case['py'])
+    xf = lambda x, y: x % nx + (y % case['h']) * nx
+    yf = lambda x, y: x % case['w'] + (y % ny) * case['w']
+    for i in range(nc):
+        volume, retained_volume, retained_energy, theta = case['rcells'][i]
+        check(0 <= theta <= 1 and retained_volume >= 0 and (volume == 0 if case['walls'][i] else volume > 0), 'Invalid retained volume/limiter')
+        out_volume = sum((case['parcels'][k][2] for k in outgoing[i]), F(0))
+        in_volume = sum((case['parcels'][k][2] for k in incoming[i]), F(0))
+        close(retained_volume + out_volume, volume, retained_volume + out_volume + volume, 'Reconstructed donor volume')
+        target = F(0) if case['walls'][i] else nominal
+        close(retained_volume + in_volume, target, retained_volume + in_volume + target, 'Reconstructed target volume')
+        adjacent = [neighbor(i, a, d) for a, d in ((0, -1), (0, 1), (1, -1), (1, 1))]
+        for key in ('masses', 'passives', 'energy'):
+            if key == 'energy':
+                identities = (None,)
+                old = lambda c, _: case['cells'][0, c]
+                retained = lambda c, _: case['rcells'][c][2]
+                parcel = lambda k, _: case['parcels'][k][3]
+            else:
+                rkey, pkey = ('rmasses', 'pmasses') if key == 'masses' else ('rpassives', 'ppassives')
+                identities = {k[-1] for field in (case[key], case[rkey], case[pkey]) for k in field}
+                old = lambda c, s: case[key].get((0, c, s), F(0))
+                retained = lambda c, s: case[rkey].get((c, s), F(0))
+                parcel = lambda k, s: case[pkey].get((*k, s), F(0))
+            for identity in identities:
+                centre = old(i, identity); rvalue = retained(i, identity)
+                terms = [rvalue] + [parcel(k, identity) for k in outgoing[i]]
+                close(sum(terms, F(0)), centre, sum(map(abs, terms), F(0)) + abs(centre), 'Complete reconstructed donor inventory')
+                if key == 'energy': targets[key][i] = [rvalue] + [parcel(k, identity) for k in incoming[i]]
+                else: targets[key][i][identity] = rvalue + sum((parcel(k, identity) for k in incoming[i]), F(0))
+                if not volume: continue
+                values = [centre if n is None else old(n, identity) * volume / case['rcells'][n][0] for n in adjacent]
+                sx = (values[1] - values[0]) / 2 if adjacent[0] is not None and adjacent[1] is not None else F(0)
+                sy = (values[3] - values[2]) / 2 if adjacent[2] is not None and adjacent[3] is not None else F(0)
+                for k in outgoing[i]:
+                    donor, _, part, _ = case['parcels'][k]; pair = faces[k[0]][k[1]]; sign = 1 if donor == pair[0] else -1
+                    normal = sign * (1 - part / volume) / 2; x, y = i % case['w'], i // case['w']
+                    if k[0] == 0: cx, cy = normal, -(q.get((1, yf(x, y)), F(0)) + q.get((1, yf(x, y + 1)), F(0))) / (4 * volume)
+                    else: cx, cy = -(q.get((0, xf(x, y)), F(0)) + q.get((0, xf(x + 1, y)), F(0))) / (4 * volume), normal
+                    terms = (centre, theta * cx * sx, theta * cy * sy)
+                    expected = sum(terms, F(0)) * part / volume; actual = parcel(k, identity)
+                    scale = sum(map(abs, terms), F(0)) * part / volume
+                    close(actual, expected, scale + abs(actual), 'Common-limiter reconstructed parcel', 1024)
+    return targets
 
 
 PI = Decimal('3.141592653589793238462643383279502884197169399375105820974944592307816406286208998628034825342117')

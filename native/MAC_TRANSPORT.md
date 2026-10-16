@@ -111,3 +111,13 @@ EOS-aware overload. Its current Windows/Linux builds repeat all seven transport
 groups and the 3,884-check saved-data review successfully. A full retained share
 now returns the original value directly; the added zero-flux control checks
 every stored quantity bit for bit. No other physical bound is changed.
+
+The [reconstructed parcel path](MAC_RECONSTRUCTION.md) adds an explicit input
+plan containing outgoing constituent/U/passive parcels, retained inventories,
+source/retained volumes and one common limiter per donor. It checks local
+decomposition, target volume, EOS and face geometry against actual operands.
+Actual parcel masses define primal fluxes and drive the same compatible dual
+J/K transport and positive variance heat. Uniform donor-cell transport remains
+the reference overload. The seven original groups and 3,884-check review still
+pass on Windows/Linux; the new parcel controls and composed-owner checks are
+separate evidence. Normal face momentum transport remains first-order.

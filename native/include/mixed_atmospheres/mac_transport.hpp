@@ -32,6 +32,20 @@ struct MacMassFluxes {
     // Integrated kg, oriented toward positive x/y; one value per primal face.
     std::vector<double> x, y;
 };
+struct MacPrimalParcel {
+    std::size_t axis = 0, face = 0, donor = 0, target = 0;
+    double volume_m3 = 0;
+    MacMaterialCell contents;
+};
+// Complete conservative donor decomposition. The transport API validates
+// inventories, geometry, each donor's species/U/passive accounts and EOS. It
+// does not certify a reconstruction method chosen by an arbitrary caller.
+struct MacParcelPlan {
+    std::vector<MacPrimalParcel> parcels;
+    std::vector<MacMaterialCell> retained;
+    std::vector<double> source_volumes_m3, retained_volumes_m3, limiter;
+    std::size_t eos_backtracks = 0, unresolved_stencil_cells = 0;
+};
 struct MacDualFlux { std::size_t left = 0, right = 0; double mass_kg = 0; };
 struct MacFaceTransportReport {
     std::vector<double> old_inertia, new_inertia, old_kinetic, new_kinetic;
@@ -45,6 +59,7 @@ struct MacTransportReport {
     double momentum_x_residual = 0, momentum_y_residual = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     std::size_t unresolved_heat_updates = 0;
+    MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };
@@ -53,7 +68,7 @@ struct MacFaceInertias { std::vector<double> x, y; };
 // pressure substep; the target is the grid's nominal fixed cell volume. No
 // legacy caloric-temperature or constant-density liquid validation is used.
 [[nodiscard]] MacFaceInertias mac_face_inertias(const SpeciesRegistry&, const MacTransportState&,
-    const FluidThermodynamics&);
+    const FluidThermodynamics&, std::span<const double> source_volumes_m3 = {});
 // Shared positive primal transfers carry every species, U and passive quantity.
 // Compatible dual fluxes transport normal J and K; upwind variance and fixed-wall
 // kinetic removal become separately reported heat. CFL/precision/domain failures
@@ -62,4 +77,6 @@ struct MacFaceInertias { std::vector<double> x, y; };
 [[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&);
 [[nodiscard]] MacTransportAdvance advance_mac_transport(const SpeciesRegistry&, const MacTransportState&, const MacMassFluxes&,
     const FluidThermodynamics&, std::span<const double> source_volumes_m3);
+[[nodiscard]] MacTransportAdvance advance_mac_parcel_transport(const SpeciesRegistry&, const MacTransportState&,
+    const FluidThermodynamics&, const MacParcelPlan&);
 }

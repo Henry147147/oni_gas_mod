@@ -88,7 +88,8 @@ void MacClosedSettings::validate() const {
     require(std::isfinite(maximum_timestep_s) && maximum_timestep_s > 0 && maximum_timestep_s <= 1 &&
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
-         preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0, "Invalid MAC closed settings");
+         preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
+        (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -117,8 +118,14 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 area, m[f], j[f] / m[f], axis == 0 ? 0 : -settings.gravity_m_per_s2, pair.left == none || pair.right == none});
         }
     }
+    ReferenceRootOptions work_root;
+    // The ordinary 2e-13 inner pressure root can leave work-pressure noise
+    // above this caller's 16-epsilon volume residual, particularly at rest.
+    // Resolve the nested inversion to adjacent floating-point parameters;
+    // retain the original outer geometry and energy acceptance bounds.
+    work_root.relative_pressure_tolerance = eps / 4;
     if (!materials.empty()) result.pressure = advance_occupied_material_pressure(model, materials, nodes, dt, settings.preconditioner,
-        LiquidFillRoundoffPolicy::strict_eos, 16 * eps);
+        LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root);
     for (std::size_t i = 0; i < topology.active.size(); ++i) {
         const auto cell = topology.active[i]; result.pressure_state.cells[cell].mixture = result.pressure.cells[i].mixture;
         result.material_volumes_m3[cell] = result.pressure.cells[i].volume_m3;
@@ -153,7 +160,9 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             sweeps[pair.left].add(q[f]); sweeps[pair.right].add(-q[f]);
             if (q[f] != 0) {
                 const auto donor = q[f] > 0 ? pair.left : pair.right;
-                outgoing[donor].add(std::abs(q[f])); flux[f] = product_ratio(q[f], source.cells[donor].mixture.mass(), result.material_volumes_m3[donor]);
+                outgoing[donor].add(std::abs(q[f]));
+                if (settings.reconstruction == MacMaterialReconstruction::donor_cell)
+                    flux[f] = product_ratio(q[f], source.cells[donor].mixture.mass(), result.material_volumes_m3[donor]);
             }
         }
     }
@@ -170,7 +179,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     if (settings.gravity_m_per_s2 != 0) for (const double work : result.gravity_body_work_y) pressure_balance.add(-work);
     pressure_balance.check("MAC pressure represented energy exceeds its operand bound");
     result.pressure_energy_residual_j = pressure_balance.value(); result.pressure_energy_bound_j = pressure_balance.bound();
-    auto transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model, result.material_volumes_m3);
+    MacTransportAdvance transported;
+    if (settings.reconstruction == MacMaterialReconstruction::limited_linear) {
+        auto plan = reconstruct_mac_parcels(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction);
+        transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan);
+        result.mass_fluxes_kg = std::move(transported.report.primal_mass_fluxes_kg); result.reconstruction = std::move(plan);
+    } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model, result.material_volumes_m3);
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
     if (settings.gravity_m_per_s2 != 0) {
         Account potential, gravity_internal, change, entropy, entropy_roundoff;

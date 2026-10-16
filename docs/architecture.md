@@ -138,18 +138,24 @@ required before it can replace the prototype's reconstructed face momentum.
 
 The separate closed MAC owner now composes this transport with EOS material
 pressure work. It updates canonical face J directly, forms midpoint volume
-sweeps, uses material donor density for mass fluxes, and checks return to fixed
+sweeps, reconstructs shared constituent/U/passive parcels, uses actual parcel
+masses for primal and dual fluxes, and checks return to fixed
 cell volume and the two-stage U+face-K balance. It owns the EOS identity and
 prepares whole intervals atomically with bounded retries. Eight Windows/Linux
 groups and independent EOS/work/Fourier checks pass, including elastic liquids
 and implicit acoustic refinement. This [path](../native/MAC_CLOSED_WORLD.md)
-still requires gravity, free surfaces, phase topology and world/game dispatch;
+still requires broader nonlinear controls, free surfaces, phase topology and world/game dispatch;
 it does not yet replace the prototype or meet production acceptance.
 Its opt-in [gravity extension](../native/MAC_GRAVITY.md) reconciles body work
 with actual face mass fluxes and reports the signed internal-energy adjustment
-separately from mixing heat. Initial conservation and hydrostatic controls pass,
-but stratified velocity refinement fails on both platforms. Spatial transport
-reconstruction is the next solver task; gravity remains outside accepted scope.
+separately from mixing heat. Conservation, gas/liquid/layered hydrostatics and
+joint stratified pressure/velocity/entropy refinement now pass on both platforms.
+Shared material reconstruction repairs the initial spatial error; explicit
+near-roundoff nested EOS roots resolve a later Linux hydrostatic stall.
+The original scientific fixture and physical bounds remain unchanged, with
+earlier first failures retained. Five reconstruction groups and separate
+exact/high-precision parcel/EOS checks pass. These smooth occupied-grid controls
+do not establish shocks, free surfaces or general nonlinear buoyancy.
 
 The separate native `FluidWorld` prototype now couples nonlinear material
 pressure work, common-weight gas/liquid remap, momentum/energy accounting,

@@ -1,14 +1,17 @@
 #pragma once
-#include "mac_transport.hpp"
+#include "mac_reconstruction.hpp"
 #include "volume_work.hpp"
 #include <memory>
+#include <optional>
 
 namespace ma::experimental {
+enum class MacMaterialReconstruction { donor_cell, limited_linear };
 struct MacClosedSettings {
     double maximum_timestep_s = .01;
     double maximum_outgoing_volume_fraction = .4;
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
     double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
+    MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -17,6 +20,7 @@ struct MacClosedSubstep {
     OccupiedMaterialPressureStep pressure;
     MacMassFluxes volume_fluxes_m3, mass_fluxes_kg;
     MacTransportReport transport;
+    std::optional<MacParcelPlan> reconstruction;
     // Pressure cells are compacted in ascending grid-cell order. The two face
     // arrays contain the corresponding compact pressure-node index, or max().
     std::vector<std::size_t> active_cells, pressure_nodes_x, pressure_nodes_y;

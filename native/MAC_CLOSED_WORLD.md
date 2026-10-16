@@ -7,8 +7,10 @@ from default builds, the C ABI and game dispatch.
 
 Each material pressure cell starts at nominal grid volume. EOS work pressures
 update canonical normal face J directly. The midpoint of represented face
-velocities defines a swept volume; outgoing material density converts it to the
-mass flux passed to MAC transport. The same sweeps must return each moving
+velocities defines a swept volume. Shared limited reconstruction samples the
+constituent masses, actual U and passives in each swept parcel; its actual mass
+defines the flux passed to MAC transport. Explicit donor-cell mode retains the
+earlier uniform donor-density flux as a reference. The same sweeps must return each moving
 material volume to nominal grid volume within 128 binary64 epsilons of actual
 local operands. Each stage checks actual U plus resolved face K; the composed
 energy bound is the sum of the two stage bounds. No scalar total energy is used
@@ -19,8 +21,13 @@ The EOS-aware transport overload evaluates source inventories at material
 volumes and targets at nominal volume. It does not apply legacy caloric
 temperature or constant-density liquid tests. Empty fluid cells and internal
 liquid voids reject. The pressure helper's original 5e-13 root tolerance stays
-the default; this caller requests 16 epsilons. Only stricter tolerances down to
-8 epsilons are admitted by the added optional accuracy argument.
+the default volume target; this caller requests 16 epsilons. Only stricter
+tolerances down to 8 epsilons are admitted by the optional accuracy argument.
+The nested isentropic inversion now has separate explicit root options. The
+MAC caller requests epsilon/4 relative pressure accuracy so inner work-pressure
+noise does not stall the near-roundoff outer volume solve. The helper's
+ordinary default remains 2e-13. This tightens the inner solve without changing
+the outer geometry or energy acceptance bounds.
 
 The owner copies its registry, state and EOS, including when the caller holds a
 mutable model alias. A requested interval prepares a new owner. Domain/CFL
@@ -32,11 +39,30 @@ Eight passing control groups cover pressure-driven gas flow, an elastic gas/liqu
 corner, constant-p/T variable-density contacts, a compressed-liquid identity
 and mutable-model alias, adaptive CFL retry and late rollback, joint N16/32/64
 pressure/velocity acoustic refinement at acoustic Courant 2, transpose symmetry,
-ten invalid domains and three accuracy bounds. The joint refinement ratio is
+ten invalid domains, three accuracy bounds and three invalid nested-EOS options.
+The joint refinement ratio is
 predeclared below 0.7. A separate saved-data reviewer reconstructs Fraction
 transport balances and 80-digit EOS, isentropic work and acoustic Fourier modes.
 
 ## Current-source evidence
+
+The limited-reconstruction source passes all eight groups on Windows/MSVC and
+Linux/GCC15, with 6,526 separate saved-operand/EOS/profile checks and three
+corruptions rejected per platform. The full seven-group transport reference,
+five-group reconstruction controls, four-group smooth gravity gate and their
+reviewers also pass. Core 57, retained-node 17 and occupied-fluid 24 regressions
+pass. The last suite was supplemental after gravity because of a runner target/
+planned-count mismatch; original captures are preserved. Source identities and
+this correction are recorded in [reconstruction evidence](MAC_RECONSTRUCTION.md).
+
+At acoustic Courant 2, current N16/32/64 pressure errors are approximately
+0.0526169416/0.0141066760/0.0035920106 and velocity errors
+0.0520308546/0.0140540536/0.0035881713. These pass the unchanged joint 0.7 ratio
+bound without rejected attempts. The wet-corner composed energy residual on
+Windows is 5.9931e-7 J within 0.00409022 J; the independent EOS/work/entropy
+checks also pass. No production/game/performance acceptance follows.
+
+## Initial donor-cell evidence
 
 Fresh Windows MSVC and WSL Linux GCC15 Release builds pass all eight groups.
 The actual compiler settings and executable/archive identities were audited
@@ -99,13 +125,14 @@ and 128 KiB per raw pipe. Runtime durations are not performance acceptance.
 The default game DLL remains unchanged; no Unity or previous failed physical
 gate was run for this change.
 
-The opt-in [gravity extension](MAC_GRAVITY.md) now closes finite work/potential
-accounts and retains hydrostatic rest in its initial controls, but its joint
-stratified-wave refinement gate fails on Windows/Linux. Zero gravity remains
-the default and the accepted scope above. Spatial reconstruction is required
-before retrying that gate; no gravity or production acceptance follows.
+The opt-in [gravity extension](MAC_GRAVITY.md) now passes the unchanged joint
+stratified pressure/velocity/entropy gate on both platforms after shared
+material reconstruction and a nested-root precision repair. Its original
+donor-cell failure and intermediate Linux hydrostatic failure remain recorded.
+Zero gravity stays the default. These smooth controls do not establish general
+nonlinear buoyancy or production acceptance.
 
-Validated gravity, viscosity, diffusion, conduction, shocks, vacuum/free surfaces,
+Broader gravity/density-jump validation, viscosity, diffusion, conduction, shocks, vacuum/free surfaces,
 immiscible interfaces, phase transitions, persistence, colony ownership and
 production performance remain required. The four-species test profile uses a
 zero-expansion elastic water surrogate; it is not a calibrated material catalog.

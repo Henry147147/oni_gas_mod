@@ -269,7 +269,8 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
 
 OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
     std::span<const MaterialCell> cells, std::span<const OccupiedMaterialNode> nodes, double dt,
-    PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy, double tolerance) {
+    PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy, double tolerance,
+    experimental::ReferenceRootOptions isentropic_root_options) {
     require_finite(dt, "occupied material timestep");
     if (dt <= 0 || cells.empty()) throw std::invalid_argument("Occupied material pressure requires cells and positive time");
     if (!std::isfinite(tolerance) || tolerance < 8 * std::numeric_limits<double>::epsilon() || tolerance > 5e-13)
@@ -320,7 +321,7 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
         double norm = 0;
         std::vector<VolumeSum> sums(count);
         for (std::size_t i = 0; i < count; ++i) {
-            const auto response = model.reference().isentropic_response(anchors[i], delta[i]);
+            const auto response = model.reference().isentropic_response(anchors[i], delta[i], isentropic_root_options);
             endpoint_volumes[i] = response.endpoint.volume_m3;
             const double void_budget = 32 * std::numeric_limits<double>::epsilon() * response.endpoint.volume_m3;
             if (response.state.vacuum_volume_m3 > void_budget) { saw_void = true; throw TrialVoid(); }
@@ -330,7 +331,7 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
             double derivative;
             if (delta[i] == 0 || (!response.state.has_gas && response.work_pressure_pa == 0))
                 derivative = -0.5 / model.compression_compliance(anchors[i]);
-            else derivative = model.reference().isentropic_work_pressure_derivative(anchors[i], delta[i]);
+            else derivative = model.reference().isentropic_work_pressure_derivative(anchors[i], delta[i], isentropic_root_options);
             capacities[i] = -1 / derivative;
             if (!std::isfinite(capacities[i]) || capacities[i] <= 0)
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied work compliance is unrepresentable");
@@ -416,7 +417,7 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
     result.zero_work_substituted.resize(count, 0);
     long double energy_change = 0, scale = 0, body_work = 0, work_roundoff = 0;
     for (std::size_t i = 0; i < count; ++i) {
-        const auto response = model.reference().isentropic_response(anchors[i], changes[i]);
+        const auto response = model.reference().isentropic_response(anchors[i], changes[i], isentropic_root_options);
         const bool substituted = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
         auto& cell = result.cells[i];
         cell.volume_m3 = response.endpoint.volume_m3;

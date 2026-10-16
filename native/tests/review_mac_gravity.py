@@ -46,6 +46,7 @@ def review_case(identifier,data):
     g,gr,gb,pr,pb,body_impulse,change,saved_entropy,entropy_bound=gravity[identifier]
     dt,spacing,depth,pressure_res,pressure_bound,total_res,total_bound,wx,wy=pcases[identifier]
     volume,area=spacing*spacing*depth,spacing*depth; nc=len(case['walls'])
+    if case['rplan']: close(case['rplan'][0],volume,volume,'Gravity reconstruction nominal volume')
     check(g>0 and set(k[1] for k in gfaces if k[0]==identifier)==set(range(len(pairs[1]))),'Gravity face coverage')
     check(set(k[1] for k in gcells if k[0]==identifier)==set(range(nc)),'Gravity cell coverage')
     masses=[{s:m for (end,c,s),m in case['masses'].items() if end==e and c==i} for e in (0,1) for i in range(nc)]
@@ -67,7 +68,8 @@ def review_case(identifier,data):
                 expect_q=dt*area*(jold+jp)/(2*i0); close(q,expect_q,abs(q)+abs(expect_q),'Gravity midpoint sweep')
                 sweeps[adjacent[0]]+=q; sweeps[adjacent[1]]-=q
                 if q:
-                    donor=adjacent[0] if q>0 else adjacent[1]; expect_f=q*oldm[donor]/pcells[identifier,donor][1]
+                    donor=adjacent[0] if q>0 else adjacent[1]
+                    expect_f=(1 if q>0 else -1)*sum((m for (a,j,_),m in case['pmasses'].items() if (a,j)==(axis,f)),F(0)) if case['rplan'] else q*oldm[donor]/pcells[identifier,donor][1]
                     close(flux,expect_f,abs(flux)+abs(expect_f),'Gravity material donor density')
                 else: check(flux==0,'Mass flux without gravity sweep')
             momentum.extend((jp,-jold,-bi,impulse if fixed else F(0)))
@@ -97,6 +99,7 @@ def review_case(identifier,data):
         potential_terms.extend((newm[i]*phi,-oldm[i]*phi)); total_terms.extend((newm[i]*phi,-oldm[i]*phi))
         if case['walls'][i]: continue
         u0,vlag,dv,work,pend,pfinal,tfinal,s0,s1,geo=pcells[identifier,i]
+        if case['rplan']: check(case['rcells'][i][0]==vlag,'Gravity reconstruction source volume')
         ulag=case['cells'][0,i]
         close(vlag,volume+dv,vlag+volume+abs(dv),'Gravity pressure volume addition',32)
         close(vlag-volume-sweeps[i],F(0),vlag+volume+abs(sweeps[i]),'Gravity fixed-grid volume closure')
@@ -177,7 +180,7 @@ def review(data):
 
 
 def main():
-    raw=Path(sys.argv[1]).read_bytes(); check(len(raw)<=131072,'Gravity saved pipe cap')
+    raw=Path(sys.argv[1]).read_bytes(); check(len(raw)<=262144,'Gravity saved pipe cap')
     with localcontext() as context:
         context.prec=80; data=parse(raw); review(data); checks=base.CHECKS
         for control in ('mass-potential','stored-gravity-work','stratified-profile'):
