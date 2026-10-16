@@ -234,3 +234,13 @@ Private accepted cohorts:
 
 The component remains excluded from the owning timestep and game dispatch.
 There is no strong-flow retry or new game, production or release acceptance.
+
+The repair is rebased over the shared physical-conduction work at `5d39a15`.
+Its heat implementation, EOS dependencies and reviewer remain unchanged.
+The incoming owner stages use material conductivity and are disabled by
+default in standalone settings; they are distinct from this regularization.
+The source-review SHA256 is
+`7a06a278ddfd168b4f7feecf4a60504097749eb943710d0aa371ab0ff500bd40`.
+Owning integration must also exercise both operators together when physical
+conduction is enabled. No merged-runtime or new game evidence is inferred
+from that source comparison.
