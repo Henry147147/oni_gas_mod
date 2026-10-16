@@ -27,7 +27,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                        "SavesAllowed": False, "NativeCellsUnchanged": True, "NativeSnapshotCopied": True,
                        "NativeSolidsAdvanced": True, "RetainedFrameVerified": True, "NativeFlowControlObserved": True,
                        "ProjectionPrimed": True, "NativeFlowFenceVerified": True, "NativeRendererAdvanced": True,
-                       "SaveGuardVerified": True, "GameGridProjectionVerified": True, "ProjectionPrimedAtNativeFrame": 0,
+                       "SaveGuardVerified": True, "NativeSaveGuardVerified": True, "GameGridProjectionVerified": True, "ProjectionPrimedAtNativeFrame": 0,
                        "RenderedRevision": 30, "Publications": 35,
                        "NativeDomain": {"State": 1, "CompletedFrames": 30, "NativeTicket": 100, "Substeps": 630,
                            "SolverThread": 2, "StartThread": 1, "MaximumRelativeMassError": 1e-15,
@@ -44,7 +44,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         for field in ("WholeColonyFluidAuthority", "FirstPlayableColonyPassed", "SavesAllowed"):
             value = copy.deepcopy(self.report); value[field] = True
             self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
-        for field in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced", "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified", "NativeRendererAdvanced", "SaveGuardVerified", "GameGridProjectionVerified"):
+        for field in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced", "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified", "NativeRendererAdvanced", "SaveGuardVerified", "NativeSaveGuardVerified", "GameGridProjectionVerified"):
             value = copy.deepcopy(self.report); value[field] = False
             self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
 
@@ -63,6 +63,18 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, True))
         self.report["NativeDomain"]["PressurePa"] = 0
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, True))
+
+    def test_heat_control_requires_committed_energy_and_no_native_packet_dispatch(self):
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, heat=True))
+        self.report.update(HeatCommandsVerified=True, HeatAvoidedNativeDispatch=True, HeatPacketsRouted=2,
+                           HeatEnergyResidualJoules=1e-9, HeatCommands={"PendingBatches": 0, "AcceptedBatches": 2,
+                           "CommittedBatches": 2, "CommittedHeatJoules": 1500})
+        self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, heat=True))
+        for field, value in (("PendingBatches", 1), ("CommittedBatches", 1), ("CommittedHeatJoules", 2000)):
+            bad = copy.deepcopy(self.report); bad["HeatCommands"][field] = value
+            self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, heat=True), field)
+        self.report["HeatEnergyResidualJoules"] = float("nan")
+        self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, heat=True))
 
     def test_partial_or_malformed_physical_reports_do_not_raise_or_pass(self):
         for value in (None, {}, {"NativeDomain": None}, {"NativeDomain": []}):

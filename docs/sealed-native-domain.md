@@ -74,6 +74,27 @@ FTZ/DAZ off on its executing thread. It restores the complete caller environment
 before returning to Unity/native code. The normal strict arithmetic checks stay
 enabled inside the solver.
 
+## Conserved game heat commands
+
+`SimMessages.ModifyEnergy` now routes owned-cell heating/cooling into the native
+domain. The message's kJ is converted to joules. A complete batch reserves an
+immutable heat candidate against the exact session and completed frame; enqueue
+changes neither the published state nor time. The next native worker timestep
+commits the candidate and physical advance together. Every constituent and
+canonical face momentum is retained, and the physical clock is preserved.
+
+The additive heat ABI 1 uses 48-byte commands and a 56-byte status. Pending and
+committed batch counts distinguish acceptance from application. Accumulated heat
+accounts retain full additive expansions; their scalar status values are
+read-only projections. The U+K drift diagnostic includes the declared external
+heat account. Invalid, stale, temperature-limited or unrepresentable batches
+queue nothing; a failed physical advance publishes neither heat nor state.
+
+This is a reserved external heat boundary, not a power/producer adapter.
+Mixed native/custom batches require a cross-owner reservation and currently
+reject before dispatch. Native heat outside the arena still uses ONI. Known
+unimplemented mass, actor and geometry mutations remain blocked.
+
 ## Run the actual Linux colony controls
 
 Build the native backend and the normal ONI adapter, then create a fresh package:
@@ -89,6 +110,8 @@ python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-domain --frames 30 --timeout 600
 python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
   --mode native-liquid-domain --frames 30 --timeout 600
+python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
+  --mode native-heat-domain --frames 120 --timeout 1200
 ```
 
 Both runs use separate fresh profiles on the authenticated virtual desktop.
@@ -122,6 +145,9 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T191955Z-858237` | Passed compressed-water equilibrium control: 32 native frames, 30 after projection priming at frame two, 6.4 s and 672 solver substeps. Original-flow contrast, unchanged native compatibility tuples, copied channels, retained physical frames, actual game-grid projection, current-generation texture writes, native solid heat and save rejection all pass. No mod failure lines were reported. |
 | `20261016T194104Z-564b3b` | Passed corrected mixed-air control: 121 native frames, 120 after projection priming, 24.2 s and 2,541 solver substeps. All six mass/temperature compatibility tuples remain unchanged, while custom oxygen transport, copied snapshots, all-six-cell game-grid projection, current-generation rendering, native solid heat and save rejection pass. No mod failure lines. |
 | `20261016T194433Z-dc7013` | Passed corrected compressed-water control: 122 native frames, 120 after priming, 24.4 s and 2,562 solver substeps. Zero mass/energy drift, 1,586 excluded liquid calls, 488 thermal calls and 732 post-processing calls. All-six-cell grid projection, rendering, exact compatibility tuples, solid heat and save rejection pass. No mod failure lines. |
+| `20261016T195730Z-4b7c8c` | Passed actual game heat messages: +2,000 J heating and −500 J cooling, committed on the native clock. Net physical U+K rises by 1,500 J, with residual −4.54e−9 J after 120 post-priming frames. The original native message entry is never called for either heat packet; grid, rendering and native compatibility checks pass. |
+| `20261016T200324Z-fbdef4` | Repeats the heat pass and additionally verifies that a direct native `SIM_BeginSave` returns null/zero without starting a scalar save. Normal managed saving also rejects before writing. |
+| `20261016T200702Z-8e3b53` | Passes after merging the new geometric momentum transport: 122 native frames, 120 after priming, 2,562 substeps, two heat commands and net 1,500 J. U+K heat residual is −1.63e−9 J, maximum relative mass drift 2.06e−15 and energy drift 3.94e−15. Grid, rendering, unchanged native tuples, native solid heat and both save guards pass, with no mod failure lines. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
@@ -167,7 +193,9 @@ boundaries are not implemented for this domain. They must not enter it.
 
 Saving is disabled while the development domain owns fluids. Its physical
 state is not an integrated ONI checkpoint, and an ordinary scalar save cannot
-resume it. Failure stops custom advancement while native fluid exclusions stay
+resume it. Both the normal managed save path and the native begin-save detour
+reject. The isolated control advances another physical frame after a declined
+native save, proving the rejection did not suspend the simulator. Failure stops custom advancement while native fluid exclusions stay
 installed until native shutdown; the disposable session must end.
 
 Retain the adversarial native-state, thermal, grid, rendering and save-guard

@@ -11,7 +11,7 @@ internal static unsafe partial class Program
     private static int DomainCell(int index) => DomainX + index % DomainWidth + (DomainY + index / DomainWidth) * Width;
     private static float DomainProjectionTemperature(int column) => 280 + 20 * column;
 
-    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid)
+    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating)
     {
         Require(OniNativeDomain.Version() == 1 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
         var initialCells = Enumerable.Range(0, 6).Select(i => initial.CellData[DomainCell(i)]).ToArray();
@@ -51,6 +51,7 @@ internal static unsafe partial class Program
             }));
         }
         var values = new OniNativeDomain.Cell[6]; CellState[]? baseline = null; var primedAt = 0UL;
+        var heatQueued = false; var heatBeforeEnergy = 0.0;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
         Stage("advance-sealed-native-domain");
         for (var frame = 0; frame < 75; ++frame)
@@ -71,6 +72,22 @@ internal static unsafe partial class Program
             for (var i = 0; i < 6; ++i) Require(source[i] == baseline[i], "Uncovered native writer changed cell " + DomainCell(i) +
                 " at physical frame " + status.CompletedFrames + ": " + baseline[i] + " -> " + source[i]);
             Require(status.MaximumRelativeMassError <= 1e-8 && status.MaximumRelativeEnergyError <= 1e-6, "Custom conservation failed.");
+            if (heating && !heatQueued && status.CompletedFrames - primedAt >= 4)
+            {
+                heatBeforeEnergy = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy);
+                var commands = new[] {
+                    new OniNativeDomain.HeatCommand { Size = 48, Version = 1, Session = status.Session, ExpectedFrame = status.CompletedFrames,
+                        PublicCell = (uint)DomainCell(0), Source = 1000, Joules = 2000, MaximumTemperature = 1000 },
+                    new OniNativeDomain.HeatCommand { Size = 48, Version = 1, Session = status.Session, ExpectedFrame = status.CompletedFrames,
+                        PublicCell = (uint)DomainCell(0), Source = 1001, Joules = -500, MaximumTemperature = 1000 } };
+                var invalidCommands = (OniNativeDomain.HeatCommand[])commands.Clone(); invalidCommands[1].MaximumTemperature = 0;
+                var result = OniNativeDomain.HeatStatus.Empty;
+                Require(OniNativeDomain.QueueHeat(invalidCommands, 2, ref result) == 1 && result.AcceptedBatches == 0 && result.State == 0,
+                    "Invalid heat batch partially queued or changed output.");
+                Require(OniNativeDomain.QueueHeat(commands, 2, ref result) == 0 && result.PendingBatches == 1 && result.PendingHeatJoules == 1500,
+                    "Valid heat batch was not reserved.");
+                heatQueued = true;
+            }
             if (status.CompletedFrames - primedAt < 60) continue;
             Require(status.SolverThread != status.StartThread && status.SuppressedTemperature > 0 && status.SuppressedPostProcess > 0,
                 "Native worker/filter controls did not execute.");
@@ -78,10 +95,26 @@ internal static unsafe partial class Program
                 "Native solid heat stopped.");
             Require(liquid ? values[0].Water == 1100 && Math.Abs(values[0].Pressure - 2.2e8) < 1 :
                 status.CurrentOxygenKg != status.InitialOxygenKg, "Intended physical model did not execute.");
+            if (heating)
+            {
+                var account = OniNativeDomain.HeatStatus.Empty;
+                Require(OniNativeDomain.CopyHeat(ref account) == 0 && account.AcceptedBatches == 1 && account.CommittedBatches == 1 &&
+                    account.PendingBatches == 0 && account.CommittedHeatJoules == 1500, "Native heat account did not commit exactly once.");
+                var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500;
+                Require(heatQueued && Math.Abs(residual) <= 1e-6, "Native physical energy did not retain the declared heat exchange.");
+                report["heatCommandsPassed"] = true; report["heatEnergyResidualJoules"] = residual;
+            }
             report["sealedNativeDomainPassed"] = true; report["projectionPrimedAtFrame"] = primedAt;
             report["nativeCompatibilityCellsUnchanged"] = true;
             report["maximumRelativeMassError"] = status.MaximumRelativeMassError;
             report["maximumRelativeEnergyError"] = status.MaximumRelativeEnergyError;
+            sim.VerifyNativeSaveRejected(); report["nativeScalarSaveRejected"] = true;
+            // A declined BeginSave must leave the simulation runnable.
+            sim.Send(-775326397, Frame(.2f)); var afterSave = sim.PrepareAfterFrame(contract);
+            var afterStatus = OniNativeDomain.Status.Empty;
+            Require(afterSave.FramesProcessed == 1 && OniNativeDomain.Copy(ref afterStatus, values, 6) == 0 &&
+                afterStatus.State == 1 && afterStatus.CompletedFrames == status.CompletedFrames + 1,
+                "Rejected native saving changed or suspended the simulator.");
             return;
         }
         throw new TimeoutException("Sealed domain did not complete sixty post-bootstrap frames.");

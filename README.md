@@ -35,6 +35,8 @@ for ownership, interfaces, failures and implementation gates.
   passes actual grid, renderer and save-guard checks. The corrected mixed-air
   control also passes 120 native frames after projection priming. This remains an
   opt-in, actor-free experiment with saving disabled.
+  Owned-cell heating/cooling messages now commit conserved external heat on the
+  native tick; the real-game control verifies both energy and presentation.
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

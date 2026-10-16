@@ -49,6 +49,26 @@ MA_ONI_API MAOniResult ma_oni_domain_stop(MAOniDomainStatus*);
 MA_ONI_API uint32_t ma_oni_domain_active(void);
 MA_ONI_API MAOniResult ma_oni_domain_species(uint32_t index, MAOniDomainSpecies*);
 
+/* Additive heat-command ABI 1. Enqueue a complete reserved batch against the
+ * exact session/frame. No physical state changes until the next native tick;
+ * a failed batch queues nothing. Positive/negative heat is an explicit external
+ * energy account. Temperature-limited or unrepresentable edits reject rather
+ * than silently discard heat. public_cell uses the unpadded GameData grid. */
+typedef struct MAOniDomainHeat {
+    uint32_t struct_size, abi_version;
+    uint64_t session, expected_frame;
+    uint32_t public_cell, source;
+    double joules, maximum_temperature_k;
+} MAOniDomainHeat;
+typedef struct MAOniDomainHeatStatus {
+    uint32_t struct_size, abi_version, state, pending_batches;
+    uint64_t session, accepted_batches, committed_batches;
+    double committed_heat_joules, pending_heat_joules; /* projections; internal accounts retain full additive expansions */
+} MAOniDomainHeatStatus;
+MA_ONI_API uint32_t ma_oni_domain_heat_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t count, MAOniDomainHeatStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
+
 #ifdef __cplusplus
 }
 #endif

@@ -77,6 +77,10 @@ struct MacClosedAdvanceReport {
     std::size_t rounded_energy_projections = 0;
 };
 struct MacClosedAdvance;
+struct MacCellHeat {
+    std::size_t cell_index;
+    double joules, maximum_temperature_k;
+};
 // Owns its registry, immutable EOS identity, canonical state and clock. Advance
 // creates a new owner; failed later attempts publish neither time nor state.
 class MacClosedWorld {
@@ -89,6 +93,9 @@ public:
     [[nodiscard]] double time_s() const noexcept { return time_s_; }
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
     [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024) const;
+    // Immutable external heat exchange. Retains time, geometry, every mass and
+    // canonical face momentum; checks the complete batch before returning it.
+    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>) const;
 private:
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;

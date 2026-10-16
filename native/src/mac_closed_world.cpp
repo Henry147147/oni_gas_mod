@@ -298,6 +298,31 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
 }
+MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits) const {
+    require_mac_energy_environment();
+    require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto next=state_; MacEnergyAccount balance;
+    for (const auto& edit : edits) {
+        require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] &&
+            std::isfinite(edit.joules) && std::isfinite(edit.maximum_temperature_k) && edit.maximum_temperature_k > 0,
+            "Invalid MAC fluid heat exchange");
+        auto& mixture=next.cells[edit.cell_index].mixture;
+        const auto before=mixture.energy; const double after=before+edit.joules;
+        require(std::isfinite(after), "MAC heat energy overflow");
+        if (edit.joules != 0 && before == after)
+            throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U");
+        mixture.energy=after;
+        const auto reading=thermodynamics_->evaluate(mixture,next.grid.volume_m3());
+        require(edit.joules <= 0 || reading.temperature_k <= edit.maximum_temperature_k,
+            "MAC heat exchange exceeds its reserved temperature limit");
+        balance.add(before); balance.add(edit.joules); balance.add(-after);
+    }
+    require(balance.within_bound(), "MAC heat exchange energy account failed");
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_);
+    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    return candidate;
+}
 MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) const {
     require_mac_energy_environment();
     require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 && budget > 0 && budget <= 65536, "Invalid MAC interval or attempt budget");

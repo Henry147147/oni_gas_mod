@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -38,7 +39,12 @@ namespace MixedAtmospheres.Oni
         private static bool nativeFlowControlObserved, projectionPrimed, writingProjection;
         private static bool nativeFlowFenceVerified;
         private static bool nativeRendererAdvanced, saveGuardVerified;
+        private static bool nativeSaveGuardVerified;
         private static bool gameGridProjectionVerified;
+        private static HeatStatus heatStatus;
+        private static bool heatSubmitted, heatVerified, heatAvoidedNativeDispatch;
+        private static double heatBeforeEnergy, heatEnergyResidual;
+        private static int heatPacketsRouted;
         private static ulong projectionPrimedAtFrame;
         private static readonly byte NativeFlowMask = (byte)(Sim.Cell.Properties.GasImpermeable | Sim.Cell.Properties.LiquidImpermeable);
         private static float[] nativeProjectionMasses = Array.Empty<float>();
@@ -48,8 +54,9 @@ namespace MixedAtmospheres.Oni
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain";
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
+        private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain";
 
         internal static void Tick()
         {
@@ -70,6 +77,18 @@ namespace MixedAtmospheres.Oni
                 nativeSolidsAdvanced = Grid.Temperature[hotSolid] < initialHot && Grid.Temperature[coldSolid] > initialCold;
                 if (Time.realtimeSinceStartup >= nextReport) { nextReport = Time.realtimeSinceStartup + 1; WriteReport(); }
                 Require(projectionPrimed || latest.CompletedFrames <= 10, "Native projection bootstrap did not retain its requested fluid cells.");
+                if (HeatMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !heatSubmitted)
+                {
+                    heatBeforeEnergy = cells.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy);
+                    var method = AccessTools.Method(typeof(SimMessages), nameof(SimMessages.ModifyEnergy));
+                    NativeMessagePatch.RequirePatched(method);
+                    var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
+                    SimMessages.ModifyEnergy(target, 2, 1000, SimMessages.EnergySourceID.DebugHeat);
+                    SimMessages.ModifyEnergy(target, -.5f, 1000, SimMessages.EnergySourceID.DebugCool);
+                    heatAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
+                    Require(heatAvoidedNativeDispatch && heatPacketsRouted == 2, "Actual game heat packets bypassed the custom native owner.");
+                    heatSubmitted = true;
+                }
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -105,6 +124,14 @@ namespace MixedAtmospheres.Oni
                     "Custom fluid conservation exceeded its fixed bounds.");
                 Require(Liquid ? latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
+                if (HeatMode)
+                {
+                    heatEnergyResidual = cells.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500;
+                    heatVerified = heatSubmitted && heatAvoidedNativeDispatch && heatPacketsRouted == 2 && heatStatus.PendingBatches == 0 &&
+                        heatStatus.AcceptedBatches == 2 && heatStatus.CommittedBatches == 2 && heatStatus.CommittedHeatJoules == 1500 &&
+                        Math.Abs(heatEnergyResidual) <= 1e-6;
+                    Require(heatVerified, "Game heating/cooling did not conserve its explicit native fluid heat account.");
+                }
                 VerifySaveGuard();
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
                 ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
@@ -118,6 +145,8 @@ namespace MixedAtmospheres.Oni
             Require(Marshal.SizeOf<Configuration>() == 40 && Marshal.SizeOf<Status>() == 440 && Marshal.SizeOf<Cell>() == 88,
                 "Native domain ABI layout mismatch.");
             Require(Version() == 1, "Unsupported native domain ABI.");
+            Require(HeatVersion() == 1 && Marshal.SizeOf<HeatCommand>() == 48 && Marshal.SizeOf<HeatStatus>() == 56,
+                "Unsupported native heat command ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
@@ -236,6 +265,7 @@ namespace MixedAtmospheres.Oni
             // Retained values are independent of all future native advances.
             retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[0].InternalEnergy == cells[0].InternalEnergy;
             latest = next; cells = values;
+            var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
         }
         internal static IntPtr AfterNativeMessage(int message, IntPtr pointer)
         {
@@ -320,6 +350,42 @@ namespace MixedAtmospheres.Oni
         private static float ProjectionMass(int column) => Liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
             column == 0 ? .6f : column == 1 ? 1.2f : 2.4f;
         private static float ProjectionTemperature(int column) => 280 + 20 * column;
+        private static bool OwnsPublicCell(int cell) => cell >= 0 && cell % Grid.WidthInCells >= x && cell % Grid.WidthInCells < x + Width &&
+            cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height;
+        internal static bool TryHandleHeat(int message, int length, int count, byte* payload)
+        {
+            if (!active || message != 818320644 || count == 0) return false;
+            try
+            {
+                if (length != 16 || count < 0 || payload == null) throw new ArgumentException("Invalid native fluid heat batch.");
+                _ = checked(length * count);
+                var owned = 0;
+                for (var index = 0; index < count; ++index)
+                    if (OwnsPublicCell(*(int*)(payload + index * length))) ++owned;
+                if (owned == 0) return false;
+                if (count > 256) throw new NotSupportedException("Native fluid heat batches are limited to 256 reserved edits.");
+                if (owned != count) throw new NotSupportedException("Mixed native/custom heat batches need a cross-owner reservation.");
+                var requests = new HeatCommand[count];
+                for (var attempt = 0; attempt < 8; ++attempt)
+                {
+                    var source = Status.Empty; Check(Copy(ref source, new Cell[cells.Length], (uint)cells.Length));
+                    for (var index = 0; index < count; ++index)
+                    {
+                        var data = new ReadOnlySpan<byte>(payload + index * length, length);
+                        requests[index] = new HeatCommand { Size = 48, Version = 1, Session = source.Session, ExpectedFrame = source.CompletedFrames,
+                            PublicCell = checked((uint)BinaryPrimitives.ReadInt32LittleEndian(data)),
+                            Joules = 1000.0 * BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4))),
+                            MaximumTemperature = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))),
+                            Source = unchecked((uint)BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))) };
+                    }
+                    var output = HeatStatus.Empty; var result = QueueHeat(requests, (uint)count, ref output);
+                    if (result == 3) continue;
+                    Check(result); heatStatus = output; heatPacketsRouted += count; return true;
+                }
+                throw new InvalidOperationException("Native heat source frame kept changing during reservation.");
+            }
+            catch (Exception caught) { Fail(caught); throw; }
+        }
         internal static void BeforeNativeMutation(int message, int length, byte* payload)
         {
             if (!active || writingProjection || (message != -1252920804 && message != 818320644 && message != 1727657959 && message != 797274363 && message != -469311643)) return;
@@ -345,8 +411,15 @@ namespace MixedAtmospheres.Oni
             var rejected = false;
             try { Sim.Save(writer, Grid.WidthInCells, Grid.HeightInCells); }
             catch (InvalidOperationException caught) when (caught.Message.Contains("saving is disabled")) { rejected = true; }
-            saveGuardVerified = rejected && stream.Length == 0 &&
+            var managedGuard = rejected && stream.Length == 0 &&
                 NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "begin-save").Entries == before;
+            Require(managedGuard, "Managed save began despite the nonpersistent domain guard.");
+            var size = -1; var pointer = ProbeNativeBeginSave(&size, Grid.WidthInCells, Grid.HeightInCells);
+            nativeSaveGuardVerified = pointer == null && size == 0 &&
+                (Marshal.PtrToStringAnsi(LastError()) ?? "").Contains("saving is disabled") &&
+                NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "begin-save").Entries == before + 1;
+            // No native save started, so EndSave must not be called here.
+            saveGuardVerified = managedGuard && nativeSaveGuardVerified;
             Require(saveGuardVerified, "Native save began despite the nonpersistent domain guard.");
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
@@ -358,7 +431,11 @@ namespace MixedAtmospheres.Oni
             NativeFlowFenceVerified = nativeFlowFenceVerified, NativeProjectionMasses = nativeProjectionMasses,
             NativeProjectionTemperatures = nativeProjectionTemperatures,
             NativeRendererAdvanced = nativeRendererAdvanced, SaveGuardVerified = saveGuardVerified,
+            NativeSaveGuardVerified = nativeSaveGuardVerified,
             GameGridProjectionVerified = gameGridProjectionVerified, ProjectionPrimedAtNativeFrame = projectionPrimedAtFrame,
+            HeatCommands = heatStatus, HeatCommandsVerified = heatVerified, HeatPacketsRouted = heatPacketsRouted,
+            HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
+            HeatEnergyResidualJoules = heatEnergyResidual,
             MixtureWorldRendering.TextureWrites, MixtureWorldRendering.LastTexturePublicationGeneration,
             NativeFlowExclusion = "Impermeable scalar compatibility cells plus gas-interaction and per-cell native phase hooks",
             TargetReading = publishedReadings != null && publishedReadings.TryGetValue(target, out var reading) ? reading : null,
@@ -382,6 +459,10 @@ namespace MixedAtmospheres.Oni
         }
         private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
         private static void Check(int value) { if (value != 0) throw new InvalidOperationException("Native sealed domain " + value + ": " + Marshal.PtrToStringAnsi(LastError())); }
+        // Match the inspected private Sim import, bypassing its managed save
+        // wrapper only for the explicit rejection control.
+        [DllImport("SimDLL", EntryPoint = "SIM_BeginSave")]
+        private static extern byte* ProbeNativeBeginSave(int* size, int width, int height);
 
     }
     public sealed class NativeSealedDomainLabel : MonoBehaviour { private void OnGUI() => NativeSealedDomainValidation.DrawLabel(); }

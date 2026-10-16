@@ -13,5 +13,7 @@ bool suppress_domain_cell(std::uint32_t hook, int cell) noexcept;
 void copy_domain(MAOniDomainStatus&, MAOniDomainCell*, std::uint32_t capacity);
 bool domain_active() noexcept;
 MAOniDomainSpecies domain_species(std::uint32_t index);
+void queue_domain_heat(const MAOniDomainHeat*, std::uint32_t count, MAOniDomainHeatStatus&);
+void copy_domain_heat(MAOniDomainHeatStatus&);
 std::mutex& domain_frame_mutex() noexcept;
 }

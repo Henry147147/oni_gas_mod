@@ -73,6 +73,7 @@ namespace MixedAtmospheres.Oni
             var world = ProbeScope.World;
             if (world == null)
             {
+                if (NativeSealedDomainValidation.TryHandleHeat(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active) NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload);
                 var native = Sim.SIM_HandleMessage(message, length, payload);
                 NativeBackendObservation.AfterNativeMessage(message);
@@ -117,6 +118,7 @@ namespace MixedAtmospheres.Oni
             if (NativeContractCapture.IsActive) throw new NotSupportedException("Batch calls are forbidden during capture-only export.");
             if (ProbeScope.World == null)
             {
+                if (NativeSealedDomainValidation.TryHandleHeat(message, length, count, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active)
                 {
                     if (length < 0 || count < 0 || (count > 0 && payload == null)) throw new ArgumentException("Invalid native batch.");

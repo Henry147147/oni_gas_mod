@@ -28,6 +28,10 @@ std::array<std::atomic<std::uint64_t>,MA_ONI_HOOK_COUNT> suppressed{};
 std::uint64_t session_sequence{};
 MAOniDomainStatus status=[] { MAOniDomainStatus value{}; value.struct_size=sizeof(value); value.abi_version=MA_ONI_DOMAIN_ABI_VERSION; return value; }();
 std::unique_ptr<MacClosedWorld> world;
+std::unique_ptr<MacClosedWorld> pending_heat_world;
+std::uint64_t accepted_heat_batches{}, committed_heat_batches{};
+std::uint32_t pending_heat_batches{}, pending_heat_edits{};
+MacEnergySum committed_heat, pending_heat;
 std::vector<MAOniDomainCell> publication;
 std::array<long double,4> initial_masses{};
 long double initial_energy{};
@@ -122,6 +126,15 @@ void fault(const char* error) noexcept {
     // Keep the native exclusions active. Failure never re-enables native fluid
     // physics over the compatibility cells; the driver must end the session.
 }
+MAOniDomainHeatStatus heat_status() {
+    return {sizeof(MAOniDomainHeatStatus),1,status.state,pending_heat_batches,status.session,
+        accepted_heat_batches,committed_heat_batches,committed_heat.value().require_representable(),pending_heat.value().require_representable()};
+}
+MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second) {
+    auto result=first;
+    for (std::size_t i=0;i<second.size();++i) result.add(second.component(i));
+    return result;
+}
 }
 
 void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
@@ -167,6 +180,8 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread) {
     next.pressure_pa=cells.front().pressure; next.liquid_mass_kg=cells.front().masses[3];
     world=std::move(candidate); publication=std::move(cells); initial_masses=totals; initial_energy=total_energy;
     status=next;
+    pending_heat_world.reset(); accepted_heat_batches=committed_heat_batches=0;
+    pending_heat_batches=pending_heat_edits=0; committed_heat={}; pending_heat={};
     for (auto& value : suppressed) value=0;
     enabled.store(true,std::memory_order_release);
 }
@@ -181,6 +196,7 @@ void shutdown_domain() noexcept {
     enabled.store(false,std::memory_order_release);
     if (status.state == 1) status.state=2;
     world.reset();
+    pending_heat_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
 std::mutex& domain_frame_mutex() noexcept { return frame_mutex; }
@@ -214,7 +230,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         if (!ticket || ticket <= status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 1)
             throw std::runtime_error("Native frame ticket or timestep is invalid");
         if (thread == status.start_thread) throw std::runtime_error("Custom solver did not execute on a native worker");
-        auto result=world->advanced(seconds,4096);
+        auto result=(pending_heat_world ? *pending_heat_world : *world).advanced(seconds,4096);
         auto cells=project(result.world); auto next=status;
         const auto totals=masses(result.world);
         for (std::size_t i=0;i<totals.size();++i) {
@@ -223,8 +239,12 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
             } else next.maximum_relative_mass_error=std::max(next.maximum_relative_mass_error,
                 static_cast<double>(std::abs((totals[i]-initial_masses[i])/initial_masses[i])));
         }
+        auto next_heat=combined_heat(committed_heat,pending_heat);
+        const auto heat_projection=next_heat.value().require_representable();
+        const auto expected_energy=initial_energy+heat_projection;
+        const auto energy_scale=std::abs(initial_energy)+std::abs(heat_projection);
         next.maximum_relative_energy_error=std::max(next.maximum_relative_energy_error,
-            static_cast<double>(std::abs((energy(result.world)-initial_energy)/initial_energy)));
+            static_cast<double>(std::abs(energy(result.world)-expected_energy)/energy_scale));
         if (next.maximum_relative_mass_error > 1e-8 || next.maximum_relative_energy_error > 1e-6)
             throw std::runtime_error("Native domain exceeded its mass/energy drift bound");
         next.substeps+=result.report.substeps; next.rejected_attempts+=result.report.rejected_attempts;
@@ -234,8 +254,42 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next.liquid_mass_kg=cells.front().masses[3];
         auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
         world=std::move(owner); publication=std::move(cells); status=next;
+        committed_heat=std::move(next_heat); committed_heat_batches=accepted_heat_batches;
+        pending_heat_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
     } catch (const std::exception& error) { fault(error.what()); }
       catch (...) { fault("Unknown custom native worker failure"); }
+}
+void queue_domain_heat(const MAOniDomainHeat* requests,std::uint32_t count,MAOniDomainHeatStatus& output) {
+    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);
+    if (!enabled.load(std::memory_order_acquire) || status.state != 1) throw std::logic_error("Native domain is not accepting heat");
+    if (!requests || count == 0 || count > 256 || pending_heat_edits > 4096-count || pending_heat_batches >= 1024)
+        throw std::invalid_argument("Native heat batch or pending capacity is invalid");
+    const ArithmeticScope arithmetic;
+    std::vector<MacCellHeat> edits; edits.reserve(count); auto next_heat=pending_heat;
+    for (std::uint32_t i=0;i<count;++i) {
+        const auto& input=requests[i];
+        if (input.struct_size != sizeof(input) || input.abi_version != 1)
+            throw std::invalid_argument("Native heat input ABI differs");
+        if (input.session != status.session || input.expected_frame != status.completed_frames)
+            throw std::logic_error("Native heat source session/frame is stale");
+        const auto x=input.public_cell%geometry.native_grid_width, y=input.public_cell/geometry.native_grid_width;
+        if (x < geometry.offset_x || x-geometry.offset_x >= geometry.width || y < geometry.offset_y || y-geometry.offset_y >= geometry.height)
+            throw std::invalid_argument("Native heat target is outside the owned domain");
+        edits.push_back({x-geometry.offset_x+(y-geometry.offset_y)*geometry.width,input.joules,input.maximum_temperature_k});
+        next_heat.add(input.joules);
+    }
+    // Scalar status fields are read-only projections. The accumulated account
+    // retains its full additive expansion, including cancellation remainders.
+    (void)next_heat.value().require_representable();
+    (void)combined_heat(committed_heat,next_heat).value().require_representable();
+    if (accepted_heat_batches == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native heat account overflow");
+    auto candidate=std::make_unique<MacClosedWorld>((pending_heat_world ? *pending_heat_world : *world).with_cell_heat(edits));
+    pending_heat_world=std::move(candidate); pending_heat=std::move(next_heat);
+    pending_heat_edits+=count; ++pending_heat_batches; ++accepted_heat_batches;
+    output=heat_status();
+}
+void copy_domain_heat(MAOniDomainHeatStatus& output) {
+    std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic; output=heat_status();
 }
 void copy_domain(MAOniDomainStatus& output,MAOniDomainCell* cells,std::uint32_t capacity) {
     std::lock_guard frame_lock(frame_mutex);

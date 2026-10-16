@@ -40,6 +40,25 @@ namespace MixedAtmospheres.Oni
         {
             public double MolarMass, Cv, Offset, Density;
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct HeatCommand
+        {
+            public uint Size, Version;
+            public ulong Session, ExpectedFrame;
+            public uint PublicCell, Source;
+            public double Joules, MaximumTemperature;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct HeatStatus
+        {
+            public uint Size, Version, State, PendingBatches;
+            public ulong Session, AcceptedBatches, CommittedBatches;
+            public double CommittedHeatJoules, PendingHeatJoules;
+            internal static HeatStatus Empty => new HeatStatus { Size = 56, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint HeatVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_queue_heat", CallingConvention = CallingConvention.Cdecl)] internal static extern int QueueHeat([In] HeatCommand[] commands, uint count, ref HeatStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyHeat(ref HeatStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Version();
         [DllImport(Library, EntryPoint = "ma_oni_domain_species", CallingConvention = CallingConvention.Cdecl)] internal static extern int Definition(uint index, out Species value);
         [DllImport(Library, EntryPoint = "ma_oni_domain_start", CallingConvention = CallingConvention.Cdecl)] internal static extern int Begin(ref Configuration configuration, ref Status status);

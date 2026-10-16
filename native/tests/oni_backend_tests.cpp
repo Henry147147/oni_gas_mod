@@ -68,6 +68,13 @@ int main() {
                 "unknown domain species changed output");
         require(ma_oni_domain_species(4,&species)==MA_ONI_OK && species.molar_mass>0 && species.cv>0,
                 "absent carbon-dioxide presentation identity");
+        require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");
+        MAOniDomainHeatStatus heat{56,1,0,0,0,0,0,0,0};
+        require(ma_oni_domain_heat_status(&heat)==MA_ONI_OK && heat.state==0,"inactive heat status");
+        const auto held_heat=heat;
+        const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
+        require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,
+                "unowned heat accepted or changed output");
         std::cout << "PASS: native observer ABI, SHA256 controls, unknown-image/immutable rejection and inactive lifecycle\n";
         return 0;
     } catch (const std::exception& error) {

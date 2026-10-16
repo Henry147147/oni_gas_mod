@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
 #include "oni_domain.hpp"
+#include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
 #include <algorithm>
 #include <array>
@@ -92,7 +93,15 @@ void on_shutdown() {
 }
 FORWARD(on_message, MA_ONI_MESSAGE, void*, (int id,int size,std::uint8_t* data), (id,size,data))
 FORWARD(on_messages, MA_ONI_MESSAGES, void*, (int id,int size,int count,std::uint8_t* data), (id,size,count,data))
-FORWARD(on_begin_save, MA_ONI_BEGIN_SAVE, std::uint8_t*, (int* size,int x,int y), (size,x,y))
+std::uint8_t* on_begin_save(int* size,int x,int y) {
+    Call call(MA_ONI_BEGIN_SAVE);
+    if (ma::oni::domain_active()) {
+        if (size) *size=0;
+        std::snprintf(last_error.data(),last_error.size(),"The custom native domain requires an integrated checkpoint; native scalar saving is disabled");
+        return nullptr;
+    }
+    return original<std::uint8_t* (*)(int*,int,int)>(MA_ONI_BEGIN_SAVE)(size,x,y);
+}
 FORWARD(on_end_save, MA_ONI_END_SAVE, void, (), ())
 FORWARD(on_main, MA_ONI_MAIN, void, (void* self), (self))
 FORWARD(on_process_frame, MA_ONI_PROCESS_FRAME, void, (void* frame,void* data), (frame,data))
@@ -387,7 +396,7 @@ MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatu
         std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
         if (config->native_grid_width > static_cast<std::uint32_t>(INT32_MAX-2) ||
             dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
-            static_cast<std::uint64_t>(config->offset_y)+config->height+1 >= static_cast<std::uint32_t>(dimensions[1]))
+            static_cast<std::uint64_t>(config->offset_y)+config->height+2 >= static_cast<std::uint32_t>(dimensions[1]))
             throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
         try { ma::oni::start_domain(*config,native_thread()); }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
@@ -408,6 +417,24 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain output ABI");
         ma::oni::stop_domain(); ma::oni::copy_domain(*output,nullptr,0);
+    });
+}
+std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native heat status ABI");
+        ma::oni::copy_domain_heat(*output);
+    });
+}
+MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat* inputs,std::uint32_t count,MAOniDomainHeatStatus* output) {
+    return boundary([&] {
+        if (!inputs || count == 0 || count > 256 || !output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native heat batch/output ABI");
+        try { ma::oni::queue_domain_heat(inputs,count,*output); }
+        catch (const ma::FluidFatalError& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
 }

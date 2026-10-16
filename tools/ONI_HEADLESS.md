@@ -22,6 +22,9 @@ priming, actual grid/rendering checks and save rejection. These actor-free
 development modes do not certify a playable colony or moving liquid transport.
 The corrected water rerun `20261016T194433Z-dc7013` passes 120 frames after
 priming with the padded-index filter and nonuniform temperature control.
+`native-heat-domain` adds real game heating/cooling messages, their committed
+external-energy account, and both managed/native scalar-save rejection. The
+runner requires those facts in addition to the normal domain checks.
 
 The optional native SimDLL forwarding observer has a separate `native-observer`
 mode. Build/package with `--native-observer`, then use that mode to validate

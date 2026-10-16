@@ -1,10 +1,12 @@
 #include "../src/oni_domain.hpp"
 #include <cmath>
+#include <array>
 #include <cfenv>
 #include <chrono>
 #include <cstring>
 #include <iostream>
 #include <future>
+#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -21,6 +23,7 @@ int main() {
         static_assert(sizeof(MAOniDomainConfig)==40);
         static_assert(sizeof(MAOniDomainStatus)==440);
         static_assert(sizeof(MAOniDomainCell)==88);
+        static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         MAOniDomainConfig config{40,1,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);
@@ -43,6 +46,36 @@ int main() {
             const auto bulk=.5*(cell.momentum_x*cell.momentum_x+cell.momentum_y*cell.momentum_y)/mass;
             require(bulk<=cell.resolved_kinetic_energy*(1+1e-14),"resolved face energy is below its cell bulk projection");
         }
+        const auto old_cells=cells; const auto before_heat=final;
+        MAOniDomainHeatStatus heat{};
+        MAOniDomainHeat request{48,1,final.session,final.completed_frames,10+10*64,17,1000,1000};
+        ma::oni::queue_domain_heat(&request,1,heat);
+        request.joules=-250; ma::oni::queue_domain_heat(&request,1,heat);
+        require(heat.pending_batches==2 && heat.accepted_batches==2 && heat.committed_batches==0 && heat.pending_heat_joules==750,
+            "queued heat account differs");
+        const auto held_heat=heat;
+        std::array<MAOniDomainHeat,2> invalid{request,request}; invalid[1].joules=-1e30;
+        bool rejected=false;
+        try { ma::oni::queue_domain_heat(invalid.data(),2,heat); } catch (const std::exception&) { rejected=true; }
+        require(rejected && std::memcmp(&held_heat,&heat,sizeof(heat))==0,"rejected heat batch changed output");
+        request.expected_frame-=1; rejected=false;
+        try { ma::oni::queue_domain_heat(&request,1,heat); } catch (const std::logic_error&) { rejected=true; }
+        require(rejected,"stale heat reservation accepted");
+        final=capture(cells);
+        require(final.completed_frames==10 && final.time_seconds==before_heat.time_seconds && std::memcmp(cells.data(),old_cells.data(),cells.size()*sizeof(cells[0]))==0,
+            "heat enqueue advanced time or physical state");
+        ma::oni::advance_domain(11,.2,2); final=capture(cells); ma::oni::copy_domain_heat(heat);
+        require(final.state==1 && final.completed_frames==11 && std::abs(final.time_seconds-2.2)<1e-13 && heat.pending_batches==0 &&
+            heat.committed_batches==2 && heat.committed_heat_joules==750 && heat.pending_heat_joules==0,
+            "native tick did not atomically commit its heat account and physical clock");
+        long double old_total=0,next_total=0,scale=750;
+        for (std::size_t i=0;i<cells.size();++i) {
+            old_total+=old_cells[i].internal_energy+old_cells[i].resolved_kinetic_energy;
+            next_total+=cells[i].internal_energy+cells[i].resolved_kinetic_energy;
+            scale+=std::abs(old_cells[i].internal_energy)+std::abs(cells[i].internal_energy);
+        }
+        require(std::abs(next_total-old_total-750) <= 128*std::numeric_limits<double>::epsilon()*scale,
+            "external heat disappeared from U plus canonical kinetic energy");
         std::unique_lock frame_lock(ma::oni::domain_frame_mutex());
         std::promise<void> started;
         std::promise<MAOniDomainStatus> copied; auto ready=copied.get_future();
