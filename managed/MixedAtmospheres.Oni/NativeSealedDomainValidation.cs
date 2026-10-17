@@ -771,7 +771,7 @@ namespace MixedAtmospheres.Oni
             if (!prepared) return;
             var saveStatus = failed || !active || latest.State != 1
                 ? "Colony saves blocked until the native domain is ready."
-                : "Paired colony saves require a completed state with no pending work or live owned actors.";
+                : "Paired colony saves require a completed state, drained callbacks and stable saved actor identities.";
             GUI.Box(new Rect(Screen.width * .12f, 100, Screen.width * .76f, 80),
                 "SEALED NATIVE FLUID DOMAIN · " + (Liquid ? "compressed water" : "mixed air") + "\n" +
                 latest.CompletedFrames + " native frames · 6 owned cells · surrounding colony: original ONI\n" + saveStatus);

@@ -40,6 +40,13 @@ investigation. This run has no separate manual image review. It does not prove
 all gameplay packs, live-actor persistence, arbitrary fluid ownership or a
 playable nine-world overhaul.
 
+A later private read-only serialization observer identifies the warning owner
+as the asteroid's native `OrbitalMechanics` component and its
+`Ref<OrbitalObject>` list, referencing saved instance 2. That diagnostic changes
+no physics and still passes bounded continuation. It identifies the reference;
+it does not establish a repair. Its receipt SHA-256 is
+`e98c9aba5213a5fa9c0436a883262c2c1e4f78319abda0eb7e9712dad628b1c2`.
+
 Related controls: [GPU readback](native-gpu-readback.md),
 [reader lifecycle](native-reader-restore.md) and
 [the remaining implementation gates](completion-plan.md).

@@ -160,3 +160,22 @@ probes. These diagnostic changes are excluded from the shipped mod.
 startup with a DXGI/D3D11 failure before reaching the menu or collecting clock
 samples. It is a failed renderer control, providing no clock comparison and no
 feature acceptance. The normal WineD3D default remains unchanged.
+
+After Steam sign-in is restored, the normal client installs official Proton
+10.0, app 3658110, build 24408217: `1785139158 proton-10.0-4b`. Its installed
+depot is 3658111 with manifest 3074044630551272436. A separate working runtime
+copy keeps each diagnostic's mutable lock/fixup files outside the Steam profile.
+The default full-mod menu control uses frozen `6368468` and fails during
+`NitrogenElementTagPatch.VerifyCalls` with the same `GameTagExtensions.CreateTag`
+null reference seen in the other Proton defaults. The mod's failed-load teardown
+runs; this is not a menu, clock or gameplay pass. The raw result SHA-256 is
+`50b448b735477bbd06f472e240cb0e0fad9f8276112dfa416fc9da68586ca7c4`.
+
+The official runtime's independent clock control then completes 18 samples
+across menu pause/resume phases 1, 2 and 3. Unity realtime advances
+14.6594796 seconds while unscaled time has zero span. Neither custom native
+library is loaded and the diagnostic installs no Harmony patches. This
+reproduces the clock discrepancy on official Proton 10.0-4b; it does not supply
+a repair or feature acceptance. Diagnostic/result SHA-256:
+`033d2d4a4e6898013b91cb471df366c0ace3e8f4d282daaf58a34acf42ef8760`
+and `2c2690b92ea53e99bc7d1d96f4c9f62e5340760b22063e773967fd0d86a4643a`.
