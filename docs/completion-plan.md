@@ -168,6 +168,11 @@ coordinator: the mixture heading and all four bulk rows change with the complete
 native state, while hazardous trace warnings remain visible. Colour-only retains
 the same physical facts and accounts. Its six-cell reference scene still does
 not complete this gate; see [the scoped evidence](mixture-presentation.md#completed-colony-transactions-on-windows).
+Later Windows native gas/water controls additionally bind actual hover and
+selected details to the same completed physical object and publication as GPU
+rendering, including paused gas zoom and two water reload sessions. These
+[bounded rendering checks](native-fluid-rendering.md) supplement the required
+all-non-trace tile contents; production and Linux hover remain required.
 
 Exit: duplicants survive and operate for ten cycles with conservation
 diagnostics, and the presentation, screenshot and performance criteria above

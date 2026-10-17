@@ -304,6 +304,9 @@ namespace MixedAtmospheres.Oni
                 DensityOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
         }
 
+        internal static GasVisualSample SampleForValidation(MixturePresentation reading, double worldX, double worldY)
+            => Sample(reading, worldX, worldY, opacity);
+
         internal static byte DensityOpacity(MixturePresentation reading, OpacityParameters parameters)
         {
             if (reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0) return 0;

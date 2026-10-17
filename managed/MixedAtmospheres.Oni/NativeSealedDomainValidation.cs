@@ -365,6 +365,8 @@ namespace MixedAtmospheres.Oni
             catalog = new FluidMaterialCatalog("oni-sealed-domain-v2", materials);
             MixturePresentationRuntime.ResetProviders();
             MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide"));
+            MixtureInspection.CellHoverObserver -= ObserveNativeHover;
+            MixtureInspection.CellHoverObserver += ObserveNativeHover;
         }
         private static void ActivateOwner()
         {
@@ -721,6 +723,7 @@ namespace MixedAtmospheres.Oni
         }));
         internal static void Shutdown()
         {
+            MixtureInspection.CellHoverObserver -= ObserveNativeHover;
             ReleasePrivateSaveCallbacks();
             ReleaseRestoredNativeEvents(false);
             ReleasePairedCheckpointFixture();

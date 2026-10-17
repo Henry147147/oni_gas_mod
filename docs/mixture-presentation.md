@@ -141,6 +141,18 @@ This actual game screenshot was taken without an agent tile click. Its two
 bulk gases do not complete the four-gas/contaminant criterion above, and the
 completed validation frame does not establish changing production inspection.
 
+The later `windows-native-gas-render-r1` additionally matches all six bound GPU
+gas colours and opacity/danger bytes to the shared completed presentation.
+Actual hover shows nitrogen 78.295% and oxygen 21.705%; paused zoom preserves
+those readings, and full details retain the tiny helium trace. The real hover
+drawer's selected/unselected records retain the exact physical object and the
+same completed revision/publication as rendering. The repaired-water package
+also passes two loaded sessions with exact 120-frame continuation and matching
+GPU phase/colour; actual second-session water hover/details retain that source
+binding. See [the Windows rendering evidence](native-fluid-rendering.md) for
+the original screenshots, hashes and scope. These bounded controls supplement
+the all-non-trace hover requirement; Linux and production acceptance remain open.
+
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
 are immutable; `TrySampleCell` rejects solids/outside cells and allocates nothing

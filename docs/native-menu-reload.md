@@ -64,7 +64,8 @@ Private terminal review SHA-256:
 The saved colony retains its GUID and three duplicants. ONI still reports a
 missing KPrefabID reference (246809) during resaving; general managed-reference
 integrity is not proved. Actual liquid inspection is retained separately from
-liquid fill rendering, which remains unaccepted.
+the [later liquid-rendering repair](native-fluid-rendering.md), which closes
+the bounded Windows full-water appearance gap.
 
 The later Windows `windows-native-liquid-gravity-reload-r1` cohort also passes
 both loaded sessions with the distinct water-gravity energy profile. Each
@@ -75,6 +76,14 @@ at 48.000000715 s. See [the liquid-gravity record](native-liquid-gravity.md#actu
 for the source save, original screenshot and terminal receipts. This adds a
 second physical profile to the Windows lifecycle control; the scope below
 remains unchanged.
+
+The later `windows-fluid-render-reload-r1` reuses the repaired rendering package
+for both water-gravity sessions. Both retain the identical frame-120 physical
+hash above, the correct phase/water GPU pixels and matching completed
+presentation generations. Actual second-session hover and selected composition
+agree with the same physical reading while the water is visibly filled. Both
+autosaves/readbacks and exact restoration of all 13 original profile files pass;
+see [the rendering evidence and limits](native-fluid-rendering.md#repaired-water-through-the-main-menu).
 
 This remains a drained six-cell development domain.
 Live actor/outbox persistence, the Load screen's file-selection UI, arbitrary
