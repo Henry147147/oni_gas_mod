@@ -46,7 +46,7 @@ any existing experimental selector.
 
 Strict MSVC and GCC executions pass seven native groups and all 16 saved
 responses on Windows and Linux. Linux ASan/UBSan passes the same controls;
-all 21 linked numerical/test compile commands are instrumented, with fatal
+all 21 dependency/test compile commands are instrumented, with fatal
 findings and leak detection. Each platform's saved-only review performs 1,724
 checks and rejects altered heat, trace mass and actual endpoint U. Ten input
 controls reject, including a valid isentrope whose added stress heat exceeds
@@ -79,3 +79,55 @@ root, with stored U plus face kinetic energy checked together. A local material
 response alone does not prove that owning conservation or shock accuracy.
 The original strong-flow gate, production takeover and playable-colony
 requirements remain open.
+
+## Coupled pressure control under implementation
+
+The private occupied-material solver now accepts a complete constitutive work
+response. Its public isentropic entry supplies no override and retains the old
+calculation. The new explicit `advance_mac_compressive_pressure` entry freezes
+one linear coefficient per material cell. It uses the same total stress in the
+nonlinear volume root, nodal force and stored material U. Rejected Newton trials
+are not published; completed response records are rebuilt and matched against
+the accepted pressure and energy fields. This is a material pressure step,
+before Eulerian remap or the owning interval.
+
+The first coupled validation must pass six native groups and 15 accepted
+responses per OS and under Linux ASan/UBSan: dry reflection, wet pressure,
+filled water, gravity/body work, uniform periodic translation and five early/
+late rejections. Actual stored U plus nodal kinetic energy minus body work,
+momentum with individual wall/body impulses, midpoint volume closure and actual
+entropy retain their original operand bounds. The saved reviewer independently
+rebuilds each force and geometry equation, and must reject node, geometry, heat
+and trace corruption. The original 16 constitutive responses must remain byte
+identical after extracting their common output helper. Four preceding normal-OS
+streams (reconstruction, closed pressure/transport and both physical momentum
+controls) must remain byte identical to their accepted captures.
+
+Predeclared bounds: configure/build 180 seconds each, new native controls
+60 seconds and 1 MiB per pipe, saved reviews 180 seconds. Preceding native
+controls retain 180 seconds and their original 2 MiB capture cap. This control
+does not select a new owning mode or authorize another unchanged strong-flow
+run.
+
+All six coupled native groups now pass on Windows, Linux and Linux ASan/UBSan.
+Each independent saved review passes 2,277 checks over the 15 accepted material
+responses and rejects all four corruptions. The preceding constitutive control
+still passes 1,724 checks and its three corruptions per platform; all three
+constitutive native streams remain byte identical after the shared output
+helper extraction. All eight preceding normal-OS streams remain byte identical
+to their accepted captures. The sanitizer inspection covers all 23 dependency/
+test compile commands. The default and installed native libraries are intact.
+
+The first coupled saved review selected zero heat in an expanding cell for its
+doubling corruption, so that witness changed nothing. It is retained as a failed
+review. The corrected witness selects strictly positive heat and explicitly
+checks that each corruption changes its saved operand. It passes the same native
+captures without rebuilding or repeating the coupled native controls.
+
+Private native evidence is `local/mac-compressive-pressure-r1`; corrected
+review and unchanged-path checks are `local/mac-compressive-pressure-review-r2`.
+Terminal SHA-256:
+`3694462446879f742ad6033ed0327f7b4ab063fdd949558efbc72b28de1c69b9`.
+All owned processes and pipes are terminal. No independent-agent review is
+claimed. The owning timestep/selector, complete prerequisite rerun, original
+strong-flow gate and game acceptance remain required.

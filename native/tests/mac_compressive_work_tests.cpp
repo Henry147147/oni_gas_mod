@@ -1,5 +1,4 @@
-#include "mac_fixture.hpp"
-#include "mixed_atmospheres/mac_compressive_work.hpp"
+#include "mac_compressive_fixture.hpp"
 #include <iomanip>
 #include <utility>
 
@@ -11,11 +10,7 @@ void near(MacEnergy actual,MacEnergy expected,const char* why) {
     MacEnergyAccount a;a.add(actual);a.add(expected.negated());check(a.within_bound(),why);
 }
 void definitions(int profile,const FluidThermodynamics& model) {
-    for(const auto& d:model.reference().materials())
-        std::cout<<"CWDEF "<<profile<<' '<<ma::testing::setup().registry.index(d.id)<<' '<<
-            (d.phase==ReferencePhase::ideal_gas ? 0 : 1)<<' '<<d.molar_mass_kg_per_mol<<' '<<d.cv_j_per_kg_k<<' '<<
-            d.energy_offset_j_per_kg<<' '<<d.zero_pressure_density_kg_per_m3<<' '<<d.reference_bulk_modulus_pa<<' '<<
-            d.minimum_temperature_k<<' '<<d.maximum_temperature_k<<'\n';
+    ma::testing::export_compressive_definitions(profile,model);
 }
 MacCompressiveWork record(int id,int profile,const FluidThermodynamics& model,const MixtureInventory& source,
     double v,double dv,double h,double dt,MacEnergy linear) {
@@ -29,21 +24,7 @@ MacCompressiveWork record(int id,int profile,const FluidThermodynamics& model,co
     check(r.state.temperature_k>0 && r.work_pressure_volume_derivative_pa_per_m3.mantissa()<0,"Invalid compressive endpoint or tangent");
     if(dv>=0) check(r.stress_pa.is_zero() && r.dissipated_heat_j.is_zero(),"Expansion produced compressive heat");
     else check(!r.stress_pa.is_zero() && !r.dissipated_heat_j.is_zero(),"Positive compression lost its stress or heat");
-    const auto scaled=[](MacEnergy x) { std::cout<<' '<<x.mantissa()<<' '<<x.exponent(); };
-    std::cout<<"CWCASE "<<id<<' '<<profile<<' '<<v<<' '<<dv<<' '<<h<<' '<<dt;scaled(linear);
-    std::cout<<' '<<static_cast<int>(r.unresolved_energy_update)<<'\n';
-    std::cout<<"CWINIT "<<id<<' '<<source.energy<<' '<<before.mechanical_pressure_pa<<' '<<before.temperature_k<<' '<<before.entropy_j_per_k<<'\n';
-    std::cout<<"CWEND "<<id<<' '<<r.isentropic.endpoint.volume_m3<<' '<<r.mixture.energy<<' '<<r.state.mechanical_pressure_pa<<' '<<
-        r.state.temperature_k<<' '<<r.state.entropy_j_per_k<<'\n';
-    std::cout<<"CWISO "<<id<<' '<<r.isentropic.internal_energy_change_j<<' '<<r.isentropic.work_pressure_pa<<' '<<
-        static_cast<int>(r.isentropic.endpoint_volume_resolves_change)<<' '<<static_cast<int>(r.isentropic.endpoint_energy_resolves_change)<<'\n';
-    for(std::size_t s=0;s<source.masses.size();++s) if(source.masses[s]!=0 || r.mixture.masses[s]!=0)
-        std::cout<<"CWMASS "<<id<<' '<<s<<' '<<source.masses[s]<<' '<<r.mixture.masses[s]<<'\n';
-    std::cout<<"CWFULL "<<id;
-    for(const auto& x:{r.stress_pa,r.stress_volume_derivative_pa_per_m3,r.dissipated_heat_j,r.total_work_pressure_pa,
-        r.work_pressure_volume_derivative_pa_per_m3,r.requested_energy_change_j,r.energy_residual_j,r.energy_bound_j,
-        r.entropy_change_j_per_k,r.entropy_allowance_j_per_k}) scaled(x);
-    std::cout<<'\n';return r;
+    ma::testing::export_compressive_response(id,profile,source,before,v,dv,h,dt,linear,r);return r;
 }
 void ordinary() {
     const auto& set=ma::testing::setup();const auto source=set.mixture(1,100000,300);

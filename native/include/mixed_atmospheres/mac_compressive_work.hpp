@@ -1,6 +1,7 @@
 #pragma once
 #include "fluid_thermodynamics.hpp"
 #include "mac_energy.hpp"
+#include "volume_work.hpp"
 
 namespace ma::experimental {
 // A local constitutive response, not a pressure solve or an owning timestep.
@@ -29,4 +30,17 @@ struct MacCompressiveWork {
     const FluidThermodynamics&, const MixtureInventory&, double source_volume_m3,
     double volume_change_m3, double spacing_m, double timestep_s,
     MacEnergy linear_speed_m_per_s, ReferenceRootOptions isentropic_root_options = {});
+
+struct MacCompressivePressureStep {
+    OccupiedMaterialPressureStep pressure;
+    std::vector<MacCompressiveWork> responses;
+};
+// The same total work pressure changes nodal velocity, closes midpoint material
+// volume and heats actual U. Coefficients are supplied once per source cell and
+// remain frozen through Newton trials. Only the completed responses are kept.
+[[nodiscard]] MacCompressivePressureStep advance_mac_compressive_pressure(
+    const FluidThermodynamics&,std::span<const MaterialCell>,std::span<const OccupiedMaterialNode>,
+    double timestep_s,double spacing_m,std::span<const MacEnergy> linear_speeds_m_per_s,
+    PressurePreconditioner=PressurePreconditioner::automatic,double maximum_relative_volume_residual=5e-13,
+    ReferenceRootOptions isentropic_root_options={});
 }

@@ -9,7 +9,7 @@ thermal=importlib.util.module_from_spec(spec);spec.loader.exec_module(thermal)
 base=thermal.base;check,close,number,unique=base.check,base.close,base.number,base.unique
 dec=thermal.dec;EPS=base.EPS;R=thermal.ref.R
 
-def parse(raw):
+def parse(raw,case_ids=tuple(range(16)),profiles=(0,1),groups=7,rejections=10):
     d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full')};passes=[];rejected=None
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty compressive record');kind=r[0]
@@ -32,9 +32,9 @@ def parse(raw):
             check(len(r)==2 and rejected is None,'Rejection shape');rejected=int(r[1])
         else:
             check(kind=='PASS','Unknown compressive work record');passes.append(line)
-    check(len(set(passes))==len(passes)==7 and rejected==10,'Missing compressive work groups or rejection controls')
-    check(all(set(d[k])==set(range(16)) for k in ('cases','initial','end','iso','full')),'Missing or extra complete compressive response')
-    check(set(k[0] for k in d['definitions'])=={0,1} and len(d['definitions'])==8,'Missing immutable material profiles')
+    check(len(set(passes))==len(passes)==groups and rejected==rejections,'Missing compressive work groups or rejection controls')
+    check(all(set(d[k])==set(case_ids) for k in ('cases','initial','end','iso','full')),'Missing or extra complete compressive response')
+    check(set(k[0] for k in d['definitions'])==set(profiles) and len(d['definitions'])==4*len(profiles),'Missing immutable material profiles')
     check(all(c in d['cases'] for c,_ in d['masses']),'Orphan constituent')
     return d
 
@@ -90,11 +90,11 @@ def mixed_work(masses,materials,u,v,dv):
     check(dv!=0,'Mixed zero-step tangent has no fixture')
     work=-du/dec(dv);return du,work,(p1-work)/dec(dv)
 
-def review(d):
+def review(d,fixture_controls=True):
     subrange=0;negative=0
     for c,row in d['cases'].items():
         profile,v,dv,h,dt,linear,unresolved=row
-        check(profile==(1 if c==6 else 0) and min(v,h,dt)>0 and linear>=0,'Invalid source or transport coefficient')
+        check((not fixture_controls or profile==(1 if c==6 else 0)) and min(v,h,dt)>0 and linear>=0,'Invalid source or transport coefficient')
         definitions={i:q for (p,i),q in d['definitions'].items() if p==profile}
         materials={i:q[:6] for i,q in definitions.items()}
         masses={i:m[0] for (j,i),m in d['masses'].items() if j==c}
@@ -137,8 +137,8 @@ def review(d):
         check(ds>=-sb,'Actual stored entropy reduced beyond original allowance')
         expected_unresolved=abs(u1-u0-requested)>128*EPS*abs(requested)
         check(unresolved==int(expected_unresolved),'Unresolved canonical U flag differs')
-        if c==15:check(unresolved==1 and rv==ru==0 and u1==u0 and v1==v,'Subrange canonical representability was hidden')
-    check(subrange==1 and negative>=1 and d['initial'][6][0]<0,'Missing subrange heat or negative-reference control')
+        if fixture_controls and c==15:check(unresolved==1 and rv==ru==0 and u1==u0 and v1==v,'Subrange canonical representability was hidden')
+    if fixture_controls:check(subrange==1 and negative>=1 and d['initial'][6][0]<0,'Missing subrange heat or negative-reference control')
 
 def main():
     if len(sys.argv)!=3:raise SystemExit('Usage: review_mac_compressive_work.py <saved.raw> <fresh-report.json>')
