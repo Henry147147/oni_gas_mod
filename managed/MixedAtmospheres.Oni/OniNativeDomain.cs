@@ -127,6 +127,16 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
         [StructLayout(LayoutKind.Sequential)]
+        internal struct ViscosityStatus
+        {
+            public uint Size, Version, State, Enabled;
+            public ulong Session, CompletedFrame, Stages, Modes, UnresolvedHeatUpdates, UnresolvedMomentumUpdates;
+            public double ShearPaSeconds, BulkPaSeconds, DissipatedKineticEnergy, StoredHeat, EntropyLowerBound, WallImpulseX, WallImpulseY;
+            internal static ViscosityStatus Empty => new ViscosityStatus { Size = 120, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ViscosityVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyViscosityStatus(ref ViscosityStatus status);
+        [StructLayout(LayoutKind.Sequential)]
         internal struct GravityStatus
         {
             public uint Size, Version, State, Enabled;

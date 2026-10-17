@@ -27,13 +27,16 @@ MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
 }
 int main() {
     try {
-        for (const auto scenario : {4U,5U}) {
+        for (const auto scenario : {4U,5U,6U}) {
         const MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
         std::vector<MAOniDomainCell> cells(6);auto state=capture(cells);const auto initial=cells;
         const auto held=snapshot_domain(state.session,0);
         require(advance_domain_snapshot(held,0)==held,"Mixed frame-zero checkpoint did not retain every physical byte");
         MAOniDomainThermalStatus thermal{};copy_domain_thermal_status(thermal);
-        require(thermal.enabled==(scenario==5 ? 1U : 0U) && thermal.stages==0,"Mixed scenario changed its declared conduction setting");
+        require(thermal.enabled==(scenario!=4 ? 1U : 0U) && thermal.stages==0,"Mixed scenario changed its declared conduction setting");
+        MAOniDomainViscosityStatus viscosity{};copy_domain_viscosity_status(viscosity);
+        require(viscosity.enabled==(scenario==6 ? 1U : 0U) && viscosity.stages==0 &&
+            viscosity.shear_pa_s==(scenario==6 ? .5 : 0) && viscosity.bulk_pa_s==(scenario==6 ? .25 : 0),"Wrong initial viscosity setting");
         std::array<MAOniDomainTransfer,2> edits{{
             {64,2,state.session,0,650,3,1,1,21,0,.03125,310},
             {64,2,state.session,0,651,1,2,1,22,0,.015625,0}}};
@@ -43,8 +46,13 @@ int main() {
         queue_domain_transfers(edits.data(),2,transfers);require(transfers.pending_batches==1 && transfers.accepted_batches==1,"Mixed transfer batch was not reserved");
         advance_domain(1,.2F,2);state=capture(cells);
         copy_domain_thermal_status(thermal);
-        if (scenario==5) require(thermal.stages==2*state.substeps && thermal.contacts>0 && thermal.iterations>0 &&
+        if (scenario!=4) require(thermal.stages==2*state.substeps && thermal.contacts>0 && thermal.iterations>0 &&
             thermal.redistributed_energy_j>0,"Mixed native worker omitted its nonlinear conductive half stages");
+        copy_domain_viscosity_status(viscosity);
+        if (scenario==6) require(viscosity.stages==2*state.substeps && viscosity.modes>0 && viscosity.dissipated_kinetic_j>0 &&
+            viscosity.stored_heat_j>0 && viscosity.entropy_lower_bound_j_per_k>0,"Viscous native worker omitted its physical stress/heat stages");
+        else require(viscosity.stages==0 && viscosity.dissipated_kinetic_j==0 && viscosity.stored_heat_j==0 &&
+            viscosity.wall_impulse_x==0 && viscosity.wall_impulse_y==0,"Disabled viscosity reported another operator's work");
         std::array<MAOniDomainReceipt,8> receipts{};std::uint32_t count=0;
         copy_domain_receipts(state,cells.data(),6,receipts.data(),8,count);
         require(count==2 && receipts[0].species==3 && receipts[0].kind==1 && receipts[0].callback==21 && receipts[0].mass_kg==.03125 &&

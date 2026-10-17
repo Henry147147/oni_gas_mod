@@ -17,7 +17,7 @@ namespace MixedAtmospheres.Oni
             retainedFrameVerified=nativeSolidsAdvanced=nativeSnapshotVerified=false;nativeCellsUnchanged=true;
             nativeFlowControlObserved=projectionPrimed=writingProjection=nativeFlowFenceVerified=false;
             nativeRendererAdvanced=saveGuardVerified=nativeSaveGuardVerified=gameGridProjectionVerified=false;
-            heatStatus=default;thermalStatus=default;gravityStatus=default;gravityVerified=thermalVerified=false;
+            heatStatus=default;thermalStatus=default;viscosityStatus=default;gravityStatus=default;gravityVerified=thermalVerified=false;
             heatSubmitted=heatVerified=heatAvoidedNativeDispatch=false;
             heatBeforeEnergy=heatEnergyResidual=heatEnergyScale=0;heatEnergyBound=1e-6;heatPacketsRouted=0;
             transferStatus=default;completedReceipts=Array.Empty<Receipt>();deliveredReceipt=0;transferPacketsRouted=receiptsPublished=0;

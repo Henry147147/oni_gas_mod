@@ -86,7 +86,8 @@ struct MacClosedAdvanceReport {
     double conductive_entropy_j_per_k = 0;
     std::size_t viscosity_stages = 0, viscosity_modes = 0;
     std::size_t unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
-    MacEnergy viscous_heat;
+    MacEnergy viscous_heat,viscous_stored_heat;
+    MacScaled viscous_wall_impulse_x,viscous_wall_impulse_y;
     double viscous_entropy_lower_bound_j_per_k = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;

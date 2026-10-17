@@ -352,8 +352,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     Account conductive_entropy,viscous_entropy;
-    MacEnergySum viscous_heat;
-    MacScaledSum wx, wy; Account gravity_change, body_impulse;
+    MacEnergySum viscous_heat,viscous_stored_heat;
+    MacScaledSum wx, wy,viscous_wx,viscous_wy; Account gravity_change, body_impulse;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
     while (result.world.time_s_ < endpoint) {
@@ -431,8 +431,10 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 if (settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0)
                     for (const auto* viscosity : {&before_viscosity,&after_viscosity}) {
                         bounds.add(viscosity->energy_bound);viscous_heat.add(viscosity->heat);
+                        viscous_stored_heat.add(viscosity->stored_heat);
                         viscous_entropy.add(viscosity->entropy_lower_bound_j_per_k);
                         wx.add(viscosity->wall_impulse_x);wy.add(viscosity->wall_impulse_y);
+                        viscous_wx.add(viscosity->wall_impulse_x);viscous_wy.add(viscosity->wall_impulse_y);
                         ++result.report.viscosity_stages;result.report.viscosity_modes+=viscosity->modes;
                         result.report.unresolved_viscous_heat_updates+=viscosity->unresolved_heat_updates;
                         result.report.unresolved_viscous_momentum_updates+=viscosity->unresolved_momentum_updates;
@@ -476,6 +478,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     result.report.conductive_redistribution_j=conductive_redistribution.value();
     result.report.conductive_entropy_j_per_k=conductive_entropy.value();
     result.report.viscous_heat=viscous_heat.value();
+    result.report.viscous_stored_heat=viscous_stored_heat.value();
+    result.report.viscous_wall_impulse_x=viscous_wx.value();result.report.viscous_wall_impulse_y=viscous_wy.value();
     result.report.viscous_entropy_lower_bound_j_per_k=viscous_entropy.value();
     result.report.absolute_shock_heat_transfer_wide_j = shock_heat_transfer.value();
     result.report.absolute_shock_heat_transfer_j = projected_energy(result.report.absolute_shock_heat_transfer_wide_j, result.report.rounded_energy_projections);

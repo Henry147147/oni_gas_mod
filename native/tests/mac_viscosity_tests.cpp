@@ -114,6 +114,23 @@ void stage_controls() {
     source.momentum_x[0]=std::numeric_limits<double>::quiet_NaN();rejects([&] { (void)advance_mac_viscosity(setup.registry,*setup.eos,source,1,{1,1}); });
     for (const MacViscosity bad: {MacViscosity{-1,0},MacViscosity{0,std::numeric_limits<double>::infinity()}})
         rejects([&] { (void)advance_mac_viscosity(setup.registry,*setup.eos,still,1,bad); });
+    auto liquid=setup.state(3,2,false);
+    for (auto& cell:liquid.cells) cell.mixture=setup.mixture(1,1e5,300,1);
+    const auto liquid_inertia=mac_face_inertias(setup.registry,liquid,*setup.eos);
+    liquid.momentum_x[liquid.grid.x_face(1,0)]=liquid_inertia.x[liquid.grid.x_face(1,0)]*.5;
+    const auto liquid_after=advance_mac_viscosity(setup.registry,*setup.eos,liquid,.75,{.4,.2});identities(liquid,liquid_after);
+    require(liquid_after.report.heat.mantissa()>0 && liquid_after.report.stored_heat.mantissa()>0,"Pure liquid did not store dissipated heat");
+    auto obstacle=setup.state(4,3,false,false,true);const auto obstacle_inertia=mac_face_inertias(setup.registry,obstacle,*setup.eos);
+    obstacle.momentum_x[obstacle.grid.x_face(2,0)]=obstacle_inertia.x[obstacle.grid.x_face(2,0)]*.5;
+    const auto obstacle_after=advance_mac_viscosity(setup.registry,*setup.eos,obstacle,.75,{.4,.2});identities(obstacle,obstacle_after);
+    require(obstacle_after.report.heat.mantissa()>0 && obstacle_after.state.cells[5].mixture.energy==0,"Interior wall changed or suppressed all physical viscosity");
+    auto hot=setup.state(3,2,false);
+    for (auto& cell:hot.cells) cell.mixture=setup.mixture(1,1e5,1e6-1e-5);
+    const auto hot_inertia=mac_face_inertias(setup.registry,hot,*setup.eos);
+    hot.momentum_x[hot.grid.x_face(1,0)]=hot_inertia.x[hot.grid.x_face(1,0)]*1000;
+    const auto hot_held=testing::fingerprint(hot);
+    rejects([&] { (void)advance_mac_viscosity(setup.registry,*setup.eos,hot,1,{1e100,0}); });
+    require(testing::fingerprint(hot)==hot_held,"Late viscous EOS rejection changed source fields");
     std::cout<<"PASS gas, wet, two axes, closed walls, periodic, zero and immutable invalid viscous stages\n";
 }
 void refinement() {

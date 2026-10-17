@@ -26,7 +26,7 @@ namespace MixedAtmospheres.Oni
         private static void Validate(ulong session,ulong frame,ulong epoch,double time,Configuration geometry,ReadOnlySpan<byte> physical)
         {
             Require(session>0 && epoch>0 && !double.IsNaN(time) && !double.IsInfinity(time) && time>0,"Invalid physical checkpoint source epoch/clock.");
-            Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=5 &&
+            Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=6 &&
                 geometry.Width>=2 && geometry.Width<=16 && geometry.Height>=2 && geometry.Height<=16 && geometry.X>0 && geometry.Y>0 &&
                 (ulong)geometry.X+geometry.Width<geometry.GridWidth,"Invalid saved native domain geometry.");
             NativeActorCheckpointImage? actorImage=null;
@@ -40,7 +40,7 @@ namespace MixedAtmospheres.Oni
                 physical=actorImage.SolverImage;
             }
             Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
-                BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8))==2,"Unsupported physical checkpoint format.");
+                BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8))==(geometry.Scenario==6 ? 3U : 2U),"Unsupported physical checkpoint format for this scenario.");
             var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
             Require(clock+42<=physical.Length-8,"Physical checkpoint metadata is truncated.");
             var offset=checked((int)clock);

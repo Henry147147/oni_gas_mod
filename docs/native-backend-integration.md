@@ -221,6 +221,15 @@ is no independent managed advance creating a second clock. Domain ABI 1's
 four-species layout is historical. Rebuild native/managed clients together;
 exact ABI checks reject older binaries before copying.
 
+The additive [physical viscosity ABI](native-viscosity.md) is version 1 with a
+120-byte completed status. Native scenario 6 combines occupied gas/liquid
+cells, nonlinear conduction and symmetric Newtonian stress relaxation on the
+same worker clock. It accounts separately for kinetic dissipation, represented
+heating, wall reactions and unresolved updates. Both dynamic viscosity
+coefficients persist in physical checkpoint version 3. Scenarios 0–5 retain
+their zero-viscosity version 2 images exactly; no second managed simulation
+clock is introduced. Actual Unity viscosity acceptance remains required.
+
 Only new colonies opt into mixture ownership. Headless world-generation
 settling and vanilla saves retain the original simulator. Stage all generated
 worlds and validate compressed-liquid/EOS support before activation; do not

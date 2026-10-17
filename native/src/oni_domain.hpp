@@ -29,6 +29,7 @@ void configure_persistent_domain_actors(const MAOniDomainPersistentActor*,std::u
 std::uint32_t pending_domain_actor_restores();
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
+void copy_domain_viscosity_status(MAOniDomainViscosityStatus&);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);
 // Caller must hold domain_frame_mutex; native and physical capture share it.

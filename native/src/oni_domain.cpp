@@ -21,7 +21,7 @@ namespace {
 using namespace experimental;
 constexpr std::array<const char*,5> ids{"nitrogen","oxygen","helium","water","carbon_dioxide"};
 constexpr bool liquid_scenario(std::uint32_t scenario) { return scenario==1 || scenario==3; }
-constexpr bool mixed_scenario(std::uint32_t scenario) { return scenario==4 || scenario==5; }
+constexpr bool mixed_scenario(std::uint32_t scenario) { return scenario==4 || scenario==5 || scenario==6; }
 constexpr bool admitted_species(std::uint32_t scenario,std::uint32_t species) {
     return mixed_scenario(scenario) || liquid_scenario(scenario)==(species==3);
 }
@@ -55,6 +55,8 @@ std::map<ActorIdentityKey,actor_checkpoint::State> pending_actor_restore;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
 std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{};
 MacEnergySum thermal_redistribution,thermal_entropy;
+std::uint64_t viscous_stages{},viscous_modes{},unresolved_viscous_heat{},unresolved_viscous_momentum{};
+MacEnergySum viscous_dissipation,viscous_stored_heat,viscous_entropy,viscous_wall_x,viscous_wall_y;
 MacEnergySum committed_potential,pending_potential,body_impulse,gravity_internal_work;
 double initial_potential{},maximum_energy_residual{};
 std::vector<MAOniDomainCell> publication;
@@ -351,7 +353,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
 }
 void validate_domain_geometry(const MAOniDomainConfig& config) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
-        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 5 ||
+        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 6 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
@@ -388,7 +390,9 @@ std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& c
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
         candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0) ||
-        (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction!=(config.scenario==5)))
+        (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction!=(config.scenario!=4)) ||
+        candidate->settings().viscosity.shear_pa_s!=(config.scenario==6 ? .5 : 0) ||
+        candidate->settings().viscosity.bulk_pa_s!=(config.scenario==6 ? .25 : 0))
         throw std::invalid_argument("Physical checkpoint clock, grid or gravity differs from its native domain configuration");
     const auto water=registry.index("water");
     for (const auto& cell : state.cells) {
@@ -448,7 +452,11 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     }
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
+    if (config.scenario==6 && initial_cells.empty())
+        for (std::uint32_t y=0;y<config.height;++y) for (std::uint32_t x=1;x<config.width;++x)
+            state.momentum_x[state.grid.x_face(x,y)]=inertia.x[state.grid.x_face(x,y)]*(y%2==0 ? .5 : -.5);
     MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=config.scenario!=4;
+    if (config.scenario==6) settings.viscosity={.5,.25};
     settings.gravity_m_per_s2=gravity_scenario(config.scenario) ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
@@ -477,6 +485,8 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     pending_actor_restore=std::move(restored_actors);
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
     thermal_redistribution={}; thermal_entropy={};
+    viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
+    viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
@@ -572,6 +582,13 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
         auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
         auto next_redistribution=thermal_redistribution,next_entropy=thermal_entropy;
+        auto next_viscous_dissipation=viscous_dissipation,next_viscous_stored_heat=viscous_stored_heat,next_viscous_entropy=viscous_entropy;
+        auto next_viscous_wall_x=viscous_wall_x,next_viscous_wall_y=viscous_wall_y;
+        next_viscous_dissipation.add(result.report.viscous_heat);next_viscous_stored_heat.add(result.report.viscous_stored_heat);
+        next_viscous_entropy.add(result.report.viscous_entropy_lower_bound_j_per_k);
+        next_viscous_wall_x.add(result.report.viscous_wall_impulse_x);next_viscous_wall_y.add(result.report.viscous_wall_impulse_y);
+        for (const auto* value:{&next_viscous_dissipation,&next_viscous_stored_heat,&next_viscous_entropy,&next_viscous_wall_x,&next_viscous_wall_y})
+            if (!std::isfinite(value->value().project().value)) throw std::overflow_error("Native viscosity diagnostic exceeds its scalar range");
         auto next_impulse=body_impulse,next_gravity_work=gravity_internal_work;
         next_impulse.add(result.report.body_impulse_y); next_gravity_work.add(result.report.gravity_internal_change_j);
         (void)next_impulse.value().require_representable(); (void)next_gravity_work.value().require_representable();
@@ -580,11 +597,15 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
             throw std::overflow_error("Native conduction diagnostic exceeds its scalar range");
         world=std::move(owner); publication=std::move(cells); status=next;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
+        viscous_dissipation=std::move(next_viscous_dissipation);viscous_stored_heat=std::move(next_viscous_stored_heat);
+        viscous_entropy=std::move(next_viscous_entropy);viscous_wall_x=std::move(next_viscous_wall_x);viscous_wall_y=std::move(next_viscous_wall_y);
         committed_potential=std::move(next_potential); pending_potential={};
         body_impulse=std::move(next_impulse); gravity_internal_work=std::move(next_gravity_work);
         maximum_energy_residual=std::max(maximum_energy_residual,static_cast<double>(energy_residual));
         thermal_stages+=result.report.conduction_stages; thermal_contacts+=result.report.conduction_contacts;
         thermal_iterations+=result.report.conduction_iterations; unresolved_thermal_updates+=result.report.unresolved_conduction_updates;
+        viscous_stages+=result.report.viscosity_stages;viscous_modes+=result.report.viscosity_modes;
+        unresolved_viscous_heat+=result.report.unresolved_viscous_heat_updates;unresolved_viscous_momentum+=result.report.unresolved_viscous_momentum_updates;
         actors=std::move(next_actors); actor_steps=next_steps; consumer_samples=next_consumed; emitter_samples=next_emitted;
         receipt_sequence=work.sequence;
         committed_heat=std::move(next_heat); committed_heat_batches=accepted_heat_batches;
@@ -787,6 +808,14 @@ void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
         gravity,initial_potential,world ? potential(*world) : 0,committed_potential.value().require_representable(),
         pending_potential.value().require_representable(),body_impulse.value().require_representable(),
         gravity_internal_work.value().require_representable(),maximum_energy_residual};
+}
+void copy_domain_viscosity_status(MAOniDomainViscosityStatus& output) {
+    std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;
+    const auto settings=world ? world->settings().viscosity : MacViscosity{};
+    output={sizeof(MAOniDomainViscosityStatus),1,status.state,settings.shear_pa_s>0 || settings.bulk_pa_s>0 ? 1U : 0U,
+        status.session,status.completed_frames,viscous_stages,viscous_modes,unresolved_viscous_heat,unresolved_viscous_momentum,
+        settings.shear_pa_s,settings.bulk_pa_s,viscous_dissipation.value().project().value,viscous_stored_heat.value().project().value,
+        viscous_entropy.value().project().value,viscous_wall_x.value().project().value,viscous_wall_y.value().project().value};
 }
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame) {
     std::lock_guard frame_lock(frame_mutex); MAOniDomainConfig configuration{}; MAOniDomainStatus source{};

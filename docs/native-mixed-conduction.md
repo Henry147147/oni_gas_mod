@@ -1,8 +1,9 @@
 # Heat exchange in occupied gas/liquid cells
 
 The native MAC owner now has a conservative conduction operator for cells that
-contain both gas and liquid. The component and its native development scene are implemented. A real Unity
-heated-mixture source/save/reload is still required. Scenario 4 retains its
+contain both gas and liquid. The component and native development scene now
+pass a real Linux Unity source/save and two exact reload sessions. WindowsPlayer
+controls are still running. Scenario 4 retains its
 saved conduction-disabled setting.
 
 The single-phase path retains the existing constant-capacity graph solve. A
@@ -112,3 +113,30 @@ All 16 backend groups now pass on GNU Linux, GNU Windows binaries under Wine,
 Linux ASan/UBSan and the clean Ubuntu compatibility build. Actual Unity
 verification remains in progress. This scene
 provides no free surfaces, phase changes or liquid world geometry.
+
+## First native Linux source and reloads
+
+Frozen `4db6e00` with native v16 passes an actual nine-world LinuxPlayer source
+through frame 121. The two real energy messages commit +1.5 MJ net; the measured
+U+K residual is -0.000568389892578125 J within the unchanged
+0.0012169780096353763 J operand bound. The worker completes 5,082 conductive
+stages, 35,574 contacts and 70,182 nonlinear iterations, with 6.844464302062988 J
+of represented redistribution and positive entropy. Unresolved sub-ULP updates
+remain reported separately.
+
+The complete source file SHA-256 is
+`268806453fc21f246b6b18a7ac7a20126bda842c07f4b8b0bc6faac18d276874`;
+its physical image is
+`55db5cf0a5b860ac19647b9248e725fd8c028928a4eeb5b825e0b1fa7947629d`.
+Both native Linux load sessions preserve that initial image, finish paused
+frame-zero saves/readbacks, and compare all 120 complete physical frames
+individually. Native references/readers, calibrated GPU texels and input-file
+preservation pass. Their final physical image is
+`85552853053e1410dcbcf11ee2fc7991b0d9a8acd3f34cc399368136f8917c73`.
+
+The actual source PNG was viewed with cell 103106/revision 121 hover:
+300.32865395671405 K, 100445.08909295494 Pa and actual liquid volume
+20.58571183123733%. Both bulk gas rows, trace notice and breathing status are
+visible. This v16 capture retains the earlier gas-only world colour;
+the new phase-volume appearance and liquid interface geometry are not claimed
+from it. WindowsPlayer and bidirectional cross-loads remain separate gates.

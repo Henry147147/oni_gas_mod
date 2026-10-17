@@ -157,9 +157,10 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
     }
     store_mac_field(result.state.momentum_x,result.state.full_momentum_x,momentum[0]);
     store_mac_field(result.state.momentum_y,result.state.full_momentum_y,momentum[1]);
-    MacEnergyAccount balance;
+    MacEnergyAccount balance;MacEnergySum stored_heat;
     for (std::size_t cell=0;cell<source.cells.size();++cell) if (!g.walls[cell]) {
         balance.add(result.state.cells[cell].mixture.energy);balance.add(-source.cells[cell].mixture.energy);
+        stored_heat.add(result.state.cells[cell].mixture.energy);stored_heat.add(-source.cells[cell].mixture.energy);
     }
     const std::array<std::vector<MacScaled>,2> old={mac_field_values(source.momentum_x,source.full_momentum_x),mac_field_values(source.momentum_y,source.full_momentum_y)};
     for (std::size_t axis=0;axis<2;++axis) {
@@ -183,6 +184,7 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
     }
     if (!balance.within_bound()) precision("Viscous stored U+K account exceeds its operand bound");
     result.report.heat=heat.value();result.report.energy_residual=balance.residual();result.report.energy_bound=balance.bound();
+    result.report.stored_heat=stored_heat.value();
     result.report.wall_impulse_x=wall[0].value();result.report.wall_impulse_y=wall[1].value();
     result.report.entropy_lower_bound_j_per_k=entropy.value().project().value;return result;
 }

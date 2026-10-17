@@ -414,7 +414,7 @@ def _mixed_phase_passed(report: dict, physical: dict) -> bool:
         value=report['MixedPhase'];thermal=report['ThermalConduction'];rows=report['RenderingInputs']['Rows']
         if (report.get('Scenario')!='gas-liquid-mixture' or not isinstance(value,dict)
                 or any(value.get(k) is not True for k in ('Required','Verified'))
-                or value.get('Source')!='completed-native-EOS-partial-volumes' or type(value.get('NativeScenario')) is not int or value['NativeScenario'] not in (4,5)
+                or value.get('Source')!='completed-native-EOS-partial-volumes' or type(value.get('NativeScenario')) is not int or value['NativeScenario'] not in (4,5,6)
                 or value.get('LiquidWorldRenderingVerified') is not False or value.get('FreeSurfaceDynamicsVerified') is not False
                 or not isinstance(rows,list) or len(rows)!=physical['Cells']):return False
         if value['NativeScenario']==4:
@@ -429,7 +429,8 @@ def _mixed_phase_passed(report: dict, physical: dict) -> bool:
                 or thermal.get('Session')!=physical['Session'] or thermal.get('CompletedFrame')!=physical['CompletedFrames']
                 or type(thermal.get('Stages')) is not int or thermal['Stages']!=2*physical['Substeps']
                 or any(type(thermal.get(k)) is not int or thermal[k]<=0 for k in ('Contacts','Iterations'))
-                or any(type(thermal.get(k)) not in (int,float) or not math.isfinite(thermal[k]) or thermal[k]<=0 for k in ('RedistributedEnergy','EntropyChange'))):return False
+                or any(type(thermal.get(k)) not in (int,float) or not math.isfinite(thermal[k]) or
+                    (thermal[k]<=0 if value['NativeScenario']==5 else thermal[k]<0) for k in ('RedistributedEnergy','EntropyChange'))):return False
         positions=set()
         for index,row in enumerate(rows):
             reading=row['Reading'];position=row['Cell'];t=reading['TemperatureKelvin'];p=reading['MechanicalPressurePa']
@@ -460,6 +461,34 @@ def _mixed_phase_passed(report: dict, physical: dict) -> bool:
             if index==0 and (water!=physical['LiquidMassKg'] or p!=physical['PressurePa']):return False
         return True
     except (KeyError,TypeError,ValueError,AttributeError,IndexError,ZeroDivisionError,OverflowError):
+        return False
+
+
+def _viscosity_passed(report: dict, physical: dict) -> bool:
+    try:
+        required=report.get('MixedPhase',{}).get('NativeScenario')==6
+        value=report.get('PhysicalViscosity')
+        if value is None:return not required
+        status=value['Status']
+        if (value.get('Required') is not required or value.get('Verified') is not required
+                or value.get('Source')!='completed-native-worker-physical-stress'
+                or value.get('Model')!='plane-strain-Newtonian-exact-mode-split-v1'
+                or value.get('Boundary')!='impermeable-free-slip' or value.get('CompleteMaterialViscosityModel') is not False
+                or status.get('Size')!=120 or status.get('Version')!=1 or status.get('State')!=1
+                or status.get('Session')!=physical['Session'] or status.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(status.get('Enabled')) is not int or status['Enabled']!=int(required)):
+            return False
+        for key in ('Stages','Modes','UnresolvedHeatUpdates','UnresolvedMomentumUpdates'):
+            if type(status.get(key)) is not int or status[key]<0:return False
+        for key in ('ShearPaSeconds','BulkPaSeconds','DissipatedKineticEnergy','StoredHeat','EntropyLowerBound','WallImpulseX','WallImpulseY'):
+            if type(status.get(key)) not in (int,float) or not math.isfinite(status[key]):return False
+        if required:
+            return (status['ShearPaSeconds']==.5 and status['BulkPaSeconds']==.25
+                and status['Stages']==2*physical['Substeps'] and status['Modes']>0
+                and all(status[key]>0 for key in ('DissipatedKineticEnergy','StoredHeat','EntropyLowerBound')))
+        return all(status[key]==0 for key in ('Stages','Modes','UnresolvedHeatUpdates','UnresolvedMomentumUpdates',
+            'ShearPaSeconds','BulkPaSeconds','DissipatedKineticEnergy','StoredHeat','EntropyLowerBound','WallImpulseX','WallImpulseY'))
+    except (KeyError,TypeError,ValueError,AttributeError):
         return False
 
 
@@ -494,6 +523,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     if mixed_phase and (liquid or conduction and not mixed_heat or not _mixed_phase_passed(report,physical)):
         return False
+    if not _viscosity_passed(report,physical):return False
     if persistent_actors and (restored or not saved):
         return False
     if (persistent_actors or 'PersistentActors' in report) and not _persistent_actors_passed(report,physical,restored,persistent_actors):

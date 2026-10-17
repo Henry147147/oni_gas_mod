@@ -156,6 +156,39 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report['MixedPhase']['ConductionModel']='disabled'
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
 
+    def viscous_report(self):
+        report=self.mixed_phase_report();report['MixedPhase'].update(NativeScenario=6,SinglePhaseConductionDisabled=False,
+            ConductionModel='complete-EOS-contact-split-backward-Euler-v1')
+        report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,
+            Stages=1260,Contacts=8400,Iterations=24,RedistributedEnergy=0.0,EntropyChange=0.0)
+        report['PhysicalViscosity']=dict(Required=True,Verified=True,Source='completed-native-worker-physical-stress',
+            Model='plane-strain-Newtonian-exact-mode-split-v1',Boundary='impermeable-free-slip',CompleteMaterialViscosityModel=False,
+            Status=dict(Size=120,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Stages=1260,Modes=16800,
+                UnresolvedHeatUpdates=12,UnresolvedMomentumUpdates=4,ShearPaSeconds=.5,BulkPaSeconds=.25,
+                DissipatedKineticEnergy=.75,StoredHeat=.74999,EntropyLowerBound=.0024,WallImpulseX=-.01,WallImpulseY=.02))
+        return report
+
+    def test_viscosity_requires_completed_stress_and_separate_represented_heat_without_source_heat_packets(self):
+        report=self.viscous_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+        changes=[lambda r:r.pop('PhysicalViscosity'),lambda r:r['PhysicalViscosity'].update(Verified=False),
+            lambda r:r['PhysicalViscosity'].update(Model='compression-only'),
+            lambda r:r['PhysicalViscosity'].update(Boundary='no-slip'),
+            lambda r:r['PhysicalViscosity'].update(CompleteMaterialViscosityModel=True)]
+        for key,value in [('Size',112),('Enabled',0),('CompletedFrame',29),('Stages',1259),('Modes',0),
+            ('ShearPaSeconds',.25),('BulkPaSeconds',.5),('StoredHeat',0),('DissipatedKineticEnergy',0),
+            ('EntropyLowerBound',0),('UnresolvedHeatUpdates',-1),('WallImpulseY',float('nan'))]:
+            changes.append(lambda r,k=key,v=value:r['PhysicalViscosity']['Status'].update({k:v}))
+        for change in changes:
+            bad=copy.deepcopy(report);change(bad)
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,mixed_phase=True))
+
+    def test_restored_viscosity_retains_its_worker_profile_and_cannot_claim_work_for_disabled_scenes(self):
+        self.report=self.viscous_report();self.set_restored_colony();self.report['Scenario']='gas-liquid-mixture'
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['MixedPhase'].update(NativeScenario=5)
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
     def test_gpu_gate_requires_independent_appearance_review_when_operands_are_present(self):
         report=self.gpu_texture_report()
         self.assertTrue(runner.native_domain_passed(report,self.observation,30))

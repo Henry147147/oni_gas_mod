@@ -6,7 +6,8 @@ namespace MixedAtmospheres.Oni
     {
         private static bool MixedHeatMode => restoredScenarioSelected ? restoredScenario == 5 :
             ColonyRuntimeValidation.Settings?.Mode == "native-mixed-heat-domain";
-        private static bool MixedPhaseMode => MixedHeatMode || (restoredScenarioSelected ? restoredScenario == 4 :
+        private static bool MixedConductionMode => MixedHeatMode || ViscousMode;
+        private static bool MixedPhaseMode => MixedConductionMode || (restoredScenarioSelected ? restoredScenario == 4 :
             ColonyRuntimeValidation.Settings?.Mode == "native-mixed-domain");
         private static bool MixedPhaseVerified => MixedPhaseMode && publishedReadings != null && publishedReadings.Count == cells.Length &&
             cells.All(cell => cell.Water > 0 && cell.LiquidFraction > 0 && cell.LiquidFraction < 1 &&
@@ -15,8 +16,8 @@ namespace MixedAtmospheres.Oni
                 value.VacuumVolumeCubicMetres == 0 && value.GasPressurePa == value.MechanicalPressurePa && value.Revision == (long)latest.CompletedFrames);
         private static object MixedPhaseReport() => new {
             Required = MixedPhaseMode, Verified = MixedPhaseVerified,
-            Source = "completed-native-EOS-partial-volumes", NativeScenario = MixedHeatMode ? 5 : 4,
-            ConductionModel = MixedHeatMode ? "complete-EOS-contact-split-backward-Euler-v1" : "disabled",
+            Source = "completed-native-EOS-partial-volumes", NativeScenario = ViscousMode ? 6 : MixedHeatMode ? 5 : 4,
+            ConductionModel = MixedConductionMode ? "complete-EOS-contact-split-backward-Euler-v1" : "disabled",
             SinglePhaseConductionDisabled = MixedPhaseMode && thermalStatus.Enabled == 0,
             LiquidWorldRenderingVerified = false, FreeSurfaceDynamicsVerified = false
         };

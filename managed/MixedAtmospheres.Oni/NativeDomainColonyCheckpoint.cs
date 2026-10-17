@@ -479,6 +479,7 @@ namespace MixedAtmospheres.Oni
                 restoredRendererVerified && gameGridProjectionVerified && latest.MaximumRelativeMassError<=1e-8 && latest.MaximumRelativeEnergyError<=1e-6,
                 "Restored actual colony failed its continuation, publication, rendering or physical accounts.");
             VerifySaveGuard();VerifyRestoredReaderBindings();VerifyNativeGpuGasTextures();VerifyRestoredPersistentActorCompletion();
+            if(ViscousMode) Require(ViscosityVerified,"Restored native worker did not continue physical viscosity and represented heating.");
             completed=true;NativeBackendObservation.Flush();WriteReport();
             ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
             ColonyRuntimeValidation.CompletePresentation("actual-game-restored-native-domain-validation");

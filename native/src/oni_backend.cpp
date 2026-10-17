@@ -676,6 +676,14 @@ MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_gravity_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_viscosity_abi_version() { return 1; }
+MAOniResult ma_oni_domain_viscosity_status(MAOniDomainViscosityStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native physical viscosity status ABI");
+        ma::oni::copy_domain_viscosity_status(*output);
+    });
+}
 MAOniResult ma_oni_domain_gravity_status(MAOniDomainGravityStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)

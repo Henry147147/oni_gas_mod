@@ -75,7 +75,34 @@ build-oni-observer/ma_mac_viscosity_tests > /tmp/viscosity.txt
 python3 native/tests/review_mac_viscosity.py /tmp/viscosity.txt
 ```
 
-An actual ONI source/save and repeated continuation still require a dedicated
-native scene and ABI diagnostics. This component does not mark viscosity
-gameplay, whole-colony ownership or the [complete overhaul](completion-plan.md)
-as accepted.
+## Native development scene
+
+Scenario 6 now connects this operator to the native simulation worker. It uses
+the six occupied gas/water cells, complete-EOS conduction, initial opposing
+horizontal velocities of 0.5 m/s, and declared dynamic coefficients of
+0.5 Pa.s shear and 0.25 Pa.s bulk. This deliberately exercises viscous stress;
+these coefficients are not presented as a calibrated gas/water material law.
+Imported native inventories retain their declared at-rest admission.
+
+The additive viscosity ABI 1 is 120 bytes. Its completed diagnostics separate
+modal kinetic dissipation from actually stored cell heat, retain unresolved
+updates, and report viscosity's own wall impulse and entropy lower bound.
+Diagnostics reset on a new native session and publish with its physical frame.
+Restoring scenario 6 requires the exact viscosity coefficients and checkpoint
+version 3. Scenarios 0–5 retain zero coefficients and physical version 2;
+their original conduction choices remain unchanged.
+
+`native-viscous-domain` selects the real-game control. The matrix scene and
+Windows PowerShell selector are `viscous`. Both native and managed validation
+require completed viscous worker stages and positive represented heating.
+No artificial external heat commands substitute for viscous heating. The native
+worker control now passes all three mixed scenarios, real phase callbacks,
+complete U+K/mass accounts, late rejection and exact restored continuation.
+Both adapters build; 152 installed-declaration groups per platform and 242
+Python checks pass (four optional/platform skips). All 17 backend groups now
+pass on host Linux and GNU Windows under Wine. Pure-liquid heating, an interior
+solid and late EOS rejection also pass on all three component builds. The full
+sanitizer suite, clean compatibility build and actual Unity source/save/reload
+remain separate gates.
+This does not mark viscosity gameplay, whole-colony ownership or the
+[complete overhaul](completion-plan.md) as accepted.

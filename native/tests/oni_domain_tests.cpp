@@ -34,7 +34,7 @@ void persistent_actors() {
         if (count) ack_domain_receipts(source.session,receipts[count-1].sequence);
         return count;
     };
-    for (auto scenario : {0U,1U,3U,4U,5U}) {
+    for (auto scenario : {0U,1U,3U,4U,5U,6U}) {
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
         auto source=capture(cells);MAOniDomainActorStatus actor_status{};
         const auto species=scenario ? 3U : 1U;

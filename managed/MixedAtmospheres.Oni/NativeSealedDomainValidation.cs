@@ -175,12 +175,13 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == (MixedHeatMode ? 1U : 0U) :
+                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == (MixedConductionMode ? 1U : 0U) :
                     InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
                     Liquid ? LiquidActorMode || PersistentActorValidationRequired ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
+                if (ViscousMode) Require(ViscosityVerified, "Native worker did not complete physical viscosity and represented heating.");
                 if (HeatMode)
                 {
                     heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - FixtureHeatJoules;
@@ -287,6 +288,7 @@ namespace MixedAtmospheres.Oni
                 "Unsupported native actor ABI.");
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
+            Require(ViscosityVersion() == 1 && Marshal.SizeOf<ViscosityStatus>() == 120, "Unsupported native physical viscosity ABI.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
             Require(PairVersion()==1 && Marshal.SizeOf<PairStatus>()==112,"Unsupported native paired checkpoint ABI.");
@@ -385,7 +387,7 @@ namespace MixedAtmospheres.Oni
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
-                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = MixedHeatMode ? 5U : MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
+                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = ViscousMode ? 6U : MixedHeatMode ? 5U : MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
             if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
@@ -426,6 +428,7 @@ namespace MixedAtmospheres.Oni
             latest = next; cells = values;
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
+            var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;
             var transfers = TransferStatus.Empty; Check(CopyTransferStatus(ref transfers)); transferStatus = transfers;
         }
@@ -696,6 +699,7 @@ namespace MixedAtmospheres.Oni
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             MixedPhase = MixedPhaseReport(),
+            PhysicalViscosity = ViscosityReport(),
             RenderingInputs = RenderingInputs(),
             GpuGasTextures = GpuGasReport(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,

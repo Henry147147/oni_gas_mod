@@ -33,7 +33,7 @@ struct MacViscousEvent {
 struct MacViscousReport {
     std::size_t modes = 0, unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::vector<MacViscousEvent> events;
-    MacEnergy heat, energy_residual, energy_bound;
+    MacEnergy heat, stored_heat, energy_residual, energy_bound;
     MacScaled wall_impulse_x, wall_impulse_y;
     MacScaled momentum_residual_x, momentum_residual_y, momentum_bound_x, momentum_bound_y;
     // Rigorous fixed-mass/volume positive-heating bound Q_stored/T_after,

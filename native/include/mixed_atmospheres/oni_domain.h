@@ -17,7 +17,7 @@ extern "C" {
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
-    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied gas/liquid mixture without conduction, 5: occupied mixture with complete-EOS conduction */
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied mixture without conduction, 5: mixture with conduction, 6: mixture with conduction and physical viscosity */
 } MAOniDomainConfig;
 
 typedef struct MAOniDomainStatus {
@@ -44,8 +44,8 @@ typedef struct MAOniDomainSpecies {
 
 /* Additive initial-inventory ABI 1. Row-major occupied cells, at rest, with
  * exact supplied masses and temperature in the declared domain EOS. No
- * synthetic background constituents, vacuum or passive data. Scenario 4
- * explicitly admits occupied gas/liquid mixtures; other scenarios retain
+ * synthetic background constituents, vacuum or passive data. Scenarios 4..6
+ * explicitly admit occupied gas/liquid mixtures; scenarios 0..3 retain
  * their single-phase admission.
  * Complete validation precedes activation; caller retains the input. */
 typedef struct MAOniDomainInitialCell {
@@ -180,6 +180,19 @@ typedef struct MAOniDomainThermalStatus {
 } MAOniDomainThermalStatus;
 MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);
+
+/* Additive physical-viscosity diagnostics, ABI 1. Requested modal kinetic
+ * dissipation and represented cell-U heating are separate accounts. Unresolved
+ * heat/momentum updates are explicit. Entropy is a positive-heating lower
+ * bound, not a difference of rounded state entropies. */
+typedef struct MAOniDomainViscosityStatus {
+    uint32_t struct_size, abi_version, state, enabled;
+    uint64_t session, completed_frame, stages, modes, unresolved_heat_updates, unresolved_momentum_updates;
+    double shear_pa_s, bulk_pa_s, dissipated_kinetic_j, stored_heat_j, entropy_lower_bound_j_per_k;
+    double wall_impulse_x, wall_impulse_y;
+} MAOniDomainViscosityStatus;
+MA_ONI_API uint32_t ma_oni_domain_viscosity_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_viscosity_status(MAOniDomainViscosityStatus*);
 
 /* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
  * owned rectangle, at cell centres. Boundary transfers carry the same datum.
