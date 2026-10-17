@@ -53,7 +53,10 @@ An already spawned root keeps its ordinary lifecycle. The native orbital body
 still controls visibility and rendering. No object or reference is created or
 reassigned, and an already missing saved object still fails admission.
 `NativeOrbitalReferences.SaveRootLifecycle` records the completed root IDs and
-any error, and resets between sessions. The default observer modes do not
+any error, and resets between sessions. The portable reviewer rejects errors,
+duplicate/invalid root IDs and any created object or rewritten reference in
+this receipt; older audits without it do not establish the new spawn ordering.
+The default observer modes do not
 install this lifecycle patch. Actual source and reload verification of this
 change remains in progress.
 

@@ -353,6 +353,33 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         reference['OrbitingWorldId']=0
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
 
+    def test_completed_native_save_root_lifecycle_keeps_unique_original_identities(self):
+        self.set_saved_colony()
+        lifecycle=dict(Source='existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn',CompletedRootIds=[2],
+            AlreadySpawnedRoots=0,Error='',ReferencesRewritten=0,ObjectsCreated=0)
+        self.report['NativeOrbitalReferences']['SaveRootLifecycle']=lifecycle
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        lifecycle.update(CompletedRootIds=[],AlreadySpawnedRoots=1)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+
+    def test_later_registered_orbital_reference_cannot_hide_a_failed_or_fabricated_lifecycle(self):
+        self.set_saved_colony()
+        valid=dict(Source='existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn',CompletedRootIds=[2],
+            AlreadySpawnedRoots=0,Error='',ReferencesRewritten=0,ObjectsCreated=0)
+        mutations=[('Source','direct registry insertion'),('Error','root registration failed'),
+            ('ObjectsCreated',1),('ObjectsCreated',False),('ReferencesRewritten',1),('ReferencesRewritten',False),
+            ('AlreadySpawnedRoots',-1),('AlreadySpawnedRoots',False),('CompletedRootIds',[2,2]),
+            ('CompletedRootIds',[-1]),('CompletedRootIds',[2147483648]),('CompletedRootIds',[False]),
+            ('CompletedRootIds',[2.0]),('CompletedRootIds',None)]
+        for key,value in mutations:
+            report=copy.deepcopy(self.report);receipt=copy.deepcopy(valid);receipt[key]=value
+            report['NativeOrbitalReferences']['SaveRootLifecycle']=receipt
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),(key,value))
+        for key in valid:
+            report=copy.deepcopy(self.report);receipt=copy.deepcopy(valid);receipt.pop(key)
+            report['NativeOrbitalReferences']['SaveRootLifecycle']=receipt
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
+
     def test_restored_orbital_reference_admission_must_precede_positive_physical_time(self):
         self.set_restored_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))

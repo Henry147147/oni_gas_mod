@@ -327,6 +327,23 @@ def _native_orbital_references_passed(report: dict, saved: bool, restored: bool)
         value = report['NativeOrbitalReferences']
         if not isinstance(value, dict) or type(value.get('Required')) is not bool:
             return False
+        # Older frozen audits predate the spawn-order adapter. When its
+        # receipt is present, errors or invented/rewritten identities cannot
+        # hide behind a later successful reference-registration observation.
+        if 'SaveRootLifecycle' in value:
+            lifecycle = value['SaveRootLifecycle']
+            if (not isinstance(lifecycle, dict)
+                    or lifecycle.get('Source') != 'existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn'
+                    or lifecycle.get('Error') != ''
+                    or any(type(lifecycle.get(key)) is not int or lifecycle[key] != 0
+                           for key in ('ReferencesRewritten', 'ObjectsCreated'))
+                    or type(lifecycle.get('AlreadySpawnedRoots')) is not int or lifecycle['AlreadySpawnedRoots'] < 0):
+                return False
+            completed = lifecycle.get('CompletedRootIds')
+            if (not isinstance(completed, list)
+                    or any(type(identity) is not int or not 0 <= identity <= 2147483647 for identity in completed)
+                    or len(set(completed)) != len(completed)):
+                return False
         if value['Required'] is False:
             return not (saved or restored) and value.get('Inspections') == 0 and value.get('Worlds') == [] and value.get('References') == []
         if (value.get('Verified') is not True or value.get('Error') != ''
