@@ -175,6 +175,18 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 ("RedistributedEnergy", float("nan")), ("EntropyChange", 0), ("Enabled", 0)):
             bad = copy.deepcopy(self.report); bad["ThermalConduction"][field] = value
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, conduction=True), field)
+        water=copy.deepcopy(self.report)
+        water["NativeDomain"].update(LiquidMassKg=1100.0,PressurePa=2.2e8,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+        water.update(LiquidHeatVerified=True,HeatEnergyScaleJoules=2e11,HeatEnergyBoundJoules=128*2.2204460492503131e-16*2e11,
+            HeatEnergyResidualJoules=.0002)
+        water["HeatCommands"]["CommittedHeatJoules"]=1500000
+        self.assertTrue(runner.native_domain_passed(water,self.observation,30,liquid_heat=True))
+        for section,key,value in ((None,"LiquidHeatVerified",False),(None,"HeatEnergyBoundJoules",1),
+                (None,"HeatEnergyResidualJoules",.01),(None,"HeatEnergyScaleJoules",float("inf")),
+                ("HeatCommands","CommittedHeatJoules",1500),("ThermalConduction","EntropyChange",0),
+                ("NativeDomain","SuppressedLiquid",0)):
+            bad=copy.deepcopy(water);(bad[section] if section else bad)[key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,liquid_heat=True),(section,key))
 
     def test_partial_or_malformed_physical_reports_do_not_raise_or_pass(self):
         for value in (None, {}, {"NativeDomain": None}, {"NativeDomain": []}):

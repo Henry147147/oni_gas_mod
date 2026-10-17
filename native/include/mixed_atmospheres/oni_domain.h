@@ -133,7 +133,9 @@ MA_ONI_API MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor*, u
 MA_ONI_API MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus*);
 
 /* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
- * are read-only projections, never authority for a producer transaction. */
+ * are read-only projections, never authority for a producer transaction.
+ * Redistribution counts represented cell-U changes; requested sub-ULP heat
+ * remains unresolved and must not be presented as physical redistribution. */
 typedef struct MAOniDomainThermalStatus {
     uint32_t struct_size, abi_version, state, enabled;
     uint64_t session, completed_frame, stages, contacts, iterations, unresolved_updates;

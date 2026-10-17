@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$NativeDll,
     [Parameter(Mandatory=$true)][string]$ContractDirectory,
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water-transfer','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-checkpoint','sealed-pair','sealed-restore','sealed-restore-water','sealed-restore-gravity','zero-time-frame','native-disease-retention')][string]$Mode = 'baseline',
+    [ValidateSet('baseline','multi-region','fluid-actors','sanitize','rebuild-shadow','load-shadow','transition','filtered-transition','reject-custom-envelope','sealed-gas','sealed-water-small-heat','sealed-water-heat','sealed-water-transfer','sealed-water','sealed-heat','sealed-conduction','sealed-gravity','sealed-checkpoint','sealed-pair','sealed-restore','sealed-restore-water','sealed-restore-gravity','zero-time-frame','native-disease-retention')][string]$Mode = 'baseline',
     [string]$Observer,
     [string]$GameDirectory,
     [string]$Dotnet = 'dotnet.exe'

@@ -47,6 +47,11 @@ producer reservations, spatial/bulk actors and ordinary colony saves remain open
 same rate/batch/blocked-callback/removal requirements and an 80-frame minimum.
 The optional ordinary paired save occurs after both actors have been removed;
 it does not persist live actor state.
+`native-liquid-heat-domain` applies +2 MJ / -0.5 MJ to filled water, then requires
+warming of the source and a conductive neighbor, positive represented heat
+redistribution and entropy, and the unchanged conservation gates. The isolated
+`sealed-water-small-heat` control checks sub-ULP accounting separately; it does
+not certify conduction progress. See [rounding](../native/MAC_CONDUCTION_ROUNDING.md).
 `native-conduction-domain` verifies internal heat redistribution and entropy
 on the native clock, seeded by the same +2,000 J / -500 J game heat messages.
 It requires matching thermal session/frame diagnostics and exactly two thermal

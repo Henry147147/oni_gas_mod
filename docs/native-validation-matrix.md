@@ -20,9 +20,9 @@ python3 tools/oni_native_matrix.py \
   --frames 120 --timeout 1800
 ```
 
-The output directory must be new. The default selects gas, compressed water, water point transfers and actors,
+The output directory must be new. The default selects gas, compressed water, water point transfers, actors and heat,
 heat, transfers, carbon dioxide, conduction, gravity, registered actors,
-physical checkpoints, paired capture and source-save controls: 26 game
+physical checkpoints, paired capture and source-save controls: 28 game
 processes including reloads. Use `--scenes water gravity` to select cases.
 Gas and water actors need at least 80 frames; source-save controls need at least 16.
 `--timeout` applies separately to each game and accepts up to 7,200 seconds.
@@ -51,6 +51,19 @@ and water save/reload, including 120 exact continued frames on each reload.
 It stops before launching the heat scene when Steam exits; the missing-result
 failure is retained. Remaining scenes and the newly added water-transfer case
 require a live authenticated session and fresh evidence directories.
+
+The separate `liquid-point-transfer-unity-matrix-v1` cohort passes both actual
+Unity water-transfer processes using frozen `0e6dc89` inputs. Its source saves
+at physical frame 122 / 24.400000364 s after both actual mass callbacks, and the
+reload matches all 120 frames through 48.400000721 s after the paused autosave
+challenge. The ordinary save/body receipts and complete physical hashes are
+recorded in the [liquid evidence](sealed-native-domain.md#filled-liquid-point-sources).
+
+The `liquid-actors-and-native-features-unity-v1` frozen `2894420` / compatibility
+v6 cohort starts with a passing water-actor save/reload, including all 120 exact
+resumed frames. Gas heat save/reload and transfer source-save also pass; the
+remaining cases are still running. Later heat-rounding edits do not change
+these frozen inputs and require their own Unity cohort.
 
 The [Linux runner](sealed-native-domain.md#run-the-actual-linux-colony-controls)
 requires the licensed game and the private desktop/Steam setup. The separate

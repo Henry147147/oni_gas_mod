@@ -104,6 +104,15 @@ counts, redistributed energy and entropy change. It also counts heat updates
 smaller than the stored binary64 internal-energy resolution. These are reported
 explicitly; the diagnostic does not claim arbitrary precision.
 
+Stored cell energy now uses [conservative component rounding](../native/MAC_CONDUCTION_ROUNDING.md)
+when its neighboring binary64 endpoints admit the exact closed U sum. The
+thermal diagnostic counts represented redistribution, and entropy uses the
+represented U increment directly. Small unresolved requests remain explicit.
+The separate `native-liquid-heat-domain` / `-NativeDomain water-heat` scene
+uses +2 MJ / -0.5 MJ, requires source and neighbor warming, positive represented
+redistribution/entropy, and the usual paired save/reload. Its Unity verification
+is pending; licensed Linux and Windows-under-Wine controls pass.
+
 `native-conduction-domain` seeds a temperature gradient with the ordinary
 +2,000 J / -500 J game heat commands. It requires positive internal heat
 redistribution and entropy, exactly two thermal stages per solver substep,
@@ -252,8 +261,15 @@ header/body readback, retaining physical SHA-256
 `2825e2061363fc30f2c2ebf56717f9ad2d942acb21cc9174db14ecab469b2cdc`
 and colony file
 `66c2f52e5e5900c260e4a51a9de2d45e2c79a1fc9ae7faca248f97309d4bbf63`.
-Its fresh-process reload is still running. This cohort uses the frozen
-`0e6dc89` runner/package and Ubuntu 22.04 compatibility native build v5.
+Its fresh-process reload also passes: the initial physical image is byte exact,
+the forced positive-interval challenge holds three ticks before the frame-zero
+deferred autosave, and every one of 120 continued frames matches. The final
+image at 48.400000721 s is
+`7452717aa82683e56573304476dc49c21bb695cd5b450f3bf8044c4d2746b1ec`;
+the frame-zero autosave is
+`a1f3ddfab4bed05e44307e30342373c58f47d1e122444c5baa7307b644b55f1b`.
+Maximum relative mass/energy drift is 8.27e-16 / 8.14e-14. This cohort uses the
+frozen `0e6dc89` runner/package and Ubuntu 22.04 compatibility native build v5.
 
 The current domain ABI 2 uses 96-byte cells: nitrogen, oxygen, helium, water and
 carbon dioxide masses followed by the physical readings. Domain configuration
@@ -332,9 +348,24 @@ frames. Its independent U+K comparison uses the explicit liquid binary64
 roundoff bound described above. The new Linux and Windows-under-Wine native
 regressions pass liquid rate/cadence, later phase rejection, blocked/unblocked
 edges, constituent accounting and removal. The rendered liquid actor scene is
-awaiting verification. Live actors still block physical/colony checkpoints;
+verified in the actual Linux game as described below. Live actors still block physical/colony checkpoints;
 the optional save control runs after the fixture has removed them. Full actor
 and callback-outbox persistence remains open.
+
+The frozen `2894420` / compatibility v6 `liquid-actors-and-native-features-unity-v1`
+water-actor pair passes both Unity processes. The source completes 121 native
+frames, 32 actual `ElementConsumer` callbacks, 40 emission samples, one blocked
+and one unblocked callback, an owned configuration batch and ordinary outside
+batch, followed by removal with no later actor transfers. Actual consumed and
+emitted mass is 0.200000005309 / 1.09375 kg. U+K residual is -0.003282268941 J
+against a 0.005946249839 J roundoff bound. The ordinary saved physical image is
+`156609a30b8658048a4fcabc79f00075b8e3de5105d99c1f806edc529c1706f9`
+at 24.200000361 s, with colony file
+`9c856e8400c07660d33cb8cbfeaae749c01d07b9826109f36ef5a7b067c76c68`.
+Fresh-process reload passes the initial autosave/pause challenge and all 120
+exact frames through 48.200000718 s, ending at
+`0792a60f84be1e754cfcf88f8a867cc52cf314942c7e2813409f379f1ed73c31`.
+Windows Unity remains open for these new water actors.
 
 ## Run the actual Linux colony controls
 

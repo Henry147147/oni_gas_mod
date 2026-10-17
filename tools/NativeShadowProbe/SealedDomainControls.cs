@@ -11,7 +11,7 @@ internal static unsafe partial class Program
     private static int DomainCell(int index) => DomainX + index % DomainWidth + (DomainY + index / DomainWidth) * Width;
     private static float DomainProjectionTemperature(int column) => 280 + 20 * column;
 
-    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity, bool checkpoint, bool paired, OniNativeObserver observer)
+    private static void VerifySealedDomain(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report, bool liquid, bool heating, bool gravity, bool checkpoint, bool paired, OniNativeObserver observer, bool smallLiquidHeat=false)
     {
         Require(OniNativeDomain.Version() == 2 && Marshal.SizeOf<OniNativeDomain.Status>() == 440, "Domain ABI mismatch.");
         var initialCells = Enumerable.Range(0, 6).Select(i => initial.CellData[DomainCell(i)]).ToArray();
@@ -60,7 +60,8 @@ internal static unsafe partial class Program
             }));
         }
         var values = new OniNativeDomain.Cell[6]; CellState[]? baseline = null; var primedAt = 0UL;
-        var heatQueued = false; var heatBeforeEnergy = 0.0;
+        var heatQueued = false; var heatBeforeEnergy = 0.0; var heatBeforeScale = 0.0;
+        var heatFactor=liquid && !smallLiquidHeat ? 1000.0 : 1.0;
         byte[]? checkpointExpected = null; ulong checkpointFrame = 0; var checkpointVerified = false;
         var pairVerified=false;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
@@ -112,16 +113,17 @@ internal static unsafe partial class Program
             if (heating && !heatQueued && status.CompletedFrames - primedAt >= 4)
             {
                 heatBeforeEnergy = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy);
+                heatBeforeScale = values.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
                 var commands = new[] {
                     new OniNativeDomain.HeatCommand { Size = 48, Version = 1, Session = status.Session, ExpectedFrame = status.CompletedFrames,
-                        PublicCell = (uint)DomainCell(0), Source = 1000, Joules = 2000, MaximumTemperature = 1000 },
+                        PublicCell = (uint)DomainCell(0), Source = 1000, Joules = 2000*heatFactor, MaximumTemperature = 1000 },
                     new OniNativeDomain.HeatCommand { Size = 48, Version = 1, Session = status.Session, ExpectedFrame = status.CompletedFrames,
-                        PublicCell = (uint)DomainCell(0), Source = 1001, Joules = -500, MaximumTemperature = 1000 } };
+                        PublicCell = (uint)DomainCell(0), Source = 1001, Joules = -500*heatFactor, MaximumTemperature = 1000 } };
                 var invalidCommands = (OniNativeDomain.HeatCommand[])commands.Clone(); invalidCommands[1].MaximumTemperature = 0;
                 var result = OniNativeDomain.HeatStatus.Empty;
                 Require(OniNativeDomain.QueueHeat(invalidCommands, 2, ref result) == 1 && result.AcceptedBatches == 0 && result.State == 0,
                     "Invalid heat batch partially queued or changed output.");
-                Require(OniNativeDomain.QueueHeat(commands, 2, ref result) == 0 && result.PendingBatches == 1 && result.PendingHeatJoules == 1500,
+                Require(OniNativeDomain.QueueHeat(commands, 2, ref result) == 0 && result.PendingBatches == 1 && result.PendingHeatJoules == 1500*heatFactor,
                     "Valid heat batch was not reserved.");
                 heatQueued = true;
             }
@@ -137,16 +139,26 @@ internal static unsafe partial class Program
             {
                 var account = OniNativeDomain.HeatStatus.Empty;
                 Require(OniNativeDomain.CopyHeat(ref account) == 0 && account.AcceptedBatches == 1 && account.CommittedBatches == 1 &&
-                    account.PendingBatches == 0 && account.CommittedHeatJoules == 1500, "Native heat account did not commit exactly once.");
-                var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500;
-                Require(heatQueued && Math.Abs(residual) <= 1e-6, "Native physical energy did not retain the declared heat exchange.");
+                    account.PendingBatches == 0 && account.CommittedHeatJoules == 1500*heatFactor, "Native heat account did not commit exactly once.");
+                var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500*heatFactor;
+                var heatBound = liquid ? 128*2.2204460492503131e-16*(heatBeforeScale + values.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy)) : 1e-6;
+                report["heatCommandsQueued"] = heatQueued; report["heatBeforeEnergyJoules"] = heatBeforeEnergy;
+                report["heatAfterEnergyJoules"] = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy);
+                report["heatEnergyResidualJoules"] = residual; report["heatEnergyRoundoffBoundJoules"] = heatBound;
+                Require(heatQueued && Math.Abs(residual) <= heatBound, "Native physical energy did not retain the declared heat exchange.");
                 report["heatCommandsPassed"] = true; report["heatEnergyResidualJoules"] = residual;
+                report["heatEnergyRoundoffBoundJoules"] = heatBound;
                 var thermal = OniNativeDomain.ThermalStatus.Empty;
                 Require(OniNativeDomain.CopyThermalStatus(ref thermal) == 0 && thermal.Enabled == 1 && thermal.State == 1 &&
                     thermal.Session == status.Session && thermal.CompletedFrame == status.CompletedFrames &&
-                    thermal.Stages == 2 * status.Substeps && thermal.Contacts > 0 && thermal.RedistributedEnergy > 0 && thermal.EntropyChange > 0,
+                    thermal.Stages == 2 * status.Substeps && thermal.Contacts > 0 &&
+                    (smallLiquidHeat ? thermal.UnresolvedUpdates>0 && thermal.RedistributedEnergy==0 && thermal.EntropyChange==0 :
+                        thermal.RedistributedEnergy>0 && thermal.EntropyChange>0),
                     "Worker-clock internal heat conduction did not produce coherent physical diagnostics.");
-                report["internalConductionPassed"] = true;
+                report["internalConductionPassed"] = !smallLiquidHeat;
+                report["smallLiquidHeatAccountingPassed"] = smallLiquidHeat;
+                if(liquid && !smallLiquidHeat) Require(values[0].Temperature>300 && values.Skip(1).Any(cell=>cell.Temperature>300+1e-9),
+                    "Liquid heat did not warm the source and a conductive neighbor.");
                 report["thermalConduction"] = new { thermal.Size, thermal.Version, thermal.State, thermal.Enabled,
                     thermal.Session, thermal.CompletedFrame, thermal.Stages, thermal.Contacts, thermal.Iterations,
                     thermal.UnresolvedUpdates, thermal.RedistributedEnergy, thermal.EntropyChange };

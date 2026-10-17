@@ -17,6 +17,57 @@ MacTransportState pair(const ma::testing::Setup& setup,bool water=false) {
     }
     return state;
 }
+void same_energy(const MacTransportState& before,const MacTransportState& after,std::span<const std::size_t> cells) {
+    MacEnergySum residual;
+    for (const auto cell : cells) {residual.add(before.cells[cell].mixture.energy);residual.add(-after.cells[cell].mixture.energy);}
+    require(residual.sign()==0,"Closed conductive component accumulated a represented energy drift");
+}
+void liquid_rounding_controls(const ma::testing::Setup& setup) {
+    auto source=setup.state(3,2,false);
+    for (auto& cell : source.cells) cell.mixture=setup.mixture(1,2.2e8,300,1);
+    source.cells[0].mixture.energy+=1500;
+    const auto held=ma::testing::fingerprint(source); auto state=source;
+    const std::array<std::size_t,6> all{0,1,2,3,4,5};
+    std::size_t adjustments=0,unresolved=0;
+    for (int i=0;i<2400;++i) {
+        auto next=advance_mac_conduction(setup.registry,*setup.eos,state,.005);
+        same_energy(state,next.state,all);
+        require(next.report.unavailable_rounding_components==0 && next.report.entropy_change_j_per_k>=0,
+            "Equal-quantum water heat did not retain conservative, nonnegative-entropy rounding");
+        require(next.report.redistributed_energy.is_zero() && next.report.requested_redistributed_energy.mantissa()>0,
+            "Unresolved sub-ULP heat was reported as physical redistribution");
+        adjustments+=next.report.conservative_rounding_adjustments; unresolved+=next.report.unresolved_heat_updates;
+        state=std::move(next.state);
+    }
+    require(adjustments>0 && unresolved>0 && ma::testing::fingerprint(source)==held,
+        "Small liquid heat did not exercise explicit rounding without mutating its source");
+    auto split=setup.state(5,1,false); split.grid.walls[2]=1;split.cells[2]={MixtureInventory(setup.registry.size()),{}};
+    for (std::size_t i=0;i<5;++i) if (i!=2) split.cells[i].mixture=setup.mixture(1,2.2e8,i<2 ? 300 : i==3 ? 280 : 320,1);
+    split.cells[0].mixture.energy+=1500;
+    const std::array<std::size_t,2> left{0,1},right{3,4};
+    for (int i=0;i<120;++i) {
+        auto next=advance_mac_conduction(setup.registry,*setup.eos,split,.005);
+        same_energy(split,next.state,left);same_energy(split,next.state,right);
+        require(next.state.cells[2].mixture.energy==0,"Rounding transferred heat through an insulating wall");
+        split=std::move(next.state);
+    }
+    // A gas and a liquid can have very different stored-energy quanta. An
+    // exact closed sum may then be impossible inside the two nearest values.
+    // Keep the physical solve's nearest projections and its explicit account;
+    // do not force a minimum heat flux or push a cell outside its bracket.
+    auto mixed=pair(setup,true);std::vector<double> gas(setup.registry.size());gas[setup.registry.index("oxygen")]=1;
+    mixed.cells[0].mixture=setup.eos->initialize_at_temperature(gas,280,1).mixture;
+    const auto ca=setup.eos->evaluate(mixed.cells[0].mixture,1).intrinsic_heat_capacity_j_per_k;
+    const auto cb=setup.eos->evaluate(mixed.cells[1].mixture,1).intrinsic_heat_capacity_j_per_k;
+    const auto old=mixed.cells[1].mixture.energy;
+    const auto quantum=std::nextafter(old,std::numeric_limits<double>::infinity())-old;
+    const auto ka=setup.registry[setup.registry.index("oxygen")].conductivity,kb=setup.registry[setup.registry.index("water")].conductivity;
+    const double g=2*ka*kb/(ka+kb),q=.25*quantum,dt=q/(g*(40-q*(1/ca+1/cb)));
+    const auto next=advance_mac_conduction(setup.registry,*setup.eos,mixed,dt);
+    require(next.report.unavailable_rounding_components==1 && next.report.conservative_rounding_adjustments==0 &&
+        next.state.cells[1].mixture.energy==old && next.state.cells[0].mixture.energy>mixed.cells[0].mixture.energy,
+        "Incommensurate energy quanta caused a hidden flux floor or out-of-bracket correction");
+}
 }
 int main() {
     try {
@@ -72,7 +123,8 @@ int main() {
             "Conduction advanced an independent clock/revision");
         bool rejected=false; try { (void)advance_mac_conduction(setup.registry,*setup.eos,source,-1); } catch (const std::invalid_argument&) { rejected=true; }
         require(rejected && ma::testing::fingerprint(source)==held,"Rejected conductive step mutated the source");
-        std::cout<<"PASS conductive pair formula, immutable traces/momentum, insulation and integrated liquid heat\n";
+        liquid_rounding_controls(setup);
+        std::cout<<"PASS conductive pair/time refinement, exact component energy over 2400 small-water stages, insulation and explicit unavailable rounding\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

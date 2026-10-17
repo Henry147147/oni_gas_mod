@@ -49,6 +49,7 @@ namespace MixedAtmospheres.Oni
         private static bool thermalVerified;
         private static bool heatSubmitted, heatVerified, heatAvoidedNativeDispatch;
         private static double heatBeforeEnergy, heatEnergyResidual;
+        private static double heatEnergyScale, heatEnergyBound = 1e-6;
         private static int heatPacketsRouted;
         private static TransferStatus transferStatus;
         private static Receipt[] completedReceipts = Array.Empty<Receipt>();
@@ -74,15 +75,17 @@ namespace MixedAtmospheres.Oni
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
+            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
         private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain";
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode;
+        private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
+        private static double FixtureHeatJoules => LiquidHeatMode ? 1500000 : 1500;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
-        private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
+        private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode;
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
@@ -117,11 +120,12 @@ namespace MixedAtmospheres.Oni
                 if (HeatMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !heatSubmitted)
                 {
                     heatBeforeEnergy = PhysicalEnergy;
+                    heatEnergyScale = cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
                     var method = AccessTools.Method(typeof(SimMessages), nameof(SimMessages.ModifyEnergy));
                     NativeMessagePatch.RequirePatched(method);
                     var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
-                    SimMessages.ModifyEnergy(target, 2, 1000, SimMessages.EnergySourceID.DebugHeat);
-                    SimMessages.ModifyEnergy(target, -.5f, 1000, SimMessages.EnergySourceID.DebugCool);
+                    SimMessages.ModifyEnergy(target, LiquidHeatMode ? 2000 : 2, 1000, SimMessages.EnergySourceID.DebugHeat);
+                    SimMessages.ModifyEnergy(target, LiquidHeatMode ? -500 : -.5f, 1000, SimMessages.EnergySourceID.DebugCool);
                     heatAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
                     Require(heatAvoidedNativeDispatch && heatPacketsRouted == 2, "Actual game heat packets bypassed the custom native owner.");
                     heatSubmitted = true;
@@ -172,10 +176,17 @@ namespace MixedAtmospheres.Oni
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (HeatMode)
                 {
-                    heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - 1500;
+                    heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - FixtureHeatJoules;
+                    if (LiquidHeatMode)
+                    {
+                        heatEnergyScale += cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
+                        heatEnergyBound = 128 * 2.2204460492503131e-16 * heatEnergyScale;
+                        Require(cells[0].Temperature>300 && cells.Skip(1).Any(cell => cell.Temperature>300+1e-9),
+                            "Water heat did not change both the source and a conductive neighbor.");
+                    }
                     heatVerified = heatSubmitted && heatAvoidedNativeDispatch && heatPacketsRouted == 2 && heatStatus.PendingBatches == 0 &&
-                        heatStatus.AcceptedBatches == 2 && heatStatus.CommittedBatches == 2 && heatStatus.CommittedHeatJoules == 1500 &&
-                        Math.Abs(heatEnergyResidual) <= 1e-6;
+                        heatStatus.AcceptedBatches == 2 && heatStatus.CommittedBatches == 2 && heatStatus.CommittedHeatJoules == FixtureHeatJoules &&
+                        Math.Abs(heatEnergyResidual) <= heatEnergyBound;
                     Require(heatVerified, "Game heating/cooling did not conserve its explicit native fluid heat account.");
                 }
                 if (TransferMode)
@@ -672,6 +683,8 @@ namespace MixedAtmospheres.Oni
             Gravity = gravityStatus, GravityVerified = gravityVerified, ProjectedPotentialJoules = GravityMode ? ProjectedPotential : 0,
             HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
             HeatEnergyResidualJoules = heatEnergyResidual,
+            LiquidHeatVerified = LiquidHeatMode && heatVerified && thermalVerified,
+            HeatEnergyScaleJoules = heatEnergyScale, HeatEnergyBoundJoules = heatEnergyBound,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),

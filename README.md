@@ -42,7 +42,8 @@ for ownership, interfaces, failures and implementation gates.
   [Filled-water point transfers](docs/sealed-native-domain.md#filled-liquid-point-sources)
   now carry compression energy too. Licensed Linux and Windows simulation-library
   controls pass, and Linux Unity passes the water messages and paired save.
-  Filled-water registered actors are implemented; their Unity control is pending.
+  Linux Unity also passes filled-water registered actors, callbacks, blocking,
+  removal and a fresh-process paired reload with 120 exact continued frames.
   Selective point consumers and emitters now retain native registrations while
   transferring custom physical gas; a real Unity consumer, changed rates,
   blocked/unblocked callbacks and removal pass in the Linux colony. General
@@ -54,6 +55,9 @@ for ownership, interfaces, failures and implementation gates.
   Internal fluid conduction now runs on the same native clock, with closed
   energy and entropy checks; a rendered Linux colony verifies the resulting
   heat redistribution. Fluid/solid heat exchange remains unfinished.
+  [Stored-energy rounding](native/MAC_CONDUCTION_ROUNDING.md) now preserves
+  closed liquid heat sums when representable, with unresolved updates explicit.
+  A separate liquid heat scene is implemented and awaits Unity verification.
   An opt-in gravity scene also passes in the Linux game, retaining physical
   vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.
