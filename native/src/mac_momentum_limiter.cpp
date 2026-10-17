@@ -49,9 +49,20 @@ void check_pair(const MacMomentumLimitedPair& p) {
     momentum.add(p.before_left.negated()); momentum.add(p.before_right.negated());
     if (!momentum.within_bound()) precision("MAC correction pair momentum account exceeds its operand bound");
 }
+// Largest theta in [0,1] admitted by Q + theta*A - theta^2*B >= 0.
+// Use the rationalized root when A<=0 to avoid subtractive cancellation.
+MacScaled quadratic_heat_limit(MacEnergy heat, MacEnergy linear, MacEnergy quadratic) {
+    const auto one = MacScaled::from_double(1);
+    MacEnergySum endpoint; endpoint.add(heat); endpoint.add(linear); endpoint.add(quadratic.negated());
+    if (endpoint.sign() >= 0) return one;
+    if (heat.is_zero()) return linear.mantissa() <= 0 ? MacScaled{} : linear.shared(one, quadratic);
+    const auto discriminant = add(product(linear, linear), product(quadratic, heat).shifted(2));
+    const auto root = discriminant.square_root();
+    return linear.mantissa() <= 0 ? heat.shifted(1).shared(one, add(root, linear.negated())) :
+        add(linear, root).shared(one, quadratic.shifted(1));
 }
-MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled jl, MacScaled jr,
-    MacEnergy ql, MacEnergy qr, MacScaled requested, const MacMomentumWorkBudget* work_budget) {
+MacMomentumLimitedPair limit_pair(double il, double ir, MacScaled jl, MacScaled jr,
+    MacEnergy ql, MacEnergy qr, MacScaled requested, const MacMomentumWorkBudget* work_budget, bool quadratic) {
     require_mac_energy_environment();
     require(std::isfinite(il) && std::isfinite(ir) && il > 0 && ir > 0 && ql.mantissa() >= 0 && qr.mantissa() >= 0,
         "Invalid MAC correction inertia or available heat");
@@ -67,14 +78,19 @@ MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled j
     const auto difference = mac_scaled_difference(ul, ur);
     const auto velocity_sum = add(ul, ur);
     const auto linear = product(requested, difference).shifted(-1);
-    // Q + a*A - a^2*B >= Q + a*(A-B), for 0<=a<=1 and B>=0.
-    // The sufficient linear bound avoids square roots or projected tiny ratios.
     for (int side = 0; side < 2; ++side) {
-        const auto cost = add(MacEnergy::kinetic(side == 0 ? il : ir, requested), linear.negated());
+        const auto coefficient = MacEnergy::kinetic(side == 0 ? il : ir, requested);
         const auto heat = side == 0 ? ql : qr;
-        if (cost.mantissa() > 0 && less(heat, cost)) {
-            const auto ratio = heat.shared(one, cost);
+        if (quadratic) {
+            const auto ratio = quadratic_heat_limit(heat, linear, coefficient);
             if (less(ratio, p.limiter)) p.limiter = ratio;
+        } else {
+            // Q + a*A - a^2*B >= Q + a*(A-B), 0<=a<=1 and B>=0.
+            const auto cost = add(coefficient, linear.negated());
+            if (cost.mantissa() > 0 && less(heat, cost)) {
+                const auto ratio = heat.shared(one, cost);
+                if (less(ratio, p.limiter)) p.limiter = ratio;
+            }
         }
     }
     if (work_budget) {
@@ -121,8 +137,8 @@ MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled j
     if (!resolved(qr, p.after_heat_right, p.heat_change_right)) ++p.unresolved_heat_updates;
     check_pair(p); return p;
 }
-MacMomentumLimitedBatch limit_mac_momentum_batch(std::span<const double> inertia, std::span<const MacScaled> momentum,
-    std::span<const MacEnergy> heat, std::span<const MacMomentumCorrection> corrections) {
+MacMomentumLimitedBatch limit_batch(std::span<const double> inertia, std::span<const MacScaled> momentum,
+    std::span<const MacEnergy> heat, std::span<const MacMomentumCorrection> corrections, bool quadratic) {
     require_mac_energy_environment();
     require(inertia.size() == momentum.size() && heat.size() == momentum.size() && inertia.size() <= 16000000 &&
         corrections.size() <= 16000000, "Invalid MAC correction batch shape or capacity");
@@ -135,8 +151,8 @@ MacMomentumLimitedBatch limit_mac_momentum_batch(std::span<const double> inertia
     MacMomentumLimitedBatch result; result.momentum.assign(momentum.begin(), momentum.end()); result.heat.assign(heat.begin(), heat.end());
     result.pairs.reserve(corrections.size()); const auto one = MacScaled::from_double(1);
     for (const auto& edge : corrections) {
-        auto pair = limit_mac_momentum_pair(inertia[edge.left], inertia[edge.right], result.momentum[edge.left], result.momentum[edge.right],
-            result.heat[edge.left], result.heat[edge.right], edge.impulse);
+        auto pair = limit_pair(inertia[edge.left], inertia[edge.right], result.momentum[edge.left], result.momentum[edge.right],
+            result.heat[edge.left], result.heat[edge.right], edge.impulse, nullptr, quadratic);
         result.momentum[edge.left] = pair.after_left; result.momentum[edge.right] = pair.after_right;
         result.heat[edge.left] = pair.after_heat_left; result.heat[edge.right] = pair.after_heat_right;
         if (less(pair.limiter, one)) ++result.limited_pairs;
@@ -151,5 +167,22 @@ MacMomentumLimitedBatch limit_mac_momentum_batch(std::span<const double> inertia
     if (!energy.within_bound() || !impulse.within_bound()) precision("MAC correction batch conservation exceeds its operand bound");
     result.energy_residual = energy.residual(); result.energy_bound = energy.bound(); result.momentum_residual = impulse.residual();
     return result;
+}
+}
+MacMomentumLimitedPair limit_mac_momentum_pair(double il, double ir, MacScaled jl, MacScaled jr,
+    MacEnergy ql, MacEnergy qr, MacScaled requested, const MacMomentumWorkBudget* work_budget) {
+    return limit_pair(il, ir, jl, jr, ql, qr, requested, work_budget, false);
+}
+MacMomentumLimitedPair limit_mac_momentum_pair_quadratic(double il, double ir, MacScaled jl, MacScaled jr,
+    MacEnergy ql, MacEnergy qr, MacScaled requested, const MacMomentumWorkBudget* work_budget) {
+    return limit_pair(il, ir, jl, jr, ql, qr, requested, work_budget, true);
+}
+MacMomentumLimitedBatch limit_mac_momentum_batch(std::span<const double> inertia, std::span<const MacScaled> momentum,
+    std::span<const MacEnergy> heat, std::span<const MacMomentumCorrection> corrections) {
+    return limit_batch(inertia, momentum, heat, corrections, false);
+}
+MacMomentumLimitedBatch limit_mac_momentum_batch_quadratic(std::span<const double> inertia, std::span<const MacScaled> momentum,
+    std::span<const MacEnergy> heat, std::span<const MacMomentumCorrection> corrections) {
+    return limit_batch(inertia, momentum, heat, corrections, true);
 }
 }

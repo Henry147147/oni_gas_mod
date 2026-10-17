@@ -15,6 +15,8 @@ def encoded(row,index):
     check(-16384<e<16384 and ((m==0 and e==0) or F(1,2)<=abs(m)<1),'Scaled field shape/range')
     return m*F(2)**e
 CHECKS=0
+QUADRATIC=False
+_quadratic_reference=None
 def close(a,b,operands,why):
     global CHECKS;CHECKS+=1
     check(abs(a-b)<=128*EPS*sum(map(abs,operands)),why)
@@ -26,10 +28,12 @@ def rounded(x):
 def product(a,b):return rounded(a*b)
 def unique(d,k,v):check(k not in d,'Duplicate saved record');d[k]=v
 def parse(raw):
-    d={k:{} for k in ('grids','cells','masses','passives','faces','duals','events','reports','profiles','waves')};passes=[];trace=None;rejected=None
+    d={k:{} for k in ('grids','cells','masses','passives','faces','duals','events','reports','profiles','waves')};passes=[];trace=None;rejected=None;qmode=None
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty record');kind=r[0]
-        if kind=='GRID':
+        if kind=='QMODE':
+            check(len(r)==2 and qmode is None and r[1]=='2','Quadratic mode shape/duplicate');qmode=2
+        elif kind=='GRID':
             check(len(r)==13,'Grid shape');unique(d['grids'],int(r[1]),(int(r[2]),int(r[3]),number(r[4]),number(r[5]),int(r[6]),int(r[7]),int(r[8]),encoded(r,9),encoded(r,11)))
         elif kind=='CELL':
             check(len(r)==12,'Cell shape');unique(d['cells'],tuple(map(int,r[1:3])),(int(r[3]),*map(number,r[4:])))
@@ -58,7 +62,7 @@ def parse(raw):
         check(all(c in d['grids'] and t in (0,1) and 0<=i<d['grids'][c][0]*d['grids'][c][1] and s>=0 for c,t,i,s in d[field]),'Orphan material identity')
     for field in ('faces','duals','events'):
         check(all(c in d['grids'] and a in (0,1) for c,a,i in d[field]),'Orphan component record')
-    d['trace']=trace;return d
+    d['trace']=trace;d['quadratic']=qmode==2;return d
 
 def topology(g,component):
     w,h,_,_,px,py,*_=g;nx=w if component else w+(not px);ny=h+(not py) if component else h
@@ -70,6 +74,7 @@ def topology(g,component):
         for x in range(nx):pairs.append((cell(x,y-1),cell(x,y)) if component else (cell(x-1,y),cell(x,y)))
     return nx,ny,pairs
 def review_pair(il,ir,p,work_budget=None):
+    global _quadratic_reference
     jl,jr,ql,qr,request,alpha,impulse,al,ar,hl,hr,work,dl,dr=p
     check(ql>=0 and qr>=0 and hl>=0 and hr>=0 and 0<=alpha<=1,'Pair heat/limiter domain')
     if impulse==0:check((al,ar,hl,hr,work,dl,dr)==(jl,jr,ql,qr,0,0,0),'Zero impulse changed a paired state')
@@ -77,8 +82,17 @@ def review_pair(il,ir,p,work_budget=None):
     # Account for rounded endpoint velocity operands when the difference is small.
     err=16*EPS*abs(request)*(abs(ul)+abs(ur))
     a=(ul-ur)*request/2;costs=(request*request/(2*il)-a,request*request/(2*ir)-a)
-    lower=min([F(1)]+[q/(c+err) for q,c in zip((ql,qr),costs) if c+err>0 and q<c+err])
-    upper=min([F(1)]+[q/(c-err) for q,c in zip((ql,qr),costs) if c-err>0 and q<c-err])
+    if QUADRATIC and request:
+        if _quadratic_reference is None:
+            spec=importlib.util.spec_from_file_location('quadratic_saved_reference',Path(__file__).with_name('review_mac_quadratic_limiter.py'))
+            _quadratic_reference=importlib.util.module_from_spec(spec);spec.loader.exec_module(_quadratic_reference)
+        root=_quadratic_reference.root_limit
+        coefficients=(request*request/(2*il),request*request/(2*ir))
+        lower=min(root(q,a-err,b*(1+8*EPS)) for q,b in zip((ql,qr),coefficients))
+        upper=min(root(q,a+err,b*(1-8*EPS)) for q,b in zip((ql,qr),coefficients))
+    else:
+        lower=min([F(1)]+[q/(c+err) for q,c in zip((ql,qr),costs) if c+err>0 and q<c+err])
+        upper=min([F(1)]+[q/(c-err) for q,c in zip((ql,qr),costs) if c-err>0 and q<c-err])
     if work_budget is not None:
         tl,tr=work_budget;check(tl>=0 and tr>=0 and tl-work>=0 and tr+work>=0,'Actual transported kinetic work capacity')
         w0=(ul+ur)*request/2
@@ -86,7 +100,7 @@ def review_pair(il,ir,p,work_budget=None):
         high_cost=(max(w0-err,F(0)),max(-w0-err,F(0)))
         lower=min([lower]+[t/c for t,c in zip((tl,tr),low_cost) if c>0 and t<c])
         upper=min([upper]+[t/c for t,c in zip((tl,tr),high_cost) if c>0 and t<c])
-    check(alpha>=lower*(1-128*EPS) and alpha<=upper*(1+128*EPS),'Independent sufficient heat/work limiter interval')
+    check(alpha>=lower*(1-128*EPS) and alpha<=upper*(1+128*EPS),'Independent heat/work limiter interval')
     close(impulse,request*alpha,(impulse,request*alpha),'Applied correction')
     close(al,jl-impulse,(al,jl,impulse),'Left corrected J');close(ar,jr+impulse,(ar,jr,impulse),'Right corrected J')
     close(work,(ul+ur)*impulse/2,(work,(abs(ul)+abs(ur))*impulse),'Paired work flux')
@@ -214,6 +228,8 @@ def review_components(d,case,m0,m1,cells,require_uniform=False):
     return heat,energy_change,energy_terms,primal
 
 def review(d):
+    global QUADRATIC
+    QUADRATIC=d['quadratic']
     global CHECKS;CHECKS=0
     for case,g in d['grids'].items():
         w,h,spacing,depth,px,py,unresolved,residual,bound=g

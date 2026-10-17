@@ -28,6 +28,8 @@ public:
     [[nodiscard]] MacEnergy shifted(int power_of_two) const;
     [[nodiscard]] MacEnergy negated() const noexcept;
     [[nodiscard]] MacEnergy magnitude() const noexcept;
+    // Nonnegative square root without projecting the exponent or value.
+    [[nodiscard]] MacEnergy square_root() const;
     [[nodiscard]] bool is_zero() const noexcept { return mantissa_ == 0; }
     [[nodiscard]] double mantissa() const noexcept { return mantissa_; }
     [[nodiscard]] const MacExponent& exponent() const noexcept { return exponent_; }

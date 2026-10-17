@@ -204,7 +204,8 @@ void validate_face_energy(const MacFaceEnergy& values, bool composed = false) {
     if (remaining.sign() < 0) precision("MAC composed local kinetic/heat account exceeds its stage operand bounds");
 }
 void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vector<Neighbors>& faces,
-    const std::vector<MacScaled>& old_velocity, std::vector<MacScaled>& momentum, MacFaceTransportReport& report) {
+    const std::vector<MacScaled>& old_velocity, std::vector<MacScaled>& momentum, MacFaceTransportReport& report,
+    MacMomentumReconstruction reconstruction) {
     const auto count = faces.size(), width = x_component ? grid.x_width() : grid.width,
         height = x_component ? grid.height : grid.y_height();
     const auto is_free = [&](std::size_t i) { return i != absent && faces[i].left != absent && faces[i].right != absent; };
@@ -217,7 +218,7 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
         const auto target = axis == 0 ? next + y * width : x + next * width;
         return is_free(target) ? target : absent;
     };
-    report.reconstruction = MacMomentumReconstruction::limited_linear; report.upwind_momentum = momentum;
+    report.reconstruction = reconstruction; report.upwind_momentum = momentum;
     report.velocity_slope_x.resize(count); report.velocity_slope_y.resize(count);
     report.centered_courant_x.resize(count); report.centered_courant_y.resize(count);
     report.upwind_mixing_heat.resize(count); report.upwind_transported_kinetic.resize(count);
@@ -264,7 +265,9 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
         const auto request = signed_product(flux, bounded);
         if (request.is_zero()) continue;
         const MacMomentumWorkBudget work_budget{transported[edge.left], transported[edge.right]};
-        auto pair = limit_mac_momentum_pair(report.new_inertia[edge.left], report.new_inertia[edge.right], momentum[edge.left], momentum[edge.right],
+        const auto limiter = reconstruction == MacMomentumReconstruction::quadratic_limited_linear ?
+            limit_mac_momentum_pair_quadratic : limit_mac_momentum_pair;
+        auto pair = limiter(report.new_inertia[edge.left], report.new_inertia[edge.right], momentum[edge.left], momentum[edge.right],
             report.energies[edge.left].mixing_heat, report.energies[edge.right].mixing_heat, request, &work_budget);
         momentum[edge.left] = pair.after_left; momentum[edge.right] = pair.after_right;
         report.energies[edge.left].mixing_heat = pair.after_heat_left; report.energies[edge.right].mixing_heat = pair.after_heat_right;
@@ -341,9 +344,9 @@ MacFaceTransportReport transport_faces(const MacGrid& grid, bool x_component, co
         report.energies[i].mixing_heat = heat[i].value(); validate_face_energy(report.energies[i]);
         report.energies[i].composed_energy_bound = face_energy_account(report.energies[i]).bound();
     }
-    if (reconstruction == MacMomentumReconstruction::limited_linear) reconstruct_momentum(grid, x_component, faces, velocity, j1, report);
+    if (reconstruction != MacMomentumReconstruction::donor_cell) reconstruct_momentum(grid, x_component, faces, velocity, j1, report, reconstruction);
     for (std::size_t i = 0; i < count; ++i) {
-        auto& values = report.energies[i]; validate_face_energy(values, reconstruction == MacMomentumReconstruction::limited_linear);
+        auto& values = report.energies[i]; validate_face_energy(values, reconstruction != MacMomentumReconstruction::donor_cell);
         const std::array<MacEnergy, 5> encoded{values.old_kinetic, values.new_kinetic, values.transported_kinetic, values.mixing_heat, values.wall_heat};
         const std::array<double*, 5> legacy{&report.old_kinetic[i], &report.new_kinetic[i], &report.transported_kinetic[i], &report.mixing_heat[i], &report.wall_heat[i]};
         for (std::size_t k = 0; k < encoded.size(); ++k) {
@@ -440,7 +443,8 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
     const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan,
     MacMomentumReconstruction reconstruction) {
     require_mac_energy_environment();
-    require(reconstruction == MacMomentumReconstruction::donor_cell || reconstruction == MacMomentumReconstruction::limited_linear,
+    require(reconstruction == MacMomentumReconstruction::donor_cell || reconstruction == MacMomentumReconstruction::limited_linear ||
+        reconstruction == MacMomentumReconstruction::quadratic_limited_linear,
         "Invalid MAC momentum reconstruction mode");
     const Geometry geometry(source.grid); const auto m0 = masses(registry, source, model, source_volumes); const auto& g = source.grid;
     MacMassFluxes parcel_flux;
@@ -495,7 +499,7 @@ MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTranspor
             if (stored != 0) next.passive_quantities.push_back({identity, stored});
         }
     }
-    if (reconstruction == MacMomentumReconstruction::limited_linear) {
+    if (reconstruction != MacMomentumReconstruction::donor_cell) {
         result.report.advected_internal_energy_j.reserve(count);
         for (const auto& cell : result.state.cells) result.report.advected_internal_energy_j.push_back(cell.mixture.energy);
     }

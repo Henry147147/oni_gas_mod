@@ -127,8 +127,8 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
 }
 inline void export_momentum_reconstruction(int id, const MacTransportReport& r) {
     if (r.x.reconstruction != r.y.reconstruction) throw std::runtime_error("Transport components disagree on momentum mode");
-    const bool corrected = r.x.reconstruction == MacMomentumReconstruction::limited_linear;
-    std::cout << "MCONFIG " << id << ' ' << corrected << '\n';
+    const bool corrected = r.x.reconstruction != MacMomentumReconstruction::donor_cell;
+    std::cout << "MCONFIG " << id << ' ' << static_cast<int>(r.x.reconstruction) << '\n';
     if (!corrected) return;
     const auto scaled = [](MacScaled value) { std::cout << ' ' << value.mantissa() << ' ' << value.exponent(); };
     for (std::size_t i = 0; i < r.advected_internal_energy_j.size(); ++i)

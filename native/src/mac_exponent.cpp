@@ -86,6 +86,29 @@ MacExponent MacExponent::negated() const {
     return from_words(sign() >= 0, magnitude_words());
 }
 MacExponent MacExponent::doubled() const { return *this + *this; }
+bool MacExponent::is_odd() const noexcept {
+    return large_ ? (storage_.large->words.front() & 1U) != 0 : storage_.small % 2 != 0;
+}
+MacExponent MacExponent::halved_floor() const {
+    if (!large_) return storage_.small / 2 - (storage_.small < 0 && is_odd() ? 1 : 0);
+    auto words = storage_.large->words;
+    std::uint32_t carry = 0;
+    for (std::size_t i = words.size(); i > 0; --i) {
+        const auto word = words[i - 1]; words[i - 1] = (word >> 1) | carry;
+        carry = (word & 1U) << 31;
+    }
+    // Negative odd magnitudes round away from zero under floor division.
+    if (storage_.large->negative && is_odd()) {
+        std::uint64_t increment = 1;
+        for (auto& word : words) {
+            const auto value = static_cast<std::uint64_t>(word) + increment;
+            word = static_cast<std::uint32_t>(value); increment = value >> 32;
+            if (increment == 0) break;
+        }
+        if (increment != 0) words.push_back(static_cast<std::uint32_t>(increment));
+    }
+    return from_words(storage_.large->negative, std::move(words));
+}
 MacExponent operator+(const MacExponent& a, const MacExponent& b) {
     if (!a.large_ && !b.large_) {
         const auto x = a.storage_.small, y = b.storage_.small;

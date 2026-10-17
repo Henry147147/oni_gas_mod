@@ -1,5 +1,10 @@
 # Geometric compatible momentum transport
 
+The appended `quadratic_limited_linear` momentum selector (2) uses the same
+predictor with [quadratic heat admission](MAC_QUADRATIC_LIMITER.md). Selectors
+0/1 and the default remain unchanged. Both modes have explicit geometric and
+owning controls; selector 2 has not passed the strong-flow gate.
+
 The scoped Windows/Linux controls below pass. The explicit `limited_linear`
 momentum mode uses actual primal/dual mass fluxes in MAC transport and applies the
 [compatible limiter](MAC_MOMENTUM_LIMITER.md) before material heat deposition.

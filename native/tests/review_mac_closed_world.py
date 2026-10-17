@@ -72,7 +72,7 @@ def parse(raw, required_passes=8, require_acoustic=True, required_cases=(0,1), r
         check(mask==expected and mask>0,'Pressure face projection mask differs');faces[key]=values
         cases[key[0]].setdefault('root_projection',{})[key[1:]]=(root_in,root_out)
     for identifier,case in cases.items():
-        check(case['momentum_mode'] in (0,1),'Closed step omitted its momentum mode')
+        check(case['momentum_mode'] in (0,1,2),'Closed step omitted its momentum mode')
         if case['owner_energy'] is not None:
             count,values=case['owner_energy'];row=pressure[identifier];projections=row[3:7]
             check(all(a==F(float(b)) for a,b in zip(projections,values)),'Owner energy projections differ')

@@ -10,7 +10,7 @@
 namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
-enum class MacMomentumReconstruction { donor_cell, limited_linear };
+enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Every fluid cell must remain occupied.

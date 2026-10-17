@@ -1,5 +1,18 @@
 # Closed-gas Riemann gate
 
+The latest [quadratic momentum admission](MAC_QUADRATIC_LIMITER.md), combined
+with swept material reconstruction, also fails collision density refinement:
+0.856557 / 0.795159 / 0.611016 for density/pressure/velocity against 0.85.
+All 179 prerequisite groups and 29 saved reviews pass per OS, with another
+179 groups and 29 reviews under Linux ASan/UBSan. The Windows native run
+finishes five profiles in 61.28 seconds, then exits 1 without timeout.
+All five individual physical checks pass in the 59,205-check partial review;
+the joint collision norm fails. Collision N256, separating flow and the
+Linux strong run are unexecuted. No selector or default is promoted. The
+original scientific inputs, physical limits, 180-second strong budget and
+2 MiB pipe cap remain unchanged. Retained terminal-review SHA256:
+`300eb23c1b74566e8d60c23c01c8080a32e331bea28cf9539226c9ee991b856a`.
+
 The newer [swept first-moment reconstruction](MAC_SWEPT_RECONSTRUCTION.md)
 repairs an independently reproduced affine remap defect. Its changed-method
 Windows strong-flow run passes Sod, then fails collision density refinement:

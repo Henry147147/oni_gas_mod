@@ -1,5 +1,10 @@
 # Compatible momentum correction
 
+An opt-in [quadratic admission mode](MAC_QUADRATIC_LIMITER.md) now permits
+corrections that the sufficient linear bound below unnecessarily rejects.
+Existing functions, selectors and defaults retain their behavior. Its full
+prerequisites pass, but its changed-method strong-flow gate still fails.
+
 The scoped component controls pass on Windows/Linux. This foundation now serves
 [geometric transport](MAC_MOMENTUM_RECONSTRUCTION.md) and the
 [owning timestep](MAC_MOMENTUM_OWNER.md), whose default reconstructs momentum.

@@ -89,6 +89,11 @@ MacEnergy MacEnergy::shifted(int power) const {
 }
 MacEnergy MacEnergy::negated() const noexcept { return {-mantissa_, exponent_}; }
 MacEnergy MacEnergy::magnitude() const noexcept { return {std::abs(mantissa_), exponent_}; }
+MacEnergy MacEnergy::square_root() const {
+    if (mantissa_ < 0) throw std::invalid_argument("Negative MAC square root operand");
+    if (is_zero()) return {};
+    return normalized(std::sqrt(exponent_.is_odd() ? 2 * mantissa_ : mantissa_), exponent_.halved_floor());
+}
 MacEnergyProjection MacEnergy::project() const {
     if (is_zero()) return {};
     if (exponent_ > 1024) precision("MAC derived energy exceeds binary64 upper range");

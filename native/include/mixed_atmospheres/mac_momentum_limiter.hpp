@@ -23,6 +23,13 @@ struct MacMomentumWorkBudget { const MacEnergySum& left; const MacEnergySum& rig
     double inertia_right, MacScaled momentum_left, MacScaled momentum_right,
     MacEnergy available_heat_left, MacEnergy available_heat_right, MacScaled requested_impulse,
     const MacMomentumWorkBudget* transported_work_budget = nullptr);
+// Opt-in sharp quadratic heat admission; the legacy sufficient linear limiter
+// above keeps its existing behavior. Both modes verify actual heat/work after
+// significand rounding and use the same conservation and precision checks.
+[[nodiscard]] MacMomentumLimitedPair limit_mac_momentum_pair_quadratic(double inertia_left,
+    double inertia_right, MacScaled momentum_left, MacScaled momentum_right,
+    MacEnergy available_heat_left, MacEnergy available_heat_right, MacScaled requested_impulse,
+    const MacMomentumWorkBudget* transported_work_budget = nullptr);
 
 struct MacMomentumCorrection { std::size_t left = 0, right = 0; MacScaled impulse; };
 struct MacMomentumLimitedBatch {
@@ -38,6 +45,9 @@ struct MacMomentumLimitedBatch {
 // wall handling, material transport and deposition remain caller obligations.
 // Invalid input/failure returns no candidate and never changes the inputs.
 [[nodiscard]] MacMomentumLimitedBatch limit_mac_momentum_batch(std::span<const double> inertia,
+    std::span<const MacScaled> momentum, std::span<const MacEnergy> available_heat,
+    std::span<const MacMomentumCorrection> corrections);
+[[nodiscard]] MacMomentumLimitedBatch limit_mac_momentum_batch_quadratic(std::span<const double> inertia,
     std::span<const MacScaled> momentum, std::span<const MacEnergy> available_heat,
     std::span<const MacMomentumCorrection> corrections);
 }

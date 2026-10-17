@@ -126,7 +126,7 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
                 check((m==0 and e==0) or F(1,2)<=abs(m)<1,'Noncanonical reconstructed full scalar')
                 return scaled_energy(row[index],row[index+1])
             if kind=='MCONFIG':
-                check(len(row)==3 and case['momentum_mode'] is None and int(row[2]) in (0,1),'Momentum mode shape/duplicate')
+                check(len(row)==3 and case['momentum_mode'] is None and int(row[2]) in (0,1,2),'Momentum mode shape/duplicate')
                 case['momentum_mode']=int(row[2])
             elif kind=='MRCELL':
                 check(len(row)==4,'Advected U shape');unique(case['mcells'],int(row[2]),number(row[3]))
@@ -288,7 +288,7 @@ _geometric=None
 def review_geometric(case,faces,mass):
     global _geometric,CHECKS
     payload=('mcells','mreports','mfaces','mduals','mevents')
-    if case['momentum_mode']!=1:
+    if case['momentum_mode'] not in (1,2):
         check(not any(case[k] for k in payload),'Correction data without limited momentum mode')
         return False
     check(set(case['mcells'])==set(range(case['w']*case['h'])),'Advected U coverage')
@@ -298,6 +298,7 @@ def review_geometric(case,faces,mass):
     if _geometric is None:
         spec=importlib.util.spec_from_file_location('saved_geometric',Path(__file__).with_name('review_mac_momentum_reconstruction.py'))
         _geometric=importlib.util.module_from_spec(spec);spec.loader.exec_module(_geometric)
+    _geometric.QUADRATIC=case['momentum_mode']==2
     rows={}
     for (a,i),row in case['faces'].items():
         flux,j0,j1,i0,i1,k0,k1,kt,qm,qw,impulse,_=row

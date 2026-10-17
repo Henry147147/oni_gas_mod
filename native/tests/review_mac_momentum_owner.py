@@ -57,6 +57,7 @@ def parse(raw):
     return d
 
 def review(d):
+    pair_reference.QUADRATIC=d['ordinary'][0][0]['momentum_mode']==2
     check(set(d['workpairs'])==set(range(4)) and d['work_invalid']==1,'Missing actual work capacity controls')
     check(all(k in d['workpairs'] and side in (0,1) and i>=0 for k,side,i in d['workterms']),'Orphan work expansion')
     for k,row in d['workpairs'].items():
@@ -75,7 +76,8 @@ def review(d):
     cases,materials,pcases,pcells,pfaces,_,_=d['ordinary'];trace,passive=d['trace']
     check(trace in materials and passive>=0,'Owner trace identity')
     for identifier,c in cases.items():
-        check(c['momentum_mode']==int(identifier!=4),'Declared default/donor owner mode')
+        check(c['momentum_mode']==(0 if identifier==4 else cases[0]['momentum_mode']) and cases[0]['momentum_mode'] in (1,2),
+            'Declared corrected/donor owner mode')
         for i,wall in c['walls'].items():
             if not wall:
                 for e in (0,1):check(c['masses'].get((e,i,trace),0)>0 and c['passives'].get((e,i,passive),0)>0,'Owner lost positive constituent/passive trace')

@@ -29,6 +29,9 @@ public:
     [[nodiscard]] int sign() const noexcept;
     [[nodiscard]] MacExponent negated() const;
     [[nodiscard]] MacExponent doubled() const;
+    [[nodiscard]] bool is_odd() const noexcept;
+    // Exact floor division, including negative odd and out-of-int64 values.
+    [[nodiscard]] MacExponent halved_floor() const;
     void swap(MacExponent&) noexcept;
     friend MacExponent operator+(const MacExponent&, const MacExponent&);
     friend MacExponent operator-(const MacExponent& a, const MacExponent& b) { return a + b.negated(); }

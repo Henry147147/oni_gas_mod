@@ -6,6 +6,7 @@ namespace {
 using namespace ma;
 using namespace ma::experimental;
 constexpr double dt = 1e-5;
+auto mode = MacMomentumReconstruction::limited_linear;
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
 bool fixed(const MacGrid& g, int axis, std::size_t f) {
     const auto x = axis == 0 ? f % g.x_width() : f % g.width;
@@ -31,7 +32,7 @@ MacTransportState source(bool walls = false) {
 // own owning tests, including the same accepted-stage and atomicity checks.
 MacClosedSettings settings() {
     MacClosedSettings s; s.maximum_timestep_s = dt; s.shock_heat = MacShockHeatRegularization::none;
-    s.compression_viscosity = MacCompressionViscosity::quadratic; return s;
+    s.compression_viscosity = MacCompressionViscosity::quadratic; s.momentum_reconstruction = mode; return s;
 }
 void positive(const MacTransportState& s) {
     const auto& set = ma::testing::setup();
@@ -45,9 +46,10 @@ void positive(const MacTransportState& s) {
 void default_and_material() {
     const auto& set = ma::testing::setup(); const auto s = source(); const auto held = ma::testing::fingerprint(s);
     const auto options = settings(); const auto step = advance_mac_closed_substep(set.registry, *set.eos, s, dt, options);
-    check(options.momentum_reconstruction == MacMomentumReconstruction::limited_linear && step.reconstruction.has_value() &&
+    check(MacClosedSettings{}.momentum_reconstruction == MacMomentumReconstruction::limited_linear &&
+        options.momentum_reconstruction == mode && step.reconstruction.has_value() &&
         !step.transport.x.corrections.empty() && !step.transport.y.corrections.empty(), "Default owner did not reconstruct both momentum components");
-    const auto direct = advance_mac_parcel_transport(set.registry, step.pressure_state, *set.eos, *step.reconstruction, MacMomentumReconstruction::limited_linear);
+    const auto direct = advance_mac_parcel_transport(set.registry, step.pressure_state, *set.eos, *step.reconstruction, mode);
     check(ma::testing::fingerprint(step.state) == ma::testing::fingerprint(direct.state) && ma::testing::fingerprint(s) == held,
         "Owner parcel momentum mode differs from the actual transport component or changed its source");
     positive(step.state); ma::testing::export_case(0, s, step, dt);
@@ -197,7 +199,9 @@ void work_capacity() {
     std::cout << "OWORK_INVALID 1\n";
 }
 }
-int main() { try {
+int main(int argc, char** argv) { try {
+    if (argc == 2 && std::string(argv[1]) == "--quadratic") mode = MacMomentumReconstruction::quadratic_limited_linear;
+    else check(argc == 1, "Invalid momentum owner control arguments");
     require_mac_energy_environment(); std::cout << std::setprecision(17);
     const auto& set = ma::testing::setup();
     std::cout << "OTRACE " << set.registry.index("helium") << ' ' << UINT64_C(0x80000000) << '\n';

@@ -6,7 +6,7 @@
 namespace {
 using namespace ma;
 using namespace ma::experimental;
-const auto mode = MacMomentumReconstruction::limited_linear;
+auto mode = MacMomentumReconstruction::limited_linear;
 void check(bool ok, const char* reason) { if (!ok) throw std::runtime_error(reason); }
 void scaled(MacScaled x) { std::cout << ' ' << x.mantissa() << ' ' << x.exponent(); }
 bool same(MacScaled a, MacScaled b) { return a.mantissa() == b.mantissa() && a.exponent() == b.exponent(); }
@@ -205,8 +205,11 @@ void invalid() {
     check(rejected == 4, "Invalid reconstruction input accepted"); std::cout << "REJECTED " << rejected << '\n';
 }
 }
-int main() { try {
+int main(int argc, char** argv) { try {
+    if (argc == 2 && std::string(argv[1]) == "--quadratic") mode = MacMomentumReconstruction::quadratic_limited_linear;
+    else check(argc == 1, "Invalid momentum reconstruction control arguments");
     require_mac_energy_environment(); std::cout << std::setprecision(17);
+    if (mode == MacMomentumReconstruction::quadratic_limited_linear) std::cout << "QMODE 2\n";
     std::cout << "TRACE " << ma::testing::setup().registry.index("helium") << ' ' << UINT64_C(0x80000000) << '\n';
     identity(); std::cout << "PASS uniform velocity material reference identity\n";
     mixed_and_walls(); std::cout << "PASS mixed parcels and impermeable fixed wall reactions\n";
