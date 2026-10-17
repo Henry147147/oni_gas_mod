@@ -225,16 +225,28 @@ geometry. Development receipts capture styles, pattern settings, opacity range
 and exact physical readings. `oni_world_appearance_evidence.py` independently
 reconstructs each colour/opacity byte from those saved operands; the native
 domain gate also requires shader-bound GPU readback, calibrated coordinates and
-matching publication revisions. Component tests pass; an actual game source
-and repeated reload remain required for this new appearance.
+matching publication revisions. Component tests pass; the repeated Windows
+reload below also passes. Fresh sources and the Linux appearance gate remain
+in progress.
 
 The first actual WindowsPlayer/Proton source finds an opacity upload wiring
 error: all six GPU colour texels match, but the opacity texture still receives
 gas-only values (149–152 instead of the expected 171–177). Publication epochs,
 shader bindings and the independent saved-input reconstruction agree. Both
 normal and diagnostic opacity upload loops now call `WorldFluidOpacity`.
-The failed capture remains retained; new real-game source/load acceptance is
-required before this appearance is marked verified.
+The failed capture remains retained. Frozen `9eb6769` then loads the unchanged
+heated Linux v16 colony twice in WindowsPlayer under official Proton/OpenGL.
+Both sessions match all six actual shader-bound colour and opacity texels,
+pass independent saved-operand reconstruction, paused frame-zero saves and
+readbacks, and 120 individually exact physical continuations. The final physical
+SHA-256 remains the previously accepted
+`9c68cd94867929b3c706f68a811cba4b4393da3461832e2ad7eaf9fa2be4270e`;
+the appearance repair changes no physical trajectory. Result SHA-256:
+`5fb160511fd85fad7d56d26b9bc3046e2dccab4b57fa8eaa9779f443fbae9599`.
+The actual Unity PNG was viewed: the six-cell room has the blended wet colour,
+and hover retains gas mole rows, trace notice, actual liquid volume and breathing
+status. This establishes repeated WindowsPlayer loading of the new appearance,
+with no claim of a liquid surface or an actual Windows OS run.
 
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to

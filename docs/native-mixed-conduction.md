@@ -2,8 +2,9 @@
 
 The native MAC owner now has a conservative conduction operator for cells that
 contain both gas and liquid. The component and native development scene now
-pass a real Linux Unity source/save and two exact reload sessions. WindowsPlayer
-controls are still running. Scenario 4 retains its
+pass real LinuxPlayer and WindowsPlayer sources/saves, local reloads and
+bidirectional cross-loads. Each load has two exact sessions. Strict numerical
+agreement between players remains open. Scenario 4 retains its
 saved conduction-disabled setting.
 
 The single-phase path retains the existing constant-capacity graph solve. A
@@ -81,8 +82,7 @@ python3 native/tests/review_mac_mixture_thermal.py /tmp/mixture-heat.txt
 ```
 
 The target is also registered as `mac_mixture_conduction` in backend CTest
-builds. Integration into a heated native development scene and both installed
-players remains the next acceptance step. Related contracts:
+builds. The installed-player results appear below. Related contracts:
 [gas/liquid ownership](native-mixed-phase-domain.md),
 [native backend](native-backend-integration.md) and
 [remaining features](completion-plan.md).
@@ -111,7 +111,7 @@ the Linux component control. Both adapters build, the Linux declaration suite
 passes 148 groups and 234 Python checks pass (four optional/platform skips).
 All 16 backend groups now pass on GNU Linux, GNU Windows binaries under Wine,
 Linux ASan/UBSan and the clean Ubuntu compatibility build. Actual Unity
-verification remains in progress. This scene
+source and continuation results appear below. This scene
 provides no free surfaces, phase changes or liquid world geometry.
 
 ## First native Linux source and reloads
@@ -139,7 +139,7 @@ The actual source PNG was viewed with cell 103106/revision 121 hover:
 20.58571183123733%. Both bulk gas rows, trace notice and breathing status are
 visible. This v16 capture retains the earlier gas-only world colour;
 the new phase-volume appearance and liquid interface geometry are not claimed
-from it. WindowsPlayer and bidirectional cross-loads remain separate gates.
+from it. WindowsPlayer and bidirectional cross-load results follow.
 
 WindowsPlayer now also loads that unchanged Linux source twice; both sessions
 pass paused saves/readbacks and 120 individually exact complete frames. Its
@@ -153,3 +153,31 @@ introduced. Review SHA-256:
 `5308867eaf0713772da9a8af1b2a5186798b210352e4a93846a639fbe223b663`.
 This retains local exact continuation and functional loading evidence while
 leaving cross-platform numerical acceptance open.
+
+## Completed Windows source and reverse loads
+
+The same frozen v16 package also passes a WindowsPlayer source through frame
+121. Its U+K residual is -0.0005950927734375 J within the unchanged
+0.0012169780096353772 J bound. The saved file SHA-256 is
+`9a9baed93a83d851dec9e3d62bbadb00326658ae038bc0312d1ba5f8c66d919f`;
+the saved physical image is
+`736a663bf6b791bd1244369628d5fda7a2fcfa6ec292d198a8de253d3ce1a774`.
+
+WindowsPlayer loads that source twice with 120 exact frames per session,
+ending at `30ebda142be31b88018a69375d8e5bfb14bf78f506cc793eece04b6358489e44`.
+Native Linux also loads it twice with 120 exact frames per session, ending at
+`a45f4ce22a159e316ac98f86cb70df8b35c884ed50c4ed63434ee5d03d0d725a`.
+Each session preserves the initial complete image and input file, completes a
+paused frame-zero save/readback, and verifies native references, restored
+readers and actual GPU texels. The full workflow therefore covers two fresh
+sources and eight reload sessions. WindowsPlayer runs under official Proton
+on Linux; this is not an actual Windows OS result. The strict numerical
+cross-platform failure above is retained separately.
+
+Raw result SHA-256 receipts:
+
+| Case | Result SHA-256 |
+| --- | --- |
+| Windows source | `28ae4ccb91ad1c3eed939d76a485611cfa4b3a1d762ab042f305df0ee666a58d` |
+| Windows local reloads | `beec4b591c0d468f5084c3baad952a0951a9f786b495291ea865ba418f921d41` |
+| Windows source loaded by Linux | `ba94043422eb50b3711e5165ec44aa1e3c76aa88909e3eb23d4f8e2600fa7456` |
