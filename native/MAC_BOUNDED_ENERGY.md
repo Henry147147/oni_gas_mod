@@ -211,3 +211,18 @@ No unchanged Linux strong attempt is launched. No initial energy, coefficient,
 grid, timestep, norm, scientific limit or default is changed. Strong flow,
 exact-vacuum interfaces, production coverage and playable-colony acceptance
 remain open.
+
+An accepted-step diagnostic then reproduces the repaired N64 profile byte for
+byte. All 184 sampled central reconstructions have limiter zero, and their
+outgoing parcel density equals the deformed donor mean to roundoff. Exact
+saved donor/target M, U, V and constituent accounts pass. At substep 5, cell 31
+has pre-work specific entropy -965.92363 J/(kg K); signed-work deposition lowers
+it to -970.30012, slightly below the uniform initial -970.22915. Reconstruction
+changes donor entropy by only about -1.28e-18 J/K there, and post-step heat
+changes none. Subsequent central readings decrease further. Thus the observed
+local drop occurs in signed-work deposition, while flattened density profiles
+are a separate visible restriction. Future work must examine their interaction
+and the appropriate discrete entropy flux before choosing a repair. These
+observations do not change the original strong-flow criteria. Evidence is
+`local/mac-bounded-separation-diagnostic-r1`, terminal SHA-256
+`bcc0be8604f0895cacd114acc4bed22f9c8a794a85dbed7034afee2d07c4320d`.
