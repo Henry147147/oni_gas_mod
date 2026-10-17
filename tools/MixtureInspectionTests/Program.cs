@@ -34,6 +34,8 @@ internal static class Program
             ("hover excludes traces while retaining their warnings and full details", CompactContaminant),
             ("hover uses the shared trace threshold including its exact boundary", HoverTraceBoundary),
             ("liquid inspection does not invent gas partial pressure", LiquidRows),
+            ("compressed liquid shows actual fluid pressure without calling it vacuum", ActualLiquidPressure),
+            ("wet mixture keeps fluid pressure separate from gas partial pressures", WetMixturePressure),
             ("breathing warnings use actual mixture model", BreathingWarnings),
             ("state uses player units and explicit breathing status", PlayerUnitsAndStatus),
             ("breathing warnings precede independently laid out constituent rows", DetailRows),
@@ -200,6 +202,58 @@ internal static class Program
         var text = MixtureInspection.FormatFullComposition(reading);
         Check(text.Contains("gas partial pressure not applicable") && text.Contains("No gas phase"), "Liquid was assigned a fake gas partial pressure.");
         Check(reading.Constituents.All(row => text.Contains(row.MolesText)), "Liquid constituent mole amount was omitted.");
+        Check(text.Contains("Fluid pressure unavailable") && !text.Contains("Vacuum / no atmosphere"),
+            "Legacy liquid inventory invented a fluid pressure or was labelled vacuum.");
+        Check(reading.DisplayName.EndsWith(reading.BreathingStatus, StringComparison.Ordinal) && text.Contains(reading.BreathingStatus),
+            "Liquid name and inspection disagree about breathing status.");
+    }
+
+    private static void ActualLiquidPressure()
+    {
+        var (_, model) = Model();
+        var facts = new MixtureThermodynamicReading(new[]
+        {
+            new MixtureThermodynamicConstituent("water", NativeMatterPhase.Liquid, 1100, .018, 1)
+        }, 1100, 1100 * 4184 * 300, 0, 300, 0, 220e6, 1, 0, 1, 0, "inspection-supplied-v1", "inspection-supplied-fingerprint");
+        var reading = model.Describe(facts);
+        var text = MixtureInspection.FormatFullComposition(reading);
+        Check(text.Contains("Fluid pressure 220 MPa (220000000 Pa)") && text.Contains("No gas phase / not breathable"),
+            "Compressed liquid lost supplied mechanical pressure or clear breathing status.");
+        Check(!text.Contains("Vacuum / no atmosphere") && reading.TotalPressurePa == 0 && reading.MechanicalPressurePa == 220e6,
+            "Liquid pressure was confused with vacuum or gas pressure.");
+        Check(reading.Failures == BreathingFailure.Vacuum && reading.Warnings.All(text.Contains),
+            "Contextual liquid wording changed the numerical breathing failure or suppressed warnings.");
+        var state = MixtureInspection.BuildDetailRows(reading).Single(row => row.Key == "State").Text;
+        Check(state == MixtureInspection.FormatState(reading) && state.Contains("220 MPa") && reading.DisplayName.EndsWith(reading.BreathingStatus, StringComparison.Ordinal),
+            "Hover, selected details and shared name disagree about compressed liquid.");
+        var vacuum = model.Describe(new MixtureThermodynamicReading(Array.Empty<MixtureThermodynamicConstituent>(),
+            0, 0, 0, 0, 0, 0, 1, 0, 0, 1, "inspection-supplied-v1", "inspection-supplied-fingerprint"));
+        Check(vacuum.BreathingStatus == "Vacuum / no atmosphere" && !MixtureInspection.FormatState(vacuum).Contains("Fluid pressure"),
+            "True empty vacuum was relabelled as liquid or assigned a fluid pressure.");
+    }
+
+    private static void WetMixturePressure()
+    {
+        var (_, model) = Model();
+        const double headspace = .8;
+        var pressure = 40 * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 300 / headspace;
+        var reading = model.Describe(new MixtureThermodynamicReading(new[]
+        {
+            new MixtureThermodynamicConstituent("oxygen", NativeMatterPhase.Gas, 8 * .032, .032, headspace * .2),
+            new MixtureThermodynamicConstituent("nitrogen", NativeMatterPhase.Gas, 32 * .028, .028, headspace * .8),
+            new MixtureThermodynamicConstituent("water", NativeMatterPhase.Liquid, 200, .018, .2)
+        }, 200 + 8 * .032 + 32 * .028, 251040000, 0, 300, pressure, pressure, 1, headspace, .2, 0,
+            "inspection-supplied-v1", "inspection-supplied-fingerprint"));
+        var text = MixtureInspection.FormatState(reading);
+        Check(text.Contains("Gas pressure ") && text.Contains("Fluid pressure ") && reading.IsBreathable && text.Contains(reading.BreathingStatus),
+            "Wet reading omitted either pressure or changed its gas assessment.");
+        var gases = reading.GasConstituents;
+        Check(Math.Abs(gases.Sum(row => row.PartialPressurePa!.Value) - pressure) < 1e-9 &&
+            reading.Constituents.Single(row => row.MaterialId == "water").PartialPressurePa == null,
+            "Fluid pressure was assigned to liquid as a gas partial pressure.");
+        Check(MixtureInspection.FormatCompactComposition(reading).Contains("oxygen 20% by moles") &&
+            MixtureInspection.FormatCompactComposition(reading).Contains("nitrogen 80% by moles"),
+            "Liquid volume altered gas mole percentages on hover.");
     }
 
     private static void BreathingWarnings()

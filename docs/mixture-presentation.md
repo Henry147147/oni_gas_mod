@@ -53,6 +53,12 @@ profile identity is separate from the presentation catalog's existing
 `MaterialModelVersion`/`MaterialModelFingerprint`. Legacy views have no supplied
 thermodynamic reading or claimed liquid mechanical pressure.
 
+Hover and selected details show supplied mechanical pressure as **Fluid pressure**
+when liquid is present, separately from gas pressure and constituent partial
+pressures. Compressed liquid can therefore show 220 MPa with no gas phase.
+Legacy liquid inventories explicitly show **Fluid pressure unavailable**;
+gas pressure is never substituted for a missing mechanical reading.
+
 This reading API does not run an EOS equilibrium solve or advance a simulation.
 `CoupledColonySimulation` now optionally prepares a presentation companion from
 its completed native worlds before their all-world commit. Each cell's U,
@@ -80,8 +86,11 @@ library; it does not advance physical simulation or establish Unity rendering.
 Names join the two leading meaningful gases with an en dash (default threshold
 1% by moles), identify them as a mixture, and retain an explicit traces/other-gases
 suffix. A second short line reports `Breathable`, `Unsafe atmosphere`, or
-`Vacuum / no atmosphere` from the numerical assessment. Single-gas names retain
-their species label; liquid-only names identify the phase. Full details retain every trace.
+`Vacuum / no atmosphere` from the numerical assessment. Liquid-only readings
+instead say `No gas phase / not breathable`; the numerical breathing failure
+and its warning remain unchanged. `BreathingStatus` supplies the same wording
+to names and inspection. Single-gas names retain their species label;
+liquid-only names identify the phase. Full details retain every trace.
 Positive trace quantities use significant/scientific notation instead of zero;
 a major constituent is shown as `<100%` when another gas remains. Warning flags
 follow the native reference's inclusive thresholds and 16-ulp arithmetic
@@ -110,6 +119,18 @@ four-gas list, retained trace warnings/full details, and the exact configured
 trace boundary. Windows V54 below completes the four-case native UI fixture.
 Linux hover and presentation from an authoritative completed colony snapshot
 remain required for the full first-playable gate.
+
+The later `windows-liquid-inspection-r1` cohort passes all 31 inspection groups,
+91 Core groups and 41 presentation groups. It adds supplied compressed-water
+pressure, wet-mixture pressure/fraction separation, legacy unknown pressure and
+true vacuum controls while retaining every non-trace hover check. Actual
+Windows ONI hover and the expanded selected-cell panel show 1100 kg water,
+220 MPa fluid pressure, no gas phase and no breathable atmosphere at the paused
+120-frame milestone. The water row retains its mass/moles and correctly says
+gas partial pressure is not applicable. All 120 load-continuation frames match
+the retained physical image; this does not establish liquid fill rendering or
+full-colony acceptance. Private terminal review SHA-256:
+`7f41fea48323a37e072b483072bcca6dc815412531db2cbcde90d6c012bf4fa5`.
 
 The later [Windows native gas-owner run](sealed-native-domain.md#actual-windows-gas-owner-run)
 also visibly matches the retained physical reading at native frame 121:

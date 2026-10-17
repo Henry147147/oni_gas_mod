@@ -177,7 +177,8 @@ namespace MixedAtmospheres.Oni
                     " kPa (" + Number(reading.TotalPressurePa) + " Pa)"
                 : "No gas phase";
             var state = pressure + " · " + temperature + " · " + Number(reading.TotalMassKg) + " kg";
-            return state + " · " + Assessment(reading);
+            if (reading.LiquidVolumeFraction > 0) state += " · " + FormatFluidPressure(reading);
+            return state + " · " + reading.BreathingStatus;
         }
 
         public static string FormatHeader(MixturePresentation reading)
@@ -187,8 +188,13 @@ namespace MixedAtmospheres.Oni
             return (newline < 0 ? reading.DisplayName : reading.DisplayName.Substring(0, newline)).TrimEnd('\r');
         }
 
-        private static string Assessment(MixturePresentation reading) => reading.IsBreathable ? "Breathable" :
-            (reading.Failures & BreathingFailure.Vacuum) != 0 ? "Vacuum / no atmosphere" : "Unsafe atmosphere";
+        private static string FormatFluidPressure(MixturePresentation reading)
+        {
+            if (!reading.MechanicalPressurePa.HasValue) return "Fluid pressure unavailable";
+            var pressure = reading.MechanicalPressurePa.Value;
+            return "Fluid pressure " + (pressure >= 1e6 ? Number(pressure / 1e6) + " MPa" : Number(pressure / 1000) + " kPa") +
+                " (" + Number(pressure) + " Pa)";
+        }
 
         public static IReadOnlyList<string> FormatCompactComposition(MixturePresentation reading)
         {
@@ -229,7 +235,7 @@ namespace MixedAtmospheres.Oni
             foreach (var warning in reading.Warnings) text.Append("\nWarning: ").Append(warning);
             text.Append("\nGas density ").Append(Number(reading.GasDensityKgPerCubicMetre)).Append(" kg/m³");
             if (reading.LiquidVolumeFraction > 0)
-                text.Append("\nLiquid volume fraction ").Append(Number(reading.LiquidVolumeFraction)).Append("; liquid mechanical pressure is not inferred from gas pressure.");
+                text.Append("\nLiquid volume fraction ").Append(Number(reading.LiquidVolumeFraction)).Append("; ").Append(FluidPressureSource(reading));
             foreach (var row in reading.Constituents) text.Append('\n').Append(FormatConstituent(row));
             return text.ToString();
         }
@@ -249,7 +255,7 @@ namespace MixedAtmospheres.Oni
             rows.Add(new MixtureInspectionDetailRow("GasDensity", "Gas density " + Number(reading.GasDensityKgPerCubicMetre) + " kg/m³"));
             if (reading.LiquidVolumeFraction > 0)
                 rows.Add(new MixtureInspectionDetailRow("LiquidVolume", "Liquid volume " + Number(100 * reading.LiquidVolumeFraction) + "%",
-                    "Liquid mechanical pressure is not inferred from gas pressure."));
+                    FluidPressureSource(reading)));
             rows.Add(new MixtureInspectionDetailRow("Composition", "Constituents · mole % · mass · mol · partial pressure"));
             foreach (var row in reading.Constituents)
             {
@@ -262,6 +268,10 @@ namespace MixedAtmospheres.Oni
             }
             return rows.AsReadOnly();
         }
+
+        private static string FluidPressureSource(MixturePresentation reading) => reading.MechanicalPressurePa.HasValue
+            ? "Fluid pressure comes from the supplied thermodynamic reading; gas partial pressures apply only to gas constituents."
+            : "Fluid pressure is unavailable for this inventory; liquid mechanical pressure is not inferred from gas pressure.";
 
         internal static bool TryDrawCell(SelectToolHoverTextCard card, HoverTextDrawer drawer, int cell, bool selected)
         {

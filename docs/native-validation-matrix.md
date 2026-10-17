@@ -74,6 +74,16 @@ with every one of 120 continued frames matching. The later
 [same-process reload](native-menu-reload.md) also passes both loaded sessions
 in one Linux Unity process; it does not replace the incomplete feature matrix.
 
+The separate actual Windows `windows-native-domain-current-r1` and
+`windows-native-current-reload-r1` cohorts pass current conservative liquid
+heat/save, fresh loading and two loaded sessions through the main menu in one
+process. Each load matches all 120 continued physical frames. The follow-up
+`windows-liquid-inspection-r1` cohort repeats exact continuation and verifies
+supplied fluid pressure and liquid breathing status in native hover/details.
+See [the scoped Windows results](sealed-native-domain.md#current-windows-conservative-liquid-heat-and-reload).
+These runs do not complete the remaining Linux matrix cases or the full-colony
+and liquid fill rendering gates.
+
 The [Linux runner](sealed-native-domain.md#run-the-actual-linux-colony-controls)
 requires the licensed game and the private desktop/Steam setup. The separate
 [Windows runner and evidence](sealed-native-domain.md#additional-windows-feature-controls)

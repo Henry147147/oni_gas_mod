@@ -120,7 +120,7 @@ namespace MixedAtmospheres.Core
             get
             {
                 var existing = Volatile.Read(ref displayName); if (existing != null) return existing;
-                var created = model.Name(Constituents, Failures); return Interlocked.CompareExchange(ref displayName, created, null) ?? created;
+                var created = model.Name(Constituents, BreathingStatus); return Interlocked.CompareExchange(ref displayName, created, null) ?? created;
             }
         }
         public IReadOnlyList<MixtureConstituentPresentation> Constituents
@@ -157,6 +157,9 @@ namespace MixedAtmospheres.Core
         public double Co2PartialPressurePa { get; }
         public BreathingFailure Failures { get; }
         public bool IsBreathable => Failures == BreathingFailure.None;
+        public string BreathingStatus => IsBreathable ? "Breathable" :
+            (Failures & BreathingFailure.Vacuum) == 0 ? "Unsafe atmosphere" :
+            GasConstituentCount == 0 && TotalMassKg > 0 ? "No gas phase / not breathable" : "Vacuum / no atmosphere";
         public IReadOnlyList<string> Warnings
         {
             get
@@ -251,6 +254,7 @@ namespace MixedAtmospheres.Core
         public double Co2PartialPressurePa => data.Co2PartialPressurePa;
         public BreathingFailure Failures => data.Failures;
         public bool IsBreathable => data.IsBreathable;
+        public string BreathingStatus => data.BreathingStatus;
         public IReadOnlyList<string> Warnings => data.Warnings;
         public MixtureSrgbColor BaseColor => data.BaseColor;
         public bool PatternEnabled => data.PatternEnabled;
@@ -584,10 +588,8 @@ namespace MixedAtmospheres.Core
             return result;
         }
 
-        internal string Name(IReadOnlyList<MixtureConstituentPresentation> rows, BreathingFailure failures)
+        internal string Name(IReadOnlyList<MixtureConstituentPresentation> rows, string status)
         {
-            var status = failures == BreathingFailure.None ? "Breathable" :
-                (failures & BreathingFailure.Vacuum) != 0 ? "Vacuum / no atmosphere" : "Unsafe atmosphere";
             var gases = rows.Where(row => row.Phase == NativeMatterPhase.Gas).ToArray();
             if (gases.Length == 0) return rows.Count == 0 ? status :
                 (rows.Count == 1 ? rows[0].DisplayName + " (liquid)" : "Liquid mixture") + "\n" + status;

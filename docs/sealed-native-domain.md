@@ -857,6 +857,53 @@ Native compatibility cells, grid/rendering, outside heat and save guards pass
 with no mod failure lines. The broader matrix still needs completion after
 its retained water-startup failure.
 
+## Current Windows conservative liquid heat and reload
+
+The `windows-native-domain-current-r1` cohort uses clean `7f29783` source,
+a fresh native MSVC build and a rebuilt managed adapter. All 13 native CTests,
+91 Core groups, 41 presentation groups and the coupled/passive/mutation controls
+pass before actual Windows ONI 744825 / Unity 6000.3.5f2 testing.
+
+The compressed-water heat scene completes 120 frames / 2,520 substeps /
+24.000000358 physical seconds with no rejected attempts and zero reported
+relative mass/energy error. The actual heater supplies 1.5 MJ. Conduction
+completes 5,040 stages and 35,280 contacts, with 9.0625 J of represented
+redistribution and entropy change 3.2782259518690106e-5 J/K. Its 15,057 unresolved
+updates are retained diagnostics; they are not counted as represented transfer.
+Water remains 1100 kg/cell at 220 MPa. The ordinary paired colony save has a
+verified complete 10,585,503-byte body and retains physical SHA-256
+`010edc5167f27ff7cf90de42f8a182de0cc649607b2b89b134887b4d5f97184f`.
+The source save SHA-256 is
+`1fd556e7ba9f85ba0929ed69bae0d593a0ac736b63af75cd409d46b20a6e8fef`.
+Private terminal review SHA-256:
+`7cb098d42a72b686fe21512bd2f9eb76ef018788b002391a5290b6dd70bd4298`.
+
+The same package then passes a fresh load and a second load through the main
+menu within one Windows Unity process. Both sessions pass paused autosaving
+and 120 exact continued frames; see [the lifecycle evidence](native-menu-reload.md).
+Both runs close successfully and restore all 13 original profile files.
+
+Actual mouse inspection exposed the misleading liquid label `Vacuum / no
+atmosphere` and omission of supplied fluid pressure. The follow-up
+`windows-liquid-inspection-r1` package corrects both through the shared model
+and formatter. Its unchanged native binaries are hash-checked against the
+preceding build. All 31 inspection groups, 91 Core groups and 41 presentation
+groups pass. Actual paused Windows hover and selected details now show
+**Fluid pressure 220 MPa**, **No gas phase / not breathable**, liquid volume
+100% and the complete water row. The load again matches all 120 continued
+physical frames, ending at 48.000000715 s with SHA-256
+`d6f2a232c3c990951ceb78397ef148c501b2146992b2131697b349c871c2b294`.
+The two original screenshots and terminal review remain under that private
+cohort; terminal SHA-256:
+`7f41fea48323a37e072b483072bcca6dc815412531db2cbcde90d6c012bf4fa5`.
+
+These are six-cell, actor-free controls. The beige appearance of the liquid
+region still needs investigation; liquid fill rendering is not accepted.
+The existing missing KPrefabID 246809 warning remains unresolved. The observed
+screenshots do not bind every displayed value to an instrumented cell/frame
+record or establish full-world presentation, four-gas production hover,
+rendering performance or first-playable acceptance.
+
 ## Limits and next work
 
 Only the fixed sealed scene is enabled. Direct known native mutation packets

@@ -44,8 +44,27 @@ remains
 the second autosave is
 `eb9073928b4923f438d6b568b983e0e630500fc248fca8e63ddca4617936da5a`.
 Both-platform builds and all 101 declaration/snapshot scenarios pass, and
-the 161 Python checks retain four explicit skips. Windows Unity still needs
-this same-process control.
+the 161 Python checks retain four explicit skips.
+
+The actual Windows `windows-native-current-reload-r1` cohort also passes with
+the clean `7f29783` package and current conservative liquid conduction. One
+Unity process loads the same compressed-water colony twice, observes native
+shutdown and the returned main menu, and advances native session 1 to 2. Both
+sessions pass their paused deferred autosave, full header/body readback and
+all 120 exact continuation frames. At frame 120 / 48.000000715 s, both retain
+physical SHA-256
+`d6f2a232c3c990951ceb78397ef148c501b2146992b2131697b349c871c2b294`.
+The source and staged input remain
+`1fd556e7ba9f85ba0929ed69bae0d593a0ac736b63af75cd409d46b20a6e8fef`.
+Both autosaves remain separate. The runner exits successfully, removes its
+temporary mod and restores all 13 original profile files byte-for-byte.
+Private terminal review SHA-256:
+`fad61e5fc7a1850c348c4ec6198b1c2fd80c104d9fbbf13112c61fcb326543e1`.
+
+The saved colony retains its GUID and three duplicants. ONI still reports a
+missing KPrefabID reference (246809) during resaving; general managed-reference
+integrity is not proved. Actual liquid inspection is retained separately from
+liquid fill rendering, which remains unaccepted.
 
 This remains a drained six-cell development domain.
 Live actor/outbox persistence, the Load screen's file-selection UI, arbitrary

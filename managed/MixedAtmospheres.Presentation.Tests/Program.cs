@@ -163,7 +163,8 @@ internal static class Program
             Near(view.TotalPressurePa, 2 * 101325); Near(view.GasDensityKgPerCubicMetre, air.TotalMassKg / 0.5);
             Near(ColorDifference(view.BaseColor, Model().Describe(air, 1).BaseColor), 0);
             var liquidOnly = Model().Describe(Catalog.CreateInventory(new Dictionary<string, double> { ["water"] = 1000 }, 300), 1);
-            Check(liquidOnly.Failures == BreathingFailure.Vacuum && liquidOnly.GasConstituents.Count == 0 && liquidOnly.DisplayName == "Water (liquid)\nVacuum / no atmosphere");
+            Check(liquidOnly.Failures == BreathingFailure.Vacuum && liquidOnly.GasConstituents.Count == 0 && liquidOnly.DisplayName == "Water (liquid)\nNo gas phase / not breathable");
+            Check(liquidOnly.BreathingStatus == liquidOnly.DisplayName.Split('\n')[1]);
             Near(liquidOnly.GasDensityKgPerCubicMetre, 0);
         });
 

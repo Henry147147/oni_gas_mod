@@ -53,6 +53,7 @@ internal static class ThermodynamicReadingTests
             check(view.MechanicalPressurePa == 2e8 && view.GasPressurePa == 0 && view.TotalPressurePa == 0);
             check(view.OxygenPartialPressurePa == 0 && view.Failures == BreathingFailure.Vacuum && !view.IsBreathable);
             check(view.LiquidVolumeFraction == 1 && view.GasDensityKgPerCubicMetre == 0);
+            check(view.BreathingStatus == "No gas phase / not breathable" && view.DisplayName == "Water (liquid)\n" + view.BreathingStatus);
         });
         test("explicit vacuum reading retains zero fluid quantities and a known empty volume", () =>
         {
@@ -61,6 +62,7 @@ internal static class ThermodynamicReadingTests
             var view = model().Describe(reading);
             check(view.TotalMassKg == 0 && view.GasConstituents.Count == 0 && view.GasDensityKgPerCubicMetre == 0);
             check(view.Failures == BreathingFailure.Vacuum && view.MechanicalPressurePa == 0);
+            check(view.BreathingStatus == "Vacuum / no atmosphere" && view.DisplayName == view.BreathingStatus);
         });
         test("positive canonical traces remain visible as rows and violate an explicit zero contaminant limit", () =>
         {
