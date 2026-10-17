@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "mixed_atmospheres/oni_domain.h"
 #include "../src/oni_sha256.hpp"
+#include "../src/oni_funchook_storage.hpp"
 #include <array>
 #include <chrono>
 #include <cstring>
@@ -13,6 +14,37 @@ static void require(bool condition,const char* message) {
 }
 int main() {
     try {
+#if defined(__linux__)
+        const ma::oni::TrampolineStorage storage{0xa41c0,0xe40,4096,0x2a000,0x2a000,0x7a1b9};
+        std::array<Elf64_Phdr,2> headers{};
+        headers[0].p_type=PT_LOAD;headers[0].p_flags=PF_R|PF_X;
+        headers[0].p_vaddr=0x2a000;headers[0].p_offset=0x2a000;
+        headers[0].p_memsz=0x7a1b9;headers[0].p_filesz=0x7a1b9;headers[0].p_align=4096;
+        headers[1].p_type=PT_LOAD;headers[1].p_flags=PF_R;
+        headers[1].p_vaddr=0xa5000;headers[1].p_offset=0xa5000;
+        headers[1].p_memsz=0x1000;headers[1].p_filesz=0x1000;headers[1].p_align=4096;
+        require(ma::oni::verified_trampoline_segment(headers,storage),"verified RX tail padding rejected");
+        auto modified=headers;modified[0].p_flags|=PF_W;
+        require(!ma::oni::verified_trampoline_segment(modified,storage),"writable segment accepted for trampolines");
+        modified=headers;modified[0].p_filesz-=1;
+        require(!ma::oni::verified_trampoline_segment(modified,storage),"BSS accepted for trampolines");
+        modified=headers;modified[1].p_vaddr=storage.rva;
+        require(!ma::oni::verified_trampoline_segment(modified,storage),"overlapping load segment accepted for trampolines");
+        modified=headers;modified[1]=headers[0];
+        require(!ma::oni::verified_trampoline_segment(modified,storage),"duplicate trampoline segment accepted");
+        for (unsigned field=0;field<6;++field) {
+            auto invalid=storage;
+            switch (field) {
+                case 0: invalid.rva-=16;break;
+                case 1: invalid.bytes+=16;break;
+                case 2: invalid.page_bytes=8192;break;
+                case 3: invalid.segment_rva=UINTPTR_MAX;break;
+                case 4: invalid.segment_file_offset+=4096;break;
+                default: invalid.segment_memory_bytes=UINTPTR_MAX;break;
+            }
+            require(!ma::oni::verified_trampoline_segment(headers,invalid),"invalid trampoline bounds accepted");
+        }
+#endif
         require(ma_oni_abi_version()==3,"ABI version");
         require(sizeof(MAOniObserverConfig)==24 && sizeof(MAOniObserverStatus)==512 && sizeof(MAOniTraceEvent)==32,"ABI layouts");
         require(ma::oni::hash_memory("",0)=="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","empty SHA256");

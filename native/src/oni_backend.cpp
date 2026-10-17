@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
 #include "oni_domain.hpp"
+#include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
 #include <algorithm>
@@ -21,6 +22,7 @@
 #else
 #include <dlfcn.h>
 #include <link.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -313,6 +315,65 @@ bool fingerprints_match() {
         if (ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+hook.rva),32) != hook.hash) return false;
     return true;
 }
+
+#if defined(__linux__)
+bool trampoline_page_is_rx() {
+    auto* maps=std::fopen("/proc/self/maps","r");
+    if (!maps) return false;
+    const auto first=(image_base+trampoline_storage.rva)&~(trampoline_storage.page_bytes-1);
+    std::array<char,2048> line{};
+    bool verified{};
+    while (std::fgets(line.data(),static_cast<int>(line.size()),maps)) {
+        std::size_t start{},end{}; std::array<char,5> permissions{};
+        if (std::sscanf(line.data(),"%zx-%zx %4s",&start,&end,permissions.data())==3 &&
+            start<=first && end>=first+trampoline_storage.page_bytes) {
+            verified=std::strcmp(permissions.data(),"r-xp")==0;
+            break;
+        }
+    }
+    std::fclose(maps);
+    return verified;
+}
+bool trampoline_padding_matches() {
+    return ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+trampoline_storage.rva),
+                                trampoline_storage.bytes)==expected_trampoline_hash;
+}
+void register_trampoline_storage() {
+    struct Search { std::uintptr_t base; bool verified{}; } search{image_base};
+    dl_iterate_phdr([](dl_phdr_info* info,std::size_t,void* state) {
+        auto& result=*static_cast<Search*>(state);
+        if (info->dlpi_addr!=result.base) return 0;
+        result.verified=ma::oni::verified_trampoline_segment(
+            {info->dlpi_phdr,info->dlpi_phnum},trampoline_storage);
+        return 1;
+    },&search);
+    if (sysconf(_SC_PAGESIZE)!=static_cast<long>(trampoline_storage.page_bytes) || !search.verified ||
+        !trampoline_page_is_rx() || !trampoline_padding_matches())
+        throw Failure(MA_ONI_INCOMPATIBLE,"Loaded native RX tail padding differs from its verified trampoline profile");
+    if (ma_funchook_register_trampoline_buffer(reinterpret_cast<void*>(image_base+trampoline_storage.rva),
+                                             trampoline_storage.bytes)!=0)
+        throw Failure(MA_ONI_HOOK_ERROR,"Cannot reserve verified native trampoline storage");
+    if (ma_funchook_trampoline_capacity()<std::size(profile_hooks)) {
+        (void)ma_funchook_register_trampoline_buffer(nullptr,0);
+        throw Failure(MA_ONI_HOOK_ERROR,"Verified native trampoline storage cannot hold every required hook");
+    }
+}
+bool release_trampoline_storage() {
+    return trampoline_padding_matches() && trampoline_page_is_rx() &&
+           ma_funchook_register_trampoline_buffer(nullptr,0)==0;
+}
+#else
+void register_trampoline_storage() {}
+bool release_trampoline_storage() { return true; }
+#endif
+
+bool destroy_detours() {
+    if (detours) {
+        if (funchook_destroy(detours)!=0) return false;
+        detours=nullptr;
+    }
+    return release_trampoline_storage();
+}
 MAOniObserverStatus capture() noexcept {
     MAOniObserverStatus result{};
     result.struct_size=sizeof(result); result.abi_version=MA_ONI_ABI_VERSION; result.oni_build=744825;
@@ -444,9 +505,10 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
         require_quiescent();
         if (!fingerprints_match()) throw Failure(MA_ONI_INCOMPATIBLE,"Loaded native entry fingerprint differs; refusing all hooks");
         reset_observations();
-        detours=funchook_create();
-        if (!detours) throw Failure(MA_ONI_HOOK_ERROR,"Cannot allocate native detours");
+        register_trampoline_storage();
         try {
+            detours=funchook_create();
+            if (!detours) throw Failure(MA_ONI_HOOK_ERROR,"Cannot allocate native detours");
             for (const auto& hook : profile_hooks) {
                 originals[hook.index]=reinterpret_cast<void*>(image_base+hook.rva);
                 if (funchook_prepare(detours,&originals[hook.index],replacements[hook.index]) != 0) {
@@ -455,6 +517,10 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
                     throw Failure(MA_ONI_HOOK_ERROR,detail.data());
                 }
             }
+#if defined(__linux__)
+            if (ma_funchook_trampoline_used()!=std::size(profile_hooks))
+                throw Failure(MA_ONI_HOOK_ERROR,"A required hook did not use the verified native trampoline buffer");
+#endif
             if (funchook_install(detours,0) != 0) throw Failure(MA_ONI_HOOK_ERROR,funchook_error_message(detours));
             installed=true;
             for (const auto& hook : profile_hooks) installed_mask |= std::uint64_t{1} << hook.index;
@@ -462,10 +528,8 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
         } catch (...) {
             // Prepare is non-mutating, but install can fail after partial work.
             // Verify restoration, retain live trampolines if recovery fails.
-            (void)funchook_uninstall(detours,0);
-            if (fingerprints_match()) {
-                (void)funchook_destroy(detours); detours=nullptr;
-            } else recovery_required=true;
+            if (detours) (void)funchook_uninstall(detours,0);
+            if (!fingerprints_match() || !destroy_detours()) recovery_required=true;
             throw;
         }
     });
@@ -480,7 +544,10 @@ MAOniResult ma_oni_detach_observer() {
             throw Failure(MA_ONI_HOOK_ERROR,"Native hooks could not be restored; keep observer mapped and restart the process");
         }
         installed=false; installed_mask=0;
-        (void)funchook_destroy(detours); detours=nullptr;
+        if (!destroy_detours()) {
+            recovery_required=true;
+            throw Failure(MA_ONI_HOOK_ERROR,"Native trampoline storage could not be restored; keep observer mapped and restart the process");
+        }
     });
 }
 MAOniResult ma_oni_copy_trace(MAOniTraceEvent* output,std::uint32_t capacity,std::uint32_t* count) {
