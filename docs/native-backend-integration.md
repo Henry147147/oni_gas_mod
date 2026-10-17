@@ -40,6 +40,9 @@ exact fresh-process continuations pass.
 The [natural autosave control](native-day-autosave.md) now exercises the same
 paired boundary through actual day-rollover scheduling and checks subsequent
 physical continuation. Its long Unity run is pending.
+New [reader restore checks](native-reader-restore.md) also verify actual pressure,
+oxygen-policy and native cell-selection bindings after each reload and session
+reset. Their new Unity cohorts are queued separately.
 
 ## Supported build and installation
 

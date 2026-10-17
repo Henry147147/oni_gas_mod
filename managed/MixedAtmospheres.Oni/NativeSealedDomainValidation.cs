@@ -723,6 +723,7 @@ namespace MixedAtmospheres.Oni
             BreathingCellReader = BreathingReadReport(),
             NativePressureReader = PressureReadReport(),
             ColonyClock = ColonyClockReport(), NaturalAutosave = NaturalAutosaveReport(),
+            RestoredNativeReaders = RestoredReadersReport(),
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),

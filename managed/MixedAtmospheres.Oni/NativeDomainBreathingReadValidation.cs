@@ -23,7 +23,7 @@ namespace MixedAtmospheres.Oni
             public BreathingFailure Failures;
             public bool Breathable;
         }
-        private static BreathingReadSample[] SampleNativeBreathingCells()
+        private static BreathingReadSample[] SampleNativeBreathingCells(bool requireMixtureDistinct = true)
         {
             var method = AccessTools.Method(typeof(GasBreatherFromWorldProvider), "GetBreathableCellMass");
             var model = MixturePresentationRuntime.CurrentModel ?? throw new InvalidOperationException("Missing native breathing policy.");
@@ -31,7 +31,7 @@ namespace MixedAtmospheres.Oni
                 var reading = model.Describe(item.Value);
                 var args = new object[] { item.Key, SimHashes.Vacuum };
                 var actual = (float)method.Invoke(null, args);
-                var oxygen = reading.Constituents.Single(item => item.MaterialId == model.OxygenMaterialId).MassKg;
+                var oxygen = reading.Constituents.SingleOrDefault(item => item.MaterialId == model.OxygenMaterialId)?.MassKg ?? 0;
                 var sample = new BreathingReadSample { PublicCell = item.Key, CompletedPhysicalFrame = reading.Revision,
                     OxygenMassKg = oxygen, AdvertisedOxygenMassKg = actual, ScalarGridMassKg = Grid.Mass[item.Key],
                     ScalarElement = (int)Grid.Element[item.Key].id, AdvertisedElement = (int)(SimHashes)args[1],
@@ -42,7 +42,7 @@ namespace MixedAtmospheres.Oni
                 Require(actual == 0 && (SimHashes)args[1] == SimHashes.Vacuum && !reading.IsBreathable ||
                     actual > 0 && actual <= oxygen && next > oxygen && reading.IsBreathable && (SimHashes)args[1] == SimHashes.Oxygen,
                     "The actual native breathing helper disagrees with the completed mixture oxygen or policy.");
-                Require(Grid.Element[item.Key].id == SimHashes.Oxygen && Grid.Mass[item.Key] > oxygen,
+                Require(Grid.Element[item.Key].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen) && (!requireMixtureDistinct || Grid.Mass[item.Key] > oxygen),
                     "The breathing control no longer distinguishes scalar total mass from physical oxygen.");
                 return sample;
             }).ToArray();

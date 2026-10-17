@@ -328,6 +328,39 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             SerializedHeaderCaptures=1,SerializedHeaderSha256='f'*64,
             SerializedBodyCaptures=1,SerializedBodyBytes=160000,SerializedBodySha256='e'*64)
 
+    def set_restored_readers(self,liquid=False):
+        self.set_restored_autosave();pressure=self.pressure_reader(liquid)['NativePressureReader']
+        pressure['DistinctFromLegacyScalarRequired']=False;self.report['NativePressureReader']=pressure
+        source=self.breathing_reader()['BreathingCellReader'];samples=source['Before'];selection=source['SelectionBefore']
+        for row in samples:row['CompletedPhysicalFrame']=30
+        self.report['Scenario']='compressed-liquid' if liquid else 'mixed-air'
+        if liquid:
+            self.report['NativeDomain'].update(LiquidMassKg=1100,PressurePa=220000000,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+            for row in samples:row.update(OxygenMassKg=0,ScalarGridMassKg=1100,OxygenMoleFraction=0,OxygenPartialPressurePa=0,
+                AdvertisedOxygenMassKg=0,ScalarElement=2,AdvertisedElement=0,Failures=1,Breathable=False)
+            selection.update(ElementID=0,Mass=0,IsBreathable=False,TotalBreathableMass=0)
+        self.report['RestoredNativeReaders']=dict(Required=True,Verified=True,NativeBreathingOutsideVerified=True,
+            Source='actual-native-pressure-and-world-breathing-readers',BreathingReads=12,
+            OxygenElementId=1,WaterElementId=2,VacuumElementId=0,Policy=source['Policy'],BreathingSamples=samples,BreathingSelection=selection)
+
+    def test_restored_readers_require_current_session_pressure_and_native_breathing_selection(self):
+        for liquid in (False,True):
+            for platform in ('LinuxPlayer','WindowsPlayer'):
+                self.set_restored_readers(liquid);self.report['Platform']=platform
+                self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True,expected_platform=platform))
+
+    def test_restored_reader_failures_cannot_hide_behind_exact_physical_continuation(self):
+        for key,value in [('Verified',False),('BreathingReads',11),('NativeBreathingOutsideVerified',False),('Source','fixture')]:
+            self.set_restored_readers();self.report['RestoredNativeReaders'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True),key)
+        for key,value in [('CompletedPhysicalFrame',29),('AdvertisedOxygenMassKg',1.125),('Failures',4),('PublicCell',999)]:
+            self.set_restored_readers();self.report['RestoredNativeReaders']['BreathingSamples'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True),key)
+        self.set_restored_readers(True);self.report['RestoredNativeReaders']['BreathingSamples'][-1]['OxygenMassKg']=.1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.set_restored_readers();self.report['NativePressureReader']['CallSitePatchesVerified']=False
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
     def test_restored_frame_zero_resave_preserves_clock_state_and_nested_pause_depth(self):
         self.set_restored_autosave();colony=self.report['ColonyCheckpoint']
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))

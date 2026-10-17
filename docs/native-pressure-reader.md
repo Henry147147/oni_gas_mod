@@ -73,6 +73,8 @@ explicitly verify the six accessors; Windows Unity coverage remains open.
 These bounded reader controls do not establish whole-colony ownership, general
 materials, free surfaces, mechanical fluid/solid coupling or production-device
 pressure semantics.
+The later [restore checks](native-reader-restore.md) explicitly exercise pressure
+and breathing readers again after loading and same-process session reset.
 
 
 The retained `pressure-reader-unity-matrix-v1/pressure-read-save` reaches

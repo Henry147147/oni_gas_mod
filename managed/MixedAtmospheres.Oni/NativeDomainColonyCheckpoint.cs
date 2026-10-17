@@ -450,7 +450,7 @@ namespace MixedAtmospheres.Oni
                 nativeCellsUnchanged && projectionPrimed && nativeFlowFenceVerified && retainedFrameVerified && nativeSolidsAdvanced &&
                 restoredRendererVerified && gameGridProjectionVerified && latest.MaximumRelativeMassError<=1e-8 && latest.MaximumRelativeEnergyError<=1e-6,
                 "Restored actual colony failed its continuation, publication, rendering or physical accounts.");
-            VerifySaveGuard();completed=true;NativeBackendObservation.Flush();WriteReport();
+            VerifySaveGuard();VerifyRestoredReaderBindings();completed=true;NativeBackendObservation.Flush();WriteReport();
             ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
             ColonyRuntimeValidation.CompletePresentation("actual-game-restored-native-domain-validation");
         }

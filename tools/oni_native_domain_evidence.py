@@ -98,7 +98,7 @@ def _breathing_read_passed(report: dict, physical: dict) -> bool:
         and account.get("AcceptedBatches") == account.get("CommittedBatches") == 1 and account.get("UnacknowledgedReceipts") == 0
         and account.get("MassChangesKg") == [0, 0, 0, 0, .125] and report.get("CellMassEditsRouted") == report.get("ReceiptsPublished") == 1)
 
-def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
+def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require_distinct: bool = True) -> bool:
     reader = report.get("NativePressureReader")
     if (not isinstance(reader, dict) or any(reader.get(key) is not True for key in ("Required", "Verified", "NativeOutsideVerified", "CallSitePatchesVerified"))
             or reader.get("Source") != "Grid.PressureIndexer.get_Item" or reader.get("Units") != "kPa-from-completed-mechanical-Pa"
@@ -122,7 +122,7 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
                     or row["GasPressurePa"] != (0 if liquid else row["PhysicalPressurePa"])
                     or not _same_native_float(row["NativeKilopascals"], f32(row["PhysicalPressurePa"] / 1000))
                     or not _same_native_float(row["LegacyScalarKilopascals"], f32(f32(row["ScalarMassKg"]) * f32(101.3)))
-                    or abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
+                    or require_distinct and abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
             positions.add(cell)
     except (OverflowError, struct.error):return False
     outside = reader.get("Outside")
@@ -141,6 +141,50 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
                 or not 6 <= outside["GetterReadsBefore"] == outside["GetterReadsAfter"] <= reader["GetterReads"]):return False
     except (OverflowError, struct.error):return False
     return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
+
+def _restored_readers_passed(report: dict, physical: dict, liquid: bool) -> bool:
+    reader = report.get("RestoredNativeReaders")
+    if (not isinstance(reader,dict) or any(reader.get(key) is not True for key in ("Required","Verified","NativeBreathingOutsideVerified"))
+            or reader.get("Source") != "actual-native-pressure-and-world-breathing-readers"
+            or type(reader.get("BreathingReads")) is not int or reader["BreathingReads"] < 12
+            or reader.get("Policy") != dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,
+                MinimumOxygenPartialPressurePa=15000,MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500)
+            or not _pressure_read_passed(report,physical,liquid,require_distinct=False)):
+        return False
+    oxygen, water, vacuum = (reader.get(key) for key in ("OxygenElementId","WaterElementId","VacuumElementId"))
+    if any(type(value) is not int for value in (oxygen,water,vacuum)) or len({oxygen,water,vacuum}) != 3:return False
+    rows = reader.get("BreathingSamples")
+    if not isinstance(rows,list) or len(rows) != 6:return False
+    advertised, positions = [], set()
+    for row in rows:
+        if not isinstance(row,dict):return False
+        keys=("OxygenMassKg","ScalarGridMassKg","OxygenMoleFraction","OxygenPartialPressurePa","CarbonDioxideMoleFraction","CarbonDioxidePartialPressurePa","AdvertisedOxygenMassKg")
+        if any(type(row.get(key)) not in (int,float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):return False
+        cell=row.get("PublicCell")
+        if (type(cell) is not int or cell < 0 or cell in positions or row.get("CompletedPhysicalFrame") != physical["CompletedFrames"]
+                or row["ScalarGridMassKg"] <= 0 or row.get("ScalarElement") != (water if liquid else oxygen)
+                or row["OxygenMoleFraction"] > 1 or row["CarbonDioxideMoleFraction"] > 1):return False
+        failures=1 if liquid else ((2 if row["OxygenMoleFraction"] < .15 else 0) | (4 if row["OxygenMoleFraction"] > .35 else 0)
+            | (8 if row["OxygenPartialPressurePa"] < 15000 else 0) | (16 if row["CarbonDioxideMoleFraction"] > .005 else 0)
+            | (32 if row["CarbonDioxidePartialPressurePa"] > 500 else 0))
+        if type(row.get("Failures")) is not int or row["Failures"] != failures or row.get("Breathable") is not (failures==0):return False
+        if liquid and any(row[key] != 0 for key in ("OxygenMassKg","OxygenMoleFraction","OxygenPartialPressurePa","CarbonDioxideMoleFraction","CarbonDioxidePartialPressurePa")):return False
+        try:
+            encoded=struct.pack("<f",row["OxygenMassKg"]);available=struct.unpack("<f",encoded)[0]
+            if available > row["OxygenMassKg"]:available=struct.unpack("<f",struct.pack("<I",struct.unpack("<I",encoded)[0]-1))[0]
+        except (OverflowError,struct.error):return False
+        if failures:available=0.0
+        if not _same_native_float(row["AdvertisedOxygenMassKg"],available) or row.get("AdvertisedElement") != (oxygen if available else vacuum):return False
+        positions.add(cell);advertised.append((cell,available))
+    if positions != {row["PublicCell"] for row in report["NativePressureReader"]["Samples"]}:return False
+    selection=reader.get("BreathingSelection")
+    if (not isinstance(selection,dict) or type(selection.get("BreatherInstanceId")) is not int or selection["BreatherInstanceId"] == 0
+            or type(selection.get("NoOxygenThreshold")) not in (int,float) or not 0 < selection["NoOxygenThreshold"] < math.inf
+            or type(selection.get("TotalBreathableMass")) not in (int,float)
+            or not abs(selection["TotalBreathableMass"]-sum(value for _,value in advertised)) <= 1e-6):return False
+    best=max((value for _,value in advertised if value > selection["NoOxygenThreshold"]),default=0.0)
+    return (_same_native_float(selection.get("Mass"),best) and selection.get("IsBreathable") is (best>0)
+        and selection.get("ElementID") == (oxygen if best else vacuum) and (not best or (selection.get("Cell"),best) in advertised))
 
 def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
@@ -189,6 +233,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if breathing_read and not _breathing_read_passed(report, physical):
         return False
     if pressure_read and not _pressure_read_passed(report, physical, liquid):
+        return False
+    if restored and "RestoredNativeReaders" in report and not _restored_readers_passed(report,physical,liquid):
         return False
     if carbon_particle:
         particle = report.get("CarbonParticle")

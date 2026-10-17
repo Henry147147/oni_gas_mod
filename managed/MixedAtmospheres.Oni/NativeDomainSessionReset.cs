@@ -53,6 +53,9 @@ namespace MixedAtmospheres.Oni
             pressureGetterReads=pressureCallSiteReads=0;
             pressureReadVerified=pressureOutsideVerified=pressureCallSitesVerified=false;pressureReadSamples=Array.Empty<object>();
             pressureOutsideSample=null;
+            pressureDistinctScalarRequired=false;
+            restoredReadersVerified=restoredBreathingOutsideVerified=false;restoredBreathingReads=0;
+            restoredBreathingSamples=Array.Empty<BreathingReadSample>();restoredBreathingSelection=null;
             naturalAutosaveConfigured=naturalAutosaveVerified=false;
             naturalAutosaveOriginalInterval=naturalAutosaveRequests=naturalAutosaveRequestedCycle=savedNativeCycle=0;
             savedNativeGameSeconds=0;naturalAutosavePhysical=null;naturalAutosaveContinuationFrames=0;
