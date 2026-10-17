@@ -9,9 +9,9 @@ param(
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
     [switch]$SaveColony,
+    [switch]$VerifyPersistentActors,
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
-    [switch]$VerifyPersistentActors,
     [switch]$ReloadInProcess,
     [ValidateSet('gas','water','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
@@ -204,8 +204,8 @@ try {
             $oniCheckArguments = @($oniEvidenceChecker, '--domain', $oniDomainReport, '--observation', $oniObserverReport,
                 '--mode', $NativeDomain, '--frames', [string]$Frames, '--platform', 'WindowsPlayer')
             if ($SaveColony) { $oniCheckArguments += '--saved' }
-            if ($VerifySaveIoRecovery) { $oniCheckArguments += '--save-io-recovery' }
             if ($VerifyPersistentActors) { $oniCheckArguments += '--persistent-actors' }
+            if ($VerifySaveIoRecovery) { $oniCheckArguments += '--save-io-recovery' }
             if ($ReloadInProcess) { $oniCheckArguments += '--reload-in-process' }
             & $Python @oniCheckArguments
             if ($LASTEXITCODE -ne 0) { throw 'Native physical domain, callback, projection or ownership acceptance failed.' }

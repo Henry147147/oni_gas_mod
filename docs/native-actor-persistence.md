@@ -33,6 +33,11 @@ the complete native solver model. Restored records remain pending until normal
 managed scene spawning creates their actual consumer/emitter components. Their
 fresh native registrations must match every saved identity, location, material
 and configuration. Inactive spawn bootstrap messages cannot reset saved timing.
+ONI's emitter waits for a `SimComponent` dirty-state update after registration.
+During the initial restore pause, the adapter invokes that component's real
+`Sim200ms(0)` configuration pass after its genuine handle callback, verifies
+that it matches the saved record and retains physical time. It does not spend
+a managed simulation subtick to make an emitter ready.
 The managed game holds positive time while bindings are pending; the native
 worker also faults if an incomplete restore attempts to advance. Native fluid
 exclusion remains installed after a fault.

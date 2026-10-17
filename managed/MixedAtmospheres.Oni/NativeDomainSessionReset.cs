@@ -89,6 +89,7 @@ namespace MixedAtmospheres.Oni
             batchEmitterSamples=initialZeroEmitterSamples=0;
             actorStatus=default;emissionStatusFrame=0;
             restoredActorImage=lastSavedActorImage=currentActorImage=null;currentActorImageHash="";
+            restoredZeroTimeEmitterConfigurations=0;
             persistentFixtureStarted=persistentFixtureVerified=restoredActorBindingsVerified=restoredActorsVerified=false;
             persistentFixtureObjects.Clear();NativeActorRegistrationOwner.Current=null;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
