@@ -69,6 +69,18 @@ struct ArithmeticScope {
             throw std::runtime_error("Cannot select the solver's nearest rounding");
         }
         _mm_setcsr((_mm_getcsr() & ~0xe040U) | 0x1f80U);
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__))
+        // Unity also selects x87 double precision. GNU long double still
+        // advertises a 64-bit significand, so inheriting that control word
+        // silently reduces the EOS root's working precision. Select its
+        // declared precision locally; fesetenv restores the caller on exit.
+        if constexpr (std::numeric_limits<long double>::digits > std::numeric_limits<double>::digits) {
+            unsigned short control=0;
+            __asm__ volatile("fnstcw %0" : "=m"(control));
+            control=static_cast<unsigned short>(control | 0x0300U);
+            __asm__ volatile("fldcw %0" : : "m"(control));
+        }
+#endif
     }
     ~ArithmeticScope() { (void)std::fesetenv(&saved); _mm_setcsr(sse); }
 };

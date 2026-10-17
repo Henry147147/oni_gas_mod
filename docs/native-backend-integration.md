@@ -23,6 +23,8 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The solver's [arithmetic scope](native-floating-point-environment.md) also
+isolates its precision, rounding and underflow settings from the native caller.
 The later WindowsPlayer/Proton OpenGL gas source and both reload sessions also
 pass in a fresh nine-world Spaced Out cluster. Native Linux reloads that same
 save twice, preserving the exact initial image and bounded cross-platform
