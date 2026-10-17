@@ -31,6 +31,8 @@ static_assert(sizeof(MAOniObserverConfig) == 24);
 static_assert(sizeof(MAOniObserverStatus) == 528);
 static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
 static_assert(sizeof(MAOniDomainSolidHeatCell) == 48);
+static_assert(sizeof(MAOniDomainSolidHeatEndpoint) == 64);
+static_assert(sizeof(MAOniDomainSolidCellState) == 64);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
@@ -168,6 +170,39 @@ float on_next_frame(void* self,void* data) {
     if (dt > 0) pending_timestep={positive_steps.fetch_add(1,std::memory_order_relaxed)+1,dt};
     return dt;
 }
+void observe_completed_solid_cell(void* data) {
+    MAOniDomainSolidHeatEndpoint endpoint{};ma::oni::copy_domain_solid_heat_endpoint(endpoint);
+    if(endpoint.state==1 && endpoint.contact_frame) {
+        try {
+            if(!data) throw std::logic_error("Completed solid cell has no native owner");
+            auto* sim=static_cast<std::byte*>(data);int pitch{},rows{};void* cells{};void* updated{};
+            std::memcpy(&pitch,sim,sizeof(pitch));std::memcpy(&rows,sim+4,sizeof(rows));
+            std::memcpy(&cells,sim+32,sizeof(cells));std::memcpy(&updated,sim+40,sizeof(updated));
+            if(pitch<=2 || rows<=2 || !cells || !updated) throw std::logic_error("Completed solid cell grid is incomplete");
+            const auto width=static_cast<std::uint64_t>(pitch-2),public_cell=static_cast<std::uint64_t>(endpoint.solid_public_cell);
+            if(public_cell>=width*static_cast<std::uint64_t>(rows-2)) throw std::logic_error("Completed solid cell is outside its native grid");
+            const auto index=public_cell%width+1+(public_cell/width+1)*static_cast<std::uint64_t>(pitch);
+#if defined(_WIN32)
+            constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72,insulation_offset=136;
+#else
+            constexpr std::size_t element_offset=0,temperature_offset=24,mass_offset=48,insulation_offset=96;
+#endif
+            float* old_temperatures{};float* next_temperatures{};float* masses{};std::uint16_t* elements{};std::uint8_t* insulation{};
+            std::memcpy(&old_temperatures,static_cast<std::byte*>(cells)+temperature_offset,sizeof(old_temperatures));
+            std::memcpy(&next_temperatures,static_cast<std::byte*>(updated)+temperature_offset,sizeof(next_temperatures));
+            std::memcpy(&masses,static_cast<std::byte*>(updated)+mass_offset,sizeof(masses));
+            std::memcpy(&elements,static_cast<std::byte*>(updated)+element_offset,sizeof(elements));
+            std::memcpy(&insulation,static_cast<std::byte*>(updated)+insulation_offset,sizeof(insulation));
+            if(!old_temperatures || !next_temperatures || !masses || !elements || !insulation)
+                throw std::logic_error("Completed solid cell arrays are incomplete");
+            const auto completed=ma::oni::domain_status_under_fence();
+            const MAOniDomainSolidCellState observation{64,1,1,endpoint.solid_public_cell,endpoint.session,endpoint.completed_frame,
+                old_temperatures[index],next_temperatures[index],elements[index],masses[index],insulation[index],0,completed.native_ticket};
+            ma::oni::record_domain_solid_cell_state(observation);
+        } catch(const std::exception& error) {ma::oni::fault_domain_solid_heat(error.what());}
+          catch(...) {ma::oni::fault_domain_solid_heat("Unknown completed native solid observation failure");}
+    }
+}
 void on_update_data(void* self,void* data) {
     Call call(MA_ONI_UPDATE_DATA);
     // UpdateData performs native physics, including ElementChunk contacts.
@@ -179,7 +214,10 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
     native_heat_contact_bits.store(0,std::memory_order_release);
-    if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
+    if (pending.ticket) {
+        ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
+    }
+    observe_completed_solid_cell(data);
 }
 float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
     Call call(MA_ONI_PRESSURE);
@@ -226,7 +264,7 @@ void on_temperature(void* data,void* events,int a,int b) {
         // retain every earlier native contribution and the original old grid.
         const auto before=next_temperatures[solid];
         const auto result=ma::oni::exchange_domain_solid_heat(fluid,solid,elements[solid],masses[solid],before,seconds,
-            insulation[solid],insulation[fluid]);
+            insulation[solid],insulation[fluid],temperatures[solid]);
         if(result.handled && std::bit_cast<std::uint32_t>(result.temperature)!=std::bit_cast<std::uint32_t>(before))
             next_temperatures[solid]=result.temperature;
     }
@@ -714,6 +752,20 @@ MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus* output) 
         ma::oni::copy_domain_solid_heat_status(*output);
     });
 }
+MAOniResult ma_oni_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid endpoint observation ABI");
+        ma::oni::copy_domain_solid_heat_endpoint(*output);
+    });
+}
+MAOniResult ma_oni_domain_solid_cell_state(MAOniDomainSolidCellState* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid completed native solid cell observation ABI");
+        ma::oni::copy_domain_solid_cell_state(*output);
+    });
+}
 MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell* inputs,std::uint32_t count,MAOniDomainSolidHeatStatus* output) {
     return boundary([&] {
         if(!inputs || !count || count>128 || !output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
@@ -787,6 +839,7 @@ MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus* output) {
 std::uint32_t ma_oni_domain_gravity_abi_version() { return 1; }
 std::uint32_t ma_oni_domain_viscosity_abi_version() { return 1; }
 std::uint32_t ma_oni_domain_radial_consumption_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_rectangular_consumption_abi_version() { return 1; }
 MAOniResult ma_oni_domain_viscosity_status(MAOniDomainViscosityStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)

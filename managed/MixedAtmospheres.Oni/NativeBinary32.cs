@@ -13,6 +13,10 @@ namespace MixedAtmospheres.Oni
         // compiling the caller with DAZ enabled can otherwise fold them to zero.
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static float FromBits(int bits)=>BitConverter.Int32BitsToSingle(bits);
+        // Keep this deliberate subnormal probe out of the optimizing JIT's
+        // constant folder, which can itself run while the caller has DAZ/FTZ
+        // enabled. The wire conversion helpers still execute normally.
+        [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
         internal static void RequireSubnormalRoundTrip()
         {
             // Read the probe bits at runtime. A JIT entered with DAZ enabled can

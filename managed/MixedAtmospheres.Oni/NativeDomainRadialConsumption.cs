@@ -6,7 +6,7 @@ namespace MixedAtmospheres.Oni
     internal static unsafe partial class NativeSealedDomainValidation
     {
         private static bool RadialConsumptionMode => ColonyRuntimeValidation.Settings?.Mode == "native-radius-domain";
-        private static float FixtureConsumptionKg => RadialConsumptionMode ? .4f : .02f;
+        private static float FixtureConsumptionKg => RadialConsumptionMode || RectangularConsumptionMode ? .4f : .02f;
         private static double radialSourceCellOxygen;
         private static ulong radialSourceFrame;
         private static Receipt? radialReceipt;

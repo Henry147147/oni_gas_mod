@@ -107,5 +107,14 @@ selects the next control: save the smallest parcel while still in flight,
 restore its exact binary32 record, then require one deposition and positive
 transported inventory. It uses a gas source with `--save-colony`, or its load
 with `--resave-before-resume`. A live breather is excluded from this particular
-control so other CO2 production cannot obscure its tiny inventory. Actual
-execution of that combined control is pending.
+control so other CO2 production cannot obscure its tiny inventory.
+
+The combined control now passes both actual player sources and every local
+and cross-player two-session reload at frozen `05cda0c`: eight continued
+sessions and 960 individually exact frames. Each session restores the native
+record exactly, deposits the parcel once at frame 10 and retains positive CO2
+within the unchanged operand bound. All eight also observe later native pool
+reuse while preserving the original retirement witness. Source files remain
+unchanged, and all accepted-input journals pass independent saved-only review.
+Aggregate review SHA-256:
+`10eb0eb46344dc24e1a28bf59fe1847fb35417a7914c09803706c4a97f112af0`.

@@ -10,6 +10,131 @@ Linux. Every fluid inventory will retain the mass of every constituent. Oxygen,
 nitrogen, carbon dioxide, temperature, pressure, buoyancy, phase changes,
 machines, pipes, and metabolism must use the same conserved state.
 
+## Seeing the mod in ONI
+
+Every successful load displays a **Mixed Atmospheres** status panel in the main
+menu and colony. It identifies native ONI physics, a display fixture, or an
+active custom fluid region; shows the completed reading frame, renderer state,
+mass, temperature, gas pressure, oxygen partial pressure and composition; and
+surfaces presentation/domain errors. Liquid readings also show supplied fluid
+pressure and liquid volume fraction. Readings follow a mixture cell under the
+mouse, otherwise the first supplied cell. Pausing retains the last completed
+readings. Returning to the menu retires the colony's readings.
+
+A cyan outline identifies the rectangular region that supplies mixture data.
+Normal world rendering uses ONI's gas/liquid shaders with the mixture's colour,
+density and phase. Open the top-right **Overlays** menu for **Gas composition**,
+**Gas pressure**, **Oxygen partial pressure**, and **Breathability**. Hover a cell
+for each non-trace gas; select it for full composition, including traces.
+Overlays apply only where mixture readings exist. The gas-composition view also
+leaves gas-free cells blank; use the panel, hover and normal liquid view to
+identify water. Blank areas do not indicate vacuum.
+
+| Control | Effect |
+| --- | --- |
+| Shift+F5 | Cycle composition, pressure, oxygen partial pressure, breathability, and normal view |
+| Shift+F8 | Expand/collapse the status panel |
+| Shift+F9 | Centre and zoom the camera on the supplied fluid region |
+| Shift+F10 | Show/hide the cyan region outline |
+
+An ordinary load currently reports **native ONI physics**: production whole-colony
+ownership is unfinished. To actually see the custom solver, build the package
+below and enable a **disposable visual development colony** before installing:
+
+```sh
+python3 tools/configure_visual_demo.py --package artifacts/probe-linux --scene air
+```
+
+Use `artifacts/probe-windows` for the Windows package. `--scene water` shows filled
+compressed water; `--scene mixed` shows coexisting gas and liquid. The helper
+creates `colony-validation.json` beside the mod DLL; it requires a package built
+with `--native-observer`. It leaves colony creation to you and keeps ONI open.
+Enable the mod, restart ONI, then manually start a **new disposable colony**
+(Terra/Terrania, seed `147147` is the verified development setup). After selecting
+the starting duplicants, allow preparation and 120 custom worker frames to
+complete. The game pauses for inspection; press **Shift+F9** to find the six-cell
+chamber. Surrounding colony physics still belongs to ONI. These scenes are
+bounded implementation controls, not a complete playable overhaul.
+
+Use a fresh package or move aside `colony-validation.json` before selecting a
+different scene. To return to ordinary observation, remove that configuration
+and restart ONI. Keep development scenes and their saves separate from valued
+colonies. [Rendering details and evidence](docs/native-fluid-rendering.md).
+
+![ONI showing the outlined custom water region, live mod status and liquid pressure](docs/images/mixed-atmospheres-water.png)
+
+Actual headless Linux ONI: six custom water cells, visible liquid fill, 220 MPa
+fluid pressure and 100% liquid volume. The surrounding colony uses native ONI.
+
+## Compile, install and enable
+
+The adapter currently targets **ONI 744825**, 64-bit Windows and native Linux,
+including the base game and Spaced Out!. Its assembly and native fingerprints
+are checked at load. A different game update requires a new verified profile;
+do not bypass the version check. Use your own licensed Steam installation as
+the build reference. Requirements: **Python 3.10+, .NET SDK 10, CMake 3.20+,
+Ninja and a C++20 compiler**, plus network access for the native hook dependency
+on its first build. Windows requires an **x64 Visual Studio developer shell**.
+
+On Linux, from the repository root (adjust the game path to your Steam library):
+
+```sh
+export ONI_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/OxygenNotIncluded"
+python3 tools/build.py --game-dir "$ONI_GAME_DIR" --oni-native-observer --build-dir build
+python3 tools/package_probe.py --native build/libmixed_atmospheres.so \
+  --native-observer build/libmixed_atmospheres_oni.so --output artifacts/probe-linux
+```
+
+The build command compiles the native libraries and managed adapter and runs
+their checks. On a newer Linux distribution, host-built libraries can require
+a newer glibc than the game supports. For a portable Linux package, use the
+[Ubuntu 22.04 compatibility build](docs/linux-native-build.md) after compiling
+the managed adapter, and package its two native libraries and provenance report
+as shown there.
+
+On Windows, from an **x64 Visual Studio developer PowerShell** in this repository:
+
+```powershell
+$env:ONI_GAME_DIR = 'C:\Program Files (x86)\Steam\steamapps\common\OxygenNotIncluded'
+python tools/build.py --game-dir "$env:ONI_GAME_DIR" --oni-native-observer --build-dir build-windows
+python tools/package_probe.py --native build-windows/mixed_atmospheres.dll --native-observer build-windows/mixed_atmospheres_oni.dll --output artifacts/probe-windows
+```
+
+Package into a **new, empty output directory**. Use `--managed-dir` when the
+adapter was built into a custom directory. The package includes the mod DLLs,
+platform-native libraries, elements and mod metadata; game-owned DLLs stay in
+the licensed installation. Two existing MSB3277 HTTP/compression reference
+warnings are expected; a successful build has zero errors.
+
+1. Close ONI. Optionally run the visual-demo command above on the packaged folder.
+2. Copy the **entire contents** of that package into one folder named
+   `MixedAtmospheres` under your ONI **user-data** `mods/Dev` directory:
+
+   | Platform | Destination |
+   | --- | --- |
+   | Windows | `%USERPROFILE%\Documents\Klei\OxygenNotIncluded\mods\Dev\MixedAtmospheres` |
+   | Linux | `~/.config/unity3d/Klei/Oxygen Not Included/mods/Dev/MixedAtmospheres` |
+
+   Windows Documents may be redirected to OneDrive. Follow ONI's actual
+   user-data folder in that case. The DLLs and `mod.yaml` must be directly in
+   `MixedAtmospheres`, with `native/` beneath it; avoid an extra nested package
+   folder. Use the package for the operating system running the game.
+   Keep only one installed folder with the mod's `MixedAtmospheres.IntegrationProbe`
+   static ID, so an older copy cannot take precedence.
+3. Launch ONI through Steam, open **Mods**, enable **Mixed Atmospheres - Integration Probe**, and
+   accept its restart. After loading, look for the status panel. For an ordinary
+   package it reports native physics; for the visual demo, start a new colony
+   as described above.
+4. If the panel is missing, check the mod's error in **Mods** and ONI's
+   `Player.log`. A successful load also writes `integration-probe.json` beside
+   the DLL; native observation writes `native-backend-observation-report.json`.
+   A visual scene writes its reports/screenshots under
+   `game-contract-local/colony-validation/` in the same mod folder.
+
+For updates, close ONI and replace the installed folder with a fresh package
+so stale libraries/configuration cannot survive. Reapply the visual-demo
+configuration when desired. Installed SimDLL files are never replaced.
+
 ## How the native integration works
 
 The production architecture uses **native SimDLL hooks** to put the mixture
@@ -45,12 +170,16 @@ into the same fluid owner and accepted-input journal. It conserves represented
 object heat and full-EOS fluid energy, keeps native compatibility temperatures
 unchanged and commits both endpoints on the native worker frame. A real Linux
 saved duplicant now completes 120 exact replayed frames with original breathing
-callbacks and body heat. Full same-process and WindowsPlayer live controls
-remain in progress.
+callbacks and body heat. Both player sources and their local and cross-player
+two-session reloads also pass the [live particle cohort](docs/native-transient-particles.md).
 
 [Native solid-cell heat](docs/native-solid-heat.md) also has a bounded contact
 bridge, with licensed gas/water worker controls on both native libraries.
 Its actual Unity colony acceptance tests are in progress.
+
+[Rectangular consumption](docs/native-rectangular-consumption.md) now reserves
+device footprints and returns one conserved native callback. Its game controls
+are being verified alongside the existing point and radius boundaries.
 
 ## What currently works
 

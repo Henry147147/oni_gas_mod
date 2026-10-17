@@ -65,14 +65,47 @@ see its thread-local duration, so it recorded no accepted contact inputs. The
 shared-frame interval fixes that failure. All 20 groups also pass on the clean
 Ubuntu 22.04 build and under ASan/UBSan (563.40 s). A Linux control with the
 owned room in the second of two active native regions passes its 61 exact
-worker frames and actual contacts as well. Those original controls do not
-establish actual Windows OS support.
+worker frames and actual contacts as well. Actual Unity source/save/reload
+controls are queued. The first Unity attempt stopped before ownership because
+arena construction uprooted nearby flora and spawned an unbound seed into the
+chamber. Placement now reserves a three-cell object-free margin around every
+changed fixture cell, including its backer and outside conduction pair. The
+actor guard remains active. The next actual Unity source reaches two positive
+contacts, then rejects a published solid endpoint that accounts for one
+represented temperature step while the completed fluid journal accounts for
+two. This failure remains retained; Unity acceptance is still open.
 
-Actual Unity source/save/reload controls are queued. The first Unity attempt
-stopped before ownership because arena construction uprooted nearby flora and
-spawned an unbound seed into the chamber. Placement now reserves a three-cell
-object-free margin around every changed fixture cell, including its backer and
-outside conduction pair. The actor guard remains active.
+A separate 64-byte endpoint observation records the last completed contact's
+native old-grid temperature, accumulated before/after temperatures, actual
+interval, cell identities and contact/owner frames. It publishes atomically
+with the fluid heat account and changes neither physical endpoint nor the
+checkpoint format. The managed report also retains the native publication's
+processed-frame count. These observations distinguish publication timing from
+lost native heat without changing the conservation bound.
+
+A second 64-byte observation reads the native old and updated cell arrays
+after each worker sub-update, tagged with its completed fluid frame and native
+ticket. It retains material, mass and insulation facts separately from the
+prepared game buffer. Stale observations reject before changing completed
+evidence. This is diagnostic evidence; it does not repair or accept the
+currently failing Unity boundary.
+
+The licensed worker control now records those completed arrays as well. Linux
+passes both 400 K and the failing colony's exact 369.62255859375 K initial
+temperature; the Windows native library under Wine also passes the latter.
+Each control replays 61 complete fluid frames and checks 56 actual contacts.
+The weaker controls end at 369.619140625 K with 27.001953858416528 J body loss.
+Both native arrays match the published temperature throughout these controls,
+and the unchanged energy bounds pass. A saved-only review of all 168 contact
+samples has SHA-256
+`18cb763476763df39a5cc33c7480fb9f308052df0c46459bb48a1dfad3a4d8e7`.
+`MA_NATIVE_SOLID_TEMPERATURE_BITS` selects an exact hexadecimal binary32 initial
+temperature in this standalone control. It does not change the mod's gameplay
+settings. Actual Unity publication remains the failing gate.
+
+These Linux and Wine controls do not establish actual Windows OS support.
+The separate Windows-host controls below provide that scoped evidence;
+whole-colony and actual Unity heat acceptance remain open.
 
 Fresh isolated worker controls now also pass on the actual Windows host with
 its installed ONI 744825 SimDLL. Gas and water each complete 61 exact input

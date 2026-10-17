@@ -77,6 +77,12 @@ reset. Their new Unity cohorts are queued separately.
 
 ## Supported build and installation
 
+The [rectangular consumption boundary](native-rectangular-consumption.md)
+reserves complete device footprints, rejects mixed ownership before dispatch
+and returns one aggregate callback with full parcel accounting. It extends the
+existing transfer ABI through a separate capability check and retains both
+dimensions in accepted-input journals. Actual game acceptance is in progress.
+
 Initial profiles target ONI **744825**, Steam BuildID **24423041**, Unity
 **6000.3.5f2**. Valve's public branch metadata was refreshed anonymously through
 SteamCMD on 2026-10-17 and still reports BuildID 24423041, matching the supplied

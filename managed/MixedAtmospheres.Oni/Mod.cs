@@ -46,6 +46,7 @@ namespace MixedAtmospheres.Oni
                 var destination = ReportPath;
                 File.WriteAllText(destination, report.ToJson());
                 probeReport = report;
+                MixtureStatusDisplay.Install();
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Integration probe completed. " +
                     (NativeSealedDomainValidation.IsMode ? "A sealed native development domain is enabled; whole-colony ownership is not certified. Report: " :
                     "Full simulation ownership is NOT certified; this package does not change colony physics. Report: ") + destination);
@@ -82,6 +83,7 @@ namespace MixedAtmospheres.Oni
                 Step("load-rejection observers", () => OwnedReservoirLoadVisualValidation.AbandonFailedLoad(cause));
             Step("nitrogen tag verification", NitrogenElementTagPatch.ResetAfterFailedLoad);
             Step("mixture renderer", MixtureWorldRendering.ResetAfterFailedLoad);
+            Step("mixture status display", MixtureStatusDisplay.Remove);
             Step("reservoir marker", OwnedReservoirOwnerMarker.ResetAfterFailedLoad);
             Step("overlay status registry", MixtureOverlays.UnregisterStatusItemOverlays);
             Step("native observer", NativeBackendObservation.ResetAfterFailedLoad);

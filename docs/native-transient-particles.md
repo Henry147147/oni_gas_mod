@@ -105,3 +105,26 @@ original active pool. Subsequent native factory reuse of its Unity component
 is recorded separately and cannot undo that original retirement. The combined
 smallest-float in-flight save control checks exact restore, one deposit and a
 positive transported CO2 inventory from an initially empty constituent.
+
+The combined smallest-float control now passes its actual Linux source and
+both Linux reload sessions at frozen `05cda0c`. Each restores the one parcel
+byte for byte, deposits exactly `2^-149` kg once at frame 10 and completes
+120 individually exact frames. The final CO2 inventory remains positive at
+`1.4012984643248147e-45` kg, within the unchanged 128-epsilon operand bound.
+Both sessions observe later native pool reuse without undoing the retirement
+witness. All 240 binary journals pass independent saved-only review. Review
+SHA-256: `20702088260063142b4dfc7f720dd3f8e57c9702b398db481e858bfffe024876`.
+The unchanged Linux source also passes both WindowsPlayer reload sessions:
+one exact restore and original frame-10 deposit, later native pool reuse, and
+120 individually exact frames per session. Both end with positive CO2 mass
+`1.401298464324819e-45` kg within the same operand bound. All 240 journals pass
+independent saved-only review, SHA-256
+`9b05dd7628d02a11787f07bb3a24fbf83e64fc1292bb253caf5391eeebd8f3da`.
+The WindowsPlayer-origin tiny parcel source and all four of its local and
+Linux continued sessions also pass. Across both sources, all eight reload
+sessions preserve their frame-zero saves, one exact frame-10 deposit, positive
+transported inventory and all 120 individually exact frames. Every session
+observes later native pool reuse without losing its retirement witness. Both
+source files remain unchanged. The complete 960-frame saved-only journal and
+source-file review has SHA-256
+`10eb0eb46344dc24e1a28bf59fe1847fb35417a7914c09803706c4a97f112af0`.

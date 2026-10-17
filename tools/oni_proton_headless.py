@@ -125,7 +125,7 @@ def domain_options(args) -> dict:
     return dict(expected_platform=PLATFORM,mixed_phase=mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         solid_heat=mode=="native-solid-heat-domain", heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
-        transfers=mode in ("native-transfer-domain", "native-radius-domain"), radial_consumption=mode == "native-radius-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
+        transfers=mode in ("native-transfer-domain", "native-radius-domain", "native-rectangular-domain"), radial_consumption=mode == "native-radius-domain", rectangular_consumption=mode == "native-rectangular-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
         liquid_actors=mode == "native-liquid-actor-domain", pressure_read=mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=mode == "native-breathing-read-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",
         conduction=mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=mode == "native-gravity-domain",
         liquid_gravity=mode == "native-liquid-gravity-domain",
@@ -147,6 +147,9 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    inspection = getattr(args, "inspection_seconds", 0)
+    if type(inspection) is not int or not 0 <= inspection <= 300 or (inspection and getattr(args, "mode", None) == "menu"):
+        raise ValueError("Completed inspection requires 1..300 seconds and a colony mode")
     if getattr(args,"subnormal_carbon_particle",False) is True and args.mode!="native-carbon-particle-domain" and not (getattr(args,"verify_transient_particles",False) is True and args.mode in ("native-domain","native-load-domain") and not getattr(args,"verify_live_breathing",False)):
         raise ValueError("Subnormal carbon input requires the carbon-particle scene or transient-particle save/load without a live producer")
     if getattr(args,"verify_transient_particles",False) is True and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
@@ -211,6 +214,7 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
 
 def playtest(args, state: Path, session: dict) -> int:
     validate_arguments(args)
+    inspection_seconds = getattr(args, "inspection_seconds", 0)
     package, game, proton = args.package.resolve(), args.game_dir.resolve(), args.proton.resolve()
     manifest = common.verify_package(package, "win-x64")
     if args.mode != "menu" and manifest.get("native_observer_enabled") is not True:
@@ -273,7 +277,7 @@ def playtest(args, state: Path, session: dict) -> int:
         if args.mode != "menu":
             common.write_json(mod / "colony-validation.json", {
             "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
-            "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout, "QuitWhenComplete": True,
+            "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout, "QuitWhenComplete": not inspection_seconds,
             "Seed": "147147", "ColonyName": "MA-Proton-" + run_id,
             "LoadSavePath": windows_path(load_fixture) if load_fixture else "",
             "SaveOnComplete": args.save_colony, "SaveBeforeResume": args.resave_before_resume,
@@ -293,7 +297,9 @@ def playtest(args, state: Path, session: dict) -> int:
         session.update(game=record, latest_run=str(output))
         common.write_json(state / "session.json", session)
         print(f"WindowsPlayer under Proton PID {record['pid']}; evidence: {output}", flush=True)
-        deadline = time.monotonic() + args.timeout + 60
+        deadline = time.monotonic() + args.timeout + 60 + inspection_seconds
+        inspection_started = None
+        colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
         timed_out = False
         stopped_for_mod_failure = False
         menu_seen = None
@@ -308,6 +314,13 @@ def playtest(args, state: Path, session: dict) -> int:
                 if common.contract_export(log) or time.monotonic()-menu_seen>=common.MENU_EXPORT_WAIT_SECONDS:
                     time.sleep(common.MENU_SETTLE_SECONDS)
                     break
+            if inspection_seconds:
+                current_report = optional_json(colony_file)
+                if current_report:
+                    inspection_started, inspected = common.completed_inspection(
+                        current_report, inspection_seconds, inspection_started, time.monotonic())
+                    if inspected:
+                        break
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
@@ -342,6 +355,8 @@ def playtest(args, state: Path, session: dict) -> int:
         if common.verify_package(package, "win-x64") != manifest:
             raise ValueError("The immutable source package changed during the game run")
         result.update(status=status, exit_code=code, timed_out=timed_out, observed_player_exit_code=player_exit,
+            inspection_seconds_requested=inspection_seconds,
+            inspection_seconds_held=time.monotonic()-inspection_started if inspection_started is not None else 0,
             stopped_early_for_mod_failure=stopped_for_mod_failure,
             real_unity_player=bool(probe and probe.get("Platform")==PLATFORM),
             integration_probe=probe, colony_report=report, native_domain=domain,
@@ -377,6 +392,8 @@ def main() -> int:
         help="Unity graphics API; OpenGL Core avoids the reproduced software Direct3D11 clock/startup failures")
     parser.add_argument("--frames", type=int, choices=range(1, 10001), default=120, metavar="1..10000")
     parser.add_argument("--timeout", type=int, choices=range(30, 7201), default=1800, metavar="30..7200")
+    parser.add_argument("--inspection-seconds", type=int, choices=range(0, 301), default=0, metavar="0..300",
+        help="Keep a completed colony visible for bounded input/visual inspection before normal cleanup")
     parser.add_argument("--save-colony", action="store_true")
     parser.add_argument("--load-save", type=Path)
     parser.add_argument("--resave-before-resume", action="store_true")

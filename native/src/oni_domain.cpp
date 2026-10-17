@@ -69,10 +69,12 @@ struct ChunkHeatProgress {
     std::uint64_t contacts{},transfers{},unresolved{},iterations{};
     MacEnergySum body_loss,fluid_heat,entropy,requested;
     double maximum_residual{},maximum_bound{};
+    MAOniDomainSolidHeatEndpoint endpoint{};
 };
 ChunkHeatProgress pending_chunk_heat,committed_chunk_heat,pending_solid_heat,committed_solid_heat;
 std::map<int,MAOniDomainSolidHeatCell> solid_heat_cells;
 std::set<std::pair<int,int>> solid_heat_contacts;
+MAOniDomainSolidCellState completed_solid_cell{};
 MacEnergySum committed_potential,pending_potential,body_impulse,gravity_internal_work;
 double initial_potential{},maximum_energy_residual{};
 std::vector<MAOniDomainCell> publication;
@@ -242,7 +244,7 @@ MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second)
 ChunkHeatProgress combined_chunk_heat(const ChunkHeatProgress& a,const ChunkHeatProgress& b) {
     ChunkHeatProgress result{a.contacts+b.contacts,a.transfers+b.transfers,a.unresolved+b.unresolved,a.iterations+b.iterations,
         combined_heat(a.body_loss,b.body_loss),combined_heat(a.fluid_heat,b.fluid_heat),combined_heat(a.entropy,b.entropy),combined_heat(a.requested,b.requested),
-        std::max(a.maximum_residual,b.maximum_residual),std::max(a.maximum_bound,b.maximum_bound)};
+        std::max(a.maximum_residual,b.maximum_residual),std::max(a.maximum_bound,b.maximum_bound),b.contacts ? b.endpoint : a.endpoint};
     for (const auto* value:{&result.body_loss,&result.fluid_heat,&result.entropy,&result.requested})
         (void)value->value().require_representable();
     return result;
@@ -336,22 +338,23 @@ MAOniDomainReceipt prepare_point_transfer(GasWork& work,const MAOniDomainTransfe
     return receipt;
 }
 void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
-    constexpr std::uint32_t radius_mask=0xff00U;
-    const auto radius=(input.flags&radius_mask)>>8;
-    if (radius==0) { work.append(prepare_point_transfer(work,input,receipt_kind));return; }
+    constexpr std::uint32_t shape_mask=0xffff00U;
+    const auto radius=(input.flags>>8)&255U,box_height=(input.flags>>16)&255U;
+    if (radius==0 && box_height==0) { work.append(prepare_point_transfer(work,input,receipt_kind));return; }
     if (input.struct_size!=sizeof(input) || input.abi_version!=MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved ||
-        (input.flags&~(radius_mask|1U)) || !(input.flags&1U) || input.kind!=2 || receipt_kind!=2 || input.species>=ids.size() ||
+        (input.flags&~(shape_mask|1U)) || !(input.flags&1U) || input.kind!=2 || receipt_kind!=2 || input.species>=ids.size() ||
         !admitted_species(work.configuration.scenario,input.species) || !std::isfinite(input.mass_kg) || input.mass_kg<0 ||
         !std::isfinite(input.temperature_k) || static_cast<double>(static_cast<float>(input.mass_kg))!=input.mass_kg)
-        throw std::invalid_argument("Invalid binary32 radial consumption request");
+        throw std::invalid_argument("Invalid binary32 regional consumption request");
     if (input.session!=work.session || input.expected_frame!=work.frame)
-        throw std::logic_error("Radial consumption source session/frame is stale");
+        throw std::logic_error("Regional consumption source session/frame is stale");
     const auto centre=domain_index(input.public_cell,work.configuration);
     const auto grid=work.owner->state().grid;
     const auto species=work.owner->registry().index(ids[input.species]);
     std::vector<double> amounts;amounts.reserve(work.owner->state().cells.size());
     for (const auto& cell:work.owner->state().cells) amounts.push_back(cell.mixture.masses[species]);
-    const auto plan=radial::prepare(grid.width,grid.height,grid.walls,amounts,centre,radius,input.mass_kg);
+    const auto plan=box_height ? radial::prepare_rectangle(grid.width,grid.height,grid.walls,amounts,centre,radius,box_height,input.mass_kg) :
+        radial::prepare(grid.width,grid.height,grid.walls,amounts,centre,radius,input.mass_kg);
     MAOniDomainReceipt combined{0,0,0,input.public_cell,input.species,input.callback,2,plan.mass,0,0,0,0,0};
     MacEnergySum material,kinetic,px,py,temperature_mass;
     for (const auto& allocation:plan.allocations) {
@@ -360,7 +363,7 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
             (allocation.cell/grid.width+work.configuration.offset_y)*work.configuration.native_grid_width);
         point.mass_kg=allocation.mass;
         const auto packet=prepare_point_transfer(work,point,2);
-        if (packet.mass_kg!=point.mass_kg) throw std::logic_error("Radial parcel changed its exact callback lattice allocation");
+        if (packet.mass_kg!=point.mass_kg) throw std::logic_error("Regional parcel changed its exact callback lattice allocation");
         material.add(packet.internal_energy_j);kinetic.add(packet.kinetic_energy_j);px.add(packet.momentum_x);py.add(packet.momentum_y);
         temperature_mass.add(MacEnergy::from_double(packet.mass_kg).multiplied(packet.temperature_k));
     }
@@ -561,7 +564,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
-    solid_heat_cells.clear();solid_heat_contacts.clear();
+    solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
@@ -586,7 +589,7 @@ void shutdown_domain() noexcept {
     pending_inputs.clear();completed_inputs.clear();completed_snapshot.clear();pending_input_flags=0;
     actors.clear();
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
-    solid_heat_cells.clear();solid_heat_contacts.clear();
+    solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
     pending_actor_restore.clear();
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
@@ -747,7 +750,8 @@ void copy_domain_heat(MAOniDomainHeatStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic; output=heat_status();
 }
 static DomainChunkHeat exchange_domain_native_heat(int native_cell,float temperature,double capacity_kj,double conductivity,
-    float transfer_scale,float contact_scale,float seconds,bool solid,double fluid_conductivity_scale) noexcept {
+    float transfer_scale,float contact_scale,float seconds,bool solid,double fluid_conductivity_scale,
+    std::uint32_t solid_public_cell=0,float native_old_temperature=0) noexcept {
     DomainChunkHeat output{false,temperature,0};
     if (!suppress_domain_cell(MA_ONI_CHUNK_HEAT,native_cell)) return output;
     output.handled=true;
@@ -780,6 +784,8 @@ static DomainChunkHeat exchange_domain_native_heat(int native_cell,float tempera
         auto& completed_progress=solid ? committed_solid_heat : committed_chunk_heat;
         auto progress=staged_progress;const auto& report=candidate.report;
         ++progress.contacts;progress.iterations+=report.iterations;
+        if (solid) progress.endpoint={64,1,status.state,solid_public_cell,status.session,status.completed_frames,
+            status.completed_frames+1,public_cell,0,native_old_temperature,temperature,candidate.body_temperature_k,seconds};
         progress.requested.add(std::abs(report.requested_heat_j));
         progress.maximum_residual=std::max(progress.maximum_residual,std::abs(report.energy_residual_j));
         progress.maximum_bound=std::max(progress.maximum_bound,report.energy_bound_j);
@@ -822,6 +828,24 @@ void copy_domain_solid_heat_status(MAOniDomainSolidHeatStatus& output) {
         p.body_loss.value().require_representable(),p.fluid_heat.value().require_representable(),p.maximum_residual,p.maximum_bound,
         p.entropy.value().require_representable(),p.requested.value().require_representable()};
 }
+void copy_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint& output) {
+    std::lock_guard lock(state_mutex);output=committed_solid_heat.endpoint;
+    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.session=status.session;output.completed_frame=status.completed_frames;
+}
+void copy_domain_solid_cell_state(MAOniDomainSolidCellState& output) {
+    std::lock_guard lock(state_mutex);output=completed_solid_cell;
+    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.session=status.session;
+}
+void record_domain_solid_cell_state(const MAOniDomainSolidCellState& input) {
+    std::lock_guard lock(state_mutex);
+    if(input.struct_size!=sizeof(input) || input.abi_version!=1 || input.reserved || input.state!=1 ||
+        input.session!=status.session || input.completed_frame!=status.completed_frames || input.native_ticket!=status.native_ticket ||
+        input.solid_public_cell!=committed_solid_heat.endpoint.solid_public_cell)
+        throw std::logic_error("Native solid cell observation differs from its completed owner frame");
+    completed_solid_cell=input;
+}
 bool domain_solid_heat_registered(int cell) noexcept {
     std::lock_guard lock(state_mutex);return status.state==1 && solid_heat_cells.contains(cell);
 }
@@ -856,7 +880,7 @@ void configure_domain_solid_heat(const MAOniDomainSolidHeatCell* inputs,std::uin
         p.entropy.value().require_representable(),p.requested.value().require_representable()};
 }
 DomainChunkHeat exchange_domain_solid_heat(int fluid_cell,int solid_cell,std::uint16_t element,float mass,float temperature,float seconds,
-    std::uint8_t solid_insulation,std::uint8_t fluid_insulation) noexcept {
+    std::uint8_t solid_insulation,std::uint8_t fluid_insulation,float native_old_temperature) noexcept {
     DomainChunkHeat result{true,temperature,0};MAOniDomainSolidHeatCell admitted{};
     {
         std::lock_guard lock(state_mutex);
@@ -879,7 +903,8 @@ DomainChunkHeat exchange_domain_solid_heat(int fluid_cell,int solid_cell,std::ui
         const double capacity=static_cast<double>(admitted.mass_kg)*admitted.specific_heat_kj_per_kg_k;
         const double solid_scale=static_cast<double>(solid_insulation)/255,fluid_scale=static_cast<double>(fluid_insulation)/255;
         const double conductivity=static_cast<double>(admitted.conductivity_w_per_m_k)*solid_scale*solid_scale;
-        return exchange_domain_native_heat(fluid_cell,temperature,capacity,conductivity,1,1,seconds,true,fluid_scale*fluid_scale);
+        return exchange_domain_native_heat(fluid_cell,temperature,capacity,conductivity,1,1,seconds,true,fluid_scale*fluid_scale,
+            admitted.public_cell,native_old_temperature);
     } catch(const std::exception& error) {std::lock_guard lock(state_mutex);fault(error.what());return result;}
       catch(...) {std::lock_guard lock(state_mutex);fault("Unknown native solid capacity failure");return result;}
 }
