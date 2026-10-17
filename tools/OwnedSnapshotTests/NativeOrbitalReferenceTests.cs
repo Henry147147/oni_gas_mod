@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
+using HarmonyLib;
 using MixedAtmospheres.Oni;
 
 internal static class NativeOrbitalReferenceTests
@@ -20,6 +23,18 @@ internal static class NativeOrbitalReferenceTests
             check(typeof(OrbitalObject).GetField("orbitingWorldId", flags)?.FieldType == typeof(int));
             check(typeof(SaveManager).GetField("sceneObjects", flags)?.FieldType == typeof(Dictionary<Tag, List<SaveLoadRoot>>));
             check(typeof(KMonoBehaviour).GetMethod(nameof(KMonoBehaviour.IsInitialized), flags, null, Type.EmptyTypes, null)?.ReturnType == typeof(bool));
+        });
+        test("the installed orbital spawn deactivates its object before Unity can start a later save-root component", () => {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            var orbital = PatchProcessor.GetOriginalInstructions(typeof(OrbitalObject).GetMethod("OnSpawn", flags)!);
+            var deactivate = orbital.Select((instruction, index) => (instruction, index)).Single(item =>
+                item.instruction.operand is MethodInfo method && method.DeclaringType == typeof(UnityEngine.GameObject) && method.Name == "SetActive");
+            check(deactivate.index > 0 && orbital[deactivate.index - 1].opcode == OpCodes.Ldc_I4_0);
+            check(!orbital.Any(instruction => instruction.operand is MethodInfo method && method.DeclaringType == typeof(SaveLoadRoot)));
+            var root = PatchProcessor.GetOriginalInstructions(typeof(SaveLoadRoot).GetMethod("OnSpawn", flags)!);
+            check(root.Count(instruction => instruction.operand is MethodInfo method && method.DeclaringType == typeof(SaveManager) && method.Name == "Register") == 1);
+            var start = PatchProcessor.GetOriginalInstructions(typeof(KMonoBehaviour).GetMethod(nameof(KMonoBehaviour.Start))!);
+            check(start.Count(instruction => instruction.operand is MethodInfo method && method.DeclaringType == typeof(KMonoBehaviour) && method.Name == nameof(KMonoBehaviour.Spawn)) == 1);
         });
         test("orbital admission retains multiple worlds resolved refs optional empties and a new cached native object", () => {
             var created = Reference(9, 1, 12); created.SavedId = -1;

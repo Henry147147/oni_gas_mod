@@ -29,6 +29,34 @@ requires this evidence; earlier frozen reports do not establish this new check.
 Session shutdown clears the observations and admission state before another
 colony loads.
 
+## Finishing the existing background save root
+
+A later fresh WindowsPlayer water source reached physical frame 122 with all
+three actors and exact consumer callbacks, then correctly declined its first
+paired save: orbital ID 2 was tracked and initialized, but its save root had
+never spawned or registered. This is a fresh-colony lifecycle problem as well
+as an input-admission concern.
+
+The installed Windows/Linux bodies show that `OrbitalObject.OnSpawn` deactivates
+its own object. A read-only Windows lifecycle trace observes that deactivation
+while the later `SaveLoadRoot` remains unspawned. In that traced control,
+rendering reactivates the object roughly 0.7 seconds later and the root then
+registers. The failed source retains an unspawned root instead. This evidence
+supports completing the root before the orbital component can hide the object;
+it does not establish the cause of every historical damaged save.
+
+In native-domain modes, the adapter now calls the existing root's normal
+`Spawn()` before `OrbitalObject.OnSpawn`. It requires the original tracked
+`OrbitalBG` identity, an initialized root, an available native save manager and
+zero prior registrations. Completion must leave exactly one registration.
+An already spawned root keeps its ordinary lifecycle. The native orbital body
+still controls visibility and rendering. No object or reference is created or
+reassigned, and an already missing saved object still fails admission.
+`NativeOrbitalReferences.SaveRootLifecycle` records the completed root IDs and
+any error, and resets between sessions. The default observer modes do not
+install this lifecycle patch. Actual source and reload verification of this
+change remains in progress.
+
 ## Reproduced input and current verification
 
 An older nine-world input with SHA-256
@@ -79,7 +107,12 @@ fresh load respectively are
 `fbebe7912a00fa0501da5789fe9de874f63e36c9ab6d88970fccc6f45e49d05d`,
 `9de158709acae102e84b72810c9ea67728679712bda14df20c2c990f9a074020`
 and `d93f855c3ff035c9550fc0d884be196a2cb11f50d2fd8ad26eb6c822558362a8`.
-There is no separate manual pixel review or Windows Unity admission claim.
+The later fresh nine-world WindowsPlayer/Proton OpenGL gas source and its two
+reload sessions also admit the native references. Native Linux reloads the same
+Windows source twice with admission at frame zero. See
+[the platform evidence](native-actor-persistence.md#windowsplayer-and-native-linux-spaced-out-gas).
+These controls do not establish execution on the Windows OS or general managed
+reference integrity.
 
 Related contracts: [native integration](native-backend-integration.md),
 [point-actor persistence](native-actor-persistence.md) and
