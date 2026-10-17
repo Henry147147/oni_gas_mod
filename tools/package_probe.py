@@ -104,6 +104,7 @@ def main() -> None:
         shutil.copytree(observer_support / "licenses", third_party / "licenses")
         shutil.copy2(observer_support / "third-party-sources.txt", third_party)
         shutil.copy2(ROOT / "tools/patch_funchook.py", third_party)
+        shutil.copy2(ROOT / "tools/patch_funchook_unix.py", third_party)
         shutil.copy2(ROOT / "tools/patch_distorm.py", third_party)
         shutil.copy2(ROOT / "cmake/OniNativeBackend.cmake", third_party)
         with tarfile.open(third_party / "funchook-1.1.3-with-distorm.tar.gz", "w:gz") as archive:

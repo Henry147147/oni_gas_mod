@@ -41,6 +41,20 @@ including a widened prologue that cannot fit the trampoline buffer.
 Source-hash-checked patches also replace unaligned code-operand accesses in
 Funchook/diStorm with `memcpy` and make diStorm's high-bit instruction flag
 unsigned. Dependency C sources are included in the sanitizer build.
+The Linux allocation patch scans nearby address gaps and claims trampoline
+pages with `MAP_FIXED_NOREPLACE`; it never overwrites an occupied mapping or
+accepts a relocated address. Deterministic controls exercise ignored ordinary
+address hints and two concurrent page claims, preserving every sentinel byte.
+The patch and its pinned source archive ship with the package. A missing
+reachable page still rejects installation, with range/map/errno diagnostics.
+
+During the colony save/load work, private Linux runs
+`20261017T000353Z-2e92d9` and `20261017T000743Z-dcba26` fail during hook-0 near-page
+allocation before colony activation; these remain failures. The latter already
+uses the initial allocation repair, so the exact address-layout cause is not
+established by the synthetic controls. The following diagnostic build passes
+real Unity initialization in `20261017T000916Z-64e170`. This is startup evidence,
+independent of the unfinished colony save/load check.
 
 Profiles bind native and Assembly-CSharp hashes. Windows locations come from
 the matching shipped PDB; Linux locations come from its dynamic symbols.

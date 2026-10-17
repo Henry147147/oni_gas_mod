@@ -29,12 +29,15 @@ file(WRITE "${oni_generated}/third-party-sources.txt"
 execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_distorm.py"
     "${ma_distorm_SOURCE_DIR}" COMMAND_ERROR_IS_FATAL ANY)
 file(APPEND "${oni_generated}/third-party-sources.txt"
-    "Local changes: patch_funchook.py (branch relocation and unaligned code operands) and patch_distorm.py (unsigned flag and unaligned opcode access).\n")
+    "Local changes: patch_funchook.py (branch relocation and unaligned code operands), patch_funchook_unix.py (non-replacing Linux near allocation), and patch_distorm.py (unsigned flag and unaligned opcode access).\n")
 # The release tarball omits its distorm git submodule. Copy only inside fetched
 # build artifacts, preserving upstream sources and avoiding a floating git ref.
 file(COPY "${ma_distorm_SOURCE_DIR}/" DESTINATION "${ma_funchook_SOURCE_DIR}/distorm")
 execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py"
     "${ma_funchook_SOURCE_DIR}/src/funchook_x86.c" COMMAND_ERROR_IS_FATAL ANY)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/patch_funchook_unix.py"
+    "${ma_funchook_SOURCE_DIR}/src/funchook_unix.c" COMMAND_ERROR_IS_FATAL ANY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_funchook_unix.py")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_funchook.py")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/tools/patch_distorm.py")
 set(FUNCHOOK_BUILD_SHARED OFF CACHE BOOL "" FORCE)
@@ -86,6 +89,9 @@ if(MA_BUILD_TESTS)
     add_test(NAME native_oni_observer_abi COMMAND ma_oni_backend_tests)
     add_executable(ma_oni_detour_tests native/tests/oni_detour_tests.cpp)
     target_link_libraries(ma_oni_detour_tests PRIVATE funchook-static)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_link_options(ma_oni_detour_tests PRIVATE "-Wl,--wrap=mmap")
+    endif()
     add_test(NAME native_oni_detour_relocation COMMAND ma_oni_detour_tests)
     add_executable(ma_oni_domain_tests native/tests/oni_domain_tests.cpp native/src/oni_domain.cpp)
     target_link_libraries(ma_oni_domain_tests PRIVATE ma_mac_closed_world)

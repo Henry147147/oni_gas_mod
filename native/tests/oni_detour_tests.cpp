@@ -1,5 +1,6 @@
 #include <funchook.h>
 #include <array>
+#include <cerrno>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -12,6 +13,34 @@
 #else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
+
+#if defined(__linux__)
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+static bool ignored_hints{};
+static unsigned exact_near_allocations{}, redirected_hint_allocations{};
+static std::array<void*,2> raced_pages{};
+static unsigned race_pages_remaining{};
+extern "C" void* __real_mmap(void*,std::size_t,int,int,int,off_t);
+extern "C" void* __wrap_mmap(void* address,std::size_t size,int protection,int flags,int descriptor,off_t offset) {
+    if (address && (flags & MAP_FIXED_NOREPLACE)) {
+        ++exact_near_allocations;
+        if (race_pages_remaining) {
+            void* occupied=__real_mmap(address,size,protection,flags,descriptor,offset);
+            if (occupied!=MAP_FAILED) {
+                raced_pages[--race_pages_remaining]=occupied;std::memset(occupied,0xa5,size);
+                errno=EEXIST;return MAP_FAILED;
+            }
+        }
+    }
+    if (ignored_hints && address && !(flags & (MAP_FIXED | MAP_FIXED_NOREPLACE))) {
+        ++redirected_hint_allocations;
+        return __real_mmap(nullptr,size,protection,flags | MAP_32BIT,descriptor,offset);
+    }
+    return __real_mmap(address,size,protection,flags,descriptor,offset);
+}
 #endif
 
 namespace {
@@ -94,6 +123,25 @@ void reject(std::array<std::uint8_t,64> bytes) {
 int main() {
     try {
         run(true); run(false);
+#if defined(__linux__)
+        // Reproduce a kernel ignoring a near-address hint. The old allocator
+        // repeats that hint and fails; exact non-replacing claims must work.
+        ignored_hints=true;
+        void* redirected=mmap(reinterpret_cast<void*>(0x700000000000ULL),4096,PROT_READ | PROT_WRITE,MAP_PRIVATE | MAP_ANONYMOUS,-1,0);
+        require(redirected!=MAP_FAILED && reinterpret_cast<std::uintptr_t>(redirected)<0x80000000ULL,"near-allocation negative control did not ignore its hint");
+        munmap(redirected,4096);
+        const auto exact_before=exact_near_allocations;
+        race_pages_remaining=2;
+        run(true); run(false);
+        require(redirected_hint_allocations==1 && exact_near_allocations>exact_before,"detours did not use atomic non-replacing near-page claims");
+        require(race_pages_remaining==0,"near-allocation control did not exercise concurrent page claims");
+        for (auto* page : raced_pages) {
+            const auto* bytes=static_cast<const std::uint8_t*>(page);
+            for (std::size_t i=0;i<4096;++i) require(bytes[i]==0xa5,"trampoline allocator overwrote a concurrently occupied page");
+            munmap(page,4096);
+        }
+        ignored_hints=false;
+#endif
         auto bytes=fixture(false); bytes[1]=0xfe; reject(bytes); // jmp to self
         bytes=fixture(false); bytes[1]=0; reject(bytes); // jmp into overwritten bytes
         bytes=fixture(false); bytes[0]=0xe2; reject(bytes); // LOOP remains unsupported
