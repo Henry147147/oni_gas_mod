@@ -318,6 +318,7 @@ internal static unsafe class Program
         NativeFrameInputJournalTests.Run(Test,Check,Reject);
         NativeTransientParticleImageTests.Run(Test,Check,Reject);
         NativeBinary32Tests.Run(Test,Check,Reject);
+        TileHoverReceiptFileTests.Run(Test,Check);
         BreathingCellReadTests.Run(Test, Check, Reject);
         PressureReadTests.Run(Test, Check, Reject);
         GpuPageReadbackTests.Run(Test, Check, Reject);

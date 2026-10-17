@@ -1,5 +1,6 @@
 """Windows checks for complete publication of manually reviewed hover receipts."""
 import hashlib
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -33,6 +34,26 @@ def expected(report):
 
 def literal(path):
     return "'" + str(path).replace("'", "''") + "'"
+
+
+def read_published(path):
+    # Match FileShare.Read | FileShare.Delete in the actual managed poller.
+    # DELETE sharing admits the rename handle; no WRITE sharing admits an
+    # unfinished writer. The CRT owns and closes the resulting native handle.
+    import msvcrt
+    from ctypes import wintypes
+    kernel=ctypes.WinDLL('kernel32',use_last_error=True)
+    create=kernel.CreateFileW
+    create.argtypes=(wintypes.LPCWSTR,wintypes.DWORD,wintypes.DWORD,ctypes.c_void_p,
+                     wintypes.DWORD,wintypes.DWORD,wintypes.HANDLE)
+    create.restype=wintypes.HANDLE
+    handle=create(str(path),0x80000000,1|4,None,3,0,None)
+    if handle==ctypes.c_void_p(-1).value: raise ctypes.WinError(ctypes.get_last_error())
+    try: descriptor=msvcrt.open_osfhandle(handle,os.O_RDONLY|os.O_BINARY)
+    except Exception:
+        close=kernel.CloseHandle; close.argtypes=(wintypes.HANDLE,); close.restype=wintypes.BOOL
+        close(handle); raise
+    with os.fdopen(descriptor,'rb') as stream: return stream.read()
 
 
 @unittest.skipUnless(os.name == 'nt' and PWSH, 'Requires Windows and PowerShell 7')
@@ -89,11 +110,12 @@ class HoverReceiptTests(unittest.TestCase):
                 while process.poll() is None:
                     self.assertLess(time.monotonic(), deadline, 'Receipt producer exceeded fixed control deadline')
                     # Read immediately on first appearance, as the native poller
-                    # does. A locked or partial final file is a control failure.
+                    # does. Writer locks and partial bytes still fail; a native
+                    # DELETE rename handle is explicitly shared by both readers.
                     for path in publications.rglob('*.continue.json'):
                         if path not in observed:
                             live_before_read = process.poll() is None
-                            observed[path] = json.loads(path.read_bytes())
+                            observed[path] = json.loads(read_published(path))
                             self.assertEqual(observed[path], expected_files[path])
                             observed_live += live_before_read
                 self.assertEqual(process.wait(timeout=5), 0)

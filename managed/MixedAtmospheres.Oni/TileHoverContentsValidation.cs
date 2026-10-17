@@ -79,7 +79,7 @@ namespace MixedAtmospheres.Oni
                 var receiptPath = Path.Combine(DirectoryPath, Names[currentCase] + ".continue.json");
                 if (File.Exists(receiptPath))
                 {
-                    var bytes = File.ReadAllText(receiptPath);
+                    var bytes = TileHoverReceiptFile.Read(receiptPath);
                     Require(bytes.Length <= 4096, "Hover continuation exceeds its byte limit.");
                     var receipt = JsonConvert.DeserializeObject<Receipt>(bytes, new JsonSerializerSettings
                     { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error });

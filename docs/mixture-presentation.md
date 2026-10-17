@@ -512,6 +512,18 @@ checks 64 complete receipts, with a live producer confirmed before each read, an
 assertions, invalid/stale observations and attempted overwrite reject. These
 use synthetic protocol data and establish no pixels or game acceptance.
 
+A subsequent Windows suite reproduces a first-appearance sharing violation
+even with the writer already closed: the rename's DELETE handle can briefly
+remain open after its final name becomes visible. The reader now uses
+`FileShare.Read | FileShare.Delete`, with no writing share or retry. A controlled
+DELETE handle reproduces failure in the old reader and succeeds in the new
+reader; an unfinished exclusive writer still rejects. Receipts are bounded to
+4096 bytes and strict UTF-8. The 64-publication eager test and all four protocol
+groups pass with matching reader sharing. This follows [Windows rename
+semantics](https://devblogs.microsoft.com/oldnewthing/20211022-00/?p=105822)
+and changes no held-observation, pixel-review or timeout requirement. The
+original failed fixture is retained in `local/receipt-protocol-tests/first-8tebbjvb`.
+
 On 2026-10-16 the Windows V51 fresh-world fixture run passes the three-frame
 pacing change introduced by the Linux run. It uses source `2b91864` plus a
 private-validation reporting correction: native `LoadFromWorldGen` exceptions
