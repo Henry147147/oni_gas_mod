@@ -78,6 +78,22 @@ internal static class ActorCheckpointImageTests
                 check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
             }
         });
+        test("transient particle extension preserves old payload bytes and coexists with durable actors",()=> {
+            var image=Fixture();var g=NativeActorCheckpointImage.Parse(image).Geometry;
+            var source=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,
+                Session=1,CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=g};
+            var original=NativeDomainCheckpointPayload.Create(source,image).CopyEncodedData();
+            var empty=NativeTransientParticleImage.Create(Array.Empty<NativeTransientParticle>(),g);
+            check(NativeDomainCheckpointPayload.Create(source,image,empty).CopyEncodedData().AsSpan().SequenceEqual(original));
+            var particle=new NativeTransientParticle(7,650,0,new[]{10.5f,10.5f,-.5f,0f,-1f,0f,.03125f,333.25f,3f,0f});
+            var effects=NativeTransientParticleImage.Create(new[]{particle},g);
+            var encoded=NativeDomainCheckpointPayload.Create(source,image,effects).CopyEncodedData();
+            var restored=NativeDomainCheckpointPayload.Parse(encoded);
+            check(BinaryPrimitives.ReadUInt32LittleEndian(encoded.AsSpan(8))==3 && restored.PhysicalImage.SequenceEqual(image) &&
+                restored.TransientParticles!.Particles.Count==1 && restored.TransientParticles.Particles[0].Identity==7);
+            foreach(var size in new[]{encoded.Length-1,original.Length,original.Length+3}) reject(()=>NativeDomainCheckpointPayload.Parse(encoded.AsSpan(0,size)));
+            var bad=(byte[])encoded.Clone();BinaryPrimitives.WriteUInt32LittleEndian(bad.AsSpan(8),2);reject(()=>NativeDomainCheckpointPayload.Parse(bad));
+        });
         test("viscous domain framing requires physical version three and preserves its distinct scenario",()=> {
             var image=Fixture();BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(48),6);
             var solver=image.Length-64-128;BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(solver+8),3);Rehash(image);

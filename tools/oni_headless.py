@@ -649,6 +649,7 @@ def playtest(args, state: Path, session: dict) -> int:
             **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
             **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
             **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
+            **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
             **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
@@ -742,6 +743,7 @@ def playtest(args, state: Path, session: dict) -> int:
                     pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
                     persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
                     live_breathing=getattr(args,"verify_live_breathing",False) is True,
+                    transient_particles=getattr(args,"verify_transient_particles",False) is True,
                     natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=args.mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True, restored=args.mode == "native-load-domain",
                     save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
@@ -814,12 +816,15 @@ def main() -> int:
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")
     play.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; requires a gas/water source, source save or natural autosave, and at least eighty frames")
+    play.add_argument("--verify-transient-particles",action="store_true",help="Save an in-flight original CO2 particle and verify exact restore and one native deposition")
     play.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command=="run" and args.verify_transient_particles and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
+        parser.error("Transient particle validation requires a gas source save or a reload with a frame-zero resave")
     if args.command=="run" and args.verify_live_breathing and (args.mode not in ("native-domain","native-load-domain") or
             args.verify_persistent_actors or args.mode=="native-domain" and not 20<=args.frames<=25):
         parser.error("Live breathing requires a 20–25-frame gas source or its saved load, without fixture actors")

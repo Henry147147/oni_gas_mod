@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
         internal static bool HoldActorRestorePause=>ColonyRestoreMode && colonyLoaded && restoredActorImage!=null &&
             (!restoredActorBindingsVerified || PendingActorRestores()!=0);
-        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldOrbitalReferenceRestorePause || HoldIoControlPause || HoldLiveBreathingRestorePause;
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldOrbitalReferenceRestorePause || HoldIoControlPause || HoldLiveBreathingRestorePause || HoldTransientRestorePause;
         internal static void PublishPausedValidationTick(Game game,float elapsed)
         {
             if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
@@ -137,6 +137,8 @@ namespace MixedAtmospheres.Oni
                 {
                     if(success)
                     {
+                        Require(stagedColonySave!=null && SavedTransientParticlesUnchanged(NativeDomainCheckpointPayload.Parse(stagedColonySave.CustomData).Geometry),
+                            "Normal colony serialization changed an in-flight native CO2 parcel.");
                         Require(stagedSaveWrites==1 && savedFileReadbackVerified && TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(Physical),
                             "Normal colony serialization reused its sim section or changed physical state.");
                         colonyFileSaved=true;
@@ -191,7 +193,9 @@ namespace MixedAtmospheres.Oni
                 var native=new byte[checked((int)ready.NativeBytes)];var physical=new byte[checked((int)ready.PhysicalBytes)];
                 Check(CopyPair(token,native,ready.NativeBytes,physical,ready.PhysicalBytes));
                 RecordSavedPersistentActors(physical);
-                var payload=NativeDomainCheckpointPayload.Create(ready,physical);AdmitNativeInventory(payload,native);
+                var particles=CaptureTransientParticles(ready.Configuration);
+                var payload=NativeDomainCheckpointPayload.Create(ready,physical,particles);AdmitNativeInventory(payload,native);
+                lastSavedTransientParticles=particles;
                 var config=payload.Geometry;Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
@@ -213,6 +217,7 @@ namespace MixedAtmospheres.Oni
         private static void SavePausedColony()
         {
             Require(SpeedControlScreen.Instance.IsPaused && !colonyFileSaved,"Colony checkpoint fixture requires a fresh source.");
+            SeedPausedTransientParticle();
             var temporary=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.pending.sav");
             var final=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.sav");
             Require(!File.Exists(temporary) && !File.Exists(final),"Checkpoint destination already exists.");
@@ -288,6 +293,7 @@ namespace MixedAtmospheres.Oni
             arming=true;
             Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
             prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;replayGeometry=payload.Geometry;
+            pendingTransientParticles=payload.TransientParticles;
             savedSourceFrame=loadedSourceFrame=payload.CompletedFrame;savedSourceTime=loadedSourceTime=payload.PhysicalTime;
             savedPhysicalHash=loadedSourceHash=CheckpointHash(physical);
             // No Unity simulation objects have been deserialized yet. Restore
@@ -408,6 +414,8 @@ namespace MixedAtmospheres.Oni
         {
             Require(colonyLoaded && active && restoredExpected!=null,"Selected game did not restore a complete paired physical owner.");
             Capture();
+            if(!RestoreTransientParticles())
+            {Require(Time.realtimeSinceStartup-started<90,"Saved CO2 particles did not find their normal game pool.");WriteReport();return;}
             if(LiveBreathingRequired && !BindLiveBreather(true))
             {Require(Time.realtimeSinceStartup-started<90,"Saved live breather did not complete its normal spawn lifecycle.");WriteReport();return;}
             Require(latest.State==1 && BoundaryReady(),"Restored native colony boundary or owner failed.");
@@ -489,6 +497,7 @@ namespace MixedAtmospheres.Oni
             });
             nativeRendererAdvanced=restoredRendererVerified;
             if(LiveBreathingRequired) VerifyLiveBreathing();
+            VerifySavedParticleDeposit();
             Require(exactReplayComparisons>=(int)ColonyRuntimeValidation.Settings.CompletedFrames && zeroRestoreVerified && restoredNativeBatches>=2 &&
                 restoreNativeOutbox.Count==0 && nativeSnapshotVerified &&
                 nativeCellsUnchanged && projectionPrimed && nativeFlowFenceVerified && retainedFrameVerified && nativeSolidsAdvanced &&
@@ -563,7 +572,7 @@ namespace MixedAtmospheres.Oni
     {
         private static void Postfix()
         {
-            if((NativeSealedDomainValidation.HoldInitialRestorePause || NativeSealedDomainValidation.HoldActorRestorePause || NativeSealedDomainValidation.HoldOrbitalReferenceRestorePause) && !SpeedControlScreen.Instance.IsPaused)
+            if(NativeSealedDomainValidation.HoldValidationSimulationTick && !SpeedControlScreen.Instance.IsPaused)
                 SpeedControlScreen.Instance.Pause(false);
         }
     }

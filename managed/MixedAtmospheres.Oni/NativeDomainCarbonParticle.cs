@@ -88,6 +88,10 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(CO2Manager), nameof(CO2Manager.Sim33ms))]
     internal static class NativeCarbonParticleRetirementPatch
     {
-        private static void Postfix() => NativeSealedDomainValidation.ObserveCarbonParticleManagerUpdate();
+        private static void Postfix()
+        {
+            NativeSealedDomainValidation.ObserveCarbonParticleManagerUpdate();
+            NativeSealedDomainValidation.ObserveTransientParticleManagerUpdate();
+        }
     }
 }

@@ -35,6 +35,7 @@ and supplies actual mixture oxygen and pressure to game readers. Linux controls
 verify ordinary paired saves, frame-zero autosaves and exact fresh-process
 continuation for these paths. See [inventory admission](docs/native-initial-inventory.md),
 [particle deposition](docs/native-cell-mass-edits.md),
+[in-flight particle saves](docs/native-transient-particles.md),
 [breathing selection](docs/native-breathing-reader.md) and
 [pressure readers](docs/native-pressure-reader.md). Production whole-colony
 physics, reserved metabolism/devices and live-actor persistence remain open.

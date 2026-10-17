@@ -11,6 +11,7 @@ namespace MixedAtmospheres.Oni
         private static void ResetEndedNativeSession()
         {
             ResetLiveBreathing();
+            ResetTransientParticles();
             chunkHeatStatus=default;
             prepared=arming=completed=failed=active=false;
             x=y=target=hotSolid=coldSolid=preparedFrame=publications=0;

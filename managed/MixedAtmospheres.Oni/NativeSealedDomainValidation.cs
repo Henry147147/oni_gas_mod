@@ -514,6 +514,7 @@ namespace MixedAtmospheres.Oni
                         "Native gas receipt disagrees with its completed physical frame or delivery order.");
                     through = receipt.Sequence;
                     ObserveCarbonParticleReceipt(receipt);
+                    ObserveSavedParticleDeposit(receipt);
                     ObserveRadialConsumptionReceipt(receipt);
                     ObserveLiveBreathingReceipt(receipt);
                     if (LiquidTransferMode && receipt.Kind == 1) liquidInjectionReceipt = receipt;
@@ -728,6 +729,7 @@ namespace MixedAtmospheres.Oni
             RadialConsumption = RadialConsumptionReport(),
             CellMassEditsRouted = cellMassEditsRouted,
             CarbonParticle = CarbonParticleReport(),
+            TransientParticles = TransientParticlesReport(),
             BreathingCellReader = BreathingReadReport(),
             LiveBreathing = LiveBreathingReport(),
             NativePressureReader = PressureReadReport(),
