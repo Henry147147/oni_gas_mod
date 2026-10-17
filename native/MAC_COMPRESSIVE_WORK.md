@@ -160,3 +160,68 @@ These runs use the default owning backend. The new compressive work control
 remains unselected. They do not execute Unity, test ordinary colony saves or
 establish Windows actor persistence, production authority or the playable
 colony. The installed SimDLL and default game library remain unchanged.
+
+## Explicit owning integration under validation
+
+Compression selector 3 (`coupled_pressure`) now calls the coupled material
+pressure step before remapping. Modes 0/1/2 and the default value 2 retain their
+existing paths. Selector 3 skips both split compression half steps. It freezes
+the existing incoming sound speed and pressure sensors once per candidate,
+using the larger directional sensor for one isotropic bulk stress. The
+quadratic coefficient remains one. The accepted work pressure supplies the
+canonical face impulse and midpoint volume sweep; actual heated U supplies the
+remap and subsequent EOS readings. Compression diagnostics count its heat once
+without adding it again to the energy or wall account.
+
+This first owning path rejects incoming nodal velocities or midpoint sweeps
+that need range projection, preserving the original source atomically. It
+does not silently replace below-range volume work with zero. The unchanged
+full-exponent constitutive response retains positive subrange heat and reports
+unresolved canonical-U updates. Existing selectors retain their range support.
+Checkpoint version 2 already stores the complete compression selector; the new
+value is admitted explicitly, without changing old values or saved bytes.
+
+The first controls require seven native groups per platform: dry two-dimensional
+flow, wet gravity/walls, filled water, uniform translation, exact unsplit owner
+clock/heat accounting, 24 new checkpoint-setting continuations and early/range/
+late atomic rejection. Four completed scenes export 29 accepted constitutive
+responses and their actual source, pressure and remapped states. A saved-only
+reader independently checks frozen coefficients, every trace/passive, actual
+EOS, nodal forces, midpoint sweeps, primary face kinetic energy and material U.
+Altered heat, trace, sweep and endpoint U must reject. The preceding constitutive
+and coupled controls and eight normal-OS legacy streams must remain unchanged.
+
+Configure/build and owner/review bounds are 180 seconds each; owner raw pipes
+have 2 MiB and the preceding local controls retain their original bounds. This
+does not run the original strong-flow benchmark. All complete prerequisites
+must pass before a distinct changed-method attempt can be considered. Game
+dispatch and production defaults remain unchanged.
+
+The first strict builds reject a fixture helper named `clock`, which collides
+with the C library function. All three build failures are retained; renaming
+only that helper permits a fresh attempt. No native owner control ran in the
+failed build cohort, and its numerical implementation is unchanged.
+The next Windows cohort passes all native controls and saved reviews, including
+8,393 new owner checks. GCC rejects two copied wall-reaction loop operands under
+warnings-as-errors. Borrowing those test-only values addresses that build
+failure; the owning numerical implementation remains unchanged.
+
+All seven owning groups now pass on Windows, Linux and Linux ASan/UBSan. Each
+saved owner review passes 8,393 checks over 29 completed responses and rejects
+all four corruptions. Each platform also passes the preceding 13 component
+groups and 4,001 saved checks, with seven corruption rejections. All 24 new
+checkpoint-setting continuations match exactly. The three constitutive streams,
+three coupled pressure streams and eight normal-OS legacy streams remain byte
+identical to their accepted captures. Borrowing the two test operands also
+preserves the preceding Windows owner stream byte for byte.
+
+All 35 compile commands in the composed sanitizer target graph are instrumented
+with fatal address/undefined-behavior findings and leak detection. The first
+terminal reader assumed a smaller dependency graph; inspecting the actual
+Ninja commands corrects that metadata count without a native relaunch. All
+processes and pipes are terminal. The default game library and installed SimDLL
+remain unchanged. Private accepted evidence is `local/mac-compressive-owner-r3`;
+terminal SHA-256:
+`d49529f5c92f40bbe8c1c759ae12d8f7a8664251ba300adc5054c45cc846fc73`.
+No independent-agent review is claimed. Complete prerequisites, the original
+strong-flow benchmark and game acceptance remain open.

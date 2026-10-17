@@ -108,7 +108,8 @@ void MacClosedSettings::validate() const {
             momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear ||
             momentum_reconstruction == MacMomentumReconstruction::swept_physical) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
-         compression_viscosity == MacCompressionViscosity::acoustic_quadratic) &&
+         compression_viscosity == MacCompressionViscosity::acoustic_quadratic ||
+         compression_viscosity == MacCompressionViscosity::coupled_pressure) &&
         (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated ||
          shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ||
          shock_heat == MacShockHeatRegularization::pressure_sensed_series), "Invalid MAC closed settings");
@@ -151,8 +152,25 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     // Resolve the nested inversion to adjacent floating-point parameters;
     // retain the original outer geometry and energy acceptance bounds.
     work_root.relative_pressure_tolerance = eps / 4;
-    if (!materials.empty()) result.pressure = advance_occupied_material_pressure(model, materials, nodes, dt, settings.preconditioner,
-        LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root);
+    if (!materials.empty()) {
+        if (settings.compression_viscosity == MacCompressionViscosity::coupled_pressure) {
+            if (result.rounded_pressure_velocity_inputs != 0)
+                throw FluidFatalError(FluidFatalCode::numerical_precision,"Coupled compressive pressure requires representable incoming nodal velocities");
+            result.compressive_coefficients = freeze_mac_compression_coefficients(registry, model, source,
+                MacCompressionLaw::pressure_sensed_acoustic);
+            for (const auto cell : topology.active) {
+                // An isotropic bulk stress uses the larger of the unchanged
+                // directional incoming pressure sensors, not their sum.
+                const auto x=result.compressive_coefficients->linear_speed(0,cell);
+                const auto y=result.compressive_coefficients->linear_speed(1,cell);
+                result.compressive_linear_speeds.push_back(mac_scaled_difference(x,y).mantissa()>=0 ? x : y);
+            }
+            auto coupled=advance_mac_compressive_pressure(model,materials,nodes,dt,g.spacing_m,
+                result.compressive_linear_speeds,settings.preconditioner,16*eps,work_root);
+            result.pressure=std::move(coupled.pressure);result.compressive_responses=std::move(coupled.responses);
+        } else result.pressure = advance_occupied_material_pressure(model, materials, nodes, dt, settings.preconditioner,
+            LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root);
+    }
     result.root_output_velocities = result.pressure.velocities_m_per_s;
     result.root_input_velocities.reserve(nodes.size()); result.full_pressure_velocities.resize(nodes.size());
     for (const auto& node : nodes) result.root_input_velocities.push_back(node.velocity_m_per_s);
@@ -223,6 +241,9 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     store_mac_field(result.pressure_state.momentum_x, result.pressure_state.full_momentum_x, jx1);
     store_mac_field(result.pressure_state.momentum_y, result.pressure_state.full_momentum_y, jy1);
     result.volume_fluxes_m3 = mac_fluxes(qx, qy); result.mass_fluxes_kg = mac_fluxes(fx, fy);
+    if (settings.compression_viscosity == MacCompressionViscosity::coupled_pressure &&
+        (!result.volume_fluxes_m3.full_x.empty() || !result.volume_fluxes_m3.full_y.empty()))
+        throw FluidFatalError(FluidFatalCode::numerical_precision,"Coupled compressive pressure requires representable midpoint volume sweeps");
     if (settings.gravity_m_per_s2 != 0 && !result.volume_fluxes_m3.full_y.empty())
         throw FluidFatalError(FluidFatalCode::unsupported_topology, "Range-extended vertical gravity sweep is not implemented");
     const auto wall_reaction = [&](std::size_t axis) {
@@ -376,13 +397,15 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                         heat_law(settings_.shock_heat));
                     before_shock_heat = std::move(heated.report); prepared = std::move(heated.state); pressure_source = &prepared;
                 }
-                if (settings_.compression_viscosity != MacCompressionViscosity::none) {
+                if (settings_.compression_viscosity != MacCompressionViscosity::none &&
+                    settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt,
                         settings_.compression_viscosity == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic : MacCompressionLaw::pressure_sensed_acoustic);
                     before_compression = std::move(damped.report); prepared = std::move(damped.state); pressure_source = &prepared;
                 }
                 auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, *pressure_source, dt, settings_);
-                if (settings_.compression_viscosity != MacCompressionViscosity::none) {
+                if (settings_.compression_viscosity != MacCompressionViscosity::none &&
+                    settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt,
                         settings_.compression_viscosity == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic : MacCompressionLaw::pressure_sensed_acoustic);
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
@@ -409,6 +432,14 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     result.report.compression_events += compression->events.size();
                     result.report.unresolved_compression_heat_updates += compression->unresolved_heat_updates;
                     result.report.unresolved_compression_momentum_updates += compression->unresolved_momentum_updates;
+                }
+                // This heat is already in the pressure candidate's actual U
+                // and energy account. Report it once without adding energy or
+                // wall work a second time.
+                for (const auto& response : candidate.compressive_responses) {
+                    compression_heat.add(response.dissipated_heat_j);
+                    if (!response.dissipated_heat_j.is_zero()) ++result.report.compression_events;
+                    if (response.unresolved_energy_update) ++result.report.unresolved_compression_heat_updates;
                 }
                 if (settings_.thermal_conduction) for (const auto* conduction : {&before_conduction,&after_conduction}) {
                     bounds.add(conduction->energy_bound); conductive_redistribution.add(conduction->redistributed_energy);

@@ -3,6 +3,7 @@
 #include "mac_shock_heat.hpp"
 #include "mac_reconstruction.hpp"
 #include "mac_compression.hpp"
+#include "mac_compressive_work.hpp"
 #include "volume_work.hpp"
 #include <memory>
 #include <optional>
@@ -10,7 +11,7 @@
 namespace ma::experimental {
 // Persisted selectors. The original index-space linear path keeps value 1.
 enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2 };
-enum class MacCompressionViscosity { none, quadratic, acoustic_quadratic };
+enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic = 2, coupled_pressure = 3 };
 // Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
 // 3 matched Cp with two half-cell resistances. Older values keep their laws.
 enum class MacShockHeatRegularization {
@@ -24,8 +25,8 @@ struct MacClosedSettings {
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic;
     double gravity_m_per_s2 = 0; // downward, constant; vertical periodicity is unsupported
     MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
-    // The owning interval applies compression half steps around each
-    // pressure/transport candidate. The primitive substep stays separate.
+    // Modes 1/2 use split compression half steps. Explicit mode 3 couples
+    // compressive stress and its heat to the material pressure/volume root.
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
@@ -36,6 +37,9 @@ struct MacClosedSubstep {
     MacTransportState state;
     MacTransportState pressure_state;
     OccupiedMaterialPressureStep pressure;
+    std::optional<MacCompressionCoefficients> compressive_coefficients;
+    std::vector<MacCompressiveWork> compressive_responses;
+    std::vector<MacEnergy> compressive_linear_speeds;
     std::vector<double> root_input_velocities{}, root_output_velocities{};
     std::vector<MacScaled> full_pressure_velocities{};
     MacMassFluxes volume_fluxes_m3, mass_fluxes_kg;
