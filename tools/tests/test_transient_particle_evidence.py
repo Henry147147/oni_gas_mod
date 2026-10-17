@@ -34,6 +34,27 @@ class TransientParticleEvidenceTests(unittest.TestCase):
         for field,value in [('DepositReceipts',2),('DepositVerified',False),('Seeded',True),('Identity',0)]:
             report=self.fixture(True);report['TransientParticles']['Fixture'][field]=value
             self.assertFalse(_transient_particles_passed(report,True))
+
         for field,value in [('RestoredSha256','b'*64),('RestoredCount',2),('Restored',False),('RestoreRequired',False)]:
             report=self.fixture(True);report['TransientParticles'][field]=value
             self.assertFalse(_transient_particles_passed(report,True))
+
+    def test_smallest_saved_particle_requires_exact_bits_and_positive_transported_inventory(self):
+        report=self.fixture(True);mass=2.0**-149;fixture=report['TransientParticles']['Fixture']
+        fixture.update(SubnormalInput=True,InputMassBits=1,MassKg=mass,InitialCarbonDioxideMassKg=0,CurrentCarbonDioxideMassKg=mass,
+            ParticleRetired=True,RetirementUnityFrame=100,ParticleReusedAfterRetirement=True)
+        fixture['Deposit']['MassKg']=mass
+        self.assertTrue(_transient_particles_passed(report,True,True))
+        self.assertFalse(_transient_particles_passed(self.fixture(True),True,True))
+        for field,value in [('SubnormalInput',False),('InputMassBits',2),('MassKg',0),('CurrentCarbonDioxideMassKg',0),
+                            ('InitialCarbonDioxideMassKg',1),('ParticleRetired',False),('RetirementUnityFrame',-1)]:
+            bad=copy.deepcopy(report);bad['TransientParticles']['Fixture'][field]=value
+            self.assertFalse(_transient_particles_passed(bad,True,True),field)
+
+    def test_latched_original_retirement_survives_a_later_native_component_reuse(self):
+        for reused in (False,True):
+            report=self.fixture(True);report['TransientParticles']['Fixture'].update(ParticleRetired=True,RetirementUnityFrame=100,
+                ParticleReusedAfterRetirement=reused,ComponentCurrentlyActive=reused)
+            self.assertTrue(_transient_particles_passed(report,True))
+        report['TransientParticles']['Fixture']['ParticleRetired']=False
+        self.assertFalse(_transient_particles_passed(report,True))

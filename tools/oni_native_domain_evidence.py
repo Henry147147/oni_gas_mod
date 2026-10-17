@@ -589,26 +589,35 @@ def _reload_input_comparison_passed(workflow: dict, physical: dict, colony: dict
     except (KeyError,TypeError,AttributeError):return False
 
 
-def _transient_particles_passed(report: dict, restored: bool) -> bool:
+def _transient_particles_passed(report: dict, restored: bool, subnormal_required: bool = False) -> bool:
     try:
         value=report['TransientParticles'];fixture=value['Fixture']
+        tiny=subnormal_required or fixture.get('SubnormalInput') is True
+        expected=math.ldexp(1.,-149) if tiny else .03125
+        if tiny and (fixture.get('SubnormalInput') is not True or type(fixture.get('InputMassBits')) is not int or fixture['InputMassBits']!=1):return False
         if (value.get('Format')!='MACO2P01' or value.get('Version')!=1 or value.get('MaximumParticles')!=4096
                 or value.get('Source')!='original-CO2Manager.SpawnCO2-pool'
                 or value.get('UsesOriginalGameFactory') is not True or value.get('WholeColonyParticlePersistence') is not False
                 or fixture.get('Required') is not True or type(fixture.get('Identity')) is not int or fixture['Identity']<=0
-                or fixture.get('MassKg')!=.03125 or fixture.get('TemperatureK')!=333.25
+                or fixture.get('MassKg')!=expected or fixture.get('TemperatureK')!=333.25
                 or type(value.get('NativeSaveRootChecks')) is not int or value['NativeSaveRootChecks']<1
                 or type(value.get('SavedCount')) is not int or not 1<=value['SavedCount']<=4096
                 or not _sha256(value.get('SavedSha256'))):return False
         if not restored:
             return fixture.get('Seeded') is True and fixture.get('DepositReceipts')==0 and fixture.get('DepositVerified') is False
+        if tiny or 'ParticleRetired' in fixture:
+            if fixture.get('ParticleRetired') is not True or type(fixture.get('RetirementUnityFrame')) is not int or fixture['RetirementUnityFrame']<=0:return False
+        if tiny:
+            current=fixture.get('CurrentCarbonDioxideMassKg')
+            if (fixture.get('InitialCarbonDioxideMassKg')!=0 or type(current) not in (int,float) or not 0<current<math.inf
+                    or abs(current-expected)>128*2.220446049250313e-16*(current+expected)):return False
         receipt=fixture['Deposit'];physical=report['NativeDomain']
         return (value.get('RestoreRequired') is True and value.get('Restored') is True
             and value.get('RestoredCount')==value['SavedCount'] and value.get('RestoredSha256')==value['SavedSha256']
             and fixture.get('Seeded') is False and fixture.get('DepositReceipts')==1 and fixture.get('DepositVerified') is True
             and receipt.get('Session')==physical['Session'] and type(receipt.get('CompletedFrame')) is int
             and 0<receipt['CompletedFrame']<=physical['CompletedFrames'] and receipt.get('Callback')==-1
-            and receipt.get('Kind')==1 and receipt.get('Species')==4 and receipt.get('MassKg')==.03125
+            and receipt.get('Kind')==1 and receipt.get('Species')==4 and receipt.get('MassKg')==expected
             and receipt.get('Temperature')==333.25)
     except (KeyError,TypeError,AttributeError):return False
 
@@ -672,9 +681,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     particles=report.get('TransientParticles',{})
     if not isinstance(particles,dict) or not isinstance(particles.get('Fixture',{}),dict):return False
-    if (transient_particles or particles.get('Fixture',{}).get('Required') is True) and not _transient_particles_passed(report,restored):
+    if (transient_particles or particles.get('Fixture',{}).get('Required') is True) and not _transient_particles_passed(report,restored,subnormal_carbon_particle and transient_particles):
         return False
-    if subnormal_carbon_particle and not carbon_particle:return False
+    if subnormal_carbon_particle and not (carbon_particle or transient_particles):return False
     if reload_in_process and not restored:
         return False
     if save_io_recovery and (not saved or restored):

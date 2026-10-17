@@ -43,6 +43,22 @@ the smallest positive binary32 CO2 parcel, approximately 1.401298464e-45 kg,
 through the original breath factory, movement, deposition and retirement. The
 reviewer requires the exact input bits, one matching completed native receipt,
 and positive transported CO2 with a relative 128-epsilon mass account. The
-ordinary particle bounds also remain in force. Actual player execution of this
-new trace control is pending; ordinary-mass [particle persistence](native-transient-particles.md)
-has its own completed Linux acceptance evidence.
+ordinary particle bounds also remain in force.
+
+Frozen `c8d6e2d` now passes the actual trace source/save control on both Linux
+and WindowsPlayer under official Proton. Both sources then pass local and
+cross-player reloads, twice per load process: eight sessions and 960 complete,
+individually exact input-replayed frames. Every final CO2 inventory remains
+positive and within its original relative mass bound. Source files remain
+unchanged, and every session passes the ordinary frame-zero autosave. The
+saved-only aggregate review SHA-256 is
+`9f63b68d727947f7e046118312095823da63c4742e900f1fc95a72750b2969e8`.
+This verifies WindowsPlayer on Linux, not an actual Windows OS.
+
+Combining `--subnormal-carbon-particle` with `--verify-transient-particles`
+selects the next control: save the smallest parcel while still in flight,
+restore its exact binary32 record, then require one deposition and positive
+transported inventory. It uses a gas source with `--save-colony`, or its load
+with `--resave-before-resume`. A live breather is excluded from this particular
+control so other CO2 production cannot obscure its tiny inventory. Actual
+execution of that combined control is pending.

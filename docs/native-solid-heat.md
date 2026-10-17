@@ -62,7 +62,10 @@ to 399.9931640625 K with 54.003907716833055 J loss; water reaches
 
 The first licensed control is retained as failed: native job threads could not
 see its thread-local duration, so it recorded no accepted contact inputs. The
-shared-frame interval fixes that failure. The sanitizer run and actual Unity
-source/save/reload controls are in progress. These controls do not establish
+shared-frame interval fixes that failure. All 20 groups also pass on the clean
+Ubuntu 22.04 build and under ASan/UBSan (563.40 s). A Linux control with the
+owned room in the second of two active native regions passes its 61 exact
+worker frames and actual contacts as well. Actual Unity source/save/reload
+controls are queued. These controls do not establish
 actual Windows OS support, whole-colony heat, arbitrary moving/changing solids,
 building thermal components or phase-changing boundaries.
