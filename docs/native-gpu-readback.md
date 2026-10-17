@@ -71,3 +71,8 @@ and `a8ab16e30dada843d1a4123cb84d9e0736462f8cf072733361c228be4745948d`.
 This accepts the bounded Linux appearance/readback and lifecycle controls;
 actual Windows execution of the new calibration, arbitrary world ownership,
 free surfaces, other liquids and sustained performance remain open.
+
+The subsequent [installed Linux Spaced Out load](native-dlc-load.md) also
+passes both sessions' GPU and restored-reader checks in a nine-world native
+cluster. Its native reference warning is tracked separately from exact fluid
+continuation.
