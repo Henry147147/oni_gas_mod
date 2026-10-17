@@ -47,3 +47,12 @@ class LiveBreathingEvidenceTests(unittest.TestCase):
         for delta in ([.001,-.125,0,0,.3],[0,-.12,0,0,.3],[0,-.125,0,.01,.3]):
             bad=copy.deepcopy(report);bad['GasTransfers']['MassChangesKg']=delta
             self.assertFalse(_live_breathing_passed(bad,physical,False))
+
+    def test_opaque_callback_handles_retain_all_bits_and_only_minus_one_is_absent(self):
+        report,physical=self.fixture()
+        for handle in (-2147483648,-7,2147483647):
+            changed=copy.deepcopy(report);row=changed['LiveBreathing']['Evidence'][0]
+            row['Request']['Callback']=row['Receipt']['Callback']=handle
+            self.assertTrue(_live_breathing_passed(changed,physical,False))
+        row=report['LiveBreathing']['Evidence'][0];row['Request']['Callback']=row['Receipt']['Callback']=-1
+        self.assertFalse(_live_breathing_passed(report,physical,False))

@@ -57,12 +57,12 @@ namespace MixedAtmospheres.Oni
             foreach(var command in commands)
             {
                 if(command.Kind!=2) continue;
-                Require(liveBreather!=null && command.Species==1 && command.Flags==(1U|(3U<<8)) && command.Callback>=0 && command.MassKg>0,
+                Require(liveBreather!=null && command.Species==1 && command.Flags==(1U|(3U<<8)) && command.Callback!=-1 && command.MassKg>0,
                     "The live breathing scene received an unsupported consumption request.");
                 var handle=new HandleVector<Game.ComplexCallbackInfo<Sim.MassConsumedCallback>>.Handle{index=command.Callback};
                 var callback=Game.Instance.massConsumedCallbackManager.GetItem(handle);
                 Require(liveBreather!=null && ReferenceEquals(callback.callbackData,liveBreather) && callback.debugInfo=="GasBreatherFromWorldProvider" &&
-                    command.Species==1 && command.Flags==(1U|(3U<<8)) && command.Callback>=0 && command.MassKg>0,
+                    command.Species==1 && command.Flags==(1U|(3U<<8)) && command.Callback!=-1 && command.MassKg>0,
                     "Owned breathing request is not the tracked duplicant's actual world-provider callback.");
                 Require(!liveBreathingPending.ContainsKey(command.Callback),"The live breather reused an undelivered callback handle.");
                 liveBreathingPending.Add(command.Callback,new LiveBreathingRequest{Command=command});
@@ -84,7 +84,7 @@ namespace MixedAtmospheres.Oni
         {
             try
             {
-                if(liveBreathingActiveCallback<0) return;
+                if(liveBreathingActiveCallback==-1) return;
                 Require(liveBreathingPending.TryGetValue(liveBreathingActiveCallback,out var pending) && pending!=null && pending.Receipt.HasValue,
                     "Actual breather callback has no active published owned receipt.");
                 var receipt=pending!.Receipt!.Value;var command=pending.Command;

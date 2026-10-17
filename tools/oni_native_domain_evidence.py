@@ -534,7 +534,7 @@ def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool
             if (command.get('Size')!=64 or command.get('Version')!=2 or command.get('Kind')!=2 or command.get('Species')!=1
                     or command.get('Flags')!=769 or command.get('Session')!=physical['Session']
                     or type(command.get('ExpectedFrame')) is not int or not 0<=command['ExpectedFrame']<receipt['CompletedFrame']<=physical['CompletedFrames']
-                    or type(command.get('Callback')) is not int or command['Callback']<0
+                    or type(command.get('Callback')) is not int or command['Callback']==-1
                     or receipt.get('Session')!=command['Session'] or receipt.get('Callback')!=command['Callback']
                     or receipt.get('Kind')!=2 or receipt.get('Species')!=1 or receipt.get('PublicCell')!=command.get('PublicCell')
                     or type(receipt.get('Sequence')) is not int or receipt['Sequence']<=last_sequence

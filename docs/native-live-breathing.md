@@ -43,10 +43,30 @@ PowerShell runner accepts `-VerifyLiveBreathing` with `-NativeDomain gas` or
 --frames 120 --load-save <source.sav> --verify-live-breathing
 --resave-before-resume --reload-in-process` for the saved control.
 
-Both managed adapters build and 245 Python cases pass, with four optional or
+Both managed adapters build and 248 Python cases pass, with four optional or
 platform skips. Portable evidence checks reject mismatched callback handles,
 mass, temperature, source epochs, radius flags, disease and undeclared species
-changes. Actual Unity source, callbacks, saves and reloads remain pending.
+changes. Callback handles retain all 32 bits; only -1 means no callback.
+
+Frozen `c4d9e03` passes a real nine-world LinuxPlayer source through frame 30.
+The visible organic duplicant receives 23 original game callbacks for
+0.4600000325590372 kg of oxygen delivered by the custom native owner. Its
+requests, receipts and callbacks match exactly, and the ordinary colony save
+and readback pass. The fluid boundary also accepts an actual CO2 particle
+deposit of 0.019999999552965164 kg. The saved physical image SHA-256 is
+`599c462a618af52c3ea99fee62f0ad31b3d312af2ec0e519ec27d4d45626ae53`;
+source runner result SHA-256:
+`c4f079f4a7f06ce31fbec4b08b74891e7795f65e2abcb22a6a1715c57d6bd758`.
+
+The first saved reload is retained as a failed control. At frame 2 a restored
+native element-chunk heat exchange changes compatibility cell 102371 from
+300 K to 300.02020263671875 K, bypassing the existing cell-pair temperature
+hook. The strict original-writer check rejects the run before publishing that
+snapshot. The input remains unchanged; the result SHA-256 is
+`865403bc6e68d5237cda41936caaeb5735aa4b430b127ec626da12fc51292faa`.
+A conservative body/item heat bridge and new saved reloads are required; the
+writer check and energy bounds remain unchanged. The source result alone does
+not establish working saved live breathing or conserved in-flight CO2 effects.
 
 This establishes no conserved metabolism. Vanilla's oxygen-to-CO2 policy can
 credit requested oxygen before its eventual callback; body and food chemistry,
