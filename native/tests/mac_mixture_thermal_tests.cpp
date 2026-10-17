@@ -148,6 +148,23 @@ void model_ranges_and_extreme_interval() {
     require(std::abs(a.temperature_k-b.temperature_k)<1e-8 && result.report.entropy_change_j_per_k>0,
         "Finite stiff mixture heat accepted an overflowing flux residual or missed equilibrium");
 }
+void weak_heat_entropy() {
+    const auto& setup=testing::setup();auto source=setup.state(2,1,false,true);
+    source.cells[0].mixture=setup.mixture(1,1e5,300,.2);
+    source.cells[1].mixture=setup.mixture(1,1e5,300.0016,.25);
+    const auto result=advance_mac_conduction(setup.registry,*setup.eos,source,.005);identities(source,result.state);
+    const double q=result.state.cells[0].mixture.energy-source.cells[0].mixture.energy;
+    require(q>0 && q==source.cells[1].mixture.energy-result.state.cells[1].mixture.energy,"Weak entropy control needs an exactly closed represented exchange");
+    const auto a=setup.eos->evaluate(source.cells[0].mixture,1),b=setup.eos->evaluate(source.cells[1].mixture,1);
+    const auto c=setup.eos->evaluate(result.state.cells[0].mixture,1),d=setup.eos->evaluate(result.state.cells[1].mixture,1);
+    const double lower=q*(d.temperature_k-c.temperature_k)/c.temperature_k/d.temperature_k;
+    const double upper=q*(b.temperature_k-a.temperature_k)/a.temperature_k/b.temperature_k;
+    const double bound=q*128*std::numeric_limits<double>::epsilon()*(1/a.temperature_k+1/b.temperature_k);
+    require(result.report.entropy_change_j_per_k>=lower-bound && result.report.entropy_change_j_per_k<=upper+bound,
+        "Weak mixed heat entropy lost its physical signal by subtracting rounded EOS temperatures");
+    const auto g=thermal_conductance(conductivity(source.cells[0].mixture),conductivity(source.cells[1].mixture),.5,.5,1);
+    emit(4,source,result,.005,g);
+}
 }
 int main() {
     try {
@@ -157,7 +174,7 @@ int main() {
             std::cout<<"TMATERIAL "<<id<<' '<<material.cv()<<' '<<material.internal_energy(0)<<' '
                 <<material.molar_mass<<' '<<material.conductivity<<'\n';
         }
-        pair_controls();refinement();network_and_rejection();model_ranges_and_extreme_interval();
+        pair_controls();refinement();network_and_rejection();model_ranges_and_extreme_interval();weak_heat_entropy();
         MacClosedSettings settings;settings.thermal_conduction=true;
         const MacClosedWorld world(setup.registry,setup.eos,pair(1e5,280,320),settings);
         const auto image=world.checkpoint();const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);

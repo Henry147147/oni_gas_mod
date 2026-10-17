@@ -36,8 +36,10 @@ The pair's two stored energies are rounded together using the existing closed
 component rule. Their complete balance retains the 128-epsilon operand account,
 with no absolute mass or heat floor. Unrepresentable small heat is reported as
 unresolved; it is not forced to a minimum flux. Every constituent, trace,
-passive quantity and canonical face momentum is retained. Entropy includes
-both caloric temperature change and the gas headspace change. This supplies no
+passive quantity and canonical face momentum is retained. Entropy uses the
+fixed-volume identity `dS=dU/T` and integrates the two represented heat paths
+jointly through the full EOS. This includes both caloric and gas headspace
+changes without subtracting two nearly equal temperature-derived entropies. This supplies no
 phase conversion, latent heat, fluid-solid heat adapter or interface dynamics.
 
 ## Component verification
@@ -54,10 +56,20 @@ control, not a game elapsed-time claim.
 The saved-only reviewer reconstructs caloric/elastic U, phase volumes,
 intrinsic/equilibrium heat capacities, initial conductance, backward-Euler
 flux, closed energy and entropy from captured operands using 90-digit Decimal
-arithmetic. All three captures pass 184 independent checks and reject seven
-alterations: stored U, temperature, liquid volume, equilibrium capacity, trace
-mass, conductance and entropy. The original 128-epsilon energy and 2e-10 volume
+arithmetic. The reviewer also solves each saved conserved state independently at high
+precision before reconstructing entropy, including the exchange of only a few
+stored-energy quanta. All three captures pass 312 independent checks across
+five cases and reject eight alterations: stored U, temperature, liquid volume,
+equilibrium capacity, trace mass, conductance, entropy and a 0.1% change in the
+weak entropy signal. The original 128-epsilon energy and 2e-10 volume
 bounds remain explicit. No native code is loaded by the reviewer.
+
+The earlier `0f1b48e` reporting method fails a new weak-heat regression:
+subtracting rounded EOS temperatures erases the small physical entropy signal.
+Its actual failing executable and output remain retained as a negative control.
+The corrected joint integral passes on all three builds. Every original saved
+physical-state row remains byte-for-byte unchanged; this repairs the reported
+entropy rather than altering heat transfer or widening its energy allowance.
 
 Run the component and save its output, then review that file:
 

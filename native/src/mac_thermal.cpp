@@ -79,6 +79,54 @@ void round_closed_heat(const MacTransportState& source,MacTransportState& target
         round_closed_heat_component(source,target,component_cells[n],component_changes[n],report);
 }
 
+long double mixed_pair_entropy(const FluidThermodynamics& eos,const MacTransportState& before,
+    const MacTransportState& after,double volume,long double allowance) {
+    std::array<double,2> changes{};
+    for (std::size_t i=0;i<2;++i) {
+        MacEnergySum delta;delta.add(after.cells[i].mixture.energy);delta.add(-before.cells[i].mixture.energy);
+        changes[i]=(i==0 ? 1 : -1)*delta.value().require_representable();
+        if (changes[i]<0) throw FluidFatalError(FluidFatalCode::numerical_precision,"Closed conductive rounding reversed a heat exchange");
+    }
+    const auto common=std::min(changes[0],changes[1]);
+    const auto temperature=[&](std::size_t cell,double shared,double extra) {
+        auto value=before.cells[cell].mixture;MacEnergySum energy;
+        energy.add(value.energy);energy.add(shared);energy.add(extra);value.energy=energy.value().require_representable();
+        return eos.evaluate(value,volume).temperature_k;
+    };
+    const auto integrate=[&](const auto& integrand,double amount) -> long double {
+        if (amount==0) return 0;
+        const auto sample=[&](double x) {return static_cast<long double>(amount)*integrand(x);};
+        const auto fa=sample(0),fm=sample(.5),fb=sample(1);
+        const auto initial=(fa+4*fm+fb)/6;
+        const auto refine=[&](auto&& self,double a,double b,long double left,long double middle,long double right,
+            long double estimate,long double tolerance,unsigned depth) -> long double {
+            const auto center=std::midpoint(a,b),ql=std::midpoint(a,center),qr=std::midpoint(center,b);
+            const auto fl=sample(ql),fr=sample(qr);
+            const auto first=(center-a)/6*(left+4*fl+middle),second=(b-center)/6*(middle+4*fr+right);
+            const auto refined=first+second,error=refined-estimate;
+            if (!std::isfinite(refined)) throw FluidFatalError(FluidFatalCode::numerical_precision,"Conductive entropy integral is unrepresentable");
+            if (std::abs(error)<=15*tolerance) return refined+error/15;
+            if (depth==0 || ql==a || qr==b)
+                throw std::domain_error("Mixed conductive entropy integral did not resolve its arithmetic allowance");
+            return self(self,a,center,left,fl,middle,first,tolerance/2,depth-1)+
+                self(self,center,b,middle,fr,right,second,tolerance/2,depth-1);
+        };
+        return refine(refine,0,1,fa,fm,fb,initial,allowance/8,20);
+    };
+    // At fixed mass and volume, dS=dU/T includes caloric and elastic/gas
+    // headspace effects. Integrate the closed pair jointly: subtracting two
+    // Cv*log(T1/T0) values magnifies rounded EOS-temperature errors when the
+    // physical heat is only a few stored-energy quanta.
+    long double result=integrate([&](double x) {
+        const long double cold=temperature(0,common*x,0),hot=temperature(1,-common*x,0);
+        return (hot-cold)/cold/hot;
+    },common);
+    const double cold_extra=changes[0]-common,hot_extra=changes[1]-common;
+    result+=integrate([&](double x) {return 1/static_cast<long double>(temperature(0,common,cold_extra*x));},cold_extra);
+    result-=integrate([&](double x) {return 1/static_cast<long double>(temperature(1,-common,-hot_extra*x));},hot_extra);
+    return result;
+}
+
 // A mixed cell's elastic energy changes with temperature at fixed occupied
 // volume. Freeze the face conductances for this stage, but solve each closed
 // contact against the complete EOS instead of substituting its initial Cv.
@@ -190,7 +238,7 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
         auto after=before;const std::vector<std::size_t> pair_cells{0,1};const std::vector<double> changes{q,-q};
         round_closed_heat_component(before,after,pair_cells,changes,result.report);
         requested.add(q);
-        const std::array initial{cold_reading,hot_reading};
+        const std::array initial{cold_reading,hot_reading};long double pair_entropy_bound=0;
         for (std::size_t i=0;i<2;++i) {
             const auto& old=before.cells[i].mixture;const auto& next=after.cells[i].mixture;
             const auto reading=eos.evaluate(next,volume);const auto& anchor=initial[i];
@@ -203,19 +251,10 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
             MacEnergySum change;change.add(next.energy);change.add(-old.energy);
             redistributed.add(change.value().magnitude().multiplied(.5));
             if (q!=0 && old.energy==next.energy) ++result.report.unresolved_heat_updates;
-            long double delta=static_cast<long double>(anchor.intrinsic_heat_capacity_j_per_k)*
-                std::log1p((static_cast<long double>(reading.temperature_k)-anchor.temperature_k)/anchor.temperature_k);
-            if (anchor.has_gas) {
-                long double mole_heat=0;
-                const auto reference=eos.to_reference(old,volume);const auto& materials=eos.reference().materials();
-                for (std::size_t k=0;k<materials.size();++k) if (materials[k].phase==ReferencePhase::ideal_gas)
-                    mole_heat+=static_cast<long double>(reference.masses_kg[k])/materials[k].molar_mass_kg_per_mol*reference_gas_constant;
-                delta+=mole_heat*std::log1p((static_cast<long double>(reading.gas_volume_m3)-anchor.gas_volume_m3)/anchor.gas_volume_m3);
-            }
-            entropy+=delta;
-            entropy_bound+=128*std::numeric_limits<double>::epsilon()*(std::abs(old.energy)/anchor.temperature_k+
+            pair_entropy_bound+=128*std::numeric_limits<double>::epsilon()*(std::abs(old.energy)/anchor.temperature_k+
                 std::abs(next.energy)/reading.temperature_k+anchor.intrinsic_heat_capacity_j_per_k);
         }
+        entropy+=mixed_pair_entropy(eos,before,after,volume,pair_entropy_bound);entropy_bound+=pair_entropy_bound;
         result.state.cells[cold].mixture.energy=after.cells[0].mixture.energy;
         result.state.cells[hot].mixture.energy=after.cells[1].mixture.energy;
     };
@@ -231,6 +270,8 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
     result.report.energy_residual=balance.residual();result.report.energy_bound=balance.bound();
     result.report.redistributed_energy=redistributed.value();result.report.requested_redistributed_energy=requested.value();
     result.report.entropy_change_j_per_k=static_cast<double>(entropy);
+    if (!std::isfinite(result.report.entropy_change_j_per_k))
+        throw FluidFatalError(FluidFatalCode::numerical_precision,"Mixed conductive entropy report is unrepresentable");
     return result;
 }
 }
