@@ -78,6 +78,16 @@ with `MA_VERIFY_FRAME_INPUTS=1`; see the
 These controls use real licensed simulation workers, but do not start Unity or
 certify an actual Windows OS.
 
+`tools/oni_frame_input_evidence.py --report <native-domain.json>` reviews the
+retained Unity journal files without loading native code. It independently
+decodes the little-endian commands, order, batch boundaries, source epochs,
+geometry, checksums and callback/radius fields, then checks each binary against
+its reported digest, count and clock. It requires every frame to use supported
+input replay and verifies the initial captured source image. This verifies
+captured inputs and their bindings; it does not independently solve physics or
+predict future game commands. Actor-refresh fallback reports refuse this
+particular review.
+
 This supplies a prerequisite for [live radius consumption](native-radial-consumption.md),
 not proof of a live duplicant, conserved metabolism or whole-colony ownership.
 Those remain explicit work in the [completion plan](completion-plan.md).
