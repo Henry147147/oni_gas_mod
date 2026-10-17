@@ -64,12 +64,12 @@ namespace MixedAtmospheres.Oni
             return new
             {
                 Available = true, X = x, Y = y, Width, Height,
-                PhaseBuffer = TexturePixels(owner.textureBuffers[index].texture),
-                PhaseShader = TexturePixels(Shader.GetGlobalTexture("_SolidLiquidGasMassTex")),
+                PhaseBuffer = TexturePixels(owner.textureBuffers[index].texture, true),
+                PhaseShader = TexturePixels(Shader.GetGlobalTexture("_SolidLiquidGasMassTex"), true),
                 LiquidShader = TexturePixels(Shader.GetGlobalTexture("_LiquidTex")),
-                GasColourShader = TexturePixels(Shader.GetGlobalTexture("_GasColourTex")),
-                GasPressureShader = TexturePixels(Shader.GetGlobalTexture("_GasPressureTex")),
-                GasDangerShader = TexturePixels(Shader.GetGlobalTexture("_GasDangerTex"))
+                GasColourShader = TexturePixels(Shader.GetGlobalTexture("_GasColourTex"), true),
+                GasPressureShader = TexturePixels(Shader.GetGlobalTexture("_GasPressureTex"), true),
+                GasDangerShader = TexturePixels(Shader.GetGlobalTexture("_GasDangerTex"), true)
             };
         }
 
@@ -103,23 +103,41 @@ namespace MixedAtmospheres.Oni
             }));
         }
 
-        private static object TexturePixels(Texture? texture)
+        private sealed class GpuPixels
         {
-            if (texture == null) return new { Available = false, Reason = "No bound texture." };
+            public bool Available;
+            public string Reason = "", Type = "", Kind = "GPU ReadPixels", Format = "";
+            public int TextureWidth, TextureHeight;
+            public int ReadX, ReadY, ReadWidth, ReadHeight;
+            public bool RowsReflected;
+            public int[][] Rgba = Array.Empty<int[]>();
+        }
+        private static GpuPixels TexturePixels(Texture? texture, bool pageTexture = false)
+            => ReadTexturePixels(texture, x, y, Width, Height, pageTexture && gpuPageRowsReflected);
+        private static GpuPixels ReadTexturePixels(Texture? texture, int left, int bottom, int width, int height, bool reflected)
+        {
+            if (texture == null) return new GpuPixels { Reason = "No bound texture." };
             var previous = RenderTexture.active;
             Texture2D? readback = null;
             try
             {
                 if (!(texture is RenderTexture render))
-                    return new { Available = false, Reason = "Bound texture is not a RenderTexture.", Type = texture.GetType().FullName };
+                    return new GpuPixels { Reason = "Bound texture is not a RenderTexture.", Type = texture.GetType().FullName ?? "" };
                 RenderTexture.active = render;
-                readback = new Texture2D(Width, Height, TextureFormat.RGBA32, false, true);
-                readback.ReadPixels(new Rect(x, y, Width, Height), 0, 0, false);
-                var pixels = readback.GetPixels32().Select(value => new[] { (int)value.r, value.g, value.b, value.a }).ToArray();
-                return new { Available = true, Kind = "GPU ReadPixels", Format = render.format.ToString(), Rgba = pixels, TextureWidth = texture.width, TextureHeight = texture.height };
+                var sourceY = GpuPageReadbackPlan.ReadY(bottom, height, texture.height, reflected);
+                readback = new Texture2D(width, height, TextureFormat.RGBA32, false, true);
+                readback.ReadPixels(new Rect(left, sourceY, width, height), 0, 0, false);
+                var raw = readback.GetPixels32();
+                var pixels = Enumerable.Range(0, raw.Length).Select(index => {
+                    var value = raw[GpuPageReadbackPlan.SourceIndex(index, width, height, reflected)];
+                    return new[] { (int)value.r, value.g, value.b, value.a };
+                }).ToArray();
+                return new GpuPixels { Available = true, Format = render.format.ToString(), Rgba = pixels,
+                    TextureWidth = texture.width, TextureHeight = texture.height, ReadX = left, ReadY = sourceY,
+                    ReadWidth = width, ReadHeight = height, RowsReflected = reflected };
             }
             catch (UnityException error)
-            { return new { Available = false, Reason = error.Message }; }
+            { return new GpuPixels { Reason = error.Message }; }
             finally
             {
                 RenderTexture.active = previous;

@@ -60,6 +60,44 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.observation = {"BoundedNativeDomainActive": True, "Observation": {"Attached": True, "ForwardingOnly": False,
                             "RecoveryRequired": False, "AuthoritativeFluidOwner": False, "OniBuild": 744825}}
 
+    def gpu_texture_report(self):
+        report=copy.deepcopy(self.report);report['NativeDomain']['Cells']=6;report.update(Width=3,Height=2,X=119,Y=207)
+        colours=[[110+i,154,168,255] for i in range(6)];opacity=[150]*6;danger=[0]*6
+        report['RenderingInputs']=dict(RenderedRevision=30,PublicationGeneration=35,TexturePublicationGeneration=35,
+            Rows=[dict(Cell=100+i,Reading=dict(Revision=30,GasMassKg=1),
+                       ExpectedGas=dict(Colour=colours[i],Pressure=opacity[i],Danger=danger[i])) for i in range(6)])
+        report['GpuGasTextures']=dict(Required=True,Verified=True,BindingsVerified=True,Source='shader-bound-GPU-readback',
+            GraphicsDevice='OpenGLCore',UploadPath='native-texture-page-blit',NativeUploadsUnchanged=True,Session=1,CompletedFrame=30,
+            Orientation=dict(Verified=True,Source='native-phase-and-mass-sealed-outline',RowsReflected=True,X=118,Y=206,Width=5,Height=4,
+                Expected=[[250,0,0,255]]*20,Identity=dict(Available=True,Rgba=[[255,0,0,131]]*20),Reflected=dict(Available=True,Rgba=[[250,0,0,255]]*20)),
+            PublicationGeneration=35,TexturePublicationGeneration=35,ExpectedColours=colours,ExpectedOpacity=opacity,ExpectedDanger=danger,
+            **{name:dict(Available=True,Kind='GPU ReadPixels',RowsReflected=True,Rgba=copy.deepcopy(pixels)) for name,pixels in
+               [('Colour',colours),('Opacity',[[0,0,0,value] for value in opacity]),('Danger',[[0,0,0,value] for value in danger])]})
+        return report
+
+    def test_gpu_extension_requires_actual_colour_opacity_and_hazard_from_the_current_publication(self):
+        report=self.gpu_texture_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30))
+        report['Platform']='WindowsPlayer';report['GpuGasTextures'].update(GraphicsDevice='Direct3D11')
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,expected_platform='WindowsPlayer'))
+
+    def test_cpu_counters_and_exact_physics_cannot_hide_zero_or_stale_gpu_texels(self):
+        changes=[lambda r:r['GpuGasTextures'].update(Verified=False),lambda r:r['GpuGasTextures'].update(BindingsVerified=False),
+                 lambda r:r['GpuGasTextures'].update(CompletedFrame=29),lambda r:r['GpuGasTextures'].update(Session=2),
+                 lambda r:r['GpuGasTextures'].update(TexturePublicationGeneration=34),lambda r:r['GpuGasTextures'].update(NativeUploadsUnchanged=False),
+                 lambda r:r['GpuGasTextures']['Orientation'].update(Verified=False),
+                 lambda r:r['GpuGasTextures']['Orientation'].update(RowsReflected=False),
+                 lambda r:r['GpuGasTextures']['Orientation']['Identity'].update(Rgba=[[250,0,0,255]]*20),
+                 lambda r:r['GpuGasTextures']['Colour'].update(Rgba=[[0,0,0,0]]*6),
+                 lambda r:r['GpuGasTextures']['Opacity']['Rgba'][0].__setitem__(3,0),
+                 lambda r:r['GpuGasTextures']['Danger']['Rgba'][0].__setitem__(3,255),
+                 lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(Revision=29),
+                 lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(GasMassKg=float('nan')),
+                 lambda r:r['GpuGasTextures']['Colour'].update(Available=False)]
+        for change in changes:
+            report=self.gpu_texture_report();report['TextureWrites']=999999;change(report)
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30))
+
     def imported_inventory(self, liquid=False):
         report = copy.deepcopy(self.report)
         rows = []

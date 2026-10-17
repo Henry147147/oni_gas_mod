@@ -260,6 +260,7 @@ namespace MixedAtmospheres.Oni
                 if (BreathingReadMode) VerifyBreathingReadFixture();
                 if (PressureReadMode) VerifyPressureReadFixture();
                 if (NaturalAutosaveRequired) VerifyNaturalAutosaveControl();
+                VerifyNativeGpuGasTextures();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
                 if (ColonySaveMode) SavePausedColony();
@@ -702,6 +703,7 @@ namespace MixedAtmospheres.Oni
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             RenderingInputs = RenderingInputs(),
+            GpuGasTextures = GpuGasReport(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
             NativeFlowFenceVerified = nativeFlowFenceVerified, ImportedNativeInventory = InitialInventoryReport(), NativeProjectionMasses = nativeProjectionMasses,

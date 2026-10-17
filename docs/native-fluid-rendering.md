@@ -1,5 +1,10 @@
 # Native fluid guards and world rendering
 
+New native-domain controls also require [calibrated GPU byte checks](native-gpu-readback.md)
+for gas colour, density-opacity and hazard channels. The native phase/mass
+outline establishes page-texture coordinates before interpreting a readback;
+CPU publication counters alone cannot pass this check.
+
 The sealed native development domain keeps gas/liquid flow guards in the
 original ONI compatibility cells. Those guards prevent the original simulator
 from advancing fluid that belongs to the custom physical owner. They must not

@@ -55,6 +55,11 @@ namespace MixedAtmospheres.Oni
             pressureOutsideSample=null;
             pressureDistinctScalarRequired=false;
             restoredReadersVerified=restoredBreathingOutsideVerified=false;restoredBreathingReads=0;
+            gpuGasVerified=gpuGasBindingsVerified=false;gpuPublicationGeneration=0;
+            gpuGasColour=new GpuPixels();gpuGasOpacity=new GpuPixels();gpuGasDanger=new GpuPixels();
+            gpuExpectedColours=Array.Empty<int[]>();gpuExpectedOpacity=gpuExpectedDanger=Array.Empty<int>();
+            gpuOrientationVerified=gpuPageRowsReflected=false;gpuExpectedOutline=Array.Empty<int[]>();
+            gpuIdentityOutline=new GpuPixels();gpuReflectedOutline=new GpuPixels();
             restoredBreathingSamples=Array.Empty<BreathingReadSample>();restoredBreathingSelection=null;
             naturalAutosaveConfigured=naturalAutosaveVerified=false;
             naturalAutosaveOriginalInterval=naturalAutosaveRequests=naturalAutosaveRequestedCycle=savedNativeCycle=0;
