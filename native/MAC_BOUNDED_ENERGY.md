@@ -226,3 +226,12 @@ and the appropriate discrete entropy flux before choosing a repair. These
 observations do not change the original strong-flow criteria. Evidence is
 `local/mac-bounded-separation-diagnostic-r1`, terminal SHA-256
 `bcc0be8604f0895cacd114acc4bed22f9c8a794a85dbed7034afee2d07c4320d`.
+
+The later [private remap comparisons](MAC_REMAP_COUNTERFACTUALS.md) retain the
+same N64 inputs and all original physical guards. Removing the scalar envelope
+improves coarse errors but worsens local entropy; carrying cell kinetic energy
+with material worsens all three errors. A local pooled mixing-energy method
+resolves its strict arithmetic rejections with separate carried-energy terms,
+but has a larger left/right imbalance and still admits a scalar-stage local
+entropy drop. None is promoted. The tracked numerical implementation, original
+full prerequisites, failed finest-grid gate and production status stay unchanged.

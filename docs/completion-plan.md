@@ -135,6 +135,14 @@ resolving the paired-work guard. Separation still fails the original finest
 velocity and central density/pressure limits. Saved-only review verifies the
 failed criteria; no unchanged Linux repeat or default promotion is made.
 
+Subsequent [private remap comparisons](../native/MAC_REMAP_COUNTERFACTUALS.md)
+keep identical N64 inputs and every original physical guard. They distinguish
+scalar-envelope, energy-placement and local paired-energy effects without
+promoting a numerical change. The paired variant passes its strict local
+energy accounts but increases left/right imbalance; a later local entropy drop
+enters through scalar reconstruction. Update order, scalar entropy transport,
+the original finest-grid accuracy gate and production coverage remain open.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

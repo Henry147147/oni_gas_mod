@@ -1,0 +1,109 @@
+# Separation remap comparisons
+
+These are private Windows component experiments after the completed-step
+diagnostic in [bounded carried energy](MAC_BOUNDED_ENERGY.md). They change no
+tracked numerical implementation, default, installed game file or scientific
+criterion. They do not establish finest-grid, Linux, production or playable
+acceptance. The existing 217-group prerequisites and failed strong-flow result
+remain the authoritative results for the tracked solver.
+
+All four captures below use byte-identical separation N64 inputs, the original
+horizon and nominal timestep, and 46 accepted steps with no timestep retries.
+Every process and pipe closes. Saved-only review independently verifies the
+same initial material inventories, face momentum and problem definition, and
+recomputes the original profile measurements. The table is a coarse comparison;
+the absolute 0.06 and central 0.5 gates still apply at the original N256 grid.
+
+| Method | Density L1 | Pressure L1 | Velocity L1 | Central density, left/right (kg/m3) |
+| --- | ---: | ---: | ---: | ---: |
+| Tracked selector 4 | 0.0554024 | 0.0505242 | 0.185070 | 0.0389251 / 0.0390314 |
+| Remove scalar neighbour envelope | 0.0474145 | 0.0412543 | 0.143765 | 0.0364212 / 0.0363848 |
+| Carry cell kinetic energy with material | 0.0682200 | 0.135432 | 0.293706 | 0.0439336 / 0.0439336 |
+| Local pooled mixing-energy budget | 0.0589832 | 0.0581090 | 0.171550 | 0.0538390 / 0.0319121 |
+
+Comparison evidence is `local/mac-separation-comparisons-r1`, SHA-256
+`0344c53f7ea507826803e42e77998487d806ac96483f6e75ad3a9602638cdbac`.
+Its partial profile review performs 1,820 checks per capture after parsing;
+none is a full strong-flow certification.
+
+## Scalar envelope and energy placement
+
+Removing only the two neighbour-envelope restrictions retains the original
+positive-field half-stock limit, donor conservation, parcel/retained EOS
+admission and all completed-state guards. The 184 sampled central limiters
+change from zero to one. The first local entropy reading below the uniform
+initial value now appears at step 3, rather than step 5. Final central specific
+entropy changes reach about -610/-642 J/(kg K). This improves coarse L1 errors
+but does not justify removing the restriction. Terminal evidence:
+`local/mac-bounded-profile-probe-r1`, SHA-256
+`4298f97abc798a0de2773a18533663f6c3ead6baecfaa0ae6947a1c83f3e2b7e`.
+
+The energy-placement comparison instead retains the original reconstruction
+and momentum law. It partitions canonical face kinetic energy into source
+cells by their inertial mass shares, carries that inventory with the actual
+material parcel masses, and subtracts final canonical cell kinetic energy.
+Independent saved accounts verify all 184 selected source, advected and final
+kinetic quantities and actual U updates. The first private build incorrectly
+converts an already scaled fallback mass to double; that compile failure is
+retained and repaired without changing the method. The completed comparison
+warms the central cells to 436.20 K and worsens all three errors. It is rejected
+as an accuracy repair. Terminal evidence: `local/mac-primal-kinetic-probe-r2`,
+SHA-256 `3946ec4894f0d7b074576df9e4454518fb90d56fe80b8b059ff3fa1b0934c958`.
+
+## Paired existing-energy budget
+
+A further private construction funds a geometric momentum correction only
+from the two nodes' existing nonnegative mixing-energy remainders Hl and Hr.
+For left-to-right impulse R, the available total remainder after correction is
+
+`Hl + Hr + (ul - ur) R - R^2/(2 Il) - R^2/(2 Ir)`.
+
+Its original-sign quadratic root limits R. Carried energy F must leave both
+local remainders nonnegative. In absolute-flux form this requires
+
+`ur R + R^2/(2 Ir) - Hr <= F <= Hl + ul R - R^2/(2 Il)`.
+
+The first attempt rejects before an accepted step: nearest storage of the lower
+endpoint lies outside this interval. A read-only diagnostic proves one upward
+representable step would enter that interval. Inward stepping then reaches a
+different pair whose much narrower interval contains no representable single
+flux. Common-velocity product rounding can also reverse its computed bounds.
+Both failures and read-only diagnostics are retained:
+
+- First failure `local/mac-pooled-work-probe-r1`, terminal SHA-256
+  `ed44ad2e95bf384e91dfbafe087fc98fee780beea64167fb48596e7a6514785e`.
+- First operand diagnosis `local/mac-pooled-work-probe-r2`, terminal SHA-256
+  `d779411b2766b8b75f1533460f9c19b63f150e4dcfbb49070cb5de04d95e1e5a`.
+- Inward-step failure `local/mac-pooled-work-probe-r3`, terminal SHA-256
+  `9734e1d89e2807323f69a98e952c403096059b38bb78ddbe0732629f22704198`.
+- Second operand diagnosis `local/mac-pooled-work-probe-r4`, terminal SHA-256
+  `d4b7e4f0a1357b5089cdce19617ea8b14803d39400e216b9cc20d36564072c87`.
+
+The stable variant chooses left work within `[-Hl, Wtotal + Hr]` and obtains
+right work as the conservative remainder. It keeps the small carried-energy
+adjustment separate from the large mean-velocity flux. Both components enter
+the original per-side energy accounts and actual carried-energy expansions.
+All four heat/carried-energy signs remain strictly nonnegative; no stored
+thermal energy, physical floor or relaxed tolerance funds the correction.
+
+The completed private capture contains 552 selected events, including 466
+separate carried-energy adjustments and 204 restricted impulses. Saved review
+independently checks 368 fully sampled pooled pairs, all selected local heat
+remainders, actual cell deposition, the original per-side conservation bounds,
+and the EOS and donor/target inventories. The reader-builder's first filename
+substitution fails before review; correcting that saved-only script needs no
+native relaunch. Terminal evidence: `local/mac-pooled-work-probe-r5`, SHA-256
+`96d74eab809f0093baee5893458c7c7976290e77ae2b06edd8d26de831bdc234`.
+Its temporary diagnostic companion occupies an otherwise unused report array
+only in this private build; this is not a public ABI or implementation choice.
+
+This variant still does not solve the separation problem. Its larger central
+left/right difference requires investigating update order before promotion.
+At step 10, the first below-initial central specific entropy occurs before
+signed-work deposition: reconstruction/transport gives -970.35352 J/(kg K),
+and the local work and subsequent heat stages change none. The source value
+there is -970.16206, versus uniform initial -970.22915. Thus preventing negative
+local remap heat alone does not settle scalar entropy transport or accuracy.
+No unchanged finest-grid or Linux repeat is launched. Order-independent
+momentum/energy transfer and scalar reconstruction remain unresolved, alongside
+the original full strong-flow and production gates.
