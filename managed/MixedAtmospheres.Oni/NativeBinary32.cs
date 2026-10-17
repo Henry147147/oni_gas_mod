@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace MixedAtmospheres.Oni
 {
@@ -7,6 +8,10 @@ namespace MixedAtmospheres.Oni
     internal static class NativeBinary32
     {
         private const ulong FractionMask=(1UL<<52)-1;
+        // Keep this deliberate subnormal probe out of the optimizing JIT's
+        // constant folder, which can itself run while the caller has DAZ/FTZ
+        // enabled. The wire conversion helpers still execute normally.
+        [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.NoOptimization)]
         internal static void RequireSubnormalRoundTrip()
         {
             var scalar=ToDouble(BitConverter.Int32BitsToSingle(1));
