@@ -59,8 +59,9 @@ radial request, complete physical accounts and original native dispatch
 avoidance. Packaging and real source/save/reload acceptance remain pending.
 
 These checks establish the native transaction and packet boundary. An actual
-duplicant breathing inside owned cells, followed by real-game saves/reloads,
-still needs its own control. Exact continuation with live external requests
+duplicant breathing inside owned cells now has its own
+[source and saved-reload control](native-live-breathing.md), with actual Unity
+acceptance pending. Exact continuation with live external requests
 now has an [accepted-input journal and exact replay account](native-frame-inputs.md);
 its actual Unity acceptance remains pending. A snapshot-only predictor cannot
 invent the duplicant's future requests. Full conserved metabolism, body/food

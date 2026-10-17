@@ -142,7 +142,9 @@ namespace MixedAtmospheres.Oni
                 if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
                 if (CarbonParticleMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartCarbonParticleFixture();
                 if (BreathingReadMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartBreathingReadFixture();
+                if (LiveBreathingRequired && projectionPrimed && latest.CompletedFrames-projectionPrimedAtFrame>=4) BindLiveBreather(false);
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
+                if(LiveBreathingRequired && !LiveBreathingDrained) return;
                 if (rendererWaitFrame < 0)
                 {
                     rendererWaitFrame = Time.frameCount; SpeedControlScreen.Instance.Pause(false); return;
@@ -183,6 +185,7 @@ namespace MixedAtmospheres.Oni
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (ViscousMode) Require(ViscosityVerified, "Native worker did not complete physical viscosity and represented heating.");
+                if (LiveBreathingRequired) VerifyLiveBreathing();
                 if (HeatMode)
                 {
                     heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - FixtureHeatJoules;
@@ -343,7 +346,7 @@ namespace MixedAtmospheres.Oni
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
                     for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer)
-                        if (Grid.Objects[index, layer] != null) throw new InvalidOperationException("An actor entered the unbound native domain.");
+                        if (Grid.Objects[index, layer] != null && !IsLiveBreatherObject(Grid.Objects[index,layer])) throw new InvalidOperationException("An actor entered the unbound native domain.");
                 }
             }
             return Grid.Element[hotSolid].id == SimHashes.Granite && Grid.Element[coldSolid].id == SimHashes.Granite;
@@ -510,6 +513,7 @@ namespace MixedAtmospheres.Oni
                     through = receipt.Sequence;
                     ObserveCarbonParticleReceipt(receipt);
                     ObserveRadialConsumptionReceipt(receipt);
+                    ObserveLiveBreathingReceipt(receipt);
                     if (LiquidTransferMode && receipt.Kind == 1) liquidInjectionReceipt = receipt;
                     if (LiquidTransferMode && receipt.Kind == 2) liquidExtractionReceipt = receipt;
                     if (receipt.Callback == -1) continue;
@@ -611,7 +615,7 @@ namespace MixedAtmospheres.Oni
                     var result = TransferStatus.Empty; var code = QueueTransfers(requests, (uint)count, ref result);
                     if (code == 3) continue;
                     Check(code); transferStatus = result; transferPacketsRouted += count;
-                    radialConsumptionMessagesRouted+=plan.Count(edit=>(edit.Flags>>8)!=0);return true;
+                    radialConsumptionMessagesRouted+=plan.Count(edit=>(edit.Flags>>8)!=0);ObserveLiveBreathingRequests(requests);return true;
                 }
                 throw new InvalidOperationException("Native transfer frame kept changing during reservation.");
             }
@@ -722,6 +726,7 @@ namespace MixedAtmospheres.Oni
             CellMassEditsRouted = cellMassEditsRouted,
             CarbonParticle = CarbonParticleReport(),
             BreathingCellReader = BreathingReadReport(),
+            LiveBreathing = LiveBreathingReport(),
             NativePressureReader = PressureReadReport(),
             ColonyClock = ColonyClockReport(), NaturalAutosave = NaturalAutosaveReport(),
             RestoredNativeReaders = RestoredReadersReport(),

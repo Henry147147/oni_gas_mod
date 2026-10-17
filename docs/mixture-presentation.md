@@ -226,8 +226,7 @@ and exact physical readings. `oni_world_appearance_evidence.py` independently
 reconstructs each colour/opacity byte from those saved operands; the native
 domain gate also requires shader-bound GPU readback, calibrated coordinates and
 matching publication revisions. Component tests pass; the repeated Windows
-reload below also passes. Fresh sources and the Linux appearance gate remain
-in progress.
+reloads below also pass. Fresh sources remain in progress.
 
 The first actual WindowsPlayer/Proton source finds an opacity upload wiring
 error: all six GPU colour texels match, but the opacity texture still receives
@@ -247,6 +246,12 @@ The actual Unity PNG was viewed: the six-cell room has the blended wet colour,
 and hover retains gas mole rows, trace notice, actual liquid volume and breathing
 status. This establishes repeated WindowsPlayer loading of the new appearance,
 with no claim of a liquid surface or an actual Windows OS run.
+
+The same frozen package also passes both native Linux reloads: each has 120
+individually exact frames, independent appearance reconstruction and all six
+actual colour/opacity texels. Its final physical SHA-256 remains
+`85552853053e1410dcbcf11ee2fc7991b0d9a8acd3f34cc399368136f8917c73`.
+Result SHA-256: `273373414055e882114ea26befdd6c293d2a616eec2d2b13cdb0cd6dfb458ec4`.
 
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to

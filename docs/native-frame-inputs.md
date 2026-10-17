@@ -61,8 +61,9 @@ physical state, establishing that the ordering control is meaningful. C ABI
 tests check actual replay and untouched output on bad checksums or insufficient
 capacity. Truncated prefixes and structurally altered journals are rejected.
 Both managed adapters build, and both declaration suites pass 159 groups.
-Full backend regressions, compatibility-build and actual Unity journal gates
-remain pending.
+All 19 backend groups also pass on GNU Linux, Windows binaries under Wine and
+the clean Ubuntu 22.04 compatibility build, plus Linux ASan/UBSan (600.74 s).
+Actual Unity journal gates remain pending.
 
 This supplies a prerequisite for [live radius consumption](native-radial-consumption.md),
 not proof of a live duplicant, conserved metabolism or whole-colony ownership.

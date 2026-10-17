@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
         internal static bool HoldActorRestorePause=>ColonyRestoreMode && colonyLoaded && restoredActorImage!=null &&
             (!restoredActorBindingsVerified || PendingActorRestores()!=0);
-        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldOrbitalReferenceRestorePause || HoldIoControlPause;
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldOrbitalReferenceRestorePause || HoldIoControlPause || HoldLiveBreathingRestorePause;
         internal static void PublishPausedValidationTick(Game game,float elapsed)
         {
             if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
@@ -398,7 +398,10 @@ namespace MixedAtmospheres.Oni
         private static void TickRestoredColony()
         {
             Require(colonyLoaded && active && restoredExpected!=null,"Selected game did not restore a complete paired physical owner.");
-            Capture();Require(latest.State==1 && BoundaryReady(),"Restored native colony boundary or owner failed.");
+            Capture();
+            if(LiveBreathingRequired && !BindLiveBreather(true))
+            {Require(Time.realtimeSinceStartup-started<90,"Saved live breather did not complete its normal spawn lifecycle.");WriteReport();return;}
+            Require(latest.State==1 && BoundaryReady(),"Restored native colony boundary or owner failed.");
             FlushRestoredEmitterConfigurations();
             if(PendingActorRestores()!=0)
             {
@@ -463,6 +466,7 @@ namespace MixedAtmospheres.Oni
             }
             nativeSolidsAdvanced=Grid.Temperature[hotSolid]<initialHot && Grid.Temperature[coldSolid]>initialCold;
             if(latest.CompletedFrames<(ulong)ColonyRuntimeValidation.Settings!.CompletedFrames) {WriteReport();return;}
+            if(LiveBreathingRequired && !LiveBreathingDrained) {WriteReport();return;}
             if(rendererWaitFrame<0) {rendererWaitFrame=Time.frameCount;SpeedControlScreen.Instance.Pause(false);return;}
             if(Time.frameCount-rendererWaitFrame<3) return;
             var frame=MixturePresentationRuntime.AcquireFrame();
@@ -475,6 +479,7 @@ namespace MixedAtmospheres.Oni
                     Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==(Liquid ? SimHashes.Water : SimHashes.Oxygen);
             });
             nativeRendererAdvanced=restoredRendererVerified;
+            if(LiveBreathingRequired) VerifyLiveBreathing();
             Require(exactReplayComparisons>=(int)ColonyRuntimeValidation.Settings.CompletedFrames && zeroRestoreVerified && restoredNativeBatches>=2 &&
                 restoreNativeOutbox.Count==0 && nativeSnapshotVerified &&
                 nativeCellsUnchanged && projectionPrimed && nativeFlowFenceVerified && retainedFrameVerified && nativeSolidsAdvanced &&

@@ -10,6 +10,7 @@ namespace MixedAtmospheres.Oni
         // The reload workflow is process-scoped evidence and remains separate.
         private static void ResetEndedNativeSession()
         {
+            ResetLiveBreathing();
             prepared=arming=completed=failed=active=false;
             x=y=target=hotSolid=coldSolid=preparedFrame=publications=0;
             started=nextReport=initialHot=initialCold=0;rendererWaitFrame=-1;textureWriteBaseline=0;

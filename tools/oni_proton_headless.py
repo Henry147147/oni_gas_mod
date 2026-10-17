@@ -131,6 +131,7 @@ def domain_options(args) -> dict:
         liquid_gravity=mode == "native-liquid-gravity-domain",
         checkpoint=mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"),
         persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
+        live_breathing=getattr(args,"verify_live_breathing",False) is True,
         paired=mode == "native-paired-checkpoint-domain", natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True,
         restored=mode == "native-load-domain", save_io_recovery=args.verify_save_io_recovery,
         reload_in_process=args.reload_in_process)
@@ -144,6 +145,9 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if getattr(args,"verify_live_breathing",False) is True and (args.mode not in ("native-domain","native-load-domain") or
+            getattr(args,"verify_persistent_actors",False) is True or args.mode=="native-domain" and not 20<=args.frames<=25):
+        raise ValueError("Live breathing requires a 20–25-frame gas source or its saved load, without fixture actors")
     if getattr(args,"graphics_api","glcore") not in ("glcore","d3d11"):
         raise ValueError("Graphics API must be glcore or d3d11")
     if getattr(args,"verify_persistent_actors",False) is True and (args.mode not in ("native-domain","native-liquid-domain") or
@@ -269,7 +273,8 @@ def playtest(args, state: Path, session: dict) -> int:
             "SaveOnComplete": args.save_colony, "SaveBeforeResume": args.resave_before_resume,
                 "VerifySaveIoRecovery": args.verify_save_io_recovery, "ReloadInProcess": args.reload_in_process,
                 **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
-                **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {})})
+                **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
+                **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {})})
         graphics_api = getattr(args,"graphics_api","glcore")
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-" + graphics_api, "-screen-fullscreen", "0",
@@ -370,6 +375,7 @@ def main() -> int:
     parser.add_argument("--reload-in-process", action="store_true")
     parser.add_argument("--verify-natural-autosave",action="store_true",help="Wait for natural day rollover; native-domain and 3100..5000 frames")
     parser.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; gas/water source, source save or natural autosave, and at least eighty frames")
+    parser.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     parser.add_argument("--verify-save-io-recovery", action="store_true")
     args = parser.parse_args()
     state = args.state.resolve()
