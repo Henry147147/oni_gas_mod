@@ -107,3 +107,39 @@ local remap heat alone does not settle scalar entropy transport or accuracy.
 No unchanged finest-grid or Linux repeat is launched. Order-independent
 momentum/energy transfer and scalar reconstruction remain unresolved, alongside
 the original full strong-flow and production gates.
+
+## Update-order controls
+
+Splitting each frozen geometric correction into forward-quarter,
+reverse-half, forward-quarter traversals keeps the original simulation dt.
+The private N64 run completes all 46 steps and 1,656 sampled work events.
+Coarse density/pressure/velocity errors are 0.0566224/0.0552036/0.176857;
+central density is 0.0367862/0.0507058 kg/m3. The imbalance decreases but
+remains substantial. No sampled central reading falls below the uniform
+initial specific entropy in this capture. Saved review checks 1,104 fully
+sampled paired budgets. Terminal evidence: `local/mac-pooled-work-probe-r6`,
+SHA-256 `fbc743fc2992e630978da7b0b45bf487f4dd85626007b4c0844fea068cb906a8`.
+
+Its first saved reader incorrectly forms the side-account scale from the net
+of opposing mean/correction fluxes. Six selected sides then fail that smaller
+scale. Exact saved Fractions show every side passes the original native
+128-epsilon rule using both actual operands. Restoring those operands repairs
+the saved-only reader; no native rerun or multiplier change is involved.
+Diagnosis SHA-256:
+`59caabf00e13f9d994a586b4f46edaf426f5e144ab975de4e742b9b89036438d`.
+
+A further private trial computes both opposite traversals independently from
+one upwind state, averages J and carried K, and adds the nonnegative kinetic
+averaging variance `(Jf - Jr)^2 / (8 I)` to the work inventory. This preserves
+the two branches' mean total energy under the original operand account.
+All 48 sampled averaging records and 384 sampled paired events pass saved
+review over eight internally accepted substeps. A subsequent local pooled
+precision guard rejects before a complete interval is returned. The capture
+exits 1 without timeout; no final Riemann profile or benchmark certification is
+available. Selected initial cell bytes and input headers match the baseline;
+the complete initial profile is not emitted by the interrupted fixture.
+Evidence: `local/mac-symmetric-pooled-probe-r1`, terminal SHA-256
+`1d2b27dc6cfcc4d428c42d204379d17bbbecf1b5a31f199970595ba0e868093d`.
+The next question is whether explicit local feasibility search can resolve the
+remaining finite-precision rejection. No local bound, scientific criterion,
+initial state, benchmark timestep or production selection has changed.
