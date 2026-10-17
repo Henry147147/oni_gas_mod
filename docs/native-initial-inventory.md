@@ -117,3 +117,12 @@ files are independently verified as restored; the default and installed
 SimDLLs are unchanged. Package assembly passes, but there is no Windows
 inventory-import gameplay result. The retained launch-review SHA256 is
 `fae63ab7cb0bf4aaa98f848aef875edd48ab8024873e98ae49ac4cec40d4e005`.
+
+After merging the capture-before-fence fix and Linux result, Windows preflight
+passes nine nitrogen, 106 snapshot/message and 31 inspection groups, plus the
+adapter build. The three affected Linux runner suites pass 86 checks. Native
+source and build-configuration hashes still match the verified Windows build;
+the adapter retains the same two MSB3277 reference warnings. This is build and
+helper evidence, with Windows import gameplay still pending. Review SHA256 is
+`9ee286076e358828c8eda1df5a711724b1600d6865ac0581953d47f06be3e049`
+under `local/windows-pre-fence-import-merge-r1`.
