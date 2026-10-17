@@ -66,6 +66,10 @@ and conflicting entry-point hooks reject activation.
 The inspected Linux UnityPlayer requires glibc 2.35. Release libraries must be
 built against that baseline and checked for newer symbol requirements. Current
 host builds do not establish release compatibility.
+The [Ubuntu 22.04 native builder](linux-native-build.md) now supplies a frozen
+baseline build with all 13 native tests and 89 managed/native ABI checks
+passing. Both libraries require at most glibc 2.34. Its checked source/binary
+record can be included in probe packages; game/release acceptance remains separate.
 
 ## Ownership and data flow
 
@@ -259,7 +263,7 @@ Verified on 2026-10-16:
 | Latest dependency-bound Linux Unity colony | `20261016T172520Z-92bc7f`: the trampoline-capacity repair also passes in Mono; ten additional timestep returns/physical updates, fourteen byte-identical snapshots and 47 channels, with no mod failure lines. |
 | Windows MSVC Release | Actual x64 MSVC build passes strict warnings, ABI/hash/lifecycle controls and short-JMP/Jcc relocation/restoration controls. Six separate unhooked/observed licensed-native comparisons pass with identical physical/event/save reports and complete bounded control traces: twelve actual timesteps/physical updates for each original case; thirteen for the new actor case. |
 | Actual Windows Unity colony | V60 passes in ONI 744825 / Unity 6000.3.5f2: ten additional native timestep returns and physical updates, 160 byte-identical snapshots, 47 channels, nine worlds and three duplicants. Native ONI owns physics. The colony was inspected through the Windows UI and closed normally; original mods, preferences and generated-world files were restored byte-for-byte. |
-| Linux release baseline | This host's library requires glibc 2.38. A glibc-2.35 release build remains required. No release package is certified. |
+| Linux release baseline | The Ubuntu 22.04 frozen build passes 13 native and 89 managed/native ABI tests; both libraries require at most glibc 2.34, within ONI's 2.35 baseline. Host builds still require 2.38. Real-game/release acceptance remains separate; see [builder and provenance](linux-native-build.md). |
 
 Current ABI 3 comparison logs are under
 `artifacts/native-integration-r2/forwarding-v1`; all six cases pass. The failing

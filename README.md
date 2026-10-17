@@ -254,7 +254,10 @@ with the same counts as Windows, plus a seventh nitrogen registration check.
 The shipped Linux library now exports only the 15 `ma_*` entry points and links
 libstdc++ statically; built on this host it requires glibc 2.38 or newer, so
 release binaries for older distributions must be built on the oldest supported
-glibc.
+glibc. The [Ubuntu 22.04 compatibility builder](docs/linux-native-build.md) now
+passes all 13 native tests and 89 managed/native ABI checks with both libraries
+requiring at most glibc 2.34. It records frozen source and binary provenance;
+normal real-game and release gates still apply.
 
 To inspect your licensed game and compile the developer probe:
 

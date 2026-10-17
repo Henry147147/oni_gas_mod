@@ -36,6 +36,21 @@ def source_state() -> tuple[str, bool, list[str]]:
                                      cwd=ROOT, text=True).splitlines()
     return revision, bool(status), status
 
+def native_build_info(path: Path | None, libraries: list[Path]) -> dict | None:
+    if path is None:
+        return None
+    report = json.loads(path.read_text())
+    if not isinstance(report, dict) or report.get("kind") != "linux-native-compatibility-build" or report.get("passed") is not True:
+        raise ValueError("Native build provenance is not a completed compatibility build")
+    recorded = report.get("libraries")
+    if not isinstance(recorded, dict):
+        raise ValueError("Native build provenance has no library inventory")
+    for library in libraries:
+        entry = recorded.get(library.name)
+        if not isinstance(entry, dict) or entry.get("sha256") != hashlib.sha256(library.read_bytes()).hexdigest():
+            raise ValueError("Native build provenance differs from the packaged library: " + library.name)
+    return report
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -45,6 +60,7 @@ def main() -> None:
                         help="Built managed adapter directory, for separate Windows/Linux outputs")
     parser.add_argument("--coupled-reference", type=Path, help="Optional explicit closed-reference library for private presentation validation")
     parser.add_argument("--native-observer", type=Path, help="Opt-in SimDLL backend from its CMake build directory; forwards by default, experimental sealed domains require separate validation")
+    parser.add_argument("--native-build-info", type=Path, help="Completed Linux compatibility build report, checked against all supplied native binaries")
     parser.add_argument("--oni-build", type=int, default=744825, help="Verified ONI build number, not Steam BuildID")
     parser.add_argument("--private-file-protocol-validator", type=Path,
                         help="Optional normal-source Windows Mono fixture DLL; never a save/load permission")
@@ -70,6 +86,10 @@ def main() -> None:
             parser.error(str(error))
     observer_support = observer_root / "oni-generated" if observer_root else None
     observer_source = observer_root / "_deps/ma_funchook-src" if observer_root else None
+    try:
+        build_info = native_build_info(args.native_build_info, [args.native, *([observer] if observer else []), *([coupled] if coupled else [])])
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     if validator is not None and (args.native.suffix != ".dll" or not validator.is_file() or
                                   validator.name not in ("MixedAtmospheres.GameMonoFileProtocolValidation.dll",
                                                          "GameMonoFileProtocolValidation.dll")):
@@ -126,7 +146,7 @@ def main() -> None:
         "This is NOT the playable gas/liquid overhaul. Default probes preserve native physics.\n"
         "Explicit native-domain modes attempt experimental ownership in a disposable sealed room.\n"
         "Sealed mixed-air and water equilibrium controls are separate from playable-colony readiness.\n"
-        "Saving is disabled throughout experimental domain ownership.\n"
+        "Scalar saves stay guarded; admitted actor-free colony saves retain paired native and physical state.\n"
         "Place this complete folder under ONI's mods/Dev folder. Enable the probe,\n"
         "restart to the main menu, and inspect integration-probe.json and Player.log.\n"
         "Keep only one folder with staticID MixedAtmospheres.IntegrationProbe in mods/Dev;\n"
@@ -140,9 +160,12 @@ def main() -> None:
         "A successful report proves only its listed scoped checks, not\n"
         "authoritative colony simulation replacement.\n",
         encoding="utf-8")
+    if build_info is not None:
+        (output / "native-build-provenance.json").write_text(json.dumps(build_info, indent=2) + "\n", encoding="utf-8")
     manifest = {"kind": "integration-probe", "release_ready": False, "inspected_oni_build": args.oni_build,
                 "source_revision": revision, "source_dirty": dirty, "source_status": status,
                 "native_observer_enabled": observer is not None,
+                "native_build_provenance": "native-build-provenance.json" if build_info is not None else None,
                 "files": {f.relative_to(output).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
                           for f in sorted(output.rglob("*")) if f.is_file()}}
     (output / "package-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
