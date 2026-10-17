@@ -423,6 +423,7 @@ namespace MixedAtmospheres.Oni
                 if (arming)
                 {
                     if (!nativeFlowFenceVerified) return pointer;
+                    if (InitialInventoryMode && source->numFramesProcessed <= 0) return pointer;
                     ActivateOwner(source);
                 }
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
