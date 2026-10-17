@@ -245,9 +245,14 @@ otherwise ONI can issue two simulation intervals in one Unity update and skip
 an intermediate observation. This pacing is an exact-replay validation aid.
 Rendering, game Grid, native compatibility tuples,
 outside native solid heat, physical accounts and both scalar-save guards must
-also pass. Linux Unity has passed an automated 120-frame fresh-process round trip; Windows
-managed declarations compile, and licensed Windows native restores pass under
-Wine. Windows Unity, registered actor persistence, actual menu clicks/day-rollover
+also pass. Linux Unity has passed an automated 120-frame fresh-process round
+trip. The later [MSVC Windows feature cohort](../docs/sealed-native-domain.md#additional-windows-feature-controls)
+also passes ordinary air/water writes, fresh-process loads and 120 exact
+resumed frames for each. Both Windows loads use the actual deferred autosave
+coroutine at publication frame zero, retain physical time/state and pause depth
+1, and verify the complete serialized body and paired sim section. Their
+original colony GUIDs and three duplicants return, and both startup event
+batches deliver once. Registered actor persistence, actual menu clicks/day-rollover
 triggers and general production ownership remain separate gates. Ordinary
 save-entry admission is limited to the drained, actor-free development domain.
 

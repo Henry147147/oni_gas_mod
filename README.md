@@ -69,8 +69,11 @@ for ownership, interfaces, failures and implementation gates.
   and restores the caller's exact pause count; pending commands reject without
   writing or losing their reservation. Compressed-water save, initial paused
   resave and 120 exact resumed frames also pass in Linux Unity. Owned actor
-  persistence, menu/day-rollover triggers and Windows Unity save/load validation
-  remain unfinished. See the
+  persistence and menu/day-rollover triggers remain unfinished. A fresh MSVC
+  Windows package also passes compressed water, conduction, CO2, registered
+  actors, gravity, and ordinary air/water save/load. Both Windows reloads
+  autosave before resuming and match all 120 physical continuation frames.
+  These remain six-cell development scenes. See the
   [checkpoint protocol](native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,

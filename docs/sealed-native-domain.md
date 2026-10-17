@@ -2,9 +2,9 @@
 
 This is the first bounded takeover experiment for the colony work. The
 custom native engine advances a six-cell room while the surrounding ONI colony
-retains its original simulation. The corrected mixed-air control passes in
-actual Windows and Linux colonies; the corrected compressed-water equilibrium
-control also passes on Linux. The basic controls are actor-free development scenes; a separate
+retains its original simulation. The corrected mixed-air and compressed-water
+equilibrium controls pass in actual Windows and Linux colonies. The basic
+controls are actor-free development scenes; a separate
 registered-actor control exercises an actual game consumer and emitter API.
 Whole-colony ownership, first-playable and release gates remain closed.
 
@@ -320,9 +320,11 @@ python3 tools/oni_headless.py run --package <package> \
 The source file is copied into the new run and its SHA-256 checked before and
 after staging. The game loads that private copy. The Windows wrapper accepts
 `-NativeDomain save` and `-NativeDomain load -LoadSave <file> -ResaveBeforeResume`.
-Use `--save-colony` / `-SaveColony` with another initial native domain scene;
-these Unity
-paths have not yet been verified on Windows.
+Use `--save-colony` / `-SaveColony` with another initial native domain scene.
+The [Windows feature cohort](#additional-windows-feature-controls) below now
+verifies ordinary air/water writes, fresh-process loads and deferred paused
+autosaves through these entries. Actual menu clicks and day-rollover triggers
+remain separate checks.
 
 Build the native backend and the normal ONI adapter, then create a fresh package:
 
@@ -484,7 +486,8 @@ and run the normal disposable-profile wrapper in PowerShell 7:
   -NativeDomain gas -Frames 120 -TimeoutSeconds 1200
 ```
 
-`-NativeDomain` also accepts `water`, `heat`, `transfer`, `actor` and `carbon`.
+`-NativeDomain` also accepts `water`, `heat`, `transfer`, `actor`, `carbon`,
+`conduction`, `gravity`, `checkpoint`, `pair`, `save` and `load`.
 The actor scene needs at least 80 frames; use 120 for its full control. Python
 must be available for the shared portable acceptance checker. It requires
 `WindowsPlayer` evidence and the same physical, native-source, rendering,
@@ -545,6 +548,64 @@ Private terminal SHA256 receipts:
 
 These checks were performed by the primary agent; no independent agent review
 is claimed. Earlier failed receipts remain retained.
+
+### Additional Windows feature controls
+
+The `local/windows-native-features-r1` cohort passes eight actual Windows Unity
+runs from clean source `82c3c50`. The adapter is rebuilt against the Windows
+game assemblies. The same accepted MSVC native binaries are reused after
+checking all 193 native/build dependency files against their frozen inputs;
+the numerical method is unchanged. All 81 synthetic save-layout/readback
+groups pass on Windows .NET, and all 51 Linux Python acceptance-guard tests
+pass. The Python controls do not launch a native solver or Linux Unity game.
+
+| Scene | Actual Windows result |
+| --- | --- |
+| Compressed water and ordinary save | 30 frames / 630 substeps; 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. The ordinary save verifies its complete 10,548,715-byte body and exact paired section. |
+| Conduction and external heat | 120 frames / 2,520 substeps / 5,040 thermal stages; 0.194107745 J internal redistribution, positive entropy change 1.22099e-6 J/K, and residual -4.19e-9 J against the external 1,500 J input. |
+| CO2 injection and consumption | 121 frames; actual 0.05 kg injection and 0.02 kg consumption callbacks, net 0.0300000011921 kg retained CO2, and U+K residual -6.34e-9 J. |
+| Registered actors | 120 frames; 32 real consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, atomic owned configuration, ordinary outside native batch, rate changes and removal. U+K residual -3.53e-9 J. |
+| Gravity and gas transfers | 121 frames; boundary potential 0.147150006 J, U+K+G residual -2.13e-9 J, and maximum physical energy residual 2.79e-9 J. |
+| Ordinary air save | Saves frame 31 / 6.200000092 s. A reserved heat command first rejects saving without a file, time advance, lost command or leaked pause. The drained save matches its complete 10,542,598-byte body and paired section; pause depth returns to zero. |
+| Fresh-process air load and deferred autosave | Restores the exact initial image, colony GUID and all three duplicants. `Game.StartDelayedSave` autosaves at publication frame zero without changing physical time/state or pause depth 1. All 120 resumed frames match independent checkpoint continuation, reaching 30.200000450 s. |
+| Fresh-process water load and deferred autosave | Restores the exact saved water image, GUID and three duplicants; the same actual deferred autosave retains frame-zero physical state and pause depth 1. All 120 resumed frames match exact continuation, reaching 30.000000447 s with zero reported drift. |
+
+Every scene passes the shared `WindowsPlayer` checker, exact native-cell
+compatibility, completed snapshots, game Grid, rendering callbacks, outside
+native solid heat and scalar-save guards. These rendering checks and retained
+Unity PNGs do not establish complete liquid appearance, four-gas hover or
+rendering performance. Both reloads deliver two retained native startup batches
+once; their frame-zero autosaves verify the complete bodies (air 10,542,776
+bytes; water 10,548,893 bytes), exact paired section and original GUID.
+
+The air source/final physical SHA256 values are
+`41de3ef90deef435006e94fc86b38766cb9f981a26d6d3b27d16aa7e998a0f89` /
+`a23a15bb94173aa2ee5121e8f31c465c8f654485225fc3c0444fb29d103a5ff2`.
+Water source/final values are
+`bd530e60d062f6ef7e6dee69e252711dd8e7939e5dde7a7a219f73202e3a2806` /
+`bd9d033bcd919185a8bf61eb4a7ad93ab5f5fcc988f2980ce7be4ecb7cef1436`.
+Exact continuation uses the same Windows binary; cross-compiler trajectory
+identity is not required.
+
+All eight game processes exit normally, their wrappers return 0 and both
+output pipes drain/close. Each restores all 13 original profile files; the
+temporary mod is removed, and the default project DLL and installed SimDLL
+remain unchanged. The primary agent reviews saved evidence; no independent
+agent review is claimed. The load-admission helper corrects an unused private
+runner receipt filename before either load launch; no game retry or native
+rebuild is performed for it.
+
+Source-freeze SHA256:
+`e1e2b853db1dd6eb9febf48d17ee4d412ef848ae5c40af0ac4a3bbed70167da0`.
+Package-manifest SHA256:
+`3f300853298be75423f101ee86925c64cacc9e07e246b810b349061eb1beb7ac`.
+Aggregate terminal SHA256:
+`1e7be92f88cdf48297aa545acd67b69db8d4fbc3127aa8c136b3d24688254e09`.
+Per-case terminal receipts, full logs, saves, physical images and Unity PNGs
+remain private beneath that cohort. Production actors/persistence, actual
+menu/day-rollover triggers, arbitrary fluid materials and geometry, the failed
+strong-flow gate, whole-colony performance and first-playable acceptance
+remain open. Nothing is released.
 
 ## Limits and next work
 
