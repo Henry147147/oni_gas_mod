@@ -350,7 +350,14 @@ namespace MixedAtmospheres.Oni
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
                     for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer)
-                        if (Grid.Objects[index, layer] != null && !IsLiveBreatherObject(Grid.Objects[index,layer])) throw new InvalidOperationException("An actor entered the unbound native domain.");
+                    {
+                        var occupant = Grid.Objects[index, layer];
+                        if (occupant != null && !IsLiveBreatherObject(occupant))
+                            throw new InvalidOperationException("An actor entered the unbound native domain: cell=" + index +
+                                ", layer=" + layer + ", name=" + occupant.name + ", instance=" + occupant.GetInstanceID() +
+                                ", position=" + occupant.transform.position + ", components=" +
+                                string.Join(",", occupant.GetComponents<Component>().Select(component => component == null ? "missing" : component.GetType().FullName)) + ".");
+                    }
                 }
             }
             return Grid.Element[hotSolid].id == SimHashes.Granite && Grid.Element[coldSolid].id == SimHashes.Granite;

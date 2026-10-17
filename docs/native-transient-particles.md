@@ -80,9 +80,20 @@ passed. Raw game-result SHA-256:
 Review SHA-256:
 `947f89d9fb7cf10cdb20a7798367c5d512e0fcc3523aee5f4c003689bc86d327`.
 
+The WindowsPlayer-origin source at the same frozen revision also passes. It
+saves two in-flight parcels after 18 positive original breathing callbacks.
+Both local WindowsPlayer reloads and both Linux reloads restore those parcels,
+preserve them in frame-zero autosaves and complete 120 individually exact
+continuation frames per session. Each continuation has a separate passing
+binary journal review. The local and cross-platform load-result SHA-256 values
+are `b9aafc785f31d0d6943c8346fba258b4bf302545a28d0d5aa17aea4fb19dc847`
+and `ed96715c3bc847cea127808725ed6b70ec7afe7c752a6683bc6dd8343937dedd`.
+WindowsPlayer evidence uses official Proton on Linux; an actual Windows OS
+run remains a separate gate.
+
 The format/parser cohort passes 165 declaration scenarios on both installed
-players. Windows-origin live controls are running. This remains the
-bounded sealed-region adapter. Whole-colony particles, conserved metabolism,
+players. This remains the bounded sealed-region adapter.
+Whole-colony particles, conserved metabolism,
 bubble/exhaust persistence and complete material support remain open.
 
 The later [binary32 wire conversion](native-float-wire.md) preserves tiny parcel
