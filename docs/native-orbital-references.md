@@ -56,9 +56,28 @@ reassigned, and an already missing saved object still fails admission.
 any error, and resets between sessions. The portable reviewer rejects errors,
 duplicate/invalid root IDs and any created object or rewritten reference in
 this receipt; older audits without it do not establish the new spawn ordering.
-The default observer modes do not
-install this lifecycle patch. Actual source and reload verification of this
-change remains in progress.
+The default observer modes do not install this lifecycle patch.
+
+Frozen `9a1a894` and native v13 now pass a fresh nine-world WindowsPlayer/Proton
+OpenGL water source. Orbital ID 2 completes its original save root once before
+native deactivation; the later Unity root start remains idempotent. At physical
+frame 121 all three point actors save, with 114 matching consumer callbacks
+carrying 1.1400000331923366 kg. The complete 10,593,603-byte body and header pass
+readback and retain the serialized background. The physical image is unchanged
+from the successful unpatched lifecycle-observation control. Independent source
+review SHA-256:
+`eaf8705bbb79ab17d9858d35fd4480e0482048bf206b3496e7d5743a084a2d91`.
+
+Both WindowsPlayer and native Linux then load that same intact source twice.
+Every session admits the original references at physical frame zero, completes
+its paused autosave/readback, binds the three actors and compares 120 complete
+frames exactly against its local continuation. An additional load of the older
+missing-object input still rejects at frame zero, without rewriting its raw
+reference or producing a save. The combined saved-receipt review for the water
+loads and later precision/day controls passes 88 checks, SHA-256
+`9b378dc21153abfa82994b79c0d94995e0860c2cfcdc9e882cff86597d5fba95`.
+The local exact-continuation result does not accept the separate cross-platform
+water numerical comparison; see [arithmetic controls](native-floating-point-environment.md).
 
 ## Reproduced input and current verification
 
@@ -74,8 +93,9 @@ continuation mismatch; it exposes a separate missing native object.
 Later read-only native and fluid-owned source observations find orbital
 instance 2 tracked and its save root registered. The newer Linux gas, water
 and natural-day actor saves contain the background entry. These observations
-do not establish why the older source omitted it, and no spawn-order repair is
-shipped on that basis.
+do not establish why the older source omitted it. The later lifecycle repair
+above follows a separately reproduced fresh-source failure and native spawn
+ordering; it does not reconstruct the older missing object.
 
 The pure admission controls cover missing targets, changed IDs, wrong worlds,
 duplicate slots/worlds, uninitialized or duplicate save registration, valid

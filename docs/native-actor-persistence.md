@@ -105,8 +105,8 @@ Independent water review SHA-256:
 Raw water source/load results are
 `3d33fd6b4719b540cc5a9ff551390c8e3ae219353a3b2d88e76404f72d9fa0d3`
 and `5efe7a88e7044c8a5ad0204d049fa5bce28cdd87bf040524669ef46e2ccc3826`.
-Windows water-actor and Windows OS execution remain under validation; the later
-WindowsPlayer gas cohort is accepted below. These Linux actor cohorts
+Later WindowsPlayer gas and water cohorts are accepted below; execution on
+the Windows OS remains separate. These Linux actor cohorts
 have no separate manual image review; their scoped appearance check uses actual
 calibrated GPU readback.
 
@@ -207,6 +207,41 @@ It does not establish four-gas/trace-cutoff presentation or load-image review.
 These controls do not establish execution on the Windows OS, arbitrary native
 references, production devices or whole-colony fluid ownership.
 
+## WindowsPlayer water and cross-platform reloads
+
+The `9a1a894`/v13 WindowsPlayer source now saves three live water actors in a
+fresh nine-world Spaced Out cluster after the
+[orbital save-root ordering repair](native-orbital-references.md#finishing-the-existing-background-save-root).
+At physical frame 121/time 24.2000003606081 seconds, 114 matching consumer
+callbacks carry 1.1400000331923366 kg. The source retains the consumer's binary32
+remainder, both emitter clocks and their different blocked states. Its complete
+10,593,603-byte body and header pass readback. The unchanged input file is
+`3f4bfa88b4d015ba5678a0bc7f1b117b059485759cb28d5ab12e9183468f55da`;
+the complete actor-and-fluid image is
+`1dc00ad3e51f58fc4ef624bd37d529506191849585a5c3c2f776f561a3babc11`.
+
+Both original v13 WindowsPlayer and native Linux load controls pass two native
+sessions each, including frame-zero autosaves, two genuine emitter configuration
+flushes, native references, callbacks, readers and calibrated GPU readback.
+Every one of 120 complete frames matches its local replay. The strict comparison
+between the evolved Windows and Linux water images fails. Controlled replay
+then identifies an inherited x87 precision dependency; the
+[arithmetic scope repair](native-floating-point-environment.md) removes it.
+
+Frozen `15db23a`/v14 repeats the two actual sessions in each player against the
+same unchanged source. All local checks still pass, and each platform's final
+image exactly matches its independently predicted extended-precision replay.
+The remaining cross-platform water difference still exceeds the stored-quantity
+1e-8 gate. This accepts local actor persistence and continuation on both players;
+it does not accept cross-platform numerical agreement for water.
+
+The original Windows source PNG was separately viewed: its blue water and
+mixture hover retain completed cell 103106/revision 121, liquid fraction one,
+no gas, 1099.9854078636083 kg, 300.00262544132147 K and
+219967897.29993367 Pa. Image-review SHA-256 is
+`83b405e904d50f0db3d10fb94f80c06d1e180f9a505a4a46bf61a07c29da0963`.
+This is a source-image check, without a separate load-image review.
+
 ## Natural day autosaves with live actors
 
 Frozen `6c0f9a8` and native compatibility build v12 pass the actual Linux day
@@ -244,6 +279,28 @@ and `438e8ea6d019026d4117d85b5c795b03160f84f1299497acd89f500c0eb717eb`.
 This accepts the bounded Linux live-actor day autosave and reload; it does not
 establish Windows execution or whole-colony ownership. It has no separate
 manual pixel review.
+
+The later `9a1a894`/v13 WindowsPlayer/Proton OpenGL source also passes the
+ordinary day scheduler in a fresh nine-world cluster, with no manual source
+save. The native cycle-one autosave completes at game time 602.0255126953125
+seconds and physical frame 2,729/time 545.8000081330538 seconds. Its complete
+10,685,335-byte body and header pass readback and preserve pause depth zero.
+The input file SHA-256 is
+`92d03dec7d16372291c9aafd0fb7669218b0a0570e271a57b23d42927a633494`.
+The source continues to frame 3,303; replaying all 574 subsequent intervals
+matches its final complete image
+`595938c1d93de4946cb737c9562d2e3d2cd897329904e43c908f839f074e3729`.
+
+Fresh WindowsPlayer loads with both the original v13 and corrected v14
+libraries each complete two native sessions, paused autosaves, real actor
+bindings/callbacks and 120 individually exact complete frames per session.
+The v14 final image is
+`4bad864624ca59dedb018f0b5412779fb6963a59103c87a82a3bb372e8c963ff`.
+The combined water/day saved-receipt review passes 88 checks, SHA-256
+`9b378dc21153abfa82994b79c0d94995e0860c2cfcdc9e882cff86597d5fba95`.
+This supplies WindowsPlayer natural-day evidence under Proton on Linux; actual
+Windows OS execution, general managed references and whole-colony ownership
+remain open. There is no separate manual day-source image review.
 
 ## Running the control
 
