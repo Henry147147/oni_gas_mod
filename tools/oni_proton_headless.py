@@ -186,8 +186,16 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
         if prefix_started and (output / "compatdata/pfx").is_dir():
             env = dict(os.environ, WINEPREFIX=str(output / "compatdata/pfx"), WINEDEBUG="-all")
             env.pop("LD_LIBRARY_PATH", None)
-            subprocess.run([str(proton / "files/bin/wineserver"), "-k"], env=env,
-                           check=True, timeout=30, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            server=str(proton / "files/bin/wineserver")
+            killed=subprocess.run([server,"-k"],env=env,check=False,timeout=30,
+                                  stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            # Wine returns 1 when no server exists. Confirm retirement with a
+            # bounded wait; neither a real kill error nor a lingering prefix
+            # server can be treated as successful cleanup.
+            if killed.returncode not in (0,1) or (killed.returncode==1 and killed.stderr):
+                raise subprocess.CalledProcessError(killed.returncode,[server,"-k"],stderr=killed.stderr)
+            subprocess.run([server,"-w"],env=env,check=True,timeout=30,
+                           stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
     except BaseException as error:
         errors.append("private Wine prefix: " + repr(error))
     try:

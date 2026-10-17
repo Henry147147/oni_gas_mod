@@ -98,6 +98,21 @@ class ProtonIsolationTests(unittest.TestCase):
         run.assert_not_called()
         self.assertEqual(stop.call_args_list, [mock.call(None), mock.call({"pid": 222})])
 
+    def test_already_exited_server_requires_a_successful_bounded_wait(self):
+        (self.root / "run/compatdata/pfx").mkdir(parents=True)
+        server=str(self.root / "proton/files/bin/wineserver")
+        for wait_error in (False,True):
+            responses=[subprocess.CompletedProcess([server,"-k"],1,stderr=b""),
+                       subprocess.TimeoutExpired(server,30) if wait_error else subprocess.CompletedProcess([server,"-w"],0)]
+            with mock.patch.object(common,"stop_process") as stop, mock.patch.object(runner.subprocess,"run",side_effect=responses) as run:
+                if wait_error:
+                    with self.assertRaisesRegex(RuntimeError,"private Wine prefix"):
+                        runner.cleanup_run(None,{"pid":222},True,self.root/"proton",self.root/"run")
+                else:runner.cleanup_run(None,{"pid":222},True,self.root/"proton",self.root/"run")
+                self.assertEqual([call.args[0] for call in run.call_args_list],[[server,"-k"],[server,"-w"]])
+                self.assertEqual(run.call_args.kwargs["timeout"],30)
+                self.assertEqual(stop.call_args_list[-1],mock.call({"pid":222}))
+
     def test_proton_and_native_linux_use_the_same_whole_run_lock(self):
         with common.locked(self.root / common.LOCK_NAME), mock.patch.object(
                 sys, "argv", ["oni_proton_headless", "--state", str(self.root), "--proton", "/tool", "--package", "/package"]), \
