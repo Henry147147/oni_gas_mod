@@ -1,10 +1,17 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows viscosity-matched heat owner
+The gate remains failed. The default Windows viscosity-matched heat owner
 completes Sod N64/128/256, then passes collision pressure/velocity refinement
 but fails density at N128: ratios 0.856166 / 0.796376 / 0.611031 against 0.85.
 Both platforms pass all 133 prerequisite groups/reviews; 72 selected Linux
 sanitizer groups pass. Linux does not repeat the shared strong-flow failure.
+The later [series-resistance owning experiment](MAC_SERIES_OWNER.md) passes
+147 prerequisite groups/reviews per OS and 86 selected sanitizer groups, then
+also fails collision density/pressure refinement: 0.919310 / 0.897892 / 0.597402.
+It completes the same five profiles and 59,205 partial saved checks. Those worse
+refinement ratios prevent retaining mode 3 as the default; mode 2 is restored
+and mode 3 requires explicit selection. No failed method is repeated on Linux,
+and restoring unchanged mode 2 does not trigger another strong-flow retry.
 Earlier heat, compression, velocity and range failures remain recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or

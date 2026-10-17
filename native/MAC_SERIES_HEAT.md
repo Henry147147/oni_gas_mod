@@ -2,9 +2,11 @@
 
 This optional occupied-grid component passes its eight new controls within all
 141 strict Windows/Linux groups and 80 selected Linux sanitizer groups. It
-retains the existing maximum-speed law and owning/default heat mode 2. It has
-not been selected by the owner or retried the failed strong-flow gate. It
-supplies no production, game or first-playable acceptance.
+retained the existing maximum-speed law and owning/default heat mode 2 in
+that component cohort. The subsequent [owning integration](MAC_SERIES_OWNER.md)
+exposes mode 3 as an explicit experiment; its failed strong-flow trial prevents
+retaining it as the default. The component supplies no production,
+game or first-playable acceptance.
 
 ## Face construction
 

@@ -176,7 +176,10 @@ for ownership, interfaces, failures and implementation gates.
   The optional [two-half-cell heat component](native/MAC_SERIES_HEAT.md) passes
   all 141 Windows/Linux groups and 80 Linux sanitizer groups. Its 52 preceding
   native captures and six checkpoint images remain byte-for-byte unchanged;
-  this component has not yet been selected by the owning solver.
+  its [explicit owning experiment](native/MAC_SERIES_OWNER.md) passes 147 groups
+  and 86 sanitizer groups but worsens collision density/pressure refinement to
+  0.919/0.898 against 0.85. The prior mode-2 default is restored; mode 3 remains
+  an explicit experiment. The strong-flow and first-playable gates remain open.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

@@ -10,6 +10,15 @@ namespace {
 constexpr auto none = std::numeric_limits<std::size_t>::max();
 constexpr double eps = std::numeric_limits<double>::epsilon();
 void require(bool ok, const char* reason) { if (!ok) throw std::invalid_argument(reason); }
+MacShockHeatLaw heat_law(MacShockHeatRegularization setting) {
+    switch (setting) {
+    case MacShockHeatRegularization::compression_activated: return MacShockHeatLaw::closing_velocity;
+    case MacShockHeatRegularization::pressure_sensed_acoustic: return MacShockHeatLaw::pressure_sensed_viscosity;
+    case MacShockHeatRegularization::pressure_sensed_series: return MacShockHeatLaw::pressure_sensed_series;
+    case MacShockHeatRegularization::none: break;
+    }
+    throw std::invalid_argument("Disabled or invalid MAC shock-heat law selection");
+}
 struct Account {
     double hi = 0, lo = 0, scale = 0;
     void add(double value) {
@@ -98,7 +107,8 @@ void MacClosedSettings::validate() const {
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic) &&
         (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated ||
-         shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic), "Invalid MAC closed settings");
+         shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ||
+         shock_heat == MacShockHeatRegularization::pressure_sensed_series), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -358,7 +368,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 }
                 if (settings_.shock_heat != MacShockHeatRegularization::none) {
                     auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, *pressure_source, .5 * dt,
-                        settings_.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity);
+                        heat_law(settings_.shock_heat));
                     before_shock_heat = std::move(heated.report); prepared = std::move(heated.state); pressure_source = &prepared;
                 }
                 if (settings_.compression_viscosity != MacCompressionViscosity::none) {
@@ -374,7 +384,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 }
                 if (settings_.shock_heat != MacShockHeatRegularization::none) {
                     auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, candidate.state, .5 * dt,
-                        settings_.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity);
+                        heat_law(settings_.shock_heat));
                     after_shock_heat = std::move(heated.report); candidate.state = std::move(heated.state);
                 }
                 if (settings_.thermal_conduction) {

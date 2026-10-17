@@ -31,7 +31,7 @@ MacClosedWorld owner(const ma::testing::Setup& setup,bool wet,
 int main(int argc,char** argv) {
     try {
         const auto& setup=ma::testing::setup();
-        for (const bool wet : {false,true}) for (const auto heat : {MacShockHeatRegularization::none,MacShockHeatRegularization::compression_activated,MacShockHeatRegularization::pressure_sensed_acoustic})
+        for (const bool wet : {false,true}) for (const auto heat : {MacShockHeatRegularization::none,MacShockHeatRegularization::compression_activated,MacShockHeatRegularization::pressure_sensed_acoustic,MacShockHeatRegularization::pressure_sensed_series})
             for (const auto compression : {MacCompressionViscosity::none,MacCompressionViscosity::quadratic,MacCompressionViscosity::acoustic_quadratic}) {
             const auto source=owner(setup,wet,heat,compression); const auto image=source.checkpoint(); const auto fingerprint=ma::testing::fingerprint(source.state());
             const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
@@ -98,7 +98,7 @@ int main(int argc,char** argv) {
             const std::string operation=argv[1];
             if (operation=="--write-checkpoint" || operation=="--write-checkpoint-no-heat" || operation=="--write-checkpoint-quadratic") {
                 const auto heat=operation=="--write-checkpoint-no-heat" ? MacShockHeatRegularization::none :
-                    operation=="--write-checkpoint-quadratic" ? MacShockHeatRegularization::compression_activated : MacShockHeatRegularization::pressure_sensed_acoustic;
+                    operation=="--write-checkpoint-quadratic" ? MacShockHeatRegularization::compression_activated : MacShockHeatRegularization::pressure_sensed_series;
                 const auto compression=operation=="--write-checkpoint-quadratic" ? MacCompressionViscosity::quadratic : MacCompressionViscosity::acoustic_quadratic;
                 const auto image=owner(setup,false,heat,compression).checkpoint(); std::ofstream output(argv[2],std::ios::binary);
                 output.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()));

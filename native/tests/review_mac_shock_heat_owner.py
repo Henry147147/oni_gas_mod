@@ -164,9 +164,9 @@ def physical_check(d,identifier,before,after):
 
 def review(d):
     check(d['required_law'] in (1,2) and d['laws']=={g:d['required_law'] for g in range(7)},'Owned compression setting differs from declared method')
-    if d['required_heat']==2:
-        check(d['heat_settings']=={g:(0 if g==5 else 2) for g in range(7)},'Owned matched-heat setting differs')
-        matched.review_component(d['heat'],d['matched'])
+    if d['required_heat'] in (2,3):
+        check(d['heat_settings']=={g:(0 if g==5 else d['required_heat']) for g in range(7)},'Owned matched-heat setting differs')
+        matched.review_component(d['heat'],d['matched'],expected_law=d['required_heat']-1)
     else:
         check(d['required_heat']==1 and not d['heat_settings'] and not any(d['matched'].values()),'Legacy heat contains matching operands')
         heat.review(d['heat'],False)
@@ -233,9 +233,9 @@ def review(d):
 
 def main():
     raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=4194304,'Owner heat saved pipe cap')
-    required_heat=2 if '--matched-heat' in sys.argv[2:] else 1
-    required_law=2 if required_heat==2 or '--acoustic-compression' in sys.argv[2:] else 1
-    mutations=('clock','chain','trace','heat')+(('tangent','law') if required_law==2 else ())+(('capacity','heat-law') if required_heat==2 else ())
+    required_heat=3 if '--series-heat' in sys.argv[2:] else 2 if '--matched-heat' in sys.argv[2:] else 1
+    required_law=2 if required_heat>=2 or '--acoustic-compression' in sys.argv[2:] else 1
+    mutations=('clock','chain','trace','heat')+(('tangent','law') if required_law==2 else ())+(('capacity','heat-law') if required_heat>=2 else ())
     with localcontext() as context:
         context.prec=80;d=parse(raw,required_law,required_heat);review(d)
         checks=base.CHECKS+compression.base.CHECKS+acoustic.base.CHECKS+acoustic.heat.base.CHECKS+matched.base.CHECKS+matched.acoustic.base.CHECKS

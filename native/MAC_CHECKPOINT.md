@@ -375,3 +375,13 @@ and dependency hashes are checked before readers launch. The twelve-mode
 continuation and malformed-image controls also pass in the new 58-group Linux
 sanitizer run. This is physical image
 identity and same-binary continuation, not ordinary full-colony save/reload.
+
+The later [explicit series-resistance experiment](MAC_SERIES_OWNER.md) appends
+heat enum value 3 without changing the wire layout or values 0/1/2. All 24
+gas/wet, four-heat and three-compression continuation combinations now pass on
+Windows and Linux, including invalid-checksum/structural/enum rejection. Ten
+retained images and the other platform's explicit mode-3, heat-disabled and
+quadratic images round-trip exactly. The restored-default 86-group Linux
+sanitizer run repeats the 24-setting continuation controls. Mode 2 remains the
+default because mode 3 fails the strong-flow gate; neither method has full
+first-playable acceptance.

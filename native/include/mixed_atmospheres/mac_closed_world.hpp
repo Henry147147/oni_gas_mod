@@ -10,8 +10,11 @@
 namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
 enum class MacCompressionViscosity { none, quadratic, acoustic_quadratic };
-// Persisted values: 0 disabled, 1 original closing-speed law, 2 matched Cp law.
-enum class MacShockHeatRegularization { none, compression_activated, pressure_sensed_acoustic };
+// Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
+// 3 matched Cp with two half-cell resistances. Older values keep their laws.
+enum class MacShockHeatRegularization {
+    none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3
+};
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.

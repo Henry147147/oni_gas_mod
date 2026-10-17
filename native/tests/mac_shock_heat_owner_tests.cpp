@@ -51,7 +51,8 @@ struct Expected {
 };
 void run_case(std::size_t gid, MacTransportState state, MacClosedSettings options, std::size_t steps, bool tiny = false) {
     const auto& s = ma::testing::setup(); options.maximum_timestep_s = dt;
-    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic) std::cout << "SHHEAT " << gid << " 2\n";
+    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || options.shock_heat == MacShockHeatRegularization::pressure_sensed_series)
+        std::cout << "SHHEAT " << gid << ' ' << static_cast<int>(options.shock_heat) << '\n';
     std::cout << "SHLAW " << gid << ' ' << static_cast<int>(options.compression_viscosity) << '\n';
     const MacClosedWorld owner(s.registry, s.eos, state, options); const auto held = ma::testing::fingerprint(state);
     auto manual = state; Expected expected; std::size_t current = 0; frame(gid, current, "source", manual);
@@ -75,6 +76,7 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
         const auto heat = [&]() {
             const auto id = gid * 100 + step * 10 + order;
             auto a = advance_mac_shock_heat(s.registry, *s.eos, manual, .5 * dt,
+                options.shock_heat == MacShockHeatRegularization::pressure_sensed_series ? MacShockHeatLaw::pressure_sensed_series :
                 options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity); const auto& r = a.report;
             if (tiny && step == 0 && expected.stages == 0)
                 check(r.absolute_transfer.mantissa() > 0 && r.absolute_transfer.project().rounded && r.unresolved_updates > 0,
@@ -136,7 +138,8 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
 }
 void controls(MacClosedSettings options) {
     const auto& s = ma::testing::setup(); const auto state = source(true); const auto held = ma::testing::fingerprint(state);
-    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic) std::cout << "SHHEAT 6 2\n";
+    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || options.shock_heat == MacShockHeatRegularization::pressure_sensed_series)
+        std::cout << "SHHEAT 6 " << static_cast<int>(options.shock_heat) << '\n';
     std::cout << "SHLAW 6 " << static_cast<int>(options.compression_viscosity) << '\n';
     options.maximum_timestep_s = dt; auto bad = options; bad.shock_heat = static_cast<MacShockHeatRegularization>(99);
     std::size_t rejected = 0;
@@ -168,6 +171,8 @@ int main(int argc, char** argv) { try {
     if (argc == 2 && std::string_view(argv[1]) == "--quadratic-compression") {
         baseline.compression_viscosity = MacCompressionViscosity::quadratic; baseline.shock_heat = MacShockHeatRegularization::compression_activated;
     } else if (argc == 2 && std::string_view(argv[1]) == "--legacy-heat") baseline.shock_heat = MacShockHeatRegularization::compression_activated;
+    else if (argc == 2 && std::string_view(argv[1]) == "--matched-heat") baseline.shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
+    else if (argc == 2 && std::string_view(argv[1]) == "--series-heat") baseline.shock_heat = MacShockHeatRegularization::pressure_sensed_series;
     else check(argc == 1, "Unknown heat-owner test arguments");
     auto options = baseline;
     run_case(0, source(true), options, 1); std::cout << "PASS default wet heat, compression and pressure stages\n";
@@ -175,7 +180,8 @@ int main(int argc, char** argv) { try {
     options.thermal_conduction = true; run_case(2, source(false), options, 1); std::cout << "PASS physical conduction with default shock heat\n";
     options.thermal_conduction = false; run_case(3, source(true), options, 2); std::cout << "PASS multiple accepted heat substeps and one owner clock\n";
     auto tiny = source(false);
-    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic) {
+    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_series) tiny = s.state(4, 2, false);
+    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || options.shock_heat == MacShockHeatRegularization::pressure_sensed_series) {
         std::vector<double> prototype(s.registry.size()); prototype[s.registry.index("nitrogen")] = 1; prototype[s.registry.index("helium")] = 1e-28;
         for (std::size_t i = 0; i < tiny.cells.size(); ++i) {
             auto masses = prototype; if (i % 2) for (auto& mass : masses) mass *= .5;
@@ -183,10 +189,15 @@ int main(int argc, char** argv) { try {
         }
     }
     const auto inertia = mac_face_inertias(s.registry, tiny, *s.eos); std::vector<MacScaled> j(tiny.momentum_x.size());
-    for (std::size_t f = 0; f < j.size(); ++f) j[f] = MacScaled::from_parts(f % 3 == 1 ? -.75 : .75, -1200).multiplied(inertia.x[f]);
+    if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_series) {
+        // Adjacent compressed cells retain a positive series conductance even
+        // below binary64 range. Equal pressure disables the acoustic sensor.
+        for (std::size_t f = 1; f < 4; ++f) j[f] = MacScaled::from_parts(.75, -1200).multiplied(static_cast<double>(4 - f) * inertia.x[f]);
+    } else for (std::size_t f = 0; f < j.size(); ++f) j[f] = MacScaled::from_parts(f % 3 == 1 ? -.75 : .75, -1200).multiplied(inertia.x[f]);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j); tiny.momentum_y.assign(tiny.momentum_y.size(), 0);
     run_case(4, tiny, options, 1, true); std::cout << "PASS retained below-range source heat and unresolved owner updates\n";
-    if (baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic) std::cout << "SHHEAT 5 0\n";
+    if (baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_series)
+        std::cout << "SHHEAT 5 0\n";
     options.shock_heat = MacShockHeatRegularization::none; run_case(5, source(true), options, 1); controls(baseline);
     std::cout << "PASS disabled reference, invalid modes and atomic later failure\n";
     return 0;
