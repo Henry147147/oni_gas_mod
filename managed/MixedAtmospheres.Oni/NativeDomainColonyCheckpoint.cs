@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
         internal static bool HoldActorRestorePause=>ColonyRestoreMode && colonyLoaded && restoredActorImage!=null &&
             (!restoredActorBindingsVerified || PendingActorRestores()!=0);
-        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldIoControlPause;
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldOrbitalReferenceRestorePause || HoldIoControlPause;
         internal static void PublishPausedValidationTick(Game game,float elapsed)
         {
             if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
@@ -170,7 +170,7 @@ namespace MixedAtmospheres.Oni
                 var synchronize=AccessTools.Method(typeof(Game),"UnsafeSim200ms");
                 var publish=AccessTools.Method(typeof(Game),"StepTheSim");
                 synchronize.Invoke(Game.Instance,new object[]{0f});
-                Capture();var source=latest;var requested=PairStatus.Empty;
+                Capture();VerifyNativeOrbitalReferences("before-paired-save");var source=latest;var requested=PairStatus.Empty;
                 var requestCode=RequestSnapshotPair(source.Session,source.CompletedFrames,0,0,ref requested);
                 if(requestCode==3)
                 {
@@ -404,6 +404,13 @@ namespace MixedAtmospheres.Oni
                 ColonyRuntimeValidation.SetStage("waiting-for-persistent-actor-bindings");WriteReport();return;
             }
             VerifyRestoredPersistentActors();
+            if(!restoredOrbitalReferencesVerified)
+            {
+                Require(latest.CompletedFrames==0,"Native orbital references were not admitted before restored physical advancement.");
+                VerifyNativeOrbitalReferences("restored-before-positive-time");
+                restoredOrbitalReferenceFrame=latest.CompletedFrames;restoredOrbitalReferenceTime=latest.TimeSeconds;
+                restoredOrbitalReferencesVerified=true;
+            }
             ObservePersistentEmitterStatus();
             if(!restoredSceneStarted)
             {
@@ -530,7 +537,7 @@ namespace MixedAtmospheres.Oni
     {
         private static void Postfix()
         {
-            if((NativeSealedDomainValidation.HoldInitialRestorePause || NativeSealedDomainValidation.HoldActorRestorePause) && !SpeedControlScreen.Instance.IsPaused)
+            if((NativeSealedDomainValidation.HoldInitialRestorePause || NativeSealedDomainValidation.HoldActorRestorePause || NativeSealedDomainValidation.HoldOrbitalReferenceRestorePause) && !SpeedControlScreen.Instance.IsPaused)
                 SpeedControlScreen.Instance.Pause(false);
         }
     }

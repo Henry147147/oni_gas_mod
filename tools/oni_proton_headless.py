@@ -144,6 +144,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if getattr(args,"graphics_api","glcore") not in ("glcore","d3d11"):
+        raise ValueError("Graphics API must be glcore or d3d11")
     if getattr(args,"verify_persistent_actors",False) is True and (args.mode not in ("native-domain","native-liquid-domain") or
             not (args.save_colony or getattr(args,"verify_natural_autosave",False) is True) or args.frames<80):
         raise ValueError("Persistent actor validation requires a gas/water source, a source save or natural autosave, and at least eighty frames")
@@ -268,10 +270,11 @@ def playtest(args, state: Path, session: dict) -> int:
                 "VerifySaveIoRecovery": args.verify_save_io_recovery, "ReloadInProcess": args.reload_in_process,
                 **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
                 **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {})})
+        graphics_api = getattr(args,"graphics_api","glcore")
         command = sandbox_command(home, state, output, game, proton,
-            ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-d3d11", "-screen-fullscreen", "0",
+            ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-" + graphics_api, "-screen-fullscreen", "0",
              "-screen-width", "1280", "-screen-height", "720", "-logFile", windows_path(output / "Player.log")])
-        result.update(status="running", command=command)
+        result.update(status="running", command=command, graphics_api=graphics_api)
         common.write_json(output / "result.json", result)
         record = common.spawn(command, output / "console.log", env)
         session.update(game=record, latest_run=str(output))
@@ -357,6 +360,8 @@ def main() -> int:
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--mode", choices=MODES, default="native-domain")
+    parser.add_argument("--graphics-api",choices=("glcore","d3d11"),default="glcore",
+        help="Unity graphics API; OpenGL Core avoids the reproduced software Direct3D11 clock/startup failures")
     parser.add_argument("--frames", type=int, choices=range(1, 10001), default=120, metavar="1..10000")
     parser.add_argument("--timeout", type=int, choices=range(30, 7201), default=1800, metavar="30..7200")
     parser.add_argument("--save-colony", action="store_true")

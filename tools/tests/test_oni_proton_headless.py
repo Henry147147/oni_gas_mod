@@ -22,6 +22,11 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_unsupported_graphics_selection_rejects_before_lifecycle_arguments_are_used(self):
+        for graphics in ('vulkan', '', None, 1):
+            with self.subTest(graphics=graphics), self.assertRaisesRegex(ValueError,'Graphics API'):
+                runner.validate_arguments(SimpleNamespace(graphics_api=graphics))
+
     def test_explicit_renderer_selection_is_applied_and_reported_with_default_preserved(self):
         for requested,expected in ((None,'1'),('0','0'),('1','1')):
             with mock.patch.dict(os.environ,{},clear=True):

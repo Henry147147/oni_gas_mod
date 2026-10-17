@@ -1,7 +1,12 @@
 # Native Linux Spaced Out load and continuation
 
-The bounded fluid owner now passes an ordinary Spaced Out colony load on the
-installed Linux game. This uses the existing licensed Linux installation's
+An earlier frozen control passes bounded physical continuation for a Spaced Out
+colony on the installed Linux game. Current builds reject that particular input
+before advancing or resaving because its native orbital object is missing; see
+[reference admission](native-orbital-references.md). An intact fresh cluster is
+still required for current full save/load admission.
+
+The historical control uses the existing licensed Linux installation's
 expansion bundles through `oni_headless.py --game-dir`; the normal save-content
 check remains mandatory. A depot missing those bundles still rejects this same
 save before activation. No assets are transferred between platforms.
@@ -32,7 +37,7 @@ The raw result is
 the independent portable review is
 `23f1b970fb34ec67cc43369f4c4ad55043ce2fa71d82c416056e168a1a594e74`.
 
-Each resave logs `Missing KPrefabID reference: 2`. The same warning occurs in
+Each historical resave logs `Missing KPrefabID reference: 2`. The same warning occurs in
 some preceding base-game saves. Native `Ref<T>` logs it when a saved object
 identity cannot be found, then resets that reference. Exact fluid continuation
 does not establish native object-reference integrity, so that remains an open
@@ -46,6 +51,13 @@ as the asteroid's native `OrbitalMechanics` component and its
 no physics and still passes bounded continuation. It identifies the reference;
 it does not establish a repair. Its receipt SHA-256 is
 `e98c9aba5213a5fa9c0436a883262c2c1e4f78319abda0eb7e9712dad628b1c2`.
+
+The subsequent `74c9ec1` guard reproduces this input's missing ID without
+rewriting it, holds physical frame zero/time 24.400000363588333 seconds and
+creates no resave. All nine native world roots are present; the referenced
+`OrbitalBG` is absent. The expected-rejection result SHA-256 is
+`9de158709acae102e84b72810c9ea67728679712bda14df20c2c990f9a074020`.
+The earlier exact fluid continuation remains a historical, narrower result.
 
 Related controls: [GPU readback](native-gpu-readback.md),
 [reader lifecycle](native-reader-restore.md) and

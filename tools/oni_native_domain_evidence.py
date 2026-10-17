@@ -322,6 +322,57 @@ def _persistent_actors_passed(report: dict, physical: dict, restored: bool, requ
         return False
 
 
+def _native_orbital_references_passed(report: dict, saved: bool, restored: bool) -> bool:
+    try:
+        value = report['NativeOrbitalReferences']
+        if not isinstance(value, dict) or type(value.get('Required')) is not bool:
+            return False
+        if value['Required'] is False:
+            return not (saved or restored) and value.get('Inspections') == 0 and value.get('Worlds') == [] and value.get('References') == []
+        if (value.get('Verified') is not True or value.get('Error') != ''
+                or value.get('Source') != 'read-only-native-orbital-reference-and-save-root-registry'
+                or type(value.get('Inspections')) is not int or value['Inspections'] < 1
+                or type(value.get('RewrittenReferences')) is not int or value['RewrittenReferences'] != 0
+                or value.get('GeneralManagedReferenceIntegrityVerified') is not False
+                or value.get('RestoredBeforeAdvanceVerified') is not restored
+                or value.get('Stage') not in ('before-paired-save', 'restored-before-positive-time')):
+            return False
+        if saved and value['Stage'] != 'before-paired-save':
+            return False
+        if restored and (type(value.get('RestoredPhysicalFrame')) is not int or value['RestoredPhysicalFrame'] != 0
+                or type(value.get('RestoredPhysicalTime')) not in (int, float)
+                or value['RestoredPhysicalTime'] != report['ColonyCheckpoint']['SourceTime']):
+            return False
+        worlds, references = value['Worlds'], value['References']
+        if not isinstance(worlds, list) or not worlds or not isinstance(references, list):
+            return False
+        owners, world_ids = {}, set()
+        for world in worlds:
+            if (not isinstance(world, dict) or any(type(world.get(k)) is not int or world[k] < 0 for k in ('OwnerId', 'WorldId'))
+                    or world['OwnerId'] in owners or world['WorldId'] in world_ids
+                    or any(world.get(k) is not True for k in ('Tracked', 'RootInitialized', 'RootSpawned'))
+                    or type(world.get('SaveRegistrations')) is not int or world['SaveRegistrations'] != 1):
+                return False
+            owners[world['OwnerId']] = world['WorldId']; world_ids.add(world['WorldId'])
+        slots = set()
+        for reference in references:
+            if (not isinstance(reference, dict) or any(type(reference.get(k)) is not int for k in ('OwnerId', 'Slot', 'SavedId', 'TargetId', 'OrbitingWorldId'))
+                    or reference['OwnerId'] not in owners or reference['Slot'] < 0 or reference['SavedId'] < -1
+                    or (reference['OwnerId'], reference['Slot']) in slots):
+                return False
+            slots.add((reference['OwnerId'], reference['Slot']))
+            if reference['SavedId'] == reference['TargetId'] == -1:
+                continue
+            if (reference['TargetId'] < 0 or reference['SavedId'] >= 0 and reference['SavedId'] != reference['TargetId']
+                    or reference['OrbitingWorldId'] != owners[reference['OwnerId']] or reference.get('Prefab') != 'OrbitalBG'
+                    or any(reference.get(k) is not True for k in ('Tracked', 'RootInitialized', 'RootSpawned'))
+                    or type(reference.get('SaveRegistrations')) is not int or reference['SaveRegistrations'] != 1):
+                return False
+        return True
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
 def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
@@ -333,6 +384,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if natural_autosave and (restored or save_io_recovery or not 3100 <= frames <= 5000):
         return False
     saved = saved or natural_autosave
+    if (saved or restored or 'NativeOrbitalReferences' in report) and not _native_orbital_references_passed(report, saved, restored):
+        return False
     gravity = gravity or liquid_gravity
     liquid_transfers = liquid_transfers or liquid_gravity
     liquid = liquid or liquid_transfers or liquid_actors or liquid_heat

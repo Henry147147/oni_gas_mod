@@ -714,6 +714,7 @@ namespace MixedAtmospheres.Oni
             NativeRendererAdvanced = nativeRendererAdvanced, SaveGuardVerified = saveGuardVerified,
             NativeSaveGuardVerified = nativeSaveGuardVerified,
             PersistentActors = PersistentActorsReport(),
+            NativeOrbitalReferences = NativeOrbitalReferenceReport(),
             GameGridProjectionVerified = gameGridProjectionVerified, ProjectionPrimedAtNativeFrame = projectionPrimedAtFrame,
             HeatCommands = heatStatus, HeatCommandsVerified = heatVerified, HeatPacketsRouted = heatPacketsRouted,
             ThermalConduction = thermalStatus, ThermalConductionVerified = thermalVerified,
