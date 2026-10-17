@@ -22,6 +22,22 @@ inline void export_shock_heat(std::size_t id, const MacTransportState& source, c
     std::cout << "HGRID " << id << ' ' << g.width << ' ' << g.height << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << dt << ' ' << report.events.size() << ' ' << report.unresolved_updates;
     for (auto v : {report.absolute_transfer, report.energy_residual, report.energy_bound}) export_shock_heat_scaled(v);
     std::cout << ' ' << report.entropy_change_j_per_k << ' ' << report.entropy_roundoff_j_per_k << '\n';
+    if (report.law == MacShockHeatLaw::pressure_sensed_viscosity) {
+        std::cout << "HMLAW " << id << " 1\n";
+        const auto& coefficients = report.compression_coefficients;
+        for (std::size_t i = 0; i < source.cells.size(); ++i) {
+            std::cout << "HMCP " << id << ' ' << i; export_shock_heat_scaled(report.frozen_conductance_capacity_j_per_k[i]); std::cout << '\n';
+            std::cout << "HMSPEED " << id << ' ' << i; export_shock_heat_scaled(coefficients.source_linear_speeds[i]); std::cout << '\n';
+            std::cout << "HMPRESSURE " << id << ' ' << i << ' ' << coefficients.source_pressures_pa[i] << '\n';
+            for (std::size_t axis = 0; axis < 2; ++axis) {
+                std::cout << "HMSENSOR " << id << ' ' << axis << ' ' << i;
+                export_shock_heat_scaled(coefficients.source_pressure_sensors[axis][i]); std::cout << '\n';
+            }
+        }
+        for (std::size_t i = 0; i < report.events.size(); ++i) {
+            std::cout << "HMDIFFUSION " << id << ' ' << i; export_shock_heat_scaled(report.events[i].diffusion_speed); std::cout << '\n';
+        }
+    }
     for (std::size_t i = 0; i < report.events.size(); ++i) {
         const auto& e = report.events[i]; const auto key = 1000 + id * 1000 + i;
         auto l = source.cells[e.left].mixture, r = source.cells[e.right].mixture; l.energy = e.pair.before_left_j; r.energy = e.pair.before_right_j;

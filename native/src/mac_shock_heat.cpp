@@ -109,7 +109,7 @@ void entropy_check(const std::vector<double>& old_u, const std::vector<double>& 
     if (lower.sign() < 0) precision("Shock heat reduces actual stored-state entropy");
     change = entropy.value().project().value; allowance = bound.value().project().value;
 }
-struct Link { std::size_t axis, face, left, right; MacScaled closing; MacEnergy integrated; };
+struct Link { std::size_t axis, face, left, right; MacScaled closing; MacEnergy integrated; MacScaled diffusion; };
 }
 MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, const MixtureInventory& left,
     const MixtureInventory& right, double vl, double vr, MacEnergy gdt) {
@@ -152,22 +152,33 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
     return p;
 }
 MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, double dt) {
+    const MacTransportState& source, double dt, MacShockHeatLaw law) {
     require_mac_energy_environment(); require(std::isfinite(dt) && dt > 0 && dt <= 1 && .5 * dt > 0, "Invalid shock-heat timestep");
+    require(law == MacShockHeatLaw::closing_velocity || law == MacShockHeatLaw::pressure_sensed_viscosity, "Invalid shock-heat law");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
     require(jx.size() == inertia.x.size() && jy.size() == inertia.y.size(), "Shock-heat momentum shape differs");
     MacShockHeatAdvance result{source, {}}; std::vector<ReferenceEquilibriumState> initial; std::vector<double> old_u;
+    result.report.law = law;
+    if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+        result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source, MacCompressionLaw::pressure_sensed_acoustic);
+        result.report.frozen_conductance_capacity_j_per_k.resize(source.cells.size());
+    }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
         initial.push_back(model.evaluate(source.cells[i].mixture, g.volume_m3())); old_u.push_back(source.cells[i].mixture.energy);
         result.report.frozen_capacity_j_per_k[i] = initial.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
+        if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+            const auto& e = initial.back(); MacEnergySum cp; cp.add(e.intrinsic_heat_capacity_j_per_k);
+            if (e.has_gas) cp.add(MacEnergy::from_double(e.gas_pressure_pa).multiplied(e.gas_volume_m3).shared(1, e.temperature_k));
+            result.report.frozen_conductance_capacity_j_per_k[i] = cp.value();
+        }
     }
     std::vector<Link> links;
     for (std::size_t axis = 0; axis < 2; ++axis) {
         const auto& j = axis == 0 ? jx : jy; const auto& m = axis == 0 ? inertia.x : inertia.y;
         const auto width = axis == 0 ? g.x_width() : g.width, height = axis == 0 ? g.height : g.y_height();
-        std::vector<MacScaled> velocity(j.size()), closing(source.cells.size());
+        std::vector<MacScaled> velocity(j.size()), closing(source.cells.size()), diffusion(source.cells.size());
         for (std::size_t f = 0; f < j.size(); ++f) {
             static_cast<void>(MacEnergy::kinetic(m[f], j[f]).project());
             if (m[f] > 0) velocity[f] = j[f].shared(1, m[f]);
@@ -177,6 +188,9 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             const auto l = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
             const auto jump = mac_scaled_difference(velocity[l], velocity[r]); if (jump.mantissa() > 0) closing[i] = jump;
+            diffusion[i] = closing[i];
+            if (law == MacShockHeatLaw::pressure_sensed_viscosity && !closing[i].is_zero())
+                diffusion[i] = sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i));
         }
         for (std::size_t y = 0; y < height; ++y) for (std::size_t x = 0; x < width; ++x) {
             const auto f = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
@@ -193,10 +207,16 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             if (l == none || r == none) { require(j[f].is_zero(), "Fixed shock-heat face has normal momentum"); continue; }
             if (l == r) continue;
             const auto w = mac_scaled_difference(closing[l], closing[r]).mantissa() >= 0 ? closing[l] : closing[r];
-            if (w.is_zero()) continue;
-            const auto capacity = harmonic_capacity(result.report.frozen_capacity_j_per_k[l], result.report.frozen_capacity_j_per_k[r]);
-            const auto integrated = w.multiplied(.5 * dt).shared(1, g.spacing_m).shared(capacity, MacEnergy::from_double(1));
-            links.push_back({axis, f, l, r, w, integrated});
+            const auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
+            if (speed.is_zero()) continue;
+            auto capacity = harmonic_capacity(result.report.frozen_capacity_j_per_k[l], result.report.frozen_capacity_j_per_k[r]);
+            if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+                const auto a = result.report.frozen_conductance_capacity_j_per_k[l], b = result.report.frozen_conductance_capacity_j_per_k[r];
+                const auto denominator = sum(a, b);
+                capacity = a.shared(b, denominator).multiplied(2);
+            }
+            const auto integrated = speed.multiplied(.5 * dt).shared(1, g.spacing_m).shared(capacity, MacEnergy::from_double(1));
+            links.push_back({axis, f, l, r, w, integrated, speed});
         }
     }
     MacEnergySum transferred;
@@ -206,7 +226,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
         auto pair = relax_mac_shock_heat_pair(model, left, right, g.volume_m3(), g.volume_m3(), link.integrated);
         left.energy = pair.after_left_j; right.energy = pair.after_right_j;
         transferred.add(pair.transfer.magnitude()); result.report.unresolved_updates += pair.unresolved_updates;
-        result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair)});
+        result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair), link.diffusion});
     }
     MacEnergyAccount balance; std::vector<ReferenceEquilibriumState> final; std::vector<double> new_u;
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {

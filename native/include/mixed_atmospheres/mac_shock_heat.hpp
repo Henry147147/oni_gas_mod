@@ -1,7 +1,8 @@
 #pragma once
-#include "mac_transport.hpp"
+#include "mac_compression.hpp"
 
 namespace ma::experimental {
+enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity };
 struct MacShockHeatPair {
     double before_left_j = 0, before_right_j = 0, after_left_j = 0, after_right_j = 0;
     double temperature_left_k = 0, temperature_right_k = 0;
@@ -29,6 +30,7 @@ struct MacShockHeatEvent {
     std::size_t axis = 0, face = 0, left = 0, right = 0, sweep = 0;
     MacScaled closing_velocity;
     MacShockHeatPair pair;
+    MacScaled diffusion_speed;
 };
 struct MacShockHeatReport {
     std::vector<MacShockHeatEvent> events;
@@ -36,15 +38,24 @@ struct MacShockHeatReport {
     MacEnergy absolute_transfer, energy_residual, energy_bound;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t unresolved_updates = 0;
+    MacShockHeatLaw law = MacShockHeatLaw::closing_velocity;
+    std::vector<MacEnergy> frozen_conductance_capacity_j_per_k;
+    MacCompressionCoefficients compression_coefficients;
 };
 struct MacShockHeatAdvance { MacTransportState state; MacShockHeatReport report; };
-// Separate occupied-grid regularization. No owner/default dispatch yet.
+// Separate occupied-grid regularization. The owner selects the reference law.
 // A face uses the greater compressive normal velocity difference in its two
 // adjacent cells and their harmonic equilibrium capacity, divided by spacing.
 // Coefficient one, no sound-speed term. Conductance is frozen per call; each
 // face receives forward/reverse half steps, reversing the entire axis order.
 // No heat crosses walls. Rest, expansion and pure tangential shear are inactive.
 // Every species, passive, face J and geometric field remains unchanged.
+// The optional pressure-sensed law uses Cp=Cintrinsic+nR and the same frozen
+// half-sound speed/pressure sensor as compression. Its diffusion speed is the
+// greater adjacent (closing + sensed half-sound) speed, with each cell active
+// only during positive compression. This matches kappa=cp*beta in the ideal-gas
+// continuum limit; it does not make this split grid scheme an exact shock solve.
 [[nodiscard]] MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry&,
-    const FluidThermodynamics&, const MacTransportState&, double seconds);
+    const FluidThermodynamics&, const MacTransportState&, double seconds,
+    MacShockHeatLaw = MacShockHeatLaw::closing_velocity);
 }

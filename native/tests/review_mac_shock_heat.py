@@ -159,7 +159,7 @@ def review_pair(data,key):
     close(sb,budget,budget,'Pair stored-U entropy allowance',8);check(ds>=-sb,'Pair entropy gate')
 
 
-def review_grid(data,gid,controls=True):
+def review_grid(data,gid,controls=True,conductance_model=None):
     w,h,spacing,depth,px,py,dt,count,un,total,res,bound,ds,sb=data['grids'][gid]
     check(w>0 and h>0 and spacing>0 and depth>0 and dt>0 and px in (0,1) and py in (0,1),'Grid domain')
     vol=spacing*spacing*depth;xw=w+(not px);yh=h+(not py)
@@ -209,6 +209,7 @@ def review_grid(data,gid,controls=True):
         check((ea,ef,el,er,es)==(axis,f,l,r,sweep),'Heat topology/symmetric order')
         close(ec,closing,abs(closing),'Compression switch',8)
         cl=data['caps'][gid,l];cr=data['caps'][gid,r];g=dt/2/spacing*closing*2*cl*cr/(cl+cr)
+        if conductance_model is not None:g=conductance_model(gid,i,axis,f,l,r,closing)
         p=data['pairs'][key];close(p[14],g,g,'Frozen face conductance',16)
         check((p[4],p[5])==(current[l],current[r]),'Pair does not consume actual evolving U')
         for side,c in enumerate((l,r)):

@@ -31,17 +31,25 @@ struct MacCompressionEvent {
     std::size_t axis = 0, cell = 0, sweep = 0;
     MacCompressionPair pair;
 };
-struct MacCompressionReport {
+// One immutable source-state coefficient construction shared by compression
+// and its optional matching thermal regularization. No coefficients depend on
+// heat deposited later within the call.
+struct MacCompressionCoefficients {
+    // Empty in quadratic mode; otherwise frozen half-sound speed per cell
+    // (zero at solids), before any within-call heat deposition.
+    std::vector<MacScaled> source_linear_speeds;
+    std::vector<double> source_pressures_pa;
+    std::array<std::vector<MacScaled>, 2> source_pressure_sensors;
+    [[nodiscard]] MacScaled linear_speed(std::size_t axis, std::size_t cell) const;
+};
+[[nodiscard]] MacCompressionCoefficients freeze_mac_compression_coefficients(const SpeciesRegistry&,
+    const FluidThermodynamics&, const MacTransportState&, MacCompressionLaw);
+struct MacCompressionReport : MacCompressionCoefficients {
     std::vector<MacCompressionEvent> events;
     MacEnergy heat, energy_residual, energy_bound;
     MacScaled wall_impulse_x, wall_impulse_y;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
-    // Empty in the original quadratic mode; otherwise one frozen half-sound
-    // speed per source cell (zero at solids), independent of deposited heat.
-    std::vector<MacScaled> source_linear_speeds;
-    std::vector<double> source_pressures_pa;
-    std::array<std::vector<MacScaled>, 2> source_pressure_sensors;
 };
 struct MacCompressionAdvance { MacTransportState state; MacCompressionReport report; };
 // Quadratic remains the default separate component law. Acoustic mode freezes

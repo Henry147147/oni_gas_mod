@@ -165,6 +165,12 @@ to these failed norms.
 No independent-agent, Unity, first-playable, production, performance or release
 acceptance follows. The default game DLL remains unchanged.
 
+The subsequent optional [viscosity-matched heat component](MAC_MATCHED_HEAT.md)
+passes 127 Windows/Linux groups and 66 selected sanitizer groups. Its shared
+coefficient extraction leaves both owner reference outputs byte-for-byte
+unchanged. It is not selected by that component cohort and supplies no new
+strong-flow result.
+
 The post-result review confirms all 185 native implementation/test/build files
 match the retained strong-flow source exactly; only documentation is updated.
 Review SHA256:

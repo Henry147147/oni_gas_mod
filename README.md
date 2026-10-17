@@ -134,8 +134,13 @@ for ownership, interfaces, failures and implementation gates.
   A separate [compatible momentum limiter](native/MAC_MOMENTUM_LIMITER.md) now
   passes six Windows/Linux groups and Linux ASan/UBSan checks. It preserves
   paired impulse/work accounts and nonnegative upwind remainder heat; its
-  scalar-advection refinement ratios are 0.304/0.283. Geometric reconstruction
-  and insertion into the closed owner remain required before a strong retry.
+  scalar-advection refinement ratios are 0.304/0.283. Subsequent
+  [geometric momentum transport](native/MAC_MOMENTUM_RECONSTRUCTION.md) and
+  [owning integration](native/MAC_MOMENTUM_OWNER.md) pass their Windows/Linux
+  controls; the strong-flow gate remains failed. An optional
+  [viscosity-matched heat component](native/MAC_MATCHED_HEAT.md) now passes all
+  127 groups/reviews on both platforms and 66 Linux sanitizer groups. Its
+  owning selection and a new strong-flow result remain pending.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game
