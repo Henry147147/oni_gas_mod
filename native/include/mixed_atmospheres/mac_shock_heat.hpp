@@ -43,7 +43,8 @@ struct MacShockHeatReport {
     MacCompressionCoefficients compression_coefficients;
 };
 struct MacShockHeatAdvance { MacTransportState state; MacShockHeatReport report; };
-// Separate occupied-grid regularization. The owner selects the reference law.
+// Separate occupied-grid regularization. Its default is the retained reference
+// law; the owner selects its persisted heat mode explicitly.
 // A face uses the greater compressive normal velocity difference in its two
 // adjacent cells and their harmonic equilibrium capacity, divided by spacing.
 // Coefficient one, no sound-speed term. Conductance is frozen per call; each

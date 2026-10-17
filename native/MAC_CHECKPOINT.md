@@ -55,6 +55,20 @@ The compression field's values are 0 (none), 1 (quadratic), and now 2
 the [new owning controls](MAC_ACOUSTIC_OWNER.md) require legacy quadratic
 images and all heat/compression combinations to keep their explicit settings.
 
+The heat field's values are 0 (none), 1 (original closing-speed conductance),
+and now 2 (pressure-sensed acoustic conductance with Cp). Values 0/1 keep their
+preceding behavior; old images never inherit mode 2. The layout remains format
+2, and older readers reject enum 2. The [new owning gate](MAC_MATCHED_OWNER.md)
+requires eighteen complete setting/continuation combinations, retained
+quadratic and acoustic/legacy-heat images, and cross-platform byte identity.
+All eighteen combinations now pass strict Windows/Linux continuation controls.
+Each OS reserializes all eight retained images, then the other's new mode-2,
+heat-disabled and quadratic-reference images without changing a byte. The
+72-group Linux sanitizer cohort also passes normal continuation and malformed
+image controls; cross-read processes are separate strict-build evidence.
+The earlier twelve-mode results below retain their original scope. No new
+Unity save/load result follows from these setting-extension controls.
+
 ## Native domain boundary
 
 Checkpoint extension ABI 1 adds buffer and restore APIs without changing domain ABI 2:

@@ -97,7 +97,8 @@ void MacClosedSettings::validate() const {
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic) &&
-        (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated), "Invalid MAC closed settings");
+        (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated ||
+         shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -355,8 +356,9 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     auto conducted=advance_mac_conduction(registry_,*thermodynamics_,*pressure_source,.5*dt);
                     before_conduction=std::move(conducted.report); prepared=std::move(conducted.state); pressure_source=&prepared;
                 }
-                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated) {
-                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, *pressure_source, .5 * dt);
+                if (settings_.shock_heat != MacShockHeatRegularization::none) {
+                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, *pressure_source, .5 * dt,
+                        settings_.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity);
                     before_shock_heat = std::move(heated.report); prepared = std::move(heated.state); pressure_source = &prepared;
                 }
                 if (settings_.compression_viscosity != MacCompressionViscosity::none) {
@@ -370,8 +372,9 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                         settings_.compression_viscosity == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic : MacCompressionLaw::pressure_sensed_acoustic);
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
                 }
-                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated) {
-                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, candidate.state, .5 * dt);
+                if (settings_.shock_heat != MacShockHeatRegularization::none) {
+                    auto heated = advance_mac_shock_heat(registry_, *thermodynamics_, candidate.state, .5 * dt,
+                        settings_.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity);
                     after_shock_heat = std::move(heated.report); candidate.state = std::move(heated.state);
                 }
                 if (settings_.thermal_conduction) {
@@ -397,7 +400,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     result.report.conduction_iterations+=conduction->iterations;
                     result.report.unresolved_conduction_updates+=conduction->unresolved_heat_updates;
                 }
-                if (settings_.shock_heat == MacShockHeatRegularization::compression_activated)
+                if (settings_.shock_heat != MacShockHeatRegularization::none)
                     for (const auto* heat : {&before_shock_heat, &after_shock_heat}) {
                         bounds.add(heat->energy_bound); shock_heat_transfer.add(heat->absolute_transfer);
                         ++result.report.shock_heat_stages; result.report.shock_heat_events += heat->events.size();

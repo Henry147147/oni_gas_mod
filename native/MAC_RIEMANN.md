@@ -1,11 +1,11 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows pressure-sensed acoustic owner
-completes Sod N64/128/256, then fails collision density/pressure refinement at
-N128 with ratios 0.859942 / 0.881544 against 0.85. Both platforms pass all 119
-prerequisite groups, and 58 Linux sanitizer groups pass. Linux does not repeat
-the known strong-flow failure. Earlier heat, compression, velocity and range
-failures remain recorded below.
+The gate remains failed. The latest Windows viscosity-matched heat owner
+completes Sod N64/128/256, then passes collision pressure/velocity refinement
+but fails density at N128: ratios 0.856166 / 0.796376 / 0.611031 against 0.85.
+Both platforms pass all 133 prerequisite groups/reviews; 72 selected Linux
+sanitizer groups pass. Linux does not repeat the shared strong-flow failure.
+Earlier heat, compression, velocity and range failures remain recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. The original gate introduced tests/build declarations;
@@ -75,7 +75,56 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current pressure-sensed owner: collision refinement failure
+## Current viscosity-matched heat owner: density refinement failure
+
+The [owning Cp/viscosity-matched heat method](MAC_MATCHED_OWNER.md) passes all
+133 strict Windows/Linux groups and saved reviews, plus 72 Linux sanitizer
+groups before this one changed-method retry. Original scientific sources,
+inputs, grids, timesteps and physical thresholds remain unchanged.
+
+| Case | Grid | Density L1 | Pressure L1 | Velocity L1 |
+| --- | --- | --- | --- | --- |
+| Sod | 64 | 0.0112500740906 | 0.00814291073711 | 0.0185867340515 |
+| Sod | 128 | 0.00672611164722 | 0.00465366408982 | 0.0105312985123 |
+| Sod | 256 | 0.00351379993016 | 0.00232938014518 | 0.00515552809273 |
+| Collision | 64 | 0.0428586118062 | 0.101817988157 | 0.0738480553673 |
+| Collision | 128 | 0.0366940677028 | 0.0810854182850 | 0.0451234393987 |
+
+Collision N128/N64 ratios are **0.85616557 / 0.79637616 / 0.61103084**.
+Pressure and velocity meet the original 0.85 limit; density does not. Native
+exits 1 normally after 59.6 seconds, with 572,940 stdout bytes, no rejected
+steps, timeout or pipe overflow. It stops before collision N256 or any
+separation profile. The partial saved review passes 59,205 identities over five
+complete profiles and reproduces the failed norms. Actual EOS, all positive
+constituent/passive inventories, U+face-K, entropy and momentum/wall accounts
+pass. The full gate's three corruption controls are not run.
+
+Saved-only collision density error contributions (unshocked / shock-cut /
+compressed) are 0.017450 / 0.000367 / 0.025041 at N64 and
+0.014680 / 0.014212 / 0.007803 at N128. Thus the compressed-region density
+error decreases substantially, while the shock-cut contribution grows from a
+small coarse-grid value. These partitions describe the saved cell-average
+errors; they do not establish a cause or justify tuning a coefficient or limit.
+
+Maximum central density errors are 0.390% / 0.657%; pressure errors are
+1.024% / 0.561%. The left central sample's specific entropy excess relative to
+the exact star state is -11.616 / -10.816 J/(kg K), compared with
+8.718 / 8.396 for the preceding acoustic/legacy-heat method. These are final
+fixed-cell readings, not parcel entropy-production measurements. Actual total
+entropy still passes its unchanged stored-state bound.
+
+Private regional analysis is `local/mac-matched-owner-collision-analysis-r1`.
+The native/partial cohort is
+`local/occupied-staggered-validation/mac-matched-owner-strong-windows-r1`,
+source-freeze SHA256
+`7023171804a80517fdfa5cb08f4ca6966f3ead04e35f907061b8c441e9c3f5fc`,
+failed terminal SHA256
+`c086b5f88bb33ef45b1dae6167a7da2ce551d45fc41c8f68f1ee397a313ebb7d`.
+The default game DLL is unchanged. No independent-agent, Unity, production,
+performance or full strong-flow acceptance is claimed. Linux does not repeat
+this shared failure.
+
+## Earlier pressure-sensed owner: collision refinement failure
 
 The [pressure-sensed owning method](MAC_ACOUSTIC_OWNER.md) passes all 119
 Windows/Linux native groups and saved reviews, including the original weak

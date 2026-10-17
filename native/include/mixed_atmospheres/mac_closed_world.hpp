@@ -10,7 +10,8 @@
 namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
 enum class MacCompressionViscosity { none, quadratic, acoustic_quadratic };
-enum class MacShockHeatRegularization { none, compression_activated };
+// Persisted values: 0 disabled, 1 original closing-speed law, 2 matched Cp law.
+enum class MacShockHeatRegularization { none, compression_activated, pressure_sensed_acoustic };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -24,7 +25,7 @@ struct MacClosedSettings {
     MacCompressionViscosity compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
-    MacShockHeatRegularization shock_heat = MacShockHeatRegularization::compression_activated;
+    MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
     void validate() const;
 };
 struct MacClosedSubstep {

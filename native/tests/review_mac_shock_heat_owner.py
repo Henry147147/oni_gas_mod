@@ -13,22 +13,23 @@ def module(name,file):
 heat=module('owner_heat_saved','review_mac_shock_heat.py')
 compression=module('owner_compression_saved','review_mac_compression.py')
 acoustic=module('owner_acoustic_saved','review_mac_acoustic_compression.py')
+matched=module('owner_matched_saved','review_mac_matched_heat.py')
 closed=heat.ref;base=heat.base
 check,close,number,unique,dec=base.check,base.close,base.number,base.unique,closed.dec
 EPS=base.EPS
 
 def full(r,i):return base.scaled_energy(r[i],r[i+1])
 
-def parse(raw,required_law=1):
+def parse(raw,required_law=1,required_heat=1):
     d={k:{} for k in ('frames','cells','masses','passives','faces','walls','paths','cases','reports','physical','kappa','laws','linear','speeds','pressures','sensors')}
-    d['required_law']=required_law
+    d['required_law']=required_law;d['required_heat']=required_heat;d['heat_settings']={}
     ordinary=[];heat_lines=[];compression_lines=[];materials=[];passes=[];control=None
     heat_kinds={'HGRID','HPAIR','HPMASS','HEQCERT','HCAP','HEVENT','SCELL','SMASS','SPASSIVE','SFACE','SOLID'}
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty owner heat record');kind=r[0]
         if kind=='MATERIAL':materials.append(line)
         elif kind=='PASS':passes.append(line)
-        elif kind in heat_kinds:heat_lines.append(line)
+        elif kind in heat_kinds or kind in matched.KINDS:heat_lines.append(line)
         elif kind=='KALINEAR':
             check(len(r)==8,'Owned acoustic pair shape');unique(d['linear'],int(r[1]),tuple(full(r,i) for i in (2,4,6)))
         elif kind=='KASPEED':
@@ -38,6 +39,8 @@ def parse(raw,required_law=1):
         elif kind=='KPSENSOR':
             check(len(r)==6,'Owned pressure sensor shape');unique(d['sensors'],tuple(map(int,r[1:4])),full(r,4))
         elif kind.startswith('K'):compression_lines.append(line[1:])
+        elif kind=='SHHEAT':
+            check(len(r)==3,'Owned heat setting shape');unique(d['heat_settings'],int(r[1]),int(r[2]))
         elif kind=='SHLAW':
             check(len(r)==3,'Owned compression law shape');unique(d['laws'],int(r[1]),int(r[2]))
         elif kind=='SHFRAME':
@@ -68,7 +71,8 @@ def parse(raw,required_law=1):
     hp=tuple(int(line.split()[1]) for line in heat_lines if line.startswith('HGRID '))
     cp=tuple(int(line.split()[1]) for line in compression_lines if line.startswith('GRID '))
     pp=tuple(int(line.split()[1]) for line in ordinary if line.startswith('PCASE '))
-    d['heat']=heat.parse(('\n'.join(materials+heat_lines)+'\n').encode(),0,hp,False)
+    heat_raw,d['matched'],rejections=matched.split(('\n'.join(materials+heat_lines)+'\n').encode());check(rejections is None,'Unexpected owner matching rejections')
+    d['heat']=heat.parse(heat_raw,0,hp,False)
     d['compression']=compression.parse(('\n'.join(materials+compression_lines)+'\n').encode(),0,cp,False)
     d['pressure']=closed.parse(('\n'.join(materials+ordinary)+'\n').encode(),0,False,pp,pp)
     return d
@@ -160,7 +164,12 @@ def physical_check(d,identifier,before,after):
 
 def review(d):
     check(d['required_law'] in (1,2) and d['laws']=={g:d['required_law'] for g in range(7)},'Owned compression setting differs from declared method')
-    heat.review(d['heat'],False)
+    if d['required_heat']==2:
+        check(d['heat_settings']=={g:(0 if g==5 else 2) for g in range(7)},'Owned matched-heat setting differs')
+        matched.review_component(d['heat'],d['matched'])
+    else:
+        check(d['required_heat']==1 and not d['heat_settings'] and not any(d['matched'].values()),'Legacy heat contains matching operands')
+        heat.review(d['heat'],False)
     if d['required_law']==2:
         acoustic.review_component(d['compression'],{k:d[k] for k in ('linear','speeds','pressures','sensors')},pressure_sensed=True)
     else:
@@ -224,11 +233,12 @@ def review(d):
 
 def main():
     raw=Path(sys.argv[1]).read_bytes();check(len(raw)<=4194304,'Owner heat saved pipe cap')
-    required_law=2 if '--acoustic-compression' in sys.argv[2:] else 1
-    mutations=('clock','chain','trace','heat')+(('tangent','law') if required_law==2 else ())
+    required_heat=2 if '--matched-heat' in sys.argv[2:] else 1
+    required_law=2 if required_heat==2 or '--acoustic-compression' in sys.argv[2:] else 1
+    mutations=('clock','chain','trace','heat')+(('tangent','law') if required_law==2 else ())+(('capacity','heat-law') if required_heat==2 else ())
     with localcontext() as context:
-        context.prec=80;d=parse(raw,required_law);review(d)
-        checks=base.CHECKS+compression.base.CHECKS+acoustic.base.CHECKS+acoustic.heat.base.CHECKS
+        context.prec=80;d=parse(raw,required_law,required_heat);review(d)
+        checks=base.CHECKS+compression.base.CHECKS+acoustic.base.CHECKS+acoustic.heat.base.CHECKS+matched.base.CHECKS+matched.acoustic.base.CHECKS
         for mutation in mutations:
             bad=copy.deepcopy(d)
             if mutation=='clock':
@@ -241,12 +251,15 @@ def main():
                 key=next(iter(bad['heat']['pairs']));row=list(bad['heat']['pairs'][key]);row[18]*=F(5,4);bad['heat']['pairs'][key]=tuple(row)
             elif mutation=='tangent':
                 key=next(k for k,v in bad['speeds'].items() if v>0);bad['speeds'][key]*=F(5,4)
-            else:bad['laws'][0]=1
+            elif mutation=='law':bad['laws'][0]=1
+            elif mutation=='capacity':
+                key=next(k for k,v in bad['matched']['cp'].items() if v>0);bad['matched']['cp'][key]*=F(5,4)
+            else:bad['heat_settings'][0]=1
             caught=False
             try:review(bad)
             except (ValueError,KeyError):caught=True
             check(caught,'Altered owning heat record accepted')
-    result=dict(Passed=True,Groups=6,CompressionLaw=required_law,SavedChecks=checks,CorruptionsRejected=list(mutations),SavedSha256=hashlib.sha256(raw).hexdigest(),NativeProcessLaunched=False,IndependentAgentReview=False,
+    result=dict(Passed=True,Groups=6,CompressionLaw=required_law,HeatLaw=required_heat,SavedChecks=checks,CorruptionsRejected=list(mutations),SavedSha256=hashlib.sha256(raw).hexdigest(),NativeProcessLaunched=False,IndependentAgentReview=False,
         Scope='Owning occupied heat/compression/pressure controls; no strong-flow, production or game acceptance')
     if len(sys.argv)>2:
         with Path(sys.argv[2]).open('x') as stream:json.dump(result,stream,indent=2)

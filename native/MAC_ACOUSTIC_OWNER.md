@@ -170,6 +170,10 @@ passes 127 Windows/Linux groups and 66 selected sanitizer groups. Its shared
 coefficient extraction leaves both owner reference outputs byte-for-byte
 unchanged. It is not selected by that component cohort and supplies no new
 strong-flow result.
+Its subsequent [mode-2 heat owning integration](MAC_MATCHED_OWNER.md) passes
+133 strict groups on both OSes and 72 selected sanitizer groups. Collision
+pressure now meets the original refinement limit, while density still fails;
+that does not change this earlier cohort's result.
 
 The post-result review confirms all 185 native implementation/test/build files
 match the retained strong-flow source exactly; only documentation is updated.

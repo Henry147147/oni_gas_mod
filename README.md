@@ -140,7 +140,10 @@ for ownership, interfaces, failures and implementation gates.
   controls; the strong-flow gate remains failed. An optional
   [viscosity-matched heat component](native/MAC_MATCHED_HEAT.md) now passes all
   127 groups/reviews on both platforms and 66 Linux sanitizer groups. Its
-  owning selection and a new strong-flow result remain pending.
+  [owning integration](native/MAC_MATCHED_OWNER.md) now passes 133 groups/reviews
+  on both platforms and 72 Linux sanitizer groups. The new strong-flow retry
+  passes collision pressure refinement but still fails density refinement;
+  production and game acceptance remain open.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

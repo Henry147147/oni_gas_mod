@@ -1,8 +1,10 @@
 # Viscosity-matched compression heat
 
-This is an optional occupied-grid component. The closed owner continues to
-select its previous closing-speed heat law. No new strong-flow, production
-world, game, presentation, performance or first-playable acceptance is claimed.
+This is a separate occupied-grid component. Its first cohort below retains
+the previous closing-speed owning heat law. The later
+[owning integration](MAC_MATCHED_OWNER.md) has separate evidence and a failed
+strong-flow gate. No production world, game, presentation, performance or
+first-playable acceptance follows from the component controls.
 
 ## Model
 
