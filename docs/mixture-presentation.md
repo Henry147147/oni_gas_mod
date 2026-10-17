@@ -122,6 +122,13 @@ trace boundary. Windows V54 below completes the four-case native UI fixture.
 Linux hover and presentation from an authoritative completed colony snapshot
 remain required for the full first-playable gate.
 
+The later [Linux four-case hover control](linux-tile-hover.md) now passes actual
+mouse hover and image review for the four bulk gases, hazardous/benign traces,
+the exact trace threshold and 125% UI scale. It also reproduces and repairs
+low-resolution tooltip clipping without reducing the font size or omitting
+warnings. Its physics remains native ONI with explicit display fixtures;
+production ownership remains part of the first-playable gate.
+
 The later `windows-liquid-inspection-r1` cohort passes all 31 inspection groups,
 91 Core groups and 41 presentation groups. It adds supplied compressed-water
 pressure, wet-mixture pressure/fraction separation, legacy unknown pressure and

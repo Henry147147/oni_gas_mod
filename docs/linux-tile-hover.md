@@ -60,14 +60,39 @@ inside that canvas, preserving font size, rows and warnings. A subsequent
 native drawing restores the previous pool positions; session teardown also
 retires the adjustment. Six new inspection groups cover the reproduced
 geometry, all four edges, stable translation, oversized bounds, invalid inputs
-and both installed native drawer contracts. The actual repaired Linux rerun
-is pending. Production fluid ownership and conserved metabolism remain
-separate requirements.
+and both installed native drawer contracts.
+
+The actual repaired `linux-tile-hover-actual-v2` passes all four cases on Linux
+ONI 744825 at 1280 by 720, using clean frozen `e43f543` and the same native
+libraries as the failed baseline. Actual XTest pointer movement drives the
+native hover path without selecting a cell. The images were individually
+reviewed before publishing their bound receipts; the final report passes the
+current strict portable reviewer. Completed revisions and publication
+generations agree at 5, 8, 11 and 14.
+
+All four bulk gases remain visible at the default threshold and at steam's
+exact 0.04 threshold. At threshold 0.04000000000000001, steam becomes a trace
+while the displayed nitrogen, oxygen and CO2 percentages remain unchanged.
+Chlorine's warning remains visible in every case. The repaired 125% image keeps
+the full warning and all four rows inside the viewport at the requested font
+size. A separate actual capture after fixture cleanup shows the normal native
+oxygen tooltip at 1200 g and 20 C, with the default UI scale and normal position
+restored. The player closes, the private display retires and no mod failure
+lines are present.
+
+Private image review SHA-256:
+`1dfada2b1e34873d78914543e9d5dd95461ed5707a89ecec39dad47928ddc241`.
+The repaired raw result is
+`97560e3e9d5a62cabf9da00103fafc6a35375dc1c2c26553fff3426faeea65de`;
+the retained failed baseline is
+`cf142d4d12b4592c7f531711afbb69f2bd52b5244e37ebcb44224ca050885075`.
+Actual Windows acceptance of this viewport repair, production fluid ownership
+and conserved metabolism remain separate requirements.
 
 The merged layout also passes 37 inspection and five native-description groups
 against the installed Windows game declarations. The Windows adapter builds
 with no C# errors or warnings and the two existing MSB3277 reference conflicts.
 These checks preserve the complete non-trace contents list and warning contract;
-they do not replace image review in the repaired game. Private evidence is
-`local/windows-hover-layout-r1`, terminal-review SHA256
+they do not replace image review in the repaired Windows game. Private evidence
+is `local/windows-hover-layout-r1`, terminal-review SHA256
 `97f88afa82c01fccf7815b5914f300e6a53ec4d2d3197c9aabe0c1279bd38525`.

@@ -167,8 +167,12 @@ in [mixture presentation](mixture-presentation.md):
 Windows V54 passes the scoped four-gas native hover fixture, including the
 exact trace cutoff, retained contaminant warning and 125% UI scale; see
 [evidence and limits](mixture-presentation.md#verification-and-limits). That
-display fixture leaves native ONI in charge of physics. Linux hover and an
-authoritative production colony state remain part of this milestone.
+display fixture leaves native ONI in charge of physics. The later
+[Linux four-case hover control](linux-tile-hover.md) also passes actual mouse
+hover and image review, including the exact trace cutoff and 125% UI scale at
+1280 by 720. Its viewport repair preserves every bulk row and hazardous-trace
+warning. These close the scoped display-fixture checks on both platforms;
+authoritative production colony state remains part of this milestone.
 Windows V57 additionally verifies hover against a completed native physical
 frame in a six-cell closed-reference scene, including changing composition and
 colour-only recapture. It retains the surrounding native colony and does not
