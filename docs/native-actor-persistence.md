@@ -59,7 +59,7 @@ checksums, and compare ten resumed worker frames exactly in each case.
 Premature positive advancement faults without advancing or releasing ownership.
 All 13 native tests pass in the Linux compatibility build, with Linux
 address/undefined-behavior sanitizers, and as Windows binaries under Wine. Both
-platforms' managed declaration suites pass 132 groups, and 220 Python checks
+platforms' managed declaration suites pass 132 groups, and 221 Python checks
 pass with four optional/platform skips.
 
 The actual Linux gas source uses frozen `6368468` and native compatibility build
