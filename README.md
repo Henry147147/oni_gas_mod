@@ -5,6 +5,11 @@ tested native mixture model, a managed API, and an explicitly labelled ONI
 integration probe. The default probe leaves colony physics unchanged. The requested
 complete gas-and-liquid conversion is not ready for Workshop publication.
 
+See [playtesting readiness and performance](docs/playtesting-readiness.md) for
+the remaining colony blockers, implemented exact-equilibrium shortcut and
+measured accuracy/speed tradeoffs. A sleeping-region benchmark is not a passed
+active-colony performance gate.
+
 The target is new colonies in the base game and Spaced Out!, on Windows and
 Linux. Every fluid inventory will retain the mass of every constituent. Oxygen,
 nitrogen, carbon dioxide, temperature, pressure, buoyancy, phase changes,

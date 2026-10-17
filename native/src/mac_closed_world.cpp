@@ -96,6 +96,25 @@ MacEnergyAccount energy_difference(const MacTransportState& old, const MacTransp
     }
     return balance;
 }
+bool exact_static_equilibrium(const MacTransportState& state, const MacClosedSettings& settings) {
+    if (settings.gravity_m_per_s2 != 0) return false;
+    for (const auto* values : {&state.momentum_x, &state.momentum_y})
+        for (const double value : *values) if (value != 0) return false;
+    // A projected zero may retain a nonzero canonical momentum below binary64.
+    for (const auto* values : {&state.full_momentum_x, &state.full_momentum_y})
+        for (const auto& value : *values) if (!value.is_zero()) return false;
+    const MixtureInventory* prototype=nullptr;
+    for (std::size_t i=0; i<state.cells.size(); ++i) if (!state.grid.walls[i]) {
+        const auto& mixture=state.cells[i].mixture;
+        if (!prototype) prototype=&mixture;
+        else if (mixture.energy != prototype->energy || mixture.masses != prototype->masses) return false;
+    }
+    // The owner already validated EOS, geometry, inertias and passive amounts.
+    // Identical occupied inventories imply identical p/T at equal cell volume.
+    // With J=0 and g=0, every enabled mechanical/thermal flux is exactly zero.
+    // Passive quantities may differ: this solver has no passive diffusion.
+    return prototype != nullptr;
+}
 }
 void MacClosedSettings::validate() const {
     viscosity.validate();
@@ -366,12 +385,21 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return candidate;
 }
-MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) const {
+MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, MacExecutionPolicy policy) const {
     require_mac_energy_environment();
     require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 && budget > 0 && budget <= 65536, "Invalid MAC interval or attempt budget");
+    require(policy == MacExecutionPolicy::reference || policy == MacExecutionPolicy::exact_equilibrium,
+        "Invalid MAC execution policy");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
+    if (policy == MacExecutionPolicy::exact_equilibrium && exact_static_equilibrium(state_,settings_)) {
+        MacClosedAdvance result{*this,{}};
+        result.world.time_s_=endpoint; result.world.revision_=revision_+1;
+        // One certified interval, with no pressure/transport stages executed.
+        result.report.substeps=1; result.report.attempts=1; result.report.exact_equilibrium_intervals=1;
+        return result;
+    }
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;

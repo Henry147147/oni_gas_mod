@@ -14,6 +14,13 @@ push regularly while another developer works on `main`. The earlier small
 Linux colony priority remains the first integration step, followed by the full
 Windows/Linux and DLC scope below.
 
+Playtest amendment, 2026-10-17: investigate conservative performance changes
+and explicit fidelity tradeoffs now, alongside functional integration. Preserve
+the original reference/release criteria, constituent and energy accounts,
+breathing assessment and truthful presentation. The [playtesting readiness and
+performance work](playtesting-readiness.md) distinguishes implemented shortcuts,
+benchmark-only approximations and remaining colony blockers.
+
 Architecture amendment accepted 2026-10-16: implement the full overhaul through
 [native SimDLL hooks](native-backend-integration.md), retaining verified native
 nonfluid services. Observer and takeover work are the next engineering steps;

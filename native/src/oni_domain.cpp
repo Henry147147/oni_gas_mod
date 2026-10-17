@@ -628,7 +628,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         GasWork work; auto next_actors=actors;
         auto next_steps=actor_steps,next_consumed=consumer_samples,next_emitted=emitter_samples;
         prepare_actors(work,next_actors,seconds,next_steps,next_consumed,next_emitted);
-        auto result=work.owner->advanced(seconds,4096);
+        auto result=work.owner->advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium);
         auto cells=project(result.world,geometry.scenario); auto next=status;
         const auto totals=masses(result.world);
         for (std::size_t i=0;i<totals.size();++i) {
@@ -1113,7 +1113,7 @@ std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t
             return MacClosedWorld::from_checkpoint(shifted,model(shifted,3),image);
         }
     }();
-    return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096).world.checkpoint();
+    return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium).world.checkpoint();
 }
 std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t frame) {
     std::lock_guard lock(state_mutex);
@@ -1156,7 +1156,7 @@ std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t> 
     if (seconds>0) {
         GasWork work(*owner,saved.geometry);std::uint64_t steps=0,consumed=0,emitted=0;
         prepare_actors(work,restored,seconds,steps,consumed,emitted);
-        auto advanced=work.owner->advanced(seconds,4096);owner=std::make_unique<MacClosedWorld>(std::move(advanced.world));
+        auto advanced=work.owner->advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium);owner=std::make_unique<MacClosedWorld>(std::move(advanced.world));
     }
     saved.actors.clear();for (const auto& [key,actor] : restored) { (void)key;saved.actors.push_back(saved_actor(actor)); }
     saved.physical=owner->checkpoint();return actor_checkpoint::encode(saved);
@@ -1197,7 +1197,7 @@ std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const st
         }
     }
     std::uint64_t steps=0,consumed=0,emitted=0;prepare_actors(work,restored,journal.seconds,steps,consumed,emitted);
-    auto result=work.owner->advanced(journal.seconds,4096).world.checkpoint();
+    auto result=work.owner->advanced(journal.seconds,4096,MacExecutionPolicy::exact_equilibrium).world.checkpoint();
     if (!durable) return result;
     saved.actors.clear();for (const auto& [key,actor]:restored) {(void)key;saved.actors.push_back(saved_actor(actor));}
     saved.physical=std::move(result);return actor_checkpoint::encode(saved);

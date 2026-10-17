@@ -79,6 +79,7 @@ struct MacClosedSubstep {
 
 struct MacClosedAdvanceReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
+    std::size_t exact_equilibrium_intervals = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
@@ -112,6 +113,9 @@ struct MacClosedAdvanceReport {
     double absolute_shock_heat_transfer_j = 0;
 };
 struct MacClosedAdvance;
+// Execution-only choice. No physical settings, tolerances or checkpoint bytes
+// change. Reference execution remains available for comparisons and diagnostics.
+enum class MacExecutionPolicy { reference, exact_equilibrium };
 struct MacFluidTransferResult;
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
@@ -144,7 +148,8 @@ public:
     [[nodiscard]] const MacClosedSettings& settings() const noexcept { return settings_; }
     [[nodiscard]] double time_s() const noexcept { return time_s_; }
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
-    [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024) const;
+    [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024,
+        MacExecutionPolicy = MacExecutionPolicy::reference) const;
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
     [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>) const;
