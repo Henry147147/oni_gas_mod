@@ -155,7 +155,8 @@ namespace MixedAtmospheres.Oni
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     return Math.Abs(Grid.Mass[global] - (float)cells[index].TotalMass) <= 1e-6 &&
                         Math.Abs(Grid.Temperature[global] - (float)cells[index].Temperature) <= 1e-4 &&
-                        Grid.Element[global].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen);
+                        Grid.Element[global].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen) &&
+                        !Grid.LiquidImpermeable[global];
                 });
                 Require(gameGridProjectionVerified, "Actual game Grid fields did not consume the physical domain projection.");
                 nativeRendererAdvanced = MixtureWorldRendering.TextureWrites > textureWriteBaseline &&
@@ -467,11 +468,17 @@ namespace MixedAtmospheres.Oni
                 var masses = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass));
                 var temperatures = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.temperature));
                 var elements = copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx));
+                var properties = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.properties));
                 for (var index = 0; index < cells.Length; ++index)
                 {
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     masses[global] = checked((float)cells[index].TotalMass); temperatures[global] = checked((float)cells[index].Temperature);
                     elements[global] = (ushort)ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx;
+                    // These two flags fence the original native simulator. In
+                    // the game-facing copy they would falsely describe fluid
+                    // as a blocked tile and suppress ONI's liquid rendering.
+                    // Keep every other flag and every original native byte.
+                    properties[global] = (byte)(properties[global] & ~NativeFlowMask);
                 }
                 var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
                 var through = deliveredReceipt;
@@ -673,6 +680,7 @@ namespace MixedAtmospheres.Oni
             Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
+            RenderingInputs = RenderingInputs(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
             NativeFlowFenceVerified = nativeFlowFenceVerified, NativeProjectionMasses = nativeProjectionMasses,

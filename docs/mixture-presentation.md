@@ -58,6 +58,8 @@ when liquid is present, separately from gas pressure and constituent partial
 pressures. Compressed liquid can therefore show 220 MPa with no gas phase.
 Legacy liquid inventories explicitly show **Fluid pressure unavailable**;
 gas pressure is never substituted for a missing mechanical reading.
+The [native fluid-rendering repair](native-fluid-rendering.md) also prevents
+private simulation guards from hiding owned water in the normal world view.
 
 This reading API does not run an EOS equilibrium solve or advance a simulation.
 `CoupledColonySimulation` now optionally prepares a presentation companion from

@@ -114,3 +114,8 @@ mods and restore all 13 profile files byte-for-byte. The missing KPrefabID
 246809 warning persists during resaving. Liquid fill rendering, exact visual
 cell/frame binding, general managed-reference integrity, scientific hydrostatic
 convergence and first-playable acceptance remain open.
+
+The later [matched fluid-rendering repair](native-fluid-rendering.md) identifies
+the hidden-water cause and verifies blue full-water appearance on Windows,
+with the same complete physical continuation image. Its scope does not accept
+Linux liquid rendering or general free-surface geometry.
