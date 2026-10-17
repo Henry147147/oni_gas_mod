@@ -45,8 +45,8 @@ into the same fluid owner and accepted-input journal. It conserves represented
 object heat and full-EOS fluid energy, keeps native compatibility temperatures
 unchanged and commits both endpoints on the native worker frame. A real Linux
 saved duplicant now completes 120 exact replayed frames with original breathing
-callbacks and body heat. Full same-process and WindowsPlayer live controls
-remain in progress.
+callbacks and body heat. Both player sources and their local and cross-player
+two-session reloads also pass the [live particle cohort](docs/native-transient-particles.md).
 
 [Native solid-cell heat](docs/native-solid-heat.md) also has a bounded contact
 bridge, with licensed gas/water worker controls on both native libraries.

@@ -40,6 +40,7 @@ range, overlapping requests, traces, full U+K/species accounts, late rejection
 and exact journal replay/checkpoint continuation. Both installed declaration
 suites pass 174 scenarios, and Python passes 265 checks with four explicit
 skips. All 20 native groups pass on GNU Linux and as Windows binaries under
-Wine. Sanitizer, compatibility-build and actual Unity controls are in progress.
+Wine, and on a clean Ubuntu 22.04 build. Sanitizer and actual Unity controls
+are in progress.
 Pumps, pipe/container transfers, conversion chemistry and whole-colony device
 ownership remain separate parts of the [completion plan](completion-plan.md).

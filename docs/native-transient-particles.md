@@ -114,4 +114,11 @@ byte for byte, deposits exactly `2^-149` kg once at frame 10 and completes
 Both sessions observe later native pool reuse without undoing the retirement
 witness. All 240 binary journals pass independent saved-only review. Review
 SHA-256: `20702088260063142b4dfc7f720dd3f8e57c9702b398db481e858bfffe024876`.
-WindowsPlayer and cross-player tiny in-flight controls remain queued.
+The unchanged Linux source also passes both WindowsPlayer reload sessions:
+one exact restore and original frame-10 deposit, later native pool reuse, and
+120 individually exact frames per session. Both end with positive CO2 mass
+`1.401298464324819e-45` kg within the same operand bound. All 240 journals pass
+independent saved-only review, SHA-256
+`9b05dd7628d02a11787f07bb3a24fbf83e64fc1292bb253caf5391eeebd8f3da`.
+The WindowsPlayer-origin tiny parcel source also passes; its local and
+cross-player continued sessions remain queued.
