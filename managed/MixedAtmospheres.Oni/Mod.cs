@@ -39,7 +39,7 @@ namespace MixedAtmospheres.Oni
                     OwnedReservoirLoadVisualValidation.Install(harmony);
                 base.OnLoad(harmony);
                 NitrogenElementTagPatch.VerifyCalls();
-                UnityEngine.Debug.Log("[Mixed Atmospheres] Patched enum tag helpers passed.");
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Native enum tag helpers and nitrogen aliases passed.");
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
@@ -80,6 +80,7 @@ namespace MixedAtmospheres.Oni
             }
             if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                 Step("load-rejection observers", () => OwnedReservoirLoadVisualValidation.AbandonFailedLoad(cause));
+            Step("nitrogen tag verification", NitrogenElementTagPatch.ResetAfterFailedLoad);
             Step("mixture renderer", MixtureWorldRendering.ResetAfterFailedLoad);
             Step("reservoir marker", OwnedReservoirOwnerMarker.ResetAfterFailedLoad);
             Step("overlay status registry", MixtureOverlays.UnregisterStatusItemOverlays);

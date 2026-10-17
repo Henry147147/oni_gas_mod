@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text.Json;
@@ -27,13 +26,14 @@ internal static class Program
         var tests = new (string name, System.Action test)[]
         {
             ("custom identities have stable noncolliding SDBM hashes", StableIdentities),
-            ("all native enum identities and rewritten tag results remain unchanged", NativePassThrough),
+            ("all native enum identities and string tag inputs remain unchanged", NativePassThrough),
             ("custom tag adapter resolves the original string rather than an enum integer", CustomTags),
             ("localization keys remain stable under Turkish casing", LocalizedNames),
             ("explicit YAML descriptions bypass the native culture-dependent default", DescriptionMapping),
             ("native tag bridge still exposes exactly the inspected signatures", BridgeContract),
             ("YAML phases load only through the adapter's private content gate", ContentGate),
-            ("tag IL rewrite rejects changed enum and branch shapes", InvalidBridge),
+            ("aliases accept only the exact reserved decimal strings", InvalidBridge),
+            ("preexisting decimal tags and colliding hashes reject before patching", AliasCollision),
             ("both original native tag helpers can be invoked before patch composition",()=>
             { NitrogenElementTagPatch.WarmNativeCalls();Check(!NitrogenElementTagPatch.Verified,"Unpatched preflight cannot certify patched helpers."); })
         };
@@ -71,19 +71,24 @@ internal static class Program
             Check(!OniNitrogenElements.TryIdentity(value, out var identity) && identity == "" &&
                 OniNitrogenElements.Identity(value) == value.ToString(),"The native identity was changed: " + value);
         }
-        foreach(var bridge in RewrittenBridges()) foreach(var value in Enum.GetValues<SimHashes>().Append((SimHashes)int.MaxValue))
-            Check(bridge(value)==TagManager.Create(value.ToString()),"Rewritten native tag changed: "+value);
+        foreach(var value in Enum.GetValues<SimHashes>().Append((SimHashes)int.MaxValue))
+        {
+            var text=value.ToString(); NitrogenElementTagPatch.Prefix(ref text);
+            Check(text==value.ToString(),"Native tag input changed: "+value);
+            Check(GameTagExtensions.Create(value).Name==text && value.CreateTag().Name==text,
+                "An original native tag helper differs: "+value);
+        }
     }
     private static void CustomTags()
     {
         foreach (var (id, hash, _) in Identities())
         {
-            foreach(var bridge in RewrittenBridges())
-            {
-                var result=bridge(hash);
-                Check(result == new Tag(id) && result.ToString() == id &&
-                    result != new Tag(((int)hash).ToString(CultureInfo.InvariantCulture)), "Custom enum tag resolved as an integer.");
-            }
+            var text=((int)hash).ToString(CultureInfo.InvariantCulture);
+            NitrogenElementTagPatch.Prefix(ref text);
+            var results=new[]{new Tag(text),TagManager.Create(text)};
+            var assigned=default(Tag); assigned.Name=text;
+            foreach(var result in results.Append(assigned))
+                Check(result.GetHash()==(int)hash && result.Name==id, "Custom enum tag resolved as an integer.");
         }
     }
     private static void LocalizedNames()
@@ -108,48 +113,57 @@ internal static class Program
         {
             var method = typeof(GameTagExtensions).GetMethod(name, new[] { typeof(SimHashes) });
             Check(method != null && method.IsStatic && method.ReturnType == typeof(Tag), "Native tag helper signature changed.");
+            var il=method!.GetMethodBody()!.GetILAsByteArray()!;
+            Check(il.Length==19 && il[0]==0x0f && il[1]==0 && il[2]==0xfe && il[3]==0x16 &&
+                il[8]==0x6f && il[13]==0x28 && il[18]==0x2a,"Pinned original native tag helper body changed.");
         }
-    }
-    private static CodeInstruction[] OriginalBridge(string name)
-    {
-        var method=typeof(GameTagExtensions).GetMethod(name,new[]{typeof(SimHashes)})!;
-        var il=method.GetMethodBody()!.GetILAsByteArray()!;
-        Check(il.Length==19 && il[0]==0x0f && il[1]==0 && il[2]==0xfe && il[3]==0x16 &&
-            il[8]==0x6f && il[13]==0x28 && il[18]==0x2a,"Pinned native tag IL changed.");
-        return new[]{new CodeInstruction(OpCodes.Ldarga_S,(byte)0),
-            new CodeInstruction(OpCodes.Constrained,method.Module.ResolveType(BitConverter.ToInt32(il,4))),
-            new CodeInstruction(OpCodes.Callvirt,method.Module.ResolveMethod(BitConverter.ToInt32(il,9))),
-            new CodeInstruction(OpCodes.Call,method.Module.ResolveMethod(BitConverter.ToInt32(il,14))),new CodeInstruction(OpCodes.Ret)};
-    }
-    private static IEnumerable<Func<SimHashes,Tag>> RewrittenBridges()
-    {
-        foreach(var name in new[]{"Create","CreateTag"})
-        {
-            var original=OriginalBridge(name);var code=NitrogenElementTagPatch.Transpiler(original).ToArray();
-            Check(code.Length==4 && ReferenceEquals(code[2],original[3]) && ReferenceEquals(code[3],original[4]),
-                "Native Tag construction/return instructions were changed.");
-            var method=new DynamicMethod("rewritten_"+name,typeof(Tag),new[]{typeof(SimHashes)},typeof(Program),true);
-            var generator=method.GetILGenerator();
-            foreach(var instruction in code)
-                if(instruction.operand is MethodInfo target)generator.Emit(instruction.opcode,target);
-                else if(instruction.operand==null)generator.Emit(instruction.opcode);
-                else throw new Exception("Unexpected rewritten operand");
-            yield return method.CreateDelegate<Func<SimHashes,Tag>>();
-        }
+        var targets=NitrogenElementTagPatch.TargetMethods().ToArray();
+        Check(targets.Length==1 && targets.All(method=>method.DeclaringType==typeof(Tag) &&
+            method.GetParameters().Length==1 && method.GetParameters()[0].ParameterType==typeof(string)) &&
+            targets.OfType<MethodInfo>().All(method=>method.ReturnType==typeof(void)) &&
+            targets.Single().Name=="set_Name",
+            "Tag aliases must patch only the void name setter.");
     }
     private static void InvalidBridge()
     {
-        void Reject(CodeInstruction[] code)
+        foreach(var (_,hash,_) in Identities())
         {
-            try{_ = NitrogenElementTagPatch.Transpiler(code).ToArray();}
-            catch(InvalidDataException){return;}
-            throw new Exception("Changed native tag IL was accepted.");
+            var text=((int)hash).ToString(CultureInfo.InvariantCulture);
+            foreach(var input in new[]{" "+text,text+" ","0"+text,"+"+text,text+".0",text+"x"})
+            {
+                var actual=input;NitrogenElementTagPatch.Prefix(ref actual);
+                Check(actual==input,"A noncanonical alias was accepted: "+input);
+            }
         }
-        Reject(Array.Empty<CodeInstruction>());
-        var code=OriginalBridge("Create");code[1].operand=typeof(int);Reject(code);
-        code=OriginalBridge("Create");var generator=new DynamicMethod("label",typeof(void),Type.EmptyTypes).GetILGenerator();
-        code[2].labels.Add(generator.DefineLabel());Reject(code);
-        code=OriginalBridge("Create");Reject(code.Concat(OriginalBridge("CreateTag")).ToArray());
+        foreach(var input in new[]{"", "Oxygen", OniNitrogenElements.GasId,"-2147483648","2147483647"})
+        {
+            var actual=input;NitrogenElementTagPatch.Prefix(ref actual);
+            Check(actual==input,"An unrelated tag was rewritten.");
+        }
+        string? absent=null;NitrogenElementTagPatch.Prefix(ref absent!);
+        Check(absent==null,"Null input should retain the original method's rejection behavior.");
+    }
+    private static void AliasCollision()
+    {
+        foreach(var field in new[]{"ProperNames","ProperNamesNoLinks"})
+        {
+            var entries=(Dictionary<Tag,string>)typeof(TagManager).GetField(field,BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+            var alias=((int)OniNitrogenElements.Gas).ToString(CultureInfo.InvariantCulture);
+            // Hash-only keys model a collision with a differently named tag too.
+            foreach(var key in new[]{new Tag(alias),new Tag(Hash.SDBMLower(alias))})
+            {
+                Check(!entries.ContainsKey(key),"Test alias was already registered.");
+                try
+                {
+                    entries.Add(key,"test-owned alias collision");
+                    var rejected=false;
+                    try{NitrogenElementTagPatch.WarmNativeCalls();}
+                    catch(InvalidOperationException){rejected=true;}
+                    Check(rejected && !NitrogenElementTagPatch.Verified,"Existing alias was accepted or certified.");
+                }
+                finally{entries.Remove(key);}
+            }
+        }
     }
     private static void ContentGate()
     {

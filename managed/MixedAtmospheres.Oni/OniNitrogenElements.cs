@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
@@ -195,75 +194,77 @@ namespace MixedAtmospheres.Oni
             => OniNitrogenElements.CloseContentGate(substanceTablesByDlc);
     }
 
-    // SimHashes is the shipped enum and cannot acquire new members. Native tag
-    // helpers otherwise stringify custom values as integers, breaking prefab
-    // lookup and SpawnResource. Replace only enum stringification, keeping
-    // the game's Tag construction and struct-return path. Native identities
-    // retain their original Enum.ToString() result.
+    // Keep both shipped Tag-returning helpers untouched: their Harmony
+    // wrappers intermittently fail under Unity's WindowsPlayer/Mono ABI.
+    // Only these three otherwise-undefined decimal names are reserved aliases.
+    // Normalize only TagManager's void name-assignment boundary, before the
+    // game computes its hash. Direct Tag(string) construction stays native.
     [HarmonyPatch]
     internal static class NitrogenElementTagPatch
     {
         internal static bool Verified { get; private set; }
-        // The shipped Harmony assembly binds Label to mscorlib, while this
-        // adapter targets netstandard. Keep that runtime list untyped, as in
-        // the other native-IL adapters, so labels retain their actual identity.
-        private static IList Labels(CodeInstruction code) =>
-            typeof(CodeInstruction).GetField("labels")?.GetValue(code) as IList ??
-            throw new InvalidDataException("The native tag adapter requires Harmony's instruction label list.");
-        private static IEnumerable<MethodBase> TargetMethods()
+        private static readonly Dictionary<string, string> Aliases = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.Create));
-            yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.CreateTag));
-        }
-        internal static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+            [((int)OniNitrogenElements.Gas).ToString(System.Globalization.CultureInfo.InvariantCulture)] = OniNitrogenElements.GasId,
+            [((int)OniNitrogenElements.Liquid).ToString(System.Globalization.CultureInfo.InvariantCulture)] = OniNitrogenElements.LiquidId,
+            [((int)OniNitrogenElements.Solid).ToString(System.Globalization.CultureInfo.InvariantCulture)] = OniNitrogenElements.SolidId
+        };
+        internal static IEnumerable<MethodBase> TargetMethods()
         {
-            var code=instructions.ToList();var replacements=0;
-            for(var i=0;i<code.Count;++i)
-            {
-                if(i+2<code.Count && (code[i].opcode==OpCodes.Ldarga || code[i].opcode==OpCodes.Ldarga_S) &&
-                    code[i+1].opcode==OpCodes.Constrained && Equals(code[i+1].operand,typeof(SimHashes)) &&
-                    code[i+2].opcode==OpCodes.Callvirt && Equals(code[i+2].operand,AccessTools.Method(typeof(object),nameof(ToString),Type.EmptyTypes)))
-                {
-                    if(Labels(code[i+1]).Count!=0 || Labels(code[i+2]).Count!=0 ||
-                        code[i].blocks.Count!=0 || code[i+1].blocks.Count!=0 || code[i+2].blocks.Count!=0)
-                        throw new InvalidDataException("Unexpected branch/exception boundary in the native enum tag helper.");
-                    var load=new CodeInstruction(OpCodes.Ldarg_0);
-                    foreach(var label in Labels(code[i]))Labels(load).Add(label);
-                    yield return load;
-                    yield return new CodeInstruction(OpCodes.Call,AccessTools.Method(typeof(OniNitrogenElements),nameof(OniNitrogenElements.Identity)));
-                    ++replacements;i+=2;
-                }
-                else yield return code[i];
-            }
-            if(replacements!=1)throw new InvalidDataException("The native enum tag helper no longer has exactly one inspected stringification.");
+            yield return AccessTools.PropertySetter(typeof(Tag), nameof(Tag.Name))
+                ?? throw new MissingMethodException("Tag.Name.set");
         }
+        internal static void Prefix(ref string __0)
+        {
+            if (__0 != null && Aliases.TryGetValue(__0, out var identity)) __0 = identity;
+        }
+        internal static void ResetAfterFailedLoad() => Verified = false;
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void WarmNativeCalls()
         {
-            Verified=false;
-            // The real WindowsPlayer/Proton control fails at a cold CreateTag
-            // entry after composition. Pre-invocation makes its direct runtime
-            // checks pass; standalone Mono does not reproduce the Unity fault.
-            foreach(var name in new[]{"Create","CreateTag"})
+            Verified = false;
+            // Tag equality compares only hashes. Check the original named-tag
+            // registries too, and reject any existing use of a reserved alias
+            // (including a colliding hash) before installing either patch.
+            foreach (var field in new[] { "ProperNames", "ProperNamesNoLinks" })
             {
-                var method=AccessTools.Method(typeof(GameTagExtensions),name,new[]{typeof(SimHashes)})
-                    ?? throw new MissingMethodException("Native tag helper is unavailable: "+name);
-                if(!(method.Invoke(null,new object[]{SimHashes.Oxygen}) is Tag tag) || tag!=TagManager.Create("Oxygen"))
-                    throw new InvalidDataException("Native tag helper differs before patching: "+name);
+                var entries = AccessTools.Field(typeof(TagManager), field)?.GetValue(null) as Dictionary<Tag, string>
+                    ?? throw new MissingFieldException("TagManager." + field);
+                foreach (var alias in Aliases.Keys)
+                    if (entries.ContainsKey(new Tag(alias)))
+                        throw new InvalidOperationException("Nitrogen decimal tag alias is already registered: " + alias);
+            }
+            foreach (var name in new[] { "Create", "CreateTag" })
+            {
+                var method = AccessTools.Method(typeof(GameTagExtensions), name, new[] { typeof(SimHashes) })
+                    ?? throw new MissingMethodException("Native tag helper is unavailable: " + name);
+                if (!(method.Invoke(null, new object[] { SimHashes.Oxygen }) is Tag tag) || !Same(tag, "Oxygen"))
+                    throw new InvalidDataException("Native tag helper differs before patching: " + name);
             }
         }
+        private static bool Same(Tag tag, string identity) =>
+            tag.Name == identity && tag.GetHash() == Hash.SDBMLower(identity);
+
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void VerifyCalls()
         {
-            Verified=false;
-            foreach(var id in new[]{SimHashes.Oxygen,SimHashes.Water,SimHashes.Unobtanium,SimHashes.Vacuum,
-                OniNitrogenElements.Gas,OniNitrogenElements.Liquid,OniNitrogenElements.Solid,(SimHashes)int.MaxValue})
+            Verified = false;
+            foreach (var id in new[] { SimHashes.Oxygen, SimHashes.Water, SimHashes.Unobtanium, SimHashes.Vacuum,
+                OniNitrogenElements.Gas, OniNitrogenElements.Liquid, OniNitrogenElements.Solid, (SimHashes)int.MaxValue })
             {
-                var expected=TagManager.Create(OniNitrogenElements.Identity(id));
-                if(GameTagExtensions.Create(id)!=expected || id.CreateTag()!=expected)
-                    throw new InvalidDataException("Patched native tag helper changed its identity or return contract: "+(int)id);
+                var expected = OniNitrogenElements.Identity(id);
+                var text = id.ToString();
+                var assigned = default(Tag); assigned.Name = text;
+                var created = GameTagExtensions.Create(id);
+                var extended = id.CreateTag();
+                var managed = TagManager.Create(text);
+                var constructed = new Tag(expected);
+                if (!Same(created, expected) || !Same(extended, expected) || !Same(managed, expected) ||
+                    !Same(constructed, expected) || !Same(assigned, expected))
+                    throw new InvalidDataException("Native tag alias changed its identity or return contract: " + (int)id);
             }
-            Verified=true;
+            Verified = true;
         }
     }
 }
