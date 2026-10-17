@@ -163,3 +163,9 @@ terminal-review SHA256
 `15b28fcf0175668bbaf4a25eb3f84a1155c71e0928a076f7cf967da570978080`.
 This checks the combined build and helpers; actual Unity inventory-import and
 full-colony acceptance remain separate requirements.
+
+The subsequent completed-source-frame admission guard is merged as well.
+The same 9/106/31 Windows managed groups, adapter build and 85 Linux runner
+checks pass again; native source and build-configuration hashes are unchanged.
+That focused review is `local/windows-swept-import-gate-r1`, SHA256
+`267e3c68cc25a0388bc8cde7596eafaa6c00b2af8461c53fb89df23c83a90af6`.
