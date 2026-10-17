@@ -35,6 +35,20 @@ installation manifest. Klei lists 744825 as the latest public release when check
 [Klei release index](https://kleiforums.com/game-updates/oni-alpha/) and
 [release notes](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/).
 
+Matching game builds also need matching available DLC. The headless load driver
+reads the selected save's native content metadata and checks the game's normal
+subscription/installation/enabled-content result before entering the backend
+scene. It records required, active and unavailable IDs and rejects a mismatch
+without initializing the native simulator. It does not enable missing assets
+or alter entitlement checks.
+
+The retained `cross-platform-Windows-save-to-Linux-v1` fails because its Windows
+source uses Spaced Out! but the Linux installation has no `expansion1_bundle`.
+The first substantive rejection is unknown native element `134298891`
+(Uranium Ore) during preserved-inventory admission. ONI's subsequent
+world-generation fallback then fails. This is not a completed cross-platform
+colony test; matching DLC installation and a new real-game load remain required.
+
 | Platform | Native image | SHA256 |
 | --- | --- | --- |
 | Windows x64 | `Plugins/x86_64/SimDLL.dll` | `031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727` |

@@ -59,6 +59,10 @@ namespace MixedAtmospheres.Oni
             public ulong ObserverTimestepReturns = 0, ObserverPhysicalUpdates = 0;
             public int SnapshotChannels, EventChannels, Duplicants;
             public string[] ActiveDlcIds = Array.Empty<string>();
+            public bool LoadContentCompatibilityChecked, LoadContentCompatible;
+            public string[] RequiredLoadDlcIds = Array.Empty<string>();
+            public string[] UnavailableLoadDlcIds = Array.Empty<string>();
+            public string[] RuntimeDlcIds = Array.Empty<string>();
             public string[] ImportedMaterialIds = Array.Empty<string>();
             public string MaterialModel = "explicit local ONI constant-property surrogates; not a thermodynamic catalogue";
             public string MaterialFingerprint = "";
@@ -229,6 +233,21 @@ namespace MixedAtmospheres.Oni
 
         private static NativeMatterPhase Phase(Element element) => element.IsGas ? NativeMatterPhase.Gas :
             element.IsLiquid ? NativeMatterPhase.Liquid : element.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum;
+
+        internal static void ValidateSelectedSaveContent(string path)
+        {
+            var information = SaveLoader.LoadHeader(path, out _);
+            if (information.dlcIds == null) throw new InvalidDataException("Selected colony has no content metadata.");
+            Report.RequiredLoadDlcIds = information.dlcIds.ToArray();
+            Report.RuntimeDlcIds = DlcManager.GetActiveDLCIds().ToArray();
+            Report.UnavailableLoadDlcIds = information.dlcIds.Where(id => !DlcManager.IsContentSubscribed(id)).ToArray();
+            Report.LoadContentCompatibilityChecked = true;
+            Report.LoadContentCompatible = Report.UnavailableLoadDlcIds.Length == 0;
+            WriteReport();
+            if (!Report.LoadContentCompatible)
+                throw new InvalidDataException("Selected colony requires unavailable or disabled content: " +
+                    string.Join(", ", Report.UnavailableLoadDlcIds) + ". Install and enable that content before loading; the native backend has not been initialized.");
+        }
 
         internal static void OnMainMenu(MainMenu menu)
         {
@@ -466,6 +485,7 @@ namespace MixedAtmospheres.Oni
                     if (config.Mode == "native-load-domain")
                     {
                         if (string.IsNullOrEmpty(config.LoadSavePath) || !File.Exists(config.LoadSavePath)) throw new FileNotFoundException("A completed native colony save is required.");
+                        ColonyRuntimeValidation.ValidateSelectedSaveContent(Path.GetFullPath(config.LoadSavePath));
                         SaveLoader.SetActiveSaveFilePath(Path.GetFullPath(config.LoadSavePath));
                         LoadingOverlay.Load(SaveLoader.LoadScene);
                     }

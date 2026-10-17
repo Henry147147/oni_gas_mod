@@ -59,9 +59,10 @@ The Windows runner exposes `-NativeDomain import` and
 continues to report WindowsPlayer on a Linux host separately from native
 Windows OS evidence.
 
-Both adapters compile, all 186 Python checks pass, and the Linux Release native
-suite passes all 13 CTests. The new native controls include late-cell atomic
+Both adapters compile, all 186 Python checks pass, and the Linux Release,
+ASan/UBSan, Ubuntu 22.04 compatibility and Windows-under-Wine native suites each
+pass all 13 controls. The new native controls include late-cell atomic
 rejection, unchanged constituent inventories/temperature/zero motion, physical
 advancement and exact checkpoint continuation for gas, water and water with
-gravity. Sanitizer, Windows-under-Wine and real Unity import runs are pending.
+gravity. Real Unity import runs are in progress.
 No playable-colony or whole-colony acceptance follows from the helper tests.
