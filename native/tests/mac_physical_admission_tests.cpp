@@ -24,7 +24,9 @@ void result(int endpoint,const MacTransportReport& r){
  std::cout<<'\n';
 }
 }
-int main(){try{
+int main(int argc,char** argv){try{
+ check(argc==1 || (argc==2 && std::string(argv[1])=="--bounded-energy"),"Invalid physical admission test arguments");
+ const auto mode=argc==2 ? MacMomentumReconstruction::swept_energy_flux : MacMomentumReconstruction::swept_physical;
  require_mac_energy_environment();std::cout<<std::setprecision(17);const auto& set=ma::testing::setup();
  auto definitions=set.eos->reference().materials();for(auto& material:definitions)material.minimum_temperature_k=300;
  FluidThermodynamics bounded(set.registry,"deformed-minimum-temperature-admission",std::move(definitions));
@@ -51,14 +53,15 @@ int main(){try{
   flux.x[xf]=qx[xf]*source.cells[dx].mixture.mass()/volumes[dx];flux.y[yf]=qy[yf]*source.cells[dy].mixture.mass()/volumes[dy];
  }
  const auto held=ma::testing::fingerprint(source);
- const auto accepted=advance_mac_transport(set.registry,source,flux,bounded,volumes,MacMomentumReconstruction::swept_physical);
+ const auto accepted=advance_mac_transport(set.registry,source,flux,bounded,volumes,mode);
  const auto donor=advance_mac_transport(set.registry,source,flux,bounded,volumes,MacMomentumReconstruction::donor_cell);
- const auto unrestricted=advance_mac_transport(set.registry,source,flux,*set.eos,volumes,MacMomentumReconstruction::swept_physical);
+ const auto unrestricted=advance_mac_transport(set.registry,source,flux,*set.eos,volumes,mode);
  check(ma::testing::fingerprint(source)==held,"Admission control changed its source");
  check(accepted.report.physical_correction_fraction>0&&accepted.report.physical_correction_fraction<1&&accepted.report.physical_admission_backtracks>0,"No intermediate whole-state admission witness");
  check(unrestricted.report.physical_correction_fraction==1,"Broad-domain control unexpectedly limited");
  double minimum=1e9;for(const auto& cell:unrestricted.state.cells)minimum=std::min(minimum,set.eos->evaluate(cell.mixture,1).temperature_k);
  check(minimum<299.99,"Unrestricted state no longer crosses the declared boundary");
+ if (argc==2) std::cout<<"BMODE 4\n";
  std::cout<<"BGRID 8 4 1 1 1\nBDOMAIN 300 1000000 32\nBUNCHANGED 1\n";
  for(const auto& m:set.eos->reference().materials())std::cout<<"BMATERIAL "<<set.registry.index(m.id)<<' '<<(m.phase==ReferencePhase::ideal_gas?0:1)<<' '<<m.molar_mass_kg_per_mol<<' '<<m.cv_j_per_kg_k<<' '<<m.energy_offset_j_per_kg<<' '<<m.zero_pressure_density_kg_per_m3<<' '<<m.reference_bulk_modulus_pa<<'\n';
  for(std::size_t i=0;i<qx.size();++i){std::cout<<"BSWEEP 0 "<<i<<' '<<qx[i]<<'\n'<<"BSWEEP 1 "<<i<<' '<<qy[i]<<'\n';std::cout<<"BFLUX 0 "<<i<<' '<<flux.x[i]<<'\n'<<"BFLUX 1 "<<i<<' '<<flux.y[i]<<'\n';}

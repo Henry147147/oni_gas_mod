@@ -14,5 +14,5 @@ void reconstruct_mac_swept_momentum(const MacGrid&, bool x_component,
     std::span<const double> dual_source_volumes,
     const std::vector<MacDualFlux>& volume_edges,
     const std::vector<MacScaled>& old_velocity, std::vector<MacScaled>& momentum,
-    MacFaceTransportReport&, double correction_fraction);
+    MacFaceTransportReport&, double correction_fraction, MacMomentumReconstruction);
 }

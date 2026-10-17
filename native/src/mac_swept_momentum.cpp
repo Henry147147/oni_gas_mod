@@ -36,12 +36,13 @@ bool resolved(MacScaled before, MacScaled after, MacScaled change) {
 void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
     std::span<const double> volumes, const std::vector<MacDualFlux>& volume_edges,
     const std::vector<MacScaled>& velocity, std::vector<MacScaled>& momentum,
-    MacFaceTransportReport& report, double theta) {
+    MacFaceTransportReport& report, double theta, MacMomentumReconstruction reconstruction) {
     const auto width = x_component ? g.x_width() : g.width;
     const auto height = x_component ? g.height : g.y_height();
     const auto count = width * height;
     if (volumes.size() != count || volume_edges.size() != report.fluxes.size() ||
-        velocity.size() != count || momentum.size() != count || !std::isfinite(theta) || theta < 0 || theta > 1)
+        velocity.size() != count || momentum.size() != count || !std::isfinite(theta) || theta < 0 || theta > 1 ||
+        (reconstruction!=MacMomentumReconstruction::swept_physical && reconstruction!=MacMomentumReconstruction::swept_energy_flux))
         throw std::invalid_argument("Invalid swept MAC momentum geometry or correction fraction");
     const auto free = [&](std::size_t i) {
         if (i == none) return false;
@@ -102,7 +103,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
             else centres[i][axis] = coordinate.value;
         }
     }
-    report.reconstruction = MacMomentumReconstruction::swept_physical;
+    report.reconstruction = reconstruction;
     report.source_centroid_offsets = centres; report.upwind_momentum = momentum;
     report.velocity_slope_x.resize(count); report.velocity_slope_y.resize(count);
     report.upwind_mixing_heat.resize(count); report.upwind_transported_kinetic.resize(count);
@@ -193,8 +194,16 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
         }
         bool work_admitted=false;
         for (std::size_t attempt=0;attempt<=64;++attempt) {
-            event.impulse=product(request.multiplied(theta),event.transported_work_limiter);
-            event.energy_flux=product(sum(ul,ur),event.impulse).shifted(-1);
+            if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux) {
+                // Keep the kinematic correction at a stationary donor. Only
+                // the carried energy is restricted by its nonnegative budget;
+                // signed compatible internal work supplies the difference.
+                event.impulse=request.multiplied(theta);
+                event.energy_flux=product(requested_work,event.transported_work_limiter);
+            } else {
+                event.impulse=product(request.multiplied(theta),event.transported_work_limiter);
+                event.energy_flux=product(sum(ul,ur),event.impulse).shifted(-1);
+            }
             auto left_work=transported[edge.left],right_work=transported[edge.right];
             left_work.add(event.energy_flux.negated()); right_work.add(event.energy_flux);
             if (left_work.sign()>=0 && right_work.sign()>=0) { work_admitted=true; break; }
@@ -207,6 +216,11 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
         const auto linear=product(mac_scaled_difference(ul,ur),event.impulse).shifted(-1);
         event.work_change_left=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.left],event.impulse).negated());
         event.work_change_right=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.right],event.impulse).negated());
+        if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux) {
+            const auto work_difference=mac_scaled_difference(requested_work,event.energy_flux);
+            event.work_change_left=sum(event.work_change_left,work_difference);
+            event.work_change_right=sum(event.work_change_right,work_difference.negated());
+        }
         MacScaledSum left, right; left.add(event.before_left); left.add(event.impulse.negated());
         right.add(event.before_right); right.add(event.impulse);
         event.after_left=represented(left); event.after_right=represented(right);

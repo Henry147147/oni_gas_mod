@@ -12,7 +12,7 @@ namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
 enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2,
-    swept_physical = 3 };
+    swept_physical = 3, swept_energy_flux = 4 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Every fluid cell must remain occupied.
@@ -84,13 +84,14 @@ struct MacFaceEnergy {
     // magnitude of only the much smaller final transported energy.
     MacEnergy composed_energy_bound{};
     // Signed compatible remap work, distinct from nonnegative upwind variance.
-    // Only swept_physical uses this term; admission checks the completed EOS,
+    // The two swept modes use this term; admission checks the completed EOS,
     // entropy and conserved state before returning any candidate.
     MacEnergy remap_work_energy{};
 };
 struct MacMomentumRemapEvent {
     std::size_t dual_edge = 0, transport_axis = 0;
     MacScaled predictor_delta_velocity, bounded_delta_velocity, requested_impulse, impulse;
+    // Selector 3 limits impulse; selector 4 limits only carried energy.
     MacScaled transported_work_limiter;
     MacScaled before_left, before_right, after_left, after_right;
     MacEnergy energy_flux, work_change_left, work_change_right;

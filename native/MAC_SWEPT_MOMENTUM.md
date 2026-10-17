@@ -139,6 +139,10 @@ remains opt-in and the default stays 1. Retained strong terminal-review SHA256:
 Investigate the remaining accuracy defect before a distinct-method retry.
 The previous selector-2 failure retains its own status and evidence.
 
+The later [bounded carried-energy mode](MAC_BOUNDED_ENERGY.md) diagnoses and
+addresses a further stationary-donor restriction as explicit selector 4.
+Selector 3 and its retained strong-flow status remain unchanged.
+
 Production world ownership, exact vacuum, physical material/phase/device
 coverage, metabolism, live actors, Windows/Linux game UI, performance and the
 full first-playable colony criteria remain required by the overhaul plan.

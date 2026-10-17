@@ -112,6 +112,14 @@ trajectories byte for byte. Separation still fails the finest velocity error
 and central density/pressure limits. The absolute bounds remain unchanged and
 the full strong-flow and production exits stay open.
 
+Saved-profile localization and a byte-identical diagnostic then reproduce a
+stationary-donor momentum restriction during separation. The opt-in
+[bounded carried-energy selector 4](../native/MAC_BOUNDED_ENERGY.md) passes seven
+scoped groups, 200,276 saved checks and 96 exact checkpoint continuations per
+configuration, plus cross-OS image reads. Eight existing-mode streams remain
+byte identical. Full prerequisites, strong-flow accuracy and production remain
+open; the default remains selector 1.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

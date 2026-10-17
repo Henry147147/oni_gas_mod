@@ -9,9 +9,9 @@ sys.path.insert(0,str(SOURCE))
 import review_mac_closed_world as closed
 base=closed.base;check=base.check;near=base.close;number=base.number;EPS=base.EPS
 def encoded(row,i):return base.scaled_energy(row[i],row[i+1])
-def parse(raw):
+def parse(raw,bounded_energy=False):
  check(0<len(raw)<=16777216,'Saved stream size');common=[]
- d=dict(config={},sweeps={},nodes={},materials={},admit={},counts={},faces={},events={},modes={},complete=None)
+ d=dict(config={},sweeps={},nodes={},materials={},admit={},counts={},faces={},events={},modes={},baseline={},complete=None)
  for line in raw.decode('ascii').splitlines():
   r=line.split();check(bool(r),'Empty record');tag=r[0]
   if tag=='SWCASE':
@@ -32,32 +32,40 @@ def parse(raw):
    check(len(r)==32,'Event shape');base.unique(d['events'],tuple(map(int,r[1:4])),(*map(int,r[4:8]),*[encoded(r,i) for i in range(8,32,2)]))
   elif tag=='SWCOMPLETE':
    check(len(r)==2 and d['complete'] is None,'Completion shape');d['complete']=int(r[1])
+  elif tag=='BWBASE':
+   check(bounded_energy and len(r)==6,'Stagnation baseline shape');base.unique(d['baseline'],tuple(map(int,r[1:4])),encoded(r,4))
   elif tag=='MCONFIG':
-   check(len(r)==3 and r[2]=='3','Physical mode missing');base.unique(d['modes'],int(r[1]),3)
+   mode=4 if bounded_energy else 3
+   check(len(r)==3 and r[2]==str(mode),'Physical mode missing');base.unique(d['modes'],int(r[1]),mode)
   else:common.append(line)
- check(d['complete'] in (22,24),'Fixture version coverage');count=d['complete']
- d['ordinary']=base.parse(('\n'.join(common)+'\n').encode('ascii'),required_passes=4,required_cases=range(count))[0]
+ check(d['complete'] in ((28,) if bounded_energy else (22,24)),'Fixture version coverage');count=d['complete']
+ d['ordinary']=base.parse(('\n'.join(common)+'\n').encode('ascii'),required_passes=5 if bounded_energy else 4,required_cases=range(count))[0]
  check(set(d['config'])==set(d['admit'])==set(d['modes'])==set(range(count)),'Case coverage')
  check(set(d['counts'])=={(c,a) for c in range(count) for a in (0,1)},'Count coverage')
  check(set(d['nodes'])=={(c,o,f) for c in range(count) for o in range(d['config'][c][-1]) for f in (4,5,6)},'Selected node coverage')
  check(set(d['sweeps'])=={(c,f) for c in range(count) for f in range(11)} and len(d['materials'])==4,'Sweep/material coverage')
+ check(set(d['baseline'])==({(c,o,f) for c in range(24,28) for o in range(2) for f in (4,5,6)} if bounded_energy else set()),'Stagnation baseline coverage')
  return d
 
-def review(d):
- nodes=0;negative=0;edge_limited=0;events=0
+def review(d,bounded_energy=False):
+ nodes=0;negative=0;edge_limited=0;events=0;zero_carrier_corrections=0;baseline_defects=0
  for c,(axis,control,direction,exponent,a,b,transverse) in d['config'].items():
   case=d['ordinary'][c];topology=base.topology(case);base.expected_duals(case)
-  check(axis in (0,1) and control in range(5) and direction in (-1,1) and exponent in (0,-1200),'Fixed configuration')
-  expected_config=(c//10,(c%10)//2,(-1,1)[c%2],0) if c<20 else (c-20,0,1,-1200) if c<22 else (c-22,0,1,0)
+  check(axis in (0,1) and control in range(6 if bounded_energy else 5) and direction in (-1,1) and exponent in (0,-1200),'Fixed configuration')
+  expected_config=(c//10,(c%10)//2,(-1,1)[c%2],0) if c<20 else (c-20,0,1,-1200) if c<22 else (c-22,0,1,0) if c<24 else ((c-24)//2,5,(-1,1)[c%2],0)
   check((axis,control,direction,exponent)==expected_config,'Case ordering')
-  check(a==(1 if control==2 else F(-1,8) if control==4 else F(1,4)) and b==(0 if control==2 else F(1,8)),'Affine coefficients')
-  check(transverse==(1 if c>=22 else 2),'Transverse dimension')
+  check(a==(direction*F(-5,8) if control==5 else 1 if control==2 else F(-1,8) if control==4 else F(1,4)) and b==(direction*F(1,8) if control==5 else 0 if control==2 else F(1,8)),'Affine coefficients')
+  check(transverse==(1 if 22<=c<24 else 2),'Transverse dimension')
   check((case['w'],case['h'],case['px'],case['py'])==((10,transverse,0,int(transverse>1)) if axis==0 else (transverse,10,int(transverse>1),0)),'Grid identity')
   nc=case['w']*case['h']
   q={f:d['sweeps'][c,f] for f in range(11)}
-  check(all(q[f]==(0 if f in (0,10) or control==3 else direction*(F(1,8) if control==1 else F(f-1,64))) for f in range(11)),'Prescribed sweeps')
+  for f in range(11):
+   prescribed=F(0) if f in (0,10) or control==3 else direction*F(f-5,64-direction) if control==5 else direction*(F(1,8) if control==1 else F(f-1,64))
+   near(q[f],prescribed,abs(q[f])+abs(prescribed),'Prescribed sweeps')
   if control==4 and direction==1:
    check(all(q[f]==F(8,65)*(a+b*(f+q[f])) for f in range(1,10)),'Actual kinematic q=dt*u control')
+  if control==5:
+   for f in range(1,10):near(q[f],F(1,8)*(a+b*(f+q[f])),abs(q[f])+abs(F(1,8)*(a+b*(f+q[f]))),'Stagnation kinematic q=dt*u control')
   theta,backtracks,saved_entropy,saved_allowance,saved_work=d['admit'][c]
   check(theta==1 and backtracks==0,'Physically admissible affine state restricted')
   mass=[[sum(v for (e,j,s),v in case['masses'].items() if (e,j)==(end,i)) for i in range(nc)] for end in (0,1)]
@@ -71,7 +79,9 @@ def review(d):
   deposit=[F(0) for i in range(nc)];energy_terms=[];work_terms=[];entropy=D(0);allowance=D(0)
   for i in range(nc):
    coordinate=i%10 if axis==0 else i//transverse;volume=1+q[coordinate+1]-q[coordinate]
-   check(case['rcells'][i][0]==volume,'Physical source volume')
+   if control==5:near(case['rcells'][i][0],volume,abs(case['rcells'][i][0])+abs(volume),'Physical source volume')
+   else:check(case['rcells'][i][0]==volume,'Physical source volume')
+   volume=case['rcells'][i][0]
    for end in (0,1):
     m={s:v for (e,j,s),v in case['masses'].items() if (e,j)==(end,i)}
     check(len(m)==2 and all(v>0 for v in m.values()),'Positive bulk/trace gas lost')
@@ -85,11 +95,12 @@ def review(d):
   check(entropy>=-allowance,'Original actual-state entropy inequality')
   check(abs(closed.dec(saved_entropy)-entropy)<=allowance,'Reported actual entropy')
   near(saved_allowance,F(allowance),abs(saved_allowance),'Original entropy allowance')
+  correction_sources={}
   for component in (0,1):
    n=len(topology[component]);rows=[case['faces'][component,i] for i in range(n)]
    check({key for key in d['faces'] if key[:2]==(c,component)}=={(c,component,i) for i in range(n)},'Swept face coverage')
    weights=base.packets([r[3] for r in rows],[(l,r,f) for (part,l,r),f in case['duals'].items() if part==component])
-   j=[];kt=[];signed=[F(0) for i in range(n)];momentum_terms=[]
+   j=[];kt=[];signed=[F(0) for i in range(n)];momentum_terms=[];correction_operands=[F(0) for i in range(n)]
    for i,(r,donors) in enumerate(zip(rows,weights)):
     _,j0,j1,i0,i1,k0,k1,t,qm,qw,wall,dm=r
     check(min(i0,i1,k0,k1,t,qm,qw)>=0,'Negative positive energy account')
@@ -139,14 +150,21 @@ def review(d):
     expected_bound=(min(abs(pred),abs(difference))*(1 if pred>0 else -1)) if pred*difference>0 else F(0)
     near(bounded,expected_bound,abs(bounded)+abs(expected_bound),'Original donor-target velocity bound')
     near(request,flux*bounded,abs(request)+abs(flux*bounded),'Geometric impulse request')
-    near(impulse,theta*limit*request,abs(impulse)+abs(request),'Actual work-limited impulse')
+    near(impulse,theta*(1 if bounded_energy else limit)*request,abs(impulse)+abs(request),'Actual admitted impulse')
     near(jl,j[left],abs(jl)+abs(j[left]),'Sequential left before J');near(jr,j[right],abs(jr)+abs(j[right]),'Sequential right before J')
     near(al,jl-impulse,abs(al)+abs(jl)+abs(impulse),'Left stored J');near(ar,jr+impulse,abs(ar)+abs(jr)+abs(impulse),'Right stored J')
     ul=jl/rows[left][4];ur=jr/rows[right][4];linear=(ul-ur)*impulse/2
-    near(w,(ul+ur)*impulse/2,abs(w)+abs((ul+ur)*impulse/2),'Compatible paired work')
-    near(dl,linear-impulse*impulse/(2*rows[left][4]),abs(dl)+abs(linear)+impulse*impulse/(2*rows[left][4]),'Signed left work energy')
-    near(dr,linear-impulse*impulse/(2*rows[right][4]),abs(dr)+abs(linear)+impulse*impulse/(2*rows[right][4]),'Signed right work energy')
+    desired=(ul+ur)*impulse/2;difference=desired-w if bounded_energy else F(0)
+    near(w,desired*(limit if bounded_energy else 1),abs(w)+abs(desired),'Compatible carried energy')
+    if bounded_energy:
+     available=kt[left] if desired>0 else kt[right]
+     expected_limit=min(F(1),max(F(0),available)/abs(desired)) if desired else F(1)
+     near(limit,expected_limit,abs(limit)+abs(expected_limit),'Original nonnegative carried-energy budget')
+     zero_carrier_corrections+=limit==0 and impulse!=0
+    near(dl,linear-impulse*impulse/(2*rows[left][4])+difference,abs(dl)+abs(linear)+impulse*impulse/(2*rows[left][4])+abs(difference),'Signed left work energy')
+    near(dr,linear-impulse*impulse/(2*rows[right][4])-difference,abs(dr)+abs(linear)+impulse*impulse/(2*rows[right][4])+abs(difference),'Signed right work energy')
     kt[left]-=w;kt[right]+=w;signed[left]+=dl;signed[right]+=dr;j[left]=al;j[right]=ar
+    correction_operands[left]+=abs(impulse);correction_operands[right]+=abs(impulse)
     check(kt[left]>=-128*EPS*(abs(w)+abs(d['faces'][c,component,left][6])) and kt[right]>=-128*EPS*(abs(w)+abs(d['faces'][c,component,right][6])),'Original nonnegative transported work budget')
     edge_limited+=limit<1;events+=1
    for i,r in enumerate(rows):
@@ -159,6 +177,7 @@ def review(d):
     for cell in topology[component][i]:
      if cell is not None and total:deposit[cell]+=(r[8]+r[9]+f[7])*mass[1][cell]/total
    near(sum(momentum_terms),0,sum(map(abs,momentum_terms)),'Original J and wall balance')
+   correction_sources[component]=correction_operands
   for i in range(nc):
    advected=sum(targets['energy'][i]);near(case['mcells'][i],advected,abs(case['mcells'][i])+sum(map(abs,targets['energy'][i])),'Advected U')
    near(case['cells'][1,i],advected+deposit[i],abs(case['cells'][1,i])+abs(advected)+abs(deposit[i]),'Actual signed-work material deposition')
@@ -173,9 +192,15 @@ def review(d):
     check(face==(face_number+11*other if axis==0 else other+transverse*face_number),'Node index')
     near(expected,scale*case['faces'][axis,face][4]*(a+b*face_number),abs(expected),'Analytical fixed-grid affine value')
     check(actual==case['faces'][axis,face][2],'Selected actual stored result')
-    near(actual,expected,abs(actual)+abs(expected),'Actual affine criterion');nodes+=1
- check(nodes==(138 if d['complete']==24 else 132) and negative>0 and edge_limited>0,'Mandatory affine, signed-energy and work-limiter witnesses')
- return dict(Passed=True,ActualAffineNodes=nodes,NegativeCombinedRemainders=negative,WorkLimitedEdges=edge_limited,CompatibleEvents=events,SavedChecks=base.CHECKS,Scope='Actual transport fixtures, including both sweep signs, q=dt*u and below-binary64 canonical J; version 24 adds both true one-dimensional axes. No strong-flow or production acceptance.')
+    scale_account=abs(actual)+abs(expected)
+    if control==5 and expected==0:scale_account+=abs(d['faces'][c,axis,face][2])+correction_sources[axis][face]
+    near(actual,expected,scale_account,'Actual affine criterion');nodes+=1
+    if control==5:
+     baseline=d['baseline'][c,other,face_number]
+     baseline_defects+=abs(baseline-expected)>128*EPS*(abs(baseline)+abs(expected))
+ check(nodes==(162 if bounded_energy else 138 if d['complete']==24 else 132) and negative>0 and edge_limited>0,'Mandatory affine, signed-energy and work-limiter witnesses')
+ if bounded_energy:check(zero_carrier_corrections>0 and baseline_defects>=8,'Missing nonzero correction at zero carrier or original stagnation defect')
+ return dict(Passed=True,ActualAffineNodes=nodes,NegativeCombinedRemainders=negative,WorkLimitedEdges=edge_limited,CompatibleEvents=events,ZeroCarrierCorrections=zero_carrier_corrections,OriginalStagnationDefects=baseline_defects,SavedChecks=base.CHECKS,Scope='Actual transport fixtures, including both sweep signs, q=dt*u, below-binary64 canonical J and both true one-dimensional axes. Bounded-energy mode adds interior stagnation controls. No strong-flow or production acceptance.')
 
 def main():
  raw=Path(sys.argv[1]).read_bytes()

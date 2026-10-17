@@ -133,7 +133,8 @@ inline void export_momentum_reconstruction(int id, const MacTransportReport& r) 
     const auto scaled = [](MacScaled value) { std::cout << ' ' << value.mantissa() << ' ' << value.exponent(); };
     for (std::size_t i = 0; i < r.advected_internal_energy_j.size(); ++i)
         std::cout << "MRCELL " << id << ' ' << i << ' ' << r.advected_internal_energy_j[i] << '\n';
-    if (r.x.reconstruction == MacMomentumReconstruction::swept_physical) {
+    if (r.x.reconstruction == MacMomentumReconstruction::swept_physical ||
+        r.x.reconstruction == MacMomentumReconstruction::swept_energy_flux) {
         std::cout << "SWADMIT " << id << ' ' << r.physical_correction_fraction << ' ' << r.physical_admission_backtracks;
         for (auto value : {r.entropy_change_j_per_k, r.entropy_allowance_j_per_k, r.remap_work_wide_j}) scaled(value);
         std::cout << '\n';

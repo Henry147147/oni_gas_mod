@@ -3,15 +3,16 @@ from pathlib import Path
 from fractions import Fraction as F
 from decimal import Decimal as D,localcontext
 import hashlib,json,sys
-SOURCE=Path(sys.argv[3]) if len(sys.argv)>3 else Path(__file__).resolve().parent
+SOURCE=Path(sys.argv[3]) if len(sys.argv)>3 and sys.argv[3]!='--bounded-energy' else Path(__file__).resolve().parent
 sys.path.insert(0,str(SOURCE));import review_mac_closed_world as closed
 base=closed.base;check=base.check;near=base.close;number=base.number;EPS=base.EPS
 def full(r,i):return base.scaled_energy(r[i],r[i+1])
-def parse(raw):
- check(0<len(raw)<=2097152,'Saved stream cap');d=dict(grid=None,domain=None,unchanged=None,materials={},sweeps={},flux={},cells={},masses={},passives={},faces={},results={},complete=None,passes=0)
+def parse(raw,expected_mode=3):
+ check(0<len(raw)<=2097152,'Saved stream cap');d=dict(grid=None,domain=None,unchanged=None,materials={},sweeps={},flux={},cells={},masses={},passives={},faces={},results={},complete=None,passes=0,mode=None)
  for line in raw.decode('ascii').splitlines():
   r=line.split();check(bool(r),'Empty record');tag=r[0]
   if tag=='BGRID':check(len(r)==6 and d['grid'] is None,'Grid shape');d['grid']=tuple(map(number,r[1:]))
+  elif tag=='BMODE':check(len(r)==2 and r[1]=='4' and d['mode'] is None,'Mode shape');d['mode']=4
   elif tag=='BDOMAIN':check(len(r)==4 and d['domain'] is None,'Domain shape');d['domain']=tuple(map(number,r[1:]))
   elif tag=='BUNCHANGED':check(len(r)==2 and d['unchanged'] is None,'Immutability shape');d['unchanged']=int(r[1])
   elif tag=='BMATERIAL':check(len(r)==8,'Material shape');base.unique(d['materials'],int(r[1]),(int(r[2]),*map(number,r[3:])))
@@ -25,6 +26,7 @@ def parse(raw):
   elif tag=='BEND':check(len(r)==2 and d['complete'] is None,'Completion shape');d['complete']=int(r[1])
   elif line=='PASS intermediate EOS admission preserves actual state accounts':d['passes']+=1
   else:raise ValueError('Unknown saved record: '+tag)
+ check((3 if d['mode'] is None else d['mode'])==expected_mode,'Explicit momentum mode')
  check(d['grid']==(8,4,1,1,1) and d['domain']==(300,1000000,32) and d['unchanged']==1 and d['complete']==4 and d['passes']==1,'Fixed control identity/completion')
  check(set(d['cells'])=={(e,i) for e in range(4) for i in range(32)},'Cell coverage')
  check(set(d['faces'])=={(e,a,i) for e in range(4) for a in (0,1) for i in range(32)},'Face coverage')
@@ -93,16 +95,16 @@ def review(d):
  check(min(temperatures[3])<D('299.99') and min(temperatures[2])>=D(300)-closed.dec(32*EPS*300),'Unsafe full correction and safe donor witnesses')
  return dict(Passed=True,IntermediateFraction=float(theta),RejectedCandidates=backtracks,MinimumAcceptedTemperature=str(min(temperatures[1])),MinimumDonorTemperature=str(min(temperatures[2])),MinimumUnrestrictedTemperature=str(min(temperatures[3])),SavedChecks=base.CHECKS,NativeProcessLaunched=False,Scope='Actual prescribed 2D deformed EOS admission at the original 32-epsilon temperature boundary, with exact canonical inventories and original energy/momentum/entropy bounds. No pressure step, strong gate or game acceptance.')
 def main():
- raw=Path(sys.argv[1]).read_bytes()
- with localcontext() as context:context.prec=80;result=review(parse(raw))
+ raw=Path(sys.argv[1]).read_bytes();mode=4 if '--bounded-energy' in sys.argv[3:] else 3
+ with localcontext() as context:context.prec=80;result=review(parse(raw,expected_mode=mode))
  rejected=[]
  for name,tag,at in [('intermediate-fraction','BRESULT',2),('actual-energy','BCELL',4),('trace-mass','BMASS',4)]:
   lines=raw.decode('ascii').splitlines();index=next(i for i,line in enumerate(lines) if line.startswith(tag+' 1 ') and (tag!='BMASS' or abs(float(line.split()[4]))<1e-20));r=lines[index].split();r[at]='0' if tag=='BRESULT' else str(float(r[at])*1.01);lines[index]=' '.join(r)
   try:
-   with localcontext() as context:context.prec=80;review(parse(('\n'.join(lines)+'\n').encode('ascii')))
+   with localcontext() as context:context.prec=80;review(parse(('\n'.join(lines)+'\n').encode('ascii'),expected_mode=mode))
   except (ValueError,KeyError,AssertionError):rejected.append(name)
   else:raise ValueError('Corrupted actual boundary control accepted: '+name)
- result.update(CorruptionsRejected=rejected,InputSha256=hashlib.sha256(raw).hexdigest(),AnalysisSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
+ result.update(CorruptionsRejected=rejected,MomentumMode=mode,InputSha256=hashlib.sha256(raw).hexdigest(),AnalysisSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest())
  with Path(sys.argv[2]).open('x') as f:json.dump(result,f,indent=2);f.write('\n')
  print(json.dumps(result))
 if __name__=='__main__':main()

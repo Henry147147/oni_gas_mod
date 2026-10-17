@@ -347,8 +347,9 @@ MacFaceTransportReport transport_faces(const MacGrid& grid, bool x_component, co
         report.energies[i].mixing_heat = heat[i].value(); validate_face_energy(report.energies[i]);
         report.energies[i].composed_energy_bound = face_energy_account(report.energies[i]).bound();
     }
-    if (reconstruction == MacMomentumReconstruction::swept_physical)
-        reconstruct_mac_swept_momentum(grid, x_component, dual_source_volumes, volume_edges, velocity, j1, report, theta);
+    if (reconstruction == MacMomentumReconstruction::swept_physical ||
+        reconstruction == MacMomentumReconstruction::swept_energy_flux)
+        reconstruct_mac_swept_momentum(grid, x_component, dual_source_volumes, volume_edges, velocity, j1, report, theta, reconstruction);
     else if (reconstruction != MacMomentumReconstruction::donor_cell) reconstruct_momentum(grid, x_component, faces, velocity, j1, report, reconstruction);
     for (std::size_t i = 0; i < count; ++i) {
         auto& values = report.energies[i]; validate_face_energy(values, reconstruction != MacMomentumReconstruction::donor_cell);
@@ -449,9 +450,11 @@ MacTransportAdvance transport_candidate(const SpeciesRegistry& registry, const M
     MacMomentumReconstruction reconstruction, double theta) {
     require_mac_energy_environment();
     require(reconstruction == MacMomentumReconstruction::donor_cell || reconstruction == MacMomentumReconstruction::limited_linear ||
-        reconstruction == MacMomentumReconstruction::quadratic_limited_linear || reconstruction == MacMomentumReconstruction::swept_physical,
+        reconstruction == MacMomentumReconstruction::quadratic_limited_linear || reconstruction == MacMomentumReconstruction::swept_physical ||
+        reconstruction == MacMomentumReconstruction::swept_energy_flux,
         "Invalid MAC momentum reconstruction mode");
-    const bool physical = reconstruction == MacMomentumReconstruction::swept_physical;
+    const bool physical = reconstruction == MacMomentumReconstruction::swept_physical ||
+        reconstruction == MacMomentumReconstruction::swept_energy_flux;
     require(!physical || (model && source_volumes.size() == source.cells.size()), "Swept physical momentum requires EOS and every source volume");
     const Geometry geometry(source.grid); const auto m0 = masses(registry, source, model, source_volumes); const auto& g = source.grid;
     MacMassFluxes parcel_flux;
@@ -615,7 +618,8 @@ MacTransportAdvance transport_candidate(const SpeciesRegistry& registry, const M
 MacTransportAdvance transport(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
     const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan,
     MacMomentumReconstruction reconstruction) {
-    if (reconstruction != MacMomentumReconstruction::swept_physical)
+    if (reconstruction != MacMomentumReconstruction::swept_physical &&
+        reconstruction != MacMomentumReconstruction::swept_energy_flux)
         return transport_candidate(registry, source, flux, model, source_volumes, plan, reconstruction, 1);
     try { return transport_candidate(registry, source, flux, model, source_volumes, plan, reconstruction, 1); }
     catch (const MacRemapCandidateRejected&) { }

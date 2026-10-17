@@ -346,3 +346,10 @@ No unchanged Linux strong repeat is launched and no default is promoted. The
 remaining separation error needs analysis of actual momentum transport,
 remap heat, shock heat and initial representation before another method change.
 Production, exact-vacuum interfaces and playable-colony acceptance remain open.
+
+The subsequent [bounded carried-energy investigation](MAC_BOUNDED_ENERGY.md)
+localizes the separation error and reproduces cancelled momentum corrections
+at zero-energy stationary donors. Its new opt-in momentum selector 4 passes
+scoped component and checkpoint controls, with no change to compressive work
+or the original strong-flow limits. Complete prerequisites and changed-method
+strong-flow acceptance remain required.

@@ -106,7 +106,8 @@ void MacClosedSettings::validate() const {
             reconstruction == MacMaterialReconstruction::swept_first_moment) &&
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear ||
             momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear ||
-            momentum_reconstruction == MacMomentumReconstruction::swept_physical) &&
+            momentum_reconstruction == MacMomentumReconstruction::swept_physical ||
+            momentum_reconstruction == MacMomentumReconstruction::swept_energy_flux) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic ||
          compression_viscosity == MacCompressionViscosity::coupled_pressure) &&
