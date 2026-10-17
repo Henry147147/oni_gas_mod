@@ -154,13 +154,15 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
 MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, MacShockHeatLaw law) {
     require_mac_energy_environment(); require(std::isfinite(dt) && dt > 0 && dt <= 1 && .5 * dt > 0, "Invalid shock-heat timestep");
-    require(law == MacShockHeatLaw::closing_velocity || law == MacShockHeatLaw::pressure_sensed_viscosity, "Invalid shock-heat law");
+    require(law == MacShockHeatLaw::closing_velocity || law == MacShockHeatLaw::pressure_sensed_viscosity ||
+        law == MacShockHeatLaw::pressure_sensed_series, "Invalid shock-heat law");
+    const bool sensed = law != MacShockHeatLaw::closing_velocity;
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
     require(jx.size() == inertia.x.size() && jy.size() == inertia.y.size(), "Shock-heat momentum shape differs");
     MacShockHeatAdvance result{source, {}}; std::vector<ReferenceEquilibriumState> initial; std::vector<double> old_u;
     result.report.law = law;
-    if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+    if (sensed) {
         result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source, MacCompressionLaw::pressure_sensed_acoustic);
         result.report.frozen_conductance_capacity_j_per_k.resize(source.cells.size());
     }
@@ -168,7 +170,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
         initial.push_back(model.evaluate(source.cells[i].mixture, g.volume_m3())); old_u.push_back(source.cells[i].mixture.energy);
         result.report.frozen_capacity_j_per_k[i] = initial.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
-        if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+        if (sensed) {
             const auto& e = initial.back(); MacEnergySum cp; cp.add(e.intrinsic_heat_capacity_j_per_k);
             if (e.has_gas) cp.add(MacEnergy::from_double(e.gas_pressure_pa).multiplied(e.gas_volume_m3).shared(1, e.temperature_k));
             result.report.frozen_conductance_capacity_j_per_k[i] = cp.value();
@@ -189,7 +191,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
             const auto jump = mac_scaled_difference(velocity[l], velocity[r]); if (jump.mantissa() > 0) closing[i] = jump;
             diffusion[i] = closing[i];
-            if (law == MacShockHeatLaw::pressure_sensed_viscosity && !closing[i].is_zero())
+            if (sensed && !closing[i].is_zero())
                 diffusion[i] = sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i));
         }
         for (std::size_t y = 0; y < height; ++y) for (std::size_t x = 0; x < width; ++x) {
@@ -207,15 +209,27 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             if (l == none || r == none) { require(j[f].is_zero(), "Fixed shock-heat face has normal momentum"); continue; }
             if (l == r) continue;
             const auto w = mac_scaled_difference(closing[l], closing[r]).mantissa() >= 0 ? closing[l] : closing[r];
-            const auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
+            auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
             if (speed.is_zero()) continue;
             auto capacity = harmonic_capacity(result.report.frozen_capacity_j_per_k[l], result.report.frozen_capacity_j_per_k[r]);
-            if (law == MacShockHeatLaw::pressure_sensed_viscosity) {
+            if (sensed) {
                 const auto a = result.report.frozen_conductance_capacity_j_per_k[l], b = result.report.frozen_conductance_capacity_j_per_k[r];
                 const auto denominator = sum(a, b);
                 capacity = a.shared(b, denominator).multiplied(2);
             }
-            const auto integrated = speed.multiplied(.5 * dt).shared(1, g.spacing_m).shared(capacity, MacEnergy::from_double(1));
+            MacEnergy integrated;
+            if (law == MacShockHeatLaw::pressure_sensed_series) {
+                if (diffusion[l].is_zero() || diffusion[r].is_zero()) continue;
+                const auto gl = result.report.frozen_conductance_capacity_j_per_k[l]
+                    .shared(diffusion[l], MacEnergy::from_double(1)).shared(1, g.spacing_m);
+                const auto gr = result.report.frozen_conductance_capacity_j_per_k[r]
+                    .shared(diffusion[r], MacEnergy::from_double(1)).shared(1, g.spacing_m);
+                // Continuity of flux through two half cells:
+                // 1/Gface = 1/(2*Gl) + 1/(2*Gr). Stay scaled throughout.
+                const auto conductance = gl.shared(gr, sum(gl, gr)).multiplied(2);
+                integrated = conductance.multiplied(.5 * dt);
+                speed = conductance.multiplied(g.spacing_m).shared(MacEnergy::from_double(1), capacity);
+            } else integrated = speed.multiplied(.5 * dt).shared(1, g.spacing_m).shared(capacity, MacEnergy::from_double(1));
             links.push_back({axis, f, l, r, w, integrated, speed});
         }
     }

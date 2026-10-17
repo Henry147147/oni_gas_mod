@@ -22,8 +22,8 @@ inline void export_shock_heat(std::size_t id, const MacTransportState& source, c
     std::cout << "HGRID " << id << ' ' << g.width << ' ' << g.height << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << g.periodic_x << ' ' << g.periodic_y << ' ' << dt << ' ' << report.events.size() << ' ' << report.unresolved_updates;
     for (auto v : {report.absolute_transfer, report.energy_residual, report.energy_bound}) export_shock_heat_scaled(v);
     std::cout << ' ' << report.entropy_change_j_per_k << ' ' << report.entropy_roundoff_j_per_k << '\n';
-    if (report.law == MacShockHeatLaw::pressure_sensed_viscosity) {
-        std::cout << "HMLAW " << id << " 1\n";
+    if (report.law != MacShockHeatLaw::closing_velocity) {
+        std::cout << "HMLAW " << id << ' ' << static_cast<int>(report.law) << '\n';
         const auto& coefficients = report.compression_coefficients;
         for (std::size_t i = 0; i < source.cells.size(); ++i) {
             std::cout << "HMCP " << id << ' ' << i; export_shock_heat_scaled(report.frozen_conductance_capacity_j_per_k[i]); std::cout << '\n';

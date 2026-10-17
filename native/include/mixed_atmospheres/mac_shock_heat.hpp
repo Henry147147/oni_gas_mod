@@ -2,7 +2,7 @@
 #include "mac_compression.hpp"
 
 namespace ma::experimental {
-enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity };
+enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity, pressure_sensed_series };
 struct MacShockHeatPair {
     double before_left_j = 0, before_right_j = 0, after_left_j = 0, after_right_j = 0;
     double temperature_left_k = 0, temperature_right_k = 0;
@@ -56,6 +56,10 @@ struct MacShockHeatAdvance { MacTransportState state; MacShockHeatReport report;
 // greater adjacent (closing + sensed half-sound) speed, with each cell active
 // only during positive compression. This matches kappa=cp*beta in the ideal-gas
 // continuum limit; it does not make this split grid scheme an exact shock solve.
+// pressure_sensed_series instead combines the local Cp*diffusion/spacing
+// conductances through their two half-cell resistances. Either inactive cell
+// gives zero flux. diffusion_speed then reports the equivalent face speed,
+// not the greater adjacent speed. Existing laws and owner settings are retained.
 [[nodiscard]] MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry&,
     const FluidThermodynamics&, const MacTransportState&, double seconds,
     MacShockHeatLaw = MacShockHeatLaw::closing_velocity);

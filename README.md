@@ -167,6 +167,10 @@ for ownership, interfaces, failures and implementation gates.
   on both platforms and 72 Linux sanitizer groups. The new strong-flow retry
   passes collision pressure refinement but still fails density refinement;
   production and game acceptance remain open.
+  The optional [two-half-cell heat component](native/MAC_SERIES_HEAT.md) passes
+  all 141 Windows/Linux groups and 80 Linux sanitizer groups. Its 52 preceding
+  native captures and six checkpoint images remain byte-for-byte unchanged;
+  this component has not yet been selected by the owning solver.
 - A versioned [coupled native/managed boundary](native/COUPLED_ABI.md) with exact
   conserved imports, immutable advances and coherent gas/liquid readings.
   Windows/Linux binding controls pass. It exposes the closed reference; game

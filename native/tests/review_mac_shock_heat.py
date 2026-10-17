@@ -159,7 +159,7 @@ def review_pair(data,key):
     close(sb,budget,budget,'Pair stored-U entropy allowance',8);check(ds>=-sb,'Pair entropy gate')
 
 
-def review_grid(data,gid,controls=True,conductance_model=None):
+def review_grid(data,gid,controls=True,conductance_model=None,activation_model=None):
     w,h,spacing,depth,px,py,dt,count,un,total,res,bound,ds,sb=data['grids'][gid]
     check(w>0 and h>0 and spacing>0 and depth>0 and dt>0 and px in (0,1) and py in (0,1),'Grid domain')
     vol=spacing*spacing*depth;xw=w+(not px);yh=h+(not py)
@@ -200,7 +200,8 @@ def review_grid(data,gid,controls=True,conductance_model=None):
             b=((x+1)%xw)+y*xw if axis==0 else x+((y+1)%yh)*w
             jumps.append(max(F(0),rounded_scaled(velocities[axis,a]-velocities[axis,b])))
         closing=max(jumps)
-        if closing>0:links.append((axis,f,l,r,closing))
+        if closing>0 and (activation_model is None or activation_model(gid,axis,f,l,r,closing)):
+            links.append((axis,f,l,r,closing))
     expected=[(0,v) for v in links]+[(1,v) for v in reversed(links)]
     check(count==len(expected) and set(k for k in data['events'] if k[0]==gid)=={(gid,i) for i in range(count)},'Missing/extra activated heat faces')
     transfers=F(0);unresolved=0

@@ -55,16 +55,16 @@ def split(raw):
     return ('\n'.join(ordinary) + '\n').encode('ascii'), extra, rejected
 
 
-def parse(raw):
+def parse(raw, required_grids=range(13)):
     ordinary, extra, rejected = split(raw)
     check(rejected == 7, 'Missing immutable rejection controls')
-    data = heat.parse(ordinary, required_passes=8, required_grids=range(13), controls=False)
+    data = heat.parse(ordinary, required_passes=8, required_grids=required_grids, controls=False)
     return data, extra
 
 
-def review_component(data, extra):
+def review_component(data, extra, expected_law=1):
     grids = set(data['grids'])
-    check(set(extra['laws']) == grids and set(extra['laws'].values()) == {1}, 'Missing/changed matching law')
+    check(set(extra['laws']) == grids and set(extra['laws'].values()) == {expected_law}, 'Missing/changed matching law')
     acoustic.review_pressure_sensors(data, extra)
     expected_cells = set()
     expected_events = set()
@@ -119,14 +119,23 @@ def review_component(data, extra):
         check(closing > 0, 'Matching heat activated outside compression')
         g = data['grids'][gid]
         speed = max(diffusivity[gid, axis, left], diffusivity[gid, axis, right])
-        close(extra['diffusion'][gid, event], speed, speed, 'Matching frozen face speed', 8)
+        if expected_law != 2:
+            close(extra['diffusion'][gid, event], speed, speed, 'Matching frozen face speed', 8)
         a, b = extra['cp'][gid, left], extra['cp'][gid, right]
+        if expected_law == 2:
+            dl, dr = diffusivity[gid, axis, left], diffusivity[gid, axis, right]
+            check(dl > 0 and dr > 0, 'Series heat crosses an inactive half cell')
+            resistance = g[2] / (2 * a * dl) + g[2] / (2 * b * dr)
+            equivalent_speed = g[2] / resistance / (2 * a * b / (a + b))
+            close(extra['diffusion'][gid, event], equivalent_speed, equivalent_speed, 'Series equivalent face speed', 16)
+            return g[6] / 2 / resistance
         return g[6] / 2 / g[2] * speed * 2 * a * b / (a + b)
 
     for key in data['pairs']:
         heat.review_pair(data, key)
     for gid in data['grids']:
-        heat.review_grid(data, gid, False, conductance)
+        activation = None if expected_law != 2 else lambda g, a, f, l, r, c: diffusivity[g, a, l] > 0 and diffusivity[g, a, r] > 0
+        heat.review_grid(data, gid, False, conductance, activation)
 
 
 def review(data, extra):
