@@ -6,6 +6,7 @@ It never promotes bounded scenes to a playable or whole-colony result.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -14,7 +15,19 @@ import struct
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False) -> bool:
+def _same_native_float(actual, supplied) -> bool:
+    # Native arrays serialize as binary32 JSON; the admitted inventory retains
+    # their exact promotion to binary64. Compare original binary32 bits, while
+    # requiring that the admitted value really is an exact native value.
+    if any(type(value) not in (int, float) or not math.isfinite(value) for value in (actual, supplied)):
+        return False
+    try:
+        packed = struct.pack("<f", supplied)
+        return struct.unpack("<f", packed)[0] == supplied and struct.pack("<f", actual) == packed
+    except (OverflowError, struct.error):
+        return False
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -55,6 +68,45 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     primed = report.get("ProjectionPrimedAtNativeFrame")
     if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
         return False
+    if initial_inventory:
+        inventory = report.get("ImportedNativeInventory")
+        if (restored or not isinstance(inventory, dict) or inventory.get("Required") is not True
+                or inventory.get("Verified") is not True or inventory.get("AdvancedFromSource") is not True
+                or type(inventory.get("AbiVersion")) is not int or inventory["AbiVersion"] != 1
+                or inventory.get("Source") != "completed-native-GameDataUpdate"
+                or inventory.get("EnergyBasis") != "declared-reference-EOS-at-native-temperature"
+                or inventory.get("InitialMomentum") != "at-rest" or not _sha256(inventory.get("SourceSha256"))):
+            return False
+        rows = inventory.get("Cells")
+        native_masses = report.get("NativeProjectionMasses")
+        native_temperatures = report.get("NativeProjectionTemperatures")
+        if (not isinstance(rows, list) or len(rows) != physical.get("Cells") or len(rows) != 6
+                or not isinstance(native_masses, list) or len(native_masses) != len(rows)
+                or not isinstance(native_temperatures, list) or len(native_temperatures) != len(rows)):
+            return False
+        encoded = bytearray()
+        positions = set()
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                return False
+            position = row.get("PublicCell")
+            element = row.get("NativeElementIndex")
+            masses = row.get("MassesKg")
+            temperature = row.get("TemperatureK")
+            if (type(position) is not int or not 0 <= position < 2**31 or position in positions
+                    or type(element) is not int or not 0 <= element < 2**16
+                    or not isinstance(masses, list) or len(masses) != 5
+                    or any(type(mass) not in (int, float) or not math.isfinite(mass) or mass < 0 for mass in masses)
+                    or sum(masses) <= 0 or sum(mass > 0 for mass in masses) != 1
+                    or any(mass > 0 and (species == 3) != liquid for species, mass in enumerate(masses))
+                    or type(temperature) not in (int, float) or not 0 < temperature <= 1e6
+                    or not _same_native_float(native_masses[index], sum(masses))
+                    or not _same_native_float(native_temperatures[index], temperature)):
+                return False
+            positions.add(position)
+            encoded.extend(struct.pack("<II6d", 56, 1, *masses, temperature))
+        if hashlib.sha256(encoded).hexdigest() != inventory["SourceSha256"]:
+            return False
     if heat or conduction or liquid_heat:
         account = report.get("HeatCommands")
         heat_bound = 1e-6
@@ -315,6 +367,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         # Exact complete-state replay and the saved-clock checks above cover
         # valid equilibrium restarts as well as moving mixtures.
         physics_exercised = physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
+    if initial_inventory:
+        physics_exercised = physical["PressurePa"] > 0
     return (report.get("Kind") == "actual-game-sealed-native-fluid-domain" and report.get("Status") == "passed"
             and report.get("Platform") == expected_platform and report.get("BoundedFluidAuthority") is True
             and report.get("WholeColonyFluidAuthority") is False and report.get("FirstPlayableColonyPassed") is False
@@ -336,7 +390,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
@@ -351,7 +405,7 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, liquid=args.mode in ("water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+        passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
             carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:

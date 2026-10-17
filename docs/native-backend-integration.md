@@ -20,6 +20,10 @@ production actors and persistent live actors remain outside this experiment.
 The new [filled-liquid gravity scenario](native-liquid-gravity.md) keeps
 material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.
+The [native inventory admission path](native-initial-inventory.md) adds an
+explicit control for starting those rooms from completed native masses and
+temperatures rather than a synthetic mixture. Its real Unity acceptance is
+pending; complete world/geometry import remains open.
 
 ## Supported build and installation
 
@@ -30,6 +34,20 @@ installation manifest. Klei lists 744825 as the latest public release when check
 2026-10-16. Future builds require inspection and new profiles.
 [Klei release index](https://kleiforums.com/game-updates/oni-alpha/) and
 [release notes](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/).
+
+Matching game builds also need matching available DLC. The headless load driver
+reads the selected save's native content metadata and checks the game's normal
+subscription/installation/enabled-content result before entering the backend
+scene. It records required, active and unavailable IDs and rejects a mismatch
+without initializing the native simulator. It does not enable missing assets
+or alter entitlement checks.
+
+The retained `cross-platform-Windows-save-to-Linux-v1` fails because its Windows
+source uses Spaced Out! but the Linux installation has no `expansion1_bundle`.
+The first substantive rejection is unknown native element `134298891`
+(Uranium Ore) during preserved-inventory admission. ONI's subsequent
+world-generation fallback then fails. This is not a completed cross-platform
+colony test; matching DLC installation and a new real-game load remain required.
 
 | Platform | Native image | SHA256 |
 | --- | --- | --- |

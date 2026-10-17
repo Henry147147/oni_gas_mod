@@ -454,7 +454,7 @@ template<class Action> MAOniResult boundary(Action action) noexcept {
 // Keep throwing implementation helpers under C++ linkage. MSVC /EHc treats
 // C-linkage functions as nonthrowing; exported entry points use boundary().
 void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* output,
-    std::span<const std::uint8_t> image,double saved_time) {
+    std::span<const std::uint8_t> image,double saved_time,std::span<const MAOniDomainInitialCell> initial_cells={}) {
     std::lock_guard save_lock(native_save_mutex);
     if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
     if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
@@ -476,7 +476,7 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
         dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
         static_cast<std::uint64_t>(config->offset_y)+config->height+2 >= static_cast<std::uint32_t>(dimensions[1]))
         throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
-    try { ma::oni::start_domain(*config,native_thread(),image,saved_time); }
+    try { ma::oni::start_domain(*config,native_thread(),image,saved_time,initial_cells); }
     catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     ma::oni::copy_domain(*output,nullptr,0);
 }
@@ -573,6 +573,16 @@ MAOniResult ma_oni_domain_species(std::uint32_t index,MAOniDomainSpecies* output
 }
 MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatus* output) {
     return boundary([&] { start_domain_checked(config,output,{},0); });
+}
+std::uint32_t ma_oni_domain_initial_inventory_abi_version() { return 1; }
+MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig* config,const MAOniDomainInitialCell* cells,
+    std::uint32_t count,MAOniDomainStatus* output) {
+    return boundary([&] {
+        if (!config || !cells || !count || count>256 ||
+            static_cast<std::uint64_t>(config->width)*config->height!=count)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Initial native inventory must cover every domain cell");
+        start_domain_checked(config,output,{},0,std::span(cells,count));
+    });
 }
 MAOniResult ma_oni_domain_checkpoint_validate(const MAOniDomainConfig* config,const std::uint8_t* image,std::uint32_t size,double saved_time) {
     return boundary([&] {

@@ -59,6 +59,10 @@ namespace MixedAtmospheres.Oni
             public ulong ObserverTimestepReturns = 0, ObserverPhysicalUpdates = 0;
             public int SnapshotChannels, EventChannels, Duplicants;
             public string[] ActiveDlcIds = Array.Empty<string>();
+            public bool LoadContentCompatibilityChecked, LoadContentCompatible;
+            public string[] RequiredLoadDlcIds = Array.Empty<string>();
+            public string[] UnavailableLoadDlcIds = Array.Empty<string>();
+            public string[] RuntimeDlcIds = Array.Empty<string>();
             public string[] ImportedMaterialIds = Array.Empty<string>();
             public string MaterialModel = "explicit local ONI constant-property surrogates; not a thermodynamic catalogue";
             public string MaterialFingerprint = "";
@@ -88,7 +92,7 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-liquid-transfer-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-liquid-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-liquid-actor-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-liquid-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-import-domain" && configuration.Mode != "native-liquid-import-domain" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-liquid-transfer-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-liquid-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-liquid-actor-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-liquid-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "native-actor-domain" || configuration.Mode == "native-liquid-actor-domain") && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
@@ -229,6 +233,21 @@ namespace MixedAtmospheres.Oni
 
         private static NativeMatterPhase Phase(Element element) => element.IsGas ? NativeMatterPhase.Gas :
             element.IsLiquid ? NativeMatterPhase.Liquid : element.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum;
+
+        internal static void ValidateSelectedSaveContent(string path)
+        {
+            var information = SaveLoader.LoadHeader(path, out _);
+            if (information.dlcIds == null) throw new InvalidDataException("Selected colony has no content metadata.");
+            Report.RequiredLoadDlcIds = information.dlcIds.ToArray();
+            Report.RuntimeDlcIds = DlcManager.GetActiveDLCIds().ToArray();
+            Report.UnavailableLoadDlcIds = information.dlcIds.Where(id => !DlcManager.IsContentSubscribed(id)).ToArray();
+            Report.LoadContentCompatibilityChecked = true;
+            Report.LoadContentCompatible = Report.UnavailableLoadDlcIds.Length == 0;
+            WriteReport();
+            if (!Report.LoadContentCompatible)
+                throw new InvalidDataException("Selected colony requires unavailable or disabled content: " +
+                    string.Join(", ", Report.UnavailableLoadDlcIds) + ". Install and enable that content before loading; the native backend has not been initialized.");
+        }
 
         internal static void OnMainMenu(MainMenu menu)
         {
@@ -466,6 +485,7 @@ namespace MixedAtmospheres.Oni
                     if (config.Mode == "native-load-domain")
                     {
                         if (string.IsNullOrEmpty(config.LoadSavePath) || !File.Exists(config.LoadSavePath)) throw new FileNotFoundException("A completed native colony save is required.");
+                        ColonyRuntimeValidation.ValidateSelectedSaveContent(Path.GetFullPath(config.LoadSavePath));
                         SaveLoader.SetActiveSaveFilePath(Path.GetFullPath(config.LoadSavePath));
                         LoadingOverlay.Load(SaveLoader.LoadScene);
                     }

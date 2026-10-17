@@ -108,9 +108,26 @@ and colony file is
 `988207f97176d668fd138f9d7a44526bd87b9efe6598431db448c9a6abebbb04`.
 The frozen runner is `9f721b3`; the package records `9ceea79` plus the dirty
 prewarm changes, using the GNU cross-built Windows native DLLs. The
-[native tag startup repair](nitrogen.md) is required in this player. Fresh
-process and same-process reload are running. This is Windows Unity on a Linux
+[native tag startup investigation](nitrogen.md) remains open in this player.
+The first reload retains the exact source image at physical frame zero and
+delivers both startup batches, but stalls before the initial deferred autosave
+is admitted. It was stopped cleanly for diagnostics; no continued frames or
+same-process reload pass is claimed. Focus/window-manager interventions do not
+release that gate and are recorded separately. This is Windows Unity on a Linux
 host, not validation on the Windows OS or with an MSVC build of this feature.
+
+The later `windows-wine-runtime-false-v4` diagnostic reaches the same paused
+restore with both original/patched tag checks passing. Its save indicator is
+spawned, enabled, visible and waiting for its ordinary `working_pre` animation;
+dragging is false. Unity reports about 0.00001 s of unscaled time per rendered
+frame, and the animation has advanced only about 0.011 s after several minutes.
+The diagnostic report now records both Unity clocks, capture/max-delta settings
+and the independent monotonic/UTC clocks while this callback is pending.
+It changes no clock, physics or save callback. This isolated run uses
+`MONOMOD_RunningOnWine=false`; it is a retained experiment, not an accepted
+runtime requirement or a reload pass. A scoped enum-formatting alternative also
+fails inside real Unity and has been removed. The timing cause and repeatable
+Proton startup remain unresolved; the native Windows results below are separate.
 
 ### Actual Windows native and Unity controls
 
