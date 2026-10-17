@@ -74,7 +74,7 @@ namespace MixedAtmospheres.Oni
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -84,7 +84,7 @@ namespace MixedAtmospheres.Oni
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
         private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
         private static double FixtureHeatJoules => LiquidHeatMode ? 1500000 : 1500;
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode;
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
@@ -304,7 +304,7 @@ namespace MixedAtmospheres.Oni
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
                 Grid.Visible[index] = byte.MaxValue;
-                SimMessages.ReplaceElement(index, wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : SimHashes.Oxygen,
+                SimMessages.ReplaceElement(index, wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : InitialInventoryMode && dy == 0 ? SimHashes.CarbonDioxide : SimHashes.Oxygen,
                     eventId, wall ? 20000 : ProjectionMass(dx), wall ? 300 : ProjectionTemperature(dx));
             }
             SimMessages.ReplaceElement(hotSolid, SimHashes.Granite, eventId, 1000, 350);
@@ -319,7 +319,7 @@ namespace MixedAtmospheres.Oni
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
                 if (Grid.Solid[index] != wall || (wall && Grid.Element[index].id != SimHashes.Unobtanium) ||
-                    (!wall && requireFluidIdentity && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
+                    (!wall && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
                 if (!wall)
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
@@ -368,18 +368,20 @@ namespace MixedAtmospheres.Oni
             MixtureInspection.CellHoverObserver -= ObserveNativeHover;
             MixtureInspection.CellHoverObserver += ObserveNativeHover;
         }
-        private static void ActivateOwner()
+        private static void ActivateOwner(Sim.GameDataUpdate* source)
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
                 X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
-            Check(Begin(ref configuration, ref latest)); domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
+            if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
+            else Check(Begin(ref configuration, ref latest));
+            domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
             writingProjection = true;
             try
             {
-                for (var index = 0; index < cells.Length; ++index)
+                for (var index = 0; index < cells.Length && !InitialInventoryMode; ++index)
                 {
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     SimMessages.ReplaceElement(global, Liquid ? SimHashes.Water : SimHashes.Oxygen,
@@ -420,7 +422,7 @@ namespace MixedAtmospheres.Oni
                 if (arming)
                 {
                     if (!nativeFlowFenceVerified) return pointer;
-                    ActivateOwner();
+                    ActivateOwner(source);
                 }
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
                 nativeProjectionMasses = Enumerable.Range(0, cells.Length).Select(index =>
@@ -430,9 +432,9 @@ namespace MixedAtmospheres.Oni
                 if (!projectionPrimed)
                 {
                     projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index =>
-                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionMass(index % Width) &&
-                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionTemperature(index % Width) &&
-                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);
+                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeMass(index) &&
+                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeTemperature(index) &&
+                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeElement(index));
                     if (projectionPrimed) projectionPrimedAtFrame = latest.CompletedFrames;
                 }
                 var readings = new Dictionary<int, MixtureThermodynamicReading>();
@@ -685,7 +687,7 @@ namespace MixedAtmospheres.Oni
             RenderingInputs = RenderingInputs(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
-            NativeFlowFenceVerified = nativeFlowFenceVerified, NativeProjectionMasses = nativeProjectionMasses,
+            NativeFlowFenceVerified = nativeFlowFenceVerified, ImportedNativeInventory = InitialInventoryReport(), NativeProjectionMasses = nativeProjectionMasses,
             NativeProjectionTemperatures = nativeProjectionTemperatures,
             NativeRendererAdvanced = nativeRendererAdvanced, SaveGuardVerified = saveGuardVerified,
             NativeSaveGuardVerified = nativeSaveGuardVerified,

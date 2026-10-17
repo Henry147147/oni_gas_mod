@@ -36,6 +36,15 @@ namespace MixedAtmospheres.Oni
             public double TotalMass => Nitrogen + Oxygen + Helium + Water + CarbonDioxide;
         }
         [StructLayout(LayoutKind.Sequential)]
+        internal struct InitialCell
+        {
+            public uint Size, Version;
+            public double Nitrogen, Oxygen, Helium, Water, CarbonDioxide, Temperature;
+            public double Mass(int index) => index == 0 ? Nitrogen : index == 1 ? Oxygen : index == 2 ? Helium : index == 3 ? Water : index == 4 ? CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(index));
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_initial_inventory_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint InitialInventoryVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_start_from_cells", CallingConvention = CallingConvention.Cdecl)] internal static extern int BeginFromCells(ref Configuration configuration, [In] InitialCell[] cells, uint count, ref Status status);
+        [StructLayout(LayoutKind.Sequential)]
         internal struct Species
         {
             public double MolarMass, Cv, Offset, Density;

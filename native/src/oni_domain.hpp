@@ -7,7 +7,8 @@
 
 namespace ma::oni {
 // Called only from the native detours. No managed/game callbacks are made.
-void start_domain(const MAOniDomainConfig&, std::uint64_t start_thread,std::span<const std::uint8_t> checkpoint={},double saved_time=0);
+void start_domain(const MAOniDomainConfig&, std::uint64_t start_thread,std::span<const std::uint8_t> checkpoint={},double saved_time=0,
+    std::span<const MAOniDomainInitialCell> initial_cells={});
 void validate_domain_checkpoint(const MAOniDomainConfig&,std::span<const std::uint8_t>,double saved_time);
 void stop_domain() noexcept;
 void shutdown_domain() noexcept;

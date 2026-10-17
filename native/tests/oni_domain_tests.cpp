@@ -21,6 +21,66 @@ void require(bool condition,const char* message) { if (!condition) throw std::ru
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
 }
+void initial_inventory() {
+    static_assert(sizeof(MAOniDomainInitialCell)==56);
+    MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
+    std::array<MAOniDomainInitialCell,6> inputs{};
+    for (std::size_t i=0;i<inputs.size();++i) {
+        auto& cell=inputs[i];cell.struct_size=56;cell.abi_version=1;
+        cell.masses[1]=.8+.02*static_cast<double>(i);
+        cell.masses[4]=.15;cell.masses[2]=1e-28;
+        cell.temperature_k=280+static_cast<double>(i);
+    }
+    auto reject=[&](const auto& values) {
+        bool failed=false;
+        try { ma::oni::start_domain(config,1,{},0,values); }
+        catch(const std::invalid_argument&) { failed=true; }
+        require(failed && !ma::oni::domain_active(),"Invalid initial inventory partially activated ownership");
+    };
+    reject(std::span(inputs).first(5));
+    for (int fault=0;fault<7;++fault) {
+        auto bad=inputs;auto& last=bad.back();
+        if (fault==0) last.abi_version=2;
+        if (fault==1) last.struct_size=0;
+        if (fault==2) last.masses[1]=-1;
+        if (fault==3) last.masses[4]=std::numeric_limits<double>::quiet_NaN();
+        if (fault==4) last.temperature_k=std::numeric_limits<double>::infinity();
+        if (fault==5) last.masses[3]=1;
+        if (fault==6) std::fill(std::begin(last.masses),std::end(last.masses),0);
+        reject(bad);
+    }
+    std::vector<MAOniDomainCell> cells(6);
+    for (const auto scenario : {0U,1U,3U}) {
+        config.scenario=scenario;
+        auto seed=inputs;
+        if (scenario) for (auto& cell : seed) {
+            std::fill(std::begin(cell.masses),std::end(cell.masses),0);
+            cell.masses[3]=1100;
+        }
+        ma::oni::start_domain(config,1,{},0,seed);auto status=capture(cells);
+        require(status.completed_frames==0 && status.time_seconds==0,"Initial inventory advanced physical time");
+        for (std::size_t i=0;i<cells.size();++i) {
+            for (std::size_t k=0;k<5;++k)
+                require(cells[i].masses[k]==seed[i].masses[k],"Initial inventory changed or invented a constituent");
+            require(std::abs(cells[i].temperature-seed[i].temperature_k)<1e-9 &&
+                    cells[i].momentum_x==0 && cells[i].momentum_y==0 && cells[i].resolved_kinetic_energy==0,
+                    "Initial inventory changed temperature or invented motion");
+        }
+        ma::oni::advance_domain(1,.2,2);status=capture(cells);
+        require(status.state==1 && status.maximum_relative_mass_error<1e-8 && status.maximum_relative_energy_error<1e-6,
+                "Imported inventory failed conservative physical continuation");
+        const auto image=ma::oni::checkpoint_domain(status.session,1);
+        const auto continued=ma::oni::advance_domain_checkpoint(image,.2);
+        ma::oni::shutdown_domain();ma::oni::start_domain(config,1,image,status.time_seconds);
+        status=capture(cells);
+        require(ma::oni::checkpoint_domain(status.session,0)==image,"Imported inventory restore changed its source");
+        ma::oni::advance_domain(1,.2,2);status=capture(cells);
+        require(status.state==1 && ma::oni::checkpoint_domain(status.session,1)==continued,
+                "Imported inventory failed exact checkpoint continuation");
+        ma::oni::shutdown_domain();
+    }
+    std::cout<<"PASS initial gas/water inventory, late atomic rejection, no invented constituents/motion, and exact reload\n";
+}
 void liquid_gravity() {
     MAOniDomainConfig config{40,2,1,64,10,10,3,2,3,0};
     std::vector<MAOniDomainCell> cells(6);
@@ -101,6 +161,7 @@ int main(int argc,char** argv) {
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
+        initial_inventory();
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);

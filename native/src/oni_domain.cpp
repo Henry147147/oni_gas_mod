@@ -340,8 +340,11 @@ std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& c
 
 }
 
-void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span<const std::uint8_t> image,double saved_time) {
+void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span<const std::uint8_t> image,double saved_time,
+    std::span<const MAOniDomainInitialCell> initial_cells) {
     validate_domain_geometry(config);
+    if (!initial_cells.empty() && (initial_cells.size()!=static_cast<std::size_t>(config.width)*config.height || !image.empty() || saved_time!=0))
+        throw std::invalid_argument("Initial native inventory must cover exactly one new domain");
     std::lock_guard frame_lock(frame_mutex);
     std::lock_guard lock(state_mutex);
     if (enabled.load(std::memory_order_acquire)) throw std::logic_error("A sealed native domain is already active");
@@ -351,7 +354,22 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     state.grid={config.width,config.height,1,1,false,false,std::vector<std::uint8_t>(config.width*config.height)};
     for (std::uint32_t y=0;y<config.height;++y) for (std::uint32_t x=0;x<config.width;++x) {
         std::vector<double> values(registry.size());
-        if (liquid_scenario(config.scenario)) values[registry.index("water")]=1100;
+        double temperature=300;
+        if (!initial_cells.empty()) {
+            const auto& input=initial_cells[x+y*config.width];
+            if (input.struct_size!=sizeof(input) || input.abi_version!=1 || !std::isfinite(input.temperature_k) || input.temperature_k<=0)
+                throw std::invalid_argument("Invalid initial native inventory cell ABI or temperature");
+            bool occupied=false;
+            for (std::size_t k=0;k<ids.size();++k) {
+                const auto mass=input.masses[k];
+                if (!std::isfinite(mass) || mass<0 || (mass!=0 && liquid_scenario(config.scenario)!=(k==3)))
+                    throw std::invalid_argument("Initial native inventory mass or phase is unsupported");
+                values[registry.index(ids[k])]=mass; occupied|=mass>0;
+            }
+            if (!occupied) throw std::invalid_argument("Initial native inventory does not admit vacuum cells");
+            temperature=input.temperature_k;
+        }
+        else if (liquid_scenario(config.scenario)) values[registry.index("water")]=1100;
         else {
             const double oxygen=.18+.12*static_cast<double>(x)/static_cast<double>(config.width-1);
             const double pressure=100000+1000*static_cast<double>(x)/static_cast<double>(config.width-1);
@@ -361,7 +379,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
             values[registry.index("nitrogen")]=(1-oxygen)*gas; values[registry.index("oxygen")]=oxygen*gas;
             values[registry.index("helium")]=1e-28*gas;
         }
-        state.cells.push_back({eos->initialize_at_temperature(values,300,1).mixture,{}});
+        state.cells.push_back({eos->initialize_at_temperature(values,temperature,1).mixture,{}});
     }
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());

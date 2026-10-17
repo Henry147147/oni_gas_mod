@@ -20,6 +20,10 @@ production actors and persistent live actors remain outside this experiment.
 The new [filled-liquid gravity scenario](native-liquid-gravity.md) keeps
 material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.
+The [native inventory admission path](native-initial-inventory.md) adds an
+explicit control for starting those rooms from completed native masses and
+temperatures rather than a synthetic mixture. Its real Unity acceptance is
+pending; complete world/geometry import remains open.
 
 ## Supported build and installation
 

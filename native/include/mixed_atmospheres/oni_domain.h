@@ -42,6 +42,19 @@ typedef struct MAOniDomainSpecies {
     double molar_mass, cv, energy_offset, reference_density;
 } MAOniDomainSpecies;
 
+/* Additive initial-inventory ABI 1. Row-major occupied cells, at rest, with
+ * exact supplied masses and temperature in the declared domain EOS. No
+ * synthetic background constituents, vacuum, mixed phases or passive data.
+ * Complete validation precedes activation; caller retains the input. */
+typedef struct MAOniDomainInitialCell {
+    uint32_t struct_size, abi_version;
+    double masses[MA_ONI_DOMAIN_SPECIES];
+    double temperature_k;
+} MAOniDomainInitialCell;
+MA_ONI_API uint32_t ma_oni_domain_initial_inventory_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig*,
+    const MAOniDomainInitialCell*, uint32_t count, MAOniDomainStatus*);
+
 MA_ONI_API uint32_t ma_oni_domain_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_start(const MAOniDomainConfig*, MAOniDomainStatus*);
 /* Copies a coherent completed frame; insufficient capacity changes no output. */

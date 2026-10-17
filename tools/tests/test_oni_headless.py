@@ -1,12 +1,14 @@
 """Acceptance guards for private Linux playtest evidence and package isolation."""
 import contextlib
 import copy
+import hashlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -37,6 +39,63 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                            "PressurePa": 100010.0, "LiquidMassKg": 0.0}}
         self.observation = {"BoundedNativeDomainActive": True, "Observation": {"Attached": True, "ForwardingOnly": False,
                             "RecoveryRequired": False, "AuthoritativeFluidOwner": False, "OniBuild": 744825}}
+
+    def imported_inventory(self, liquid=False):
+        report = copy.deepcopy(self.report)
+        rows = []
+        for index in range(6):
+            masses = [0.0] * 5
+            # Include a native float whose short JSON decimal differs from its
+            # exact promoted double. A direct JSON-number comparison is wrong.
+            masses[3 if liquid else 4] = 1100.0 if liquid else struct.unpack('<f', struct.pack('<f', 1.01))[0]
+            rows.append(dict(PublicCell=100+index, NativeElementIndex=10, MassesKg=masses, TemperatureK=300.0))
+        report['ImportedNativeInventory'] = dict(Required=True, Verified=True, AbiVersion=1,
+            Source='completed-native-GameDataUpdate', EnergyBasis='declared-reference-EOS-at-native-temperature',
+            InitialMomentum='at-rest', Cells=rows)
+        self.rehash_inventory(report)
+        report['NativeProjectionMasses'] = [1100.0 if liquid else 1.01] * 6
+        report['NativeProjectionTemperatures'] = [300.0] * 6
+        report['NativeDomain'].update(Cells=6, InitialOxygenKg=0, CurrentOxygenKg=0)
+        if liquid: report['NativeDomain'].update(LiquidMassKg=1100, SuppressedLiquid=100)
+        return report
+
+    @staticmethod
+    def rehash_inventory(report):
+        inventory = report['ImportedNativeInventory']
+        encoded = b''.join(struct.pack('<II6d',56,1,*row['MassesKg'],row['TemperatureK']) for row in inventory['Cells'])
+        inventory['SourceSha256'] = hashlib.sha256(encoded).hexdigest()
+
+    def test_native_inventory_requires_actual_packet_and_preserves_native_float_values(self):
+        for liquid in (False, True):
+            report = self.imported_inventory(liquid)
+            self.assertTrue(runner.native_domain_passed(report,self.observation,30,initial_inventory=True,liquid=liquid))
+            report['Platform'] = 'WindowsPlayer'
+            self.assertTrue(runner.native_domain_passed(report,self.observation,30,initial_inventory=True,liquid=liquid,expected_platform='WindowsPlayer'))
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,initial_inventory=True,liquid=liquid))
+
+    def test_native_inventory_cannot_pass_with_forged_admission_or_scalar_changes(self):
+        changes = [('Verified',False),('Required',False),('Source','fixture'),('InitialMomentum','inferred'),
+                   ('EnergyBasis','native-energy-preserved'),('SourceSha256','0'*64),('Cells',[])]
+        for key,value in changes:
+            report = self.imported_inventory();report['ImportedNativeInventory'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,initial_inventory=True),key)
+        for key in ('NativeProjectionMasses','NativeProjectionTemperatures'):
+            report=self.imported_inventory();report[key][-1]+=1
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,initial_inventory=True),key)
+
+    def test_native_inventory_rejects_late_corruption_even_with_recomputed_hash(self):
+        for fault in ('phase','vacuum','trace','position','element','temperature','boolean','non-native-float'):
+            report=self.imported_inventory();rows=report['ImportedNativeInventory']['Cells'];last=rows[-1]
+            if fault=='phase':last['MassesKg']=[0,0,0,last['MassesKg'][4],0]
+            if fault=='vacuum':last['MassesKg']=[0]*5
+            if fault=='trace':last['MassesKg'][2]=1e-28
+            if fault=='position':last['PublicCell']=rows[0]['PublicCell']
+            if fault=='element':last['NativeElementIndex']=65536
+            if fault=='temperature':last['TemperatureK']=float('inf')
+            if fault=='boolean':last['MassesKg'][4]=True
+            if fault=='non-native-float':last['MassesKg'][4]=1.01
+            self.rehash_inventory(report)
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,initial_inventory=True),fault)
 
     def test_accepts_only_completed_bounded_physical_ownership(self):
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30))
