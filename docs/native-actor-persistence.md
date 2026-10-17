@@ -141,6 +141,16 @@ terminal is `546ad352dfb7196e0ced460389da673905487d9cf9e791565bfb916dcf094ce2`;
 the licensed-worker terminal is
 `4089728c3182940eaee2eef8e5247e78df605fb1144ee27ae1d6fec653f936cf`.
 
+The subsequent orbital-reference admission merge (`4e7cf03`) passes 138
+installed-game declaration groups and 125 Python runner tests without skips.
+The adapter builds with the same two reference conflicts. All 170 native
+source/build inputs match the preceding verified binaries; no native rerun is
+claimed for this managed-only merge. Private evidence is
+`local/windows-orbital-merge-r6`, terminal SHA-256
+`f7a59d3fe43431b00628380599aa1403c2cdde07569b1c136e3868cf9571965e`.
+Its fresh Windows hover launch again encounters Steam's other-computer session
+warning and is canceled. This supplies no new Windows Unity or pixel result.
+
 ## Natural day autosaves with live actors
 
 Frozen `6c0f9a8` and native compatibility build v12 pass the actual Linux day
