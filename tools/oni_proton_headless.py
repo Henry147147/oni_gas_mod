@@ -92,6 +92,13 @@ def game_env(state: Path, output: Path, game: Path, display: str) -> dict:
     return env
 
 
+def compatibility_settings(env: dict) -> dict:
+    # Record only the nonsecret runtime switches used by these controlled
+    # comparisons. Never serialize the inherited process environment.
+    keys = ("MONOMOD_RunningOnWine", "MONOMOD_DMDType", "PROTON_USE_WINED3D", "WINEDEBUG")
+    return {key: env[key] for key in keys if key in env}
+
+
 def start_display(state: Path, output: Path) -> tuple[dict, str, dict]:
     display = next((f":{number}" for number in range(123, 200)
                     if not Path(f"/tmp/.X11-unix/X{number}").exists()
@@ -245,6 +252,7 @@ def playtest(args, state: Path, session: dict) -> int:
     try:
         xvfb, display, desktop = start_display(state, output)
         env = game_env(state, output, game, display)
+        result["compatibility_environment"] = compatibility_settings(env)
         result["display"] = display
         prefix_started = True
         initialize_prefix(sandbox_command(home, state, output, game, proton, ["run", "wineboot", "-u"]), output, env)
