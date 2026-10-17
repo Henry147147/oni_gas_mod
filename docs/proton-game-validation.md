@@ -119,3 +119,22 @@ fixed near 65,358,361,937 s in both tools. The public raw runner results remain
 The normal API counters narrow the investigation to their use by the engine;
 they do not establish a root cause or a supported runtime repair. The retained
 comparison is `clock-api-after-pressure-workflow-v1.json`.
+
+
+The subsequent constant-origin experiment changes only the coordinate origin
+of `CLOCK_MONOTONIC_RAW`, preserving its nanoseconds and timer rate. Native
+controls verify elapsed-time agreement and reject invalid/future origins. The
+GE10 clock-only run confirms the intended Win32 counter shift (about 646 s
+instead of 142,487 s), with the same 10 MHz frequency and advancing realtime.
+Unity unscaled time remains frozen. A following unmodified baseline reproduces
+it. This rejects the large-counter-origin hypothesis; the temporary diagnostic
+shim is excluded from the mod and normal runtime configuration. Evidence is
+`clock-origin-after-pressure-workflow-v1.json`.
+
+`clock-window-manager-after-private-linux-workflow-v1.json` then compares the
+same clock-only DLL with and without private Openbox. Both complete, report
+`Application.isFocused` and `runInBackground` true throughout, and retain the
+frozen Unity unscaled clock while realtime advances normally. Missing window
+focus/window-manager startup does not explain the failure. Both public raw
+results remain failed integration probes, and neither control loads the native
+mod libraries or advances custom physics.

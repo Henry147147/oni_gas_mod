@@ -21,8 +21,16 @@ owned resources. The normal shared-desktop mode remains available for manual
 selected source/save and fresh-process reload pair. It rejects missing display
 isolation or retirement receipts. The matrix now hashes its own orchestration
 script alongside the runner, reviewer and package. All 200 Python checks pass
-with four optional/platform skips. Actual private-display Unity validation is
-pending. Proton continues to use its existing private display by default.
+with four optional/platform skips. Actual Linux `private-linux-display-native-reload-v1` now passes using frozen
+`2db8758` and the `6d7422f` pressure package. The game runs on :123 while Steam
+stays on :121. Its frame-zero autosave, two startup batches and all 120 exact
+continued frames pass; both private Openbox and Xvfb identities are verified
+retired. The resumed physical image is
+`10c95fb39894b455343909a486092fa6909a4582600eca25f72ca681c98bb75e`,
+matching the shared-display continuation. The complete 5,123,268-byte autosave
+body passes readback, with colony-file hash
+`6d9b637c5e88ccd876282ddd1a2880288690bdcc3c4bb45819e391910d2bf393`.
+The original input remains unchanged. Proton continues to use its existing private display by default.
 
 ## Current machine: 2026-10-16
 
