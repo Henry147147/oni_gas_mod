@@ -58,6 +58,8 @@ for ownership, interfaces, failures and implementation gates.
   [Stored-energy rounding](native/MAC_CONDUCTION_ROUNDING.md) now preserves
   closed liquid heat sums when representable, with unresolved updates explicit.
   Linux Unity also passes liquid heat, represented conduction and paired reload.
+  A [same-process reload](docs/native-menu-reload.md) now passes return through
+  the main menu, a second native session and 120 matching physical frames.
   An opt-in gravity scene also passes in the Linux game, retaining physical
   vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.

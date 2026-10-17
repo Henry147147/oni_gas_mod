@@ -60,10 +60,19 @@ challenge. The ordinary save/body receipts and complete physical hashes are
 recorded in the [liquid evidence](sealed-native-domain.md#filled-liquid-point-sources).
 
 The `liquid-actors-and-native-features-unity-v1` frozen `2894420` / compatibility
-v6 cohort starts with a passing water-actor save/reload, including all 120 exact
-resumed frames. Gas heat save/reload and transfer source-save also pass; the
-remaining cases are still running. Later heat-rounding edits do not change
-these frozen inputs and require their own Unity cohort.
+v6 cohort passes water actors, gas heat, gas transfers, carbon dioxide and
+conduction through both save and reload, including all 120 resumed frames.
+Its gravity source process stops during mod loading: no free near trampoline
+page is found (`regions=2610`, `gaps=0`, `attempts=0`). The mod disables itself
+without entering simulation. That first failure and all ten completed cases
+are retained; gravity, gas actors, checkpoint, pair and source-save cases are
+still required. Later heat-rounding edits do not change these frozen inputs.
+
+The separate `conservative-heat-unity-matrix-v1` frozen `67e1475` / compatibility
+v7 pair passes actual liquid heat, ordinary saving and fresh-process reload,
+with every one of 120 continued frames matching. The later
+[same-process reload](native-menu-reload.md) also passes both loaded sessions
+in one Linux Unity process; it does not replace the incomplete feature matrix.
 
 The [Linux runner](sealed-native-domain.md#run-the-actual-linux-colony-controls)
 requires the licensed game and the private desktop/Steam setup. The separate
