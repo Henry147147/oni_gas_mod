@@ -105,7 +105,8 @@ Independent water review SHA-256:
 Raw water source/load results are
 `3d33fd6b4719b540cc5a9ff551390c8e3ae219353a3b2d88e76404f72d9fa0d3`
 and `5efe7a88e7044c8a5ad0204d049fa5bce28cdd87bf040524669ef46e2ccc3826`.
-Windows Unity actor execution remains under validation. These actor cohorts
+Windows water-actor and Windows OS execution remain under validation; the later
+WindowsPlayer gas cohort is accepted below. These Linux actor cohorts
 have no separate manual image review; their scoped appearance check uses actual
 calibrated GPU readback.
 
@@ -129,6 +130,61 @@ merged runner. Private evidence is `local/windows-actor-emitter-merge-r2`,
 terminal SHA-256
 `6805173ff923a9b4a8217d7e5c11c60389a71baf2a5f34528aa456fcd1fc17d9`.
 This is declaration/build verification; Unity save/reload remains required.
+
+## WindowsPlayer and native Linux Spaced Out gas
+
+The later `74c9ec1` mod and native v12 pass real WindowsPlayer gas actor saving
+and both reload sessions under official Proton 10/OpenGL on Linux. The public
+runner is frozen `4255c60`. Its fresh Spaced Out cluster has nine retained
+native worlds and six owned gas cells. At physical frame 122/time
+24.400000363588333 seconds, all three actors save with timing/remainder and
+blocked state; 114 matching consumer callbacks carry 1.1400000331923366 kg.
+The complete 10,680,044-byte body/header pass readback, and pause depth returns
+from zero to zero. The input file SHA-256 is
+`9b1c6cad9a1abb482d64514ad7f14e723c7a749326aa6887301cc70cf6483bf4`;
+its complete physical image is
+`5ef75748419ceba04a1d25cddfad3f4785ebe9c6f46dbcd6d743b99bd7d2003b`.
+
+Both WindowsPlayer native sessions, separated by shutdown/menu in one process,
+bind all three real actors, flush two genuine zero-time emitter configurations,
+admit all nine world save roots and orbital object 2 before positive time, and
+complete paused frame-zero autosaves/readback. Each receives 120 matching
+consumer callbacks and compares all 120 complete actor-and-fluid frames exactly.
+Their final image is
+`5413689412358fd63f7ce1002688e8c8ec912f6f3116c03a65442ede3243e11c`.
+Both resaved bodies contain 10,680,222 bytes. Restored readers, calibrated GPU
+readback and original-input preservation pass.
+
+The installed native Linux player then loads that same unchanged Windows save.
+Its two native sessions also restore the exact initial image, preserve the
+native references, complete the paused autosaves and compare 120 complete
+frames individually with matching callbacks/readers/GPU checks. Both Linux
+final images equal
+`a3c40c74784258a5bd73f68566dea143183cf80c00b7ffec539aa87658a5e436`.
+The private displays are retired.
+
+The Windows/Linux final images differ numerically. An independent complete
+checkpoint comparison retains exact actor records, material/registry identity,
+geometry, settings, walls, physical time/revision and passive identities. It
+compares all 119 stored physical quantities, including every constituent mass
+and both face-momentum representations. Thirty-one differ; the largest
+relative difference is 6.731267162903596e-12, below the explicit 1e-8 comparison
+bound. Zeros retain an exact comparison and traces receive no absolute-mass
+floor. This accepts bounded cross-platform gas continuation, while the
+same-platform controls retain their individually exact continuation checks.
+
+Independent review SHA-256 values: Windows gas
+`d935e842a426a0f7e4d4631a6a9d15a5da7aad7a9639e597000c4d15fac5c1e8`,
+native Linux cross-load
+`1e8870a0556a09201066be16a4556dc1afc68ebdb8c16c4575f17263fb2583b5`,
+complete checkpoint comparison
+`b3040d956c288a293562819c8d9516332017a347a31fabca3139105b78c19853`.
+The actual WindowsPlayer source image was also viewed; its mixture hover facts
+match completed cell 103106/revision 122. That scoped image review is
+`bf343e82ec8c365e217497c80f32bb620bf9f1a0e09d37800a6c6497fbe4fcaf`.
+It does not establish four-gas/trace-cutoff presentation or load-image review.
+These controls do not establish execution on the Windows OS, arbitrary native
+references, production devices or whole-colony fluid ownership.
 
 ## Natural day autosaves with live actors
 

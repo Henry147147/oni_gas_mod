@@ -79,7 +79,12 @@ fresh load respectively are
 `fbebe7912a00fa0501da5789fe9de874f63e36c9ab6d88970fccc6f45e49d05d`,
 `9de158709acae102e84b72810c9ea67728679712bda14df20c2c990f9a074020`
 and `d93f855c3ff035c9550fc0d884be196a2cb11f50d2fd8ad26eb6c822558362a8`.
-There is no separate manual pixel review or Windows Unity admission claim.
+The later fresh nine-world WindowsPlayer/Proton OpenGL gas source and its two
+reload sessions also admit the native references. Native Linux reloads the same
+Windows source twice with admission at frame zero. See
+[the platform evidence](native-actor-persistence.md#windowsplayer-and-native-linux-spaced-out-gas).
+These controls do not establish execution on the Windows OS or general managed
+reference integrity.
 
 Related contracts: [native integration](native-backend-integration.md),
 [point-actor persistence](native-actor-persistence.md) and

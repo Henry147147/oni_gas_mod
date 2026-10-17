@@ -23,6 +23,11 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The later WindowsPlayer/Proton OpenGL gas source and both reload sessions also
+pass in a fresh nine-world Spaced Out cluster. Native Linux reloads that same
+save twice, preserving the exact initial image and bounded cross-platform
+continuation. These remain point-boundary controls; see
+[the platform evidence](native-actor-persistence.md#windowsplayer-and-native-linux-spaced-out-gas).
 The [native orbital reference check](native-orbital-references.md) separately
 admits retained world/background save roots before restored time or paired
 serialization. A dangling native object cannot be inferred healthy from an

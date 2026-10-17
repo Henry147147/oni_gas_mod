@@ -1,12 +1,20 @@
 # Native Linux Spaced Out load and continuation
 
-An earlier frozen control passes bounded physical continuation for a Spaced Out
-colony on the installed Linux game. Current builds reject that particular input
-before advancing or resaving because its native orbital object is missing; see
-[reference admission](native-orbital-references.md). An intact fresh cluster is
-still required for current full save/load admission.
+The current bounded owner passes an intact nine-world Spaced Out source and
+both reload sessions on WindowsPlayer/Proton, followed by two native Linux
+reload sessions of that same save. The `74c9ec1` mod, native v12 and frozen
+`4255c60` runner preserve the three saved point actors, exact initial physical
+image and native world/orbital references. Each session completes its paused
+autosave and 120 individually exact complete frames with matching callbacks,
+restored readers and calibrated GPU readback. The Windows/native-Linux final
+states have bounded numerical differences; see
+[the complete source and comparison evidence](native-actor-persistence.md#windowsplayer-and-native-linux-spaced-out-gas).
 
-The historical control uses the existing licensed Linux installation's
+An earlier frozen control uses a different Spaced Out input. Current builds
+reject that older input before advancing or resaving because its native orbital
+object is missing; see [reference admission](native-orbital-references.md).
+
+The native Linux controls use the existing licensed Linux installation's
 expansion bundles through `oni_headless.py --game-dir`; the normal save-content
 check remains mandatory. A depot missing those bundles still rejects this same
 save before activation. No assets are transferred between platforms.
