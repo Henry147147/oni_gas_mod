@@ -314,6 +314,7 @@ internal static unsafe class Program
         MixtureRuntimeTests.Run(Test, Check, Reject);
         ActorRegistrationTests();
         CellMassEditTests();
+        NativeFluidTransferPlanTests.Run(Test,Check,Reject);
         BreathingCellReadTests.Run(Test, Check, Reject);
         PressureReadTests.Run(Test, Check, Reject);
         GpuPageReadbackTests.Run(Test, Check, Reject);

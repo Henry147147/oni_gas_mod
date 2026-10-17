@@ -102,7 +102,7 @@ Both adapters build; 152 installed-declaration groups per platform and 242
 Python checks pass (four optional/platform skips). All 17 backend groups now
 pass on host Linux and GNU Windows under Wine. Pure-liquid heating, an interior
 solid and late EOS rejection also pass on all three component builds. The full
-sanitizer suite, clean compatibility build and actual Unity source/save/reload
-remain separate gates.
+sanitizer suite and clean Ubuntu compatibility build subsequently pass all 17
+groups as well. Actual Unity source/save/reload remains a separate gate.
 This does not mark viscosity gameplay, whole-colony ownership or the
 [complete overhaul](completion-plan.md) as accepted.

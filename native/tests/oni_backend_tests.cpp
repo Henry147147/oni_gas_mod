@@ -127,6 +127,7 @@ int main() {
         MAOniDomainThermalStatus thermal{}; thermal.struct_size=80; thermal.abi_version=1;
         require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_OK && thermal.state==0 && thermal.enabled==0,"inactive conduction status");
         require(ma_oni_domain_viscosity_abi_version()==1 && sizeof(MAOniDomainViscosityStatus)==120,"physical viscosity extension ABI");
+        require(ma_oni_domain_radial_consumption_abi_version()==1,"radial consumption capability ABI");
         MAOniDomainViscosityStatus viscosity{};viscosity.struct_size=120;viscosity.abi_version=1;
         require(ma_oni_domain_viscosity_status(&viscosity)==MA_ONI_OK && viscosity.state==0 && viscosity.enabled==0,"inactive viscosity status");
         viscosity.abi_version=2;const auto held_viscosity=viscosity;

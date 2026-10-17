@@ -259,6 +259,7 @@ namespace MixedAtmospheres.Oni
             if(length<8 || length>data.Length-position-4 || !ColonySaveEnvelope.HasMagic(data.AsSpan(position+4,length))) return false;
             Require(ColonyRestoreMode && !active && pendingColonyRestore==null,"This paired colony requires the explicit native load development mode.");
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
+            Require(RadialConsumptionVersion()==1,"Unsupported native radius-consumption capability.");
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
             var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);

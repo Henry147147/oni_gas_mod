@@ -69,11 +69,16 @@ actual breathing helper and duplicant selection in both loaded sessions for
 mixed-air/CO2 and filled water, including shutdown and a return through the main
 menu. They retain the atmosphere-reader scope described here.
 
-This implements the atmosphere reader. Production duplicant consumption,
-radius/bulk reservations, coupling actual consumed oxygen to metabolic
+This implements the atmosphere reader. Production duplicant source/load acceptance,
+rectangular/bulk device reservations, coupling actual consumed oxygen to metabolic
 products, food/body inventories, suit/tube providers and persistent live
 actors remain open. In particular, vanilla's early requested-mass CO2 emission
 cannot establish a conserved metabolism transaction.
+
+The later [radius-consumption boundary](native-radial-consumption.md) now
+implements atomic connected-cell allocation and one combined native callback
+for the real radius-three request. Its native and declaration controls pass;
+actual duplicant source/load and conserved metabolism remain separate gates.
 
 The later [Windows declaration preflight](native-pressure-reader.md#windows-declaration-preflight)
 passes the merged managed tests and adapter against the installed assemblies.

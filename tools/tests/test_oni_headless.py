@@ -854,6 +854,25 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             ConsumptionResult={"elemIdx": 176, "mass": .02, "temperature": 300.1,
                 "diseaseIdx": 255, "diseaseCount": 0})
 
+    def test_radius_consumption_requires_one_real_callback_exceeding_the_centre_inventory(self):
+        self.add_gas_transfers()
+        self.report.update(TargetCell=100,RadialConsumptionMessagesRouted=1)
+        injected=struct.unpack('f',struct.pack('f',.05))[0];consumed=struct.unpack('f',struct.pack('f',.4))[0]
+        self.report['GasTransfers']['MassChangesKg']=[0,injected-consumed,0,0,0]
+        self.report['ConsumptionResult'].update(mass=.4,callbackIdx=71)
+        self.report['RadialConsumption']=dict(Required=True,Verified=True,Source='actual-SimMessages.ConsumeMass-radius-3',Radius=3,
+            PublicCell=100,SourceFrame=4,SourceCellOxygenKg=.2,InjectedOxygenKg=injected,RequestedMassKg=consumed,
+            Receipts=1,SingleCallbackForMultipleSourceCells=True,ActualDuplicantMetabolismVerified=False,
+            Receipt=dict(Session=1,Kind=2,Species=1,PublicCell=100,MassKg=consumed,CompletedFrame=5,Callback=71))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,radial_consumption=True))
+        changes=[lambda r:r['RadialConsumption'].update(SourceCellOxygenKg=.5),
+            lambda r:r['RadialConsumption'].update(Receipts=2),lambda r:r['RadialConsumption'].update(ActualDuplicantMetabolismVerified=True),
+            lambda r:r['RadialConsumption']['Receipt'].update(Callback=72),lambda r:r['RadialConsumption']['Receipt'].update(MassKg=.02),
+            lambda r:r['RadialConsumption'].update(SourceFrame=5),lambda r:r.update(RadialConsumptionMessagesRouted=0)]
+        for change in changes:
+            bad=copy.deepcopy(self.report);change(bad)
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,radial_consumption=True))
+
     def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
         self.add_gas_transfers()

@@ -135,6 +135,7 @@ namespace MixedAtmospheres.Oni
             internal static ViscosityStatus Empty => new ViscosityStatus { Size = 120, Version = 1 };
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ViscosityVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_radial_consumption_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RadialConsumptionVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyViscosityStatus(ref ViscosityStatus status);
         [StructLayout(LayoutKind.Sequential)]
         internal struct GravityStatus

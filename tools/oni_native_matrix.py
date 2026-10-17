@@ -16,7 +16,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 SCENES={"mixed":"native-mixed-domain","mixed-heat":"native-mixed-heat-domain","viscous":"native-viscous-domain","import":"native-import-domain","water-import":"native-liquid-import-domain","gas":"native-domain","water":"native-liquid-domain","water-transfer":"native-liquid-transfer-domain","heat":"native-heat-domain","water-heat":"native-liquid-heat-domain",
-    "transfer":"native-transfer-domain","carbon":"native-carbon-domain","carbon-particle":"native-carbon-particle-domain","breathing-read":"native-breathing-read-domain","pressure-read":"native-pressure-read-domain","water-pressure-read":"native-liquid-pressure-read-domain","conduction":"native-conduction-domain",
+    "transfer":"native-transfer-domain","radius":"native-radius-domain","carbon":"native-carbon-domain","carbon-particle":"native-carbon-particle-domain","breathing-read":"native-breathing-read-domain","pressure-read":"native-pressure-read-domain","water-pressure-read":"native-liquid-pressure-read-domain","conduction":"native-conduction-domain",
     "gravity":"native-gravity-domain","water-gravity":"native-liquid-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
     "pair":"native-paired-checkpoint-domain","save":"native-save-domain"}
 

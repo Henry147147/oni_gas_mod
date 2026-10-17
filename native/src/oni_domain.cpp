@@ -1,4 +1,5 @@
 #include "oni_domain.hpp"
+#include "oni_radial_consumption.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "oni_actor_checkpoint.hpp"
@@ -262,7 +263,7 @@ std::size_t domain_index(std::uint32_t public_cell,const MAOniDomainConfig& g) {
     return x-g.offset_x+(y-g.offset_y)*g.width;
 }
 std::size_t domain_index(std::uint32_t public_cell) { return domain_index(public_cell,geometry); }
-void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
+MAOniDomainReceipt prepare_point_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
     if (input.struct_size != sizeof(input) || input.abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved || input.flags > 1 ||
         (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
         !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
@@ -293,10 +294,45 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
         work.material.add(inject ? packet_energy.component(k) : packet_energy.component(k).negated());
     work.potential.add(inject ? packet.potential_energy : packet.potential_energy.negated());
     if (!inject) work.kinetic.add(packet.resolved_kinetic_energy.negated());
-    work.append({0,0,0,input.public_cell,input.species,input.callback,receipt_kind,
+    MAOniDomainReceipt receipt{0,0,0,input.public_cell,input.species,input.callback,receipt_kind,
         packet.mass_kg,packet.temperature_k,packet_energy.value().require_representable(),packet.resolved_kinetic_energy.require_representable(),
-        packet.momentum_x.require_representable(),packet.momentum_y.require_representable()});
+        packet.momentum_x.require_representable(),packet.momentum_y.require_representable()};
     work.owner=std::make_unique<MacClosedWorld>(std::move(prepared.world));
+    return receipt;
+}
+void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
+    constexpr std::uint32_t radius_mask=0xff00U;
+    const auto radius=(input.flags&radius_mask)>>8;
+    if (radius==0) { work.append(prepare_point_transfer(work,input,receipt_kind));return; }
+    if (input.struct_size!=sizeof(input) || input.abi_version!=MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved ||
+        (input.flags&~(radius_mask|1U)) || !(input.flags&1U) || input.kind!=2 || receipt_kind!=2 || input.species>=ids.size() ||
+        !admitted_species(work.configuration.scenario,input.species) || !std::isfinite(input.mass_kg) || input.mass_kg<0 ||
+        !std::isfinite(input.temperature_k) || static_cast<double>(static_cast<float>(input.mass_kg))!=input.mass_kg)
+        throw std::invalid_argument("Invalid binary32 radial consumption request");
+    if (input.session!=work.session || input.expected_frame!=work.frame)
+        throw std::logic_error("Radial consumption source session/frame is stale");
+    const auto centre=domain_index(input.public_cell,work.configuration);
+    const auto grid=work.owner->state().grid;
+    const auto species=work.owner->registry().index(ids[input.species]);
+    std::vector<double> amounts;amounts.reserve(work.owner->state().cells.size());
+    for (const auto& cell:work.owner->state().cells) amounts.push_back(cell.mixture.masses[species]);
+    const auto plan=radial::prepare(grid.width,grid.height,grid.walls,amounts,centre,radius,input.mass_kg);
+    MAOniDomainReceipt combined{0,0,0,input.public_cell,input.species,input.callback,2,plan.mass,0,0,0,0,0};
+    MacEnergySum material,kinetic,px,py,temperature_mass;
+    for (const auto& allocation:plan.allocations) {
+        auto point=input;point.flags=1;point.callback=-1;
+        point.public_cell=static_cast<std::uint32_t>(allocation.cell%grid.width+work.configuration.offset_x+
+            (allocation.cell/grid.width+work.configuration.offset_y)*work.configuration.native_grid_width);
+        point.mass_kg=allocation.mass;
+        const auto packet=prepare_point_transfer(work,point,2);
+        if (packet.mass_kg!=point.mass_kg) throw std::logic_error("Radial parcel changed its exact callback lattice allocation");
+        material.add(packet.internal_energy_j);kinetic.add(packet.kinetic_energy_j);px.add(packet.momentum_x);py.add(packet.momentum_y);
+        temperature_mass.add(MacEnergy::from_double(packet.mass_kg).multiplied(packet.temperature_k));
+    }
+    if (combined.mass_kg>0) combined.temperature_k=temperature_mass.value().shared(1,combined.mass_kg).require_representable();
+    combined.internal_energy_j=material.value().require_representable();combined.kinetic_energy_j=kinetic.value().require_representable();
+    combined.momentum_x=px.value().require_representable();combined.momentum_y=py.value().require_representable();
+    work.append(combined);
 }
 MAOniDomainActorStatus actor_status() {
     return {sizeof(MAOniDomainActorStatus),1,status.state,static_cast<std::uint32_t>(actors.size()),status.session,

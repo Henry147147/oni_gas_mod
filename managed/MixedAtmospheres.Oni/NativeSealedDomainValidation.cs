@@ -58,6 +58,7 @@ namespace MixedAtmospheres.Oni
         private static bool transfersSubmitted, transfersVerified, transfersAvoidedNativeDispatch;
         private static bool transferConsumptionSubmitted;
         private static int transferConsumptionCallback;
+        private static long radialConsumptionMessagesRouted;
         private static int emissionCallbacks, consumptionCallbacks;
         private static Sim.MassEmittedCallback emissionResult;
         private static Sim.MassConsumedCallback consumptionResult;
@@ -74,7 +75,7 @@ namespace MixedAtmospheres.Oni
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => RadialConsumptionMode || MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -87,7 +88,7 @@ namespace MixedAtmospheres.Oni
         private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode || MixedHeatMode;
-        private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
+        private static bool TransferMode => RadialConsumptionMode || ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 || restoredScenario==3 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || LiquidGravityMode;
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" || LiquidActorMode;
@@ -218,11 +219,11 @@ namespace MixedAtmospheres.Oni
                     transfersVerified = transfersSubmitted && transfersAvoidedNativeDispatch && transferPacketsRouted == 2 &&
                         transferStatus.AcceptedBatches == 2 && transferStatus.CommittedBatches == 2 && transferStatus.PendingBatches == 0 &&
                         transferStatus.UnacknowledgedReceipts == 0 && receiptsPublished == 2 && emissionCallbacks == 1 && consumptionCallbacks == 1 &&
-                        emissionResult.suceeded == 1 && emissionResult.mass == .05f && consumptionResult.mass == .02f &&
+                        emissionResult.suceeded == 1 && emissionResult.mass == .05f && consumptionResult.mass == FixtureConsumptionKg &&
                         emissionResult.elemIdx == element && consumptionResult.elemIdx == element &&
                         emissionResult.diseaseIdx == 255 && consumptionResult.diseaseIdx == 255 &&
                         emissionResult.diseaseCount == 0 && consumptionResult.diseaseCount == 0 && consumptionResult.temperature > 0 &&
-                        transferStatus.MassChangesKg[LiquidTransferMode ? 3 : CarbonMode ? 4 : 1] == (double).05f - .02f && transferStatus.KineticEnergyChange < 0 &&
+                        transferStatus.MassChangesKg[LiquidTransferMode ? 3 : CarbonMode ? 4 : 1] == (double).05f - FixtureConsumptionKg && transferStatus.KineticEnergyChange < 0 &&
                         (!CarbonMode || cells.Any(cell => cell.CarbonDioxide > 0) && publishedReadings!.Values.Any(value =>
                             value.Constituents.Any(item => item.MaterialId == "carbon_dioxide" && item.MassKg > 0))) &&
                         transferMassError <= 1e-10 && Math.Abs(transferEnergyResidual) <= transferEnergyBound;
@@ -237,6 +238,7 @@ namespace MixedAtmospheres.Oni
                                 64 * 2.2204460492503131e-16 * (Math.Abs(incoming.InternalEnergy) + Math.Abs(outgoing.InternalEnergy));
                     }
                     Require(transfersVerified, "Actual fluid messages, physical accounts or once-only game callbacks failed.");
+                    if(RadialConsumptionMode) Require(RadialConsumptionVerified,"Radius consumption did not deliver one callback spanning multiple physical source cells.");
                     releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
                 }
                 if (ConductionMode)
@@ -289,6 +291,7 @@ namespace MixedAtmospheres.Oni
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(ViscosityVersion() == 1 && Marshal.SizeOf<ViscosityStatus>() == 120, "Unsupported native physical viscosity ABI.");
+            Require(RadialConsumptionVersion() == 1,"Unsupported native radius-consumption capability.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
             Require(PairVersion()==1 && Marshal.SizeOf<PairStatus>()==112,"Unsupported native paired checkpoint ABI.");
@@ -505,6 +508,7 @@ namespace MixedAtmospheres.Oni
                         "Native gas receipt disagrees with its completed physical frame or delivery order.");
                     through = receipt.Sequence;
                     ObserveCarbonParticleReceipt(receipt);
+                    ObserveRadialConsumptionReceipt(receipt);
                     if (LiquidTransferMode && receipt.Kind == 1) liquidInjectionReceipt = receipt;
                     if (LiquidTransferMode && receipt.Kind == 2) liquidExtractionReceipt = receipt;
                     if (receipt.Callback == -1) continue;
@@ -546,6 +550,7 @@ namespace MixedAtmospheres.Oni
         private static float ProjectionTemperature(int column) => 280 + 20 * column;
         private static void SubmitGameFluidTransfers()
         {
+            if(RadialConsumptionMode) {radialSourceCellOxygen=cells[0].Oxygen;radialSourceFrame=latest.CompletedFrames;}
             transfersBeforeEnergy = PhysicalEnergy;
             transferEnergyScale = cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
             transfersBeforeMasses = Enumerable.Range(0, Ids.Length).Select(k => cells.Sum(cell => cell.Mass(k))).ToArray();
@@ -566,7 +571,7 @@ namespace MixedAtmospheres.Oni
             SimMessages.EmitMass(target, (ushort)ElementLoader.FindElementByHash(element).idx, .05f, CarbonMode ? 310 : 300, 255, 0, emitted.index);
             // A resting liquid needs a positive physical interval after
             // injection to exercise carried extraction momentum and K.
-            if (!LiquidTransferMode) SimMessages.ConsumeMass(target, element, .02f, (byte)0, consumed.index);
+            if (!LiquidTransferMode) SimMessages.ConsumeMass(target, element, FixtureConsumptionKg, RadialConsumptionMode ? (byte)3 : (byte)0, consumed.index);
             transfersAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
             Require(transfersAvoidedNativeDispatch && transferPacketsRouted == (LiquidTransferMode ? 1 : 2), "Game fluid messages bypassed custom native routing.");
             transfersSubmitted = true;
@@ -588,34 +593,24 @@ namespace MixedAtmospheres.Oni
             if (!active || (message != 1727657959 && message != 797274363) || count == 0) return false;
             try
             {
-                var injection = message == 797274363;
-                if (length != (injection ? 24 : 16) || count < 0 || payload == null) throw new ArgumentException("Invalid native fluid transfer batch.");
-                _ = checked(length * count); var owned = 0;
-                for (var i = 0; i < count; ++i) if (OwnsPublicCell(*(int*)(payload + i * length))) ++owned;
-                if (owned == 0) return false;
-                if (owned != count || count > 256) throw new NotSupportedException("Fluid transfer batches need one reserved owner and at most 256 requests.");
-                var requests = new TransferCommand[count];
+                if(payload==null || count<1 || length<1) throw new ArgumentException("Native fluid transfer payload is missing.");
+                var plan=NativeFluidTransferPlan.Decode(message,length,count,new ReadOnlySpan<byte>(payload,checked(length*count)),OwnsPublicCell,ActorFluidSpecies);
+                if(plan.Length==0) return false;
+                var requests = new TransferCommand[plan.Length];
                 for (var attempt = 0; attempt < 8; ++attempt)
                 {
                     var source = Status.Empty; Check(Copy(ref source, new Cell[cells.Length], (uint)cells.Length));
-                    for (var i = 0; i < count; ++i)
+                    for (var i = 0; i < plan.Length; ++i)
                     {
-                        var data = new ReadOnlySpan<byte>(payload + i * length, length);
-                        var element = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(injection ? 20 : 12));
-                        uint species = 0;
-                        while (species < Ids.Length && ElementLoader.FindElementByHash(SpeciesHash(species)).idx != element) ++species;
-                        if (species >= Ids.Length || (species == 3) != Liquid) throw new NotSupportedException("Native fluid point source has an unimplemented material/phase.");
-                        if (injection ? BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != 0 : data[14] != 0 || data[15] != 0)
-                            throw new NotSupportedException("Fluid point sources require disease-free injection and single-cell consumption.");
+                        var edit=plan[i];
                         requests[i] = new TransferCommand { Size = 64, Version = 2, Session = source.Session, ExpectedFrame = source.CompletedFrames,
-                            PublicCell = checked((uint)BinaryPrimitives.ReadInt32LittleEndian(data)), Species = species,
-                            Kind = injection ? 1U : 2U, Flags = 1, Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
-                            MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))),
-                            Temperature = injection ? BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))) : 0 };
+                            PublicCell = checked((uint)edit.Cell), Species = edit.Species, Kind = edit.Injection ? 1U : 2U,
+                            Flags = edit.Flags, Callback = edit.Callback, MassKg = edit.MassKg, Temperature = edit.Temperature };
                     }
                     var result = TransferStatus.Empty; var code = QueueTransfers(requests, (uint)count, ref result);
                     if (code == 3) continue;
-                    Check(code); transferStatus = result; transferPacketsRouted += count; return true;
+                    Check(code); transferStatus = result; transferPacketsRouted += count;
+                    radialConsumptionMessagesRouted+=plan.Count(edit=>(edit.Flags>>8)!=0);return true;
                 }
                 throw new InvalidOperationException("Native transfer frame kept changing during reservation.");
             }
@@ -721,6 +716,8 @@ namespace MixedAtmospheres.Oni
             MixedHeatVerified = MixedHeatMode && !ColonyRestoreMode && heatVerified && thermalVerified,
             HeatEnergyScaleJoules = heatEnergyScale, HeatEnergyBoundJoules = heatEnergyBound,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
+            RadialConsumptionMessagesRouted = radialConsumptionMessagesRouted,
+            RadialConsumption = RadialConsumptionReport(),
             CellMassEditsRouted = cellMassEditsRouted,
             CarbonParticle = CarbonParticleReport(),
             BreathingCellReader = BreathingReadReport(),

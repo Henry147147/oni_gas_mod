@@ -140,3 +140,16 @@ The actual source PNG was viewed with cell 103106/revision 121 hover:
 visible. This v16 capture retains the earlier gas-only world colour;
 the new phase-volume appearance and liquid interface geometry are not claimed
 from it. WindowsPlayer and bidirectional cross-loads remain separate gates.
+
+WindowsPlayer now also loads that unchanged Linux source twice; both sessions
+pass paused saves/readbacks and 120 individually exact complete frames. Its
+final image is
+`9c68cd94867929b3c706f68a811cba4b4393da3461832e2ad7eaf9fa2be4270e`.
+The strict independent cross-platform comparison still **fails**: all 119
+stored quantities are compared, with exact model/geometry/settings/clock and
+trace identities, but a momentum difference reaches 3.221176908666397e-8
+against the original 1e-8 bound. No absolute zero floor or relaxed tolerance is
+introduced. Review SHA-256:
+`5308867eaf0713772da9a8af1b2a5186798b210352e4a93846a639fbe223b663`.
+This retains local exact continuation and functional loading evidence while
+leaving cross-platform numerical acceptance open.

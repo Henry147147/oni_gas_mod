@@ -86,12 +86,13 @@ MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
 /* Fluid point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
- * Gas-only or one matching liquid material by default; scenario 4 explicitly
+ * Gas-only or one matching liquid material by default; scenarios 4..6 explicitly
  * admits occupied gas/liquid mixtures. Liquid parcels
  * carry elastic internal energy at the cell's pre-edit pressure. Void creation
- * reject the complete batch; phase mixing requires scenario 4. No implicit enthalpy/pump work.
+ * reject the complete batch; phase mixing requires scenarios 4..6. No implicit enthalpy/pump work.
  * Receipts are retained until acknowledged after an owned snapshot publication.
- * Quantities are binary32-compatible when flags bit 0 is set; any remainder
+ * Quantities are binary32-compatible when flags bit 0 is set; radial capability
+ * 1 additionally admits bits 8..15 for a selective-consumption radius. Any remainder
  * stays in the physical source. These are not pump/aperture transactions. */
 typedef struct MAOniDomainTransfer {
     uint32_t struct_size, abi_version;
@@ -121,6 +122,15 @@ MA_ONI_API MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus*)
 MA_ONI_API MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus*, MAOniDomainCell*, uint32_t cell_capacity,
     MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* receipt_count);
 MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t through_sequence);
+/* Additive radial consumption capability 1. Transfer flags bits 8..15 select
+ * a face-connected radius for kind 2; bit 0 must also be set. Radius zero
+ * retains the original point rule. The sealed owner boundary is impermeable.
+ * Allocation is centre-first breadth-first order, on the aggregate binary32
+ * callback lattice. Finer residual inventory stays in each physical source.
+ * Exactly one kind-2 receipt carries total mass, mass-weighted temperature,
+ * parcel U/K/momentum and the original callback; public_cell is its centre.
+ * A complete batch is prepared atomically, including overlapping requests. */
+MA_ONI_API uint32_t ma_oni_domain_radial_consumption_abi_version(void);
 
 /* Registered point-boundary actors, ABI 1. Native handles are opaque 32-bit
  * values. Native registration remains intact, but its transfer stays inactive.

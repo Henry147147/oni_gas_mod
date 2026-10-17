@@ -492,7 +492,28 @@ def _viscosity_passed(report: dict, physical: dict) -> bool:
         return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False) -> bool:
+def _radial_consumption_passed(report: dict, physical: dict) -> bool:
+    try:
+        value=report['RadialConsumption'];receipt=value['Receipt'];source=value['SourceFrame']
+        injected=struct.unpack('<f',struct.pack('<f',.05))[0];requested=struct.unpack('<f',struct.pack('<f',.4))[0]
+        if (any(value.get(key) is not True for key in ('Required','Verified','SingleCallbackForMultipleSourceCells'))
+                or value.get('Source')!='actual-SimMessages.ConsumeMass-radius-3' or value.get('Radius')!=3
+                or value.get('ActualDuplicantMetabolismVerified') is not False or value.get('Receipts')!=1
+                or report.get('RadialConsumptionMessagesRouted')!=1 or value.get('PublicCell')!=report['TargetCell']
+                or type(source) is not int or not 0<=source<physical['CompletedFrames']
+                or value.get('InjectedOxygenKg')!=injected or value.get('RequestedMassKg')!=requested
+                or type(value.get('SourceCellOxygenKg')) not in (int,float) or not 0<value['SourceCellOxygenKg']<math.inf):
+            return False
+        return (receipt.get('Session')==physical['Session'] and receipt.get('Kind')==2 and receipt.get('Species')==1
+            and receipt.get('PublicCell')==value['PublicCell'] and receipt.get('MassKg')==requested
+            and requested>value['SourceCellOxygenKg']+injected
+            and type(receipt.get('CompletedFrame')) is int and source<receipt['CompletedFrame']<=physical['CompletedFrames']
+            and type(receipt.get('Callback')) is int and receipt['Callback']==report['ConsumptionResult']['callbackIdx'])
+    except (KeyError,TypeError,ValueError,AttributeError):
+        return False
+
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -517,6 +538,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
         return False
+    radial_consumption=radial_consumption or isinstance(report.get('RadialConsumption'),dict) and report['RadialConsumption'].get('Required') is True
+    if radial_consumption:
+        if not _radial_consumption_passed(report,physical):return False
+        transfers=True
     mixed_phase=mixed_phase or report.get('Scenario')=='gas-liquid-mixture'
     mixed_heat=mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('NativeScenario')==5
     if not mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('Required') is True:
@@ -682,7 +707,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         account = report.get("FluidTransfers" if liquid_transfers else "GasTransfers")
         emission, consumption = report.get("EmissionResult"), report.get("ConsumptionResult")
         injected = struct.unpack("f", struct.pack("f", .05))[0]
-        consumed = struct.unpack("f", struct.pack("f", .02))[0]
+        consumed = struct.unpack("f", struct.pack("f", .4 if radial_consumption else .02))[0]
         energy_bound = 1e-6
         if liquid_transfers:
             scale = report.get("TransferEnergyScaleJoules")
@@ -717,7 +742,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(account.get("KineticEnergyChange")) not in (int, float) or not math.isfinite(account["KineticEnergyChange"]) or account["KineticEnergyChange"] >= 0
                 or type(account.get("MaterialEnergyChange")) not in (int, float) or not math.isfinite(account["MaterialEnergyChange"])
                 or not isinstance(emission, dict) or not isinstance(consumption, dict)
-                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != .02
+                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != (.4 if radial_consumption else .02)
                 or type(emission.get("elemIdx")) is not int or emission["elemIdx"] != consumption.get("elemIdx")
                 or emission.get("temperature") != (310 if carbon else 300)
                 or type(consumption.get("temperature")) not in (int, float) or not 0 < consumption["temperature"] < float("inf")
