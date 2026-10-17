@@ -14,6 +14,9 @@ namespace MixedAtmospheres.Oni
         private static ushort[] initialInventoryElements = Array.Empty<ushort>();
         private static bool initialInventoryVerified;
         private static string initialInventoryHash = "";
+        private static bool InitialInventoryAdvanced => initialInventoryVerified && latest.CompletedFrames > 0 &&
+            Enumerable.Range(0, cells.Length).Any(index => cells[index].Temperature != initialInventory[index].Temperature ||
+                Enumerable.Range(0, Ids.Length).Any(species => cells[index].Mass(species) != initialInventory[index].Mass(species)));
         private static int InitialInventorySpecies(ushort element)
         {
             for (var species = 0; species < Ids.Length; ++species)
@@ -75,7 +78,7 @@ namespace MixedAtmospheres.Oni
         private static ushort ExpectedNativeElement(int index) => InitialInventoryMode
             ? initialInventoryElements[index] : ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx;
         private static object InitialInventoryReport() => new {
-            Required = InitialInventoryMode, Verified = initialInventoryVerified, AbiVersion = 1,
+            Required = InitialInventoryMode, Verified = initialInventoryVerified, AdvancedFromSource = InitialInventoryAdvanced, AbiVersion = 1,
             Source = "completed-native-GameDataUpdate", EnergyBasis = "declared-reference-EOS-at-native-temperature",
             InitialMomentum = "at-rest", SourceSha256 = initialInventoryHash,
             Cells = initialInventory.Select((cell, index) => new { PublicCell = Grid.XYToCell(x + index % Width, y + index / Width),

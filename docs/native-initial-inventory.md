@@ -40,7 +40,10 @@ Before the first physical frame, actual copied cells must match every admitted
 constituent and temperature with zero resolved kinetic energy and momentum.
 The portable validator reconstructs the hash and compares the source native
 binary32 values. Normal worker conservation, unchanged native cells, rendering,
-outside native-solid heat and save guards remain required. Ordinary paired
+an actual physical change from the source, outside native-solid heat and save
+guards remain required. The import controls use their actual admitted state;
+synthetic-fixture pressure/mass constants do not describe these inventories.
+Ordinary paired
 saves and exact continuation use the existing physical checkpoint identity;
 the initial source packet is not a replacement for that checkpoint.
 

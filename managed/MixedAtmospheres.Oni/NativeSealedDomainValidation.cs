@@ -172,7 +172,8 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(Liquid ? LiquidActorMode ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
+                Require(InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
+                    Liquid ? LiquidActorMode ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
