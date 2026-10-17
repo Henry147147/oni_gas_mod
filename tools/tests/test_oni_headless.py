@@ -381,6 +381,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             "ConfigurationBatchVerified": True, "NativeActorBatchVerified": True, "ConfigurationBatchesRouted": 1,
             "RegistrationBatchVerified":True,"RetirementBatchVerified":True,"ActualBatchEmitterRegistrations":1,
             "RegistrationBatchesRouted":1,"RetirementBatchesRouted":1,
+            "InitialZeroEmitterVerified":True,"InitialZeroEmitterMass":0,"InitialZeroEmitterSamples":8,
             "ActualUnblockedCallbacks": 1, "EnergyResidualJoules": 1e-9, "MaximumRelativeMassError": 1e-15}
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, actors=True))
         for field, value in (("ActualConsumerCallbacks", 0), ("ActualBlockedCallbacks", 2), ("ActualUnblockedCallbacks", 0),
@@ -393,6 +394,10 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                       "RegistrationBatchesRouted", "RetirementBatchesRouted"):
             bad=copy.deepcopy(self.report);bad["RegisteredActors"].pop(field)
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, actors=True), field)
+        for key,value in (("InitialZeroEmitterVerified",False),("InitialZeroEmitterMass",.01),("InitialZeroEmitterMass",False),("InitialZeroEmitterSamples",0),
+                          ("InitialZeroEmitterSamples",True)):
+            bad=copy.deepcopy(self.report);bad["RegisteredActors"][key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,actors=True),key)
 
         water=copy.deepcopy(self.report)
         water["NativeDomain"].update(LiquidMassKg=1100.1,PressurePa=220010000,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)

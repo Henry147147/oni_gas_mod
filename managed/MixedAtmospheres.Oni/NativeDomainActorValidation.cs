@@ -16,6 +16,9 @@ namespace MixedAtmospheres.Oni
         private static int actorFixtureStage, fixtureEmitter = -1, fixtureRegistrations, fixtureBlockedCallbacks, fixtureUnblockedCallbacks;
         private static int batchFixtureEmitter = -1, batchFixtureRegistrations;
         private static bool actorRegistrationBatchVerified, actorRetirementBatchVerified;
+        private static bool initialZeroEmitterVerified;
+        private static double batchActualEmitterMass, initialZeroEmitterMass;
+        private static ulong batchEmitterSamples, initialZeroEmitterSamples;
         private static int fixtureConsumptionCallbacks;
         private static ulong actorStageFrame, actorRemovalFrame, removalConsumerSamples, removalEmitterSamples;
         private static double actorBeforeEnergy, actualConsumerMass, actualEmitterMass, actorEnergyResidual, actorMassResidual;
@@ -88,7 +91,7 @@ namespace MixedAtmospheres.Oni
                 if (fixtureEmitter == -1 || batchFixtureEmitter == -1 || !actorBindings.TryGetValue((1U, handle), out var binding) || !binding.Configured ||
                     (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(outsideActorConsumer) == -1) return;
                 ConfigureFixtureEmitter(10000, .03125f);
-                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,.015625f,300,10000,255,0);
+                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,0,300,10000,255,0);
                 actorStageFrame = latest.CompletedFrames; actorFixtureStage = 2; return;
             }
             if (fixtureEmitter != -1 && currentSnapshot != null && actorFixtureStage < 6)
@@ -103,12 +106,21 @@ namespace MixedAtmospheres.Oni
             if (latest.CompletedFrames - actorStageFrame < 8) return;
             if (actorFixtureStage == 2)
             {
-                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,0,300,10000,255,0);
+                initialZeroEmitterMass=batchActualEmitterMass;initialZeroEmitterSamples=batchEmitterSamples;
+                initialZeroEmitterVerified=initialZeroEmitterSamples>0 && initialZeroEmitterMass==0 &&
+                    actorBindings[(2U,batchFixtureEmitter)].Configured &&
+                    actorBindings[(2U,batchFixtureEmitter)].Species==(LiquidActorMode ? 3U : 1U);
+                Require(initialZeroEmitterVerified,"Initially disabled emitter lost its phase identity or transferred mass.");
+                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,.015625f,300,10000,255,0);
                 actorConsumer!.consumptionRate = .025f; actorConsumer.RefreshConsumptionRate();
                 VerifyActorConfigurationBatches();
                 ConfigureFixtureEmitter(10000, .0625f);
             }
-            else if (actorFixtureStage == 3) ConfigureFixtureEmitter(.1f, .0625f);
+            else if (actorFixtureStage == 3)
+            {
+                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,0,300,10000,255,0);
+                ConfigureFixtureEmitter(.1f, .0625f);
+            }
             else if (actorFixtureStage == 4) ConfigureFixtureEmitter(10000, .0625f);
             else if (actorFixtureStage == 5)
             {
@@ -175,7 +187,7 @@ namespace MixedAtmospheres.Oni
                 else actorMassResidual = Math.Max(actorMassResidual, Math.Abs(current - actorBeforeMasses[k] - change) / scale);
             }
             actorFixtureVerified = actorFixtureStage == 8 && actorConsumerObject == null && outsideActorObject == null && fixtureRegistrations == 1 &&
-                batchFixtureRegistrations==1 && actorRegistrationBatchVerified && actorRetirementBatchVerified &&
+                batchFixtureRegistrations==1 && actorRegistrationBatchVerified && actorRetirementBatchVerified && initialZeroEmitterVerified &&
                 actorConfigurationBatchVerified && nativeActorBatchVerified &&
                 fixtureConsumptionCallbacks > 10 && fixtureBlockedCallbacks == 1 && fixtureUnblockedCallbacks == 1 &&
                 emitterGameStatusObserved && actorStatus.LiveActors == 0 && latest.CompletedFrames - actorRemovalFrame >= 8 &&
@@ -199,6 +211,8 @@ namespace MixedAtmospheres.Oni
             RegistrationBatchVerified=actorRegistrationBatchVerified,RetirementBatchVerified=actorRetirementBatchVerified,
             RegistrationBatchesRouted=actorRegistrationBatches,RetirementBatchesRouted=actorRetirementBatches,
             ActualBatchEmitterRegistrations=batchFixtureRegistrations,
+            InitialZeroEmitterVerified=initialZeroEmitterVerified,InitialZeroEmitterMass=initialZeroEmitterMass,
+            InitialZeroEmitterSamples=initialZeroEmitterSamples,BatchEmitterMass=batchActualEmitterMass,BatchEmitterSamples=batchEmitterSamples,
             BlockedPublications = actorBlockedPublications, UnblockedPublications = actorUnblockedPublications,
             ActualConsumerCallbacks = fixtureConsumptionCallbacks, ActualEmitterRegistrations = fixtureRegistrations,
             ActualBlockedCallbacks = fixtureBlockedCallbacks, ActualUnblockedCallbacks = fixtureUnblockedCallbacks,

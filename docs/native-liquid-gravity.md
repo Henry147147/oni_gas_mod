@@ -95,7 +95,20 @@ autosaves and reproduces that same frame-120 physical image in both sessions.
 The staged input remains unchanged; the second autosave file hash is
 `a0e3223883502b1a461582109407f33cda03a4e62f634c83933f17b7b4cf6621`.
 The supervising workflow then resumes the larger frozen feature matrix.
-Windows Unity verification remains open.
+WindowsPlayer under Proton also passes the real source/save scene in
+`proton-tag-prewarm-water-gravity-workflow-v4/water-gravity-save`. It reaches
+122 frames / 24.400000364 s, passes both real water callbacks, body impulse,
+carried potential, native cells, grid/rendering and complete save readback.
+U+K+G residual is -0.00000202968 J against 0.00594586077 J; maximum native
+energy residual is 0.000183105469 J. The physical image is
+`a447df9cb4f07c859dfeb8a6a3fb8ef7db6868628b5a14925098ce036a5ecf79`
+and colony file is
+`988207f97176d668fd138f9d7a44526bd87b9efe6598431db448c9a6abebbb04`.
+The frozen runner is `9f721b3`; the package records `9ceea79` plus the dirty
+prewarm changes, using the GNU cross-built Windows native DLLs. The
+[native tag startup repair](nitrogen.md) is required in this player. Fresh
+process and same-process reload are running. This is Windows Unity on a Linux
+host, not validation on the Windows OS or with an MSVC build of this feature.
 
 This is a six-cell occupied liquid control;
 it does not implement free surfaces, phase change, arbitrary liquid materials,

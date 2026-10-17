@@ -89,7 +89,11 @@ namespace MixedAtmospheres.Oni
             {
                 command.MassKg = Float(12); command.Interval = Float(8); command.Temperature = Float(16); command.MaximumGasDensity = Float(20);
                 if (Int(24) != 0 || payload[30] != 0) throw new NotSupportedException("Owned emitters require disease-free, single-cell output.");
-                if (command.MassKg > 0) command.Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
+                // A first zero-rate water configuration still needs its real
+                // material identity. The default binding species is a gas;
+                // keeping it would reject an initially disabled liquid emitter.
+                if (command.MassKg > 0 || !binding.Configured)
+                    command.Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
             }
             return command;
         }
@@ -225,6 +229,7 @@ namespace MixedAtmospheres.Oni
             else if (receipt.Kind == 4)
             {
                 actualEmitterMass += receipt.MassKg;
+                if(receipt.Callback==batchFixtureEmitter) { batchActualEmitterMass+=receipt.MassKg; ++batchEmitterSamples; }
                 if (receipt.CompletedFrame != latest.CompletedFrames) { ++actorEmitterPublications; return; }
                 var index = receipt.Callback & 0x00ffffff;
                 Require(index < copy.Pointer->numEmittedMassEntries, "Native registration has no allocated emission status slot.");

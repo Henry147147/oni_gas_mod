@@ -24,7 +24,9 @@ retaining it in physical totals, messages and checkpoint identity.
 ## Supported build and installation
 
 Initial profiles target ONI **744825**, Steam BuildID **24423041**, Unity
-**6000.3.5f2**. Klei lists 744825 as the latest public release when checked on
+**6000.3.5f2**. Valve's public branch metadata was refreshed anonymously through
+SteamCMD on 2026-10-17 and still reports BuildID 24423041, matching the supplied
+installation manifest. Klei lists 744825 as the latest public release when checked on
 2026-10-16. Future builds require inspection and new profiles.
 [Klei release index](https://kleiforums.com/game-updates/oni-alpha/) and
 [release notes](https://kleiforums.com/game-updates/oni-alpha/744825-r2776/).

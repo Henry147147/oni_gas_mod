@@ -352,7 +352,8 @@ consumer in one batch, verifies the batch avoids original native dispatch,
 and forwards a zero-rate batch for a second actual Unity consumer outside the
 domain. Subsequent physical callbacks must reflect the final owned rate.
 The extended fixture registers two real emitter handles in one native batch,
-configures both, disables the second after eight frames, and removes both in
+configures both, holds the second at zero output for eight frames, enables it
+for the next interval, disables it again, and removes both in
 one owned/native retirement batch. Reports separately require both handle
 callbacks and both batch admissions, all physical receipts, and continued
 frames without transfers after retirement. Five declaration-level regression
@@ -371,7 +372,30 @@ save passes full header/body readback with physical SHA-256
 `937e1e16012e214832759073a06b4188d6bc7731d8125bef58e36a795a866281`
 and colony-file SHA-256
 `8fe04815aea3c61497a37beb2462f7b60072ad83a10c2a672a725dcaecc05215`.
-The fresh-process gas reload and both water controls are still running.
+The gas reload also passes its frame-zero autosave and all 120 exact continued
+frames, ending at physical SHA-256
+`e40b28e56e60707ef55cdbcad0cb30a0af4e97ee08ed8ca14719baca56f989cf`
+at 48.200000718 s. The water batch source passes 122 frames / 24.400000364 s,
+32 real consumer callbacks and 80 emitter samples, with U+K residual
+-0.00278130483 J against 0.00594629911 J. Its saved physical image is
+`b4d173b1e54d48e05d14d2f2cc409d5df72e7f3f0ae6b3698ceaca680be73d0c`
+and colony-file hash is
+`4038185fb71f3930ce5b7fb4d49d6961fbd124a70890d56f63802cef4527410d`.
+The water reload is pending. This historical batch cohort enabled its second
+emitter immediately; the initial-zero extension below has a separate gate.
+
+### Initially disabled emitters
+
+An emitter's first owned configuration now resolves its declared material
+even when output mass is zero. Previously a newly registered water emitter
+kept the binding's default gas species and failed native phase admission.
+Later zero-output configurations retain their admitted material; positive
+output always validates the current material. Unsupported materials still
+reject. The extended actor control holds a new emitter at zero for eight
+physical frames, requires real zero-mass status samples with the correct
+phase, then enables it, disables it again and retires both emitter handles.
+The report and validator require that zero-output interval explicitly; runtime
+verification of this extension is separate from the preceding batch cohort.
 
 ### Filled-liquid registered actors
 
