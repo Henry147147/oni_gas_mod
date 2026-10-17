@@ -340,7 +340,7 @@ namespace MixedAtmospheres.Oni
             Require(nativeFlowControlObserved, "Unhooked native pressure-gradient control did not flow.");
             ConfigureDomainPresentation();
             arming = true;
-            for (var index = 0; index < cells.Length; ++index)
+            for (var index = 0; index < cells.Length && !InitialInventoryMode; ++index)
                 SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width),
                     NativeFlowMask);
             initialHot = Grid.Temperature[hotSolid]; initialCold = Grid.Temperature[coldSolid];
@@ -382,7 +382,15 @@ namespace MixedAtmospheres.Oni
             writingProjection = true;
             try
             {
-                for (var index = 0; index < cells.Length && !InitialInventoryMode; ++index)
+                if (InitialInventoryMode)
+                {
+                    Require(initialInventoryVerified && latest.State == 1 && !nativeFlowFenceVerified,
+                        "Imported ownership must precede the native flow fence.");
+                    initialInventoryBeforeFence = true;
+                    for (var index = 0; index < cells.Length; ++index)
+                        SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width), NativeFlowMask);
+                }
+                for (var index = 0; index < cells.Length; ++index)
                 {
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     SimMessages.ReplaceElement(global, Liquid ? SimHashes.Water : SimHashes.Oxygen,
@@ -422,8 +430,7 @@ namespace MixedAtmospheres.Oni
                     (source->properties[Grid.XYToCell(x + index % Width, y + index / Width)] & NativeFlowMask) == NativeFlowMask);
                 if (arming)
                 {
-                    if (!nativeFlowFenceVerified) return pointer;
-                    if (InitialInventoryMode && source->numFramesProcessed <= 0) return pointer;
+                    if (InitialInventoryMode ? source->numFramesProcessed <= 0 : !nativeFlowFenceVerified) return pointer;
                     ActivateOwner(source);
                 }
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
@@ -434,9 +441,9 @@ namespace MixedAtmospheres.Oni
                 if (!projectionPrimed)
                 {
                     projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index =>
-                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeMass(index) &&
-                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeTemperature(index) &&
-                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ExpectedNativeElement(index));
+                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionMass(index % Width) &&
+                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionTemperature(index % Width) &&
+                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);
                     if (projectionPrimed) projectionPrimedAtFrame = latest.CompletedFrames;
                 }
                 var readings = new Dictionary<int, MixtureThermodynamicReading>();

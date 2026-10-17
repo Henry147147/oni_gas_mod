@@ -22,8 +22,9 @@ material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.
 The [native inventory admission path](native-initial-inventory.md) adds an
 explicit control for starting those rooms from completed native masses and
-temperatures rather than a synthetic mixture. Its real Unity acceptance is
-pending; complete world/geometry import remains open.
+temperatures rather than a synthetic mixture. Its actual Linux gas source/save
+and exact fresh-process continuation pass; water controls are in progress.
+Complete world/geometry import remains open.
 
 ## Supported build and installation
 

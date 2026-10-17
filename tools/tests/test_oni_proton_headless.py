@@ -73,6 +73,13 @@ class ProtonIsolationTests(unittest.TestCase):
         self.assertEqual(env["STEAM_COMPAT_DATA_PATH"], str(self.root / "run/compatdata"))
         self.assertEqual(env["DISPLAY"], ":123")
 
+    def test_compatibility_receipt_records_controlled_overrides_without_inherited_secrets(self):
+        env = dict(MONOMOD_RunningOnWine='false', MONOMOD_DMDType='methodbuilder', PROTON_USE_WINED3D='1',
+                   WINEDEBUG='-all', STEAM_SESSION_TOKEN='must-not-export', XAUTHORITY='/private/cookie-file')
+        self.assertEqual(runner.compatibility_settings(env),
+            dict(MONOMOD_RunningOnWine='false',MONOMOD_DMDType='methodbuilder',PROTON_USE_WINED3D='1',WINEDEBUG='-all'))
+        self.assertEqual(runner.compatibility_settings({}), {})
+
     def test_failed_wine_cleanup_still_stops_only_owned_game_and_display(self):
         game, display = {"pid": 111}, {"pid": 222}
         (self.root / "run/compatdata/pfx").mkdir(parents=True)

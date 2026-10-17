@@ -7,13 +7,18 @@ mixture only in the explicit `native-import-domain` and
 `native-liquid-import-domain` controls. General world/geometry import remains
 unfinished.
 
-The managed adapter waits for the room's native flow fence, reads every cell
-from that same completed packet and resolves native element indices to stable
-material identities. Each native scalar cell contributes exactly its actual
-mass to its actual constituent. Absent constituents stay zero. The adapter
-does not replace the source cells when activation succeeds. Subsequent owned
-snapshots contain the custom physical publication, while the original native
-tuples must remain unchanged under the existing exclusions.
+The managed adapter captures every cell from one completed native packet before
+installing the room's native flow flags, and resolves native element indices to
+stable material identities. Each native scalar cell contributes exactly its
+actual mass to its actual constituent. Absent constituents stay zero. After
+complete admission and frame-zero verification, the custom per-cell exclusions
+are active before flow-flag installation. The driver then installs those flags
+and restores the canonical native compatibility cells used by the existing
+paired save contract. Those scalar compatibility writes cannot change the
+captured inventory or the new physical owner. Subsequent owned snapshots contain
+the custom physical publication, while the canonical native tuples must remain
+unchanged under the exclusions. This is a sealed development handoff, with no
+general world-migration or global-clock conversion claim.
 
 The complete row-major inventory crosses `ma_oni_domain_start_from_cells`.
 Each ABI-1 `MAOniDomainInitialCell` is 56 bytes: size/version, five binary64
@@ -34,8 +39,9 @@ migration still needs its own physical model and conversion accounts. Disease,
 radiation, passive quantities, vacuum, free surfaces and mixed gas/liquid cells
 are outside this admission path.
 
-The report records the six source cells, native element indices, exact admitted
-masses/temperatures and a SHA-256 over the little-endian 56-byte input rows.
+The report records the completed-frame count, six source cells, native element
+indices, original binary32 tuples, exact admitted masses/temperatures and a
+SHA-256 over the little-endian 56-byte input rows.
 Before the first physical frame, actual copied cells must match every admitted
 constituent and temperature with zero resolved kinetic energy and momentum.
 The portable validator reconstructs the hash and compares the source native
@@ -59,20 +65,49 @@ The Windows runner exposes `-NativeDomain import` and
 continues to report WindowsPlayer on a Linux host separately from native
 Windows OS evidence.
 
-Both adapters compile, all 186 Python checks pass, and the Linux Release,
-ASan/UBSan, Ubuntu 22.04 compatibility and Windows-under-Wine native suites each
-pass all 13 controls. The new native controls include late-cell atomic
+Both adapters compile and all 187 Python checks pass. The initial v10 Linux
+Release, ASan/UBSan, Ubuntu 22.04 compatibility and Windows-under-Wine native
+suites each pass all 13 controls. The merged `e243756` v11 Ubuntu compatibility
+and GNU Windows-under-Wine builds also pass all 13. The new controls include late-cell atomic
 rejection, unchanged constituent inventories/temperature/zero motion, physical
 advancement and exact checkpoint continuation for gas, water and water with
-gravity. Real Unity import runs are in progress.
+gravity. Real Unity import runs are described below.
 No playable-colony or whole-colony acceptance follows from the helper tests.
 
 The first real Linux `native-inventory-unity-matrix-v1/import-save` rejects an
-invalid source mass/temperature before native activation. Its failure remains
-retained. Admission now waits for a positive completed-native-frame count and
-records all six original source tuples before validating them. No missing
-mass or temperature is synthesized. The exact rejected source values and the
-subsequent real-game result remain under investigation.
+invalid source mass/temperature before native activation. The v2 diagnostic
+records one completed native frame with four vacuum cells and two remaining
+gas cells of about 4.2 kg each. Native flow-flag installation can displace
+fluid; reading the initial inventory after that operation was too late. Both
+failures remain retained. The reordered admission above captures and verifies
+the physical owner before installing those flags. No missing mass or temperature
+is synthesized.
+
+`native-inventory-unity-matrix-v3/import-save` now passes in actual Linux ONI
+744825, using the frozen `e243756` runner/adapter and compatibility build v11.
+It captures one completed native packet containing three CO2 cells and three
+oxygen cells. The admitted totals are 4.200000047683716 kg CO2 and
+4.200000405311584 kg oxygen; absent constituents stay zero. Every source
+temperature and binary32 mass matches its frame-zero physical admission.
+The ordered input SHA-256 is
+`d431cd193824e75c515813930cc6c06f1df330838696d5506b259901318336b8`.
+
+The physical owner advances 121 native worker frames / 24.200000361 s, with
+maximum relative mass/energy errors 1.692e-15 / 1.214e-14. The original native
+compatibility tuples stay unchanged, actual grid/rendering consumes the
+completed custom state, and outside native-solid heat continues. The ordinary
+paired colony save passes complete header and 5,105,309-byte body readback.
+Its physical image is
+`3412477259ef0177ffef3c278108be364e6594a108d69fc1949ff7a6768e1838`
+and colony-file SHA-256 is
+`b8896b5055e24a2a228e9418057a693da5895bb0e003d0f551eb3538268e1e18`.
+The fresh-process load also passes its paused frame-zero deferred autosave,
+both native startup batches and all 120 exact continued physical frames. The
+final physical image at 48.200000718 s is
+`2a94ca738ef95637f44a4b70d4112fa82c3b85feb9aebb6798651c4e87d1e097`;
+the frame-zero autosave file hash is
+`d23f17dac85574c4636771250e664d6402b615e1e1e171d8a1612be77ea17beb`.
+The source file remains unchanged. The water import control remains pending.
 
 The prepared Windows `windows-native-inventory-import-r1` attempt does not
 reach Unity: Steam reports ONI active on another computer and warns that
