@@ -215,3 +215,43 @@ SHA-256 `ae2f68738cba479a42db8718c5b71be6747c490f57309e2fac453925f659299c`.
 No method, default or production gate is promoted, and no unchanged Linux
 strong repeat is launched. Spatial expansion profiles and their pressure/mass
 transport remain unresolved.
+
+## Quadratic scalar reconstruction
+
+A private reconstruction adds source and swept-slab second moments and fits a
+mean-preserving quadratic in physical centroid coordinates. One common limiter
+admits nine tensor Bernstein control inventories, parcels and retained material
+against stock, EOS and entropy checks. Rank failure retains the linear fallback.
+The axis-aligned component uses sixteen cases covering both axes and signs,
+translation, affine deformation and two geometric scales. It verifies 144
+interior parcel integrals plus source and retained inventories, including
+positive traces. The original linear source fails the same polynomial control.
+This is not a proof for arbitrary deformed two-dimensional overlap geometry.
+
+Changing the private entropy reference from the donor-stencil minimum to the
+complete current source-snapshot minimum is an explicit reconstruction-policy
+change. It leaves original physical and final scientific criteria unchanged;
+it does not clamp a state or establish an entropy theorem for this whole
+implicit mixture method. The component passes on Windows, Linux release and
+Linux ASan/UBSan. Each Linux stream passes 29,465 saved checks and five corrupted
+data controls; all 25 composed C++ compile commands are instrumented. Native
+streams need not be byte identical between independent OS builds. Evidence:
+`local/mac-quadratic-cross-component-r1`, terminal SHA-256
+`53704ca622306ff0265f3e2fd32bd2b4498290323e96098c5e45ec83ba3681d7`.
+
+With the global current-source reference, N64 completes 46 steps without retry.
+Density/pressure/velocity L1 errors are 0.0481518/0.0458518/0.167497.
+Only four of 184 sampled central reconstructions flatten completely; using the
+local reference flattened 180. Saved review checks every one of 5,888 exported
+pressure-stage source cells and each selected global minimum. Evidence:
+`local/mac-quadratic-global-separation-r1`, terminal SHA-256
+`ed45376bbd59d180fa322cf657aae07c7e6b3796a868f0d71e0805dbf3415c2d`.
+These coarse results do not establish the finest-grid accuracy criteria.
+
+The original N256 case then stops at the existing heat entropy guard before
+producing a final profile. It retains the original 180-second/2-MiB limits and
+does not time out. Evidence: `local/mac-quadratic-global-fine-r1`, terminal
+SHA-256 `9c07f35a096ca46c801e7e62aec802cf14aea50c6895336bca1b903b3434c519`.
+The saved actual operands prove an absolute-entropy subtraction error in the
+heat check; see [the relative heat entropy repair](MAC_HEAT_ENTROPY.md). That
+repair alone does not validate the private method or its N256 accuracy.

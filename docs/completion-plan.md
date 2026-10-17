@@ -148,7 +148,17 @@ source-stencil entropy admission improves the coarse density/pressure errors,
 but its single original N256 separation case still fails velocity and central
 density/pressure criteria. Saved localization keeps these failures explicit;
 the changed methods remain private experiments. The tracked solver, original
-217-group prerequisites and full failed strong-flow gate remain unchanged.
+217-group prerequisites and full failed strong-flow gate remain the retained
+baseline for these experiments.
+
+The later private quadratic reconstruction component passes Windows, Linux and
+sanitizer polynomial controls, but its N256 run stops at the heat entropy guard
+before a final profile. Actual stored operands prove an absolute-entropy
+subtraction error. The [relative heat entropy repair](../native/MAC_HEAT_ENTROPY.md)
+passes three focused Windows groups, 528 independent saved checks and an
+original-source negative regression. Its original bound and physical transfer
+remain unchanged. Fresh complete native prerequisites and fine-grid accuracy
+remain open; no private method, production default or game gate is promoted.
 
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.

@@ -1,8 +1,11 @@
 #include "mixed_atmospheres/mac_shock_heat.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
+#include "mac_material_entropy_detail.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <span>
 
 namespace ma::experimental {
 namespace {
@@ -95,14 +98,20 @@ MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureIn
     }
     precision("Shock-heat equilibrium exhausted its bracket iterations");
 }
-void entropy_check(const std::vector<double>& old_u, const std::vector<double>& new_u,
+struct EntropyCell { const MixtureInventory* source; const MixtureInventory* endpoint; double volume; };
+void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell> cells,
     const std::vector<ReferenceEquilibriumState>& before, const std::vector<ReferenceEquilibriumState>& after,
     double& change, double& allowance) {
     MacEnergySum entropy, bound;
     for (std::size_t i = 0; i < before.size(); ++i) {
-        entropy.add(after[i].entropy_j_per_k); entropy.add(-before[i].entropy_j_per_k);
-        bound.add(MacEnergy::from_double(std::abs(old_u[i])).shared(1, before[i].temperature_k).shifted(-45));
-        bound.add(MacEnergy::from_double(std::abs(new_u[i])).shared(1, after[i].temperature_k).shifted(-45));
+        const auto& source = *cells[i].source; const auto& endpoint = *cells[i].endpoint;
+        // At fixed masses and volume an identical stored U has exactly zero
+        // change. Otherwise use the actual caloric increment, avoiding the
+        // subtraction of nearly equal absolute EOS entropy readings.
+        if (source.energy != endpoint.energy || source.masses != endpoint.masses)
+            entropy.add(entropy_detail::change(model, source, cells[i].volume, before[i], endpoint, cells[i].volume, after[i]));
+        bound.add(MacEnergy::from_double(std::abs(source.energy)).shared(1, before[i].temperature_k).shifted(-45));
+        bound.add(MacEnergy::from_double(std::abs(endpoint.energy)).shared(1, after[i].temperature_k).shifted(-45));
     }
     MacEnergySum lower = bound;
     for (std::size_t i = 0; i < entropy.size(); ++i) lower.add(entropy.component(i));
@@ -147,7 +156,8 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
     p.energy_residual = balance.residual(); p.energy_bound = balance.bound();
     p.unresolved_updates = static_cast<std::size_t>(!resolved(left.energy, p.after_left_j, p.transfer.negated())) +
         static_cast<std::size_t>(!resolved(right.energy, p.after_right_j, p.transfer));
-    entropy_check({left.energy, right.energy}, {p.after_left_j, p.after_right_j}, {a, b}, {nl, nr},
+    const std::array<EntropyCell, 2> entropy_cells{{{&left, &l, vl}, {&right, &r, vr}}};
+    entropy_check(model, entropy_cells, {a, b}, {nl, nr},
         p.entropy_change_j_per_k, p.entropy_roundoff_j_per_k);
     return p;
 }
@@ -160,7 +170,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
     require(jx.size() == inertia.x.size() && jy.size() == inertia.y.size(), "Shock-heat momentum shape differs");
-    MacShockHeatAdvance result{source, {}}; std::vector<ReferenceEquilibriumState> initial; std::vector<double> old_u;
+    MacShockHeatAdvance result{source, {}}; std::vector<ReferenceEquilibriumState> initial;
     result.report.law = law;
     if (sensed) {
         result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source, MacCompressionLaw::pressure_sensed_acoustic);
@@ -168,7 +178,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
-        initial.push_back(model.evaluate(source.cells[i].mixture, g.volume_m3())); old_u.push_back(source.cells[i].mixture.energy);
+        initial.push_back(model.evaluate(source.cells[i].mixture, g.volume_m3()));
         result.report.frozen_capacity_j_per_k[i] = initial.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
         if (sensed) {
             const auto& e = initial.back(); MacEnergySum cp; cp.add(e.intrinsic_heat_capacity_j_per_k);
@@ -242,14 +252,15 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
         transferred.add(pair.transfer.magnitude()); result.report.unresolved_updates += pair.unresolved_updates;
         result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair), link.diffusion});
     }
-    MacEnergyAccount balance; std::vector<ReferenceEquilibriumState> final; std::vector<double> new_u;
+    MacEnergyAccount balance; std::vector<ReferenceEquilibriumState> final; std::vector<EntropyCell> entropy_cells;
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
         balance.add(result.state.cells[i].mixture.energy); balance.add(-source.cells[i].mixture.energy);
-        final.push_back(model.evaluate(result.state.cells[i].mixture, g.volume_m3())); new_u.push_back(result.state.cells[i].mixture.energy);
+        final.push_back(model.evaluate(result.state.cells[i].mixture, g.volume_m3()));
+        entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, g.volume_m3()});
     }
     if (!balance.within_bound()) precision("Shock-heat global actual U account exceeds its operand bound");
     result.report.absolute_transfer = transferred.value(); result.report.energy_residual = balance.residual(); result.report.energy_bound = balance.bound();
-    entropy_check(old_u, new_u, initial, final, result.report.entropy_change_j_per_k, result.report.entropy_roundoff_j_per_k);
+    entropy_check(model, entropy_cells, initial, final, result.report.entropy_change_j_per_k, result.report.entropy_roundoff_j_per_k);
     return result;
 }
 }

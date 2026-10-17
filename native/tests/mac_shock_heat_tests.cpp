@@ -1,5 +1,6 @@
 #include "mac_shock_heat_fixture.hpp"
 #include "mixed_atmospheres/mac_shock_heat.hpp"
+#include "../src/mac_material_entropy_detail.hpp"
 #include <iomanip>
 
 namespace {
@@ -146,6 +147,45 @@ void pressure_contacts() {
     }
     grid_case(6, state, .01, false, false);
 }
+void entropy_reference_precision() {
+    // First failed heat pair retained from the original N256 separation run.
+    // Caloric offset and thermal energy nearly cancel in the stored U.
+    const auto& s = ma::testing::setup(); MixtureInventory left(s.registry.size()), right(s.registry.size());
+    const auto nitrogen = s.registry.index("nitrogen"), helium = s.registry.index("helium");
+    left.masses[nitrogen] = 1.5955820824192574e-05; left.masses[helium] = 1.5955820824192582e-33;
+    right.masses[nitrogen] = 1.5955820813853493e-05; right.masses[helium] = 1.5955820813853496e-33;
+    left.energy = -0.0033121700131082035; right.energy = -0.0033124391079650661;
+    constexpr double volume = 1.52587890625e-05;
+    const auto conductance = MacEnergy::from_parts(.64028600022444926, -37);
+    const auto forward = pair(0, left, right, conductance, volume, volume);
+    const auto reverse = pair(1, right, left, conductance, volume, volume);
+    check(forward.after_left_j == -0.0033121700131083093 && forward.after_right_j == -0.0033124391079649602,
+        "Captured heat pair changed actual stored endpoints");
+    check(reverse.after_left_j == forward.after_right_j && reverse.after_right_j == forward.after_left_j &&
+        forward.entropy_change_j_per_k > 0 && reverse.entropy_change_j_per_k > 0,
+        "Relative heat entropy loses a positive or reflected transfer");
+    std::cout << "PASS captured reference-cancelling heat pair and reflection\n";
+    for (std::size_t id = 2; id <= 4; ++id) {
+        const auto result = id == 4 ? pair(id, left, left, conductance, volume, volume) :
+            pair(id, left, right, id == 2 ? MacEnergy{} : MacEnergy::from_parts(.75, -1200), volume, volume);
+        check(result.after_left_j == left.energy && result.after_right_j == (id == 4 ? left.energy : right.energy) &&
+            result.entropy_change_j_per_k == 0, "Unchanged stored heat state has nonzero entropy change");
+        if (id == 3) check(!result.transfer.is_zero() && result.transfer.project().rounded && result.unresolved_updates == 2,
+            "Unresolved reference-cancelling transfer lost its full-range value");
+    }
+    std::cout << "PASS unchanged and subrange stored heat entropy\n";
+    auto endpoint = left; endpoint.energy -= .001;
+    const auto initial = s.eos->evaluate(left, volume), after = s.eos->evaluate(endpoint, volume);
+    const auto ds = entropy_detail::change(*s.eos, left, volume, initial, endpoint, volume, after);
+    MacEnergySum bound; bound.add(MacEnergy::from_double(std::abs(left.energy)).shared(1, initial.temperature_k).shifted(-45));
+    bound.add(MacEnergy::from_double(std::abs(endpoint.energy)).shared(1, after.temperature_k).shifted(-45));
+    MacEnergySum lower = bound; lower.add(ds);
+    check(lower.sign() < 0, "Relative heat entropy hides genuine stored-state cooling");
+    std::cout << "HTCOOL 0 0 0 " << volume << ' ' << left.energy << ' ' << endpoint.energy << ' ' << initial.temperature_k << ' '
+        << after.temperature_k << ' ' << initial.entropy_j_per_k << ' ' << after.entropy_j_per_k;
+    ma::testing::export_shock_heat_scaled(ds); ma::testing::export_shock_heat_scaled(bound.value()); std::cout << '\n';
+    std::cout << "PASS genuine cooling still violates original stored-U entropy bound\n";
+}
 }
 int main(int argc, char** argv) { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17); const auto& s = ma::testing::setup();
@@ -160,6 +200,9 @@ int main(int argc, char** argv) { try {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--bracket-regression") {
         admissible_brackets(); std::cout << "PASS admissible mixed-EOS bracket regression\n"; return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--entropy-regression") {
+        entropy_reference_precision(); return 0;
     }
     analytic(); std::cout << "PASS exact constant-capacity pairs and semigroup\n";
     nonlinear_and_range(); std::cout << "PASS mixed EOS equilibrium and full-range heat\n";
