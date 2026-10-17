@@ -56,11 +56,35 @@ platforms' managed declaration suites pass 131 groups, and 220 Python checks
 pass with four optional/platform skips. Real Unity source/save/reload controls
 are in progress; this page does not yet record an accepted Unity actor save.
 
+Fresh native Windows execution of the merged source passes the ABI, detour and
+four domain groups, including durable actor identity remapping and exact
+continuation. The same six groups pass on Linux and with Linux ASan/UBSan.
+The Windows installed-assembly suite passes 131 groups; four dependent Python
+suites pass 119 tests without skips. The adapter has only its two existing
+MSB3277 reference conflicts. Private evidence is
+`local/windows-actor-persistence-merge-r1`, terminal review SHA-256
+`b0fa5ccfa04a48b97ff568476392d5b7ef893ea9636c14e413534369c818dd5e`.
+The attempted Windows Unity launch was blocked by Steam reporting another
+computer already playing ONI. The runner restored the original profile and
+generated-world files byte for byte. No Unity actor result is claimed.
+
 The private `--verify-persistent-actors` source fixture uses three real,
 saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
 80 frames. `native-load-domain --resave-before-resume --reload-in-process`
 then exercises paused autosave and two actual managed scene loads.
+On Windows, `tools/run_colony_validation.ps1 -VerifyPersistentActors` exposes
+the same source check: use `-NativeDomain gas` or `water`, `-SaveColony` and
+`-Frames 80` or more. The runner requests the strict persistent-actor evidence
+review explicitly. Load the resulting save with `-NativeDomain load`,
+`-LoadSave`, `-ResaveBeforeResume` and `-ReloadInProcess`; the load reviewer
+also requires restored actor evidence whenever the save contains actors.
+Six actual PowerShell invocations verify rejection of missing/wrong source
+modes, a short run and a missing save request, and admission of both gas/water
+options through to package validation. None creates a staging directory or
+launches the game. Private review:
+`local/windows-actor-runner-options-r1/REVIEW.json`, SHA-256
+`f89a3f223ca282e733760a6b37d6b29f95b590454b24da7d8c4d777725d932da`.
 
 This remains bounded point-boundary persistence with drained callbacks.
 Crash recovery of pending outboxes, object destruction during callback delivery,
