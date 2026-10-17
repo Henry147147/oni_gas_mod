@@ -13,6 +13,8 @@ import tempfile
 NAMES = ("default-all-gases", "exact-threshold", "below-threshold", "ui-scale-125")
 ASSERTIONS = ("AllNonTraceRowsVisible", "TraceRowsOmitted", "HazardWarningVisible", "NoSelection")
 FIELDS = ("Case", "Cell", "Revision", "PublicationGeneration", "ScreenWidth", "ScreenHeight")
+READING_FIELDS = FIELDS + ("SessionEpoch", "SourceId", "Header", "State", "Contents", "Warnings",
+                          "NonTraceIds", "TraceIds", "TraceThreshold")
 
 
 def integer(value, minimum=0, maximum=2**63-1):
@@ -94,6 +96,7 @@ def tile_hover_passed(report: dict | None, directory: Path, expected_platform="L
                 or report.get("RequiresActualNativeHover") is not True or report.get("RequiresPixelReviewReceipt") is not True):
             return False
         evidence = report["Evidence"]
+        integer(report["TargetCell"])
         if len(evidence) != 4:
             return False
         for case, item in enumerate(evidence):
@@ -103,25 +106,29 @@ def tile_hover_passed(report: dict | None, directory: Path, expected_platform="L
             value = receipt(dict(Kind=report["Kind"], Status="pending", Captured=True, Error="", CallbackError="",
                                  Case=case, Observation=held), case, {name: True for name in ASSERTIONS})
             expected_ids = {"nitrogen", "oxygen", "carbon_dioxide"} | ({"steam"} if case != 2 else set())
-            if set(held["NonTraceIds"]) != expected_ids or set(held["TraceIds"]) != ({"hydrogen", "chlorine"} | ({"steam"} if case == 2 else set())):
+            expected_traces = {"hydrogen", "chlorine"} | ({"steam"} if case == 2 else set())
+            if (set(held["NonTraceIds"]) != expected_ids or len(held["NonTraceIds"]) != len(expected_ids)
+                    or set(held["TraceIds"]) != expected_traces or len(held["TraceIds"]) != len(expected_traces)):
                 return False
             if integer(held["Cell"]) != report["TargetCell"] or not held["SourceId"] or len(held["Contents"]) < len(expected_ids):
                 return False
             image = directory / f"{case+1:02}-tile-hover-{name}.png"
             review = json.loads((directory / (name + ".pixel-review.json")).read_bytes())
             held_path = directory / (name + ".reviewed-report.json")
+            reviewed = json.loads(held_path.read_bytes())
             if (item["Screenshot"] != image.name or png_dimensions(image) != (value["ScreenWidth"], value["ScreenHeight"])
                     or json.loads((directory / (name + ".continue.json")).read_bytes()) != value
                     or review.get("Receipt") != value or review.get("Screenshot") != image.name
                     or review.get("Kind") != "explicit-operator-tile-hover-pixel-review"
                     or review.get("ReviewedReport") != held_path.name
                     or review.get("ReportSha256") != hashlib.sha256(held_path.read_bytes()).hexdigest()
-                    or receipt(json.loads(held_path.read_bytes()), case, review["Assertions"]) != value
+                    or receipt(reviewed, case, review["Assertions"]) != value
+                    or any(reviewed["Observation"][field] != held[field] for field in READING_FIELDS)
                     or review.get("ScreenshotSha256") != hashlib.sha256(image.read_bytes()).hexdigest()
                     or any(review.get("Assertions", {}).get(name) is not True for name in ASSERTIONS)):
                 return False
         return True
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return False
 
 
