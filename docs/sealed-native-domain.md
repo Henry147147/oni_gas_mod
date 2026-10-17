@@ -259,6 +259,9 @@ domain. Subsequent physical callbacks must reflect the final owned rate.
 
 ## Run the actual Linux colony controls
 
+The [frozen save/load matrix](native-validation-matrix.md) runs every implemented
+scene and its fresh-process reload with one package and runner snapshot.
+
 The [physical checkpoint format](../native/MAC_CHECKPOINT.md) now preserves the
 complete native owner, including physical U and full canonical momentum.
 `native-checkpoint-domain` checks restored continuation against the exact next
