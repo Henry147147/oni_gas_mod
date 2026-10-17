@@ -31,6 +31,7 @@ static_assert(sizeof(MAOniObserverConfig) == 24);
 static_assert(sizeof(MAOniObserverStatus) == 528);
 static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
 static_assert(sizeof(MAOniDomainSolidHeatCell) == 48);
+static_assert(sizeof(MAOniDomainSolidHeatEndpoint) == 64);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
@@ -226,7 +227,7 @@ void on_temperature(void* data,void* events,int a,int b) {
         // retain every earlier native contribution and the original old grid.
         const auto before=next_temperatures[solid];
         const auto result=ma::oni::exchange_domain_solid_heat(fluid,solid,elements[solid],masses[solid],before,seconds,
-            insulation[solid],insulation[fluid]);
+            insulation[solid],insulation[fluid],temperatures[solid]);
         if(result.handled && std::bit_cast<std::uint32_t>(result.temperature)!=std::bit_cast<std::uint32_t>(before))
             next_temperatures[solid]=result.temperature;
     }
@@ -712,6 +713,13 @@ MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus* output) 
         if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid heat status ABI");
         ma::oni::copy_domain_solid_heat_status(*output);
+    });
+}
+MAOniResult ma_oni_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid endpoint observation ABI");
+        ma::oni::copy_domain_solid_heat_endpoint(*output);
     });
 }
 MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell* inputs,std::uint32_t count,MAOniDomainSolidHeatStatus* output) {

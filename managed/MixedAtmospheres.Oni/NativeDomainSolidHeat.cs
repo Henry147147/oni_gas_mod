@@ -16,6 +16,8 @@ namespace MixedAtmospheres.Oni
         private static bool solidHeatEndpointsVerified;
         private static ulong solidHeatObservedFrame;
         private static object[] solidHeatEndpointEvidence=Array.Empty<object>();
+        private static SolidHeatEndpoint solidHeatLastContact;
+        private static int solidHeatPublishedNativeFrames;
         private static bool IsSolidHeatBoundary(int dx,int dy)=>dx== -1 && dy==0 &&
             (SolidHeatMode || (ColonyRestoreMode && Grid.Element[Grid.XYToCell(x-1,y)].id==SimHashes.Granite));
         private static void RegisterNativeSolidHeat(Sim.GameDataUpdate* source)
@@ -24,7 +26,7 @@ namespace MixedAtmospheres.Oni
             var position=Grid.XYToCell(x-1,y);
             var element=ElementLoader.elements[source->elementIdx[position]];
             if(element.id!=SimHashes.Granite) {Require(!SolidHeatMode,"Solid heat scene has no native granite contact.");return;}
-            Require(SolidHeatVersion()==1 && Marshal.SizeOf<SolidHeatCell>()==48,"Unsupported native solid contact ABI.");
+            Require(SolidHeatVersion()==1 && Marshal.SizeOf<SolidHeatCell>()==48 && Marshal.SizeOf<SolidHeatEndpoint>()==64,"Unsupported native solid contact ABI.");
             Require(element.IsSolid && source->mass[position]==10f && source->temperature[position]>=1 &&
                 source->temperature[position]<=1e6 && element.specificHeatCapacity>0 && element.thermalConductivity>0,
                 "Native solid contact material, mass or thermal metadata differs from the admitted scene.");
@@ -49,10 +51,15 @@ namespace MixedAtmospheres.Oni
                 Require(!double.IsNaN(value) && !double.IsInfinity(value),"Native solid heat account is nonfinite.");
             Require(result.MaximumBalanceResidualJoules>=0 && result.MaximumBalanceResidualJoules<=result.MaximumBalanceBoundJoules &&
                 result.EntropyLowerBound>=0,"Native solid contact failed its closed heat account.");solidHeatStatus=result;
+            var endpoint=SolidHeatEndpoint.Empty;Check(CopySolidHeatEndpoint(ref endpoint));
+            Require(endpoint.Session==latest.Session && endpoint.CompletedFrame==latest.CompletedFrames && endpoint.Reserved==0 &&
+                endpoint.State==latest.State && endpoint.ContactFrame<=latest.CompletedFrames,"Native solid endpoint observation differs from its owner frame.");
+            solidHeatLastContact=endpoint;
         }
         private static void ObserveNativeSolidEndpoints(Sim.GameDataUpdate* source)
         {
             if(solidHeatBindings.Count==0 || source->numFramesProcessed<=0) return;
+            solidHeatPublishedNativeFrames=source->numFramesProcessed;
             double loss=0,scale=0;var endpoints=new List<object>();
             foreach(var input in solidHeatBindings) {
                 var cell=checked((int)input.PublicCell);var before=NativeBinary32.ToDouble(solidHeatInitialTemperatures[cell]);
@@ -86,11 +93,20 @@ namespace MixedAtmospheres.Oni
             solidHeatBindings.Clear();solidHeatInitialTemperatures.Clear();solidHeatStatus=default;
             solidHeatObservedLoss=solidHeatObservedResidual=solidHeatObservedBound=0;solidHeatObservedFrame=0;solidHeatEndpointsVerified=false;
             solidHeatEndpointEvidence=Array.Empty<object>();
+            solidHeatLastContact=default;solidHeatPublishedNativeFrames=0;
         }
         private static object NativeSolidHeatReport()=>new {
             Required=SolidHeatMode || solidHeatBindings.Count>0,AbiVersion=1,Source="actual-native-UpdateTemperature-cell-pair",
             ConfiguredCells=solidHeatBindings.ToArray(),Status=solidHeatStatus,ObservedFrame=solidHeatObservedFrame,
             Endpoints=solidHeatEndpointEvidence,
+            PublishedNativeFramesProcessed=solidHeatPublishedNativeFrames,
+            LastContact=new {solidHeatLastContact.Size,solidHeatLastContact.Version,solidHeatLastContact.State,
+                solidHeatLastContact.Session,solidHeatLastContact.CompletedFrame,solidHeatLastContact.ContactFrame,
+                solidHeatLastContact.SolidPublicCell,solidHeatLastContact.FluidPublicCell,
+                NativeOldTemperatureK=NativeBinary32.ToDouble(solidHeatLastContact.NativeOldTemperatureK),
+                BeforeTemperatureK=NativeBinary32.ToDouble(solidHeatLastContact.BeforeTemperatureK),
+                AfterTemperatureK=NativeBinary32.ToDouble(solidHeatLastContact.AfterTemperatureK),
+                Seconds=NativeBinary32.ToDouble(solidHeatLastContact.Seconds)},
             ObservedSolidHeatLossJoules=solidHeatObservedLoss,ObservedBalanceResidualJoules=solidHeatObservedResidual,
             ObservedBalanceBoundJoules=solidHeatObservedBound,EndpointsVerified=solidHeatEndpointsVerified,
             CapacityModel="native-mass-times-native-specific-heat-without-binary32-product-rounding",

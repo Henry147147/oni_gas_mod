@@ -12,6 +12,8 @@ internal static class ActorCheckpointImageTests
     internal static void Run(System.Action<string,System.Action> test,System.Action<bool> check,System.Action<System.Action> reject)
     {
         test("native solid contact descriptor matches the exact native ABI and captured insulation byte declaration",()=> {
+            check(Marshal.SizeOf<OniNativeDomain.SolidHeatEndpoint>()==64 &&
+                Marshal.OffsetOf<OniNativeDomain.SolidHeatEndpoint>(nameof(OniNativeDomain.SolidHeatEndpoint.NativeOldTemperatureK)).ToInt32()==48);
             check(Marshal.SizeOf<OniNativeDomain.SolidHeatCell>()==48 &&
                 Marshal.OffsetOf<OniNativeDomain.SolidHeatCell>(nameof(OniNativeDomain.SolidHeatCell.Session)).ToInt32()==16 &&
                 Marshal.OffsetOf<OniNativeDomain.SolidHeatCell>(nameof(OniNativeDomain.SolidHeatCell.MassKg)).ToInt32()==32 &&

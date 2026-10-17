@@ -69,6 +69,7 @@ struct ChunkHeatProgress {
     std::uint64_t contacts{},transfers{},unresolved{},iterations{};
     MacEnergySum body_loss,fluid_heat,entropy,requested;
     double maximum_residual{},maximum_bound{};
+    MAOniDomainSolidHeatEndpoint endpoint{};
 };
 ChunkHeatProgress pending_chunk_heat,committed_chunk_heat,pending_solid_heat,committed_solid_heat;
 std::map<int,MAOniDomainSolidHeatCell> solid_heat_cells;
@@ -242,7 +243,7 @@ MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second)
 ChunkHeatProgress combined_chunk_heat(const ChunkHeatProgress& a,const ChunkHeatProgress& b) {
     ChunkHeatProgress result{a.contacts+b.contacts,a.transfers+b.transfers,a.unresolved+b.unresolved,a.iterations+b.iterations,
         combined_heat(a.body_loss,b.body_loss),combined_heat(a.fluid_heat,b.fluid_heat),combined_heat(a.entropy,b.entropy),combined_heat(a.requested,b.requested),
-        std::max(a.maximum_residual,b.maximum_residual),std::max(a.maximum_bound,b.maximum_bound)};
+        std::max(a.maximum_residual,b.maximum_residual),std::max(a.maximum_bound,b.maximum_bound),b.contacts ? b.endpoint : a.endpoint};
     for (const auto* value:{&result.body_loss,&result.fluid_heat,&result.entropy,&result.requested})
         (void)value->value().require_representable();
     return result;
@@ -748,7 +749,8 @@ void copy_domain_heat(MAOniDomainHeatStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic; output=heat_status();
 }
 static DomainChunkHeat exchange_domain_native_heat(int native_cell,float temperature,double capacity_kj,double conductivity,
-    float transfer_scale,float contact_scale,float seconds,bool solid,double fluid_conductivity_scale) noexcept {
+    float transfer_scale,float contact_scale,float seconds,bool solid,double fluid_conductivity_scale,
+    std::uint32_t solid_public_cell=0,float native_old_temperature=0) noexcept {
     DomainChunkHeat output{false,temperature,0};
     if (!suppress_domain_cell(MA_ONI_CHUNK_HEAT,native_cell)) return output;
     output.handled=true;
@@ -781,6 +783,8 @@ static DomainChunkHeat exchange_domain_native_heat(int native_cell,float tempera
         auto& completed_progress=solid ? committed_solid_heat : committed_chunk_heat;
         auto progress=staged_progress;const auto& report=candidate.report;
         ++progress.contacts;progress.iterations+=report.iterations;
+        if (solid) progress.endpoint={64,1,status.state,solid_public_cell,status.session,status.completed_frames,
+            status.completed_frames+1,public_cell,0,native_old_temperature,temperature,candidate.body_temperature_k,seconds};
         progress.requested.add(std::abs(report.requested_heat_j));
         progress.maximum_residual=std::max(progress.maximum_residual,std::abs(report.energy_residual_j));
         progress.maximum_bound=std::max(progress.maximum_bound,report.energy_bound_j);
@@ -823,6 +827,11 @@ void copy_domain_solid_heat_status(MAOniDomainSolidHeatStatus& output) {
         p.body_loss.value().require_representable(),p.fluid_heat.value().require_representable(),p.maximum_residual,p.maximum_bound,
         p.entropy.value().require_representable(),p.requested.value().require_representable()};
 }
+void copy_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint& output) {
+    std::lock_guard lock(state_mutex);output=committed_solid_heat.endpoint;
+    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.session=status.session;output.completed_frame=status.completed_frames;
+}
 bool domain_solid_heat_registered(int cell) noexcept {
     std::lock_guard lock(state_mutex);return status.state==1 && solid_heat_cells.contains(cell);
 }
@@ -857,7 +866,7 @@ void configure_domain_solid_heat(const MAOniDomainSolidHeatCell* inputs,std::uin
         p.entropy.value().require_representable(),p.requested.value().require_representable()};
 }
 DomainChunkHeat exchange_domain_solid_heat(int fluid_cell,int solid_cell,std::uint16_t element,float mass,float temperature,float seconds,
-    std::uint8_t solid_insulation,std::uint8_t fluid_insulation) noexcept {
+    std::uint8_t solid_insulation,std::uint8_t fluid_insulation,float native_old_temperature) noexcept {
     DomainChunkHeat result{true,temperature,0};MAOniDomainSolidHeatCell admitted{};
     {
         std::lock_guard lock(state_mutex);
@@ -880,7 +889,8 @@ DomainChunkHeat exchange_domain_solid_heat(int fluid_cell,int solid_cell,std::ui
         const double capacity=static_cast<double>(admitted.mass_kg)*admitted.specific_heat_kj_per_kg_k;
         const double solid_scale=static_cast<double>(solid_insulation)/255,fluid_scale=static_cast<double>(fluid_insulation)/255;
         const double conductivity=static_cast<double>(admitted.conductivity_w_per_m_k)*solid_scale*solid_scale;
-        return exchange_domain_native_heat(fluid_cell,temperature,capacity,conductivity,1,1,seconds,true,fluid_scale*fluid_scale);
+        return exchange_domain_native_heat(fluid_cell,temperature,capacity,conductivity,1,1,seconds,true,fluid_scale*fluid_scale,
+            admitted.public_cell,native_old_temperature);
     } catch(const std::exception& error) {std::lock_guard lock(state_mutex);fault(error.what());return result;}
       catch(...) {std::lock_guard lock(state_mutex);fault("Unknown native solid capacity failure");return result;}
 }

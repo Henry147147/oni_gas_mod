@@ -37,8 +37,9 @@ must pass paused frame-zero saves and complete exact continuation.
 
 Native gas/wet controls cover row order, skipped solids, the binary32 exponent
 range, overlapping requests, traces, full U+K/species accounts, late rejection
-and exact journal replay/checkpoint continuation. The Linux declaration suite
-passes 174 scenarios and Python passes 265 checks with four explicit skips.
-Broader native/platform checks and actual Unity controls are in progress.
+and exact journal replay/checkpoint continuation. Both installed declaration
+suites pass 174 scenarios, and Python passes 265 checks with four explicit
+skips. All 20 native groups pass on GNU Linux and as Windows binaries under
+Wine. Sanitizer, compatibility-build and actual Unity controls are in progress.
 Pumps, pipe/container transfers, conversion chemistry and whole-colony device
 ownership remain separate parts of the [completion plan](completion-plan.md).

@@ -25,6 +25,7 @@ MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
 void solid_boundary_heat() {
     using namespace ma::oni;
     static_assert(sizeof(MAOniDomainSolidHeatCell)==48);
+    static_assert(sizeof(MAOniDomainSolidHeatEndpoint)==64);
     constexpr int fluid=11+11*66,solid=10+11*66;
     for(const auto scenario:{0U,1U,4U,5U,6U}) {
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
@@ -35,17 +36,25 @@ void solid_boundary_heat() {
         auto invalid=input;invalid.public_cell=650;std::array<MAOniDomainSolidHeatCell,2> batch{input,invalid};bool rejected=false;
         try {configure_domain_solid_heat(batch.data(),2,heat);} catch(const std::invalid_argument&) {rejected=true;}
         require(rejected && domain_solid_heat_registered(solid) && snapshot_domain(source.session,0)==image,"Late invalid solid partially changed registration or physical state");
-        auto contact=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,350,.2F);
+        auto contact=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,350,.2F,255,255,349.5F);
         require(contact.handled && contact.temperature<350,"Registered solid did not cool into the fluid");
         const auto duplicate=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,contact.temperature,.2F);
         require(duplicate.temperature==contact.temperature,"A repeated native pair exchanged heat twice in one frame");
         copy_domain_solid_heat_status(heat);require(heat.contacts==0 && heat.transfers==0,"Pending solid heat was published before its fluid frame");
+        MAOniDomainSolidHeatEndpoint endpoint{};copy_domain_solid_heat_endpoint(endpoint);
+        require(endpoint.struct_size==64 && endpoint.abi_version==1 && endpoint.session==source.session &&
+            endpoint.completed_frame==0 && endpoint.contact_frame==0,"Pending native solid endpoint escaped its completed frame");
         require(copy_completed_domain_snapshot(source.session,0)==image,"Pending solid heat rewrote the completed snapshot");
         advance_domain(1,.2F,2);const auto completed=capture(cells);copy_domain_solid_heat_status(heat);
         const auto represented=static_cast<double>(input.mass_kg)*input.specific_heat_kj_per_kg_k*1000*(350.-contact.temperature);
         require(completed.state==1 && heat.completed_frame==1 && heat.contacts==1 && heat.transfers==1 &&
             heat.body_heat_loss_j==represented && heat.stored_fluid_heat_j!=0 && heat.maximum_balance_residual_j<=heat.maximum_balance_bound_j,
             "Completed native solid heat lost its represented closed endpoint account");
+        copy_domain_solid_heat_endpoint(endpoint);
+        require(endpoint.state==1 && endpoint.session==source.session && endpoint.completed_frame==1 && endpoint.contact_frame==1 &&
+            endpoint.solid_public_cell==649 && endpoint.fluid_public_cell==650 && endpoint.reserved==0 &&
+            endpoint.native_old_temperature_k==349.5F && endpoint.before_temperature_k==350 &&
+            endpoint.after_temperature_k==contact.temperature && endpoint.seconds==.2F,"Completed native solid contact operands changed or lost their frame");
         const auto journal=copy_domain_frame_inputs(source.session,1);
         require(advance_domain_snapshot_with_inputs(image,journal)==snapshot_domain(source.session,1),"Solid heat input did not replay the complete fluid image exactly");
         MAOniDomainChunkHeatStatus body{};copy_domain_chunk_heat_status(body);require(body.contacts==0,"Solid heat was counted as native body heat");

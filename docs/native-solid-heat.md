@@ -70,6 +70,19 @@ controls are queued. The first Unity attempt stopped before ownership because
 arena construction uprooted nearby flora and spawned an unbound seed into the
 chamber. Placement now reserves a three-cell object-free margin around every
 changed fixture cell, including its backer and outside conduction pair. The
-actor guard remains active. These controls do not establish
+actor guard remains active. The next actual Unity source reaches two positive
+contacts, then rejects a published solid endpoint that accounts for one
+represented temperature step while the completed fluid journal accounts for
+two. This failure remains retained; Unity acceptance is still open.
+
+A separate 64-byte endpoint observation records the last completed contact's
+native old-grid temperature, accumulated before/after temperatures, actual
+interval, cell identities and contact/owner frames. It publishes atomically
+with the fluid heat account and changes neither physical endpoint nor the
+checkpoint format. The managed report also retains the native publication's
+processed-frame count. These observations distinguish publication timing from
+lost native heat without changing the conservation bound.
+
+These controls do not establish
 actual Windows OS support, whole-colony heat, arbitrary moving/changing solids,
 building thermal components or phase-changing boundaries.

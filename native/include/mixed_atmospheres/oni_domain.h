@@ -260,6 +260,17 @@ typedef struct MAOniDomainSolidHeatCell {
     uint32_t native_insulation; /* exact native byte, 0..255 */
 } MAOniDomainSolidHeatCell;
 typedef MAOniDomainChunkHeatStatus MAOniDomainSolidHeatStatus;
+/* Last completed native solid contact, additive endpoint-observation ABI 1.
+ * The owner frame and contact frame are separate: a later frame may have no
+ * contact. Temperatures are the actual native binary32 operands; no diagnostic
+ * changes either endpoint or the physical checkpoint. */
+typedef struct MAOniDomainSolidHeatEndpoint {
+    uint32_t struct_size, abi_version, state, solid_public_cell;
+    uint64_t session, completed_frame, contact_frame;
+    uint32_t fluid_public_cell, reserved;
+    float native_old_temperature_k, before_temperature_k, after_temperature_k, seconds;
+} MAOniDomainSolidHeatEndpoint;
+MA_ONI_API MAOniResult ma_oni_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint*);
 MA_ONI_API uint32_t ma_oni_domain_solid_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell*, uint32_t count,
     MAOniDomainSolidHeatStatus*);
