@@ -192,7 +192,7 @@ void owner_controls() {
                 const auto bits=std::bit_cast<std::uint64_t>(variant==0 ? -1. : std::numeric_limits<double>::infinity());
                 for (std::size_t k=0;k<8;++k) bad[viscosity_offset+k]=static_cast<std::uint8_t>(bits>>(8*k));
             }
-            if (variant==2) std::fill(bad.begin()+static_cast<std::ptrdiff_t>(viscosity_offset),bad.begin()+static_cast<std::ptrdiff_t>(viscosity_offset+16),0);
+            if (variant==2) std::fill(bad.begin()+static_cast<std::ptrdiff_t>(viscosity_offset),bad.begin()+static_cast<std::ptrdiff_t>(viscosity_offset+16),std::uint8_t{0});
             if (variant==3) bad[8]=4;
             seal(bad);rejects([&] { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,bad); });
         }
