@@ -136,6 +136,7 @@ namespace MixedAtmospheres.Oni
                 if (LiquidTransferMode && transfersSubmitted && !transferConsumptionSubmitted && transferStatus.CommittedBatches == 1)
                     SubmitLiquidConsumption();
                 if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
+                if(PersistentActorValidationRequired && projectionPrimed && latest.CompletedFrames-projectionPrimedAtFrame>=4) StartPersistentActorFixture();
                 if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
                 if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
                 if (CarbonParticleMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartCarbonParticleFixture();
@@ -175,7 +176,7 @@ namespace MixedAtmospheres.Oni
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
                 Require(InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
-                    Liquid ? LiquidActorMode ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
+                    Liquid ? LiquidActorMode || PersistentActorValidationRequired ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
@@ -256,6 +257,7 @@ namespace MixedAtmospheres.Oni
                 }
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
+                if(PersistentActorValidationRequired) VerifyPersistentActorFixture();
                 if (CarbonParticleMode) VerifyCarbonParticleFixture();
                 if (BreathingReadMode) VerifyBreathingReadFixture();
                 if (PressureReadMode) VerifyPressureReadFixture();
@@ -282,6 +284,7 @@ namespace MixedAtmospheres.Oni
                 Marshal.SizeOf<TransferStatus>() == 104, "Unsupported native gas transfer ABI.");
             Require(ActorVersion() == 1 && Marshal.SizeOf<ActorCommand>() == 80 && Marshal.SizeOf<ActorStatus>() == 64,
                 "Unsupported native actor ABI.");
+            Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
@@ -420,7 +423,6 @@ namespace MixedAtmospheres.Oni
             // Retained values are independent of all future native advances.
             retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[0].InternalEnergy == cells[0].InternalEnergy;
             latest = next; cells = values;
-            VerifyRestoredPhysicalFrame();
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;
@@ -539,6 +541,7 @@ namespace MixedAtmospheres.Oni
                 var previous = currentSnapshot; currentSnapshot = candidate; candidate = null; previous?.Dispose();
                 ReleaseRestoredNativeEvents(true);
                 ++publications;
+                VerifyRestoredPhysicalFrame();
                 return (IntPtr)copy.Pointer;
             }
             catch (Exception caught) { candidate?.Dispose(); nativeCellsUnchanged = false; Fail(caught); return LastSnapshot(); }
@@ -710,6 +713,7 @@ namespace MixedAtmospheres.Oni
             NativeProjectionTemperatures = nativeProjectionTemperatures,
             NativeRendererAdvanced = nativeRendererAdvanced, SaveGuardVerified = saveGuardVerified,
             NativeSaveGuardVerified = nativeSaveGuardVerified,
+            PersistentActors = PersistentActorsReport(),
             GameGridProjectionVerified = gameGridProjectionVerified, ProjectionPrimedAtNativeFrame = projectionPrimedAtFrame,
             HeatCommands = heatStatus, HeatCommandsVerified = heatVerified, HeatPacketsRouted = heatPacketsRouted,
             ThermalConduction = thermalStatus, ThermalConductionVerified = thermalVerified,

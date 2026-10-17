@@ -14,7 +14,7 @@ using static MixedAtmospheres.Oni.OniNativeDomain;
 
 namespace MixedAtmospheres.Oni
 {
-    // Explicit actor-free development save/load. Ordinary scalar saves remain
+    // Explicit bounded development save/load. Ordinary scalar saves remain
     // guarded; only one paused, completed pair can enter one Sim.Save call.
     internal static unsafe partial class NativeSealedDomainValidation
     {
@@ -36,7 +36,9 @@ namespace MixedAtmospheres.Oni
         private static int resumePreparationFrame=-1;
         internal static bool HoldInitialRestorePause=>ColonyRestoreMode && colonyLoaded &&
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
-        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldIoControlPause;
+        internal static bool HoldActorRestorePause=>ColonyRestoreMode && colonyLoaded && restoredActorImage!=null &&
+            (!restoredActorBindingsVerified || PendingActorRestores()!=0);
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldActorRestorePause || HoldIoControlPause;
         internal static void PublishPausedValidationTick(Game game,float elapsed)
         {
             if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
@@ -169,7 +171,7 @@ namespace MixedAtmospheres.Oni
                 var publish=AccessTools.Method(typeof(Game),"StepTheSim");
                 synchronize.Invoke(Game.Instance,new object[]{0f});
                 Capture();var source=latest;var requested=PairStatus.Empty;
-                var requestCode=RequestPair(source.Session,source.CompletedFrames,0,0,ref requested);
+                var requestCode=RequestSnapshotPair(source.Session,source.CompletedFrames,0,0,ref requested);
                 if(requestCode==3)
                 {
                     var detail=Marshal.PtrToStringAnsi(LastError())??"A complete checkpoint is not available yet.";
@@ -188,6 +190,7 @@ namespace MixedAtmospheres.Oni
                     "Paused checkpoint source differs: state="+ready.State+", captured="+ready.CompletedFrame+"/"+ready.PhysicalTime+", requested="+source.CompletedFrames+"/"+source.TimeSeconds);
                 var native=new byte[checked((int)ready.NativeBytes)];var physical=new byte[checked((int)ready.PhysicalBytes)];
                 Check(CopyPair(token,native,ready.NativeBytes,physical,ready.PhysicalBytes));
+                RecordSavedPersistentActors(physical);
                 var payload=NativeDomainCheckpointPayload.Create(ready,physical);AdmitNativeInventory(payload,native);
                 var config=payload.Geometry;Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
@@ -255,6 +258,7 @@ namespace MixedAtmospheres.Oni
             var length=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(position));
             if(length<8 || length>data.Length-position-4 || !ColonySaveEnvelope.HasMagic(data.AsSpan(position+4,length))) return false;
             Require(ColonyRestoreMode && !active && pendingColonyRestore==null,"This paired colony requires the explicit native load development mode.");
+            Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
             var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);
@@ -277,6 +281,7 @@ namespace MixedAtmospheres.Oni
             x=checked((int)payload.Geometry.X);y=checked((int)payload.Geometry.Y);target=Grid.XYToCell(x,y);
             hotSolid=Grid.XYToCell(x+Width+2,y);coldSolid=hotSolid+1;
             var config=payload.Geometry;var physical=payload.PhysicalImage.ToArray();latest=Status.Empty;
+            restoredActorImage=NativeActorCheckpointImage.HasMagic(physical) ? NativeActorCheckpointImage.Parse(physical) : null;
             arming=true;
             Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
             prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;
@@ -318,7 +323,7 @@ namespace MixedAtmospheres.Oni
                         "Zero-time compatibility restoration changed an outside cell.");
                 }
             }
-            var initial=new byte[physical.Length];Check(CopyCheckpoint(latest.Session,0,initial,(uint)initial.Length,out var copied));
+            var initial=new byte[physical.Length];Check(CopyDomainSnapshot(latest.Session,0,initial,(uint)initial.Length,out var copied));
             Require(copied==physical.Length && initial.SequenceEqual(physical),"Native lifecycle restoration changed saved physical state or time.");
             restoredInitialHash=CheckpointHash(initial);zeroRestoreVerified=true;colonyLoaded=true;pendingColonyRestore=null;
             textureWriteBaseline=MixtureWorldRendering.TextureWrites;active=true;arming=false;
@@ -392,6 +397,13 @@ namespace MixedAtmospheres.Oni
         {
             Require(colonyLoaded && active && restoredExpected!=null,"Selected game did not restore a complete paired physical owner.");
             Capture();Require(latest.State==1 && BoundaryReady(),"Restored native colony boundary or owner failed.");
+            if(PendingActorRestores()!=0)
+            {
+                Require(Time.realtimeSinceStartup-started<90,"Saved point actors did not bind to their restored native components.");
+                ColonyRuntimeValidation.SetStage("waiting-for-persistent-actor-bindings");WriteReport();return;
+            }
+            VerifyRestoredPersistentActors();
+            ObservePersistentEmitterStatus();
             if(!restoredSceneStarted)
             {
                 Require(SaveLoader.Instance.loadedFromSave,"Restored validation was created as a new colony.");
@@ -450,7 +462,8 @@ namespace MixedAtmospheres.Oni
                 nativeCellsUnchanged && projectionPrimed && nativeFlowFenceVerified && retainedFrameVerified && nativeSolidsAdvanced &&
                 restoredRendererVerified && gameGridProjectionVerified && latest.MaximumRelativeMassError<=1e-8 && latest.MaximumRelativeEnergyError<=1e-6,
                 "Restored actual colony failed its continuation, publication, rendering or physical accounts.");
-            VerifySaveGuard();VerifyRestoredReaderBindings();VerifyNativeGpuGasTextures();completed=true;NativeBackendObservation.Flush();WriteReport();
+            VerifySaveGuard();VerifyRestoredReaderBindings();VerifyNativeGpuGasTextures();VerifyRestoredPersistentActorCompletion();
+            completed=true;NativeBackendObservation.Flush();WriteReport();
             ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
             ColonyRuntimeValidation.CompletePresentation("actual-game-restored-native-domain-validation");
         }
@@ -516,7 +529,7 @@ namespace MixedAtmospheres.Oni
     {
         private static void Postfix()
         {
-            if(NativeSealedDomainValidation.HoldInitialRestorePause && !SpeedControlScreen.Instance.IsPaused)
+            if((NativeSealedDomainValidation.HoldInitialRestorePause || NativeSealedDomainValidation.HoldActorRestorePause) && !SpeedControlScreen.Instance.IsPaused)
                 SpeedControlScreen.Instance.Pause(false);
         }
     }

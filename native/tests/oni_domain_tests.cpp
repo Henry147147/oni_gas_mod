@@ -1,4 +1,5 @@
 #include "../src/oni_domain.hpp"
+#include "../src/oni_actor_checkpoint.hpp"
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -20,6 +21,88 @@ namespace {
 void require(bool condition,const char* message) { if (!condition) throw std::runtime_error(message); }
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
+}
+void persistent_actors() {
+    static_assert(sizeof(MAOniDomainPersistentActor)==96);
+    using namespace ma::oni;
+    std::vector<MAOniDomainCell> cells(6);
+    std::array<MAOniDomainReceipt,32> receipts{};
+    auto drain=[&] {
+        MAOniDomainStatus source{};std::uint32_t count=0;
+        copy_domain_receipts(source,cells.data(),6,receipts.data(),32,count);
+        require(source.state==1,"Persistent actor worker faulted");
+        if (count) ack_domain_receipts(source.session,receipts[count-1].sequence);
+        return count;
+    };
+    for (auto scenario : {0U,1U,3U}) {
+        MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
+        auto source=capture(cells);MAOniDomainActorStatus actor_status{};
+        const auto species=scenario ? 3U : 1U;
+        std::array<MAOniDomainPersistentActor,3> inputs{{
+            {{80,1,source.session,0,10,1,650,species,0,0,.05F,0,0,0},101,12345,0},
+            {{80,1,source.session,0,20,2,650,species,0,0,.03125F,.7F,300,10000},101,12345,0},
+            {{80,1,source.session,0,30,2,651,species,0,0,.015625F,.7F,300,.01},101,12345,1}
+        }};
+        configure_persistent_domain_actors(inputs.data(),3,actor_status);
+        require(actor_status.live_actors==3,"Persistent actor registration lost a live actor");
+        for (std::uint64_t frame=1;frame<=10;++frame) { advance_domain(frame,.2F,2);drain(); }
+        source=capture(cells);const auto image=snapshot_domain(source.session,source.completed_frames);
+        const auto saved=actor_checkpoint::decode(image);
+        require(saved.actors.size()==3 && saved.actors[0].remainder>0 && saved.actors[1].elapsed>0 && saved.actors[2].blocked,
+            "Actor image omitted a consumer remainder, emitter timing or blocked state");
+        require(advance_domain_snapshot(image,0)==image,"Actor snapshot did not validate and round trip exactly");
+        auto bad=inputs;for (auto& value : bad) value.actor.expected_frame=source.completed_frames;
+        bad.back().component=0;bool rejected=false;
+        try { configure_persistent_domain_actors(bad.data(),3,actor_status); } catch(const std::invalid_argument&) { rejected=true; }
+        require(rejected && snapshot_domain(source.session,source.completed_frames)==image,"Late duplicate identity partially changed actor state");
+        const auto saved_time=source.time_seconds;
+        for (int fault=0;fault<5;++fault) {
+            auto malformed=image;
+            if (fault==0) malformed[64]=0; // owner=101 becomes zero
+            if (fault==1) malformed[64+24]=5; // unsupported species
+            if (fault==2) malformed[64+32+7]=0x7f; // very large but finite rate is legal; make it NaN below
+            if (fault==2) for (int b=0;b<8;++b) malformed[64+32+b]=static_cast<std::uint8_t>((0x7ff8000000000000ULL>>(8*b))&255);
+            if (fault==3) malformed[64+80]=2; // nonboolean blocked state
+            if (fault==4) malformed[64+28]=1; // reserved word
+            const auto digest=hash_memory(malformed.data(),malformed.size()-64);std::copy(digest.begin(),digest.end(),malformed.end()-64);
+            rejected=false;try { validate_domain_checkpoint(config,malformed,saved_time); } catch(const std::invalid_argument&) { rejected=true; }
+            require(rejected,"Malformed durable actor state was admitted despite a valid outer checksum");
+        }
+        shutdown_domain();start_domain(config,1,image,saved_time);source=capture(cells);
+        require(pending_domain_actor_restores()==3 && snapshot_domain(source.session,0)==image,"Frame-zero restore lost pending stable actor state");
+        // A source object with the wrong prefab must not steal the saved identity.
+        auto mismatch=inputs[0];mismatch.actor.session=source.session;mismatch.prefab++;
+        rejected=false;try { configure_persistent_domain_actors(&mismatch,1,actor_status); } catch(const std::invalid_argument&) { rejected=true; }
+        require(rejected && pending_domain_actor_restores()==3,"Mismatched restored prefab consumed a saved actor");
+        auto bootstrap=inputs[0];bootstrap.actor.session=source.session;bootstrap.actor.mass_kg=0;
+        configure_persistent_domain_actors(&bootstrap,1,actor_status);
+        require(pending_domain_actor_restores()==3 && snapshot_domain(source.session,0)==image,"Inactive spawn bootstrap reset saved timing or rate");
+        advance_domain(1,.2F,2);auto faulted=capture(cells);
+        require(faulted.state==3 && faulted.completed_frames==0 && faulted.time_seconds==saved_time && domain_active(),
+            "A worker advanced or released fluid ownership before stable actors rebound");
+        shutdown_domain();start_domain(config,1,image,saved_time);source=capture(cells);
+        // Reverse command order and change the relative native handle order.
+        // Stable identity, rather than allocator history, must order transfers.
+        auto rebound=inputs;std::reverse(rebound.begin(),rebound.end());
+        for (std::size_t i=0;i<rebound.size();++i) {
+            rebound[i].actor.session=source.session;rebound[i].actor.expected_frame=0;rebound[i].actor.native_handle=static_cast<int>(900-i*100);
+        }
+        configure_persistent_domain_actors(rebound.data(),3,actor_status);
+        require(pending_domain_actor_restores()==0 && snapshot_domain(source.session,0)==image,"Rebinding changed saved actor or physical state");
+        configure_persistent_domain_actors(rebound.data(),3,actor_status);
+        require(snapshot_domain(source.session,0)==image,"An unchanged configuration refresh reset restored actor timing");
+        auto expected=image;
+        for (std::uint64_t frame=1;frame<=10;++frame) {
+            expected=advance_domain_snapshot(expected,.2F);advance_domain(frame,.2F,2);const auto count=drain();source=capture(cells);
+            for (std::uint32_t i=0;i<count;++i)
+                require(receipts[i].callback==900 || receipts[i].callback==800 || receipts[i].callback==700,
+                    "Restored actor published to a stale native handle");
+            require(snapshot_domain(source.session,frame)==expected,"Rebound actors diverged from exact saved continuation");
+        }
+        require(source.maximum_relative_mass_error<1e-8 && source.maximum_relative_energy_error<1e-6,"Restored actor transfers violated conservation");
+        shutdown_domain();
+    }
+    std::cout<<"PASS durable gas/water actors: identity remapping, exact timing/remainder/blocked state, atomic rejection and conservative continuation\n";
 }
 void initial_inventory() {
     static_assert(sizeof(MAOniDomainInitialCell)==56);
@@ -161,6 +244,7 @@ int main(int argc,char** argv) {
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
+        persistent_actors();
         initial_inventory();
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);

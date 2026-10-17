@@ -240,7 +240,86 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
         return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False) -> bool:
+def _persistent_actors_passed(report: dict, physical: dict, restored: bool, required: bool) -> bool:
+    try:
+        value=report['PersistentActors']
+        if (not isinstance(value,dict) or type(value.get('Required')) is not bool
+                or type(value.get('PendingRestores')) is not int or value['PendingRestores']!=0
+                or type(value.get('UnsavedActors')) is not int or value['UnsavedActors']!=0):
+            return False
+        if value['Required'] is False:
+            return not required and value.get('SavedActors') is None and value.get('CurrentActors') is None and value.get('BoundObjects')==[]
+        native=value['Native'];saved=value['SavedActors'];current=value['CurrentActors'];bindings=value['BoundObjects']
+        if (value.get('Source')!='stable-prefab-object-and-component/native-handle-remap' or value.get('WholeColonyFluidAuthority') is not False
+                or not isinstance(native,dict) or any(type(native.get(k)) is not int for k in ('Size','Version','State','Session','CompletedFrame','LiveActors'))
+                or native.get('Size')!=64 or native.get('Version')!=1 or native.get('State')!=1
+                or native.get('Session')!=physical['Session'] or native.get('CompletedFrame')!=physical['CompletedFrames']
+                or not isinstance(saved,list) or not 1<=len(saved)<=256 or not isinstance(current,list) or len(current)!=len(saved)
+                or not isinstance(bindings,list) or len(bindings)!=len(saved) or native.get('LiveActors')!=len(saved)
+                or not _sha256(value.get('CurrentImageSha256'))):
+            return False
+        if restored:
+            if (value.get('Restored') is not True or value.get('RestoredBindingsVerified') is not True
+                    or value.get('RestoredContinuationVerified') is not True
+                    or value['CurrentImageSha256']!=report['ColonyCheckpoint']['CurrentPhysicalSha256']):
+                return False
+        elif (value.get('Restored') is not False or value.get('SourceFixtureRequired') is not True
+                or value.get('SourceFixtureVerified') is not True or len(saved)!=3
+                or value['CurrentImageSha256']!=report['ColonyCheckpoint']['SourcePhysicalSha256']):
+            return False
+        def actor_key(a):
+            return a['Kind'],a['Owner'],a['Prefab'],a['Component']
+        identities=[]
+        for group in (saved,current):
+            keys=[]
+            for a in group:
+                if (not isinstance(a,dict) or any(type(a.get(k)) is not int for k in ('Kind','Owner','Prefab','Component','Cell','Species'))
+                        or a['Kind'] not in (1,2) or not 1<=a['Owner']<=2**31 or not 1<=a['Prefab']<2**32 or not 0<=a['Component']<=65535
+                        or a['Cell']<0 or not 0<=a['Species']<5 or type(a.get('Blocked')) is not bool
+                        or any(type(a.get(k)) not in (int,float) or not math.isfinite(a[k]) for k in ('Mass','Interval','Temperature','MaximumDensity','Elapsed','Remainder'))
+                        or min(a['Mass'],a['Elapsed'],a['Remainder'])<0
+                        or (a['Kind']==1 and (a['Elapsed']!=0 or a['Blocked']))
+                        or (a['Kind']==2 and (a['Remainder']!=0 or (a['Mass']>0 and (a['Interval']<=0 or a['Temperature']<1 or a['MaximumDensity']<=0))))):
+                    return False
+                keys.append(actor_key(a))
+            if len(set(keys))!=len(keys) or keys!=sorted(keys):
+                return False
+            identities.append(keys)
+        if identities[0]!=identities[1]:
+            return False
+        by_key={actor_key(a):a for a in current};handles=set();expected_callbacks=0
+        for b in bindings:
+            key=(b['Kind'],b['PersistentOwner'],b['PersistentPrefab'],b['PersistentComponent'])
+            a=by_key.pop(key,None)
+            if (a is None or any(type(b.get(k)) is not int for k in ('Kind','PersistentOwner','PersistentPrefab','PersistentComponent','Cell','Species'))
+                    or type(b.get('Handle')) is not int or not -(2**31)<=b['Handle']<2**31 or b['Handle']==-1
+                    or (b['Kind'],b['Handle']) in handles or type(b.get('UnityInstance')) is not int or b['UnityInstance']==0
+                    or b.get('Cell')!=a['Cell'] or b.get('Species')!=a['Species']):
+                return False
+            handles.add((b['Kind'],b['Handle']))
+            if a['Kind']==1:
+                if (type(b.get('PersistentExpectedCallbacks')) is not int or b['PersistentExpectedCallbacks']<=0
+                        or type(b.get('PersistentConsumerCallbacks')) is not int
+                        or b.get('PersistentConsumerCallbacks')!=b['PersistentExpectedCallbacks']
+                        or type(b.get('PersistentExpectedMass')) not in (int,float) or not 0<b['PersistentExpectedMass']<math.inf
+                        or type(b.get('PersistentConsumerMass')) not in (int,float)
+                        or b.get('PersistentConsumerMass')!=b['PersistentExpectedMass']):
+                    return False
+                expected_callbacks+=b['PersistentExpectedCallbacks']
+            elif b.get('EmitterBlocked') is not a['Blocked']:
+                return False
+        if by_key or type(native.get('ConsumerSamples')) is not int or native['ConsumerSamples']<expected_callbacks:
+            return False
+        if not restored and (not any(a['Kind']==1 and a['Remainder']>0 for a in saved)
+                or not any(a['Kind']==2 and a['Elapsed']>0 for a in saved) or not any(a['Kind']==2 and a['Blocked'] for a in saved)
+                or not any(b.get('PersistentEmitterStatusObserved') is True for b in bindings if b['Kind']==2)):
+            return False
+        return True
+    except (KeyError,TypeError,ValueError,AttributeError,IndexError):
+        return False
+
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -262,6 +341,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     physical = report.get("NativeDomain")
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
+        return False
+    if persistent_actors and (restored or not saved):
+        return False
+    if (persistent_actors or 'PersistentActors' in report) and not _persistent_actors_passed(report,physical,restored,persistent_actors):
         return False
     if ((liquid or liquid_transfers or liquid_actors) and
             (type(physical.get("SuppressedLiquid")) is not int or physical["SuppressedLiquid"] <= 0)):
@@ -644,6 +727,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         physics_exercised = physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
     if initial_inventory:
         physics_exercised = physical["PressurePa"] > 0
+    if persistent_actors and liquid:
+        physics_exercised = physical['LiquidMassKg']>1000 and physical['PressurePa']>0
     return (report.get("Kind") == "actual-game-sealed-native-fluid-domain" and report.get("Status") == "passed"
             and report.get("Platform") == expected_platform and report.get("BoundedFluidAuthority") is True
             and report.get("WholeColonyFluidAuthority") is False and report.get("FirstPlayableColonyPassed") is False
@@ -668,6 +753,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
+    parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -683,7 +769,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

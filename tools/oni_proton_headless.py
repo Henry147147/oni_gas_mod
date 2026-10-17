@@ -130,6 +130,7 @@ def domain_options(args) -> dict:
         conduction=mode == "native-conduction-domain", gravity=mode == "native-gravity-domain",
         liquid_gravity=mode == "native-liquid-gravity-domain",
         checkpoint=mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"),
+        persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
         paired=mode == "native-paired-checkpoint-domain", natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True,
         restored=mode == "native-load-domain", save_io_recovery=args.verify_save_io_recovery,
         reload_in_process=args.reload_in_process)
@@ -143,6 +144,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if getattr(args,"verify_persistent_actors",False) is True and (args.mode not in ("native-domain","native-liquid-domain") or not args.save_colony or args.frames<80):
+        raise ValueError("Persistent actor validation requires a gas/water source, --save-colony and at least eighty frames")
     if getattr(args,"verify_natural_autosave",False) is True and (args.mode != "native-domain" or not 3100 <= args.frames <= 5000 or args.save_colony):
         raise ValueError("Natural autosave requires native-domain, 3100..5000 frames and no manual source save")
     if args.mode in ("native-carbon-particle-domain", "native-breathing-read-domain") and args.frames < 30:
@@ -262,7 +265,8 @@ def playtest(args, state: Path, session: dict) -> int:
             "LoadSavePath": windows_path(load_fixture) if load_fixture else "",
             "SaveOnComplete": args.save_colony, "SaveBeforeResume": args.resave_before_resume,
                 "VerifySaveIoRecovery": args.verify_save_io_recovery, "ReloadInProcess": args.reload_in_process,
-                **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {})})
+                **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
+                **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {})})
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-d3d11", "-screen-fullscreen", "0",
              "-screen-width", "1280", "-screen-height", "720", "-logFile", windows_path(output / "Player.log")])
@@ -359,6 +363,7 @@ def main() -> int:
     parser.add_argument("--resave-before-resume", action="store_true")
     parser.add_argument("--reload-in-process", action="store_true")
     parser.add_argument("--verify-natural-autosave",action="store_true",help="Wait for natural day rollover; native-domain and 3100..5000 frames")
+    parser.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; gas/water source, --save-colony and at least eighty frames")
     parser.add_argument("--verify-save-io-recovery", action="store_true")
     args = parser.parse_args()
     state = args.state.resolve()

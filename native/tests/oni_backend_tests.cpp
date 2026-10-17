@@ -139,10 +139,18 @@ int main() {
             required_checkpoint==123 && checkpoint_buffer==held_checkpoint,"Inactive checkpoint changed output");
         require(ma_oni_domain_checkpoint_advance(checkpoint_buffer.data(),16,.2,checkpoint_buffer.data(),16,&required_checkpoint)==MA_ONI_INVALID_ARGUMENT &&
             required_checkpoint==123 && checkpoint_buffer==held_checkpoint,"Invalid checkpoint advance changed output");
+        require(ma_oni_domain_actor_checkpoint_abi_version()==1 && sizeof(MAOniDomainPersistentActor)==96 &&
+            ma_oni_domain_pending_actor_restores()==0,"Durable actor extension ABI or inactive restore status");
+        require(ma_oni_domain_snapshot_copy(1,1,checkpoint_buffer.data(),16,&required_checkpoint)==MA_ONI_BUSY &&
+            required_checkpoint==123 && checkpoint_buffer==held_checkpoint,"Inactive complete snapshot changed output");
+        require(ma_oni_domain_snapshot_advance(checkpoint_buffer.data(),16,.2,checkpoint_buffer.data(),16,&required_checkpoint)==MA_ONI_INVALID_ARGUMENT &&
+            required_checkpoint==123 && checkpoint_buffer==held_checkpoint,"Invalid complete snapshot advance changed output");
         require(ma_oni_domain_pair_abi_version()==1 && sizeof(MAOniDomainPairStatus)==112,"paired checkpoint extension ABI");
         MAOniDomainPairStatus pair{}; pair.struct_size=112; pair.abi_version=1; const auto empty_pair=pair;
         require(ma_oni_domain_pair_request(1,1,0,0,&pair)==MA_ONI_BUSY && std::memcmp(&pair,&empty_pair,sizeof(pair))==0,
             "Inactive pair request changed its output");
+        require(ma_oni_domain_pair_snapshot_request(1,1,0,0,&pair)==MA_ONI_BUSY && std::memcmp(&pair,&empty_pair,sizeof(pair))==0,
+            "Inactive actor-aware pair request changed its output");
         require(ma_oni_domain_pair_poll(999,&pair)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&pair,&empty_pair,sizeof(pair))==0,
             "Unknown paired token changed poll output");
         require(ma_oni_domain_pair_copy(999,checkpoint_buffer.data(),8,checkpoint_buffer.data()+8,8)==MA_ONI_INVALID_ARGUMENT &&
@@ -156,6 +164,9 @@ int main() {
         const MAOniDomainActor actor{80,1,0,0,1,1,0,1,0,0,.05,0,0,0};
         require(ma_oni_domain_configure_actor(&actor,&actors)==MA_ONI_BUSY && std::memcmp(&actors,&held_actors,sizeof(actors))==0,
             "unowned actor configuration accepted or changed output");
+        const MAOniDomainPersistentActor persistent_actor{actor,1,12345,0};
+        require(ma_oni_domain_configure_persistent_actors(&persistent_actor,1,&actors)==MA_ONI_BUSY &&
+            std::memcmp(&actors,&held_actors,sizeof(actors))==0,"Inactive persistent actor changed its output");
         std::cout << "PASS: native observer ABI, SHA256 controls, unknown-image/immutable rejection and inactive lifecycle\n";
         return 0;
     } catch (const std::exception& error) {
