@@ -253,6 +253,17 @@ actual colour/opacity texels. Its final physical SHA-256 remains
 `85552853053e1410dcbcf11ee2fc7991b0d9a8acd3f34cc399368136f8917c73`.
 Result SHA-256: `273373414055e882114ea26befdd6c293d2a616eec2d2b13cdb0cd6dfb458ec4`.
 
+Fresh source/save runs now pass on both installed players through frame 121,
+including the actual GPU colours/opacity and independent saved-input review.
+Their physical images remain exactly the accepted v16 Windows and Linux source
+images, respectively. Raw result SHA-256 receipts are
+`348e258e5715c1596b4343007c1d93026e563c81f69b28ff896c80ba7eddca4b`
+(WindowsPlayer under Proton) and
+`556a44ae8f69380e1479b3666774059c76a865f0f3c8c7e66e0f6e60748eb838`
+(native Linux). The new Linux source also passes both local reload sessions,
+each with 120 exact frames and matching actual GPU texels. These remain bounded
+six-cell homogeneous appearances, with interface geometry still unimplemented.
+
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to
 `mods/config/MixedAtmospheres/appearance.json` under ONI's user root. Settings

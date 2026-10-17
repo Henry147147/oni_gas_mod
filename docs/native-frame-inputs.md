@@ -63,7 +63,14 @@ capacity. Truncated prefixes and structurally altered journals are rejected.
 Both managed adapters build, and both declaration suites pass 159 groups.
 All 19 backend groups also pass on GNU Linux, Windows binaries under Wine and
 the clean Ubuntu 22.04 compatibility build, plus Linux ASan/UBSan (600.74 s).
-Actual Unity journal gates remain pending.
+The first frozen `c4d9e03` native Linux Unity reload now passes all 120
+individually exact journal-replayed frames, with zero actor-refresh fallback.
+The original physical trajectory is unchanged. The saved-only binary reviewer
+passes every captured journal and the initial source binding without loading
+native code. The first report SHA-256 is
+`b4b2a3c139979fea0e051a14bb56174e0206ceab4d74618800c075f7fe486f89`.
+The second in-process session and actual live-command Unity controls remain
+in progress.
 
 The isolated licensed simulation worker also passes the journal path for gas
 and compressed-water heat on both platforms (Windows binaries under Wine).
