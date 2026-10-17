@@ -90,6 +90,19 @@ prepared game buffer. Stale observations reject before changing completed
 evidence. This is diagnostic evidence; it does not repair or accept the
 currently failing Unity boundary.
 
+The licensed worker control now records those completed arrays as well. Linux
+passes both 400 K and the failing colony's exact 369.62255859375 K initial
+temperature; the Windows native library under Wine also passes the latter.
+Each control replays 61 complete fluid frames and checks 56 actual contacts.
+The weaker controls end at 369.619140625 K with 27.001953858416528 J body loss.
+Both native arrays match the published temperature throughout these controls,
+and the unchanged energy bounds pass. A saved-only review of all 168 contact
+samples has SHA-256
+`18cb763476763df39a5cc33c7480fb9f308052df0c46459bb48a1dfad3a4d8e7`.
+`MA_NATIVE_SOLID_TEMPERATURE_BITS` selects an exact hexadecimal binary32 initial
+temperature in this standalone control. It does not change the mod's gameplay
+settings. Actual Unity publication remains the failing gate.
+
 These controls do not establish
 actual Windows OS support, whole-colony heat, arbitrary moving/changing solids,
 building thermal components or phase-changing boundaries.
