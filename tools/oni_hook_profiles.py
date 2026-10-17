@@ -105,20 +105,65 @@ def windows_symbols(data: bytes, pdb: Path, utility: str) -> tuple[dict, list, d
     return symbols, sections, {"pdb_guid": guid[1].lower(), "pdb_age": int(age[1])}
 
 
-def linux_symbols(data: bytes, image: Path) -> tuple[dict, list, dict]:
+def linux_load_segments(data: bytes) -> list[dict]:
     if data[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<H", data, 18)[0] != 62:
         raise ValueError("Expected little-endian Linux x86-64 ELF")
     phoff = struct.unpack_from("<Q", data, 32)[0]
     phsize, count = struct.unpack_from("<HH", data, 54)
-    sections = []
+    if phsize != 56 or phoff + count * phsize > len(data):
+        raise ValueError("Invalid ELF program headers")
+    segments = []
     for index in range(count):
         offset = phoff + index * phsize
-        kind, flags, raw, rva, _, files, _ = struct.unpack_from("<IIQQQQQ", data, offset)
+        kind, flags, raw, rva, _, files, memory, alignment = struct.unpack_from("<IIQQQQQQ", data, offset)
         if kind == 1:
-            sections.append((rva, raw, files, 0x20000000 if flags & 1 else 0))
+            if files > memory or raw + files > len(data) or rva + memory >= 1 << 64:
+                raise ValueError("Invalid ELF load segment")
+            segments.append(dict(rva=rva, file_offset=raw, file_bytes=files,
+                                 memory_bytes=memory, flags=flags, alignment=alignment))
+    return segments
+
+
+def linux_trampoline_storage(data: bytes) -> dict:
+    """Reserve only zero file padding after an RX segment's allocated bytes.
+
+    The page is already privately mapped by the loader. Segment contents,
+    relocations, zero-initialized variables and other load segments are excluded.
+    Runtime checks repeat the boundaries against the loaded program headers.
+    """
+    segments = linux_load_segments(data)
+    page = 4096
+    candidates = []
+    for segment in segments:
+        start, memory = segment["rva"], segment["memory_bytes"]
+        end = start + memory
+        first, last = (end + 15) & ~15, (end + page - 1) & ~(page - 1)
+        if (segment["flags"] != 5 or segment["file_bytes"] != memory or
+            segment["alignment"] != page or start % page != segment["file_offset"] % page or
+            not first < last or first // page != (last - 1) // page):
+            continue
+        if any(other is not segment and other["rva"] < last and
+               other["rva"] + other["memory_bytes"] > first for other in segments):
+            continue
+        raw = segment["file_offset"] + first - start
+        padding = data[raw:raw + last - first]
+        if len(padding) != last - first or any(padding):
+            continue
+        candidates.append(dict(rva=first, bytes=len(padding), page_bytes=page,
+                               load_segment_rva=start, load_segment_file_offset=segment["file_offset"],
+                               load_segment_memory_bytes=memory, fill_byte=0, sha256=sha(padding)))
+    if not candidates:
+        raise ValueError("No verified zero RX tail padding for Linux trampolines")
+    return max(candidates, key=lambda item: item["bytes"])
+
+
+def linux_symbols(data: bytes, image: Path) -> tuple[dict, list, dict]:
+    segments = linux_load_segments(data)
+    sections = [(s["rva"], s["file_offset"], s["file_bytes"], 0x20000000 if s["flags"] & 1 else 0)
+                for s in segments]
     text = subprocess.check_output(["nm", "-D", "--defined-only", str(image)], text=True)
     symbols = {name: int(address, 16) for address, name in re.findall(r"^([0-9a-f]+)\s+\w\s+(\S+)$", text, re.M)}
-    return symbols, sections, {}
+    return symbols, sections, {"trampoline_storage": linux_trampoline_storage(data)}
 
 
 def inspect(game: Path, platform: str, utility: str) -> dict:
@@ -144,9 +189,11 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
         rva = symbols[symbol]
         # Lifecycle pointers may reside in zero-initialized, non-file-backed BSS.
         globals_.append({"name": name, "rva": rva})
+    storage = evidence.pop("trampoline_storage", None)
     return {"platform": platform, "native_relative_path": relative,
             "native_sha256": sha(data), "assembly_sha256": sha((game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes()),
-            "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks}
+            "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks,
+            **({"trampoline_storage": storage} if storage else {})}
 
 
 def validate(value: dict) -> None:
@@ -170,6 +217,27 @@ def validate(value: dict) -> None:
                 raise ValueError("Invalid SHA256 fingerprint")
         if [g["name"] for g in profile["globals"]] != ["gSim", "gSimData"] or any(g["rva"] <= 0 for g in profile["globals"]):
             raise ValueError("Native lifecycle globals missing")
+        if profile["platform"] == "linux-x64":
+            storage = profile.get("trampoline_storage", {})
+            keys = ("rva", "bytes", "page_bytes", "load_segment_rva", "load_segment_file_offset",
+                    "load_segment_memory_bytes", "fill_byte")
+            if any(type(storage.get(key)) is not int for key in keys):
+                raise ValueError("Missing or invalid Linux trampoline storage")
+            if any(not 0 <= storage[key] < 1 << 63 for key in keys):
+                raise ValueError("Out-of-range Linux trampoline storage")
+            first, size, page = (storage[key] for key in ("rva", "bytes", "page_bytes"))
+            segment, memory = storage["load_segment_rva"], storage["load_segment_memory_bytes"]
+            end, raw = segment + memory, storage["load_segment_file_offset"]
+            # The pinned x64 dependency needs a 16-byte header and 72 bytes per
+            # entry. Its actual compiled capacity is checked again at attach.
+            if (page != 4096 or segment <= 0 or memory <= 0 or raw < 0 or raw % page != segment % page or
+                first != ((end + 15) & ~15) or first + size != ((end + page - 1) & ~(page - 1)) or
+                first // page != (first + size - 1) // page or size < 16 + 72 * len(profile["hooks"]) or
+                raw + first + size - segment > profile["native_bytes"] or storage["fill_byte"] != 0 or
+                storage.get("sha256") != sha(bytes(size)) or
+                any(first < h["rva"] + 32 and h["rva"] < first + size for h in profile["hooks"]) or
+                any(first < g["rva"] + 8 and g["rva"] < first + size for g in profile["globals"])):
+                raise ValueError("Invalid Linux trampoline storage bounds or fingerprint")
 
 
 def header(value: dict) -> str:
@@ -181,8 +249,14 @@ def header(value: dict) -> str:
                   f'constexpr char expected_native_hash[] = "{profile["native_sha256"]}";',
                   f'constexpr char expected_assembly_hash[] = "{profile["assembly_sha256"]}";',
                   f'constexpr std::uintptr_t sim_rva = {profile["globals"][0]["rva"]}U;',
-                  f'constexpr std::uintptr_t data_rva = {profile["globals"][1]["rva"]}U;',
-                  "constexpr HookProfile profile_hooks[] = {"]
+                  f'constexpr std::uintptr_t data_rva = {profile["globals"][1]["rva"]}U;']
+        if profile["platform"] == "linux-x64":
+            storage = profile["trampoline_storage"]
+            fields = ("rva", "bytes", "page_bytes", "load_segment_rva", "load_segment_file_offset", "load_segment_memory_bytes")
+            lines += ['constexpr ma::oni::TrampolineStorage trampoline_storage{' +
+                      ', '.join(f'{storage[key]}U' for key in fields) + '};',
+                      f'constexpr char expected_trampoline_hash[] = "{storage["sha256"]}";']
+        lines.append("constexpr HookProfile profile_hooks[] = {")
         for hook in profile["hooks"]:
             lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
         lines += ["};"]

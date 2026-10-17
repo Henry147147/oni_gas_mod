@@ -6,7 +6,7 @@
     "coverage_policy": "4e36cd207d0e0930d16a22a60a1644f5222a97809a6db2063b1b455556399e45",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "1b9e0448112c8ae3d344bbf7f4689dcb51bf60c77552a429fa6b44aa6feeba2b"
+    "native_hook_profiles": "92feeeb398361b4bc556d91a7792fc345a9236b655f8cec641e3707b0fd02015"
   },
   "assembly_hashes": {
     "windows-x64": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",

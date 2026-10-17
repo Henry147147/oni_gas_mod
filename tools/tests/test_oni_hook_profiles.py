@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import sys
+import struct
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -50,6 +51,48 @@ class NativeProfileTests(unittest.TestCase):
             self.assertIn(value["native_sha256"], text)
             self.assertIn(value["assembly_sha256"], text)
         self.assertNotIn("0x48,", text)
+
+    def test_invalid_trampoline_storage_rejected(self):
+        original=self.value["profiles"][1]["trampoline_storage"]
+        for update in ({"rva": original["rva"]-16}, {"bytes": original["bytes"]+16},
+                       {"bytes": -1}, {"bytes": True}, {"bytes": 1 << 64},
+                       {"page_bytes": 8192}, {"fill_byte": 1}, {"sha256": "0"*64},
+                       {"load_segment_memory_bytes": 1 << 64}, {"load_segment_file_offset": 1}):
+            with self.subTest(update=update):
+                value=copy.deepcopy(self.value)
+                value["profiles"][1]["trampoline_storage"].update(update)
+                with self.assertRaises(ValueError): profiles.validate(value)
+        value=copy.deepcopy(self.value);del value["profiles"][1]["trampoline_storage"]
+        with self.assertRaises(ValueError): profiles.validate(value)
+
+    @staticmethod
+    def elf(flags=5, memory=0x1a1, overlap=False):
+        data=bytearray(0x3000)
+        data[:6]=b"\x7fELF\x02\x01"
+        struct.pack_into("<H",data,18,62)
+        struct.pack_into("<Q",data,32,64)
+        struct.pack_into("<HH",data,54,56,2)
+        struct.pack_into("<IIQQQQQQ",data,64,1,flags,0x1000,0x1000,0,0x1a1,memory,4096)
+        struct.pack_into("<IIQQQQQQ",data,120,1,4,0x2000,0x2000 if not overlap else 0x11b0,0,0x1000,0x1000,4096)
+        return data
+
+    def test_elf_padding_excludes_allocated_bytes_and_other_segments(self):
+        data=self.elf()
+        data[0x11a0]=0xcc  # Last allocated byte belongs to the program.
+        result=profiles.linux_trampoline_storage(data)
+        self.assertEqual((result["rva"],result["bytes"]),(0x11b0,0xe50))
+        self.assertEqual(result["sha256"],profiles.sha(bytes(0xe50)))
+        data[0x11b0]=1
+        with self.assertRaises(ValueError): profiles.linux_trampoline_storage(data)
+        for invalid in (self.elf(flags=7),self.elf(memory=0x1a2),self.elf(overlap=True)):
+            with self.assertRaises(ValueError): profiles.linux_trampoline_storage(invalid)
+
+    def test_elf_program_header_bounds_rejected(self):
+        data=self.elf()
+        struct.pack_into("<Q",data,32,len(data))
+        with self.assertRaises(ValueError): profiles.linux_trampoline_storage(data)
+        data=self.elf();struct.pack_into("<H",data,54,64)
+        with self.assertRaises(ValueError): profiles.linux_trampoline_storage(data)
 
 
 if __name__ == "__main__": unittest.main()

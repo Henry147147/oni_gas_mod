@@ -513,7 +513,17 @@
           "fingerprint_sha256": "7816fb169a325b21f8c1429ad46a52b25b17ae3701fa385143da4f692e583c09",
           "signature": "void(adjusted-this*,float,data*,const-region*)"
         }
-      ]
+      ],
+      "trampoline_storage": {
+        "rva": 672192,
+        "bytes": 3648,
+        "page_bytes": 4096,
+        "load_segment_rva": 172032,
+        "load_segment_file_offset": 172032,
+        "load_segment_memory_bytes": 500153,
+        "fill_byte": 0,
+        "sha256": "301efe9642b0328c0b3b5cf0efc4b71ad0ea550e1433583f59c392fa9d7d3bbb"
+      }
     }
   ]
 }

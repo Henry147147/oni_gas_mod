@@ -19,6 +19,8 @@ Native scalar cells become compatibility projections, while machines, heat,
 callbacks, rendering and saves use one completed physical frame. The mod loads
 its own library and changes verified code in memory; installed SimDLL files
 remain intact.
+Linux startup uses [verified executable-page padding](docs/native-trampoline-storage.md)
+for its 28 trampolines, with bounded capacity and exact byte/permission cleanup.
 
 This is the next implementation track, **not an already playable takeover**.
 It starts with an opt-in forwarding observer, followed by controlled takeover,

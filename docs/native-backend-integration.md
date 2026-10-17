@@ -10,11 +10,13 @@ supported gameplay packs.
 **Current status:** playable whole-colony takeover is not implemented. The
 opt-in forwarding observer preserves native physics. A separate
 [sealed native domain](sealed-native-domain.md) now connects the closed MAC
-solver to the native worker timestep in an actor-free development room. Its
-Linux mixed-air control passes 120 frames after priming, including actual grid,
-rendering and save-guard verification. The native/public padded-index mismatch
-that caused earlier gas failures is fixed. Surrounding colony physics, production
-actors and integrated persistence remain outside this experiment.
+solver to the native worker timestep in a six-cell development room. Its
+Linux controls cover mixed air, filled liquid, point transfers, registered
+development actors, heat, conduction, gravity and paired colony persistence.
+Saved domains resume with exact physical continuation, including a two-session
+main-menu reload in one Unity process. The native/public padded-index mismatch
+that caused earlier gas failures is fixed. Surrounding colony physics,
+production actors and persistent live actors remain outside this experiment.
 
 ## Supported build and installation
 
@@ -41,12 +43,16 @@ including a widened prologue that cannot fit the trampoline buffer.
 Source-hash-checked patches also replace unaligned code-operand accesses in
 Funchook/diStorm with `memcpy` and make diStorm's high-bit instruction flag
 unsigned. Dependency C sources are included in the sanitizer build.
-The Linux allocation patch scans nearby address gaps and claims trampoline
-pages with `MAP_FIXED_NOREPLACE`; it never overwrites an occupied mapping or
-accepts a relocated address. Deterministic controls exercise ignored ordinary
-address hints and two concurrent page claims, preserving every sentinel byte.
-The patch and its pinned source archive ship with the package. A missing
-reachable page still rejects installation, with range/map/errno diagnostics.
+The Linux backend now uses [verified executable-page padding for all 28
+trampolines](native-trampoline-storage.md). It validates the loaded segment
+boundaries, original zero bytes, bounded capacity and private RX permissions.
+Cleanup restores the original bytes and RX permissions without unmapping the
+game image. Synthetic controls deny nearby allocation, run 96 complete hook
+cycles, exhaust a bounded buffer and inject a cleanup permission failure.
+For unregistered Funchook users, the allocation patch still scans nearby gaps
+and claims pages with `MAP_FIXED_NOREPLACE`; it never overwrites occupied
+mappings or accepts a relocated address. Controls retain ignored-hint and
+concurrent-claim coverage. Both patches and pinned archives ship in the package.
 
 During the colony save/load work, private Linux runs
 `20261017T000353Z-2e92d9` and `20261017T000743Z-dcba26` fail during hook-0 near-page
