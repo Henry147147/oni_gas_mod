@@ -1,5 +1,10 @@
 # Closed-gas Riemann gate
 
+The newer [swept first-moment reconstruction](MAC_SWEPT_RECONSTRUCTION.md)
+repairs an independently reproduced affine remap defect and passes scoped
+component/checkpoint controls on both platforms. It remains opt-in. No new
+strong-flow run has occurred, and the failures below retain their status.
+
 The gate remains failed. The default Windows viscosity-matched heat owner
 completes Sod N64/128/256, then passes collision pressure/velocity refinement
 but fails density at N128: ratios 0.856166 / 0.796376 / 0.611031 against 0.85.

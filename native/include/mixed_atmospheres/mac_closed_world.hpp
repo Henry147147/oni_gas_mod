@@ -8,7 +8,8 @@
 #include <optional>
 
 namespace ma::experimental {
-enum class MacMaterialReconstruction { donor_cell, limited_linear };
+// Persisted selectors. The original index-space linear path keeps value 1.
+enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2 };
 enum class MacCompressionViscosity { none, quadratic, acoustic_quadratic };
 // Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
 // 3 matched Cp with two half-cell resistances. Older values keep their laws.

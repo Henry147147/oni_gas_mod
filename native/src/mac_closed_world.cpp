@@ -102,7 +102,8 @@ void MacClosedSettings::validate() const {
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
          preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
-        (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear) &&
+        (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear ||
+            reconstruction == MacMaterialReconstruction::swept_first_moment) &&
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic) &&
@@ -248,8 +249,10 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     result.pressure_energy_residual_j = projected_energy(result.pressure_energy_residual_wide_j, result.rounded_energy_projections);
     result.pressure_energy_bound_j = projected_energy(result.pressure_energy_bound_wide_j, result.rounded_energy_projections);
     MacTransportAdvance transported;
-    if (settings.reconstruction == MacMaterialReconstruction::limited_linear) {
-        auto plan = reconstruct_mac_parcels(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction);
+    if (settings.reconstruction != MacMaterialReconstruction::donor_cell) {
+        const auto reconstruct = settings.reconstruction == MacMaterialReconstruction::swept_first_moment ?
+            reconstruct_mac_swept_parcels : reconstruct_mac_parcels;
+        auto plan = reconstruct(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction);
         transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan, settings.momentum_reconstruction);
         result.mass_fluxes_kg = std::move(transported.report.primal_mass_fluxes_kg); result.reconstruction = std::move(plan);
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,

@@ -77,6 +77,11 @@ Replace the runtime gas-only reference world with a coupled multiphase world.
 Keep isolated components as validation references, without mistaking their tests
 for evidence of a complete solver.
 
+The [swept first-moment reconstruction controls](../native/MAC_SWEPT_RECONSTRUCTION.md)
+repair a reproduced moving-cell affine error with an opt-in selector. Component,
+checkpoint and selected Windows/Linux regressions pass; the strong-flow,
+exact-vacuum and production-colony exit gates remain open.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

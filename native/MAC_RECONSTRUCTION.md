@@ -3,8 +3,15 @@
 Five standalone controls and the existing closed-pressure and smooth-gravity
 controls pass on Windows/MSVC and Linux/GCC15. The closed MAC owner selects
 limited linear material reconstruction by default, with
-the previous donor-cell path available as an explicit reference setting. No
-C ABI or game dispatch selects this owner.
+the previous donor-cell path available as an explicit reference setting.
+The default gas ABI does not select this owner; later opt-in native sealed-domain
+game controls use its existing settings.
+
+A later [swept first-moment path](MAC_SWEPT_RECONSTRUCTION.md) addresses a
+reproduced moving-centroid affine error. It is explicit selector 2, while the
+method described below retains selector 1 and remains the default. Its component,
+checkpoint and selected regression controls pass on Windows and Linux; the
+strong-flow and vacuum gates remain open.
 
 For each donor, neighbor inventories are expressed at the donor's material
 volume. Centred X/Y differences describe every constituent mass, actual stored
