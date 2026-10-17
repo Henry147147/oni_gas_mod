@@ -7,13 +7,18 @@ mixture only in the explicit `native-import-domain` and
 `native-liquid-import-domain` controls. General world/geometry import remains
 unfinished.
 
-The managed adapter waits for the room's native flow fence, reads every cell
-from that same completed packet and resolves native element indices to stable
-material identities. Each native scalar cell contributes exactly its actual
-mass to its actual constituent. Absent constituents stay zero. The adapter
-does not replace the source cells when activation succeeds. Subsequent owned
-snapshots contain the custom physical publication, while the original native
-tuples must remain unchanged under the existing exclusions.
+The managed adapter captures every cell from one completed native packet before
+installing the room's native flow flags, and resolves native element indices to
+stable material identities. Each native scalar cell contributes exactly its
+actual mass to its actual constituent. Absent constituents stay zero. After
+complete admission and frame-zero verification, the custom per-cell exclusions
+are active before flow-flag installation. The driver then installs those flags
+and restores the canonical native compatibility cells used by the existing
+paired save contract. Those scalar compatibility writes cannot change the
+captured inventory or the new physical owner. Subsequent owned snapshots contain
+the custom physical publication, while the canonical native tuples must remain
+unchanged under the exclusions. This is a sealed development handoff, with no
+general world-migration or global-clock conversion claim.
 
 The complete row-major inventory crosses `ma_oni_domain_start_from_cells`.
 Each ABI-1 `MAOniDomainInitialCell` is 56 bytes: size/version, five binary64
@@ -34,8 +39,9 @@ migration still needs its own physical model and conversion accounts. Disease,
 radiation, passive quantities, vacuum, free surfaces and mixed gas/liquid cells
 are outside this admission path.
 
-The report records the six source cells, native element indices, exact admitted
-masses/temperatures and a SHA-256 over the little-endian 56-byte input rows.
+The report records the completed-frame count, six source cells, native element
+indices, original binary32 tuples, exact admitted masses/temperatures and a
+SHA-256 over the little-endian 56-byte input rows.
 Before the first physical frame, actual copied cells must match every admitted
 constituent and temperature with zero resolved kinetic energy and momentum.
 The portable validator reconstructs the hash and compares the source native
@@ -68,8 +74,10 @@ gravity. Real Unity import runs are in progress.
 No playable-colony or whole-colony acceptance follows from the helper tests.
 
 The first real Linux `native-inventory-unity-matrix-v1/import-save` rejects an
-invalid source mass/temperature before native activation. Its failure remains
-retained. Admission now waits for a positive completed-native-frame count and
-records all six original source tuples before validating them. No missing
-mass or temperature is synthesized. The exact rejected source values and the
-subsequent real-game result remain under investigation.
+invalid source mass/temperature before native activation. The v2 diagnostic
+records one completed native frame with four vacuum cells and two remaining
+gas cells of about 4.2 kg each. Native flow-flag installation can displace
+fluid; reading the initial inventory after that operation was too late. Both
+failures remain retained. The reordered admission above captures and verifies
+the physical owner before installing those flags. No missing mass or temperature
+is synthesized. Its new real-game result remains pending.

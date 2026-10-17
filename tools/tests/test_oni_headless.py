@@ -48,13 +48,14 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             # Include a native float whose short JSON decimal differs from its
             # exact promoted double. A direct JSON-number comparison is wrong.
             masses[3 if liquid else 4] = 1100.0 if liquid else struct.unpack('<f', struct.pack('<f', 1.01))[0]
-            rows.append(dict(PublicCell=100+index, NativeElementIndex=10, MassesKg=masses, TemperatureK=300.0))
-        report['ImportedNativeInventory'] = dict(Required=True, Verified=True, AdvancedFromSource=True, AbiVersion=1, NativeFramesInSource=1,
+            rows.append(dict(PublicCell=100+index, NativeElementIndex=10, NativeMassKg=1100.0 if liquid else 1.01,
+                             NativeTemperatureK=300.0, MassesKg=masses, TemperatureK=300.0))
+        report['ImportedNativeInventory'] = dict(Required=True, Verified=True, AdvancedFromSource=True, AbiVersion=1, NativeFramesInSource=1, ExclusionsBeforeNativeFence=True,
             Source='completed-native-GameDataUpdate', EnergyBasis='declared-reference-EOS-at-native-temperature',
             InitialMomentum='at-rest', Cells=rows)
         self.rehash_inventory(report)
-        report['NativeProjectionMasses'] = [1100.0 if liquid else 1.01] * 6
-        report['NativeProjectionTemperatures'] = [300.0] * 6
+        report['NativeProjectionMasses'] = list((1000,1200,1100) if liquid else (.6,1.2,2.4)) * 2
+        report['NativeProjectionTemperatures'] = [280,300,320] * 2
         report['NativeDomain'].update(Cells=6, InitialOxygenKg=0, CurrentOxygenKg=0)
         if liquid: report['NativeDomain'].update(LiquidMassKg=1100, SuppressedLiquid=100)
         return report
@@ -74,7 +75,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,initial_inventory=True,liquid=liquid))
 
     def test_native_inventory_cannot_pass_with_forged_admission_or_scalar_changes(self):
-        changes = [('Verified',False),('Required',False),('AdvancedFromSource',False),('NativeFramesInSource',0),('NativeFramesInSource',True),('Source','fixture'),('InitialMomentum','inferred'),
+        changes = [('Verified',False),('Required',False),('AdvancedFromSource',False),('NativeFramesInSource',0),('NativeFramesInSource',True),('ExclusionsBeforeNativeFence',False),('Source','fixture'),('InitialMomentum','inferred'),
                    ('EnergyBasis','native-energy-preserved'),('SourceSha256','0'*64),('Cells',[])]
         for key,value in changes:
             report = self.imported_inventory();report['ImportedNativeInventory'][key]=value

@@ -74,6 +74,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or inventory.get("Verified") is not True or inventory.get("AdvancedFromSource") is not True
                 or type(inventory.get("AbiVersion")) is not int or inventory["AbiVersion"] != 1
                 or type(inventory.get("NativeFramesInSource")) is not int or inventory["NativeFramesInSource"] <= 0
+                or inventory.get("ExclusionsBeforeNativeFence") is not True
                 or inventory.get("Source") != "completed-native-GameDataUpdate"
                 or inventory.get("EnergyBasis") != "declared-reference-EOS-at-native-temperature"
                 or inventory.get("InitialMomentum") != "at-rest" or not _sha256(inventory.get("SourceSha256"))):
@@ -101,8 +102,11 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                     or sum(masses) <= 0 or sum(mass > 0 for mass in masses) != 1
                     or any(mass > 0 and (species == 3) != liquid for species, mass in enumerate(masses))
                     or type(temperature) not in (int, float) or not 0 < temperature <= 1e6
-                    or not _same_native_float(native_masses[index], sum(masses))
-                    or not _same_native_float(native_temperatures[index], temperature)):
+                    or not _same_native_float(row.get("NativeMassKg"), sum(masses))
+                    or not _same_native_float(row.get("NativeTemperatureK"), temperature)
+                    or not _same_native_float(native_masses[index], struct.unpack("<f", struct.pack("<f",
+                        ((1000, 1200, 1100) if liquid else (.6, 1.2, 2.4))[index % 3]))[0])
+                    or native_temperatures[index] != (280, 300, 320)[index % 3]):
                 return False
             positions.add(position)
             encoded.extend(struct.pack("<II6d", 56, 1, *masses, temperature))
