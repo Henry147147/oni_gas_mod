@@ -3,8 +3,8 @@
 This is the first bounded takeover experiment for the colony work. The
 custom native engine advances a six-cell room while the surrounding ONI colony
 retains its original simulation. The corrected mixed-air control passes in
-the actual Linux colony, as does the corrected compressed-water equilibrium
-control. The basic controls are actor-free development scenes; a separate
+actual Windows and Linux colonies; the corrected compressed-water equilibrium
+control also passes on Linux. The basic controls are actor-free development scenes; a separate
 registered-actor control exercises an actual game consumer and emitter API.
 Whole-colony ownership, first-playable and release gates remain closed.
 
@@ -448,7 +448,8 @@ reports are redistributed. All eleven native CTests pass in Release and with
 ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current Windows x64 code also passes all eleven native tests, six forwarding
 comparisons and three sealed-domain controls under Wine 10. This executes the
 licensed Windows SimDLL and the Windows backend, without a Unity game process.
-Actual Windows OS and Windows Unity colony validation remain open.
+That historical Wine cohort supplies no actual Windows OS or Unity evidence;
+the later MSVC/Windows gas run is recorded below.
 
 The Windows controls use the matching PDB's `SimData` width/height offsets 0/4
 and verify them against the loaded padded grid before activation. The same
@@ -485,8 +486,62 @@ The actor scene needs at least 80 frames; use 120 for its full control. Python
 must be available for the shared portable acceptance checker. It requires
 `WindowsPlayer` evidence and the same physical, native-source, rendering,
 callback, save and scope checks used on Linux. An isolated Wine report cannot
-pass this Unity gate. The Windows colony wrapper is syntax-checked here; this
-machine has not executed that Windows Unity run.
+pass this Unity gate.
+
+## Actual Windows gas-owner run
+
+The `windows-native-domain-r3` private cohort passes the six-cell mixed-air
+control in Windows ONI 744825 / Unity 6000.3.5f2 using the native MSVC package
+built in `windows-native-domain-r2`. Source is `6f39991` plus the recorded
+two-file startup-linkage/ABI-test patch. It completes 121 physical frames,
+120 after projection priming, 2,541 substeps and 24.20000036 physical seconds,
+with zero rejected attempts. Solver thread 12 differs from activation thread
+11. Maximum relative constituent-mass/energy error is `9.26e-16 / 2.25e-14`.
+Original native cells remain byte-exact; completed snapshot copy, retained
+frame, flow exclusions, worker fence, native solid heat, game grid, rendering
+and both scalar-save guards pass. The portable checker accepts `WindowsPlayer`
+evidence. Whole-colony and first-playable readiness remain false.
+
+A computer-use screenshot shows the retained completed reading at revision
+121: **Nitrogen–oxygen mixture (+traces)**, `Breathable`, nitrogen `81.6054%`,
+oxygen `18.3946%`, `100501.0868 Pa`, `300.017112 K` and `1.158178546 kg`.
+The agent did not click the tile. The benign helium trace is omitted from the
+bulk contents list, with the full-composition hint visible. These displayed
+values agree with the physical report. This is a two-bulk-gas observation of
+the completed validation frame; it does not prove four-gas/contaminant hover,
+changing or paused production inspection, save/reload, UI scaling, other
+asteroids or rendering performance. The full [hover criterion](mixture-presentation.md)
+remains required.
+
+Fresh strict MSVC controls pass all 13 native CTests, 89 Core groups, 41
+presentation groups, coupled API/passive/mutation executables, adapter compile
+and private packaging. The first compile failed with C4297 because a throwing
+startup helper had C linkage. Moving that helper unchanged into the unnamed
+C++ namespace fixes `/EHc` exception handling while retaining `/W4 /WX`, the
+exported C wrappers and their error boundary. New public-ABI cases verify
+invalid start arguments and unattached restore leave source/output bytes
+unchanged. A fresh GCC 11 / Ubuntu 22.04 Docker build passes all 13 CTests;
+both Linux libraries require at most glibc 2.34, below the 2.35 target. This
+compatibility build supplies no new Linux Unity evidence.
+
+The initial executable-path retry failed before process creation and reused
+the accepted binaries after locating PowerShell. The successful game exits
+normally with wrapper exit 0, drained/closed output pipes and all 13 original
+profile files restored and independently hashed. The temporary mod is removed;
+the default project DLL and installed SimDLL remain unchanged. No release or
+public package is produced.
+
+Private terminal SHA256 receipts:
+
+- Windows game: `local/windows-native-domain-r3/TERMINAL_REVIEW.json`,
+  `c37b50b0242c9fb8ad377c8749f3bf3e3acdcdaf8786571bf1416acc33190877`.
+- Hover PNG: `local/windows-native-domain-r3/observations/owned-air-hover.png`,
+  `8959519a7a2777cecd5a69e4a31924b2c8e586d1eb15f078dc6ee4ce455ac82e`.
+- Linux compatibility: `local/windows-linkage-linux-r1/TERMINAL_REVIEW.json`,
+  `07554835ba182c243801e8c281bf861d94a3d6b7f93b937f90865493cad89d37`.
+
+These checks were performed by the primary agent; no independent agent review
+is claimed. Earlier failed receipts remain retained.
 
 ## Limits and next work
 

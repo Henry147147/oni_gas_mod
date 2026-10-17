@@ -53,7 +53,10 @@ for ownership, interfaces, failures and implementation gates.
   An opt-in gravity scene also passes in the Linux game, retaining physical
   vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.
-  Current Windows Unity takeover validation remains open.
+  A native MSVC package now also passes the six-cell mixed-air control in an
+  actual Windows Unity colony for 120 frames after projection priming. Its
+  hover matches the retained physical reading; this two-gas observation does
+  not complete the four-gas hover or whole-colony gates.
   Native physical checkpoints now preserve full state and reproduce the next
   actual Linux worker frame byte for byte.
   Paired capture now saves native cells and the custom owner at the same worker
@@ -66,7 +69,7 @@ for ownership, interfaces, failures and implementation gates.
   and restores the caller's exact pause count; pending commands reject without
   writing or losing their reservation. Compressed-water save, initial paused
   resave and 120 exact resumed frames also pass in Linux Unity. Owned actor
-  persistence, menu/day-rollover triggers and Windows Unity validation
+  persistence, menu/day-rollover triggers and Windows Unity save/load validation
   remain unfinished. See the
   [checkpoint protocol](native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 

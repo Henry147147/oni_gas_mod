@@ -130,3 +130,8 @@ thermodynamic and scientific sources remain exact. Post-merge audit SHA256:
 The incoming runtime changes need separate integration evidence. There is no
 new Unity, first-playable, production or performance acceptance. The default
 game DLL is unchanged and is not deployed by these standalone controls.
+
+A later, separate [MSVC/Windows Unity gas-owner cohort](../docs/sealed-native-domain.md#actual-windows-gas-owner-run)
+passes 120 frames after projection priming using this solver and a startup
+C++-linkage repair. It does not change or repeat the failed strong-flow gate,
+and adds no first-playable, whole-colony or performance acceptance.

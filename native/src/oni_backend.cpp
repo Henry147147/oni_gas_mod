@@ -390,6 +390,35 @@ template<class Action> MAOniResult boundary(Action action) noexcept {
     catch (const std::exception& error) { std::snprintf(last_error.data(),last_error.size(),"%s",error.what()); return MA_ONI_INTERNAL_ERROR; }
     catch (...) { std::snprintf(last_error.data(),last_error.size(),"Unknown observer error"); return MA_ONI_INTERNAL_ERROR; }
 }
+// Keep throwing implementation helpers under C++ linkage. MSVC /EHc treats
+// C-linkage functions as nonthrowing; exported entry points use boundary().
+void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* output,
+    std::span<const std::uint8_t> image,double saved_time) {
+    std::lock_guard save_lock(native_save_mutex);
+    if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
+    if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
+        throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain configuration or output ABI");
+    if (!installed || recovery_required || !image_base)
+        throw Failure(MA_ONI_BUSY,"Native domain requires inspected attached hooks");
+    if (ma::oni::domain_active()) throw Failure(MA_ONI_BUSY,"Native domain is already active");
+    std::uintptr_t sim{}, data{};
+    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
+    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+    if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
+    // Both inspected SimData layouts start with padded width and height
+    // (Windows PDB field offsets 0/4; Linux disassembly/runtime controls).
+    // Both the public snapshot and native phase indices are tested; never
+    // infer the native pitch from a managed public-cell index.
+    std::array<std::int32_t,2> dimensions{};
+    std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
+    if (config->native_grid_width > static_cast<std::uint32_t>(INT32_MAX-2) ||
+        dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
+        static_cast<std::uint64_t>(config->offset_y)+config->height+2 >= static_cast<std::uint32_t>(dimensions[1]))
+        throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
+    try { ma::oni::start_domain(*config,native_thread(),image,saved_time); }
+    catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    ma::oni::copy_domain(*output,nullptr,0);
+}
 }
 
 extern "C" {
@@ -474,33 +503,6 @@ MAOniResult ma_oni_domain_species(std::uint32_t index,MAOniDomainSpecies* output
         if (!output || index >= MA_ONI_DOMAIN_SPECIES) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid domain species output or index");
         *output=ma::oni::domain_species(index);
     });
-}
-static void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* output,
-    std::span<const std::uint8_t> image,double saved_time) {
-    std::lock_guard save_lock(native_save_mutex);
-    if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
-    if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
-        throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native domain configuration or output ABI");
-    if (!installed || recovery_required || !image_base)
-        throw Failure(MA_ONI_BUSY,"Native domain requires inspected attached hooks");
-    if (ma::oni::domain_active()) throw Failure(MA_ONI_BUSY,"Native domain is already active");
-    std::uintptr_t sim{}, data{};
-    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
-    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
-    if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the actual native simulator before a sealed domain");
-    // Both inspected SimData layouts start with padded width and height
-    // (Windows PDB field offsets 0/4; Linux disassembly/runtime controls).
-    // Both the public snapshot and native phase indices are tested; never
-    // infer the native pitch from a managed public-cell index.
-    std::array<std::int32_t,2> dimensions{};
-    std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
-    if (config->native_grid_width > static_cast<std::uint32_t>(INT32_MAX-2) ||
-        dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
-        static_cast<std::uint64_t>(config->offset_y)+config->height+2 >= static_cast<std::uint32_t>(dimensions[1]))
-        throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
-    try { ma::oni::start_domain(*config,native_thread(),image,saved_time); }
-    catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
-    ma::oni::copy_domain(*output,nullptr,0);
 }
 MAOniResult ma_oni_domain_start(const MAOniDomainConfig* config,MAOniDomainStatus* output) {
     return boundary([&] { start_domain_checked(config,output,{},0); });

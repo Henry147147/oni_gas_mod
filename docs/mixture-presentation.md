@@ -111,6 +111,13 @@ trace boundary. Windows V54 below completes the four-case native UI fixture.
 Linux hover and presentation from an authoritative completed colony snapshot
 remain required for the full first-playable gate.
 
+The later [Windows native gas-owner run](sealed-native-domain.md#actual-windows-gas-owner-run)
+also visibly matches the retained physical reading at native frame 121:
+nitrogen 81.6054%, oxygen 18.3946%, with benign helium omitted as a trace.
+This actual game screenshot was taken without an agent tile click. Its two
+bulk gases do not complete the four-gas/contaminant criterion above, and the
+completed validation frame does not establish changing production inspection.
+
 `CaptureFrame(completedSnapshot, containers)` prepares one
 `MixturePresentationFrame`. Its sparse `Cells`, `Containers` and shared `Vacuum`
 are immutable; `TrySampleCell` rejects solids/outside cells and allocates nothing

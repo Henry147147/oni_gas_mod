@@ -60,6 +60,12 @@ int main() {
         constexpr auto inactive_start_result=MA_ONI_BUSY;
         require(ma_oni_domain_start(&domain_config,&domain)==inactive_start_result && std::memcmp(&domain,&unchanged,sizeof(domain))==0,
                 "unattached native domain accepted or changed output");
+        require(ma_oni_domain_start(nullptr,&domain)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&domain,&unchanged,sizeof(domain))==0,
+                "Invalid domain startup escaped its C boundary or changed output");
+        auto invalid_domain=domain; invalid_domain.struct_size=0; const auto held_invalid_domain=invalid_domain;
+        require(ma_oni_domain_start(&domain_config,&invalid_domain)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&invalid_domain,&held_invalid_domain,sizeof(invalid_domain))==0,
+                "Invalid startup output ABI escaped its C boundary or changed output");
         require(ma_oni_domain_copy(&domain,nullptr,6)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&domain,&unchanged,sizeof(domain))==0,
                 "invalid native domain copy changed output");
         MAOniDomainSpecies species{-1,-1,-1,-1}; const auto held_species=species;
@@ -93,6 +99,9 @@ int main() {
         require(ma_oni_domain_gravity_status(&gravity)==MA_ONI_OK && gravity.state==0 && gravity.enabled==0,"inactive gravity status");
         require(ma_oni_domain_checkpoint_abi_version()==1,"physical checkpoint extension ABI");
         std::array<std::uint8_t,16> checkpoint_buffer{}; checkpoint_buffer.fill(0xa5); const auto held_checkpoint=checkpoint_buffer;
+        require(ma_oni_domain_restore(&domain_config,checkpoint_buffer.data(),16,.2,&domain)==MA_ONI_BUSY &&
+                std::memcmp(&domain,&unchanged,sizeof(domain))==0 && checkpoint_buffer==held_checkpoint,
+                "Unattached restore escaped its C boundary or changed source/output");
         std::uint32_t required_checkpoint=123;
         require(ma_oni_domain_checkpoint_copy(1,1,checkpoint_buffer.data(),16,&required_checkpoint)==MA_ONI_BUSY &&
             required_checkpoint==123 && checkpoint_buffer==held_checkpoint,"Inactive checkpoint changed output");
