@@ -33,10 +33,13 @@ namespace MixedAtmospheres.Oni
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();
+                NitrogenElementTagPatch.WarmNativeCalls();
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Original enum tag helpers passed before patching.");
                 if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                     OwnedReservoirLoadVisualValidation.Install(harmony);
                 base.OnLoad(harmony);
                 NitrogenElementTagPatch.VerifyCalls();
+                UnityEngine.Debug.Log("[Mixed Atmospheres] Patched enum tag helpers passed.");
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);

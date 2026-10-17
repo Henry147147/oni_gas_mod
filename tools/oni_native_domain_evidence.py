@@ -179,6 +179,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or actor.get("ConfigurationBatchVerified") is not True or actor.get("NativeActorBatchVerified") is not True
                 or actor.get("RegistrationBatchVerified") is not True or actor.get("RetirementBatchVerified") is not True
                 or actor.get("ActualBatchEmitterRegistrations") != 1
+                or actor.get("InitialZeroEmitterVerified") is not True
+                or type(actor.get("InitialZeroEmitterMass")) not in (int,float) or actor["InitialZeroEmitterMass"] != 0
+                or type(actor.get("InitialZeroEmitterSamples")) is not int or actor["InitialZeroEmitterSamples"] <= 0
                 or any(type(actor.get(key)) is not int or actor[key] <= 0 for key in ("RegistrationBatchesRouted", "RetirementBatchesRouted"))
                 or type(actor.get("ConfigurationBatchesRouted")) is not int or actor["ConfigurationBatchesRouted"] <= 0
                 or actor.get("ActualEmitterRegistrations") != 1 or actor.get("ActualBlockedCallbacks") != 1 or actor.get("ActualUnblockedCallbacks") != 1

@@ -25,7 +25,7 @@ from oni_native_matrix import SCENES
 
 PLATFORM = "WindowsPlayer"
 MOD_ID = "MixedAtmospheres.IntegrationProbe"
-MODES = tuple(SCENES.values()) + ("native-load-domain",)
+MODES = tuple(SCENES.values()) + ("native-load-domain", "menu")
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
         "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -172,7 +172,7 @@ def validate_arguments(args) -> None:
         raise ValueError("--reload-in-process requires native-load-domain --resave-before-resume")
     if args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames < 16):
         raise ValueError("Save I/O recovery requires native-save-domain and at least sixteen frames")
-    if args.save_colony and args.mode == "native-load-domain":
+    if args.save_colony and args.mode in ("native-load-domain", "menu"):
         raise ValueError("--save-colony requires an initial domain scene")
 
 
@@ -210,7 +210,7 @@ def playtest(args, state: Path, session: dict) -> int:
     validate_arguments(args)
     package, game, proton = args.package.resolve(), args.game_dir.resolve(), args.proton.resolve()
     manifest = common.verify_package(package, "win-x64")
-    if manifest.get("native_observer_enabled") is not True:
+    if args.mode != "menu" and manifest.get("native_observer_enabled") is not True:
         raise ValueError("Native scenes require a Windows package built with --native-observer")
     if (game / "OxygenNotIncluded.exe").read_bytes()[:2] != b"MZ":
         raise ValueError("Supply the licensed Windows ONI installation")
@@ -266,13 +266,14 @@ def playtest(args, state: Path, session: dict) -> int:
             if common.digest(load_fixture) != source_hash or common.digest(args.load_save) != source_hash:
                 raise ValueError("Source colony changed during staging")
             result["load_save_fixture"] = {"source": str(args.load_save.resolve()), "path": str(load_fixture), "sha256": source_hash}
-        common.write_json(mod / "colony-validation.json", {
+        if args.mode != "menu":
+            common.write_json(mod / "colony-validation.json", {
             "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
             "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout, "QuitWhenComplete": True,
             "Seed": "147147", "ColonyName": "MA-Proton-" + run_id,
             "LoadSavePath": windows_path(load_fixture) if load_fixture else "",
             "SaveOnComplete": args.save_colony, "SaveBeforeResume": args.resave_before_resume,
-            "VerifySaveIoRecovery": args.verify_save_io_recovery, "ReloadInProcess": args.reload_in_process})
+                "VerifySaveIoRecovery": args.verify_save_io_recovery, "ReloadInProcess": args.reload_in_process})
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-d3d11", "-screen-fullscreen", "0",
              "-screen-width", "1280", "-screen-height", "720", "-logFile", windows_path(output / "Player.log")])
@@ -285,11 +286,18 @@ def playtest(args, state: Path, session: dict) -> int:
         deadline = time.monotonic() + args.timeout + 60
         timed_out = False
         stopped_for_mod_failure = False
+        menu_seen = None
         while common.alive(record):
             player_log=output/"Player.log"
-            if player_log.exists() and common.mod_failure_lines(player_log.read_text(errors="replace"),(MOD_ID,)):
+            log=player_log.read_text(errors="replace") if player_log.exists() else ""
+            if common.mod_failure_lines(log,(MOD_ID,)):
                 stopped_for_mod_failure = True
                 break
+            if args.mode=="menu" and common.MAIN_MENU_MARKER in log:
+                menu_seen=time.monotonic() if menu_seen is None else menu_seen
+                if common.contract_export(log) or time.monotonic()-menu_seen>=common.MENU_EXPORT_WAIT_SECONDS:
+                    time.sleep(common.MENU_SETTLE_SECONDS)
+                    break
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
@@ -304,9 +312,11 @@ def playtest(args, state: Path, session: dict) -> int:
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = common.CHILDREN[record["pid"]].poll()
         status, code = common.classify(args.mode, log, probe, report, timed_out, player_exit, (MOD_ID,), PLATFORM)
-        domain_ok = native_domain_passed(domain, observation, args.frames, **domain_options(args))
-        if code == 0 and not domain_ok:
+        domain_ok = args.mode!="menu" and native_domain_passed(domain, observation, args.frames, **domain_options(args))
+        if code == 0 and args.mode!="menu" and not domain_ok:
             status, code = "failed-native-domain", 2
+        if code==0 and args.mode=="menu" and not common.native_observer_passed(manifest,observation):
+            status,code="failed-native-observer",2
         checkpoint = (domain or {}).get("ColonyCheckpoint") or {}
         # Authenticate the file and export a host path without altering raw
         # Windows game reports. Linux loaders must never guess at C: paths.

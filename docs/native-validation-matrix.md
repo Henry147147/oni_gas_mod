@@ -11,6 +11,13 @@ Use a frozen runner checkout and an already built package. The runner and
 package must remain unchanged until the matrix finishes. Another developer can
 continue pushing to `main` while these frozen inputs run.
 
+Runner Git metadata is recorded only when the runner directory itself is a
+checkout root. An archive inside another changing checkout reports null Git
+metadata; the enclosing repository's HEAD cannot identify its source. The
+recorded runner file hashes and package revision/hashes remain independent.
+Earlier archive cohorts may contain inherited runner Git fields: use their
+frozen file hashes and recorded archive creation revision for source identity.
+
 ```sh
 git worktree add --detach /tmp/oni-native-matrix-runner HEAD
 python3 tools/oni_native_matrix.py \

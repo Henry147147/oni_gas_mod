@@ -56,6 +56,8 @@ namespace MixedAtmospheres.Oni
             actorRegistrationBatches=actorRetirementBatches=0;
             batchFixtureEmitter=-1;batchFixtureRegistrations=0;
             actorRegistrationBatchVerified=actorRetirementBatchVerified=false;
+            initialZeroEmitterVerified=false;batchActualEmitterMass=initialZeroEmitterMass=0;
+            batchEmitterSamples=initialZeroEmitterSamples=0;
             actorStatus=default;emissionStatusFrame=0;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
             actorConfigurationBatchVerified=nativeActorBatchVerified=false;actorFixtureStage=0;fixtureEmitter=-1;

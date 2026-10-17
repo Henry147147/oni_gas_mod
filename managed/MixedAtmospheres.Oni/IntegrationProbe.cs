@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
         [DataMember] public bool ManagedSaveIntercepted;
         [DataMember] public bool NativeMixtureRoundtripPassed;
         [DataMember] public bool SettingsSerializationRoundtripPassed;
+        [DataMember] public bool NativeTagHelpersVerified;
         [DataMember] public bool AuthoritativeColonySimulationReady = false;
         // Once-per-process main-menu diagnostics: "pending-main-menu",
         // "captured" or "failed". Never one of the integration checks above.
@@ -77,12 +78,14 @@ namespace MixedAtmospheres.Oni
 
         internal static IntegrationReport Run(string verifiedAssemblyHash)
         {
+            if(!NitrogenElementTagPatch.Verified)throw new InvalidOperationException("Native tag helper runtime checks have not completed.");
             var frame = typeof(SimMessages).GetMethod(nameof(SimMessages.NewGameFrame), BindingFlags.Public | BindingFlags.Static);
             if (frame?.GetMethodBody() == null) throw new NotSupportedException("Managed frame interception point changed.");
             var report = new IntegrationReport
             {
                 UnityVersion = UnityEngine.Application.unityVersion,
                 Platform = UnityEngine.Application.platform.ToString(),
+                NativeTagHelpersVerified = NitrogenElementTagPatch.Verified,
                 AssemblySha256 = verifiedAssemblyHash,
                 PointerBytes = IntPtr.Size,
                 CellBytes = Marshal.SizeOf<Sim.Cell>(),
