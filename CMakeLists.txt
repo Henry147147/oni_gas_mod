@@ -86,6 +86,13 @@ else()
 endif()
 add_library(ma_mac_closed_world STATIC EXCLUDE_FROM_ALL native/src/mac_closed_world.cpp native/src/mac_boundary_transfer.cpp native/src/mac_thermal.cpp native/src/mac_checkpoint.cpp)
 target_link_libraries(ma_mac_closed_world PUBLIC ma_mac_reconstruction)
+add_executable(ma_mac_mixed_transfer_tests EXCLUDE_FROM_ALL native/tests/mac_mixed_transfer_tests.cpp)
+target_link_libraries(ma_mac_mixed_transfer_tests PRIVATE ma_mac_closed_world)
+if(MSVC)
+    target_compile_options(ma_mac_mixed_transfer_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+else()
+    target_compile_options(ma_mac_mixed_transfer_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+endif()
 add_executable(ma_mac_momentum_owner_tests EXCLUDE_FROM_ALL native/tests/mac_momentum_owner_tests.cpp)
 target_link_libraries(ma_mac_momentum_owner_tests PRIVATE ma_mac_closed_world)
 if(MSVC)
@@ -297,7 +304,7 @@ if(MA_SANITIZERS AND NOT MSVC)
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests ma_passive_transport_tests
-            ma_mac_closed_world ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter ma_mac_compressive_work ma_mac_compressive_work_tests ma_mac_compressive_pressure_tests
+            ma_mac_closed_world ma_mac_mixed_transfer_tests ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter ma_mac_compressive_work ma_mac_compressive_work_tests ma_mac_compressive_pressure_tests
             ma_mac_shock_heat ma_mac_shock_heat_tests ma_mac_shock_heat_owner_tests ma_mac_acoustic_compression_tests ma_mac_pressure_sensor_tests ma_mac_matched_heat_tests ma_mac_series_heat_tests
             ma_mac_swept_reconstruction_tests ma_mac_checkpoint_tests ma_mac_quadratic_limiter_tests ma_mac_dual_affine_diagnostic ma_mac_swept_momentum_tests ma_mac_physical_admission_tests)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)

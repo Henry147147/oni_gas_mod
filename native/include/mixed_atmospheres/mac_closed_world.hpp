@@ -117,6 +117,7 @@ struct MacFluidParcel {
 using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;
 using MacGasTransferResult = MacFluidTransferResult;
+enum class MacFluidTransferTopology { single_phase, occupied_mixture };
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
@@ -147,6 +148,10 @@ public:
     // This is a point source contract, with no implicit pump/enthalpy work.
     // Gas/liquid mixing, void creation and passive metadata reject atomically.
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>) const;
+    // Explicit opt-in for gas/liquid coexistence. The same parcel/accounting
+    // contract applies, and the complete result must remain occupied. This
+    // does not supply free-surface dynamics or a device work reservation.
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring
     // requires the exact registry/EOS identity and validates the complete image.
     [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;

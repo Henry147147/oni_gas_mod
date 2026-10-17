@@ -55,7 +55,13 @@ MacGasTransferResult MacClosedWorld::with_gas_transfers(std::span<const MacGasTr
 }
 
 MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits) const {
+    return with_fluid_transfers(edits,MacFluidTransferTopology::single_phase);
+}
+
+MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacFluidTransfer> edits,MacFluidTransferTopology topology) const {
     require_mac_energy_environment();
+    require(topology==MacFluidTransferTopology::single_phase || topology==MacFluidTransferTopology::occupied_mixture,
+        "Unknown MAC fluid transfer topology policy");
     require(!edits.empty() && edits.size() <= 4096,"MAC fluid transfer batch must contain 1..4096 requests");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
@@ -68,9 +74,10 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         auto& cell=next.cells[edit.cell_index];
         const bool liquid=registry_[edit.species_index].phase == Phase::liquid;
         require(cell.passive_quantities.empty(),"Fluid point transfers require an explicit passive-metadata adapter");
-        for (std::size_t k=0;k<registry_.size();++k)
-            require(cell.mixture.masses[k] == 0 || (liquid ? k == edit.species_index : registry_[k].phase == Phase::gas),
-                "Fluid point transfers require gas-only or one matching liquid material");
+        if (topology==MacFluidTransferTopology::single_phase)
+            for (std::size_t k=0;k<registry_.size();++k)
+                require(cell.mixture.masses[k] == 0 || (liquid ? k == edit.species_index : registry_[k].phase == Phase::gas),
+                    "Fluid point transfers require gas-only or one matching liquid material");
         const auto before=thermodynamics_->evaluate(cell.mixture,next.grid.volume_m3());
         require(!before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
         const double mass=edit.inject ? edit.mass_kg : std::min(edit.mass_kg,cell.mixture.masses[edit.species_index]);
