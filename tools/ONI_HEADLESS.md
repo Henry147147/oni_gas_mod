@@ -43,6 +43,10 @@ disable/removal. Run `20261016T204654Z-021e13` passes 120 post-priming frames,
 32 actual consumer callbacks and 40 emission samples, with no actor transfers
 after removal and conserved mass/energy. These are explicit gas point boundaries;
 producer reservations, spatial/bulk actors and ordinary colony saves remain open.
+`native-liquid-actor-domain` uses filled-water consumers and emitters, with the
+same rate/batch/blocked-callback/removal requirements and an 80-frame minimum.
+The optional ordinary paired save occurs after both actors have been removed;
+it does not persist live actor state.
 `native-conduction-domain` verifies internal heat redistribution and entropy
 on the native clock, seeded by the same +2,000 J / -500 J game heat messages.
 It requires matching thermal session/frame diagnostics and exactly two thermal

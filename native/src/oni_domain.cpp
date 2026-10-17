@@ -577,7 +577,7 @@ void configure_domain_actors(const MAOniDomainActor* inputs,std::uint32_t count,
             if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
         } else {
             (void)domain_index(input.public_cell);
-            if (geometry.scenario == 1 || input.species >= ids.size() || input.species == 3 ||
+            if (input.species >= ids.size() || ((geometry.scenario == 1) != (input.species == 3)) ||
                 !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
                 !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
                 (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||

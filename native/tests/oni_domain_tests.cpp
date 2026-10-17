@@ -248,6 +248,60 @@ int main(int argc,char** argv) {
             std::abs(liquid_energy-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j)<=
                 128*std::numeric_limits<double>::epsilon()*liquid_scale,"Native liquid transfer ledger disagrees with conserved physical state");
         ma::oni::ack_domain_receipts(final.session,receipts[0].sequence);
+        MAOniDomainActor water_consumer{80,1,final.session,final.completed_frames,31,1,10+10*64,3,0,0,.1F,0,0,0};
+        MAOniDomainActor water_emitter{80,1,final.session,final.completed_frames,32,2,11+10*64,3,0,0,.03125F,.2,300,10000};
+        const std::array water_actors{water_consumer,water_emitter};
+        ma::oni::configure_domain_actors(water_actors.data(),2,actor_status);
+        auto wrong_water_actors=water_actors; wrong_water_actors[0].mass_kg=.5F; wrong_water_actors[1].species=1;
+        const auto held_water_actors=actor_status; rejected=false;
+        try { ma::oni::configure_domain_actors(wrong_water_actors.data(),2,actor_status); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected && std::memcmp(&held_water_actors,&actor_status,sizeof(actor_status))==0,
+            "Late liquid actor phase mismatch changed an earlier rate or output");
+        std::size_t water_samples=0,water_emissions=0,water_blocked=0,water_unblocked=0; double water_consumed=0,water_emitted=0;
+        const auto water_initial_account=transfer_status.mass_changes_kg[3];
+        for (std::uint64_t ticket=14;ticket<=21;++ticket) {
+            if (ticket==16 || ticket==18) {
+                water_emitter.expected_frame=final.completed_frames; water_emitter.maximum_gas_density_kg_m3=ticket==16 ? 1000 : 10000;
+                ma::oni::configure_domain_actor(water_emitter,actor_status);
+            }
+            ma::oni::advance_domain(ticket,.2,2);
+            ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+            if (final.state!=1) throw std::runtime_error(std::string("Liquid actor advance: ")+final.error);
+            for (std::size_t i=0;i<receipt_count;++i) {
+                const auto& receipt=receipts[i]; require(receipt.species==3,"Liquid actor changed material identity");
+                if (receipt.kind==3) { ++water_samples; water_consumed+=receipt.mass_kg; require(receipt.callback==31 && receipt.mass_kg>0,"Liquid consumer lost its full handle or mass"); }
+                else if (receipt.kind==4) { ++water_emissions; water_emitted+=receipt.mass_kg; }
+                else if (receipt.kind==5) ++water_blocked;
+                else if (receipt.kind==6) ++water_unblocked;
+                else throw std::runtime_error("Unexpected liquid actor receipt");
+            }
+            ma::oni::ack_domain_receipts(final.session,receipts[receipt_count-1].sequence);
+        }
+        ma::oni::copy_domain_transfer_status(transfer_status);
+        require(water_samples==8 && water_emissions==8 && water_blocked==1 && water_unblocked==1 &&
+            std::abs(water_consumed-8*static_cast<double>(.1F)*.2)<1e-8 &&
+            std::abs(transfer_status.mass_changes_kg[3]-water_initial_account+water_consumed-water_emitted)<1e-15,
+            "Liquid actor cadence, rate, density edges or mass account differs");
+        water_consumer.expected_frame=water_emitter.expected_frame=final.completed_frames; water_consumer.flags=water_emitter.flags=1;
+        const std::array retire_water{water_consumer,water_emitter}; ma::oni::configure_domain_actors(retire_water.data(),2,actor_status);
+        ma::oni::advance_domain(22,.2,2); ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::copy_domain_actor_status(actor_status);
+        require(final.state==1 && receipt_count==0 && actor_status.live_actors==0 && actor_status.consumer_samples==8 && actor_status.emitter_samples==8,
+            "Retired liquid actors continued to transfer mass or publish samples");
+        water_consumer.expected_frame=final.completed_frames; water_consumer.flags=0;
+        auto void_consumer=water_consumer; void_consumer.native_handle=33; void_consumer.public_cell+=1; void_consumer.mass_kg=1000;
+        const std::array void_actors{water_consumer,void_consumer}; ma::oni::configure_domain_actors(void_actors.data(),2,actor_status);
+        const auto before_void_cells=cells; const auto before_void_status=final; const auto before_void_actor_steps=actor_status.actor_steps;
+        ma::oni::copy_domain_transfer_status(transfer_status); const auto before_void_account=transfer_status;
+        ma::oni::advance_domain(23,.2,2); ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::copy_domain_actor_status(actor_status); ma::oni::copy_domain_transfer_status(transfer_status);
+        require(final.state==3 && final.completed_frames==before_void_status.completed_frames && final.time_seconds==before_void_status.time_seconds &&
+            receipt_count==0 && actor_status.actor_steps==before_void_actor_steps &&
+            std::memcmp(cells.data(),before_void_cells.data(),cells.size()*sizeof(cells[0]))==0 &&
+            transfer_status.mass_changes_kg[3]==before_void_account.mass_changes_kg[3] &&
+            transfer_status.material_energy_change_j==before_void_account.material_energy_change_j &&
+            ma::oni::suppress_domain_cell(MA_ONI_LIQUID,native_cell(10,10)),
+            "Later void-creating liquid actor partially committed state, mechanics, callbacks, clock or exclusions");
         ma::oni::shutdown_domain();
         config.scenario=0; ma::oni::start_domain(config,1); final=capture(cells);
         consumer={80,1,final.session,0,1,1,10+10*64,1,0,0,.05F,0,0,0};

@@ -41,7 +41,8 @@ for ownership, interfaces, failures and implementation gates.
   carrying energy and momentum and delivering actual game callbacks once.
   [Filled-water point transfers](docs/sealed-native-domain.md#filled-liquid-point-sources)
   now carry compression energy too. Licensed Linux and Windows simulation-library
-  controls pass; the new Unity save/load scene is awaiting verification.
+  controls pass, and Linux Unity passes the water messages and paired save.
+  Filled-water registered actors are implemented; their Unity control is pending.
   Selective point consumers and emitters now retain native registrations while
   transferring custom physical gas; a real Unity consumer, changed rates,
   blocked/unblocked callbacks and removal pass in the Linux colony. General

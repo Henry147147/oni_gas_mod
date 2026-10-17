@@ -21,11 +21,11 @@ namespace MixedAtmospheres.Oni
         private static ActorStatus actorStatus;
         private static ulong emissionStatusFrame;
         private static readonly Dictionary<int, Sim.EmittedMassInfo> completedEmissionStatus = new Dictionary<int, Sim.EmittedMassInfo>();
-        private static uint GasSpecies(ushort element)
+        private static uint ActorFluidSpecies(ushort element)
         {
             for (uint species = 0; species < Ids.Length; ++species)
-                if (species != 3 && ElementLoader.FindElementByHash(SpeciesHash(species)).idx == element) return species;
-            throw new NotSupportedException("The registered point actor has an unsupported gas material.");
+                if ((species == 3) == Liquid && ElementLoader.FindElementByHash(SpeciesHash(species)).idx == element) return species;
+            throw new NotSupportedException("The registered point actor has an unsupported fluid material or phase.");
         }
         private static bool ActorMessage(int message) => message == 2024405073 || message == 1575539738 || message == 894417742 ||
             message == -505471181 || message == 403589164 || message == -1524118282;
@@ -44,7 +44,7 @@ namespace MixedAtmospheres.Oni
                     if (data[8] != 0 || data[9] != 0 || Int(4) == -1)
                         throw new NotSupportedException("Owned consumers require selective, single-cell registration with a callback.");
                     pendingActorRegistrations.Add(Int(4), new ActorBinding { Kind = 1, Cell = checked((uint)Int(0)),
-                        Species = GasSpecies(BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(10))) });
+                        Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(10))) });
                     // Native registration starts at rate zero. Its normal handle
                     // callback is retained; later rate setters are custom-owned.
                     return false;
@@ -93,7 +93,7 @@ namespace MixedAtmospheres.Oni
             {
                 command.MassKg = Float(12); command.Interval = Float(8); command.Temperature = Float(16); command.MaximumGasDensity = Float(20);
                 if (Int(24) != 0 || payload[30] != 0) throw new NotSupportedException("Owned emitters require disease-free, single-cell output.");
-                if (command.MassKg > 0) command.Species = GasSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
+                if (command.MassKg > 0) command.Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
             }
             return command;
         }

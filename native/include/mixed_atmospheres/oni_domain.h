@@ -108,9 +108,12 @@ MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t thr
 
 /* Registered point-boundary actors, ABI 1. Native handles are opaque 32-bit
  * values. Native registration remains intact, but its transfer stays inactive.
- * kind 1 consumes one gas in kg/s; kind 2 emits mass_kg each interval. flags 1
+ * kind 1 consumes one fluid in kg/s; kind 2 emits mass_kg each interval. flags 1
  * removes an existing actor. The emitter density limit retains the game's
  * kg/m3 setting; it is not presented as a pressure in pascals.
+ *
+ * The ABI density-limit field compares total fluid density for a matching
+ * filled-liquid emitter. Void creation and phase mixing remain unsupported.
  * Receipt kinds 3/4 are consumer/emitter samples, 5/6 blocked/unblocked edges. */
 typedef struct MAOniDomainActor {
     uint32_t struct_size, abi_version;

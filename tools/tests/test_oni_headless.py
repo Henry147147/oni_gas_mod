@@ -326,6 +326,20 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             bad=copy.deepcopy(self.report);bad["RegisteredActors"].pop(field)
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, actors=True), field)
 
+        water=copy.deepcopy(self.report)
+        water["NativeDomain"].update(LiquidMassKg=1100.1,PressurePa=220010000,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+        water["Scenario"]="compressed-liquid"
+        water["RegisteredActors"].update(LiquidActors=True,MaterialId="water",ActualConsumerMass=.3,ActualEmitterMass=.5,
+            EnergyScaleJoules=2e11,EnergyBoundJoules=128*2.2204460492503131e-16*2e11,EnergyResidualJoules=.0002)
+        water["FluidTransfers"]={"MassChangesKg":[0,0,0,.2,0]}
+        self.assertTrue(runner.native_domain_passed(water,self.observation,30,liquid=True,liquid_actors=True))
+        for section,key,value in (("RegisteredActors","MaterialId","oxygen"),("RegisteredActors","LiquidActors",False),
+                ("RegisteredActors","EnergyBoundJoules",1),("RegisteredActors","EnergyResidualJoules",.01),
+                ("RegisteredActors","ActualConsumerMass",.31),("RegisteredActors","ActualEmitterMass",float("nan")),
+                ("FluidTransfers","MassChangesKg",[0,.2,0,0,0]),("RegisteredActors","RemovalConsumerSamples",15)):
+            bad=copy.deepcopy(water);bad[section][key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,liquid=True,liquid_actors=True),(section,key))
+
 
 class EvidenceTests(unittest.TestCase):
     def test_optional_native_observer_requires_its_own_forwarding_report(self):

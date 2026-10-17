@@ -84,8 +84,9 @@ class NativeMatrixTests(unittest.TestCase):
         with mock.patch.object(matrix,"invoke") as invoke,self.assertRaises(FileExistsError):
             matrix.run_matrix(self.runner,self.package,self.output,["water"])
         invoke.assert_not_called();self.assertEqual(sentinel.read_bytes(),b"first failure")
-        with mock.patch.object(matrix,"invoke") as invoke,self.assertRaises(ValueError):
-            matrix.run_matrix(self.runner,self.package,self.root/"short",["actor"],frames=30)
-        invoke.assert_not_called()
+        for actor in ("actor","water-actor"):
+            with mock.patch.object(matrix,"invoke") as invoke,self.assertRaises(ValueError):
+                matrix.run_matrix(self.runner,self.package,self.root/"short",[actor],frames=30)
+            invoke.assert_not_called()
 
 if __name__=="__main__":unittest.main()

@@ -11,7 +11,7 @@ param(
     [switch]$SaveColony,
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
-    [ValidateSet('gas','water','water-transfer','heat','transfer','actor','carbon','conduction','gravity','checkpoint','pair','save','load')][string]$NativeDomain,
+    [ValidateSet('gas','water','water-transfer','heat','transfer','actor','water-actor','carbon','conduction','gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
     [string]$Python = 'python',
@@ -24,8 +24,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
-if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
-$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
+if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
+$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path

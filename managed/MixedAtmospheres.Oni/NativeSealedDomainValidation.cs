@@ -74,18 +74,19 @@ namespace MixedAtmospheres.Oni
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
+            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
         private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain";
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode;
+        private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
-        private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
+        private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" || LiquidActorMode;
         private static double ProjectedPotential => cells.Select((cell, index) => cell.TotalMass * 9.81 * (index / Width + .5)).Sum();
         private static double PhysicalEnergy => cells.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) + (GravityMode ? ProjectedPotential : 0);
 
@@ -165,7 +166,8 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(Liquid ? LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
+                Require(Liquid ? LiquidActorMode ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
+                    LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (HeatMode)

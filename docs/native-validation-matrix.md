@@ -20,11 +20,11 @@ python3 tools/oni_native_matrix.py \
   --frames 120 --timeout 1800
 ```
 
-The output directory must be new. The default selects gas, compressed water, water point transfers,
+The output directory must be new. The default selects gas, compressed water, water point transfers and actors,
 heat, transfers, carbon dioxide, conduction, gravity, registered actors,
-physical checkpoints, paired capture and source-save controls: 24 game
+physical checkpoints, paired capture and source-save controls: 26 game
 processes including reloads. Use `--scenes water gravity` to select cases.
-Actors need at least 80 frames; source-save controls need at least 16.
+Gas and water actors need at least 80 frames; source-save controls need at least 16.
 `--timeout` applies separately to each game and accepts up to 7,200 seconds.
 
 `matrix.json` records hashes for both Python runner files and every packaged

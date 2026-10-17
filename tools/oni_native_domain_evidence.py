@@ -14,7 +14,7 @@ import struct
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -25,6 +25,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     physical = report.get("NativeDomain")
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
+        return False
+    if ((liquid or liquid_transfers or liquid_actors) and
+            (type(physical.get("SuppressedLiquid")) is not int or physical["SuppressedLiquid"] <= 0)):
         return False
     counters = ("Session", "CompletedFrames", "NativeTicket", "Substeps", "SolverThread", "StartThread")
     if any(type(physical.get(key)) is not int or physical[key] <= 0 for key in counters):
@@ -98,7 +101,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                     or any(type(packet.get("InternalEnergy")) not in (int, float) or not math.isfinite(packet["InternalEnergy"])
                            for packet in (incoming, outgoing))
                     or type(outgoing.get("KineticEnergy")) not in (int, float) or not 0 < outgoing["KineticEnergy"] < math.inf
-                    or not isinstance(account, dict) or account.get("KineticEnergyChange") != -outgoing["KineticEnergy"]):
+                    or not isinstance(account, dict) or account.get("KineticEnergyChange") != -outgoing["KineticEnergy"]
+                    or type(account.get("MaterialEnergyChange")) not in (int, float)
+                    or not abs(account["MaterialEnergyChange"] - incoming["InternalEnergy"] + outgoing["InternalEnergy"]) <=
+                        64 * 2.2204460492503131e-16 * (abs(incoming["InternalEnergy"]) + abs(outgoing["InternalEnergy"]))):
                 return False
         if (not isinstance(account, dict) or report.get("LiquidTransfersVerified" if liquid_transfers else "GasTransfersVerified") is not True or report.get("TransfersAvoidedNativeDispatch") is not True
                 or report.get("TransferPacketsRouted") != 2 or report.get("ReceiptsPublished") != 2 or report.get("EmissionCallbacks") != 1 or report.get("ConsumptionCallbacks") != 1
@@ -126,11 +132,25 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or not any(isinstance(row, dict) and row.get("MaterialId") == "carbon_dioxide" and
                            type(row.get("MassKg")) in (int, float) and math.isfinite(row["MassKg"]) and row["MassKg"] > 0 for row in reading["Constituents"])):
             return False
-    if actors:
+    if actors or liquid_actors:
         actor = report.get("RegisteredActors")
         if not isinstance(actor, dict) or actor.get("Verified") is not True or actor.get("Stage") != 8:
             return False
         native = actor.get("Native")
+        actor_energy_bound = 1e-6
+        if liquid_actors:
+            scale = actor.get("EnergyScaleJoules")
+            fluid = report.get("FluidTransfers")
+            if (actor.get("LiquidActors") is not True or actor.get("MaterialId") != "water"
+                    or type(scale) not in (int, float) or not math.isfinite(scale) or scale <= 0
+                    or actor.get("EnergyBoundJoules") != 128 * 2.2204460492503131e-16 * scale
+                    or not isinstance(fluid, dict) or not isinstance(fluid.get("MassChangesKg"), list) or len(fluid["MassChangesKg"]) != 5
+                    or any(fluid["MassChangesKg"][i] != 0 for i in (0, 1, 2, 4))
+                    or type(fluid["MassChangesKg"][3]) not in (int, float) or not math.isfinite(fluid["MassChangesKg"][3])
+                    or any(type(actor.get(key)) not in (int, float) or not 0 < actor[key] < math.inf for key in ("ActualConsumerMass", "ActualEmitterMass"))
+                    or not abs(fluid["MassChangesKg"][3] - actor["ActualEmitterMass"] + actor["ActualConsumerMass"]) <= 1e-12):
+                return False
+            actor_energy_bound = actor["EnergyBoundJoules"]
         if (not isinstance(native, dict) or native.get("LiveActors") != 0 or actor.get("EmitterGameStatusObserved") is not True
                 or actor.get("ConfigurationBatchVerified") is not True or actor.get("NativeActorBatchVerified") is not True
                 or type(actor.get("ConfigurationBatchesRouted")) is not int or actor["ConfigurationBatchesRouted"] <= 0
@@ -140,7 +160,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or actor.get("EmitterPublications") != native.get("EmitterSamples") or actor.get("RemovalConsumerSamples") != native["ConsumerSamples"]
                 or actor.get("RemovalEmitterSamples") != native.get("EmitterSamples")
                 or type(actor.get("RemovedAtFrame")) is not int or physical["CompletedFrames"] - actor["RemovedAtFrame"] < 8
-                or type(actor.get("EnergyResidualJoules")) not in (int, float) or not abs(actor["EnergyResidualJoules"]) <= 1e-6
+                or type(actor.get("EnergyResidualJoules")) not in (int, float) or not abs(actor["EnergyResidualJoules"]) <= actor_energy_bound
                 or type(actor.get("MaximumRelativeMassError")) not in (int, float) or not 0 <= actor["MaximumRelativeMassError"] <= 1e-10):
             return False
     if checkpoint or paired:
@@ -243,7 +263,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or colony.get("SavedFrame") != 0
                 or colony.get("SavedTime") != colony["SourceTime"] or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]):
             return False
-    physics_exercised = (physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 2.2e8 if liquid_transfers else
+    physics_exercised = (physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 0 if liquid_actors else
+                         physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 2.2e8 if liquid_transfers else
                          physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
@@ -272,7 +293,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "water-actor", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -284,8 +305,8 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, liquid=args.mode in ("water", "water-transfer"), liquid_transfers=args.mode == "water-transfer",
-            heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
+        passed = native_domain_passed(report, observation, args.frames, liquid=args.mode in ("water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+            heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
             carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))

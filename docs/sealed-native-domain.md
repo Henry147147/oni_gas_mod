@@ -239,8 +239,21 @@ Linux and Windows simulation libraries (the Windows host runs under Wine).
 Each verifies the analytic parcel compression energy, atomic void rejection,
 two receipts and 12 exact continuation frames. Linux's U+K residual is
 -0.000236340461 J against a 0.005945860769 J roundoff bound. All 13 Linux native
-CTests and the Linux game adapter build pass. The new rendered Unity scene is
-not yet verified; neither library-only run supplies Windows Unity evidence.
+CTests and the Linux game adapter build pass. Neither library-only run supplies
+Windows Unity evidence.
+
+The actual Linux Unity `liquid-point-transfer-unity-matrix-v1` source scene
+passes 120 post-priming frames (122 total, 24.400000364 s). Emission and
+consumption callbacks each fire once, on physical receipt frames 7 and 8.
+Extraction carries 4.598286402e-7 J of kinetic energy. The final independent
+U+K residual is -0.000495740632 J against a 0.005945860769 J bound; relative
+constituent residual is 1.10e-15. The ordinary paired save passes full
+header/body readback, retaining physical SHA-256
+`2825e2061363fc30f2c2ebf56717f9ad2d942acb21cc9174db14ecab469b2cdc`
+and colony file
+`66c2f52e5e5900c260e4a51a9de2d45e2c79a1fc9ae7faca248f97309d4bbf63`.
+Its fresh-process reload is still running. This cohort uses the frozen
+`0e6dc89` runner/package and Ubuntu 22.04 compatibility native build v5.
 
 The current domain ABI 2 uses 96-byte cells: nitrogen, oxygen, helium, water and
 carbon dioxide masses followed by the physical readings. Domain configuration
@@ -300,6 +313,28 @@ The same control also sends two ordered rate changes for the actual owned
 consumer in one batch, verifies the batch avoids original native dispatch,
 and forwards a zero-rate batch for a second actual Unity consumer outside the
 domain. Subsequent physical callbacks must reflect the final owned rate.
+
+### Filled-liquid registered actors
+
+Actor ABI 1 also admits water consumers and emitters in the compressed-water
+domain. They use the same elastic-energy parcel contract as the liquid point
+messages. Phase admission matches the domain: gas actors cannot enter filled
+water, and liquid actors cannot enter a gas domain. Rates, intervals, atomic
+configuration batches, binary32 reporting remainders, receipts, density edges
+and retirement share the existing worker transaction. The ABI's historical
+`maximum_gas_density_kg_m3` field compares total fluid density for these water
+point emitters; it is a compatibility output limit with no pump work model.
+
+`native-liquid-actor-domain` / `-NativeDomain water-actor` runs the same real
+Unity consumer/emitter fixture with water, including changed rates, both
+density edges and no transfers after removal. It needs at least 80 native
+frames. Its independent U+K comparison uses the explicit liquid binary64
+roundoff bound described above. The new Linux and Windows-under-Wine native
+regressions pass liquid rate/cadence, later phase rejection, blocked/unblocked
+edges, constituent accounting and removal. The rendered liquid actor scene is
+awaiting verification. Live actors still block physical/colony checkpoints;
+the optional save control runs after the fixture has removed them. Full actor
+and callback-outbox persistence remains open.
 
 ## Run the actual Linux colony controls
 

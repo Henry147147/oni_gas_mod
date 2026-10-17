@@ -15,7 +15,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 SCENES={"gas":"native-domain","water":"native-liquid-domain","water-transfer":"native-liquid-transfer-domain","heat":"native-heat-domain",
     "transfer":"native-transfer-domain","carbon":"native-carbon-domain","conduction":"native-conduction-domain",
-    "gravity":"native-gravity-domain","actor":"native-actor-domain","checkpoint":"native-checkpoint-domain",
+    "gravity":"native-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
     "pair":"native-paired-checkpoint-domain","save":"native-save-domain"}
 
 def digest(path:Path)->str:
@@ -38,7 +38,7 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
     runner,package,output=runner.resolve(),package.resolve(),output.resolve()
     if not scenes or len(set(scenes))!=len(scenes) or any(name not in SCENES for name in scenes):
         raise ValueError("Select distinct implemented scenes")
-    if not 1<=frames<=10000 or ("actor" in scenes and frames<80) or ("save" in scenes and frames<16):
+    if not 1<=frames<=10000 or (any(name in scenes for name in ("actor","water-actor")) and frames<80) or ("save" in scenes and frames<16):
         raise ValueError("Expected 1..10000 frames, at least 80 for actors and 16 for source-save controls")
     if not 30<=timeout<=7200:raise ValueError("Expected a 30..7200 second per-game timeout")
     frozen=fingerprint(runner,package)
