@@ -35,7 +35,8 @@ Its Linux native selection/source-save and 120-frame exact fresh-process
 continuation pass; reserved consumption and metabolism remain open.
 The [native pressure reader](native-pressure-reader.md) supplies completed
 mechanical pressure to the native accessor and its five inspected game callers.
-Gas and filled-water Unity controls are prepared for validation.
+Actual Linux gas and filled-water source/save controls and both 120-frame
+exact fresh-process continuations pass.
 
 ## Supported build and installation
 

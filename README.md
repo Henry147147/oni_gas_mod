@@ -29,6 +29,16 @@ have independent ONI 744825 profiles. Earlier vacuum-shadow experiments remain
 historical controls. See the [native integration contract](docs/native-backend-integration.md)
 for ownership, interfaces, failures and implementation gates.
 
+The implemented native path now admits completed native gas/water inventories
+before flow fencing, routes real CO2 particle deposits into the physical owner,
+and supplies actual mixture oxygen and pressure to game readers. Linux controls
+verify ordinary paired saves, frame-zero autosaves and exact fresh-process
+continuation for these paths. See [inventory admission](docs/native-initial-inventory.md),
+[particle deposition](docs/native-cell-mass-edits.md),
+[breathing selection](docs/native-breathing-reader.md) and
+[pressure readers](docs/native-pressure-reader.md). Production whole-colony
+physics, reserved metabolism/devices and live-actor persistence remain open.
+
 ## What currently works
 
 - A development [sealed native fluid domain](docs/sealed-native-domain.md)
