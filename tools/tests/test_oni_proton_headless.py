@@ -22,6 +22,13 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_inspection_rejects_unbounded_or_menu_holds_before_game_start(self):
+        for seconds in (-1, 301, 1.5, True):
+            with self.subTest(seconds=seconds), self.assertRaisesRegex(ValueError, "Completed inspection"):
+                runner.validate_arguments(SimpleNamespace(inspection_seconds=seconds, mode="native-domain"))
+        with self.assertRaisesRegex(ValueError, "Completed inspection"):
+            runner.validate_arguments(SimpleNamespace(inspection_seconds=1, mode="menu"))
+
     def test_unsupported_graphics_selection_rejects_before_lifecycle_arguments_are_used(self):
         for graphics in ('vulkan', '', None, 1):
             with self.subTest(graphics=graphics), self.assertRaisesRegex(ValueError,'Graphics API'):
