@@ -68,7 +68,9 @@ checks with four platform-specific skips. The Windows-under-Wine 1,200-frame
 test also passes with -0.000190683 J residual. Its native suite passes all 13
 cases across a separate rerun of the final checkpoint case after a Wine server
 connection reset; the original infrastructure failure remains retained.
-Sanitizer and rendered Unity verification of this new scenario are still
-running or pending. This is a six-cell occupied liquid control;
+All 13 ASan/UBSan native tests also pass. The frozen `b4a6552` Ubuntu 22.04
+compatibility build v9 passes all 13 tests, including the 1,200-frame control;
+both shared libraries require at most glibc 2.34. Rendered Unity verification
+of this new scenario is pending. This is a six-cell occupied liquid control;
 it does not implement free surfaces, phase change, arbitrary liquid materials,
 production devices, persistent live actors or whole-colony ownership.
