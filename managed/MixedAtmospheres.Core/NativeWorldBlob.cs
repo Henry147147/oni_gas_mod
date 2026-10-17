@@ -60,6 +60,18 @@ namespace MixedAtmospheres.Core.Interop
 
         public static NativeFluidMigration Split(ReadOnlySpan<byte> source,
             IReadOnlyDictionary<int, NativeMatterPhase> phases, int vacuumHash)
+            => ReadWorld(source,phases,vacuumHash,true);
+
+        // Preserve a native-owned world without interpreting an unassigned
+        // disease count as a quantity belonging to a custom fluid owner. The
+        // inspected loader accepts hash zero with a positive residual counter
+        // and resets that counter itself. No source byte is rewritten here.
+        public static void ValidatePreserved(ReadOnlySpan<byte> source,
+            IReadOnlyDictionary<int,NativeMatterPhase> phases,int vacuumHash)
+            => _=ReadWorld(source,phases,vacuumHash,false);
+
+        private static NativeFluidMigration ReadWorld(ReadOnlySpan<byte> source,
+            IReadOnlyDictionary<int,NativeMatterPhase> phases,int vacuumHash,bool migrate)
         {
             if (phases == null) throw new ArgumentNullException(nameof(phases));
             if (Phase(phases, vacuumHash) != NativeMatterPhase.Vacuum) throw new InvalidDataException("Vacuum element is not vacuum.");
@@ -82,8 +94,8 @@ namespace MixedAtmospheres.Core.Interop
                 var diseaseHash = Int(source, disease); var diseaseCount = Int(source, disease + 4);
                 var wallPhase = Phase(phases, Int(source, wall));
                 if (!Nonnegative(temperature) || !Nonnegative(mass) || !Nonnegative(radiation) || diseaseCount < 0 ||
-                    (diseaseHash == 0 && diseaseCount != 0) || !Nonnegative(Float(source, wall + 4)) || !Nonnegative(Float(source, wall + 8)))
-                    throw new InvalidDataException("Invalid native cell inventory or disease data.");
+                    (migrate && diseaseHash == 0 && diseaseCount != 0) || !Nonnegative(Float(source, wall + 4)) || !Nonnegative(Float(source, wall + 8)))
+                    throw new InvalidDataException(FormattableString.Invariant($"Invalid native cell inventory or disease data at padded index {i}, cell ({i%width-1},{i/width-1}): element={element}, temperature={temperature:R}, mass={mass:R}, radiation={radiation:R}, disease={diseaseHash}/{diseaseCount}, backwall={Int(source,wall)}/{Float(source,wall+4):R}/{Float(source,wall+8):R}."));
                 if (wallPhase == NativeMatterPhase.Gas || wallPhase == NativeMatterPhase.Liquid)
                     throw new InvalidDataException("Fluid backwalls require a separate owner.");
                 if (phase != NativeMatterPhase.Gas && phase != NativeMatterPhase.Liquid) continue;
@@ -91,6 +103,7 @@ namespace MixedAtmospheres.Core.Interop
                 if (localX < 0 || localY < 0 || localX >= width - 2 || localY >= height - 2)
                     throw new InvalidDataException("Fluid in the native guard border cannot be migrated.");
                 if (mass > 0 && temperature <= 0) throw new InvalidDataException("Fluid has mass without a positive temperature.");
+                if(!migrate) continue;
                 fluids.Add(new CapturedFluidCell(x + localX, y + localY, element, phase, mass, temperature, radiation, diseaseHash, diseaseCount));
                 BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(cell, 4), vacuumHash);
                 native.AsSpan(cell + 4, 12).Clear(); // no native fluid temperature/mass/radiation

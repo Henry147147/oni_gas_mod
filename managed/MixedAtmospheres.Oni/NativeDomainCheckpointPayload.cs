@@ -83,7 +83,7 @@ namespace MixedAtmospheres.Oni
             ValidateNativeSection(native);
             // Validate every native material, inventory, backwall and guard
             // before allowing the original loader to see the saved bytes.
-            _=NativeWorldBlob.Split(native,phases,vacuumHash);
+            NativeWorldBlob.ValidatePreserved(native,phases,vacuumHash);
             Require(Geometry.Width==3 && Geometry.Height==2,"Only the six-cell sealed checkpoint has a native restore adapter.");
             var width=checked((int)Geometry.GridWidth+2);var count=checked(width*BinaryPrimitives.ReadInt32LittleEndian(native.Slice(16)));
             for(var y=(int)Geometry.Y-1;y<=(int)Geometry.Y+Geometry.Height;++y)

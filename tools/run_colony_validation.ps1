@@ -10,6 +10,7 @@ param(
     [switch]$NativeObserver,
     [switch]$SaveColony,
     [switch]$ResaveBeforeResume,
+    [switch]$VerifySaveIoRecovery,
     [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
@@ -31,6 +32,7 @@ if ($LoadSave) {
     if (!(Test-Path -LiteralPath $LoadSave -PathType Leaf)) { throw 'LoadSave must name an existing colony file.' }
 }
 if ($ResaveBeforeResume -and $NativeDomain -ne 'load') { throw 'ResaveBeforeResume requires NativeDomain load.' }
+if ($VerifySaveIoRecovery -and ($NativeDomain -ne 'save' -or $Frames -lt 16)) { throw 'VerifySaveIoRecovery requires NativeDomain save and at least sixteen frames.' }
 if ($SaveColony -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires an initial native domain scene.' }
 $oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
@@ -132,6 +134,7 @@ try {
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }
+    if ($VerifySaveIoRecovery) { $oniValidationConfiguration.VerifySaveIoRecovery = $true }
     if ($IdleReservoirLease) { $oniValidationConfiguration.IdleReservoirLeaseOnly = $true }
     if ($PrivateFileProtocol) { $oniValidationConfiguration.PrivateFileProtocolAssemblySha256 = $oniFileProtocolEntry.Value }
     if ($LoadRejection) { $oniValidationConfiguration.PrivateOwnedLoadRejection = $true }
@@ -194,6 +197,7 @@ try {
             $oniCheckArguments = @($oniEvidenceChecker, '--domain', $oniDomainReport, '--observation', $oniObserverReport,
                 '--mode', $NativeDomain, '--frames', [string]$Frames, '--platform', 'WindowsPlayer')
             if ($SaveColony) { $oniCheckArguments += '--saved' }
+            if ($VerifySaveIoRecovery) { $oniCheckArguments += '--save-io-recovery' }
             & $Python @oniCheckArguments
             if ($LASTEXITCODE -ne 0) { throw 'Native physical domain, callback, projection or ownership acceptance failed.' }
         }

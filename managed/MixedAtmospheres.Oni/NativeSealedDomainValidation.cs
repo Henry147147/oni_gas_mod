@@ -106,6 +106,8 @@ namespace MixedAtmospheres.Oni
                 Require(projectionPrimed || latest.CompletedFrames <= 10, "Native projection bootstrap did not retain its requested fluid cells.");
                 if (SaveRejectionRequired && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !rejectedSaveVerified)
                 { VerifyPendingSaveRejection(); return; }
+                if (IoSaveControlRequired && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 8 && !ioSaveControlVerified)
+                { VerifyIoSaveRecovery(); return; }
                 if (HeatMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !heatSubmitted)
                 {
                     heatBeforeEnergy = PhysicalEnergy;
@@ -646,10 +648,12 @@ namespace MixedAtmospheres.Oni
             BoundedFluidAuthority = completed && active && !failed, CustomDomainActivated = active,
             WholeColonyFluidAuthority = false, FirstPlayableColonyPassed = false,
             OwnershipScope = "Sealed six-cell domain with explicitly admitted point actors; native ONI owns the surrounding colony", SavesAllowed = !SaveBlocked,
+            PairedColonySaveAdmissionEnabled=active && !failed,
             Width, Height, X = x, Y = y, TargetCell = target, RenderedRevision = renderedRevision
         }));
         internal static void Shutdown()
         {
+            ReleasePrivateSaveCallbacks();
             ReleaseRestoredNativeEvents(false);
             ReleasePairedCheckpointFixture();
             releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;

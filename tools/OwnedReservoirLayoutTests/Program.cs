@@ -4,7 +4,7 @@ using MixedAtmospheres.Oni;
 
 internal static partial class Program
 {
-    private const int ExpectedGroups = 81;
+    private const int ExpectedGroups = 82;
     private static readonly List<(string Name, Action Body)> Tests = new();
     private static readonly List<string> Passed = new();
     private static void Add(string name, Action action) => Tests.Add((name, action));

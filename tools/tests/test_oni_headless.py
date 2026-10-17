@@ -48,20 +48,41 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             value = copy.deepcopy(self.report); value[field] = True
             self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
 
-    def test_actual_colony_save_requires_one_paused_paired_section_and_source_clock(self):
+    def set_saved_colony(self):
         self.report['ColonyCheckpoint']={'Saved':True,'Loaded':False,'WholeColonyFluidCheckpoint':False,'SimSaveWrites':1,
             'SourceFrame':30,'SourceTime':self.report['NativeDomain']['TimeSeconds'],'SourcePhysicalSha256':'a'*64,
             'SavedFile':'private/native-colony.sav','SavedFileSha256':'b'*64,'AutomaticSaveAdmissions':1,'SavePauseStateRestored':True,
             'SavePauseDepthBefore':0,'SavePauseDepthAfter':0,'SavedFileReadbackVerified':True,
+            'SerializedHeaderCaptures':1,'SerializedHeaderSha256':'c'*64,
             'SerializedBodyCaptures':1,'SerializedBodyBytes':160000,'SerializedBodySha256':'d'*64}
+
+    def test_actual_colony_save_requires_one_paused_paired_section_and_source_clock(self):
+        self.set_saved_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
         for key,value in [('Saved',False),('Loaded',True),('WholeColonyFluidCheckpoint',True),('SimSaveWrites',2),('SourceFrame',29),
                           ('SourceTime',0),('SourcePhysicalSha256',''),('SavedFileSha256',''),('SavedFile',''),('AutomaticSaveAdmissions',0),('SavePauseStateRestored',False),
                           ('SavePauseDepthBefore',-1),('SavePauseDepthBefore',False),('SavePauseDepthAfter',None),('SavePauseDepthAfter',1),
                           ('SavedFileReadbackVerified',False),('SerializedBodyCaptures',0),('SerializedBodyCaptures',2),
-                          ('SerializedBodyBytes',0),('SerializedBodySha256','')]:
+                          ('SerializedBodyBytes',0),('SerializedBodySha256',''),('SaveProblems',[]),('SerializedHeaderCaptures',0),('SerializedHeaderSha256','')]:
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
+
+    def test_declined_disk_write_requires_cleanup_resumed_frames_and_a_later_verified_save(self):
+        self.set_saved_colony();colony=self.report['ColonyCheckpoint'];colony['AutomaticSaveAdmissions']=2
+        colony['SaveProblems']={'IoControlRequired':True,'IoControlVerified':True,'AdvancedAfterIoControl':True,
+            'UnsuccessfulWrites':1,'DeclinedBeforeSerialization':1,'IoControlFrame':8,'NativeIoDialogObserved':True,
+            'DraggingRestored':True,'IoControlStage':3,'BeforePhysicalSha256':'f'*64,'AfterPhysicalSha256':'f'*64,
+            'PreCallbacks':1,'ActiveCallbacks':1,'PostCallbacks':1}
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True,save_io_recovery=True))
+        for key,value in [('IoControlRequired',False),('IoControlVerified',False),('AdvancedAfterIoControl',False),
+                          ('UnsuccessfulWrites',0),('UnsuccessfulWrites',True),('DeclinedBeforeSerialization',0),('IoControlFrame',30),('IoControlFrame',0),
+                          ('NativeIoDialogObserved',False),('DraggingRestored',False),('IoControlStage',2),('AfterPhysicalSha256','e'*64),
+                          ('PreCallbacks',0),('ActiveCallbacks',0),('PostCallbacks',0)]:
+            report=copy.deepcopy(self.report);report['ColonyCheckpoint']['SaveProblems'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True,save_io_recovery=True),key)
+        colony['AutomaticSaveAdmissions']=1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True,save_io_recovery=True))
 
     def set_restored_colony(self):
         self.report['NativeFlowControlObserved']=False
@@ -100,6 +121,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             SavedFrame=0,SavedTime=colony['SourceTime'],SavedPhysicalSha256=colony['SourcePhysicalSha256'],
             FrameZeroResaveRequired=True,FrameZeroResaveVerified=True,FrameZeroResaveUsedGameDelayedSave=True,SavedAsAutoSave=True,SavedFileReadbackVerified=True,
             InitialPauseChallengeVerified=True,InitialPositiveTicksHeld=1,
+            SerializedHeaderCaptures=1,SerializedHeaderSha256='f'*64,
             SerializedBodyCaptures=1,SerializedBodyBytes=160000,SerializedBodySha256='e'*64)
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
         for key,value in [('SimSaveWrites',2),('AutomaticSaveAdmissions',2),('SavePauseDepthAfter',3),

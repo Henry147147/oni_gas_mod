@@ -188,6 +188,28 @@ Test("native migration refuses unowned guard and backwall fluids", () =>
     Reject(() => NativeWorldBlob.Split(bytes, phases, 1));
     Reject(() => NativeWorldBlob.Split(NativeFixture(), phases, 4));
 });
+Test("preserved native counters remain opaque while fluid migration stays strict",()=>
+{
+    var bytes=NativeFixture();var at=29+16*16+5*8;
+    BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at),0);BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(at+4),24);
+    var original=(byte[])bytes.Clone();NativeWorldBlob.ValidatePreserved(bytes,phases,1);
+    Check(bytes.SequenceEqual(original));Reject(()=>NativeWorldBlob.Split(bytes,phases,1));Check(bytes.SequenceEqual(original));
+});
+Test("native preservation retains material guard backwall and quantity validation",()=>
+{
+    for(var fault=0;fault<7;++fault)
+    {
+        var bytes=NativeFixture();
+        if(fault==0) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29+5*16),999);
+        if(fault==1) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29+5*16+8),BitConverter.SingleToInt32Bits(float.NaN));
+        if(fault==2) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29+16*16+5*8+4),-1);
+        if(fault==3) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29),2);
+        if(fault==4) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29+24*16+5*12),3);
+        if(fault==5) bytes[8]=16;
+        if(fault==6) BinaryPrimitives.WriteInt32LittleEndian(bytes.AsSpan(29+5*16+12),BitConverter.SingleToInt32Bits(-1f));
+        var original=(byte[])bytes.Clone();Reject(()=>NativeWorldBlob.ValidatePreserved(bytes,phases,1));Check(bytes.SequenceEqual(original));
+    }
+});
 OwnershipTests.Run(Test, Check, Reject, NativeFixture, phases);
 ColonyStateTests.Run(Test, Check, Reject, NativeFixture, phases);
 ColonyPlacementDiagnosticsTests.Run(Test, Check, Reject, NativeFixture, phases);

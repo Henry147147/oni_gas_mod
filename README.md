@@ -79,6 +79,12 @@ for ownership, interfaces, failures and implementation gates.
   continuation of that file. The runner loads a separate copy so further menu
   saves stay inside the current evidence directory.
 
+  Save declines now release their resources and restore the prior selection through
+  ONI's error UI and deferred-save cleanup; the Linux denied-write control
+  resumes and produces a later verified save. Native-owned unassigned disease
+  counters remain opaque in preserved world data; custom-fluid disease and
+  actor persistence remain separate implementation work.
+
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native
   comparisons pass on Windows and Linux, alongside

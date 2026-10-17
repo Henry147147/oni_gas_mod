@@ -177,3 +177,14 @@ are not counted as passing the original controls. The current protocol tests
 the exact cache mapping before using a fully initialized baseline. It does
 not prove that flagging occupied cells is displacement-free, nor does it
 complete paired colony save/load. The default nine-mode suite is unchanged.
+
+### Native-owned unassigned disease counters
+
+`native-disease-retention` uses the licensed loader with an original compact
+world containing disease hash zero/count 24. Both Linux and Windows under
+Wine normalize it to no disease/count zero, preserve material mass/temperature,
+and continue four frames. Preserved-world admission retains input bytes;
+fluid migration still rejects the unassigned quantity. The scoped restore
+controls additionally accept this native-only metadata outside the arena and
+reject it in a custom compatibility cell. These are native-interface controls,
+with no Unity or whole-colony acceptance.

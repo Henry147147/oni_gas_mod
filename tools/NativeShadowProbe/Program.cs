@@ -20,7 +20,7 @@ internal static unsafe partial class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "zero-time-frame" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
         {
             Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
@@ -74,7 +74,8 @@ internal static unsafe partial class Program
                         "Native fluid initialization differs from input.");
                     Require(initial.FluidCells == 2, "Unexpected initial native fluids.");
                 }
-                if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
+                if (args[2] == "native-disease-retention") VerifyNativeDiseaseRetention(sim,contract,initial,report);
+                else if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
                 else if (args[2] == "fluid-actors") VerifyFluidActors(sim, contract, initial, report);
                 else if (args[2] is "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity")
                 {
@@ -254,7 +255,7 @@ internal static unsafe partial class Program
         return new OniNativeObserver(Path.GetFullPath(gameDirectory));
     }
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
-    private static bool ContainsFluidFixture(string mode) => mode is "baseline" or "multi-region" or "fluid-actors" or "zero-time-frame" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope";
+    private static bool ContainsFluidFixture(string mode) => mode is "baseline" or "multi-region" or "fluid-actors" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "reject-custom-envelope";
     private static void VerifyCustomEnvelopeRejection(NativeSim sim, Contract contract, Snapshot initial, Dictionary<string, object?> report)
     {
         Stage("unmodified-native-load-positive-control");

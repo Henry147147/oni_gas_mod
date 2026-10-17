@@ -4,7 +4,7 @@ using MixedAtmospheres.Oni;
 internal static partial class Program
 {
     private static ColonySaveReadback Readback(LayoutFixture f,byte[]? file=null,int? bodyBytes=null,string? bodyHash=null,byte[]? sim=null,Guid? colony=null)
-        =>ColonySaveReadback.Verify(file??f.File,bodyBytes??f.Body.Length,bodyHash??Sha(f.Body),sim??f.Options.Sim,colony??Guid.Parse(LayoutFixture.NativeD));
+        =>ColonySaveReadback.Verify(file??f.File,bodyBytes??f.Body.Length,bodyHash??Sha(f.Body),sim??f.Options.Sim,colony??Guid.Parse(LayoutFixture.NativeD),f.Header.AsSpan(16));
     private static void RegisterReadbackChecks()
     {
         Add("saved write receipt associates exact complete body and sim with one colony",()=>
@@ -31,6 +31,12 @@ internal static partial class Program
         {
             var f=new LayoutFixture();var changed=(byte[])f.Body.Clone();changed[^1]^=1;
             Throws<System.IO.InvalidDataException>(()=>Readback(f,f.Rebody(changed)));
+        });
+        Add("an identical body cannot substitute an older different save header",()=>
+        {
+            var f=new LayoutFixture();var changed=new LayoutFixture(o=>o.Json=LayoutFixture.Json(false).Replace("synthetic","alternate"));
+            Check(f.Body.SequenceEqual(changed.Body) && f.Header.Length==changed.Header.Length);
+            Throws<System.IO.InvalidDataException>(()=>Readback(f,changed.File));
         });
         Add("body digest alone cannot substitute a different native physical pair",()=>
         {

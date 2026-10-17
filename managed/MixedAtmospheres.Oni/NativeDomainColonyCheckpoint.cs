@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using HarmonyLib;
 using MixedAtmospheres.Core.Interop;
@@ -35,7 +36,7 @@ namespace MixedAtmospheres.Oni
         private static int resumePreparationFrame=-1;
         internal static bool HoldInitialRestorePause=>ColonyRestoreMode && colonyLoaded &&
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
-        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause;
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause || HoldIoControlPause;
         internal static void PublishPausedValidationTick(Game game,float elapsed)
         {
             if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
@@ -57,11 +58,23 @@ namespace MixedAtmospheres.Oni
         private static void AdmitNativeInventory(NativeDomainCheckpointPayload payload,ReadOnlySpan<byte> native)
         {
             var phases=ElementLoader.elements.ToDictionary(e=>(int)e.id,e=>e.IsGas ? NativeMatterPhase.Gas : e.IsLiquid ? NativeMatterPhase.Liquid : e.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum);
-            payload.ValidateNativeInventory(native,phases,(int)SimHashes.Vacuum,(int)SimHashes.Oxygen,(int)SimHashes.Water,(int)SimHashes.Unobtanium);
+            try {payload.ValidateNativeInventory(native,phases,(int)SimHashes.Vacuum,(int)SimHashes.Oxygen,(int)SimHashes.Water,(int)SimHashes.Unobtanium);}
+            catch(InvalidDataException)
+            {
+                if(IsMode)
+                {
+                    var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"rejected-native-inventory-"+Guid.NewGuid().ToString("N")+".bin");
+                    try {using var diagnostic=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None);var bytes=native.ToArray();diagnostic.Write(bytes,0,bytes.Length);}
+                    catch(IOException) { }
+                }
+                throw;
+            }
         }
         private static int automaticSaveAdmissions;
         private static bool savedAsAutoSave;
         private static int serializedBodyCaptures,serializedBodyBytes;
+        private static int serializedHeaderCaptures;
+        private static byte[] serializedHeaderJson=Array.Empty<byte>();
         private static string serializedBodyHash="";
         private static bool savedFileReadbackVerified;
         private static bool savePauseStateRestored;
@@ -79,9 +92,9 @@ namespace MixedAtmospheres.Oni
             var heat=HeatStatus.Empty;Check(CopyHeat(ref heat));Require(heat.PendingBatches==1,"Pending save rejection has no reserved command.");
             var rejectedPath=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"rejected-pending-colony.sav");
             Require(!File.Exists(rejectedPath),"Pending save rejection destination already exists.");
-            SpeedControlScreen.Instance.Unpause(false);var declined=false;
-            try {SaveLoader.Instance.Save(rejectedPath,false,false);}
-            catch(InvalidOperationException caught) when(caught.Message.Contains("drained")) {declined=true;}
+            SpeedControlScreen.Instance.Unpause(false);var declinedBefore=declinedColonySaves;
+            SaveLoader.Instance.Save(rejectedPath,false,false);
+            AcknowledgePrivateSaveProblem();var declined=declinedColonySaves==declinedBefore+1;
             Capture();Check(CopyHeat(ref heat));
             rejectedSaveVerified=declined && !File.Exists(rejectedPath) && !SpeedControlScreen.Instance.IsPaused && stagedColonySave==null &&
                 automaticSaveAdmissions==0 && latest.State==1 && latest.CompletedFrames==frame && latest.TimeSeconds==time && heat.PendingBatches==1;
@@ -93,22 +106,28 @@ namespace MixedAtmospheres.Oni
             internal readonly byte[] Physical;
             internal readonly bool WasPaused;
             internal readonly int InitialPauseDepth;
+            internal readonly string PreviousSavePath;
+            internal readonly HashSet<int> PreviousDialogs;
+            internal bool FileAccepted {get;private set;}
             private bool finished;
-            internal ColonySaveLease(ulong token,byte[] physical,bool paused,int depth) {Token=token;Physical=physical;WasPaused=paused;InitialPauseDepth=depth;}
+            internal ColonySaveLease(ulong token,byte[] physical,bool paused,int depth)
+            {Token=token;Physical=physical;WasPaused=paused;InitialPauseDepth=depth;PreviousSavePath=SaveLoader.GetActiveSaveFilePath();PreviousDialogs=ActiveSaveDialogs();}
             internal void CompleteFile(string requested,string actual)
             {
-                Require(Path.GetFullPath(requested)==Path.GetFullPath(actual) && File.Exists(actual) && new FileInfo(actual).Length>0,
-                    "Normal colony save did not finish its requested file.");
+                if(Path.GetFullPath(requested)!=Path.GetFullPath(actual) || !File.Exists(actual) || new FileInfo(actual).Length<=0)
+                    throw new IOException("Normal colony save did not finish its requested file.");
                 Require(serializedBodyCaptures==1 && stagedColonySave!=null,"Normal colony save has no complete serialized body.");
+                if(serializedHeaderCaptures!=1) throw new IOException("Normal colony save did not finish writing its current header.");
                 using var file=new FileStream(actual,FileMode.Open,FileAccess.Read,FileShare.Read);
-                Require(file.Length<=1<<30,"Saved colony exceeds the supported readback limit.");
+                if(file.Length>1<<30) throw new IOException("Saved colony exceeds the supported readback limit.");
                 var bytes=new byte[checked((int)file.Length)];var count=0;
-                while(count<bytes.Length) {var got=file.Read(bytes,count,bytes.Length-count);Require(got>0,"Saved colony was truncated during readback.");count+=got;}
-                Require(file.ReadByte()==-1,"Saved colony grew during readback.");
+                while(count<bytes.Length) {var got=file.Read(bytes,count,bytes.Length-count);if(got<=0) throw new IOException("Saved colony was truncated during readback.");count+=got;}
+                if(file.ReadByte()!=-1) throw new IOException("Saved colony grew during readback.");
                 var receipt=ColonySaveReadback.Verify(bytes,serializedBodyBytes,serializedBodyHash,
-                    stagedColonySave!.CopyEncodedData(),SaveLoader.Instance.GameInfo.colonyGuid);
-                savedFilePath=actual;savedFileHash=receipt.FileSha256;savedFileReadbackVerified=true;
+                    stagedColonySave!.CopyEncodedData(),SaveLoader.Instance.GameInfo.colonyGuid,serializedHeaderJson);
+                savedFilePath=actual;savedFileHash=receipt.FileSha256;savedFileReadbackVerified=true;FileAccepted=true;
             }
+            internal void RecordWriteProblem(Exception problem)=>RecordUnsuccessfulColonyWrite(this,problem);
             internal void Finish(bool success)
             {
                 if(finished) return;finished=true;
@@ -149,7 +168,14 @@ namespace MixedAtmospheres.Oni
                 var publish=AccessTools.Method(typeof(Game),"StepTheSim");
                 synchronize.Invoke(Game.Instance,new object[]{0f});
                 Capture();var source=latest;var requested=PairStatus.Empty;
-                Check(RequestPair(source.Session,source.CompletedFrames,0,0,ref requested));token=requested.Token;
+                var requestCode=RequestPair(source.Session,source.CompletedFrames,0,0,ref requested);
+                if(requestCode==3)
+                {
+                    var detail=Marshal.PtrToStringAnsi(LastError())??"A complete checkpoint is not available yet.";
+                    var actors=ActorStatus.Empty;Check(CopyActorStatus(ref actors));
+                    throw new ColonySaveUnavailableException(detail,actors.LiveActors!=0);
+                }
+                Check(requestCode);token=requested.Token;
                 synchronize.Invoke(Game.Instance,new object[]{0f});var timer=Stopwatch.StartNew();var ready=PairStatus.Empty;
                 do
                 {
@@ -166,7 +192,9 @@ namespace MixedAtmospheres.Oni
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
                 ++automaticSaveAdmissions;savePauseStateRestored=false;savedAsAutoSave=isAutoSave;
+                colonyFileSaved=false;
                 serializedBodyCaptures=serializedBodyBytes=0;serializedBodyHash="";savedFileReadbackVerified=false;
+                serializedHeaderCaptures=0;serializedHeaderJson=Array.Empty<byte>();
                 return new ColonySaveLease(token,physical,wasPaused,pauseDepth);
             }
             catch
@@ -187,7 +215,7 @@ namespace MixedAtmospheres.Oni
             // including pausing and restoring a previously running game.
             SpeedControlScreen.Instance.Unpause(false);
             var written=SaveLoader.Instance.Save(temporary,false,false);
-            Require(written==temporary && colonyFileSaved && automaticSaveAdmissions==1 && stagedSaveWrites==1 &&
+            Require(written==temporary && colonyFileSaved && automaticSaveAdmissions==(IoSaveControlRequired ? 2 : 1) && stagedSaveWrites==1 &&
                 savePauseStateRestored && !SpeedControlScreen.Instance.IsPaused && stagedColonySave==null,
                 "The ordinary colony save entry did not reserve, write and retire one complete pair.");
             SpeedControlScreen.Instance.Pause(false);
@@ -212,6 +240,11 @@ namespace MixedAtmospheres.Oni
             Require(stream.Position==stream.Length && stream.Length>0 && stream.Length<=256<<20,
                 "Ordinary save body is incomplete or exceeds its supported size.");
             var body=stream.ToArray();serializedBodyBytes=body.Length;serializedBodyHash=CheckpointHash(body);++serializedBodyCaptures;
+        }
+        internal static void CaptureSerializedColonyHeader(byte[] bytes)
+        {
+            if(stagedColonySave==null || serializedBodyCaptures!=1) return;
+            serializedHeaderJson=(byte[])bytes.Clone();++serializedHeaderCaptures;
         }
         internal static bool TryLoadPairedColony(IReader reader,ref int result)
         {
@@ -424,8 +457,10 @@ namespace MixedAtmospheres.Oni
             SavedAsAutoSave=savedAsAutoSave,
             SavedFileReadbackVerified=savedFileReadbackVerified,SerializedBodyCaptures=serializedBodyCaptures,
             SerializedBodyBytes=serializedBodyBytes,SerializedBodySha256=serializedBodyHash,
+            SerializedHeaderCaptures=serializedHeaderCaptures,SerializedHeaderSha256=CheckpointHash(serializedHeaderJson),
             SavePauseDepthBefore=savePauseDepthBefore,SavePauseDepthAfter=savePauseDepthAfter,
             PendingSaveRejectionRequired=SaveRejectionRequired,PendingSaveRejectionVerified=rejectedSaveVerified,
+            SaveProblems=SaveProblemReport(),
             SourceFrame=colonyLoaded ? loadedSourceFrame : savedSourceFrame,SourceTime=colonyLoaded ? loadedSourceTime : savedSourceTime,
             SourcePhysicalSha256=colonyLoaded ? loadedSourceHash : savedPhysicalHash,RestoredInitialSha256=restoredInitialHash,
             SavedFrame=savedSourceFrame,SavedTime=savedSourceTime,SavedPhysicalSha256=savedPhysicalHash,
@@ -467,13 +502,26 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(SaveLoader),nameof(SaveLoader.Save),new[]{typeof(string),typeof(bool),typeof(bool)})]
     internal static class NativeDomainAutomaticSavePatch
     {
-        private static void Prefix(bool __1,out NativeSealedDomainValidation.ColonySaveLease? __state)
-        {__state=null;if(NativeSealedDomainValidation.Active) __state=NativeSealedDomainValidation.BeginAutomaticColonySave(__1);}
-        private static void Postfix(string __0,string __result,NativeSealedDomainValidation.ColonySaveLease? __state)
-        {__state?.CompleteFile(__0,__result);}
+        private static bool Prefix(bool __1,ref string __result,out NativeSealedDomainValidation.ColonySaveLease? __state)
+        {
+            __state=null;if(!NativeSealedDomainValidation.Active) return true;
+            try {__state=NativeSealedDomainValidation.BeginAutomaticColonySave(__1);return true;}
+            catch(NativeSealedDomainValidation.ColonySaveUnavailableException problem)
+            {NativeSealedDomainValidation.DeclineColonySave(problem);__result=SaveLoader.GetActiveSaveFilePath();return false;}
+            catch(Exception problem) when(problem is InvalidDataException || problem is NotSupportedException)
+            {NativeSealedDomainValidation.DeclineColonySave(new NativeSealedDomainValidation.ColonySaveUnavailableException(problem.Message,false));__result=SaveLoader.GetActiveSaveFilePath();return false;}
+        }
+        private static void Postfix(string __0,ref string __result,NativeSealedDomainValidation.ColonySaveLease? __state)
+        {
+            if(__state==null) return;
+            try {__state.CompleteFile(__0,__result);}
+            catch(Exception problem) when(problem is IOException || problem is UnauthorizedAccessException || problem is InvalidDataException ||
+                problem is NotSupportedException || problem is SavedInspectionException)
+            {__state.RecordWriteProblem(problem);__result=__state.PreviousSavePath;}
+        }
         private static Exception? Finalizer(Exception? __exception,NativeSealedDomainValidation.ColonySaveLease? __state)
         {
-            try {__state?.Finish(__exception==null);}
+            try {__state?.Finish(__exception==null && __state.FileAccepted);}
             catch(Exception failure) {return __exception ?? failure;}
             return __exception;
         }
@@ -483,5 +531,10 @@ namespace MixedAtmospheres.Oni
     {
         private static MethodBase TargetMethod()=>AccessTools.Method(typeof(SaveLoader),"Save",new[]{typeof(BinaryWriter)});
         private static void Postfix(BinaryWriter __0)=>NativeSealedDomainValidation.CaptureSerializedColonyBody(__0);
+    }
+    [HarmonyPatch(typeof(SaveGame),nameof(SaveGame.GetSaveHeader))]
+    internal static class NativeDomainSerializedHeaderPatch
+    {
+        private static void Postfix(byte[] __result)=>NativeSealedDomainValidation.CaptureSerializedColonyHeader(__result);
     }
 }

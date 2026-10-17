@@ -18,10 +18,10 @@ namespace MixedAtmospheres.Oni
             FileSha256=file.HashSlice(0,file.Length);BodySha256=body.HashSlice(0,body.Length);
         }
         internal static ColonySaveReadback Verify(byte[] written, int expectedBodyBytes, string expectedBodySha256,
-            ReadOnlySpan<byte> expectedSim, Guid expectedColony)
+            ReadOnlySpan<byte> expectedSim, Guid expectedColony,ReadOnlySpan<byte> expectedHeaderJson)
         {
             if(written==null) throw new ArgumentNullException(nameof(written));
-            if(expectedBodyBytes<=0 || expectedBodyBytes>(256<<20) || expectedColony==Guid.Empty || expectedSim.IsEmpty ||
+            if(expectedBodyBytes<=0 || expectedBodyBytes>(256<<20) || expectedColony==Guid.Empty || expectedSim.IsEmpty || expectedHeaderJson.IsEmpty ||
                 expectedBodySha256==null || expectedBodySha256.Length!=64)
                 throw new ArgumentException("Complete serialized body, sim section and colony identity are required.");
             var source=SavedImage.CopyFrom(written);
@@ -29,6 +29,8 @@ namespace MixedAtmospheres.Oni
             var count=BinaryPrimitives.ReadInt32LittleEndian(source.CopySlice(4,4));
             if(count<=0 || count>OwnedReservoirLoadHeaderV1.MaximumJsonBytes || count>source.Length-16)
                 throw new InvalidDataException("Invalid saved colony header length.");
+            if(count!=expectedHeaderJson.Length || !source.CopySlice(16,count).AsSpan().SequenceEqual(expectedHeaderJson))
+                throw new InvalidDataException("Saved header differs from this completed ordinary serialization.");
             var header=OwnedReservoirLoadHeaderV1.InspectLayoutHeader(source.CopySlice(0,16+count),allowUncompressed:true);
             if(header.NativeColonyId!=expectedColony || header.Inspection.Kind!=OwnedReservoirLoadInputKind.Unmarked)
                 throw new InvalidDataException("Saved colony identity differs from this serializer.");

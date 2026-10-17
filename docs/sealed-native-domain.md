@@ -677,6 +677,60 @@ the menu cohort's is
 No independent agent review, four-gas production hover, whole-colony,
 first-playable or rendering-performance acceptance is claimed.
 
+## Save failure recovery and native metadata
+
+Ordinary save admission now reports a busy source without escaping through
+ONI's save coroutine. Handled disk/readback declines retain the previous active
+save selection and existing ONI dialog, retire the pair/pause request, and let
+ONI finish its deferred-save callbacks and restore dragging. The private
+`--verify-save-io-recovery` control intentionally targets a new directory as a
+save file, verifies its retained sentinel and the exact unchanged physical
+image, then resumes and completes a normal verified colony save.
+
+The first two attempts (`save-problem-deferred-io-control-v1` and `v2`) fail
+before the intended write. The first leaves a coroutine exception and is
+stopped after diagnosis; the second retains the exact native image and cell
+values and closes through the validation failure path. Native cell (102,151)
+contains 0.282589465 kg at 308.757507 K, disease hash zero/count 24; every other
+inventory predicate passes. This is legal native-owned residual metadata.
+Both licensed native libraries admit a controlled hash-zero/count-24 image,
+normalize it to disease index 255/count zero on load and continue four native
+frames. Preserved-world checks now leave that opaque source unchanged; fluid
+migration remains strict and owned cells still require zero disease fields.
+
+The third attempt reaches the denied write and completes all three callbacks,
+but the test expects an IO-exception dialog. Mono returns ONI's ordinary
+access-denied dialog for a directory target. The repaired assertion accepts
+only the exact two stock disk-error messages. The retained attempt remains a
+failure.
+
+`save-problem-deferred-io-control-v4` passes. One pending-command decline and
+one denied write occur. All three instrumented callbacks run once; dragging,
+pause depth and the previous selection are restored. Before/after physical
+SHA-256 is `6fa4785754f1f9b4657b639914d28abc048c62d7fa9419dec0fdc0acd3b3836e`.
+The game resumes and saves at frame 31 / 6.200000092 s. Physical SHA-256
+`e0c675190f5f75874b10f73aaf313eae1fb50dc9dfb6568c9348972e2be515fb`
+also matches the earlier uninterrupted matched-heat control. The complete
+5,122,168-byte body and current header are verified; file SHA-256 is
+`85277244988d52a24e2efb0b2c15f5871d7338a3cd226b4b591ffeaadfe613a3`.
+Relative mass/energy drift is 1.06e-15 / 1.98e-15. Grid/rendering, exact native
+cells, outside native heat and scalar save guards pass with no mod failure
+lines. This uses the GCC 11 baseline build containing the startup-linkage fix.
+
+
+`save-recovery-current-header-gas-load-v1` then loads that exact successful
+post-recovery file in another fresh Linux game. It retains the original GUID,
+three duplicants and complete physical image, passes the positive paused-tick
+challenge, and completes a frame-zero deferred autosave with pause depth 1.
+The current header and complete 5,122,373-byte body match disk readback
+(`9f653e847e3d28072ce6b1213b1e52ca1c1c5bd847692d4da59eb9156f7918f2`).
+All 120 resumed images match independent continuation, reaching 30.200000450 s
+and final physical SHA-256
+`e721d024bcecba9b73891f63045d25c504ae2bd2e0ed55feec77ea94d1b37d4e`.
+Native compatibility cells, grid/rendering, outside heat and save guards pass
+with no mod failure lines. The broader matrix still needs completion after
+its retained water-startup failure.
+
 ## Limits and next work
 
 Only the fixed sealed scene is enabled. Direct known native mutation packets

@@ -29,6 +29,7 @@ namespace MixedAtmospheres.Oni
             public bool QuitWhenComplete = false;
             public bool SaveOnComplete = false;
             public bool SaveBeforeResume = false;
+            public bool VerifySaveIoRecovery = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
             public string Seed = "147147";
@@ -110,6 +111,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("SaveOnComplete requires an initial native domain validation scene.");
             if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
+            if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
+                throw new InvalidDataException("Save IO recovery requires the explicit source-save validation scene and at least sixteen frames.");
             Directory.CreateDirectory(OutputDirectory);
             if (NativeSealedDomainValidation.IsMode)
             {

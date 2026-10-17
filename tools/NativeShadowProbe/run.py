@@ -18,7 +18,7 @@ from native_probe_process import add_runtime_arguments, ProbeRuntime
 
 MODES = ("baseline", "multi-region", "fluid-actors", "rebuild-shadow", "load-shadow", "transition", "filtered-transition", "sanitize", "reject-custom-envelope")
 DOMAIN_MODES = ("sealed-gas", "sealed-water", "sealed-heat", "sealed-conduction", "sealed-gravity", "sealed-checkpoint", "sealed-pair", "sealed-restore", "sealed-restore-water", "sealed-restore-gravity")
-EXPERIMENT_MODES = ("zero-time-frame",)
+EXPERIMENT_MODES = ("zero-time-frame","native-disease-retention")
 
 
 def no_core_dump() -> None:
@@ -39,7 +39,7 @@ def main() -> int:
     if not sys.platform.startswith("linux"):
         parser.error("Use run.ps1 on Windows")
     runtime = ProbeRuntime(args, parser)
-    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, *EXPERIMENT_MODES, "domains") and not args.observer):
+    if bool(args.observer) != bool(args.game) or (args.mode in (*DOMAIN_MODES, "zero-time-frame", "domains") and not args.observer):
         parser.error("Sealed domains and zero-time controls require both --observer and --game")
     if args.observer and not args.observer.is_file(): parser.error("Native observer library is missing")
     for path in (args.native, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):

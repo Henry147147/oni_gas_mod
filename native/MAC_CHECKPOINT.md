@@ -195,6 +195,31 @@ path. A mismatched or incomplete file produces no successful save receipt;
 the pair and added pause request are still released. This receipt verifies a
 completed write; ONI's file replacement and crash durability remain separate.
 
+Readback also requires exactly one current `SaveGame.GetSaveHeader` result and
+compares its complete JSON bytes. An older header with an identical body
+cannot satisfy the current write receipt. Header capture happens after the
+body serializer and the original file-open step.
+
+A busy checkpoint source returns through the ordinary save-decline UI without
+starting serialization. A disk or readback problem retains ONI's existing error
+dialog when present, restores the prior active-save selection, and finishes
+the deferred coroutine's cleanup. The native pair and the save's pause request
+are retired. Unexpected simulator/serialization faults still retain their
+exception path. `--verify-save-io-recovery` (`-VerifySaveIoRecovery` on Windows)
+adds a real denied-write control to `native-save-domain`, requiring all three
+instrumented save callbacks once, restored dragging, unchanged complete
+physical bytes, retained target/selection, resumed frames and a later verified
+save. The control needs at least sixteen frames.
+
+Native preservation and fluid migration have separate checks. ONI 744825 can
+serialize an unassigned disease hash zero with a positive residual counter
+outside the custom domain. Both licensed native loaders admit that state and
+normalize it to no disease/zero count. `NativeWorldBlob.ValidatePreserved`
+retains every saved byte while accepting that native-owned metadata. It keeps
+material, geometry, guard, backwall and finite/nonnegative quantity checks.
+`Split` still rejects that unassigned quantity during fluid migration, and
+the six custom compatibility cells still require both disease fields zero.
+
 `native-save-domain` exercises an unprepared ordinary save from a running
 colony, verifies the pause depth returns to zero, and flushes/renames its
 private temporary file to `native-colony.sav`. It first attempts a save with

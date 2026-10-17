@@ -543,6 +543,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "LoadSavePath": str(load_fixture) if load_fixture else "",
             "SaveOnComplete": bool(getattr(args, "save_colony", False)),
             "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
+            **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
         })
     thin = output / "game"
     thin.mkdir()
@@ -615,7 +616,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 liquid=args.mode == "native-liquid-domain", heat=args.mode == "native-heat-domain",
                 transfers=args.mode == "native-transfer-domain", actors=args.mode == "native-actor-domain",
                 carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
-                saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain")
+                saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
+                save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)))
             if code == 0 and not domain_ok:
                 status, code = "failed-native-domain", 2
         elif code == 0 and not observer_ok:
@@ -671,6 +673,7 @@ def main() -> int:
     play.add_argument("--keep-open", action="store_true")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
+    play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
@@ -682,6 +685,8 @@ def main() -> int:
     state = args.state.resolve()
     if args.command == "run" and args.resave_before_resume and args.mode != "native-load-domain":
         parser.error("--resave-before-resume requires native-load-domain")
+    if args.command == "run" and args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames<16):
+        parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not args.mode.startswith("native-") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
     if args.command == "run" and (bool(args.load_save) != (args.mode == "native-load-domain") or (args.load_save and not args.load_save.is_file())):

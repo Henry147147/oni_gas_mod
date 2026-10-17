@@ -22,6 +22,21 @@ internal static unsafe partial class Program
         admitted.ValidateNativeInventory(parsed.NativeData,phases,Hash(contract.Vacuum),Hash(contract.Oxygen),Hash(contract.Water),Hash(contract.Unobtanium));
         Require(admitted.CompletedFrame==parsed.CompletedFrame,"Outer and physical source frames differ.");
         var geometry=admitted.Geometry; var physical=admitted.PhysicalImage.ToArray();var native=parsed.NativeData.ToArray();
+        var retained=(byte[])native.Clone();var padded=Width+2;var paddedCells=padded*(Height+2);
+        var outside=2+2*padded;var diseaseOffset=29+16*paddedCells+8*outside;
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(retained.AsSpan(diseaseOffset),0);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(retained.AsSpan(diseaseOffset+4),24);
+        var originalRetained=(byte[])retained.Clone();
+        admitted.ValidateNativeInventory(retained,phases,Hash(contract.Vacuum),Hash(contract.Oxygen),Hash(contract.Water),Hash(contract.Unobtanium));
+        Require(retained.SequenceEqual(originalRetained),"Native-only disease counter validation rewrote the saved source.");
+        var forbidden=(byte[])native.Clone();var ownedDiseaseCell=DomainX+1+(DomainY+1)*padded;
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(forbidden.AsSpan(29+16*paddedCells+8*ownedDiseaseCell),0);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(forbidden.AsSpan(29+16*paddedCells+8*ownedDiseaseCell+4),24);
+        var ownedRejected=false;
+        try {admitted.ValidateNativeInventory(forbidden,phases,Hash(contract.Vacuum),Hash(contract.Oxygen),Hash(contract.Water),Hash(contract.Unobtanium));}
+        catch(InvalidDataException) {ownedRejected=true;}
+        Require(ownedRejected,"Owned fluid checkpoint accepted an unassigned disease quantity.");
+        report["nativeOnlyDiseaseCounterPreservedWithoutRelaxingOwnedCells"]=true;
         var messagesBefore=observer.Capture().Hooks.Single(h=>h.Name=="message").Entries;
         for(var fault=0;fault<8;++fault)
         {
