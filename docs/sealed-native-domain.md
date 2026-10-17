@@ -381,8 +381,13 @@ at 48.200000718 s. The water batch source passes 122 frames / 24.400000364 s,
 `b4d173b1e54d48e05d14d2f2cc409d5df72e7f3f0ae6b3698ceaca680be73d0c`
 and colony-file hash is
 `4038185fb71f3930ce5b7fb4d49d6961fbd124a70890d56f63802cef4527410d`.
-The water reload is pending. This historical batch cohort enabled its second
-emitter immediately; the initial-zero extension below has a separate gate.
+The water reload also passes its frame-zero autosave and all 120 exact continued
+frames. Its final physical image is
+`a3c61fd9e015f7b4ec8080e64c65a9b04d1b4a290aad524d50cde353aa58c1e3`,
+and its frame-zero autosave file hash is
+`a8cb2356ffeaf083eef3356766e4c69e8a7a8318f574057b0232e86d5e51de76`.
+This historical batch cohort enabled its second emitter immediately; the
+initial-zero extension below has a separate gate.
 
 ### Initially disabled emitters
 
@@ -396,6 +401,29 @@ physical frames, requires real zero-mass status samples with the correct
 phase, then enables it, disables it again and retires both emitter handles.
 The report and validator require that zero-output interval explicitly; runtime
 verification of this extension is separate from the preceding batch cohort.
+
+The frozen `789b914` Linux adapter and Ubuntu 22.04 native build v9 pass all
+four real Unity cases in `initial-zero-actor-unity-matrix-v1`: gas source/save,
+gas load, water source/save and water load. Each source holds the second emitter
+at zero for eight real status samples, then emits 0.109375 kg before disabling
+and retiring it. Both sources pass 32 consumer callbacks, 80 emitter samples,
+both registration callbacks, configuration/retirement batches and the ordinary
+paired save. Gas U+K residual is -3.52571590e-10 J against 1e-6 J; water residual
+is -0.00185072020 J against the unchanged 0.00594629911 J bound. Both loads pass
+the positive paused-tick challenge, ordinary deferred frame-zero autosave,
+complete readback and all 120 exact continued physical images. Source files
+remain unchanged.
+
+| Linux initial-zero control | Source physical SHA-256 | Final reloaded physical SHA-256 |
+| --- | --- | --- |
+| Gas | `4b8f1deecf9fc857085ffff58fcc8690f33231b3bd0e1aa075cc753a8e20d2ad` | `719fd148ca9d39016820a13b361e7f6d700b0d90c2df5e1c0f943db11f4d3588` |
+| Water | `837b057ec9298754926898ea03f8f1b8af3ae2e23ed6ca3af946f77d66939bf5` | `b3dc54cb0e853ff4672431d58c2cf459a58f94969b358ce94c2f1aa17ac4a2b4` |
+
+The corresponding source colony files have SHA-256
+`e751c40933efa73b3cc2b2c956cd903dfa96a9f30e15df8e92adb845ede25fd7`
+and `5e7872fe93ce68d75939faf3943a271a6fc6d2f6796557c9772b6fe62b3973de`.
+Actors are retired before saving; this control does not establish live-actor
+persistence.
 
 Native Windows ONI now passes this extension in `windows-zero-emitter-r1`,
 using the clean merged `c346d93` package. All 9 nitrogen checks, 106
