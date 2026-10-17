@@ -632,6 +632,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "LoadSavePath": str(load_fixture) if load_fixture else "",
             "SaveOnComplete": bool(getattr(args, "save_colony", False)),
             "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
+            **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
             **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
@@ -706,7 +707,7 @@ def playtest(args, state: Path, session: dict) -> int:
                     initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain", liquid_heat=args.mode == "native-liquid-heat-domain",
                     transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
                     pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
-                    saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
+                    natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=args.mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True, restored=args.mode == "native-load-domain",
                     save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
                 if code == 0 and not domain_ok:
@@ -771,11 +772,14 @@ def main() -> int:
     play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
+    play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command == "run" and args.verify_natural_autosave and (args.mode != "native-domain" or not 3100 <= args.frames <= 5000 or args.save_colony):
+        parser.error("Natural autosave requires native-domain, 3100..5000 frames and no --save-colony")
     if args.command == "run" and args.mode in ("native-carbon-particle-domain", "native-breathing-read-domain") and args.frames < 30:
         parser.error("The CO2 particle and breathing-reader controls require at least 30 frames")
     if args.command == "run" and args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:

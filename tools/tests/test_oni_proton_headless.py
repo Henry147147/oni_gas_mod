@@ -22,6 +22,14 @@ common = runner.common
 
 
 class ProtonIsolationTests(unittest.TestCase):
+    def test_explicit_renderer_selection_is_applied_and_reported_with_default_preserved(self):
+        for requested,expected in ((None,'1'),('0','0'),('1','1')):
+            with mock.patch.dict(os.environ,{},clear=True):
+                if requested is not None:os.environ['PROTON_USE_WINED3D']=requested
+                env=runner.game_env(Path('/srv/state'),Path('/srv/run'),Path('/srv/game'),':123')
+            self.assertEqual(env['PROTON_USE_WINED3D'],expected)
+            self.assertEqual(runner.compatibility_settings(env)['PROTON_USE_WINED3D'],expected)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

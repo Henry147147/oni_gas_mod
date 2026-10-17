@@ -45,6 +45,8 @@ UNC paths, traversal and symlink escapes reject.
 The receipt also records a limited set of nonsecret compatibility settings:
 `MONOMOD_RunningOnWine`, `MONOMOD_DMDType`, `PROTON_USE_WINED3D` and `WINEDEBUG`.
 Unset overrides stay absent; the inherited environment is never exported.
+`PROTON_USE_WINED3D` keeps its default `1` and now honors an explicit inherited
+value, so a recorded renderer comparison actually applies that setting.
 Runtime comparisons must retain the tool's exact version and download hashes
 separately. Public GE-Proton builds are alternative Wine/Proton experiments,
 not evidence for the corresponding Valve build or for the Windows OS.

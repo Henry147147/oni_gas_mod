@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
             public bool SaveOnComplete = false;
             public bool SaveBeforeResume = false;
             public bool VerifySaveIoRecovery = false;
+            public bool VerifyNaturalAutosave = false;
             public bool ReloadInProcess = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -97,6 +98,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "native-carbon-particle-domain" || configuration.Mode == "native-breathing-read-domain") && configuration.CompletedFrames < 30)
                 throw new InvalidDataException("Native CO2 particle and breathing-reader controls require at least 30 frames.");
+            if (configuration.VerifyNaturalAutosave && (configuration.Mode != "native-domain" || configuration.CompletedFrames < 3100 || configuration.CompletedFrames > 5000 || configuration.SaveOnComplete))
+                throw new InvalidDataException("Natural autosave validation requires mixed air, 3100..5000 frames and no manual source save.");
             if ((configuration.Mode == "native-actor-domain" || configuration.Mode == "native-liquid-actor-domain") && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
                 throw new InvalidDataException("The registered actor scene requires at least 80 native frames.");
             if (NativeSealedDomainValidation.ColonyRestoreMode != !string.IsNullOrEmpty(configuration.LoadSavePath) ||

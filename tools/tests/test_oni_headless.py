@@ -243,6 +243,34 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
 
+    def set_natural_autosave(self):
+        self.set_saved_colony()
+        self.report.update(RenderedRevision=3300,Publications=3305)
+        self.report['NativeDomain'].update(CompletedFrames=3300,NativeTicket=4000,Substeps=69300,TimeSeconds=660.0000098347664)
+        self.report['ColonyCheckpoint'].update(SourceFrame=2990,SourceTime=598.0000089108944,SavedFrame=2990,
+            SavedTime=598.0000089108944,SavedPhysicalSha256='a'*64,SavedAsAutoSave=True)
+        self.report['ColonyClock']=dict(Cycle=1,NativeGameSeconds=662,AutoSaveCycleInterval=1)
+        self.report['NaturalAutosave']=dict(Required=True,Configured=True,Verified=True,Source='GameClock.DoAutoSave',Requests=1,
+            RequestedCycle=1,SavedNativeCycle=1,SavedNativeGameSeconds=600.03,ExactContinuationFrames=310,
+            ExpectedPhysicalSha256='e'*64,CurrentPhysicalSha256='e'*64)
+
+    def test_natural_day_rollover_requires_actual_autosave_and_exact_later_continuation(self):
+        self.set_natural_autosave()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,saved=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,natural_autosave=True))
+        self.report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,expected_platform='WindowsPlayer'))
+
+    def test_natural_autosave_rejects_manual_calls_missing_rollover_and_lost_intervals(self):
+        for key,value in [('Verified',False),('Source','manual-save'),('Requests',2),('RequestedCycle',0),
+                          ('SavedNativeGameSeconds',599),('ExactContinuationFrames',309),('CurrentPhysicalSha256','f'*64)]:
+            self.set_natural_autosave();self.report['NaturalAutosave'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True),key)
+        for key,value in [('SavedAsAutoSave',False),('SavedFrame',3300),('SavedPhysicalSha256','f'*64),('SavePauseStateRestored',False)]:
+            self.set_natural_autosave();self.report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True),key)
+
     def test_declined_disk_write_requires_cleanup_resumed_frames_and_a_later_verified_save(self):
         self.set_saved_colony();colony=self.report['ColonyCheckpoint'];colony['AutomaticSaveAdmissions']=2
         colony['SaveProblems']={'IoControlRequired':True,'IoControlVerified':True,'AdvancedAfterIoControl':True,

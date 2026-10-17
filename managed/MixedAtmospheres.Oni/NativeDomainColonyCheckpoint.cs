@@ -138,6 +138,7 @@ namespace MixedAtmospheres.Oni
                         Require(stagedSaveWrites==1 && savedFileReadbackVerified && TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(Physical),
                             "Normal colony serialization reused its sim section or changed physical state.");
                         colonyFileSaved=true;
+                        ObserveNaturalAutosaveCompleted(Physical);
                     }
                 }
                 finally
@@ -191,6 +192,7 @@ namespace MixedAtmospheres.Oni
                 var config=payload.Geometry;Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
+                savedNativeCycle=GameClock.Instance.GetCycle();savedNativeGameSeconds=GameClock.Instance.GetTime();
                 ++automaticSaveAdmissions;savePauseStateRestored=false;savedAsAutoSave=isAutoSave;
                 colonyFileSaved=false;
                 serializedBodyCaptures=serializedBodyBytes=0;serializedBodyHash="";savedFileReadbackVerified=false;

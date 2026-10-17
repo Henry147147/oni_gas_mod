@@ -142,7 +142,7 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
     except (OverflowError, struct.error):return False
     return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -150,6 +150,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     if save_io_recovery and (not saved or restored):
         return False
+    if natural_autosave and (restored or save_io_recovery or not 3100 <= frames <= 5000):
+        return False
+    saved = saved or natural_autosave
     gravity = gravity or liquid_gravity
     liquid_transfers = liquid_transfers or liquid_gravity
     liquid = liquid or liquid_transfers or liquid_actors or liquid_heat
@@ -473,8 +476,25 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or colony.get("AutomaticSaveAdmissions") != (2 if save_io_recovery else 1) or colony.get("SavePauseStateRestored") is not True
                 or (colony.get("PendingSaveRejectionRequired") is True and colony.get("PendingSaveRejectionVerified") is not True)
                 or not _sha256(colony.get("SavedFileSha256")) or not colony.get("SavedFile")
-                or colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]):
+                or (not natural_autosave and (colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]))):
             return False
+        if natural_autosave:
+            auto, clock = report.get("NaturalAutosave"), report.get("ColonyClock")
+            if (not isinstance(auto,dict) or not isinstance(clock,dict)
+                    or any(auto.get(key) is not True for key in ("Required","Configured","Verified"))
+                    or auto.get("Source") != "GameClock.DoAutoSave" or auto.get("Requests") != 1
+                    or type(auto.get("RequestedCycle")) is not int or auto["RequestedCycle"] < 1
+                    or auto.get("SavedNativeCycle") != auto["RequestedCycle"]
+                    or type(auto.get("SavedNativeGameSeconds")) not in (int,float) or not 600 <= auto["SavedNativeGameSeconds"] < math.inf
+                    or type(clock.get("Cycle")) is not int or clock["Cycle"] < auto["SavedNativeCycle"]
+                    or type(clock.get("NativeGameSeconds")) not in (int,float) or not auto["SavedNativeGameSeconds"] <= clock["NativeGameSeconds"] < math.inf
+                    or clock.get("AutoSaveCycleInterval") != 1 or colony.get("SavedAsAutoSave") is not True
+                    or type(colony.get("SavedFrame")) is not int or not 0 < colony["SavedFrame"] == colony["SourceFrame"] < physical["CompletedFrames"]
+                    or colony.get("SavedTime") != colony["SourceTime"] or not colony["SourceTime"] < physical["TimeSeconds"]
+                    or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]
+                    or auto.get("ExactContinuationFrames") != physical["CompletedFrames"] - colony["SavedFrame"]
+                    or not _sha256(auto.get("ExpectedPhysicalSha256")) or auto.get("CurrentPhysicalSha256") != auto["ExpectedPhysicalSha256"]):
+                return False
         if restored and (colony.get("Loaded") is not True or type(colony.get("Saved")) is not bool
                 or any(colony.get(key) is not True for key in ("ZeroTimeRestoreVerified", "ManagedSceneRestored", "RendererVerified"))
                 or type(colony.get("NativeStartupBatchesDelivered")) is not int or colony["NativeStartupBatchesDelivered"] < 2
@@ -545,6 +565,7 @@ def main() -> int:
     parser.add_argument("--frames", type=int, required=True)
     parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
+    parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -560,7 +581,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

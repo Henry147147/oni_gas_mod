@@ -53,6 +53,10 @@ namespace MixedAtmospheres.Oni
             pressureGetterReads=pressureCallSiteReads=0;
             pressureReadVerified=pressureOutsideVerified=pressureCallSitesVerified=false;pressureReadSamples=Array.Empty<object>();
             pressureOutsideSample=null;
+            naturalAutosaveConfigured=naturalAutosaveVerified=false;
+            naturalAutosaveOriginalInterval=naturalAutosaveRequests=naturalAutosaveRequestedCycle=savedNativeCycle=0;
+            savedNativeGameSeconds=0;naturalAutosavePhysical=null;naturalAutosaveContinuationFrames=0;
+            naturalAutosaveExpectedHash=naturalAutosaveCurrentHash="";
             initialPauseTicksHeld=initialPositiveTicksHeld=0;resumePreparationFrame=-1;
             savedPhysicalHash=restoredInitialHash=savedFileHash=savedFilePath="";
             colonyFileSaved=colonyLoaded=zeroRestoreVerified=restoredSceneStarted=restoredRendererVerified=false;
