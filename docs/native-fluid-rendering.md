@@ -115,8 +115,26 @@ Private terminal review SHA-256:
 
 These controls accept full-water appearance and the observed gas regression in
 the bounded Windows scenes, including the recorded source binding and reload.
-Linux rendering, other liquid materials, free surfaces and sustained performance
-still require evidence. The missing KPrefabID 246809 warning remains unresolved
+Other liquid materials, free surfaces and sustained performance still require
+evidence. The missing KPrefabID 246809 warning remains unresolved
 for the older loaded water input. The later [Windows actor-batch water control](sealed-native-domain.md#actual-windows-actor-batches)
 retains the repaired rendering through both reloads without that warning for
 its newer input. Whole-colony and first-playable acceptance remain open.
+
+## Linux physical GPU and actual inspection
+
+The later [calibrated Linux controls](native-gpu-readback.md) pass both loaded
+sessions for gas and filled water. Their complete native phase/mass outline
+establishes the page-texture coordinates before checking every owned gas
+colour, density-opacity and hazard byte. An earlier uncalibrated read addressed
+different OpenGL rows and falsely suggested an upload defect. Native upload
+and rendering remain unchanged.
+
+The gas colours match their completed samples in all six cells. Water retains
+the correct phase pixels, liquid colour and visibly blue fill. Actual hover
+and selected details retain the same completed physical object/publication as
+the textures. Both 120-frame images remain identical to the preceding physics
+controls, and all four paused autosaves and private-display cleanups pass.
+The linked record retains the original screenshots, raw hashes and scoped
+image review. This closes the bounded Linux appearance/inspection gap while
+retaining the wider production and performance limits above.
