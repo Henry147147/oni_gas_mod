@@ -327,6 +327,24 @@ def _native_orbital_references_passed(report: dict, saved: bool, restored: bool)
         value = report['NativeOrbitalReferences']
         if not isinstance(value, dict) or type(value.get('Required')) is not bool:
             return False
+        if 'RestoreLifecycleHold' in value:
+            hold=value['RestoreLifecycleHold']
+            if (not isinstance(hold,dict) or hold.get('Source')!='waiting-for-native-KMonoBehaviour.Start-before-positive-time'
+                    or type(hold.get('WaitInspections')) is not int or hold['WaitInspections']<0
+                    or type(hold.get('PendingSaveRoots')) is not int or hold['PendingSaveRoots']!=0
+                    or type(hold.get('MaximumPendingSaveRoots')) is not int or hold['MaximumPendingSaveRoots']<0
+                    or type(hold.get('PhysicalFrame')) is not int or hold['PhysicalFrame']!=0
+                    or type(hold.get('PhysicalTime')) not in (int,float) or not math.isfinite(hold['PhysicalTime'])):
+                return False
+            if hold['WaitInspections']==0:
+                if (hold.get('Required') is not False or hold.get('PhysicalStateVerified') is not False
+                        or hold.get('PhysicalSha256')!='' or hold['PhysicalTime']!=0 or hold['MaximumPendingSaveRoots']!=0):return False
+            elif (not restored or hold.get('Required') is not True or hold.get('PhysicalStateVerified') is not True
+                    or type(value.get('Inspections')) is not int or value['Inspections']<=hold['WaitInspections']
+                    or hold['MaximumPendingSaveRoots']<1 or hold['PhysicalTime']!=report['ColonyCheckpoint']['SourceTime']
+                    or not _sha256(hold.get('PhysicalSha256'))
+                    or hold['PhysicalSha256']!=report['ColonyCheckpoint']['RestoredInitialSha256']
+                    or hold['PhysicalSha256']!=report['ColonyCheckpoint']['SourcePhysicalSha256']):return False
         # Older frozen audits predate the spawn-order adapter. When its
         # receipt is present, errors or invented/rewritten identities cannot
         # hide behind a later successful reference-registration observation.

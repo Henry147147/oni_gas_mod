@@ -79,6 +79,36 @@ loads and later precision/day controls passes 88 checks, SHA-256
 The local exact-continuation result does not accept the separate cross-platform
 water numerical comparison; see [arithmetic controls](native-floating-point-environment.md).
 
+## Waiting for the restored native Start lifecycle
+
+The first `51d5ce9`/v15 mixed gas/liquid WindowsPlayer source saves correctly,
+and its first load completes a paused autosave and 120 exact physical frames.
+The second load in the same process reaches the admission check before Unity
+has called the native save roots' `Start`: all nine world roots and the existing
+orbital object are tracked and initialized, with `RootSpawned=false` and zero
+registrations. The strict check correctly refuses advancement, but treating
+this transient lifecycle state as a damaged save makes ordinary reloads race.
+The failed second-session result is retained; it does not invalidate the
+completed first session or accept the failed two-session control.
+
+Restored admission now waits only for that exact initialized/unspawned/zero-
+registration combination. It inspects every world and reference before waiting,
+so a missing target, changed identity, duplicate registration or inconsistent
+root state still rejects immediately. Ordinary save admission remains strict.
+The existing restored pause keeps physical frame zero while Unity completes
+its normal lifecycle; the adapter does not spawn or register world roots itself.
+Every waiting observation and the final admission compare the entire native
+physical checkpoint byte for byte with the restored source and require its
+original physical time. A bounded lifecycle timeout starts at the first actual
+waiting observation, after loading and shader warmup.
+
+`RestoreLifecycleHold` records waiting inspections, current/maximum pending
+root counts and the checked frame/time/full-image hash. Session cleanup clears
+it. The portable reviewer rejects an outstanding wait or a claimed witness
+without the original restored image. Four new declaration groups distinguish
+legitimate native startup from dangling references and inconsistent registry
+states. Actual repeated-load verification of this wait remains in progress.
+
 ## Reproduced input and current verification
 
 An older nine-world input with SHA-256

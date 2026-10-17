@@ -407,7 +407,15 @@ namespace MixedAtmospheres.Oni
             if(!restoredOrbitalReferencesVerified)
             {
                 Require(latest.CompletedFrames==0,"Native orbital references were not admitted before restored physical advancement.");
-                VerifyNativeOrbitalReferences("restored-before-positive-time");
+                if(!VerifyNativeOrbitalReferences("restored-before-positive-time",true))
+                {
+                    if(orbitalRestoreWaitStarted<0) orbitalRestoreWaitStarted=Time.realtimeSinceStartup;
+                    Require(Time.realtimeSinceStartup-orbitalRestoreWaitStarted<90,"Restored native save roots did not finish their normal Unity spawn lifecycle.");
+                    ++orbitalRestoreWaitInspections;orbitalMaximumPendingSaveRoots=Math.Max(orbitalMaximumPendingSaveRoots,orbitalPendingSaveRoots);
+                    VerifyOrbitalRestoreHold();
+                    ColonyRuntimeValidation.SetStage("waiting-for-native-world-save-roots");WriteReport();return;
+                }
+                if(orbitalRestoreWaitInspections>0) VerifyOrbitalRestoreHold();
                 restoredOrbitalReferenceFrame=latest.CompletedFrames;restoredOrbitalReferenceTime=latest.TimeSeconds;
                 restoredOrbitalReferencesVerified=true;
             }

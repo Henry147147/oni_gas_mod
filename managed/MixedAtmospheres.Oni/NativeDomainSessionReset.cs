@@ -92,6 +92,8 @@ namespace MixedAtmospheres.Oni
             restoredZeroTimeEmitterConfigurations=0;
             persistentFixtureStarted=persistentFixtureVerified=restoredActorBindingsVerified=restoredActorsVerified=false;
             restoredOrbitalReferencesVerified=orbitalReferencesVerified=false;orbitalReferenceInspections=0;
+            orbitalRestoreWaitInspections=orbitalPendingSaveRoots=orbitalMaximumPendingSaveRoots=0;
+            orbitalRestoreWaitStarted=-1;orbitalRestoreHoldVerified=false;orbitalRestoreHoldHash="";
             restoredOrbitalReferenceFrame=0;restoredOrbitalReferenceTime=0;
             orbitalReferenceStage=orbitalReferenceError="";
             orbitalWorlds=Array.Empty<NativeOrbitalWorldFact>();orbitalReferences=Array.Empty<NativeOrbitalReferenceFact>();

@@ -10,6 +10,10 @@ namespace MixedAtmospheres.Oni
     {
         private static bool restoredOrbitalReferencesVerified, orbitalReferencesVerified;
         private static int orbitalReferenceInspections;
+        private static int orbitalRestoreWaitInspections, orbitalPendingSaveRoots, orbitalMaximumPendingSaveRoots;
+        private static float orbitalRestoreWaitStarted = -1;
+        private static bool orbitalRestoreHoldVerified;
+        private static string orbitalRestoreHoldHash = "";
         private static ulong restoredOrbitalReferenceFrame;
         private static double restoredOrbitalReferenceTime;
         private static string orbitalReferenceStage = "", orbitalReferenceError = "";
@@ -17,7 +21,7 @@ namespace MixedAtmospheres.Oni
         private static NativeOrbitalReferenceFact[] orbitalReferences = Array.Empty<NativeOrbitalReferenceFact>();
         internal static bool HoldOrbitalReferenceRestorePause => ColonyRestoreMode && colonyLoaded && !restoredOrbitalReferencesVerified;
 
-        private static void VerifyNativeOrbitalReferences(string stage)
+        private static bool VerifyNativeOrbitalReferences(string stage, bool allowNativeStart = false)
         {
             orbitalReferencesVerified = false; orbitalReferenceStage = stage; orbitalReferenceError = ""; ++orbitalReferenceInspections;
             var worlds = new List<NativeOrbitalWorldFact>(); var references = new List<NativeOrbitalReferenceFact>();
@@ -61,14 +65,31 @@ namespace MixedAtmospheres.Oni
                     }
                 }
                 orbitalWorlds = worlds.ToArray(); orbitalReferences = references.ToArray();
-                NativeOrbitalReferenceAdmission.Validate(orbitalWorlds, orbitalReferences);
+                if (allowNativeStart)
+                {
+                    orbitalPendingSaveRoots = NativeOrbitalReferenceAdmission.PendingRestoreRoots(orbitalWorlds, orbitalReferences);
+                    if (orbitalPendingSaveRoots > 0) return false;
+                }
+                else NativeOrbitalReferenceAdmission.Validate(orbitalWorlds, orbitalReferences);
                 orbitalReferencesVerified = true;
+                return true;
             }
             catch (Exception problem)
             {
                 orbitalWorlds = worlds.ToArray(); orbitalReferences = references.ToArray(); orbitalReferenceError = problem.Message;
                 throw;
             }
+        }
+        private static void VerifyOrbitalRestoreHold()
+        {
+            var expected = restoredExpected ?? throw new InvalidDataException("The orbital lifecycle hold has no restored physical image.");
+            Require(latest.CompletedFrames == 0 && latest.TimeSeconds == loadedSourceTime,
+                "Restored physical time advanced before native save-root lifecycle completion.");
+            var held = new byte[expected.Length];
+            Check(CopyDomainSnapshot(latest.Session, 0, held, (uint)held.Length, out var copied));
+            Require(copied == held.Length && held.SequenceEqual(expected),
+                "The native save-root lifecycle hold changed the complete restored physical image.");
+            orbitalRestoreHoldHash = CheckpointHash(held); orbitalRestoreHoldVerified = true;
         }
         private static object NativeOrbitalReferenceReport() => new {
             Required = ColonyRestoreMode || automaticSaveAdmissions > 0 || orbitalReferenceInspections > 0,
@@ -77,6 +98,14 @@ namespace MixedAtmospheres.Oni
             Source = "read-only-native-orbital-reference-and-save-root-registry", Stage = orbitalReferenceStage,
             Inspections = orbitalReferenceInspections, Error = orbitalReferenceError, Worlds = orbitalWorlds, References = orbitalReferences,
             RewrittenReferences = 0, GeneralManagedReferenceIntegrityVerified = false,
+            RestoreLifecycleHold = new {
+                Source = "waiting-for-native-KMonoBehaviour.Start-before-positive-time",
+                Required = orbitalRestoreWaitInspections > 0, WaitInspections = orbitalRestoreWaitInspections,
+                PendingSaveRoots = orbitalPendingSaveRoots, MaximumPendingSaveRoots = orbitalMaximumPendingSaveRoots,
+                PhysicalStateVerified = orbitalRestoreHoldVerified, PhysicalFrame = 0,
+                PhysicalTime = orbitalRestoreHoldVerified ? loadedSourceTime : 0,
+                PhysicalSha256 = orbitalRestoreHoldHash
+            },
             SaveRootLifecycle = NativeOrbitalSaveLifecycle.Report()
         };
     }

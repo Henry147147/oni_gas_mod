@@ -429,6 +429,36 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             report=copy.deepcopy(self.report);report['NativeOrbitalReferences'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),(key,value))
 
+    def test_native_restore_lifecycle_hold_requires_the_unchanged_frame_zero_image(self):
+        self.set_restored_colony()
+        hold=dict(Source='waiting-for-native-KMonoBehaviour.Start-before-positive-time',Required=True,
+            WaitInspections=1,PendingSaveRoots=0,MaximumPendingSaveRoots=10,PhysicalStateVerified=True,
+            PhysicalFrame=0,PhysicalTime=self.report['ColonyCheckpoint']['SourceTime'],PhysicalSha256='a'*64)
+        self.report['NativeOrbitalReferences']['RestoreLifecycleHold']=hold
+        self.report['NativeOrbitalReferences']['Inspections']=2
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        for key,value in [('Source','manually registered objects'),('Required',False),('WaitInspections',False),
+            ('WaitInspections',-1),('PendingSaveRoots',1),('PendingSaveRoots',False),('MaximumPendingSaveRoots',0),
+            ('MaximumPendingSaveRoots',True),('PhysicalStateVerified',False),('PhysicalFrame',1),('PhysicalFrame',False),
+            ('PhysicalTime',float('nan')),('PhysicalTime',9),('PhysicalTime',True),('PhysicalSha256','b'*64)]:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,restored=True),(key,value))
+        for key in hold:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'].pop(key)
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,restored=True),key)
+
+    def test_unused_native_restore_lifecycle_hold_cannot_claim_a_physical_witness(self):
+        self.set_saved_colony()
+        hold=dict(Source='waiting-for-native-KMonoBehaviour.Start-before-positive-time',Required=False,
+            WaitInspections=0,PendingSaveRoots=0,MaximumPendingSaveRoots=0,PhysicalStateVerified=False,
+            PhysicalFrame=0,PhysicalTime=0,PhysicalSha256='')
+        self.report['NativeOrbitalReferences']['RestoreLifecycleHold']=hold
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        for key,value in [('Required',True),('WaitInspections',1),('MaximumPendingSaveRoots',1),
+            ('PhysicalStateVerified',True),('PhysicalTime',1),('PhysicalSha256','a'*64)]:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,saved=True),(key,value))
+
     def test_live_actor_save_and_restore_require_current_objects_callbacks_and_snapshot_identity(self):
         self.set_persistent_actors()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True,persistent_actors=True))
