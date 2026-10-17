@@ -163,6 +163,13 @@ saved reviews on Windows, Linux and sanitizers. The private N256 rerun completes
 central density/pressure bounds. Fine-grid accuracy remains open; no private
 method, production default or game gate is promoted.
 
+The later [curved-deformation diagnostic](../native/MAC_CURVED_NODAL.md)
+localizes a pressure/remap source-convention mismatch. Both Windows and GNU
+Linux reproduce 24 failed nodal affine readings while the alternate dual-mean
+source passes. The distinction is also present on the original N64 case's first
+pressure step. A conservative momentum/kinetic-energy conversion remains open;
+no solver repair or original strong-flow criterion is promoted by this finding.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

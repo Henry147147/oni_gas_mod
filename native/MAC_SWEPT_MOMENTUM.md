@@ -53,6 +53,14 @@ uniform velocity, zero sweep, a consistent `q = dt * u` control, below-binary64
 full momentum and both true one-dimensional axes. This checks the actual
 returned state, including both geometry and correction admission.
 
+Those affine controls do not establish the pressure/remap source convention
+under curved deformation. The later [curved nodal diagnostic](MAC_CURVED_NODAL.md)
+reproduces 24 failed face-value readings on Windows and GNU Linux, while the
+alternate dual-volume-mean source passes. The original pressure-step handoff
+also separates the face position and dual centroid. A conservative momentum/K
+mapping remains required; the successful alternate-source control is not an
+accepted numerical repair.
+
 The saved reader independently checks dual first moments and slab predictors,
 upwind transport, all 240 compatible-work events, signed material deposition,
 original balances, the actual EOS and entropy. It performs 169,236 checks per
