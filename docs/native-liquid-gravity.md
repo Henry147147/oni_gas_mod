@@ -70,7 +70,21 @@ cases across a separate rerun of the final checkpoint case after a Wine server
 connection reset; the original infrastructure failure remains retained.
 All 13 ASan/UBSan native tests also pass. The frozen `b4a6552` Ubuntu 22.04
 compatibility build v9 passes all 13 tests, including the 1,200-frame control;
-both shared libraries require at most glibc 2.34. Rendered Unity verification
-of this new scenario is pending. This is a six-cell occupied liquid control;
+both shared libraries require at most glibc 2.34.
+
+The frozen `b4a6552` runner/package and compatibility build v9 now pass the
+actual Linux Unity water-gravity source scene and ordinary colony save in
+`liquid-gravity-unity-matrix-v1/water-gravity-save`. It reaches frame 121 /
+24.200000361 s, publishes both real water callbacks once, and passes gravity,
+native-cell, grid/rendering and save readback checks. Its independent U+K+G
+residual is +0.0000661246 J against 0.005945860769 J; maximum native energy
+residual is 0.000122070313 J. Source physical SHA-256 is
+`b7d6bda27871f5e040f19879e86b6415e56c4b7cb423b29520fae6d74a571bad`,
+and colony-file SHA-256 is
+`aa66e98078bbb825c23958e407176696c18da47766f91156b791ea814376c5ee`.
+Fresh-process and same-process menu reloads are running or pending. Windows
+Unity verification remains open.
+
+This is a six-cell occupied liquid control;
 it does not implement free surfaces, phase change, arbitrary liquid materials,
 production devices, persistent live actors or whole-colony ownership.
