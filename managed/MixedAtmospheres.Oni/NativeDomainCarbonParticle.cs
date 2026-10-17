@@ -11,7 +11,7 @@ namespace MixedAtmospheres.Oni
     {
         private static bool CarbonParticleMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-particle-domain";
         private static bool SubnormalCarbonParticle=>ColonyRuntimeValidation.Settings?.SubnormalCarbonParticle==true;
-        private static float CarbonParticleMass=>SubnormalCarbonParticle ? BitConverter.Int32BitsToSingle(1) : .03125f;
+        private static float CarbonParticleMass=>SubnormalCarbonParticle ? NativeBinary32.FromBits(1) : .03125f;
         private const float CarbonParticleTemperature = 310;
         private static bool carbonParticleStarted, carbonParticleVerified, carbonParticleRetired;
         private static int carbonParticleRetiredAtUnityFrame = -1;

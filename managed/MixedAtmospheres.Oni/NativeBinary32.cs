@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace MixedAtmospheres.Oni
 {
@@ -8,6 +9,10 @@ namespace MixedAtmospheres.Oni
     {
         private const ulong FractionMask=(1UL<<52)-1;
         private static int subnormalProbeBits=1;
+        // Keep literal subnormal inputs behind a runtime call boundary: a JIT
+        // compiling the caller with DAZ enabled can otherwise fold them to zero.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static float FromBits(int bits)=>BitConverter.Int32BitsToSingle(bits);
         internal static void RequireSubnormalRoundTrip()
         {
             // Read the probe bits at runtime. A JIT entered with DAZ enabled can
@@ -34,16 +39,16 @@ namespace MixedAtmospheres.Oni
         {
             var raw=unchecked((ulong)BitConverter.DoubleToInt64Bits(value));var sign=(uint)(raw>>63)<<31;
             var exponent=(int)((raw>>52)&2047);var fraction=raw&FractionMask;
-            if(exponent==0 && fraction==0) return BitConverter.Int32BitsToSingle(unchecked((int)sign));
+            if(exponent==0 && fraction==0) return FromBits(unchecked((int)sign));
             var power=exponent-1023;
             if(exponent==2047 || power< -149 || power>127) throw new ArgumentException("Value is not a finite exact binary32 scalar.");
             if(power>= -126) {
                 if((fraction&((1UL<<29)-1))!=0) throw new ArgumentException("Value is not an exact binary32 scalar.");
-                return BitConverter.Int32BitsToSingle(unchecked((int)(sign|((uint)(power+127)<<23)|(uint)(fraction>>29))));
+                return FromBits(unchecked((int)(sign|((uint)(power+127)<<23)|(uint)(fraction>>29))));
             }
             var shift= -power-97;var significand=(1UL<<52)|fraction;
             if((significand&((1UL<<shift)-1))!=0) throw new ArgumentException("Value is not an exact binary32 subnormal.");
-            return BitConverter.Int32BitsToSingle(unchecked((int)(sign|(uint)(significand>>shift))));
+            return FromBits(unchecked((int)(sign|(uint)(significand>>shift))));
         }
     }
 }

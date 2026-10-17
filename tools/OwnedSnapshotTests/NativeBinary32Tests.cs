@@ -10,6 +10,8 @@ internal static class NativeBinary32Tests
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void SetControl(uint control);
     [MethodImpl(MethodImplOptions.NoInlining)] private static double OrdinaryPromotion(float value)=>value;
     [MethodImpl(MethodImplOptions.NoInlining)] private static float OrdinaryProjection(double value)=>(float)value;
+    [MethodImpl(MethodImplOptions.NoInlining|MethodImplOptions.AggressiveOptimization)]
+    private static float ColdSmallestSource()=>NativeBinary32.FromBits(1);
     internal static void Run(System.Action<string,System.Action> test,System.Action<bool> check,System.Action<System.Action> reject)
     {
         test("native binary32 wire conversion preserves zero signs subnormals extrema and exceptional classes",()=> {
@@ -30,6 +32,7 @@ internal static class NativeBinary32Tests
                     for(var sign=0;sign<2;++sign) {
                         var bits=unchecked((int)(((uint)sign<<31)|((uint)exponent<<23)|fraction));
                         var native=BitConverter.Int32BitsToSingle(bits);var exact=NativeBinary32.ToDouble(bits);
+                        check(BitConverter.SingleToInt32Bits(NativeBinary32.FromBits(bits))==bits);
                         check(BitConverter.DoubleToInt64Bits(exact)==BitConverter.DoubleToInt64Bits((double)native));
                         check(BitConverter.SingleToInt32Bits(NativeBinary32.ToSingleExact(exact))==bits);
                     }
@@ -64,6 +67,9 @@ internal static class NativeBinary32Tests
                 var saved=get();try {
                     set(saved|0x8040U);check((get()&0x8040U)==0x8040U);
                     NativeBinary32.RequireSubnormalRoundTrip();
+                    // The first call compiles this literal's caller with DAZ/FTZ
+                    // already enabled, as can happen at a native factory boundary.
+                    check(BitConverter.SingleToInt32Bits(ColdSmallestSource())==1);
                     var smallest=BitConverter.Int32BitsToSingle(1);var exact=NativeBinary32.ToDouble(1);
                     check(OrdinaryPromotion(smallest)==0 && BitConverter.SingleToInt32Bits(OrdinaryProjection(exact))==0);
                     check(BitConverter.DoubleToInt64Bits(NativeBinary32.ToDouble(smallest))==0x36a0000000000000L);
@@ -74,6 +80,16 @@ internal static class NativeBinary32Tests
                     BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(12),1);packet[24]=1;
                     var decoded=NativeCellMassEditPlan.Decode(28,1,packet,_=>true,_=>4)[0];
                     check(BitConverter.DoubleToInt64Bits(decoded.MassKg)==0x36a0000000000000L);
+                    var geometry=new OniNativeDomain.Configuration {GridWidth=32,X=10,Y=10,Width=3,Height=2};
+                    var fields=new[]{10.25f,10.75f,0f,.25f,-.5f,0f,ColdSmallestSource(),300f,1f,17f};
+                    var particle=new NativeTransientParticle(42,330,1,fields);
+                    var image=NativeTransientParticleImage.Create(new[]{particle},geometry);
+                    var restored=NativeTransientParticleImage.Parse(image.CopyEncodedData(),geometry);
+                    var actual=restored.Particles[0].Values();
+                    for(var i=0;i<fields.Length;++i)
+                        check(BitConverter.SingleToInt32Bits(actual[i])==BitConverter.SingleToInt32Bits(fields[i]));
+                    check(BitConverter.SingleToInt32Bits(restored.Particles[0].MassKg)==1);
+                    check(image.CopyEncodedData().AsSpan().SequenceEqual(restored.CopyEncodedData()));
                     check((get()&0x8040U)==0x8040U);
                 } finally {set(saved);}
                 check(get()==saved);

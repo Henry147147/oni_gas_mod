@@ -95,3 +95,15 @@ actual DAZ/FTZ enabled and compiles the adapter with its two retained MSB3277
 warnings. Linux runtime probes reproduce the original self-check failure and
 pass the repair using the same captured managed assembly. These are isolated
 worker/runtime checks; they add no Unity, strong-flow or first-playable result.
+
+The subsequent merge through `a0ec21b` retains parcel retirement across native
+pool reuse and reserves an object-free flora-support margin around test arenas.
+Actual getter compilation then exposes the same constant-folding defect in
+both tiny parcel sources. Their [shared raw-bit boundary](native-float-wire.md)
+passes fresh Windows/Linux runtime probes, 172 declaration scenarios on each
+runtime using the installed Windows declarations, and an in-flight image round
+trip under DAZ/FTZ. Removing only its no-inline attribute fails the new cold
+optimized assertion. The merged Python suite passes 146 tests with three skips.
+All 284 retained native source/build files match the closed 239-group/40-review
+matrix; that matrix is reused without relaunching it. Unity arena placement,
+particle factories and complete Windows colony acceptance remain open.

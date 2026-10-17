@@ -25,7 +25,7 @@ namespace MixedAtmospheres.Oni
         private static string restoredTransientHash="";
         private static bool TransientParticleValidationRequired=>ColonyRuntimeValidation.Settings?.VerifyTransientParticles==true;
         private static bool SavedParticleSubnormal=>ColonyRuntimeValidation.Settings?.SubnormalCarbonParticle==true;
-        private static float SavedParticleMass=>SavedParticleSubnormal ? BitConverter.Int32BitsToSingle(1) : .03125f;
+        private static float SavedParticleMass=>SavedParticleSubnormal ? NativeBinary32.FromBits(1) : .03125f;
         private static double SavedParticleMassKg=>NativeBinary32.ToDouble(SavedParticleMass);
         private const float SavedParticleTemperature=333.25f;
         private static CO2? savedParticleFixture;

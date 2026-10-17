@@ -86,7 +86,7 @@ namespace MixedAtmospheres.Oni
             var records=new NativeTransientParticle[checked((int)count)];ulong previous=0;
             for(var index=0;index<records.Length;++index) {
                 var offset=HeaderBytes+RecordBytes*index;var fields=new float[10];
-                for(var i=0;i<fields.Length;++i) fields[i]=BitConverter.Int32BitsToSingle((int)U(data,offset+16+4*i));
+                for(var i=0;i<fields.Length;++i) fields[i]=NativeBinary32.FromBits((int)U(data,offset+16+4*i));
                 var item=new NativeTransientParticle(BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset)),U(data,offset+8),U(data,offset+12),fields);
                 Require(BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(offset+56))==0 && item.Identity>previous,
                     "Transient CO2 image has reserved data or noncanonical identities.");

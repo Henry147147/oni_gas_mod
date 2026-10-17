@@ -45,6 +45,31 @@ The repaired declaration/build review is `local/windows-binary32-startup-r1`,
 SHA-256 `4a1c82877bbf28d38bfdbd429806bbd7a5348cafe574bfc9d3c779a69fb4f526`.
 Its adoption record binds the tracked helper to those exact tested bytes.
 
+A further merged-source preflight compiles the actual `CarbonParticleMass` and
+`SavedParticleMass` getters with DAZ enabled. Both originally supplied zero on
+their tiny-parcel branch in the Windows .NET runtime. This probe prepares their
+code without invoking Unity, the getters or a game factory. `NativeBinary32.FromBits`
+now supplies parcel inputs through a non-inlined runtime call; exact callback
+projection and in-flight image decoding use that same bit-preserving boundary.
+
+The regression forces a fresh optimized caller to compile after DAZ/FTZ is
+enabled, then checks exact particle-field serialization and restoration under
+those controls. Removing only `FromBits`' `NoInlining` attribute in a private
+copy makes that assertion fail after the ordinary conversion tests pass.
+The fixed suite passes all 172 scenarios on Windows and Linux runtimes, using
+the installed Windows game declarations on both. Actual compiled getters call
+the helper on both runtimes, and direct helper calls retain positive and
+negative trace bits. The adapter builds with its two retained reference warnings;
+merged Python discovery passes 146 tests with three skips. This adds no Linux
+game-declaration or Unity result. The unchanged native source retains its
+completed regression without a repeat.
+
+The actual-getter rejection is retained in `local/windows-particle-constants-r1`,
+review SHA-256 `7c9ba34642ea7b748b7d788c8c32daed42c0ad900ee9ed91cff7589f08021cb2`.
+The fixed cross-runtime and negative-control review is
+`local/windows-particle-constants-r2`, SHA-256
+`32a1dbedf77b5b9a99646ac6950f809c7de24ff5c6d365427f301addef23ba5c`.
+
 For example, on a Linux x64 test host:
 
 ```sh
