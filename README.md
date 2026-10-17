@@ -30,6 +30,7 @@ Blank overlay areas have no mixture data; they do not indicate vacuum.
 
 | Control | Effect |
 | --- | --- |
+| Ctrl+F5 | Cycle composition, pressure, oxygen partial pressure, breathability, and normal view |
 | Ctrl+F8 | Expand/collapse the status panel |
 | Ctrl+F9 | Centre and zoom the camera on the supplied fluid region |
 | Ctrl+F10 | Show/hide the cyan region outline |

@@ -42,6 +42,7 @@ namespace MixedAtmospheres.Oni
             var control = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
             if (control)
             {
+                if (Input.GetKeyDown(KeyCode.F5)) CycleOverlay();
                 if (Input.GetKeyDown(KeyCode.F8)) expanded = !expanded;
                 if (Input.GetKeyDown(KeyCode.F9)) FocusReadings();
                 if (Input.GetKeyDown(KeyCode.F10)) showBoundary = !showBoundary;
@@ -75,19 +76,21 @@ namespace MixedAtmospheres.Oni
             }
             if (frame == null || !frame.HasWorld)
             {
-                state = NativeSealedDomainValidation.IsMode ? "Preparing the fluid region" : "Loaded · native ONI physics";
+                state = NativeSealedDomainValidation.Failed ? "Fluid simulation stopped" :
+                    NativeSealedDomainValidation.IsMode ? "Preparing the fluid region" : "Loaded · native ONI physics";
                 scope = "No custom world readings are published. Mixture overlays have no data in this colony.";
                 return;
             }
             var paused = SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused;
-            state = frame.IsFixture ? "Visual fixture · native ONI physics" :
+            state = NativeSealedDomainValidation.Failed ? "Fluid simulation stopped" : frame.IsFixture ? "Visual fixture · native ONI physics" :
                 NativeSealedDomainValidation.Active ? "Custom fluid active" : "Mixture readings available";
             state += paused ? " · paused" : " · running";
             scope = frame.SuppliedCells.Count.ToString(CultureInfo.InvariantCulture) + " cells with readings · frame " +
                 frame.Revision.ToString(CultureInfo.InvariantCulture) + "\n" +
                 (NativeSealedDomainValidation.Active ? "Bounded development region; surrounding colony uses ONI physics." :
                  frame.IsFixture ? "Colours and readings are a display fixture." : "Only explicitly supplied cells show mixture data.") + "\n" +
-                "Renderer: " + (MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
+                "Renderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
+                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
             if (frame.SuppliedCells.Count == 0) return;
             sampleCell = frame.SuppliedCells.Keys.Min();
             var camera = CameraController.Instance?.baseCamera;
@@ -123,14 +126,25 @@ namespace MixedAtmospheres.Oni
             CameraController.Instance.OrthographicSize = 4;
         }
 
+        private void CycleOverlay()
+        {
+            if (!InColony || OverlayScreen.Instance == null || frame == null || !frame.HasWorld) return;
+            var active = OverlayScreen.Instance.GetMode();
+            var kinds = (MixtureOverlayKind[])Enum.GetValues(typeof(MixtureOverlayKind));
+            var next = 0;
+            for (var index = 0; index < kinds.Length; ++index)
+                if (active == MixtureOverlays.Id(kinds[index])) { next = index + 1; break; }
+            OverlayScreen.Instance.ToggleOverlay(next == kinds.Length ? OverlayModes.None.ID : MixtureOverlays.Id(kinds[next]), false);
+        }
+
         private void OnGUI()
         {
             var scale = Mathf.Max(1, Screen.height / 900f);
             if (titleStyle == null)
             {
                 titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, wordWrap = true };
-                textStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, wordWrap = true };
-                hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+                textStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
+                hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             }
             var previousMatrix = GUI.matrix;
             var previousColor = GUI.color;
@@ -150,7 +164,7 @@ namespace MixedAtmospheres.Oni
                     if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
                     body += "\n\nAttention: " + message;
                 }
-                var hints = "Ctrl+F8 details · Ctrl+F9 find fluid\nCtrl+F10 boundary · overlays: top-right menu\nHover a cell; select it for full composition.";
+                var hints = "Ctrl+F8 details · Ctrl+F9 find fluid\nCtrl+F5 overlay · Ctrl+F10 boundary\nHover a cell; select it for full composition.";
                 var height = 66f + (expanded ? textStyle!.CalcHeight(new GUIContent(body), contentWidth) +
                     hintStyle!.CalcHeight(new GUIContent(hints), contentWidth) + 14 : 0);
                 var top = InColony ? 200 : Screen.height / scale - height - 20;
