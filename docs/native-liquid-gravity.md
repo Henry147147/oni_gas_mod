@@ -82,8 +82,20 @@ residual is 0.000122070313 J. Source physical SHA-256 is
 `b7d6bda27871f5e040f19879e86b6415e56c4b7cb423b29520fae6d74a571bad`,
 and colony-file SHA-256 is
 `aa66e98078bbb825c23958e407176696c18da47766f91156b791ea814376c5ee`.
-Fresh-process and same-process menu reloads are running or pending. Windows
-Unity verification remains open.
+The fresh-process load passes its frame-zero deferred autosave and all 120
+exact continued physical images through 48.200000718 s. Its final physical
+SHA-256 is
+`1553d8fadc0f65ce4e6759781f4e7e45a54c872a592c6c9745854b2bbf679285`;
+the initial autosave retains the exact source image and has file SHA-256
+`2dc8e3c7c8148ec19c41ddbe78cf6ae42608e90c125dfc9c31cd4d39fd11b5ee`.
+
+`liquid-gravity-in-process-reload-v1` also passes: one Unity process observes
+shutdown/main menu, advances native session 1 to 2, performs both paused initial
+autosaves and reproduces that same frame-120 physical image in both sessions.
+The staged input remains unchanged; the second autosave file hash is
+`a0e3223883502b1a461582109407f33cda03a4e62f634c83933f17b7b4cf6621`.
+The supervising workflow then resumes the larger frozen feature matrix.
+Windows Unity verification remains open.
 
 This is a six-cell occupied liquid control;
 it does not implement free surfaces, phase change, arbitrary liquid materials,
