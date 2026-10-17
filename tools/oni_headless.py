@@ -544,6 +544,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "SaveOnComplete": bool(getattr(args, "save_colony", False)),
             "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
+            **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
     thin = output / "game"
     thin.mkdir()
@@ -617,7 +618,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
                 carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
                 saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
-                save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)))
+                save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
+                reload_in_process=bool(getattr(args,"reload_in_process",False)))
             if code == 0 and not domain_ok:
                 status, code = "failed-native-domain", 2
         elif code == 0 and not observer_ok:
@@ -675,6 +677,7 @@ def main() -> int:
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
+    play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
     if args.command == "run" and args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:
@@ -683,6 +686,8 @@ def main() -> int:
         print(f"oni_headless: {reason}", file=sys.stderr)
         return 2
     state = args.state.resolve()
+    if args.command == "run" and args.reload_in_process and (args.mode != "native-load-domain" or not args.resave_before_resume):
+        parser.error("--reload-in-process requires native-load-domain --resave-before-resume")
     if args.command == "run" and args.resave_before_resume and args.mode != "native-load-domain":
         parser.error("--resave-before-resume requires native-load-domain")
     if args.command == "run" and args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames<16):

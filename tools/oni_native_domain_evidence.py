@@ -14,9 +14,11 @@ import struct
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
+        return False
+    if reload_in_process and not restored:
         return False
     if save_io_recovery and (not saved or restored):
         return False
@@ -271,6 +273,19 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or colony.get("SavedFrame") != 0
                 or colony.get("SavedTime") != colony["SourceTime"] or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]):
             return False
+    if reload_in_process:
+        workflow=report.get("InProcessReload")
+        if (colony.get("FrameZeroResaveRequired") is not True or colony.get("FrameZeroResaveVerified") is not True
+                or not isinstance(workflow,dict) or workflow.get("Requested") is not True or workflow.get("Verified") is not True
+                or workflow.get("Stage")!=3 or workflow.get("WholeColonyFluidAuthority") is not False
+                or any(workflow.get(key) is not True for key in ("ShutdownObserved","MainMenuObserved","MatchingFrameVerified","FirstAutosaveVerified","InputUnchanged"))
+                or type(workflow.get("FirstProcessId")) is not int or workflow["FirstProcessId"]<=0
+                or workflow.get("CurrentProcessId")!=workflow["FirstProcessId"]
+                or type(workflow.get("FirstNativeSession")) is not int or not 0<workflow["FirstNativeSession"]<physical["Session"]
+                or workflow.get("CurrentNativeSession")!=physical["Session"] or workflow.get("MatchedSession")!=physical["Session"]
+                or type(workflow.get("FirstCompletedFrame")) is not int or not frames<=workflow["FirstCompletedFrame"]<=physical["CompletedFrames"]
+                or any(not _sha256(workflow.get(key)) for key in ("FirstPhysicalSha256","FirstReportSha256","InputSha256"))):
+            return False
     physics_exercised = (physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 0 if liquid_actors else
                          physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 2.2e8 if liquid_transfers else
                          physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
@@ -303,6 +318,7 @@ def main() -> int:
     parser.add_argument("--frames", type=int, required=True)
     parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
+    parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
@@ -310,12 +326,14 @@ def main() -> int:
         parser.error("Expected 1..10000 native frames")
     if args.save_io_recovery and args.mode!="save":
         parser.error("--save-io-recovery requires mode save")
+    if args.reload_in_process and args.mode!="load":
+        parser.error("--reload-in-process requires mode load")
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode in ("water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery)
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

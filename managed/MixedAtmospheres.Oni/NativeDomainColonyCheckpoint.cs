@@ -360,6 +360,7 @@ namespace MixedAtmospheres.Oni
             var expected=ResumePhysicalCheckpoint(restoredExpected,latest.LastTimestepSeconds);
             Require(TryCapturePhysicalCheckpoint(out var actual) && actual.SequenceEqual(expected),"Restored colony worker differs from exact saved continuation.");
             replayTime+=latest.LastTimestepSeconds;Require(latest.TimeSeconds==replayTime,"Restored colony reset or changed its physical clock.");
+            ObserveReloadPhysicalFrame(actual);
             restoredExpected=expected;replayFrame=latest.CompletedFrames;++exactReplayComparisons;
         }
         internal static void BeforeRestoredNativeFrame(int message,int length,byte* payload)
@@ -408,7 +409,7 @@ namespace MixedAtmospheres.Oni
                     }
                     if(Time.frameCount-resumePreparationFrame<3) return;
                     Require(latest.CompletedFrames==0 && latest.TimeSeconds==loadedSourceTime,"Initial resave advanced before its paused admission.");
-                    var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"resaved-colony.sav");
+                    var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,ReloadSaveName);
                     if(!frameZeroResaveScheduled)
                     {
                         Require(!File.Exists(path),"Initial resave destination already exists.");

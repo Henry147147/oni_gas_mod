@@ -57,7 +57,7 @@ for ownership, interfaces, failures and implementation gates.
   heat redistribution. Fluid/solid heat exchange remains unfinished.
   [Stored-energy rounding](native/MAC_CONDUCTION_ROUNDING.md) now preserves
   closed liquid heat sums when representable, with unresolved updates explicit.
-  A separate liquid heat scene is implemented and awaits Unity verification.
+  Linux Unity also passes liquid heat, represented conduction and paired reload.
   An opt-in gravity scene also passes in the Linux game, retaining physical
   vertical momentum and gravitational energy carried by actual gas transfers.
   The Windows binary also passes gas, water and heat controls under Wine.

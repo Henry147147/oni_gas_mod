@@ -111,7 +111,20 @@ represented U increment directly. Small unresolved requests remain explicit.
 The separate `native-liquid-heat-domain` / `-NativeDomain water-heat` scene
 uses +2 MJ / -0.5 MJ, requires source and neighbor warming, positive represented
 redistribution/entropy, and the usual paired save/reload. Its Unity verification
-is pending; licensed Linux and Windows-under-Wine controls pass.
+passes the frozen `conservative-heat-unity-matrix-v1` Linux source/reload pair;
+licensed Linux and Windows-under-Wine controls also pass.
+
+That Unity source reaches 121 native frames / 24.200000361 s with zero measured
+U+K drift, 9.0625 J represented internal redistribution and positive entropy
+3.278225952e-5 J/K. Its physical image is
+`e22b67714f992cfa23e2810539ce851be01494477b9fee8a2f49f3095b80c05a`,
+and its ordinarily saved colony file is
+`32c4e18a57522e6013ff9f2c4e23ce3236131716655ccf2b0ca59a881c86510f`.
+Fresh-process reload passes the paused autosave challenge and every one of
+120 continued frames through 48.200000718 s, ending at
+`08c0e874f1af2940b42076735958c46f77e65a38a832843ac632bef96d3fb382`.
+The inputs are frozen `67e1475` with compatibility native build v7. Windows
+Unity remains open for the new liquid heat scene.
 
 `native-conduction-domain` seeds a temperature gradient with the ordinary
 +2,000 J / -500 J game heat commands. It requires positive internal heat

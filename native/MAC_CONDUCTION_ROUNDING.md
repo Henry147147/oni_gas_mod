@@ -63,6 +63,8 @@ resolvable gradient with matching 4.375 J represented redistribution,
 1.582595547e-5 J/K entropy increase and zero measured U+K drift. Both small
 controls conserve energy and report zero represented redistribution/entropy
 with 11,536 unresolved updates. All 13 Linux and Windows-under-Wine native
-tests pass. The new rendered liquid heat scene is awaiting
-verification. This does not certify fluid/solid exchange, variable material
+tests pass. The frozen `67e1475` / compatibility v7 rendered Linux heat scene
+also passes its ordinary save and fresh-process reload, including all 120
+exact continued frames. Windows Unity verification remains open.
+This does not certify fluid/solid exchange, variable material
 properties, phase changes, full-range heat accuracy or a playable overhaul.

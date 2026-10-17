@@ -300,6 +300,15 @@ internal static unsafe class Program
                 headers[0].GetParameters().Select(parameter=>parameter.ParameterType).SequenceEqual(new[]{typeof(bool),typeof(bool),typeof(SaveGame.Header).MakeByRefType()}));
             Check(typeof(ConfirmDialogScreen).GetField("popupMessage",flags)?.FieldType.FullName=="LocText");
         });
+        Test("actual main-menu reload boundaries are managed static game entry points", () =>
+        {
+            const BindingFlags flags=BindingFlags.Static|BindingFlags.Public|BindingFlags.NonPublic;
+            foreach(var entry in new[]{(typeof(PauseScreen),"TriggerQuitGame"),(typeof(LoadScreen),"ForceStopGame")})
+            {
+                var method=entry.Item1.GetMethod(entry.Item2,flags,null,Type.EmptyTypes,null);
+                Check(method!=null && method.ReturnType==typeof(void) && method.GetMethodBody()!=null);
+            }
+        });
         FluidRouterTests.Run(Test, Check, Reject);
         FluidFrameCoordinatorTests.Run(Test, Check, Reject);
         MixtureRuntimeTests.Run(Test, Check, Reject);

@@ -113,7 +113,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         observation = copy.deepcopy(self.observation); observation["Observation"]["ForwardingOnly"] = True
         self.assertFalse(runner.native_domain_passed(self.report, observation, 30))
 
-    def test_restored_frame_zero_resave_preserves_clock_state_and_nested_pause_depth(self):
+    def set_restored_autosave(self):
         self.set_restored_colony()
         colony=self.report['ColonyCheckpoint']
         colony.update(Saved=True,AutomaticSaveAdmissions=1,SimSaveWrites=1,SavePauseStateRestored=True,
@@ -123,6 +123,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             InitialPauseChallengeVerified=True,InitialPositiveTicksHeld=1,
             SerializedHeaderCaptures=1,SerializedHeaderSha256='f'*64,
             SerializedBodyCaptures=1,SerializedBodyBytes=160000,SerializedBodySha256='e'*64)
+
+    def test_restored_frame_zero_resave_preserves_clock_state_and_nested_pause_depth(self):
+        self.set_restored_autosave();colony=self.report['ColonyCheckpoint']
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
         for key,value in [('SimSaveWrites',2),('AutomaticSaveAdmissions',2),('SavePauseDepthAfter',3),
                           ('SavePauseDepthAfter',1),('FrameZeroResaveVerified',False),('SavedAsAutoSave',False),('SavedFrame',1),
@@ -131,6 +134,24 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                           ('SavedTime',colony['SourceTime']+.2),('SavedPhysicalSha256','d'*64)]:
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),key)
+
+    def test_same_process_reload_requires_retired_session_menu_exact_milestone_and_both_autosaves(self):
+        self.set_restored_autosave()
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True,reload_in_process=True))
+        self.report['NativeDomain']['Session']=2
+        self.report['InProcessReload']={'Requested':True,'Verified':True,'Stage':3,'WholeColonyFluidAuthority':False,
+            'ShutdownObserved':True,'MainMenuObserved':True,'MatchingFrameVerified':True,'FirstAutosaveVerified':True,'InputUnchanged':True,
+            'FirstProcessId':4242,'CurrentProcessId':4242,'FirstNativeSession':1,'CurrentNativeSession':2,'MatchedSession':2,
+            'FirstCompletedFrame':30,'FirstPhysicalSha256':'a'*64,'FirstReportSha256':'b'*64,'InputSha256':'c'*64}
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True,reload_in_process=True))
+        for key,value in [('Verified',False),('Stage',2),('ShutdownObserved',False),('MainMenuObserved',False),
+                ('MatchingFrameVerified',False),('FirstAutosaveVerified',False),('InputUnchanged',False),('CurrentProcessId',4243),
+                ('FirstNativeSession',2),('MatchedSession',1),('CurrentNativeSession',1),('FirstCompletedFrame',31),
+                ('FirstCompletedFrame',29),('FirstReportSha256',''),('InputSha256','x'*64)]:
+            bad=copy.deepcopy(self.report);bad['InProcessReload'][key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,restored=True,reload_in_process=True),key)
+        self.report['ColonyCheckpoint']['FrameZeroResaveRequired']=False
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True,reload_in_process=True))
 
     def test_restored_equilibrium_and_water_still_require_complete_exact_replay(self):
         self.set_restored_colony()

@@ -689,6 +689,7 @@ namespace MixedAtmospheres.Oni
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),
+            InProcessReload = InProcessReloadReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
             LiquidTransfersVerified = LiquidTransferMode && transfersVerified,
             FluidTransfers = transferStatus,
@@ -717,6 +718,8 @@ namespace MixedAtmospheres.Oni
             ResetActorBindings();
             if (active) { var stopped = Status.Empty; Check(Stop(ref stopped)); }
             active = false; arming = false; restoredScenarioSelected=false;
+            ObserveReloadShutdown();
+            ResetEndedNativeSession();
         }
         internal static void DrawLabel()
         {

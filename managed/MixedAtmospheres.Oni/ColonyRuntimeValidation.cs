@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
             public bool SaveOnComplete = false;
             public bool SaveBeforeResume = false;
             public bool VerifySaveIoRecovery = false;
+            public bool ReloadInProcess = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
             public string Seed = "147147";
@@ -68,6 +69,7 @@ namespace MixedAtmospheres.Oni
         private static Configuration? configuration;
         private static readonly ValidationReport Report = new ValidationReport();
         private static OwnedSnapshotPublisher? publisher;
+        private static ColonyValidationDriver? driver;
         private static bool inNewColonyLoad;
         private static bool actualColonyActive;
         private static bool done;
@@ -113,6 +115,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
                 throw new InvalidDataException("Save IO recovery requires the explicit source-save validation scene and at least sixteen frames.");
+            if(configuration.ReloadInProcess && (!NativeSealedDomainValidation.ColonyRestoreMode || !configuration.SaveBeforeResume))
+                throw new InvalidDataException("In-process reload requires a saved-colony load and the paused initial autosave control.");
             Directory.CreateDirectory(OutputDirectory);
             if (NativeSealedDomainValidation.IsMode)
             {
@@ -230,9 +234,11 @@ namespace MixedAtmospheres.Oni
         {
             if (configuration == null || done) return;
             if (configuration.Mode == "load-rejection" && OwnedReservoirLoadVisualValidation.ObserveMainMenu(menu)) return;
+            NativeSealedDomainValidation.ObserveReloadMainMenu();
+            if(driver!=null) {driver.Initialize(menu);return;}
             var runner = new GameObject("Mixed Atmospheres private colony validation");
             UnityEngine.Object.DontDestroyOnLoad(runner);
-            runner.AddComponent<ColonyValidationDriver>().Initialize(menu);
+            driver=runner.AddComponent<ColonyValidationDriver>();driver.Initialize(menu);
         }
 
         internal static void UpdateColony()
@@ -355,6 +361,12 @@ namespace MixedAtmospheres.Oni
             Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.Stage = "completed"; Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            if(NativeSealedDomainValidation.ContinueInProcessReload())
+            {
+                File.WriteAllText(Path.Combine(OutputDirectory,"first-load-colony-validation.json"),ReportJson.Serialize(Report));
+                Report.Status="pending";Report.Stage="returning-to-main-menu-for-reload";Report.FinishedUtc="";done=false;WriteReport();
+                LoadingOverlay.Load(PauseScreen.TriggerQuitGame);return;
+            }
             done = true; WriteReport();
         }
         internal static void CompleteLoadRejection(int width, int height, int worldCount)
@@ -389,7 +401,7 @@ namespace MixedAtmospheres.Oni
             // unused Unity screenshot module. The image is produced by Unity.
             var capture = Type.GetType("UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule");
             capture?.GetMethod("CaptureScreenshot", new[] { typeof(string), typeof(int) })?.Invoke(null,
-                new object[] { Path.Combine(OutputDirectory, filename), 1 });
+                new object[] { Path.Combine(OutputDirectory, NativeSealedDomainValidation.ReloadScreenshotName(filename)), 1 });
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
         internal static void Shutdown()
@@ -410,7 +422,12 @@ namespace MixedAtmospheres.Oni
         private int completionWaitFrames;
         private float minionsReadyAt = -1;
         private readonly HashSet<int> visited = new HashSet<int>();
-        internal void Initialize(MainMenu mainMenu) { menu = mainMenu; started = Time.realtimeSinceStartup; nextAction = started + 3; }
+        internal void Initialize(MainMenu mainMenu)
+        {
+            foreach(var label in GetComponents<NativeSealedDomainLabel>()) UnityEngine.Object.Destroy(label);
+            menu=mainMenu;started=Time.realtimeSinceStartup;nextAction=started+3;
+            completionWaitFrames=0;minionsReadyAt=-1;visited.Clear();
+        }
         private void Update()
         {
             var config = ColonyRuntimeValidation.Settings;
