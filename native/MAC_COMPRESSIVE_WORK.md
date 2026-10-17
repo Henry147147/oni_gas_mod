@@ -131,3 +131,32 @@ Terminal SHA-256:
 All owned processes and pipes are terminal. No independent-agent review is
 claimed. The owning timestep/selector, complete prerequisite rerun, original
 strong-flow gate and game acceptance remain required.
+
+## Windows backend regression
+
+Source `e181a18` also passes a fresh Windows build and the ABI, detour and four
+native-domain groups. These exercise the default pressure path after the
+private work-law refactor. The installed-assembly suite passes 132 groups;
+four Python runner suites pass 120 tests without skips, and 12 actual
+PowerShell option checks pass. The adapter retains only its two existing
+MSB3277 reference conflicts. Native terminal SHA-256:
+`2454dd94e8003a1d3c770fa306afb8a88a9f0f8dfb264452afa7cd7ac6bbc102`.
+Managed/runner terminal SHA-256:
+`546ad352dfb7196e0ced460389da673905487d9cf9e791565bfb916dcf094ce2`.
+
+Freshly built probe and native libraries additionally pass isolated gas and
+water runs against the installed licensed Windows SimDLL. Each advances 61
+source frames, restores a paired physical/native checkpoint into a new
+session, and reproduces 12 complete continuation frames exactly. Invalid
+sources reject before native loading; zero-time restore flags, compatibility,
+outside cells and frame-zero pairing also pass. All processes exit normally
+with closed pipes. The first saved reader incorrectly required empty native
+stderr; its retained failure is corrected to recognize exactly three native
+SimThread startup lines. The original captures pass without relaunching.
+Private evidence is `local/windows-licensed-native-r5`; terminal SHA-256:
+`4089728c3182940eaee2eef8e5247e78df605fb1144ee27ae1d6fec653f936cf`.
+
+These runs use the default owning backend. The new compressive work control
+remains unselected. They do not execute Unity, test ordinary colony saves or
+establish Windows actor persistence, production authority or the playable
+colony. The installed SimDLL and default game library remain unchanged.

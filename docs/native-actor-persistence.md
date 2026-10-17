@@ -130,6 +130,17 @@ terminal SHA-256
 `6805173ff923a9b4a8217d7e5c11c60389a71baf2a5f34528aa456fcd1fc17d9`.
 This is declaration/build verification; Unity save/reload remains required.
 
+After the natural-autosave runner changes and pressure-work refactor, fresh
+Windows source `e181a18` passes 132 installed-assembly groups, 120 Python runner
+tests without skips and 12 actual PowerShell option checks. Its rebuilt native
+libraries pass the ABI, detour and four domain groups. Separate licensed
+SimDLL worker controls pass gas and water checkpoint restores, each with 12
+exact continuation frames. These isolated controls use the default backend
+and do not execute Unity or prove Windows actor save/reload. The managed/runner
+terminal is `546ad352dfb7196e0ced460389da673905487d9cf9e791565bfb916dcf094ce2`;
+the licensed-worker terminal is
+`4089728c3182940eaee2eef8e5247e78df605fb1144ee27ae1d6fec653f936cf`.
+
 The private `--verify-persistent-actors` source fixture uses three real,
 saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
