@@ -55,11 +55,16 @@ for ownership, interfaces, failures and implementation gates.
   The Windows binary also passes gas, water and heat controls under Wine.
   Current Windows Unity takeover validation remains open.
   Native physical checkpoints now preserve full state and reproduce the next
-  actual Linux worker frame byte for byte. Ordinary colony save/reload still
-  needs matching native/managed state and actor/outbox persistence.
+  actual Linux worker frame byte for byte.
   Paired capture now saves native cells and the custom owner at the same worker
-  barrier and validates their combined file in the Linux game. Load binding and
-  full managed/actor persistence remain unfinished.
+  barrier and validates their combined file in the Linux game. An actor-free
+  development colony now also saves through ONI's normal serializer and loads
+  in a fresh game process: its managed objects return, its initial physical
+  bytes are exact, and all 120 resumed worker frames match independent
+  continuation. Native startup events deliver once; grid/rendering and outside
+  native heat pass. General manual/autosave admission, owned actor persistence
+  and Windows Unity validation remain unfinished. See the
+  [checkpoint protocol](native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
   code fingerprints, bounded traces and lifecycle fences. Six isolated native

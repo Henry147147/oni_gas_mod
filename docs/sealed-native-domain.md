@@ -263,20 +263,55 @@ The [physical checkpoint format](../native/MAC_CHECKPOINT.md) now preserves the
 complete native owner, including physical U and full canonical momentum.
 `native-checkpoint-domain` checks restored continuation against the exact next
 worker frame in the real game. Export requires a drained actor-free frame.
-Native/managed colony state pairing, actor/outbox persistence and ordinary
-save/reload remain unfinished, so both scalar-save guards remain enabled.
+General colony state pairing and actor/outbox persistence remain unfinished.
+The explicit paused actor-free save/load path below now pairs both owners with
+Unity's normal managed colony; both scalar-save guards remain enabled outside
+that single staged save call.
 `native-paired-checkpoint-domain` additionally requests capture at the native
 worker barrier, verifies the original native cell tuples in that saved image,
 checks immutable native/physical buffers and encodes and validates their shared
 `MACOLONY` container. It remains a bounded paired capture, with ordinary
-save/load integration and managed/actor persistence still unfinished.
+general save/load admission and actor persistence still unfinished.
 The isolated `sealed-restore`, `sealed-restore-water` and
 `sealed-restore-gravity` controls now reload both paired sections through the
 licensed native loader. They preserve the complete physical state/clock,
 restore native flow flags at zero time and match twelve resumed worker images
 exactly. Source validation rejects corrupt metadata, inventory, geometry,
 phase or clock before native loading. This passes on Linux and the Windows
-library under Wine; Unity's ordinary save/load binding remains the next gate.
+library under Wine. The bounded Unity binding is described below.
+
+### Paused colony persistence
+
+`native-save-domain` completes the ordinary room checks, synchronizes the
+paused game, captures both owners and writes a full ONI colony through
+`SaveLoader.Save`. One staged `Sim.Save` writes the paired envelope. The file
+is flushed and renamed from a fresh temporary destination, and the physical
+state must remain byte-identical during serialization.
+
+`native-load-domain` loads that file through the normal scene loader in a fresh
+process. It validates both sections before native Load, restores the exact
+physical owner after native startup, reinstalls flow flags at zero time and
+delivers retained native startup events once. The managed scene, grid,
+renderer, outside native heat and every resumed physical frame are verified.
+This remains an explicit actor-free development path; general manual/autosave
+admission, owned actor persistence and whole-colony ownership remain open.
+
+The Linux runner now uses a stable private Dev mod identity across fresh
+profiles. For a file made by the older runner, supply its original folder ID
+with `--mod-id` to avoid ONI's informational Mod Differences dialog.
+
+```sh
+python3 tools/oni_headless.py run --package <package> \
+  --mode native-save-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package <package> \
+  --mode native-load-domain --load-save <first-run-native-colony.sav> \
+  --frames 120 --timeout 1200
+```
+
+The source file is copied into the new run and its SHA-256 checked before and
+after staging. The game loads that private copy. The Windows wrapper accepts
+`-NativeDomain save` and `-NativeDomain load -LoadSave <file>`; these Unity
+paths have not yet been verified on Windows.
 
 Build the native backend and the normal ONI adapter, then create a fresh package:
 
@@ -357,6 +392,9 @@ game processes, not a mocked simulation or Unity `-nographics` mode.
 | `20261016T232719Z-0a1d98` | Passes paired native/physical capture on the merged compression-heat solver and physical file version 2. Native worker thread 4 captures frame 6 / epoch 541 at 1.200000018 s: 3,585,197 native bytes and 3,507 physical bytes. The physical hash also exactly matches the independently restored next-worker image. The 3,588,900-byte combined envelope retains both sections, original native tuples and geometry; immutable recopy and token retirement pass. The scene completes 121 frames, 120 after priming, 2,541 substeps; relative mass/energy drift is 1.72e-15 / 8.29e-15. Grid/rendering, native solid heat and both scalar-save guards pass, with no mod failure lines. Source is `13afbef` plus the recorded paired-capture changes. Ordinary colony save/reload remains open. |
 | `20261016T233539Z-b39f30` | Repeats the real consumer/emitter and atomic actor configuration pass on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps, consumes 0.2000000053 kg and emits 1.09375 kg; the actor energy residual is -2.87e-9 J. Relative mass/energy drift is 1.54e-15 / 5.84e-15. Native tuples, game grid/rendering, native solid heat and both save guards pass. |
 | `20261016T234845Z-2dc5ea` | Repeats gravity and actual gas callbacks on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps with relative mass/energy drift 1.30e-15 / 5.31e-15 and a boundary U+K+G residual of -3.21e-9 J. Carried potential is 0.147150006 J; maximum absolute physical energy residual is 3.15e-9 J. Native tuples, grid/rendering, native solid heat and both save guards pass. |
+| `20261017T000916Z-64e170` | Passes full paused colony serialization through normal `SaveLoader.Save`, with one staged paired sim section. Source frame 31 / 6.200000092 s retains complete physical SHA-256 `4134507cf55e6af6aaab72ed3a55d6e0ef0b4516f0509e02c224cf70ebbf8c72`. The 742,877-byte colony file has SHA-256 `974bdcde3a3d327320b1b898800ef30e15d36f8b9b96c17fc0d82f973081579f`; serialization changes no physical byte. All normal room, rendering, outside heat and save-guard checks pass. |
+| `20261017T001440Z-b1f96f` | Passes fresh-process loading of that real colony file: original colony GUID and all three duplicants return, the initial physical image is exact, both zero-time startup event batches deliver once, and all 30 native worker frames match independent continuation. Final time is 12.200000182 s; relative mass/energy drift is 6.62e-16 / 3.75e-15. Final image SHA-256 is `b8404589c7180b583d421fbc6a1012bb9c0314bfcc1739f45d90ee855844f929`. Native tuples, game grid/rendering, outside native heat and save guards pass without mod failure lines. An informational Mod Differences dialog caused by the old runner's changing folder ID was acknowledged after checking it listed only the same integration mod. The runner now supports a stable ID. |
+| `20261017T001826Z-0aaf84` | Repeats the same real-file load fully automatically with the source mod ID preserved; no footprint mismatch or UI intervention occurs. All 120 resumed frames / 2,520 substeps match independent continuation exactly, reaching 30.200000450 s from the saved 6.200000092 s. The complete initial hash and colony GUID/three duplicants are retained, both startup event batches deliver once, and final physical SHA-256 is `bc654e2b5435ca3f69a2ad9aa0f8699170d39f431d3a6b2f9a3a1566bc3a1913`. Relative mass/energy drift is 1.20e-15 / 5.53e-15. Grid/rendering, exact native cells, outside native heat and save guards pass with no mod failure lines. |
 
 The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
 energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
@@ -439,10 +477,10 @@ still needs an adapter and dedicated coverage. General production actors, duplic
 breathing, reserved machines, construction, cross-boundary fluid/solid heat and open
 boundaries are not implemented for this domain. They must not enter it.
 
-Saving is disabled while the development domain owns fluids. Its physical
-state is not an integrated ONI checkpoint, and an ordinary scalar save cannot
-resume it. Both the normal managed save path and the native begin-save detour
-reject. The isolated control advances another physical frame after a declined
+An ordinary scalar save cannot resume the complete physical owner. Both the
+unstaged managed save path and the native begin-save detour reject. The
+explicit actor-free paused colony checkpoint is the only admitted save scope.
+The isolated control advances another physical frame after a declined
 native save, proving the rejection did not suspend the simulator. Failure stops custom advancement while native fluid exclusions stay
 installed until native shutdown; the disposable session must end.
 
@@ -451,7 +489,7 @@ checks as integration regressions. Native index translation and secondary-base
 actor dispatch are now explicit parts of the exact-build contract. Do not
 weaken unchanged-native-cell assertions when adding new writers or actors.
 
-Continue with complete actor/process reservations, real closed-domain
-checkpoints, an occupied development colony, then open/multiphase
+Continue with complete actor/process reservations and persistence, general
+manual/autosave admission, an occupied development colony, then open/multiphase
 geometry and complete reader/writer coverage. Native worker execution alone
 is narrower evidence than a playable overhaul.

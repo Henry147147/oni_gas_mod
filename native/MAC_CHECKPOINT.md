@@ -5,7 +5,8 @@
 returning a new owner. It retains the clock and revision; a failed read changes
 no existing owner. This supplies physical persistence for the closed reference
 and the sealed native domain, rather than reconstructing physics from a display
-projection. Ordinary ONI colony save/load integration remains unfinished.
+projection. A bounded actor-free colony now passes the normal Unity save/load
+lifecycle. General colony persistence and actor/outbox persistence remain unfinished.
 
 The image retains every constituent mass and U, canonical face J, passive
 quantity, wall, periodic boundary, geometry value and timestep setting. Full
@@ -85,7 +86,8 @@ The physical image excludes native solids/buildings, ONI world placement, manage
 registration generations, actor state, callback outboxes and cumulative domain
 boundary diagnostics. Full colony persistence must reserve and pair those
 states with a matching native save and atomically publish the complete file.
-The existing scalar-save guards remain active until that protocol exists.
+The scalar-save guards remain active outside the explicit paused development
+save scope described below.
 
 ## Paired native capture
 
@@ -118,9 +120,10 @@ token retirement. `native-paired-checkpoint-domain` verifies the actual Linux
 game's native compatibility tuples and physical checkpoint, then encodes both
 sections in the existing SHA-256 `MACOLONY` envelope. Its custom section currently
 contains versioned source metadata, the domain configuration and physical
-image. Native Unity load binding, managed object state, actor/outbox persistence and
-ordinary whole-colony save/reload remain unfinished. This capture does not grant
-ordinary save permission.
+image. A separate development binding now saves and reloads a bounded
+actor-free domain with the normal Unity object graph. Actor/outbox persistence
+and whole-colony ownership remain unfinished. Capturing a pair alone does not
+grant ordinary save permission.
 
 `NativeDomainCheckpointPayload` reads/writes that inner `MAONID01` version 1
 section. Its source session/frame/epoch, physical clock and geometry must agree
@@ -141,6 +144,44 @@ must exactly match independent checkpoint continuation. Linux and Windows
 libraries pass all three controls (Windows under Wine). These isolated native
 reloads have no live Unity object graph; they do not authorize restarting the
 native simulator beneath existing game objects.
+
+## Paused Unity colony save/load
+
+`native-save-domain` first completes the normal six-cell game checks, pauses
+and synchronizes through ONI's ordinary zero-time frame/publication path. It
+requests a completed native/physical pair and verifies the exact source frame
+and clock. Only that retained pair authorizes one `Sim.Save` call within the
+normal `SaveLoader.Save` serializer. The native simulation section contains
+the length-prefixed `MACOLONY` envelope; ONI serializes its normal managed
+objects and settings around it. A fresh temporary file is flushed and renamed
+to `native-colony.sav`. Serialization must leave the physical image unchanged.
+Direct native and unstaged managed scalar saves still reject.
+
+`native-load-domain` reads that actual colony file through the normal scene
+loader in a fresh game process. Before original native Load, it checks the
+outer identity/checksum, complete inner source, every native inventory and
+physical restore admission. After original `Sim.Start`, it activates the saved
+physical owner, restores native flags/compatibility cells with zero-time
+frames and verifies the original complete physical bytes. Unity then restores
+the saved object graph. Early native publications do not assume the managed
+cluster service already exists.
+
+Startup publications retain all one-shot native event channels in an owned
+outbox, including zero-frame polls. The first successful ordinary game
+publication prepends those batches in chronological order and retires them
+once. The five handle-indexed status tables use the current native snapshot.
+Rejected publications retain the outbox. All 29 channel records, current status
+tables and source immutability have regression coverage.
+
+The loaded scene must retain its colony GUID and duplicants, consume both
+startup batches and continue on the actual worker clock. Every observed
+positive frame must match independent checkpoint continuation exactly, with
+the saved clock preserved. Rendering, game Grid, native compatibility tuples,
+outside native solid heat, physical accounts and both scalar-save guards must
+also pass. Linux Unity has passed an automated 120-frame fresh-process round trip; Windows
+managed declarations compile, and licensed Windows native restores pass under
+Wine. Windows Unity, registered actor persistence, manual/autosave admission
+and general production ownership remain separate gates.
 
 ## Verification
 

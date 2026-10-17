@@ -8,7 +8,9 @@ param(
     [switch]$TileHover,
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
-    [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity','checkpoint','pair')][string]$NativeDomain,
+    [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity','checkpoint','pair','save','load')][string]$NativeDomain,
+    [string]$LoadSave,
+    [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
     [string]$Python = 'python',
     [switch]$IdleReservoirLease,
     [switch]$PrivateFileProtocol,
@@ -20,7 +22,9 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
-$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain' }
+$oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
+if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
+if ($LoadSave) { $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path }
 $oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
 if ($CoupledPresentation -and ($TileHover -or $Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Coupled presentation uses its own explicit closed-reference scene.' }
@@ -52,7 +56,8 @@ New-Item -ItemType Directory -Path $oniEvidence | Out-Null
 $oniBackups = Join-Path $oniEvidence 'originals'
 New-Item -ItemType Directory -Path $oniBackups | Out-Null
 $oniModsPath = Join-Path $oniRootPath 'mods\mods.json'
-$oniFolderName = "MixedAtmospheres-ColonyValidation-$oniRunId"
+if ($ModId -notmatch '^[A-Za-z0-9_.-]{1,128}$' -or $ModId -in @('.', '..')) { throw 'ModId must be one safe local directory name.' }
+$oniFolderName = $ModId
 $oniColonyName = "MA Visual Test $($oniRunId.Substring(0, 8))"
 foreach ($oniSaveKind in @('save_files', 'RetiredColonies')) {
     if (Test-Path -LiteralPath (Join-Path $oniRootPath "$oniSaveKind\$oniColonyName")) {
@@ -75,6 +80,7 @@ if ($oniLabelVersion -ge 2147483648L) { $oniLabelVersion -= 4294967296L }
 $oniInstalledMod = [IO.Path]::GetFullPath((Join-Path $oniRootPath "mods\Dev\$oniFolderName"))
 $oniDevRoot = [IO.Path]::GetFullPath((Join-Path $oniRootPath 'mods\Dev'))
 if ([IO.Path]::GetDirectoryName($oniInstalledMod) -ne $oniDevRoot) { throw 'Invalid test installation directory.' }
+if (Test-Path -LiteralPath $oniInstalledMod) { throw 'The stable test mod folder already exists; finish its previous run or supply a different -ModId.' }
 $oniOriginals = @()
 $oniFiles = @((Get-Item -LiteralPath $oniModsPath), (Get-Item -LiteralPath (Join-Path $oniRootPath 'kplayerprefs.yaml')))
 if ($oniAppearanceExisted) { $oniFiles += Get-Item -LiteralPath $oniAppearancePath }
@@ -94,7 +100,7 @@ $oniExitCode = 1
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
     $oniValidationConfiguration = @{
-        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld
+        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $LoadSave
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }

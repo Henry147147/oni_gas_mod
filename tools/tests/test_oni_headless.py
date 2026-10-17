@@ -47,6 +47,30 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         for field in ("WholeColonyFluidAuthority", "FirstPlayableColonyPassed", "SavesAllowed"):
             value = copy.deepcopy(self.report); value[field] = True
             self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
+
+    def test_actual_colony_save_requires_one_paused_paired_section_and_source_clock(self):
+        self.report['ColonyCheckpoint']={'Saved':True,'Loaded':False,'WholeColonyFluidCheckpoint':False,'SimSaveWrites':1,
+            'SourceFrame':30,'SourceTime':self.report['NativeDomain']['TimeSeconds'],'SourcePhysicalSha256':'a'*64,
+            'SavedFile':'private/native-colony.sav','SavedFileSha256':'b'*64}
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        for key,value in [('Saved',False),('Loaded',True),('WholeColonyFluidCheckpoint',True),('SimSaveWrites',2),('SourceFrame',29),
+                          ('SourceTime',0),('SourcePhysicalSha256',''),('SavedFileSha256',''),('SavedFile','')]:
+            report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
+
+    def test_actual_restored_colony_requires_exact_initial_state_and_every_worker_frame(self):
+        self.report['NativeFlowControlObserved']=False
+        self.report['ColonyCheckpoint']={'Saved':False,'Loaded':True,'WholeColonyFluidCheckpoint':False,'ZeroTimeRestoreVerified':True,
+            'ManagedSceneRestored':True,'RendererVerified':True,'NativeStartupBatchesDelivered':2,'SourceFrame':31,'SourceTime':1.2,'SourcePhysicalSha256':'a'*64,
+            'RestoredInitialSha256':'a'*64,'CurrentPhysicalSha256':'b'*64,'ExactContinuationFrames':30,'ReplayedFrame':30,
+            'ReplayedTime':self.report['NativeDomain']['TimeSeconds']}
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30))
+        for key,value in [('Saved',True),('Loaded',False),('WholeColonyFluidCheckpoint',True),('ZeroTimeRestoreVerified',False),
+                          ('ManagedSceneRestored',False),('RendererVerified',False),('NativeStartupBatchesDelivered',1),('RestoredInitialSha256','c'*64),
+                          ('CurrentPhysicalSha256','a'*64),('ExactContinuationFrames',29),('ReplayedFrame',29),('ReplayedTime',0)]:
+            report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),key)
         for field in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced", "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified", "NativeRendererAdvanced", "SaveGuardVerified", "NativeSaveGuardVerified", "GameGridProjectionVerified"):
             value = copy.deepcopy(self.report); value[field] = False
             self.assertFalse(runner.native_domain_passed(value, self.observation, 30), field)
@@ -513,7 +537,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
         state.mkdir()
         output = root / "evidence"
         args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
-                         frames=1, timeout=30, keep_open=True)
+                         frames=1, timeout=30, keep_open=True, load_save=None, mod_id=None)
         steam = {"unit_role": "steam"}
         xvfb = {"unit_role": "xvfb"}
         session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}
@@ -633,6 +657,22 @@ class CopiedPayloadTests(unittest.TestCase):
 
 
 class LaunchLifetimeTests(unittest.TestCase):
+    def test_save_load_profiles_keep_a_stable_mod_label(self):
+        identities=[]
+        for requested in (None,None,'OriginalSourceMod'):
+            with _mock_playtest_case() as (args,state,session,record,events,writes,cleanup):
+                args.mod_id=requested
+                self.assertEqual(runner.playtest(args,state,session),0)
+                settings=next(value for path,value in writes if path.name=='mods.json')
+                label=settings['mods'][0]['label'];identities.append(label['id'])
+                self.assertEqual(label['version'],runner.mono_label_version(label['id']))
+        self.assertEqual(identities,['MixedAtmospheres.IntegrationProbe','MixedAtmospheres.IntegrationProbe','OriginalSourceMod'])
+        for invalid in ('.','..','../other','a/b','a'*129):
+            with _mock_playtest_case() as (args,state,session,record,events,writes,cleanup):
+                args.mod_id=invalid
+                with self.assertRaises(ValueError):runner.playtest(args,state,session)
+                self.assertNotIn('spawn',events)
+
     def test_keep_open_failures_cleanup_after_spawn(self):
         for failure in ("session", "metadata", "result"):
             with _mock_playtest_case(failure=failure) as (args, state, session, record, events, writes, cleanup):

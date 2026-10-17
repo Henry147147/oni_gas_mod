@@ -72,7 +72,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode;
+            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonySaveMode || ColonyRestoreMode;
         private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
@@ -88,6 +88,7 @@ namespace MixedAtmospheres.Oni
             if (completed || failed) return;
             try
             {
+                if (ColonyRestoreMode) { TickRestoredColony(); return; }
                 if (!prepared) { Prepare(); return; }
                 if (!active)
                 {
@@ -211,6 +212,7 @@ namespace MixedAtmospheres.Oni
                 if (ActorMode) VerifyActorFixture();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
+                if (ColonySaveMode) SavePausedColony();
                 completed = true; NativeBackendObservation.Flush(); WriteReport();
                 ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
                 ColonyRuntimeValidation.CompletePresentation("actual-game-sealed-native-fluid-domain-validation");
@@ -292,6 +294,20 @@ namespace MixedAtmospheres.Oni
             nativeFlowControlObserved = Enumerable.Range(0, Width * Height).Any(index =>
                 Math.Abs(Grid.Mass[Grid.XYToCell(x + index % Width, y + index / Width)] - ProjectionMass(index % Width)) > .001);
             Require(nativeFlowControlObserved, "Unhooked native pressure-gradient control did not flow.");
+            ConfigureDomainPresentation();
+            arming = true;
+            for (var index = 0; index < cells.Length; ++index)
+                SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width),
+                    NativeFlowMask);
+            initialHot = Grid.Temperature[hotSolid]; initialCold = Grid.Temperature[coldSolid];
+            var center = Grid.CellToPosCCC(target, Grid.SceneLayer.Background);
+            CameraController.Instance.SnapTo(center); CameraController.Instance.SetTargetPos(center, 20, false);
+            CameraController.Instance.OrthographicSize = 7;
+            SpeedControlScreen.Instance.Unpause(false);
+            ColonyRuntimeValidation.SetStage("fencing-sealed-native-domain"); WriteReport();
+        }
+        private static void ConfigureDomainPresentation()
+        {
             var materials = new List<FluidMaterial>(); var styles = new List<MixtureSpeciesStyle>();
             var names = new[] { "Nitrogen", "Oxygen", "Helium", "Water", "Carbon dioxide" };
             var hashes = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water, SimHashes.CarbonDioxide };
@@ -306,16 +322,6 @@ namespace MixedAtmospheres.Oni
             catalog = new FluidMaterialCatalog("oni-sealed-domain-v2", materials);
             MixturePresentationRuntime.ResetProviders();
             MixturePresentationRuntime.Configure(new MixturePresentationModel(catalog, styles, new AtmosphereSettings(), "oxygen", "carbon_dioxide"));
-            arming = true;
-            for (var index = 0; index < cells.Length; ++index)
-                SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width),
-                    NativeFlowMask);
-            initialHot = Grid.Temperature[hotSolid]; initialCold = Grid.Temperature[coldSolid];
-            var center = Grid.CellToPosCCC(target, Grid.SceneLayer.Background);
-            CameraController.Instance.SnapTo(center); CameraController.Instance.SetTargetPos(center, 20, false);
-            CameraController.Instance.OrthographicSize = 7;
-            SpeedControlScreen.Instance.Unpause(false);
-            ColonyRuntimeValidation.SetStage("fencing-sealed-native-domain"); WriteReport();
         }
         private static void ActivateOwner()
         {
@@ -350,6 +356,7 @@ namespace MixedAtmospheres.Oni
             // Retained values are independent of all future native advances.
             retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[0].InternalEnergy == cells[0].InternalEnergy;
             latest = next; cells = values;
+            VerifyRestoredPhysicalFrame();
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;
@@ -412,6 +419,7 @@ namespace MixedAtmospheres.Oni
                 // the owned copy is subsequently overlaid with custom readings.
                 var copy = candidate = OwnedGameDataSnapshot.Capture(source, Grid.WidthInCells, Grid.HeightInCells);
                 copy.AssertEquivalentTo(source); nativeSnapshotVerified = true;
+                PrependRestoredNativeEvents(copy);
                 CaptureActorRegistrations(source);
                 PrepareActorSnapshot(copy);
                 var masses = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass));
@@ -456,6 +464,7 @@ namespace MixedAtmospheres.Oni
                     Check(AckReceipts(latest.Session, through)); receiptsPublished = nextReceiptCount; deliveredReceipt = through;
                 }
                 var previous = currentSnapshot; currentSnapshot = candidate; candidate = null; previous?.Dispose();
+                ReleaseRestoredNativeEvents(true);
                 ++publications;
                 return (IntPtr)copy.Pointer;
             }
@@ -622,7 +631,7 @@ namespace MixedAtmospheres.Oni
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
-            PairedCheckpoint = PairedCheckpointReport(),
+            PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
             CarbonDioxideTransfersVerified = CarbonMode && transfersVerified,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,
@@ -638,6 +647,7 @@ namespace MixedAtmospheres.Oni
         }));
         internal static void Shutdown()
         {
+            ReleaseRestoredNativeEvents(false);
             ReleasePairedCheckpointFixture();
             releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
             currentSnapshot?.Dispose(); currentSnapshot = null;
@@ -664,9 +674,11 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(Sim), nameof(Sim.Save))]
     internal static class NativeSealedDomainSaveGuard
     {
-        private static void Prefix()
+        private static bool Prefix(BinaryWriter __0,int __1,int __2)
         {
-            if (NativeSealedDomainValidation.SaveBlocked) throw new InvalidOperationException("The sealed native development domain has no integrated checkpoint format; saving is disabled.");
+            if (NativeSealedDomainValidation.TryWriteStagedColonySave(__0,__1,__2)) return false;
+            if (NativeSealedDomainValidation.SaveBlocked) throw new InvalidOperationException("The sealed native development domain requires a staged paused checkpoint; scalar saving is disabled.");
+            return true;
         }
     }
 }

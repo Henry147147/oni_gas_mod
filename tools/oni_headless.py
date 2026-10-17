@@ -493,7 +493,7 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -516,19 +516,31 @@ def playtest(args, state: Path, session: dict) -> int:
     (home / ".steam").symlink_to(state / "steam-home/.steam")
     profile = home / ".config/unity3d/Klei/Oxygen Not Included"
     name = "MA-Linux-" + run_id
-    mod = profile / "mods/Dev" / name
+    mod_id = getattr(args, "mod_id", None) or "MixedAtmospheres.IntegrationProbe"
+    if not isinstance(mod_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", mod_id) or mod_id in (".", ".."):
+        raise ValueError("Test mod ID must be one safe local directory name")
+    mod = profile / "mods/Dev" / mod_id
     stage_package(package, mod, manifest)
     write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
-        "label": {"distribution_platform": "Dev", "id": name, "title": "Mixed Atmospheres - Integration Probe",
-                  "version": mono_label_version(name)}, "status": 1, "enabled": True,
+        "label": {"distribution_platform": "Dev", "id": mod_id, "title": "Mixed Atmospheres - Integration Probe",
+                  "version": mono_label_version(mod_id)}, "status": 1, "enabled": True,
         "enabledForDlc": ["", "EXPANSION1_ID"], "crash_count": 0, "reinstall_path": None,
         "staticID": "MixedAtmospheres.IntegrationProbe"}]})
+    load_fixture = None
+    load_save = getattr(args, "load_save", None)
+    if load_save:
+        original_hash = digest(load_save)
+        load_fixture = output / "input-colony.sav"
+        shutil.copy2(load_save, load_fixture)
+        if digest(load_fixture) != original_hash or digest(load_save) != original_hash:
+            raise ValueError("Source colony save changed while staging the private input")
     if args.mode != "menu":
         write_json(mod / "colony-validation.json", {
             "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
             "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout,
             "QuitWhenComplete": not args.keep_open, "Seed": "147147", "ColonyName": name,
             "PrivateOwnedLoadRejection": args.mode == "load-rejection",
+            "LoadSavePath": str(load_fixture) if load_fixture else "",
         })
     thin = output / "game"
     thin.mkdir()
@@ -583,7 +595,7 @@ def playtest(args, state: Path, session: dict) -> int:
         report = read_json(colony_file) if colony_file.exists() else None
         log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
         player_exit = CHILDREN[record["pid"]].poll()
-        status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (name,))
+        status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,))
         observer_file = mod / "native-backend-observation-report.json"
         try:
             observer_report = read_json(observer_file) if observer_file.exists() else None
@@ -592,7 +604,7 @@ def playtest(args, state: Path, session: dict) -> int:
         observer_ok = native_observer_passed(manifest, observer_report)
         domain_report = None
         domain_ok = False
-        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain"):
+        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
             try:
                 domain_report = read_json(colony_file.parent / "native-domain.json")
             except (OSError, json.JSONDecodeError):
@@ -600,19 +612,20 @@ def playtest(args, state: Path, session: dict) -> int:
             domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
                 liquid=args.mode == "native-liquid-domain", heat=args.mode == "native-heat-domain",
                 transfers=args.mode == "native-transfer-domain", actors=args.mode == "native-actor-domain",
-                carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain")
+                carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
+                saved=args.mode == "native-save-domain", restored=args.mode == "native-load-domain")
             if code == 0 and not domain_ok:
                 status, code = "failed-native-domain", 2
         elif code == 0 and not observer_ok:
             status, code = "failed-native-observer", 2
         retain_on_success = args.keep_open and code == 0
         result = {
-            "status": status, "exit_code": code, "mode": args.mode, "output": str(output),
+            "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
             "observed_player_exit_code": player_exit, "timed_out": timed_out,
             "platform": "native Linux", "display": session["display"], "software_rendering": True,
             "steam_blocked": steam_blocked(log),
             "integration_probe_failed": not probe_passed(probe),
-            "mod_failure_lines": mod_failure_lines(log, (name,))[:50],
+            "mod_failure_lines": mod_failure_lines(log, (mod_id,))[:50],
             "main_menu_reached": MAIN_MENU_MARKER in log,
             "main_menu_contract_export": contract_export(log),
             "colony_started": bool(report and report.get("GameStarted")),
@@ -621,6 +634,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "native_backend_observation": observer_report,
             "native_backend_observer_passed": observer_ok,
             "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
+            "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
             "game_hashes": {p: digest(game / p) for p in (
                 "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
             **revision_fields(manifest),
@@ -648,11 +662,13 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)
     play.add_argument("--keep-open", action="store_true")
+    play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
+    play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
     if args.command == "run" and args.mode == "native-actor-domain" and args.frames < 80:
         parser.error("The registered actor scene requires at least 80 native frames")
@@ -660,6 +676,8 @@ def main() -> int:
         print(f"oni_headless: {reason}", file=sys.stderr)
         return 2
     state = args.state.resolve()
+    if args.command == "run" and (bool(args.load_save) != (args.mode == "native-load-domain") or (args.load_save and not args.load_save.is_file())):
+        parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(state, 0o700)
     if args.command in LOCKED_COMMANDS:

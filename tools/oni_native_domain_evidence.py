@@ -11,7 +11,10 @@ import math
 from pathlib import Path
 import struct
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False) -> bool:
+def _sha256(value) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -117,18 +120,18 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(actor.get("MaximumRelativeMassError")) not in (int, float) or not 0 <= actor["MaximumRelativeMassError"] <= 1e-10):
             return False
     if checkpoint or paired:
-        saved = report.get("PhysicalCheckpoint")
-        if (not isinstance(saved, dict) or saved.get("Verified") is not True or saved.get("FormatVersion") != 2
-                or saved.get("OrdinaryGameSaveIntegrated") is not False
-                or any(type(saved.get(key)) is not int or saved[key] <= 0 for key in ("ImageBytes", "SourceFrame", "ResumedFrame"))
-                or not 32 < saved["ImageBytes"] <= 1024**3
-                or saved["ResumedFrame"] != saved["SourceFrame"] + 1 or saved["ResumedFrame"] > physical["CompletedFrames"]
-                or any(type(saved.get(key)) not in (int, float) or not math.isfinite(saved[key]) or saved[key] <= 0
+        physical_checkpoint = report.get("PhysicalCheckpoint")
+        if (not isinstance(physical_checkpoint, dict) or physical_checkpoint.get("Verified") is not True or physical_checkpoint.get("FormatVersion") != 2
+                or physical_checkpoint.get("OrdinaryGameSaveIntegrated") is not False
+                or any(type(physical_checkpoint.get(key)) is not int or physical_checkpoint[key] <= 0 for key in ("ImageBytes", "SourceFrame", "ResumedFrame"))
+                or not 32 < physical_checkpoint["ImageBytes"] <= 1024**3
+                or physical_checkpoint["ResumedFrame"] != physical_checkpoint["SourceFrame"] + 1 or physical_checkpoint["ResumedFrame"] > physical["CompletedFrames"]
+                or any(type(physical_checkpoint.get(key)) not in (int, float) or not math.isfinite(physical_checkpoint[key]) or physical_checkpoint[key] <= 0
                        for key in ("SourcePhysicalTime", "ResumedPhysicalTime"))
-                or not abs(saved["ResumedPhysicalTime"] - saved["SourcePhysicalTime"] - physical["LastTimestepSeconds"]) < 1e-12
-                or any(not isinstance(saved.get(key), str) or len(saved[key]) != 64 or any(char not in "0123456789abcdef" for char in saved[key])
+                or not abs(physical_checkpoint["ResumedPhysicalTime"] - physical_checkpoint["SourcePhysicalTime"] - physical["LastTimestepSeconds"]) < 1e-12
+                or any(not isinstance(physical_checkpoint.get(key), str) or len(physical_checkpoint[key]) != 64 or any(char not in "0123456789abcdef" for char in physical_checkpoint[key])
                        for key in ("SourceSha256", "ExpectedSha256", "ActualSha256"))
-                or saved["SourceSha256"] == saved["ExpectedSha256"] or saved["ExpectedSha256"] != saved["ActualSha256"]):
+                or physical_checkpoint["SourceSha256"] == physical_checkpoint["ExpectedSha256"] or physical_checkpoint["ExpectedSha256"] != physical_checkpoint["ActualSha256"]):
             return False
     if paired:
         pair = report.get("PairedCheckpoint")
@@ -151,6 +154,27 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         if (not isinstance(geometry, dict) or geometry.get("Size") != 40 or geometry.get("Version") != 2 or geometry.get("Flags") != 1
                 or any(type(geometry.get(key)) is not int or geometry[key] != report.get(key) for key in ("X", "Y", "Width", "Height"))):
             return False
+    if saved or restored:
+        colony = report.get("ColonyCheckpoint")
+        if not isinstance(colony, dict) or colony.get("WholeColonyFluidCheckpoint") is not False:
+            return False
+        if (type(colony.get("SourceFrame")) is not int or colony["SourceFrame"] <= 0
+                or type(colony.get("SourceTime")) not in (int, float) or not math.isfinite(colony["SourceTime"]) or colony["SourceTime"] <= 0
+                or not _sha256(colony.get("SourcePhysicalSha256"))):
+            return False
+        if saved and (colony.get("Saved") is not True or colony.get("Loaded") is not False or colony.get("SimSaveWrites") != 1
+                or not _sha256(colony.get("SavedFileSha256")) or not colony.get("SavedFile")
+                or colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]):
+            return False
+        if restored and (colony.get("Loaded") is not True or colony.get("Saved") is not False
+                or any(colony.get(key) is not True for key in ("ZeroTimeRestoreVerified", "ManagedSceneRestored", "RendererVerified"))
+                or type(colony.get("NativeStartupBatchesDelivered")) is not int or colony["NativeStartupBatchesDelivered"] < 2
+                or colony.get("RestoredInitialSha256") != colony["SourcePhysicalSha256"]
+                or not _sha256(colony.get("CurrentPhysicalSha256")) or colony["CurrentPhysicalSha256"] == colony["SourcePhysicalSha256"]
+                or colony.get("ExactContinuationFrames") != physical["CompletedFrames"]
+                or colony.get("ReplayedFrame") != physical["CompletedFrames"] or colony.get("ReplayedTime") != physical["TimeSeconds"]
+                or physical["TimeSeconds"] <= colony["SourceTime"]):
+            return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
@@ -161,8 +185,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
             and physical["CompletedFrames"] >= frames and physical["NativeTicket"] >= physical["CompletedFrames"]
             and physical["SolverThread"] != physical["StartThread"]
             and physical["TimeSeconds"] > 0 and 0 < physical["LastTimestepSeconds"] <= 1 and physics_exercised
+            and (restored or report.get("NativeFlowControlObserved") is True)
             and all(report.get(key) is True for key in ("NativeCellsUnchanged", "NativeSnapshotCopied", "NativeSolidsAdvanced",
-                "RetainedFrameVerified", "NativeFlowControlObserved", "ProjectionPrimed", "NativeFlowFenceVerified",
+                "RetainedFrameVerified", "ProjectionPrimed", "NativeFlowFenceVerified",
                 "NativeRendererAdvanced", "SaveGuardVerified", "NativeSaveGuardVerified", "GameGridProjectionVerified"))
             and observation.get("BoundedNativeDomainActive") is True and observed.get("Attached") is True
             and observed.get("ForwardingOnly") is False and observed.get("RecoveryRequired") is False
@@ -174,7 +199,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -184,7 +209,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair")
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save", restored=args.mode == "load")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

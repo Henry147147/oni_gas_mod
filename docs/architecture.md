@@ -226,8 +226,12 @@ world placement and actor/outbox state; scalar saves remain guarded.
 An explicit native restore admission now validates the saved geometry, phase,
 clock and full physical model before any native load. Isolated Linux and
 Windows-library controls load both paired sections, reinstall native flow flags
-with zero-time frames and exactly match twelve resumed worker images. Unity's
-managed save/load lifecycle remains a separate unfinished integration step.
+with zero-time frames and exactly match twelve resumed worker images. A bounded
+Linux Unity round trip now also writes the normal managed colony, loads it in a
+fresh process, restores its original physical image and exactly matches 120
+resumed worker frames. Startup native events are delivered once to the ordinary
+game snapshot. This explicit actor-free development path retains the scalar
+save guards; manual/autosave admission and actor persistence remain open.
 
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature

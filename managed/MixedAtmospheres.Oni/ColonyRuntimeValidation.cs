@@ -20,6 +20,7 @@ namespace MixedAtmospheres.Oni
         internal sealed class Configuration
         {
             public string Mode = "snapshot-copy";
+            public string LoadSavePath = "";
             public bool AutoStartNewColony = false;
             public bool ReuseGeneratedWorld = false;
             public bool IdleReservoirLeaseOnly = false;
@@ -82,11 +83,15 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if (configuration.Mode == "native-actor-domain" && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
                 throw new InvalidDataException("The registered actor scene requires at least 80 native frames.");
+            if (NativeSealedDomainValidation.ColonyRestoreMode != !string.IsNullOrEmpty(configuration.LoadSavePath) ||
+                (NativeSealedDomainValidation.ColonyRestoreMode && (!Path.IsPathRooted(configuration.LoadSavePath) ||
+                    !File.Exists(configuration.LoadSavePath) || configuration.ReuseGeneratedWorld)))
+                throw new InvalidDataException("Paired colony loading requires its explicit mode, an existing absolute save path and the normal saved-colony lifecycle.");
             if ((configuration.Mode == "native-observer" || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
                 throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
@@ -317,7 +322,10 @@ namespace MixedAtmospheres.Oni
         {
             Report.PhysicsOwner = "experimental custom domain; ownership unverified; native ONI outside";
             Report.Width = Grid.WidthInCells; Report.Height = Grid.HeightInCells;
-            Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
+            // Sim.Start/PostLoadPrefabs publish a restored frame before the
+            // managed cluster service is constructed. Metadata follows that
+            // service's normal initialization; the native frame is already valid.
+            if (ClusterManager.Instance != null) Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
             Report.Duplicants = Components.LiveMinionIdentities.Count;
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.SnapshotChannels = OwnedGameDataSnapshot.ChannelCount;
@@ -429,7 +437,13 @@ namespace MixedAtmospheres.Oni
                 if (menu != null && visited.Add(menu.GetInstanceID()))
                 {
                     ColonyRuntimeValidation.SetStage("starting-disposable-colony");
-                    if (config.ReuseGeneratedWorld)
+                    if (config.Mode == "native-load-domain")
+                    {
+                        if (string.IsNullOrEmpty(config.LoadSavePath) || !File.Exists(config.LoadSavePath)) throw new FileNotFoundException("A completed native colony save is required.");
+                        SaveLoader.SetActiveSaveFilePath(Path.GetFullPath(config.LoadSavePath));
+                        LoadingOverlay.Load(SaveLoader.LoadScene);
+                    }
+                    else if (config.ReuseGeneratedWorld)
                     {
                         if (!File.Exists(WorldGen.WORLDGEN_SAVE_FILENAME)) throw new FileNotFoundException("No generated world available for the requested test.");
                         WorldGen.WaitForPendingLoadSettings();
