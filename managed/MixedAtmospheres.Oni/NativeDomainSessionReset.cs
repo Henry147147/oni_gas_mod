@@ -88,6 +88,9 @@ namespace MixedAtmospheres.Oni
             initialZeroEmitterVerified=false;batchActualEmitterMass=initialZeroEmitterMass=0;
             batchEmitterSamples=initialZeroEmitterSamples=0;
             actorStatus=default;emissionStatusFrame=0;
+            restoredActorImage=lastSavedActorImage=currentActorImage=null;currentActorImageHash="";
+            persistentFixtureStarted=persistentFixtureVerified=restoredActorBindingsVerified=restoredActorsVerified=false;
+            persistentFixtureObjects.Clear();NativeActorRegistrationOwner.Current=null;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
             actorConfigurationBatchVerified=nativeActorBatchVerified=false;actorFixtureStage=0;fixtureEmitter=-1;
             fixtureRegistrations=fixtureBlockedCallbacks=fixtureUnblockedCallbacks=fixtureConsumptionCallbacks=0;

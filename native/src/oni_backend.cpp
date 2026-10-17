@@ -52,6 +52,7 @@ struct DomainPair {
     MAOniDomainPairStatus status{};
     std::vector<std::uint8_t> native,physical;
     std::int32_t x{},y{};
+    bool include_actors{};
     MAOniResult error_code{MA_ONI_INTERNAL_ERROR};
     std::array<char,256> error{};
 };
@@ -402,7 +403,8 @@ void fulfill_paired_capture() {
         if (current.state!=1 || current.session!=request.status.session || current.completed_frames<request.status.completed_frame)
             throw Failure(MA_ONI_BUSY,"Paired source session ended before its worker barrier");
         MAOniDomainConfig configuration{}; MAOniDomainStatus source{};
-        auto physical=ma::oni::checkpoint_domain_under_fence(current.session,current.completed_frames,configuration,source);
+        auto physical=request.include_actors ? ma::oni::snapshot_domain_under_fence(current.session,current.completed_frames,configuration,source) :
+            ma::oni::checkpoint_domain_under_fence(current.session,current.completed_frames,configuration,source);
         std::lock_guard save_lock(native_save_mutex);
         if (native_save_open) throw Failure(MA_ONI_BUSY,"A native save buffer is still borrowed at the worker barrier");
         std::uintptr_t data{}; std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
@@ -706,6 +708,42 @@ MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor* inputs,std::u
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
     });
 }
+std::uint32_t ma_oni_domain_actor_checkpoint_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_pending_actor_restores() { return ma::oni::pending_domain_actor_restores(); }
+MAOniResult ma_oni_domain_configure_persistent_actors(const MAOniDomainPersistentActor* inputs,std::uint32_t count,MAOniDomainActorStatus* output) {
+    return boundary([&] {
+        static_assert(sizeof(MAOniDomainPersistentActor)==96);
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid persistent actor batch output ABI");
+        try { ma::oni::configure_persistent_domain_actors(inputs,count,*output); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_snapshot_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid complete snapshot output");
+        std::vector<std::uint8_t> image;
+        try { image=ma::oni::snapshot_domain(session,frame); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        if (output && capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Complete snapshot buffer is too small");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
+MAOniResult ma_oni_domain_snapshot_advance(const std::uint8_t* input,std::uint32_t count,double seconds,
+    std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!input || !count || !required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid complete snapshot input/output");
+        std::vector<std::uint8_t> image;
+        try { image=ma::oni::advance_domain_snapshot(std::span(input,count),seconds); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        if (output && capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Resumed complete snapshot buffer is too small");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
 std::uint32_t ma_oni_domain_checkpoint_abi_version() { return 1; }
 MAOniResult ma_oni_domain_checkpoint_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
     return boundary([&] {
@@ -731,7 +769,7 @@ MAOniResult ma_oni_domain_checkpoint_advance(const std::uint8_t* input,std::uint
     });
 }
 std::uint32_t ma_oni_domain_pair_abi_version() { return 1; }
-MAOniResult ma_oni_domain_pair_request(std::uint64_t session,std::uint64_t frame,std::int32_t x,std::int32_t y,MAOniDomainPairStatus* output) {
+static MAOniResult request_domain_pair(std::uint64_t session,std::uint64_t frame,std::int32_t x,std::int32_t y,MAOniDomainPairStatus* output,bool include_actors) {
     return boundary([&] {
         static_assert(sizeof(MAOniDomainPairStatus)==112);
         if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1 || x<0 || y<0)
@@ -742,16 +780,23 @@ MAOniResult ma_oni_domain_pair_request(std::uint64_t session,std::uint64_t frame
         std::lock_guard save_lock(native_save_mutex);
         if (native_save_open) throw Failure(MA_ONI_BUSY,"A native save buffer is still borrowed");
         auto candidate=std::make_unique<DomainPair>(); MAOniDomainStatus source{};
-        try { ma::oni::domain_checkpoint_source(session,frame,candidate->status.configuration,source); }
+        try { ma::oni::domain_checkpoint_source(session,frame,candidate->status.configuration,source,include_actors); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_BUSY,error.what()); }
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
         if ((!source.completed_frames && source.time_seconds<=0) || source.start_thread!=native_thread())
             throw Failure(MA_ONI_BUSY,"Paired request requires a completed frame on its activation thread");
         if (pair_sequence==UINT64_MAX) throw Failure(MA_ONI_BUSY,"Paired checkpoint token range exhausted");
-        candidate->x=x; candidate->y=y;
+        candidate->x=x; candidate->y=y;candidate->include_actors=include_actors;
         auto& result=candidate->status; result.struct_size=sizeof(result); result.abi_version=1; result.state=1;
         result.token=++pair_sequence; result.session=session; result.completed_frame=frame; result.physical_time_seconds=source.time_seconds;
         captured_pair=std::move(candidate); pair_pending.store(true,std::memory_order_release); *output=captured_pair->status;
     });
+}
+MAOniResult ma_oni_domain_pair_request(std::uint64_t session,std::uint64_t frame,std::int32_t x,std::int32_t y,MAOniDomainPairStatus* output) {
+    return request_domain_pair(session,frame,x,y,output,false);
+}
+MAOniResult ma_oni_domain_pair_snapshot_request(std::uint64_t session,std::uint64_t frame,std::int32_t x,std::int32_t y,MAOniDomainPairStatus* output) {
+    return request_domain_pair(session,frame,x,y,output,true);
 }
 MAOniResult ma_oni_domain_pair_poll(std::uint64_t token,MAOniDomainPairStatus* output) {
     return boundary([&] {

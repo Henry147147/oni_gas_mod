@@ -233,6 +233,12 @@ resumed worker frames. Startup native events are delivered once to the ordinary
 game snapshot. This explicit actor-free development path retains the scalar
 save guards; manual/autosave admission and actor persistence remain open.
 
+The later [durable native actor extension](native-actor-persistence.md) adds
+stable object identities, timing/remainder snapshots and a pause until fresh
+native handles have been rebound. Actor-free images retain their existing
+format. Its native controls pass; the live Unity actor save/reload gate remains
+under validation. Production devices and durable pending outboxes remain open.
+
 Production liquid flow remains incomplete. The prototype rejects vacuum and
 partially filled pure-liquid free surfaces, uses one velocity and temperature
 for its phases, and lacks reconstructed interface geometry,

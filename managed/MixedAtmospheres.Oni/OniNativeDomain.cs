@@ -103,6 +103,13 @@ namespace MixedAtmospheres.Oni
             public double MassKg, Interval, Temperature, MaximumGasDensity;
         }
         [StructLayout(LayoutKind.Sequential)]
+        internal struct PersistentActorCommand
+        {
+            public ActorCommand Actor;
+            public ulong Owner;
+            public uint Prefab, Component;
+        }
+        [StructLayout(LayoutKind.Sequential)]
         internal struct ActorStatus
         {
             public uint Size, Version, State, LiveActors;
@@ -134,6 +141,11 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actor", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActor(ref ActorCommand command, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_actors", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigureActors([In] ActorCommand[] commands, uint count, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_actor_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyActorStatus(ref ActorStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_actor_checkpoint_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ActorCheckpointVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_configure_persistent_actors", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigurePersistentActors([In] PersistentActorCommand[] commands, uint count, ref ActorStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_pending_actor_restores", CallingConvention = CallingConvention.Cdecl)] internal static extern uint PendingActorRestores();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_snapshot_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyDomainSnapshot(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_snapshot_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceDomainSnapshot([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CheckpointVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyCheckpoint(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceCheckpoint([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);
@@ -150,6 +162,7 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_pair_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint PairVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_pair_request", CallingConvention = CallingConvention.Cdecl)] internal static extern int RequestPair(ulong session, ulong frame, int x, int y, ref PairStatus result);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_pair_snapshot_request", CallingConvention = CallingConvention.Cdecl)] internal static extern int RequestSnapshotPair(ulong session, ulong frame, int x, int y, ref PairStatus result);
         [DllImport(Library, EntryPoint = "ma_oni_domain_pair_poll", CallingConvention = CallingConvention.Cdecl)] internal static extern int PollPair(ulong token, ref PairStatus result);
         [DllImport(Library, EntryPoint = "ma_oni_domain_pair_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyPair(ulong token, [Out] byte[] native, uint nativeCapacity, [Out] byte[] physical, uint physicalCapacity);
         [DllImport(Library, EntryPoint = "ma_oni_domain_pair_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyPairPointers(ulong token, IntPtr native, uint nativeCapacity, IntPtr physical, uint physicalCapacity);

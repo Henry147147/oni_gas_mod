@@ -290,6 +290,61 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             'SerializedHeaderCaptures':1,'SerializedHeaderSha256':'c'*64,
             'SerializedBodyCaptures':1,'SerializedBodyBytes':160000,'SerializedBodySha256':'d'*64}
 
+    def set_persistent_actors(self,restored=False):
+        self.set_restored_colony() if restored else self.set_saved_colony()
+        actors=[];bindings=[]
+        for index,kind in enumerate((1,2,2)):
+            a=dict(Kind=kind,Owner=101+index,Prefab=12345,Component=0,Cell=650+index,Species=1,
+                   Mass=.05 if kind==1 else .03125,Interval=0 if kind==1 else .7,Temperature=0 if kind==1 else 300,
+                   MaximumDensity=0 if kind==1 else .01 if index==2 else 10000,
+                   Elapsed=0 if kind==1 else .3,Remainder=1e-10 if kind==1 else 0,Blocked=index==2)
+            actors.append(a)
+            bindings.append(dict(Kind=kind,PersistentOwner=a['Owner'],PersistentPrefab=a['Prefab'],PersistentComponent=0,
+                Handle=100+index,UnityInstance=-100-index,Cell=a['Cell'],Species=1,PersistentExpectedCallbacks=20 if kind==1 else 0,
+                PersistentConsumerCallbacks=20 if kind==1 else 0,PersistentExpectedMass=.2 if kind==1 else 0,
+                PersistentConsumerMass=.2 if kind==1 else 0,PersistentEmitterStatusObserved=index==1,EmitterBlocked=index==2))
+        self.report['PersistentActors']=dict(Required=True,Source='stable-prefab-object-and-component/native-handle-remap',
+            WholeColonyFluidAuthority=False,SourceFixtureRequired=not restored,SourceFixtureVerified=not restored,
+            Restored=restored,RestoredBindingsVerified=restored,RestoredContinuationVerified=restored,
+            PendingRestores=0,UnsavedActors=0,Native=dict(Size=64,Version=1,State=1,Session=1,CompletedFrame=30,LiveActors=3,ConsumerSamples=30),
+            SavedActors=actors,CurrentActors=copy.deepcopy(actors),BoundObjects=bindings,CurrentImageSha256=('b' if restored else 'a')*64)
+
+    def test_live_actor_save_and_restore_require_current_objects_callbacks_and_snapshot_identity(self):
+        self.set_persistent_actors()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True,persistent_actors=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,persistent_actors=True))
+        self.set_persistent_actors(restored=True)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True,expected_platform='WindowsPlayer'))
+
+    def test_actor_mutations_cannot_hide_behind_exact_fluid_continuation(self):
+        changes=[lambda a:a.update(PendingRestores=1),lambda a:a.update(UnsavedActors=1),
+                 lambda a:a.update(RestoredBindingsVerified=False),lambda a:a.update(RestoredContinuationVerified=False),
+                 lambda a:a.update(CurrentImageSha256='c'*64),lambda a:a['Native'].update(LiveActors=2),
+                 lambda a:a['Native'].update(Session=2),lambda a:a['Native'].update(CompletedFrame=29),
+                 lambda a:a['CurrentActors'][0].update(Remainder=-1),lambda a:a['CurrentActors'][0].update(Mass=float('nan')),
+                 lambda a:a['CurrentActors'][1].update(Owner=101,Kind=1),lambda a:a['SavedActors'][0].update(Prefab=1),
+                 lambda a:a['BoundObjects'][0].update(Handle=-1),lambda a:a['BoundObjects'][0].update(UnityInstance=0),
+                 lambda a:a['BoundObjects'][0].update(PersistentConsumerCallbacks=21),
+                 lambda a:a['BoundObjects'][0].update(PersistentConsumerMass=.19),
+                 lambda a:a['BoundObjects'][0].update(PersistentOwner=999),
+                 lambda a:a['BoundObjects'][2].update(EmitterBlocked=False),
+                 lambda a:a['BoundObjects'].pop()]
+        self.set_persistent_actors(restored=True)
+        for change in changes:
+            report=copy.deepcopy(self.report);change(report['PersistentActors'])
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True))
+
+    def test_requested_actor_save_cannot_pass_using_an_actor_free_or_legacy_report(self):
+        self.set_saved_colony()
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True,persistent_actors=True))
+        self.report['PersistentActors']=dict(Required=False,PendingRestores=0,UnsavedActors=0,SavedActors=None,CurrentActors=None,BoundObjects=[])
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True,persistent_actors=True))
+        self.report['PersistentActors']['BoundObjects']=[{}]
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+
     def test_actual_colony_save_requires_one_paused_paired_section_and_source_clock(self):
         self.set_saved_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))

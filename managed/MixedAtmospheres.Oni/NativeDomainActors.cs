@@ -2,6 +2,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using UnityEngine;
 using static MixedAtmospheres.Oni.OniNativeDomain;
 
 namespace MixedAtmospheres.Oni
@@ -13,6 +14,12 @@ namespace MixedAtmospheres.Oni
             internal uint Kind, Cell, Species;
             internal int Blocked = -1, Unblocked = -1;
             internal bool Virgin = true, Configured, Removed;
+            internal SimComponent? Owner;
+            internal ulong PersistentOwner;
+            internal uint PersistentPrefab, PersistentComponent;
+            internal bool PersistentObserverAttached, PersistentEmitterStatusObserved;
+            internal long PersistentConsumerCallbacks, PersistentExpectedCallbacks;
+            internal double PersistentConsumerMass, PersistentExpectedMass;
         }
         private static readonly Dictionary<int, ActorBinding> pendingActorRegistrations = new Dictionary<int, ActorBinding>();
         private static readonly Dictionary<(uint kind, int handle), ActorBinding> actorBindings = new Dictionary<(uint, int), ActorBinding>();
@@ -34,8 +41,43 @@ namespace MixedAtmospheres.Oni
         {
             var plan=NativeActorRegistrationPlan.Decode(message,length,count,new ReadOnlySpan<byte>(payload,checked(length*count)),
                 OwnsPublicCell,ActorFluidSpecies,pendingActorRegistrations.Keys);
-            foreach(var item in plan) pendingActorRegistrations.Add(item.Callback,new ActorBinding {
-                Kind=item.Kind,Cell=checked((uint)item.Cell),Species=item.Species,Blocked=item.Blocked,Unblocked=item.Unblocked });
+            foreach(var item in plan)
+            {
+                var scope=NativeActorRegistrationOwner.Current;
+                pendingActorRegistrations.Add(item.Callback,new ActorBinding {
+                    Kind=item.Kind,Cell=checked((uint)item.Cell),Species=item.Species,Blocked=item.Blocked,Unblocked=item.Unblocked,
+                    Owner=scope!=null && scope.Callback==item.Callback ? scope.Owner : null });
+            }
+        }
+        private static bool PersistentCommand(ActorCommand command,ActorBinding binding,out PersistentActorCommand result)
+        {
+            if(binding.PersistentOwner==0 && binding.Owner!=null)
+            {
+                var owner=binding.Owner;var id=owner.GetComponent<KPrefabID>();
+                if(id!=null && id.InstanceID>=0 && id.PrefabTag.IsValid && id.PrefabTag.GetHash()!=0 &&
+                    owner.GetComponent<SaveLoadRoot>()!=null && ReferenceEquals(KPrefabIDTracker.Get().GetInstance(id.InstanceID),id))
+                {
+                    Component[] components=binding.Kind==1 ? owner.GetComponents<ElementConsumer>() : owner.GetComponents<ElementEmitter>();
+                    var index=Array.FindIndex(components,value=>ReferenceEquals(value,owner));
+                    if(index>=0 && index<=65535)
+                    {
+                        binding.PersistentOwner=1UL+checked((uint)id.InstanceID);binding.PersistentPrefab=unchecked((uint)id.PrefabTag.GetHash());
+                        binding.PersistentComponent=(uint)index;
+                    }
+                }
+            }
+            result=new PersistentActorCommand {Actor=command,Owner=binding.PersistentOwner,Prefab=binding.PersistentPrefab,Component=binding.PersistentComponent};
+            return result.Owner!=0;
+        }
+        private static int ConfigureBoundActors(ActorCommand[] commands,ActorBinding[] bindings,ref ActorStatus result)
+        {
+            var persistent=new PersistentActorCommand[commands.Length];var count=0;
+            for(var i=0;i<commands.Length;++i) if(PersistentCommand(commands[i],bindings[i],out persistent[i])) ++count;
+            if(count==0) return ConfigureActors(commands,(uint)commands.Length,ref result);
+            if(count!=commands.Length) throw new NotSupportedException("One actor batch cannot mix persistent objects and unsaved registrations.");
+            var code=ConfigurePersistentActors(persistent,(uint)persistent.Length,ref result);
+            if(code==0) foreach(var binding in bindings) ObservePersistentConsumer(binding);
+            return code;
         }
         internal static bool TryHandleActorMessage(int message, int length, byte* payload)
         {
@@ -56,7 +98,7 @@ namespace MixedAtmospheres.Oni
                 if (remove)
                 {
                     if (binding == null) return false;
-                    if (binding.Configured && !failed) ConfigureActorAtCurrentFrame(new ActorCommand { Handle = key.Item2, Kind = kind, Flags = 1 });
+                    if (binding.Configured && !failed) ConfigureActorAtCurrentFrame(new ActorCommand { Handle = key.Item2, Kind = kind, Flags = 1 },binding);
                     binding.Removed = true; binding.Configured = false;
                     return false; // ONI removes its inactive registration normally.
                 }
@@ -70,7 +112,7 @@ namespace MixedAtmospheres.Oni
                 if (binding == null || binding.Removed || !binding.Virgin)
                     throw new NotSupportedException("Only an inactive native registration can enter the custom actor owner.");
                 var command = DecodeActorConfiguration(message, payload, binding);
-                ConfigureActorAtCurrentFrame(command); binding.Configured = true; binding.Cell = command.PublicCell; binding.Species = command.Species;
+                ConfigureActorAtCurrentFrame(command,binding); binding.Configured = true; binding.Cell = command.PublicCell; binding.Species = command.Species;
                 ++actorMessagesRouted;
                 return true; // The native transfer remains at its initial zero rate.
             }
@@ -93,18 +135,24 @@ namespace MixedAtmospheres.Oni
                 // material identity. The default binding species is a gas;
                 // keeping it would reject an initially disabled liquid emitter.
                 if (command.MassKg > 0 || !binding.Configured)
-                    command.Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload + 28, 2)));
+                {
+                    var element=BinaryPrimitives.ReadUInt16LittleEndian(new ReadOnlySpan<byte>(payload+28,2));
+                    if(command.MassKg==0 && binding.Owner is ElementEmitter emitter &&
+                        element==ElementLoader.FindElementByHash(SimHashes.Vacuum).idx)
+                        element=ElementLoader.FindElementByHash(emitter.outputElement.elementHash).idx;
+                    command.Species=ActorFluidSpecies(element);
+                }
             }
             return command;
         }
-        private static void ConfigureActorAtCurrentFrame(ActorCommand command)
+        private static void ConfigureActorAtCurrentFrame(ActorCommand command,ActorBinding binding)
         {
             command.Size = 80; command.Version = 1;
             for (var attempt = 0; attempt < 8; ++attempt)
             {
                 var source = Status.Empty; Check(Copy(ref source, new Cell[cells.Length], (uint)cells.Length));
                 command.Session = source.Session; command.ExpectedFrame = source.CompletedFrames;
-                var result = ActorStatus.Empty; var code = ConfigureActor(ref command, ref result);
+                var result = ActorStatus.Empty; var code = ConfigureBoundActors(new[]{command},new[]{binding},ref result);
                 if (code == 3) continue;
                 Check(code); actorStatus = result; return;
             }
@@ -168,7 +216,7 @@ namespace MixedAtmospheres.Oni
                     {
                         requests[i].Size = 80; requests[i].Version = 1; requests[i].Session = source.Session; requests[i].ExpectedFrame = source.CompletedFrames;
                     }
-                    var result = ActorStatus.Empty; var code = ConfigureActors(requests, (uint)requests.Length, ref result);
+                    var result = ActorStatus.Empty; var code = ConfigureBoundActors(requests,bindings.ToArray(),ref result);
                     if (code == 3) continue;
                     Check(code);
                     for (var i = 0; i < requests.Length; ++i)
@@ -219,6 +267,7 @@ namespace MixedAtmospheres.Oni
         {
             var kind = receipt.Kind == 3 ? 1U : 2U;
             Require(actorBindings.TryGetValue((kind, receipt.Callback), out var binding), "Native actor receipt has no admitted full handle.");
+            RecordPersistentReceipt(binding!,receipt);
             if (receipt.Kind == 3)
             {
                 copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, new[] {

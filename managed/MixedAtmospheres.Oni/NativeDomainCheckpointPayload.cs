@@ -29,6 +29,16 @@ namespace MixedAtmospheres.Oni
             Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=3 &&
                 geometry.Width>=2 && geometry.Width<=16 && geometry.Height>=2 && geometry.Height<=16 && geometry.X>0 && geometry.Y>0 &&
                 (ulong)geometry.X+geometry.Width<geometry.GridWidth,"Invalid saved native domain geometry.");
+            NativeActorCheckpointImage? actorImage=null;
+            if(NativeActorCheckpointImage.HasMagic(physical))
+            {
+                actorImage=NativeActorCheckpointImage.Parse(physical);
+                var g=actorImage.Geometry;
+                Require(g.Size==geometry.Size && g.Version==geometry.Version && g.Flags==geometry.Flags && g.GridWidth==geometry.GridWidth &&
+                    g.X==geometry.X && g.Y==geometry.Y && g.Width==geometry.Width && g.Height==geometry.Height && g.Scenario==geometry.Scenario && g.Reserved==0,
+                    "Saved actor geometry differs from its physical domain.");
+                physical=actorImage.SolverImage;
+            }
             Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
                 BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8))==2,"Unsupported physical checkpoint format.");
             var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
@@ -46,7 +56,7 @@ namespace MixedAtmospheres.Oni
             Validate(source.Session,source.CompletedFrame,source.NativeEpoch,source.PhysicalTime,source.Configuration,physical);
             Require(physical.Length<=ColonySaveEnvelope.MaximumPayloadBytes-HeaderBytes,"Physical domain section exceeds the envelope limit.");
             var data=new byte[HeaderBytes+physical.Length]; Magic.CopyTo(data,0);
-            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8),1);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8),NativeActorCheckpointImage.HasMagic(physical) ? 2 : 1);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(12),source.Session);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(20),source.CompletedFrame);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(28),source.NativeEpoch);
@@ -59,8 +69,10 @@ namespace MixedAtmospheres.Oni
         internal static NativeDomainCheckpointPayload Parse(ReadOnlySpan<byte> data)
         {
             Require(data.Length>=HeaderBytes+32 && data.Length<=ColonySaveEnvelope.MaximumPayloadBytes && data.Slice(0,8).SequenceEqual(Magic) &&
-                BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==1,"Unsupported native-domain checkpoint section.");
+                (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==1 || BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==2),"Unsupported native-domain checkpoint section.");
             Require(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(84))==data.Length-HeaderBytes,"Native-domain checkpoint section length differs.");
+            Require(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==(NativeActorCheckpointImage.HasMagic(data.Slice(HeaderBytes)) ? 2 : 1),
+                "Saved actor extension differs from its enclosing format version.");
             var session=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(12));var frame=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(20));
             var epoch=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(28));var time=BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(data.Slice(36)));
             var g=new Configuration{Size=U(data,44),Version=U(data,48),Flags=U(data,52),GridWidth=U(data,56),X=U(data,60),Y=U(data,64),Width=U(data,68),Height=U(data,72),Scenario=U(data,76),Reserved=U(data,80)};

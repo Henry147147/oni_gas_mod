@@ -17,21 +17,21 @@ namespace MixedAtmospheres.Oni
         private static bool TryCapturePhysicalCheckpoint(out byte[] image)
         {
             image = Array.Empty<byte>();
-            var code = CopyCheckpoint(latest.Session, latest.CompletedFrames, null, 0, out var size);
+            var code = CopyDomainSnapshot(latest.Session, latest.CompletedFrames, null, 0, out var size);
             if (code == 3) return false;
             Check(code); Require(size > 32 && size <= 1024U * 1024 * 1024, "Physical checkpoint length is invalid.");
             var next = new byte[checked((int)size)];
-            code = CopyCheckpoint(latest.Session, latest.CompletedFrames, next, size, out var copied);
+            code = CopyDomainSnapshot(latest.Session, latest.CompletedFrames, next, size, out var copied);
             if (code == 3) return false;
             Check(code); Require(copied == size, "Physical checkpoint size changed inside one completed frame.");
             image = next; return true;
         }
         private static byte[] ResumePhysicalCheckpoint(byte[] source, double seconds)
         {
-            Check(AdvanceCheckpoint(source, (uint)source.Length, seconds, null, 0, out var size));
+            Check(AdvanceDomainSnapshot(source, (uint)source.Length, seconds, null, 0, out var size));
             Require(size > 32 && size <= 1024U * 1024 * 1024, "Resumed physical checkpoint length is invalid.");
             var result = new byte[checked((int)size)];
-            Check(AdvanceCheckpoint(source, (uint)source.Length, seconds, result, size, out var copied));
+            Check(AdvanceDomainSnapshot(source, (uint)source.Length, seconds, result, size, out var copied));
             Require(copied == size, "Restored physical owner did not produce a complete checkpoint.");
             return result;
         }

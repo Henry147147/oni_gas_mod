@@ -145,6 +145,27 @@ MA_ONI_API MAOniResult ma_oni_domain_configure_actor(const MAOniDomainActor*, MA
 MA_ONI_API MAOniResult ma_oni_domain_configure_actors(const MAOniDomainActor*, uint32_t count, MAOniDomainActorStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_actor_status(MAOniDomainActorStatus*);
 
+/* Additive durable-actor extension, ABI 1. Identity is an application-owned
+ * persistent object ID, prefab fingerprint and same-kind component index.
+ * Native handles remain session-local. All actor commands in a batch reserve
+ * their identities atomically; duplicate identities are rejected.
+ * Restored actors cannot advance until every saved identity is rebound. */
+typedef struct MAOniDomainPersistentActor {
+    MAOniDomainActor actor;
+    uint64_t owner;
+    uint32_t prefab, component;
+} MAOniDomainPersistentActor;
+MA_ONI_API uint32_t ma_oni_domain_actor_checkpoint_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_configure_persistent_actors(const MAOniDomainPersistentActor*, uint32_t count, MAOniDomainActorStatus*);
+MA_ONI_API uint32_t ma_oni_domain_pending_actor_restores(void);
+/* Complete physical/actor image. Refuses pending edits and undelivered
+ * receipts. Unbound actors refuse export. Newly allocated native handles are
+ * absent from the image. Actor-free images keep the legacy physical format. */
+MA_ONI_API MAOniResult ma_oni_domain_snapshot_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+
 /* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
  * are read-only projections, never authority for a producer transaction.
  * Redistribution counts represented cell-U changes; requested sub-ULP heat
@@ -198,6 +219,8 @@ typedef struct MAOniDomainPairStatus {
 } MAOniDomainPairStatus;
 MA_ONI_API uint32_t ma_oni_domain_pair_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_pair_request(uint64_t session, uint64_t completed_frame, int32_t x, int32_t y, MAOniDomainPairStatus*);
+/* Same worker fence and token lifecycle, with durable actor state included. */
+MA_ONI_API MAOniResult ma_oni_domain_pair_snapshot_request(uint64_t session, uint64_t completed_frame, int32_t x, int32_t y, MAOniDomainPairStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_pair_poll(uint64_t token, MAOniDomainPairStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_pair_copy(uint64_t token, uint8_t* native_data, uint32_t native_capacity,
     uint8_t* physical_data, uint32_t physical_capacity);
