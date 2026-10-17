@@ -120,5 +120,11 @@ one exact restore and original frame-10 deposit, later native pool reuse, and
 `1.401298464324819e-45` kg within the same operand bound. All 240 journals pass
 independent saved-only review, SHA-256
 `9b05dd7628d02a11787f07bb3a24fbf83e64fc1292bb253caf5391eeebd8f3da`.
-The WindowsPlayer-origin tiny parcel source also passes; its local and
-cross-player continued sessions remain queued.
+The WindowsPlayer-origin tiny parcel source and all four of its local and
+Linux continued sessions also pass. Across both sources, all eight reload
+sessions preserve their frame-zero saves, one exact frame-10 deposit, positive
+transported inventory and all 120 individually exact frames. Every session
+observes later native pool reuse without losing its retirement witness. Both
+source files remain unchanged. The complete 960-frame saved-only journal and
+source-file review has SHA-256
+`10eb0eb46344dc24e1a28bf59fe1847fb35417a7914c09803706c4a97f112af0`.
