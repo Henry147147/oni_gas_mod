@@ -904,6 +904,22 @@ screenshots do not bind every displayed value to an instrumented cell/frame
 record or establish full-world presentation, four-gas production hover,
 rendering performance or first-playable acceptance.
 
+After merging the verified Linux trampoline work, the clean `eae30f9`
+`windows-native-domain-current-merge-r1` cohort rebuilds all native libraries
+and the adapter. All 13 MSVC native CTests, 91 Core groups, 41 presentation
+groups, coupled/passive/mutation controls and seven host hook-profile controls
+pass. Actual Windows Unity heat/save completes at frame 121 / 24.200000361 s,
+with 2,541 substeps, zero reported mass/energy drift and the same represented
+9.0625 J conduction account. Its ordinary colony save has complete header/body
+readback (10,632,709-byte body); physical SHA-256 is
+`e22b67714f992cfa23e2810539ce851be01494477b9fee8a2f49f3095b80c05a`.
+The native hover screenshot still shows 220 MPa and the corrected liquid status.
+The process exits successfully and all 13 profile files are restored. Private
+terminal review SHA-256:
+`3fd4d820aa9dfb2129847f70f59fb5a4d0f221353f7bd46be02f5e56bd302adf`.
+This checks the merged Windows branch; Linux borrowed trampoline execution
+has its separate [evidence](native-trampoline-storage.md).
+
 ## Limits and next work
 
 Only the fixed sealed scene is enabled. Direct known native mutation packets

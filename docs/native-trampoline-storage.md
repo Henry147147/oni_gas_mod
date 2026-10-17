@@ -75,3 +75,11 @@ These four completed cases belong to
 `verified-trampoline-unity-matrix-v1`; the remaining matrix cases are still
 running. All 13 licensed Windows SimDLL domain controls also pass under Wine;
 those do not establish Windows Unity verification of this package.
+
+The later clean `eae30f9` merge is rebuilt with native MSVC on Windows. All 13
+native CTests pass, followed by an actual Windows Unity compressed-water
+heat/save run through 121 completed frames. The save's complete header/body
+readback and profile restoration pass, and actual hover retains the corrected
+liquid pressure/status. This exercises the separate Windows allocation and
+cleanup path after integration; it supplies no additional Linux borrowed-buffer
+evidence. See [the Windows record](sealed-native-domain.md#current-windows-conservative-liquid-heat-and-reload).
