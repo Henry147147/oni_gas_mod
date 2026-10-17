@@ -5,8 +5,8 @@ its pinned Windows x64 SimDLL. The isolated console harness uses disposable
 native worlds; it does not run Unity or establish first-playable acceptance.
 
 After merging main through `47f6803`, 237 native groups and 40 saved-data reviews
-pass on Windows, Linux and Linux ASan/UBSan. All 95 composed C++ compile commands
-are instrumented. The matrix includes mixed fluid transfers, nonlinear heat,
+pass on Windows, Linux and Linux ASan/UBSan. All 95 composed compile commands
+(83 C++ and 12 C) are instrumented. The matrix includes mixed fluid transfers, nonlinear heat,
 physical viscosity, body heat, arithmetic restoration, completed frame inputs,
 mixed native workers and radial consumption. Dry and wet owner controls also
 combine viscosity/conduction with coupled pressure and bounded remap, including

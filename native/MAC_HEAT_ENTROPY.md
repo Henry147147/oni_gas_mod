@@ -46,7 +46,7 @@ Evidence: `local/mac-heat-entropy-r1`, terminal SHA-256
 Reproduce the focused native output with `ma_mac_shock_heat_tests
 --entropy-regression`; review it with `native/tests/review_mac_heat_entropy.py`.
 A subsequent fresh suite passes 220 native groups and 37 independent saved
-reviews on Windows, Linux release and Linux ASan/UBSan. All 67 composed C++
+reviews on Windows, Linux release and Linux ASan/UBSan. All 67 composed C/C++
 compile commands are instrumented; normal ABI and detour checks pass. Protected
 installed libraries remain byte identical. Evidence:
 `local/mac-heat-entropy-prerequisites-r1`, terminal SHA-256
@@ -61,7 +61,7 @@ actual Windows/Linux Unity testing. Private quadratic reconstruction and pooled
 remap remain unpromoted; see [the retained fine result](MAC_REMAP_COUNTERFACTUALS.md).
 
 After the native frame/thermal merge, the expanded 237-group/40-review suite
-passes all three configurations with 95 instrumented C++ commands. The separate
+passes all three configurations with 95 instrumented C/C++ commands. The separate
 [Windows worker checkpoint](../docs/windows-native-worker-validation.md) records
 managed declaration/presentation checks and the retained first water-body
 registration readout failure. These results do not close the original
