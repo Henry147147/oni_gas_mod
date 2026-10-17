@@ -60,8 +60,9 @@ batches and 120 exact continued physical frames. Its autosave file hash is
 `1dd1ed7083ef234d0f20f45d1a241ca35bf1bc55ee24c3bb1a6f6657d58b1a4a`
 and final physical image is
 `a82f5fffd57d60ccd57bb96ecab31afb5918cad0df3580641a4da8a997f92348`.
-The original source stays unchanged. Windows Unity reader validation remains
-open.
+The original source stays unchanged. The later
+[WindowsPlayer matrix](native-windows-feature-matrix.md) also passes the actual
+24-read source and its fresh-process, 120-frame exact reload.
 
 The later [Linux lifecycle-reader controls](native-reader-restore.md) pass the
 actual breathing helper and duplicant selection in both loaded sessions for
@@ -76,4 +77,5 @@ cannot establish a conserved metabolism transaction.
 
 The later [Windows declaration preflight](native-pressure-reader.md#windows-declaration-preflight)
 passes the merged managed tests and adapter against the installed assemblies.
-It leaves actual Windows Unity breathing-reader acceptance open.
+The subsequent actual WindowsPlayer matrix above closes that bounded reader
+gate. Complete metabolism and production ownership remain separate work.

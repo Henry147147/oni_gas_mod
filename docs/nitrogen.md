@@ -74,8 +74,11 @@ returned. The constructor patch is therefore removed. The failed runs and crash
 logs remain retained. The setter-only diagnostic package passes the full startup identity check,
 122 physical frames and complete paired-save readback in the first cold
 WindowsPlayer inventory-import run. Both installed-assembly nitrogen suites
-pass all ten groups. Repeated cold source/load controls with the final adapter
-remain required before treating this as reliable.
+pass all ten groups. The final `2df8e7b` adapter now passes all twelve cold
+WindowsPlayer source/load controls in the
+[native feature matrix](native-windows-feature-matrix.md), plus both repeated
+occupied-mixture load sessions. These actual controls accept the startup path
+for the pinned player/build; arbitrary future Unity versions remain unverified.
 No precise Unity/Mono implementation cause is claimed.
 
 ## Property scope

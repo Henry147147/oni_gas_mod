@@ -104,3 +104,10 @@ incoming hooks remains open. The protected default DLL and installed SimDLL
 are unchanged. Private evidence: `local/windows-quadratic-readers-merge-r1`;
 terminal-review SHA256:
 `c2026e661287bb92cd0560f2e3a7ccb138d2d9f2ee3aebeaacd932e45da2dc33`.
+
+The subsequent [actual WindowsPlayer matrix](native-windows-feature-matrix.md)
+passes both gas and compressed-water sources, their native outside controls,
+complete saves, and fresh-process 120-frame exact reloads. The gas scene
+observes 824 game call-site reads; the water scene exercises the six physical
+getter samples without observing a game call-site read. This closes the bounded
+WindowsPlayer pressure-reader gate, with the stated Proton/OS limits.
