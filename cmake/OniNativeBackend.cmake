@@ -119,6 +119,8 @@ if(MA_BUILD_TESTS)
     add_executable(ma_mac_thermal_tests native/tests/mac_thermal_tests.cpp)
     target_link_libraries(ma_mac_thermal_tests PRIVATE ma_mac_closed_world)
     add_test(NAME mac_occupied_conduction COMMAND ma_mac_thermal_tests)
+    set_target_properties(ma_mac_mixture_thermal_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME mac_mixture_conduction COMMAND ma_mac_mixture_thermal_tests)
     # Defined once in the root project and available without the backend too.
     # Preserve its inclusion in a backend test build's default ALL target.
     set_target_properties(ma_mac_checkpoint_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)

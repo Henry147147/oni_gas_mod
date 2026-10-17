@@ -10,8 +10,11 @@ struct MacThermalReport {
 };
 struct MacThermalAdvance { MacTransportState state; MacThermalReport report; };
 // Closed finite-volume, backward-Euler conduction with harmonic face
-// resistance. Constant-capacity, single-phase occupied cells only; no heat
-// crosses walls/exterior. Gas conductivity is a declared mole-weighted
+// resistance. Single-phase cells retain the constant-capacity graph solve.
+// A graph containing gas/liquid cells uses complete-EOS, closed pairwise
+// backward-Euler contact solves (symmetric half sweeps for multiple contacts).
+// Conductivity is frozen at the beginning of each stage. No heat crosses
+// walls/exterior. Gas conductivity is a declared mole-weighted
 // reference, liquid conductivity is volume-weighted. Species/passives and
 // canonical momentum are retained. No phase transitions or solid adapter.
 // Each connected component uses conservative neighboring rounding when that

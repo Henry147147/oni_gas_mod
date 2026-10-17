@@ -1,8 +1,8 @@
 # Gas/liquid coexistence in the native owner
 
-Implementation is in progress. Existing gas-only and filled-water native
-controls remain separate from this new path; no coexistence Unity result is
-claimed yet.
+The first WindowsPlayer source/save and local continuation now pass. The
+same-process and cross-platform controls remain separate acceptance steps.
+Existing gas-only and filled-water scenes retain their original behavior.
 
 The next bounded owner must retain gas and liquid constituents in the same
 physical cell, with their actual EOS partial volumes, one mechanical pressure
@@ -67,4 +67,40 @@ late-batch rejection and exact restored continuation. It is the fifteenth
 backend CTest; all 15 pass on host Linux and GNU Windows binaries under Wine.
 The new group also passes Linux ASan/UBSan. Four additional installed-assembly
 reading groups pass on both platforms, alongside 230 Python checks (four
-optional/platform skips). Actual Unity coexistence acceptance remains pending.
+optional/platform skips). The WindowsPlayer controls below now pass; native Linux and heated-mixture
+acceptance remain separate gates.
+
+## First WindowsPlayer source and repaired reload
+
+Frozen `51d5ce9` and native v15 pass an actual WindowsPlayer/Proton OpenGL
+source in a fresh nine-world cluster. All six cells retain gas and water with
+compressed EOS partial volumes through physical frame 121 and a complete
+paired-save readback. Its file SHA-256 is
+`62338587bca44026737c23248816f2bb30eb3ba82559133e71191670e66ade4f`;
+the complete physical image is
+`970fbe7484369770dbbc66e0ae7a612f2d0c881068a4462d065e3c69e2920d55`.
+
+The actual source PNG was viewed with its completed cell 103106/revision 121
+hover: nitrogen 82.6584% and oxygen 17.3416% by gas moles, liquid volume
+20.59537543%, pressure 100317.68126107301 Pa, temperature 300.0000227607583 K
+and total mass 206.8798267410566 kg. The bulk rows, trace notice and breathing
+status are visible. Image-review SHA-256 is
+`3c5be23bb6f342eb738ce9f1d6bca81fcadfd00b365e383c05d2a3036993c11d`.
+This accepts the bounded hover facts; liquid world geometry remains unverified.
+
+The first reload compares all 120 complete frames exactly. A second-session
+native save-root startup race is then repaired by the
+[frame-zero lifecycle wait](native-orbital-references.md#waiting-for-the-restored-native-start-lifecycle).
+With `2df8e7b` and the unchanged v15 native libraries, both Windows sessions now
+pass all 120 complete frames, paused autosaves/readbacks, native readers and
+calibrated GPU checks. The second session naturally waits once for ten native
+roots while retaining the exact initial image at frame zero. Both final images
+equal the original successful session's
+`020d8824ffb622c72c3c4b42d0a2e8ee759cb297895902730dd0b8eb46246c20`.
+The raw result SHA-256 is
+`65199f80815acaf94a6b4c238aaf10c9ea628250ebd6b514f371f9858b855f76`.
+Native Linux loading the same unchanged source remains under verification.
+
+The separate [nonlinear conduction component](native-mixed-conduction.md) now
+passes its native and saved-only controls. A heated Unity mixture still needs
+its own source/load acceptance; scenario 4 continues to disable conduction.
