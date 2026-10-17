@@ -150,3 +150,36 @@ No further strong-flow retry occurs after restoring the unchanged mode-2
 method. Its preceding density-refinement failure remains a failure. No game
 DLL, source input save, released package or Workshop item is changed by these
 standalone controls. The experiment does not complete the overhaul.
+
+## Following liquid-conduction integration
+
+The incoming conservative liquid-conduction correction changes represented
+physical heat updates and their diagnostics. After integrating it, repeat the
+28 affected groups/reviews on Windows and Linux: all four heat-owner references,
+physical conduction, point transfers, native-domain scheduling and checkpoints.
+Repeat all 24 saved-setting combinations, ten retained image reads and three
+cross-platform reads per OS, plus the same 28 selected Linux sanitizer groups.
+The existing compiler, pipe and per-stage bounds remain unchanged. The r4
+integration cohorts pass all 28 affected groups/reviews on both platforms;
+completed r3 evidence above predates this fix.
+
+Old byte-equality receipts retain their earlier source scope. A legitimate
+change to represented physical conduction can change these newer physical-L
+accounts. Original Fourier, gravity and Riemann inputs remain unchanged; this
+merge does not authorize another identical failed strong-flow retry. There is
+no new game or first-playable acceptance from these numerical controls.
+
+All four owner references pass their saved-only reviews with 107,445 new-law
+checks per OS, the preceding corruption checks intact, and no physical tolerance
+changes. The direct physical-conduction control includes 2,400 small-water
+steps with exact represented component energy, insulation and explicitly
+reported unavailable rounding. All 24 checkpoint combinations, ten retained
+images and cross-platform reads pass again. Linux ASan/UBSan r3 passes the same
+28 affected groups/reviews with empty native stderr, fatal findings, leak
+detection and compile-command instrumentation audit.
+
+Post-merge terminal SHA256 values are:
+
+- Windows r4: `ed6d2d7c402e14dce0082343ce030f1f3342031aa31e9454c486c3f16c337ea6`.
+- Linux r4: `edbbe7549753b0411315ec146efe3133ff02eb19b2280cc3938d403dd5ace6c0`.
+- Linux ASan/UBSan r3: `ad062ade73b567ef60e8e0b7b8dc689714116adff97a18c5003deff67dfff656`.
