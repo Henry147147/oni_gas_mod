@@ -1,5 +1,6 @@
 #pragma once
 #include "mac_thermal.hpp"
+#include "mac_viscosity.hpp"
 #include "mac_shock_heat.hpp"
 #include "mac_reconstruction.hpp"
 #include "mac_compression.hpp"
@@ -30,6 +31,7 @@ struct MacClosedSettings {
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
+    MacViscosity viscosity;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -82,6 +84,10 @@ struct MacClosedAdvanceReport {
     std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0, unresolved_conduction_updates = 0;
     MacEnergy conductive_redistribution_j;
     double conductive_entropy_j_per_k = 0;
+    std::size_t viscosity_stages = 0, viscosity_modes = 0;
+    std::size_t unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
+    MacEnergy viscous_heat;
+    double viscous_entropy_lower_bound_j_per_k = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;
