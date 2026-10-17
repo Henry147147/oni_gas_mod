@@ -156,6 +156,13 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report['MixedPhase']['ConductionModel']='disabled'
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
 
+    def test_gpu_gate_requires_independent_appearance_review_when_operands_are_present(self):
+        report=self.gpu_texture_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30))
+        for invalid in (None, {}, {'Model':'invented-phase-renderer'}):
+            report['RenderingInputs']['WorldAppearance']=invalid
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30))
+
     def test_cpu_counters_and_exact_physics_cannot_hide_zero_or_stale_gpu_texels(self):
         changes=[lambda r:r['GpuGasTextures'].update(Verified=False),lambda r:r['GpuGasTextures'].update(BindingsVerified=False),
                  lambda r:r['GpuGasTextures'].update(CompletedFrame=29),lambda r:r['GpuGasTextures'].update(Session=2),

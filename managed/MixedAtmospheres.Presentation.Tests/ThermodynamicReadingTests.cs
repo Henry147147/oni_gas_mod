@@ -55,6 +55,68 @@ internal static class ThermodynamicReadingTests
             check(view.LiquidVolumeFraction == 1 && view.GasDensityKgPerCubicMetre == 0);
             check(view.BreathingStatus == "No gas phase / not breathable" && view.DisplayName == "Water (liquid)\n" + view.BreathingStatus);
         });
+        test("world mixture colour uses actual compressed phase volumes in linear light while gas colour stays mole weighted", () =>
+        {
+            var definitions = model();
+            var styles = definitions.Styles.Values.Select(s => new MixtureSpeciesStyle(s.MaterialId, s.DisplayName,
+                s.MaterialId == "water" ? new MixtureSrgbColor(0, 0, 1) : new MixtureSrgbColor(1, 0, 0)));
+            var plain = new MixturePresentationModel(catalog, styles, definitions.BreathingSettings,
+                "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternEnabled = false });
+            var source = Reading(); var view = plain.Describe(source); var colour = view.WorldFluidColorAt(2.5, -1.25);
+            check(view.HasPhaseVolumeAppearance && Math.Abs(view.BaseColor.R - 1) < 1e-14 && view.BaseColor.B == 0);
+            check(Math.Abs(colour.R - Encode(.8)) < 1e-14 && colour.G == 0 && Math.Abs(colour.B - Encode(.2)) < 1e-14);
+            check(Math.Abs(colour.B - Encode(.25)) > .04); // Nominal water density gives the wrong volume.
+            check(view.Constituents.Single(row => row.MaterialId == "water").GasMoleFraction == null);
+            check(ReferenceEquals(view.ThermodynamicReading, source) && source.StoredInternalEnergyJoules == -200);
+            reject(() => view.WorldFluidColorAt(double.NaN, 0));
+        });
+        test("each liquid contributes its own actual partial volume and configured colour", () =>
+        {
+            var definitions = model();
+            var expanded = new FluidMaterialCatalog("two-liquid-reading", catalog.Materials.Values.Append(
+                new FluidMaterial("oil", NativeMatterPhase.Liquid, .15, 1800, 800)));
+            var styles = definitions.Styles.Values.Select(s => new MixtureSpeciesStyle(s.MaterialId, s.DisplayName,
+                s.MaterialId == "water" ? new MixtureSrgbColor(0, 0, 1) : new MixtureSrgbColor(1, 0, 0)))
+                .Append(new MixtureSpeciesStyle("oil", "Oil", new MixtureSrgbColor(0, 1, 0)));
+            var twoLiquids = new MixturePresentationModel(expanded, styles, definitions.BreathingSettings,
+                "oxygen", "carbon_dioxide", options: new MixtureVisualOptions { PatternEnabled = false });
+            var source = Reading(new[]
+            {
+                new MixtureThermodynamicConstituent("oxygen", NativeMatterPhase.Gas, 1, .032, .5),
+                new MixtureThermodynamicConstituent("water", NativeMatterPhase.Liquid, 250, .018, .2),
+                new MixtureThermodynamicConstituent("oil", NativeMatterPhase.Liquid, 270, .15, .3)
+            }, gasVolume: .5, liquidVolume: .5);
+            var view = twoLiquids.Describe(source); var colour = view.WorldFluidColorAt(0, 0);
+            check(view.HasPhaseVolumeAppearance && Math.Abs(colour.R - Encode(.5)) < 1e-14);
+            check(Math.Abs(colour.G - Encode(.3)) < 1e-14 && Math.Abs(colour.B - Encode(.2)) < 1e-14);
+        });
+        test("wet world patterns retain world anchoring with gas amplitude reduced by actual gas volume", () =>
+        {
+            var definitions = model(); var view = definitions.Describe(Reading());
+            var water = definitions.Styles["water"].Color;
+            foreach (var point in new[] { (0.125, -.25), (1.75, 2.5), (-2.125, -3.5) })
+            {
+                var gas = view.ColorAt(point.Item1, point.Item2); var actual = view.WorldFluidColorAt(point.Item1, point.Item2);
+                check(Math.Abs(actual.R - Encode(.8 * Decode(gas.R) + .2 * Decode(water.R))) < 2e-14);
+                check(Math.Abs(actual.G - Encode(.8 * Decode(gas.G) + .2 * Decode(water.G))) < 2e-14);
+                check(Math.Abs(actual.B - Encode(.8 * Decode(gas.B) + .2 * Decode(water.B))) < 2e-14);
+                var periodic = view.WorldFluidColorAt(point.Item1 + 4, point.Item2 + 4);
+                check(Math.Abs(actual.R - periodic.R) < 1e-14 && Math.Abs(actual.B - periodic.B) < 1e-14);
+            }
+        });
+        test("dry canonical and legacy wet appearances retain their existing gas colour contract", () =>
+        {
+            var definitions = model();
+            var dry = definitions.Describe(Reading(new[]
+                { new MixtureThermodynamicConstituent("oxygen", NativeMatterPhase.Gas, 1, .032, 1) }, gasVolume: 1, liquidVolume: 0));
+            var legacy = definitions.Describe(catalog.CreateInventory(new Dictionary<string, double>
+                { ["oxygen"] = 1, ["water"] = 250 }, 300), 1);
+            foreach (var view in new[] { dry, legacy })
+            {
+                check(!view.HasPhaseVolumeAppearance);
+                check(view.WorldFluidColorAt(1.25, 2.5).Equals(view.ColorAt(1.25, 2.5)));
+            }
+        });
         test("explicit vacuum reading retains zero fluid quantities and a known empty volume", () =>
         {
             var reading = Reading(Array.Empty<MixtureThermodynamicConstituent>(), internalEnergy: 0, kinetic: 0,
@@ -207,6 +269,9 @@ internal static class ThermodynamicReadingTests
             check(view.Constituents.Single().ThermodynamicPartialVolumeCubicMetres == null);
         });
     }
+
+    private static double Decode(double s) => s <= .04045 ? s / 12.92 : Math.Pow((s + .055) / 1.055, 2.4);
+    private static double Encode(double l) => l <= .0031308 ? 12.92 * l : 1.055 * Math.Pow(l, 1 / 2.4) - .055;
 
     private static List<MixtureThermodynamicConstituent> MixedRows(bool trace = false)
     {

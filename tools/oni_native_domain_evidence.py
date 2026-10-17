@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import struct
+from oni_world_appearance_evidence import world_appearance_passed
 
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
@@ -235,7 +236,7 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
                     or gpu['ExpectedOpacity'][index] != expected['Pressure'] or gpu['Opacity']['Rgba'][index][3] != expected['Pressure']
                     or gpu['ExpectedDanger'][index] != expected['Danger'] or gpu['Danger']['Rgba'][index][3] != expected['Danger']):
                 return False
-        return True
+        return 'WorldAppearance' not in inputs or world_appearance_passed(report)
     except (KeyError,TypeError,ValueError,AttributeError,IndexError):
         return False
 

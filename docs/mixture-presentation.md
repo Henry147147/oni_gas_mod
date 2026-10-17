@@ -81,8 +81,8 @@ container ownership, save authority, or first-playable acceptance. See the
 The independent supplied-reading controls run with
 `dotnet run --project managed/MixedAtmospheres.Presentation.Tests -c Release -- --thermodynamic-readings`;
 that selection does not load or invoke the native reference solver.
-All 14 focused groups pass on Windows and Linux .NET 10. The combined 41-group
-Windows presentation suite also passes against the pinned native assessment
+All 18 focused groups pass in the Linux .NET 10 host. The combined 45-group
+presentation suite also passes against the pinned native assessment
 library; it does not advance physical simulation or establish Unity rendering.
 
 Names join the two leading meaningful gases with an en dash (default threshold
@@ -205,8 +205,28 @@ rounded display total-energy projection.
 Base colour is weighted by gas mole fraction **in linear RGB**, then encoded
 as sRGB. A stable species-ID hash supplies a smooth world-anchored 4-by-4-cell
 pattern. Each gas's contribution is blended continuously; crossing a dominant
-species tie cannot switch the pattern abruptly. Liquids do not tint the gas
-phase. Texture is enabled at contrast 0.04 by default.
+species tie cannot switch the pattern abruptly. Texture is enabled at contrast
+0.04 by default. `BaseColor` and `ColorAt` retain this gas composition contract.
+
+For a canonical reading containing gas and liquid, `WorldFluidColorAt` supplies
+a homogeneous world appearance. It scales the gas's linear RGB by actual
+`Vgas / Vcell` and adds each liquid's configured linear RGB times its actual
+compressed partial volume divided by cell volume. The world adapter uses that
+colour and composites density-based gas visibility with opaque liquid by the
+same phase volumes, rounding only the final opacity byte. `HasPhaseVolumeAppearance`
+identifies this path. The liquid mass divided by nominal density is never
+substituted for the completed EOS volume. Gas mole percentages, partial pressure,
+breathing policy and the gas composition overlay retain their gas-only meaning.
+Dry readings and legacy inventory appearances preserve their existing policy.
+Gasless liquid continues through the native liquid renderer.
+
+This is a cell-average appearance, with no inferred liquid surface or interface
+geometry. Development receipts capture styles, pattern settings, opacity range
+and exact physical readings. `oni_world_appearance_evidence.py` independently
+reconstructs each colour/opacity byte from those saved operands; the native
+domain gate also requires shader-bound GPU readback, calibrated coordinates and
+matching publication revisions. Component tests pass; an actual game source
+and repeated reload remain required for this new appearance.
 
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to

@@ -108,5 +108,7 @@ The matrix scene is `mixed-heat`; Windows PowerShell accepts
 callbacks, complete energy/trace accounts and exact restored continuation in
 the Linux component control. Both adapters build, the Linux declaration suite
 passes 148 groups and 234 Python checks pass (four optional/platform skips).
-Full native suites and actual Unity verification are in progress. This scene
+All 16 backend groups now pass on GNU Linux, GNU Windows binaries under Wine,
+Linux ASan/UBSan and the clean Ubuntu compatibility build. Actual Unity
+verification remains in progress. This scene
 provides no free surfaces, phase changes or liquid world geometry.
