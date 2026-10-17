@@ -150,14 +150,23 @@ void refinement() {
 }
 void owner_controls() {
     const auto& setup=testing::setup();
-    for (const bool wet:{false,true}) {
+    for (const bool coupled:{false,true}) for (const bool wet:{false,true}) {
         auto state=setup.state(3,2,false,wet);const auto inertia=mac_face_inertias(setup.registry,state,*setup.eos);
         for (std::size_t y=0;y<2;++y) for (std::size_t x=1;x<3;++x)
             state.momentum_x[state.grid.x_face(x,y)]=inertia.x[state.grid.x_face(x,y)]*(y==0 ? .5 : -.5);
         MacClosedSettings settings;settings.viscosity={.5,.25};settings.thermal_conduction=true;
+        if (coupled) {
+            settings.reconstruction=MacMaterialReconstruction::swept_first_moment;
+            settings.momentum_reconstruction=MacMomentumReconstruction::swept_energy_flux;
+            settings.compression_viscosity=MacCompressionViscosity::coupled_pressure;
+        }
         const MacClosedWorld source(setup.registry,setup.eos,state,settings);const auto original=source.checkpoint();
         require(original[8]==3,"Viscous physical owner did not select checkpoint version 3");
         const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,original);
+        require(restored.settings().reconstruction==settings.reconstruction &&
+            restored.settings().momentum_reconstruction==settings.momentum_reconstruction &&
+            restored.settings().compression_viscosity==settings.compression_viscosity,
+            "Viscous checkpoint lost pressure or remap selectors");
         require(restored.checkpoint()==original && restored.settings().viscosity.shear_pa_s==.5 && restored.settings().viscosity.bulk_pa_s==.25,
             "Viscous zero-time checkpoint differs");
         const auto advanced=source.advanced(.02),continued=restored.advanced(.02);
