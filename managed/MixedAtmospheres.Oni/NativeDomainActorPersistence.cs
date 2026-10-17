@@ -11,6 +11,7 @@ namespace MixedAtmospheres.Oni
     {
         private static NativeActorCheckpointImage? restoredActorImage,lastSavedActorImage,currentActorImage;
         private static string currentActorImageHash="";
+        private static int restoredZeroTimeEmitterConfigurations;
         private static bool persistentFixtureStarted,persistentFixtureVerified,restoredActorBindingsVerified,restoredActorsVerified;
         private static readonly List<GameObject> persistentFixtureObjects=new List<GameObject>();
         private static bool PersistentActorValidationRequired=>ColonyRuntimeValidation.Settings?.VerifyPersistentActors==true;
@@ -108,6 +109,34 @@ namespace MixedAtmospheres.Oni
                 "Binding restored actors advanced time or changed saved timing/configuration.");
             restoredActorBindingsVerified=true;
         }
+        private static void FlushRestoredEmitterConfigurations()
+        {
+            if(restoredActorImage==null || PendingActorRestores()==0) return;
+            // Unlike ElementConsumer.OnSimRegistered, ElementEmitter leaves its
+            // first configuration to SimComponent's dirty-state Sim200ms pass.
+            // The initial pause intentionally withholds managed sim subticks.
+            // Flush only this real component's configuration, with zero time,
+            // after ONI has delivered its genuine registration callback.
+            foreach(var pair in actorBindings.ToArray())
+            {
+                var b=pair.Value;
+                if(pair.Key.kind!=2 || b.Configured || b.Removed || !(b.Owner is ElementEmitter emitter) ||
+                    (int)AccessTools.Field(typeof(SimComponent),"simHandle").GetValue(emitter)!=pair.Key.handle) continue;
+                var command=new ActorCommand {Handle=pair.Key.handle,Kind=2};
+                if(!PersistentCommand(command,b,out var identity)) continue;
+                var saved=restoredActorImage.Actors.SingleOrDefault(a=>a.Kind==2 && a.Owner==identity.Owner &&
+                    a.Prefab==identity.Prefab && a.Component==identity.Component);
+                if(saved==null) continue;
+                var offset=emitter.outputElement.outputElementOffset;
+                var cell=Grid.OffsetCell(Grid.PosToCell(emitter.transform.position),(int)offset.x,(int)offset.y);
+                Require(cell==saved.Cell,"A restored emitter moved outside its saved point boundary.");
+                var before=PendingActorRestores();var frame=latest.CompletedFrames;var time=latest.TimeSeconds;
+                emitter.Sim200ms(0f);
+                Require(b.Configured && PendingActorRestores()+1==before && latest.CompletedFrames==frame && latest.TimeSeconds==time,
+                    "The restored emitter's real zero-time configuration did not match its saved state.");
+                ++restoredZeroTimeEmitterConfigurations;
+            }
+        }
         private static void VerifyRestoredPersistentActorCompletion()
         {
             if(restoredActorImage==null) return;
@@ -136,6 +165,7 @@ namespace MixedAtmospheres.Oni
                 Source="stable-prefab-object-and-component/native-handle-remap",
                 SourceFixtureRequired=PersistentActorValidationRequired,SourceFixtureVerified=persistentFixtureVerified,
                 Restored=restoredActorImage!=null,RestoredBindingsVerified=restoredActorBindingsVerified,RestoredContinuationVerified=restoredActorsVerified,
+                ZeroTimeEmitterConfigurations=restoredZeroTimeEmitterConfigurations,
                 PendingRestores=active ? PendingActorRestores() : 0,Native=actorStatus,
                 SavedActors=ActorFacts(records),CurrentActors=ActorFacts(currentActorImage?.Actors),CurrentImageSha256=currentActorImageHash,
                 BoundObjects=PersistentBindings.Select(pair=>new {pair.Value.PersistentOwner,pair.Value.PersistentPrefab,pair.Value.PersistentComponent,

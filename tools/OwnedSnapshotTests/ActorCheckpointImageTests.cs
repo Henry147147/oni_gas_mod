@@ -27,6 +27,11 @@ internal static class ActorCheckpointImageTests
             Array.Clear(image);check(value.SolverImage.AsSpan(0,8).SequenceEqual(Encoding.ASCII.GetBytes("MACCLS01")));
             check(NativeActorCheckpointImage.Parse(retained).Actors[1].Elapsed==.3);
         });
+        test("the real emitter exposes the zero-time SimComponent dirty-state configuration entry",()=> {
+            var method=typeof(SimComponent).GetMethod(nameof(SimComponent.Sim200ms),new[]{typeof(float)});
+            check(method!=null && !method.IsStatic && method.ReturnType==typeof(void) && method.GetMethodBody()!=null &&
+                method.DeclaringType==typeof(SimComponent) && typeof(ElementEmitter).IsSubclassOf(typeof(SimComponent)));
+        });
         test("actor image rejects corrupt hashes lengths and unsupported extension versions",()=> {
             var image=Fixture();var bad=(byte[])image.Clone();bad[100]^=1;reject(()=>NativeActorCheckpointImage.Parse(bad));
             reject(()=>NativeActorCheckpointImage.Parse(image.AsSpan(0,image.Length-1)));

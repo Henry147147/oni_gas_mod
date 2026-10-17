@@ -33,6 +33,11 @@ the complete native solver model. Restored records remain pending until normal
 managed scene spawning creates their actual consumer/emitter components. Their
 fresh native registrations must match every saved identity, location, material
 and configuration. Inactive spawn bootstrap messages cannot reset saved timing.
+ONI's emitter waits for a `SimComponent` dirty-state update after registration.
+During the initial restore pause, the adapter invokes that component's real
+`Sim200ms(0)` configuration pass after its genuine handle callback, verifies
+that it matches the saved record and retains physical time. It does not spend
+a managed simulation subtick to make an emitter ready.
 The managed game holds positive time while bindings are pending; the native
 worker also faults if an incomplete restore attempts to advance. Native fluid
 exclusion remains installed after a fault.
@@ -61,6 +66,8 @@ saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
 80 frames. `native-load-domain --resave-before-resume --reload-in-process`
 then exercises paused autosave and two actual managed scene loads.
+The Windows PowerShell runner exposes the same source as
+`-NativeDomain gas -SaveColony -VerifyPersistentActors -Frames 120` (or `water`).
 
 This remains bounded point-boundary persistence with drained callbacks.
 Crash recovery of pending outboxes, object destruction during callback delivery,

@@ -397,6 +397,7 @@ namespace MixedAtmospheres.Oni
         {
             Require(colonyLoaded && active && restoredExpected!=null,"Selected game did not restore a complete paired physical owner.");
             Capture();Require(latest.State==1 && BoundaryReady(),"Restored native colony boundary or owner failed.");
+            FlushRestoredEmitterConfigurations();
             if(PendingActorRestores()!=0)
             {
                 Require(Time.realtimeSinceStartup-started<90,"Saved point actors did not bind to their restored native components.");
