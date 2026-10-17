@@ -94,7 +94,10 @@ internal static unsafe partial class Program
             for (var i = 0; i < 6; ++i) Require(source[i] == baseline[i], "Uncovered native writer changed cell " + DomainCell(i) +
                 " at physical frame " + status.CompletedFrames + ": " + baseline[i] + " -> " + source[i]);
             Require(status.MaximumRelativeMassError <= 1e-8 && status.MaximumRelativeEnergyError <= 1e-6, "Custom conservation failed.");
-            if(bodyHeatRequired && bodyHeat==null && status.CompletedFrames-primedAt>=4) bodyHeat=new NativeBodyHeatControl(sim,contract);
+            if(bodyHeatRequired && bodyHeat==null && status.CompletedFrames-primedAt>=4) {
+                bodyHeat=new NativeBodyHeatControl(sim,contract);
+                report["nativeBodyRegistrationPriming"]=bodyHeat.PrimeRegistration(sim,contract,status);
+            }
             if (paired && !pairVerified && status.CompletedFrames-primedAt>=4)
             {
                 VerifyPairedCheckpoint(sim,contract,observer,status,report); pairVerified=true;

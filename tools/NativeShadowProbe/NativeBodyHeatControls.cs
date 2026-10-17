@@ -24,6 +24,33 @@ internal static unsafe partial class Program
                 writer.Write(10f);writer.Write(.01f);writer.Write(0f);writer.Write((ushort)contract.Granite);writer.Write((ushort)0);
             }));
         }
+        internal object PrimeRegistration(NativeSim sim,Contract contract,OniNativeDomain.Status expected)
+        {
+            var before=ReadPhysicalCheckpoint(expected.Session,expected.CompletedFrames);
+            sim.Send(-775326397,DomainFrame(0));var registration=sim.PrepareAfterFrame(contract);
+            foreach(var value in registration.ComponentEvents.Where(item=>item.Callback==Registration)) {
+                Require(!registered && value.Handle!=-1,"Zero-time native body registration is invalid.");
+                handle=value.Handle;registered=true;
+            }
+            Require(registered,"Zero-time native body registration did not publish its callback.");
+            var index=handle & 0x00ffffff;
+            Require(index<registration.ChunkHeatSamples.Length,"Registration output slot is missing.");
+            var first=registration.ChunkHeatSamples[index];
+            sim.Send(-775326397,DomainFrame(0));var initialized=sim.PrepareAfterFrame(contract);
+            var state=OniNativeDomain.Status.Empty;var cells=new OniNativeDomain.Cell[6];
+            Require(OniNativeDomain.Copy(ref state,cells,6)==0 && state.State==1 && state.Session==expected.Session &&
+                state.CompletedFrames==expected.CompletedFrames && state.TimeSeconds==expected.TimeSeconds &&
+                ReadPhysicalCheckpoint(state.Session,state.CompletedFrames).SequenceEqual(before),
+                "Body registration lifecycle changed the physical frame or source image.");
+            Require(index<initialized.ChunkHeatSamples.Length && initialized.ChunkHeatSamples[index].Temperature==InitialTemperature &&
+                initialized.ChunkHeatSamples[index].DeltaKilojoules==0,
+                "Zero-time lifecycle did not initialize the native body heat output.");
+            return new {ZeroTimeUpdates=2,PhysicalSourceUnchanged=true,CompletedFrame=state.CompletedFrames,
+                FirstTemperatureBits=BitConverter.SingleToInt32Bits(first.Temperature),
+                FirstDeltaBits=BitConverter.SingleToInt32Bits(first.DeltaKilojoules),
+                InitializedTemperatureBits=BitConverter.SingleToInt32Bits(initialized.ChunkHeatSamples[index].Temperature),
+                InitializedDeltaBits=BitConverter.SingleToInt32Bits(initialized.ChunkHeatSamples[index].DeltaKilojoules)};
+        }
         internal void Observe(Snapshot snapshot,OniNativeDomain.Status status)
         {
             foreach(var value in snapshot.ComponentEvents.Where(item=>item.Callback==Registration)) {

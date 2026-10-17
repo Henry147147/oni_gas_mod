@@ -96,6 +96,17 @@ All sixty post-priming frames must match byte for byte. This runs the licensed
 simulation worker in an isolated console process and remains separate from
 actual Unity save/reload and duplicant tests.
 
+`MA_VERIFY_CHUNK_HEAT=1` additionally checks real native body/fluid heat in a
+plain sealed gas or water scene. The harness processes body registration and
+initializes its native output slot with two zero-time lifecycle updates before
+the first positive contact. It requires the complete custom physical image,
+frame and time to remain identical, the body to remain at 350 K, and the native
+deltaKJ slot to be zero. Every subsequent positive contact retains the original
+temperature, heat-loss, readout and conservation checks. The first Windows
+registration output can otherwise contain an uninitialized accumulator; that
+failed water control remains recorded in
+[Windows worker validation](../../docs/windows-native-worker-validation.md).
+
 On Linux, those same controls can execute the Windows binaries by adding
 `--wine`, `--wine-prefix` and `--windows-dotnet` to the wrapper; point `--native`
 at the licensed Windows SimDLL and `--observer` at the Windows backend.

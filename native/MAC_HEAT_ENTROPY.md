@@ -59,3 +59,10 @@ match the retained original input, and its physical balances pass. The heat
 repair does not satisfy strong-flow accuracy, the first playable colony or
 actual Windows/Linux Unity testing. Private quadratic reconstruction and pooled
 remap remain unpromoted; see [the retained fine result](MAC_REMAP_COUNTERFACTUALS.md).
+
+After the native frame/thermal merge, the expanded 237-group/40-review suite
+passes all three configurations with 95 instrumented C++ commands. The separate
+[Windows worker checkpoint](../docs/windows-native-worker-validation.md) records
+managed declaration/presentation checks and the retained first water-body
+registration readout failure. These results do not close the original
+strong-flow or full colony gates.
