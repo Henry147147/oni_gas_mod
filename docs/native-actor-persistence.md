@@ -4,6 +4,8 @@ Actor persistence is part of the native backend's save contract. A saved
 consumer or emitter needs its remaining timing and a stable game object
 identity as well as the fluid state. Native handles and callback indices belong
 to one running session; they are not persistent object identities.
+The [native wire-format contract](../native/ONI_ACTOR_CHECKPOINT.md) specifies
+the versioned bytes and public extension ABI.
 
 The new bounded extension implements that contract for admitted, disease-free,
 single-cell `ElementConsumer` and `ElementEmitter` objects. The component must
@@ -57,9 +59,55 @@ checksums, and compare ten resumed worker frames exactly in each case.
 Premature positive advancement faults without advancing or releasing ownership.
 All 13 native tests pass in the Linux compatibility build, with Linux
 address/undefined-behavior sanitizers, and as Windows binaries under Wine. Both
-platforms' managed declaration suites pass 131 groups, and 220 Python checks
-pass with four optional/platform skips. Real Unity source/save/reload controls
-are in progress; this page does not yet record an accepted Unity actor save.
+platforms' managed declaration suites pass 132 groups, and 220 Python checks
+pass with four optional/platform skips.
+
+The actual Linux gas source uses frozen `6368468` and native compatibility build
+v12. It saves three live actors after 121 physical frames, including 114 real
+consumer callbacks carrying exactly 1.1400000331923366 kg. Both emitter timing
+remainders and the blocked state are present. The complete source image is
+`86af26c9e96ff4e701863e180947202c245b16c0321d39167eabd480dbe2e56b`.
+The ordinary save body contains 5,125,525 bytes; its file SHA-256 is
+`9144b42247ca0980291881854ef6cdda03cb99d88b0ced5303f3dd11543124b7`.
+
+The first load correctly fails at physical frame zero with its consumer bound
+and two emitters pending. It exposes the deferred emitter configuration above;
+the original failed report is retained. The repaired `6216773` load uses that
+same unchanged source file. Both native sessions 1 and 2 bind all three actual
+components, flush two real zero-time emitter configurations, complete the
+paused frame-zero autosave/body/header readback and compare 120 complete
+actor-and-fluid images exactly. Each receives 120 matching consumer callbacks.
+Both final images equal
+`abf65e2b3cd5bd4d0c7a31774e5e1e7256d18aa7276ef6833ea9d762c80aa0c3`.
+The same-process shutdown/menu lifecycle, restored pressure/breathing readers,
+calibrated GPU bytes and private-display cleanup also pass.
+
+Independent gas review SHA-256:
+`dd96ff6067c0d333df57e942136ef6fa8084a5f0aff1f99977d8457ef65ae309`.
+Raw source/load results are
+`814d7fed55f1e97ec0ba6866142f3911da42410e51831714f9f53632b78126b7`
+and `e5147ea624b8455a1e0beabc6c22bb1a659b9c56176a3b737b2b6ce5baf5184b`.
+This accepts the bounded Linux gas actor save/reload.
+
+The subsequent water source and both load sessions also pass with `6216773`
+and native v12. The source saves all three live water actors after 121 frames;
+its complete body is 5,134,605 bytes. The original file remains unchanged with
+SHA-256 `869e84d4aab3853dc2c1aaa1e136db233fbbe0817e6388c808d4b7b32f53d839`.
+Both load sessions flush two genuine zero-time emitter configurations, finish
+the paused autosave/readback, receive 120 matching consumer callbacks and
+compare every one of 120 complete resumed frames. Their final actor-and-fluid
+image is `67804efcdd6332085905330a90f1823cedb488cd9d79935e2e2032cc724251bd`.
+Restored readers, calibrated GPU bytes, shutdown/menu reload and desktop
+cleanup pass. The second save body contains 5,134,810 bytes.
+
+Independent water review SHA-256:
+`134ee78fe958e39d739fd670fb96e41e00fbdc1ad8ba9161535a9a930626324b`.
+Raw water source/load results are
+`3d33fd6b4719b540cc5a9ff551390c8e3ae219353a3b2d88e76404f72d9fa0d3`
+and `5efe7a88e7044c8a5ad0204d049fa5bce28cdd87bf040524669ef46e2ccc3826`.
+Windows Unity actor execution and a natural day-rollover save with live actors
+remain under validation. These actor cohorts have no separate manual image
+review; their scoped appearance check uses actual calibrated GPU readback.
 
 Fresh native Windows execution of the merged source passes the ABI, detour and
 four domain groups, including durable actor identity remapping and exact
