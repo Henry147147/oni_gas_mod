@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -120,6 +121,18 @@ class ProtonIsolationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Another runner operation"):
                 runner.main()
             play.assert_not_called()
+
+    def test_termination_unwinds_run_cleanup_releases_lock_and_restores_the_callers_handler(self):
+        previous=signal.getsignal(signal.SIGTERM);cleaned=[]
+        def stop_during_run(*args):
+            try:signal.getsignal(signal.SIGTERM)(signal.SIGTERM,None)
+            finally:cleaned.append(True)
+        with mock.patch.object(sys,"argv",["oni_proton_headless","--state",str(self.root),"--proton","/tool","--package","/package"]), \
+                mock.patch.object(runner,"playtest",side_effect=stop_during_run):
+            with self.assertRaises(SystemExit) as stopped:runner.main()
+        self.assertEqual(stopped.exception.code,128+signal.SIGTERM)
+        self.assertEqual(cleaned,[True]);self.assertEqual(signal.getsignal(signal.SIGTERM),previous)
+        with common.locked(self.root/common.LOCK_NAME):pass
 
 
 class WindowsEvidenceTests(unittest.TestCase):
