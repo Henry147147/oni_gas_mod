@@ -107,6 +107,12 @@ registration output can otherwise contain an uninitialized accumulator; that
 failed water control remains recorded in
 [Windows worker validation](../../docs/windows-native-worker-validation.md).
 
+`MA_VERIFY_COMPLETED_SNAPSHOT=1` with the heat replay control queues one
+additional zero-heat command. It checks that the last completed image remains
+identical while the drained-save API rejects pending input, and that stale
+epochs or insufficient buffers leave outputs untouched. The expected totals
+are two batches, three commands and exactly 1,500 J of committed heat.
+
 On Linux, those same controls can execute the Windows binaries by adding
 `--wine`, `--wine-prefix` and `--windows-dotnet` to the wrapper; point `--native`
 at the licensed Windows SimDLL and `--observer` at the Windows backend.

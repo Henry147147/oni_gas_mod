@@ -47,8 +47,22 @@ It preserves the complete physical image, frame and time, checks a 350 K body
 and zero native readout, then passes every original positive-contact guard for
 56 water exchanges and 61 exact input replays. Terminal SHA-256:
 `030c7c316b5f0dd625fa51da184e121cbcd7cd6280ee2a315423af559284f232`.
-This setup is promoted to the harness; fresh ordinary-harness validation is
-still required. No heat law, tolerance or positive timestep is changed.
+This setup is promoted to the harness. Fresh ordinary-harness gas and water
+controls each pass 56 strict body contacts and 61 exact worker/input replays.
+Their retained body review is
+`4f4def74246f7a340e36cecacbf6c2efe91d4e1c29002df07534e71d365063b4`;
+that checkpoint explicitly retains a separate optional-control counter failure.
+No heat law, tolerance or positive timestep is changed.
+
+The optional future-input control passes its immutable completed-image, buffer
+capacity and stale-epoch checks, then exposes an old single-batch assertion in
+the harness. Its intentional zero-heat command adds a second batch. Correcting
+only that expected count preserves the exact 1,500 J heat total. A fresh run
+passes all 61 complete-frame replays with two batches and three commands,
+including the zero-heat command. Terminal SHA-256:
+`1f39b214a6b392a98ecea5b5c075f2315b70300a6c666aada202252c4c69528c`.
+Passing gas/water cases are retained without relaunching them for this
+unrelated heating-branch assertion change.
 
 Saved review checks digest chains and represented scalar heat/energy endpoints.
 The console report does not export raw journals or all per-contact operands;
