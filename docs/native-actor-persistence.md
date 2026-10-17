@@ -131,6 +131,27 @@ terminal SHA-256
 `6805173ff923a9b4a8217d7e5c11c60389a71baf2a5f34528aa456fcd1fc17d9`.
 This is declaration/build verification; Unity save/reload remains required.
 
+After the natural-autosave runner changes and pressure-work refactor, fresh
+Windows source `e181a18` passes 132 installed-assembly groups, 120 Python runner
+tests without skips and 12 actual PowerShell option checks. Its rebuilt native
+libraries pass the ABI, detour and four domain groups. Separate licensed
+SimDLL worker controls pass gas and water checkpoint restores, each with 12
+exact continuation frames. These isolated controls use the default backend
+and do not execute Unity or prove Windows actor save/reload. The managed/runner
+terminal is `546ad352dfb7196e0ced460389da673905487d9cf9e791565bfb916dcf094ce2`;
+the licensed-worker terminal is
+`4089728c3182940eaee2eef8e5247e78df605fb1144ee27ae1d6fec653f936cf`.
+
+The subsequent orbital-reference admission merge (`4e7cf03`) passes 138
+installed-game declaration groups and 125 Python runner tests without skips.
+The adapter builds with the same two reference conflicts. All 170 native
+source/build inputs match the preceding verified binaries; no native rerun is
+claimed for this managed-only merge. Private evidence is
+`local/windows-orbital-merge-r6`, terminal SHA-256
+`f7a59d3fe43431b00628380599aa1403c2cdde07569b1c136e3868cf9571965e`.
+Its fresh Windows hover launch again encounters Steam's other-computer session
+warning and is canceled. This supplies no new Windows Unity or pixel result.
+
 ## WindowsPlayer and native Linux Spaced Out gas
 
 The later `74c9ec1` mod and native v12 pass real WindowsPlayer gas actor saving

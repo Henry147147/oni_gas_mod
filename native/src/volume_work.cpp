@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/volume_work.hpp"
 #include "mixed_atmospheres/pressure.hpp"
+#include "occupied_material_work_detail.hpp"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -267,10 +268,10 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
     return result;
 }
 
-OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
+OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_work(const FluidThermodynamics& model,
     std::span<const MaterialCell> cells, std::span<const OccupiedMaterialNode> nodes, double dt,
     PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy, double tolerance,
-    experimental::ReferenceRootOptions isentropic_root_options) {
+    experimental::ReferenceRootOptions isentropic_root_options,const OccupiedWorkLaw& custom_work) {
     require_finite(dt, "occupied material timestep");
     if (dt <= 0 || cells.empty()) throw std::invalid_argument("Occupied material pressure requires cells and positive time");
     if (!std::isfinite(tolerance) || tolerance < 8 * std::numeric_limits<double>::epsilon() || tolerance > 5e-13)
@@ -332,6 +333,15 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
             if (delta[i] == 0 || (!response.state.has_gas && response.work_pressure_pa == 0))
                 derivative = -0.5 / model.compression_compliance(anchors[i]);
             else derivative = model.reference().isentropic_work_pressure_derivative(anchors[i], delta[i], isentropic_root_options);
+            if (custom_work) {
+                if (roundoff_fill) throw std::invalid_argument("A constitutive work override requires the strict occupied EOS branch");
+                const auto local=custom_work(i,delta[i]);
+                for (const double value : {local.pressure_pa,local.derivative_pa_per_m3,local.requested_energy_change_j,local.stored_energy_j})
+                    require_finite(value,"occupied constitutive pressure work");
+                if (local.pressure_pa<0 || local.derivative_pa_per_m3>=0)
+                    throw std::domain_error("Occupied constitutive work requires nonnegative pressure and a negative tangent");
+                pressures[i]=local.pressure_pa;derivative=local.derivative_pa_per_m3;
+            }
             capacities[i] = -1 / derivative;
             if (!std::isfinite(capacities[i]) || capacities[i] <= 0)
                 throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied work compliance is unrepresentable");
@@ -421,8 +431,14 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
         const bool substituted = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
         auto& cell = result.cells[i];
         cell.volume_m3 = response.endpoint.volume_m3;
-        const double energy_update = substituted ? 0 : response.internal_energy_change_j;
-        cell.mixture.energy += energy_update;
+        double energy_update = substituted ? 0 : response.internal_energy_change_j;
+        bool resolves_energy=response.endpoint_energy_resolves_change;
+        if (custom_work) {
+            if (substituted) throw std::invalid_argument("Constitutive work cannot substitute an elastic endpoint");
+            const auto local=custom_work(i,changes[i]);
+            if (local.pressure_pa!=work[i]) throw std::runtime_error("Accepted constitutive pressure work changed during publication");
+            energy_update=local.requested_energy_change_j;cell.mixture.energy=local.stored_energy_j;resolves_energy=!local.unresolved_energy_update;
+        } else cell.mixture.energy += energy_update;
         if (substituted) {
             result.zero_work_substituted[i] = 1; ++result.zero_work_substitutions;
             result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa,
@@ -438,7 +454,7 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
         result.endpoint_pressures_pa[i] = state.mechanical_pressure_pa;
         const long double actual = static_cast<long double>(cell.mixture.energy) - cells[i].mixture.energy;
         energy_change += actual; work_roundoff += actual - energy_update;
-        if (!response.endpoint_energy_resolves_change) ++result.unresolved_energy_updates;
+        if (!resolves_energy) ++result.unresolved_energy_updates;
         if (!response.endpoint_volume_resolves_change) ++result.unresolved_volume_updates;
         const double volume_roundoff = std::abs(response.represented_volume_change_m3 - response.volume_change_m3);
         result.maximum_volume_roundoff_m3 = std::max(result.maximum_volume_roundoff_m3, volume_roundoff);
@@ -476,5 +492,11 @@ OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidTherm
     if (!std::isfinite(result.energy_balance_error_j) || std::abs(energy_change - body_work) > 2e-11L * scale)
         throw FluidFatalError(FluidFatalCode::numerical_precision, "Occupied pressure failed represented total-energy balance");
     return result;
+}
+OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
+    std::span<const MaterialCell> cells,std::span<const OccupiedMaterialNode> nodes,double dt,
+    PressurePreconditioner preconditioner,LiquidFillRoundoffPolicy roundoff_policy,double tolerance,
+    experimental::ReferenceRootOptions options) {
+    return detail::advance_occupied_material_pressure_with_work(model,cells,nodes,dt,preconditioner,roundoff_policy,tolerance,options,{});
 }
 }

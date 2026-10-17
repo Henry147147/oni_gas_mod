@@ -16,6 +16,11 @@ default stays 1 and no original scientific input or limit changes. Retained
 terminal SHA256:
 `43eb2b4485940d8f14e7b4e0ce7765897795472cee7736e7bfc01d0a125898ca`.
 
+A subsequent [compressive pressure-work component](MAC_COMPRESSIVE_WORK.md)
+passes local stress/heat/EOS controls on both OSes and under sanitizers. It
+prepares a coupled alternative to split shock damping; it has no owning
+timestep or strong-flow result yet and does not change the failed gate above.
+
 The latest [quadratic momentum admission](MAC_QUADRATIC_LIMITER.md), combined
 with swept material reconstruction, also fails collision density refinement:
 0.856557 / 0.795159 / 0.611016 for density/pressure/velocity against 0.85.
