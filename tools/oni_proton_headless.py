@@ -121,6 +121,9 @@ def start_display(state: Path, output: Path) -> tuple[dict, str, dict]:
 
 
 def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
+    # Proton takes pfx.lock before creating the prefix itself. Its parent is
+    # normally supplied by Steam; a direct private invocation must create it.
+    (output / "compatdata").mkdir(mode=0o700)
     record = common.spawn(command, output / "prefix-initialization.log", env)
     try:
         deadline = time.monotonic() + 180
@@ -180,7 +183,7 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
     except BaseException as error:
         errors.append("game: " + repr(error))
     try:
-        if prefix_started:
+        if prefix_started and (output / "compatdata/pfx").is_dir():
             env = dict(os.environ, WINEPREFIX=str(output / "compatdata/pfx"), WINEDEBUG="-all")
             env.pop("LD_LIBRARY_PATH", None)
             subprocess.run([str(proton / "files/bin/wineserver"), "-k"], env=env,

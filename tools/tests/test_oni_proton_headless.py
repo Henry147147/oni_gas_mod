@@ -74,6 +74,7 @@ class ProtonIsolationTests(unittest.TestCase):
 
     def test_failed_wine_cleanup_still_stops_only_owned_game_and_display(self):
         game, display = {"pid": 111}, {"pid": 222}
+        (self.root / "run/compatdata/pfx").mkdir(parents=True)
         with mock.patch.object(common, "stop_process") as stop, mock.patch.object(
                 runner.subprocess, "run", side_effect=subprocess.TimeoutExpired("wineserver", 30)) as run:
             with self.assertRaisesRegex(RuntimeError, "private Wine prefix"):
@@ -81,6 +82,21 @@ class ProtonIsolationTests(unittest.TestCase):
         self.assertEqual(stop.call_args_list, [mock.call(game), mock.call(display)])
         self.assertEqual(run.call_args.kwargs["env"]["WINEPREFIX"], str(self.root / "run/compatdata/pfx"))
         self.assertEqual(run.call_args.args[0], [str(self.root / "proton/files/bin/wineserver"), "-k"])
+
+    def test_prefix_parent_exists_before_proton_takes_its_lock(self):
+        output = self.root / "run"
+        output.mkdir()
+        def launch(command, log, env):
+            self.assertTrue((output / "compatdata").is_dir())
+            raise OSError("injected launch failure")
+        with mock.patch.object(common, "spawn", side_effect=launch), self.assertRaisesRegex(OSError, "injected"):
+            runner.initialize_prefix(["proton", "run", "wineboot", "-u"], output, {})
+
+    def test_no_wine_server_cleanup_for_a_prefix_that_never_existed(self):
+        with mock.patch.object(common, "stop_process") as stop, mock.patch.object(runner.subprocess, "run") as run:
+            runner.cleanup_run(None, {"pid": 222}, True, self.root / "proton", self.root / "run")
+        run.assert_not_called()
+        self.assertEqual(stop.call_args_list, [mock.call(None), mock.call({"pid": 222})])
 
     def test_proton_and_native_linux_use_the_same_whole_run_lock(self):
         with common.locked(self.root / common.LOCK_NAME), mock.patch.object(
