@@ -121,6 +121,23 @@ int main() {
         chunk_heat.abi_version=2;const auto held_chunk=chunk_heat;
         require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_INVALID_ARGUMENT &&
             std::memcmp(&chunk_heat,&held_chunk,sizeof(chunk_heat))==0,"Invalid native body heat ABI changed output");
+        require(ma_oni_domain_solid_heat_abi_version()==1 && sizeof(MAOniDomainSolidHeatCell)==48 &&
+                sizeof(MAOniDomainSolidHeatStatus)==112,"Native solid heat ABI");
+        MAOniDomainSolidHeatStatus solid_heat{};solid_heat.struct_size=112;solid_heat.abi_version=1;
+        require(ma_oni_domain_solid_heat_status(&solid_heat)==MA_ONI_OK && solid_heat.state==0 && solid_heat.contacts==0,
+                "Inactive native solid heat status");
+        const auto held_solid=solid_heat;
+        const MAOniDomainSolidHeatCell solid_input{48,1,649,123,1,0,10.F,.793F,2.F,255};
+        require(ma_oni_domain_solid_heat_configure(&solid_input,1,&solid_heat)==MA_ONI_BUSY &&
+                std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,"Inactive solid registration changed output");
+        for(const auto count:{0U,129U}) require(ma_oni_domain_solid_heat_configure(&solid_input,count,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,"Invalid solid registration count changed output");
+        require(ma_oni_domain_solid_heat_configure(nullptr,1,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,"Null solid registration changed output");
+        solid_heat.abi_version=2;const auto invalid_solid=solid_heat;
+        require(ma_oni_domain_solid_heat_status(&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+                ma_oni_domain_solid_heat_configure(&solid_input,1,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&solid_heat,&invalid_solid,sizeof(solid_heat))==0,"Invalid solid heat ABI changed output");
         const auto held_heat=heat;
         const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
         require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,
