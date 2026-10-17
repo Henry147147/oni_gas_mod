@@ -161,6 +161,18 @@ def run_checked(arguments: list[str], **kwargs) -> None:
 
 
 @contextmanager
+def cleanup_on_termination():
+    """Let run-owned process/prefix cleanup execute on a normal SIGTERM."""
+    def terminate(signum, frame):
+        raise SystemExit(128+signum)
+    previous=signal.signal(signal.SIGTERM,terminate)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM,previous)
+
+
+@contextmanager
 def locked(path: Path):
     with path.open("a") as stream:
         try:
@@ -736,7 +748,8 @@ def locked_command(args, state: Path, session: dict) -> int:
             stop_process(session.get(name))
         print("Stopped owned processes; profiles and evidence retained.")
     elif args.command == "run":
-        return playtest(args, state, session)
+        with cleanup_on_termination():
+            return playtest(args, state, session)
     return 0
 
 

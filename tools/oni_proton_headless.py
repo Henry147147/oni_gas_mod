@@ -373,7 +373,7 @@ def main() -> int:
     args = parser.parse_args()
     state = args.state.resolve()
     # This is the native Linux runner's lock, held for the entire game lifecycle.
-    with common.locked(state / common.LOCK_NAME):
+    with common.cleanup_on_termination(), common.locked(state / common.LOCK_NAME):
         return playtest(args, state, common.read_session(state))
 
 
