@@ -43,7 +43,23 @@ requires all four final observations, their matching receipts, the retained
 reviewed reports and unchanged screenshots. Its result keeps the display-fixture
 scope and never sets first-playable or production-authority flags.
 
-The portable review protocol passes six new test groups, with 211 total Python
-checks and four optional/platform skips. Actual Linux UI execution is pending
-behind the current save/reload controls. Production fluid ownership and
-conserved metabolism remain separate requirements.
+The portable review protocol now passes seven groups, with 215 total Python
+checks and four optional/platform skips. Both platform adapters compile and
+all 37 inspection and five native-description groups pass per declaration set.
+
+The first actual Linux `linux-tile-hover-actual-v1` passes image review for the
+default, exact-threshold and below-threshold cases. At 125% UI scale on a
+1280-by-720 viewport, its original tooltip extends below the screen and hides
+the mandatory chlorine warning. No continuation receipt was issued for that
+case. The raw run remains failed, with its images and explicit pixel-review
+failure retained.
+
+The repair measures the game's completed shadow bars and selection borders in
+the actual hover canvas. It translates text, icons and both borders together
+inside that canvas, preserving font size, rows and warnings. A subsequent
+native drawing restores the previous pool positions; session teardown also
+retires the adjustment. Six new inspection groups cover the reproduced
+geometry, all four edges, stable translation, oversized bounds, invalid inputs
+and both installed native drawer contracts. The actual repaired Linux rerun
+is pending. Production fluid ownership and conserved metabolism remain
+separate requirements.

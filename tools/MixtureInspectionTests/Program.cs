@@ -56,7 +56,13 @@ internal static class Program
             ("owned object binding resolves only its exact completed allocation", OwnedAllocationResolution),
             ("owned object registration creates no independent inventory provider", OwnedBindingSurface),
             ("registered adapter errors have an explicit unavailable path", AdapterFailureSurface),
-            ("game teardown clears persistent prefab bindings and cached readings", SessionBindingReset)
+            ("game teardown clears persistent prefab bindings and cached readings", SessionBindingReset),
+            ("125-percent hover clipping moves the complete tooltip without resizing", HoverViewportClipping),
+            ("hover fits every viewport edge in canvas coordinates", HoverViewportEdges),
+            ("hover translations are stable and preserve already visible content", HoverViewportStable),
+            ("oversized hover reports that translation cannot fit all content", HoverViewportOversized),
+            ("invalid hover bounds and margins reject", HoverViewportInvalid),
+            ("both native hover hooks and all four pool roots match installed declarations", HoverPoolContract)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -70,6 +76,56 @@ internal static class Program
     private static MethodInfo Transpiler(string type) => typeof(MixtureInspection).Assembly.GetType("MixedAtmospheres.Oni." + type)!
         .GetMethod("Transpiler", BindingFlags.Static | BindingFlags.NonPublic)!;
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    private static void HoverViewportClipping()
+    {
+        var content = new HoverBounds(522, -44, 896, 250);
+        var viewport = new HoverBounds(0, 0, 1024, 576);
+        var fit = MixtureHoverViewport.Fit(content, viewport, 8);
+        Check(fit.Fits && fit.X == 0 && fit.Y == 52, "The reproduced 125-percent tooltip remains clipped.");
+        Check(content.Bottom + fit.Y == 8 && content.Top + fit.Y <= 568, "Warning bounds are outside the canvas.");
+        Check((content.Top + fit.Y) - (content.Bottom + fit.Y) == 294, "The translation changed font/content height.");
+    }
+    private static void HoverViewportEdges()
+    {
+        var viewport = new HoverBounds(-640, -360, 640, 360);
+        var rightTop = MixtureHoverViewport.Fit(new HoverBounds(600, 300, 900, 500), viewport, 8);
+        Check(rightTop.Fits && rightTop.X == -268 && rightTop.Y == -148, "Right/top overflow remains.");
+        var leftBottom = MixtureHoverViewport.Fit(new HoverBounds(-800, -500, -400, -200), viewport, 8);
+        Check(leftBottom.Fits && leftBottom.X == 168 && leftBottom.Y == 148, "Left/bottom overflow remains.");
+    }
+    private static void HoverViewportStable()
+    {
+        var viewport = new HoverBounds(0, 0, 1280, 720);
+        var visible = MixtureHoverViewport.Fit(new HoverBounds(8, 8, 1272, 712), viewport, 8);
+        Check(visible.Fits && visible.X == 0 && visible.Y == 0, "Already visible text moved.");
+        var once = MixtureHoverViewport.Fit(new HoverBounds(600, -100, 1000, 300), viewport, 8);
+        var again = MixtureHoverViewport.Fit(new HoverBounds(600+once.X, -100+once.Y, 1000+once.X, 300+once.Y), viewport, 8);
+        Check(again.Fits && again.X == 0 && again.Y == 0, "Repeated drawing accumulates translations.");
+    }
+    private static void HoverViewportOversized()
+    {
+        var fit = MixtureHoverViewport.Fit(new HoverBounds(100, -500, 1500, 400), new HoverBounds(0, 0, 1280, 720), 8);
+        Check(!fit.Fits && fit.X == -92 && fit.Y == 312, "Oversized content was falsely certified or resized.");
+    }
+    private static void HoverViewportInvalid()
+    {
+        void Reject(System.Action action) { try { action(); } catch (ArgumentException) { return; } throw new Exception("Invalid hover geometry accepted."); }
+        Reject(() => new HoverBounds(double.NaN,0,1,1));
+        Reject(() => new HoverBounds(0,0,double.PositiveInfinity,1));
+        Reject(() => new HoverBounds(1,0,0,1));
+        var content = new HoverBounds(0,0,1,1); var view = new HoverBounds(0,0,100,100);
+        Reject(() => MixtureHoverViewport.Fit(content,view,-1));
+        Reject(() => MixtureHoverViewport.Fit(content,view,double.NaN));
+        Reject(() => MixtureHoverViewport.Fit(content,view,50));
+    }
+    private static void HoverPoolContract()
+    {
+        MixtureHoverLayout.RequireContract();
+        var begin = AccessTools.Method(typeof(HoverTextDrawer),nameof(HoverTextDrawer.BeginDrawing),new[]{typeof(UnityEngine.Vector2)});
+        var end = AccessTools.Method(typeof(HoverTextDrawer),nameof(HoverTextDrawer.EndDrawing),Type.EmptyTypes);
+        Check(begin != null && !begin.IsStatic && begin.ReturnType == typeof(void) && end != null && !end.IsStatic && end.ReturnType == typeof(void),
+            "Native hover drawing lifetime changed.");
+    }
     private static List<CodeInstruction> Apply(string type, MethodBase original, out List<CodeInstruction> before)
     {
         before = PatchProcessor.GetOriginalInstructions(original, out var generator);

@@ -276,6 +276,7 @@ namespace MixedAtmospheres.Oni
         internal static bool TryDrawCell(SelectToolHoverTextCard card, HoverTextDrawer drawer, int cell, bool selected)
         {
             if (!MixturePresentationRuntime.TryGetCell(cell, out var reading) || reading == null) return false;
+            MixtureHoverLayout.Request(drawer);
             drawer.BeginShadowBar(selected);
             drawer.DrawText(FormatHeader(reading).ToUpperInvariant(), card.Styles_Title.Standard);
             Line(drawer, card, FormatState(reading));
@@ -412,6 +413,7 @@ namespace MixedAtmospheres.Oni
                 var data = ResolveContainers(selectable.gameObject);
                 foreach (var item in data.Owned)
                 {
+                    MixtureHoverLayout.Request(drawer);
                     drawer.BeginShadowBar(false);
                     drawer.DrawText(item.label + " · " + FormatHeader(item.reading), card.Styles_Title.Standard);
                     Line(drawer, card, FormatState(item.reading));
@@ -422,17 +424,20 @@ namespace MixedAtmospheres.Oni
                 }
                 if (data.Errors.Count != 0)
                 {
+                    MixtureHoverLayout.Request(drawer);
                     drawer.BeginShadowBar(false);
                     foreach (var error in data.Errors) Line(drawer, card, error, true);
                     drawer.EndShadowBar();
                 }
                 if (data.NativeUnavailable.Count != 0)
                 {
+                    MixtureHoverLayout.Request(drawer);
                     drawer.BeginShadowBar(false);
                     foreach (var unavailable in data.NativeUnavailable) Line(drawer, card, unavailable);
                     drawer.EndShadowBar();
                 }
                 if (data.Native.Count == 0) continue;
+                MixtureHoverLayout.Request(drawer);
                 drawer.BeginShadowBar(false);
                 drawer.DrawText("NATIVE FLUID INVENTORY", card.Styles_Title.Standard);
                 foreach (var line in data.Native.Take(3)) Line(drawer, card, line);
