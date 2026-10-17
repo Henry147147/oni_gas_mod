@@ -133,6 +133,32 @@ inline void export_momentum_reconstruction(int id, const MacTransportReport& r) 
     const auto scaled = [](MacScaled value) { std::cout << ' ' << value.mantissa() << ' ' << value.exponent(); };
     for (std::size_t i = 0; i < r.advected_internal_energy_j.size(); ++i)
         std::cout << "MRCELL " << id << ' ' << i << ' ' << r.advected_internal_energy_j[i] << '\n';
+    if (r.x.reconstruction == MacMomentumReconstruction::swept_physical) {
+        std::cout << "SWADMIT " << id << ' ' << r.physical_correction_fraction << ' ' << r.physical_admission_backtracks;
+        for (auto value : {r.entropy_change_j_per_k, r.entropy_allowance_j_per_k, r.remap_work_wide_j}) scaled(value);
+        std::cout << '\n';
+        for (int axis = 0; axis < 2; ++axis) {
+            const auto& f = axis == 0 ? r.x : r.y;
+            std::cout << "SWCOUNT " << id << ' ' << axis << ' ' << f.remap_corrections.size() << '\n';
+            for (std::size_t i = 0; i < f.energies.size(); ++i) {
+                std::cout << "SWFACE " << id << ' ' << axis << ' ' << i << ' '
+                    << f.source_centroid_offsets[i][0] << ' ' << f.source_centroid_offsets[i][1];
+                for (auto value : {f.upwind_momentum[i], f.velocity_slope_x[i], f.velocity_slope_y[i],
+                    f.upwind_mixing_heat[i], f.upwind_transported_kinetic[i], f.energies[i].remap_work_energy,
+                    f.energies[i].composed_energy_bound}) scaled(value);
+                std::cout << '\n';
+            }
+            for (std::size_t i = 0; i < f.remap_corrections.size(); ++i) {
+                const auto& e=f.remap_corrections[i]; const auto& edge=f.fluxes[e.dual_edge];
+                std::cout << "SWEVENT " << id << ' ' << axis << ' ' << i << ' ' << e.dual_edge << ' '
+                    << e.transport_axis << ' ' << edge.left << ' ' << edge.right;
+                for (auto value : {e.predictor_delta_velocity, e.bounded_delta_velocity, e.requested_impulse, e.impulse, e.transported_work_limiter,
+                    e.before_left, e.before_right, e.after_left, e.after_right, e.energy_flux, e.work_change_left, e.work_change_right}) scaled(value);
+                std::cout << '\n';
+            }
+        }
+        return;
+    }
     for (int axis = 0; axis < 2; ++axis) {
         const auto& f = axis == 0 ? r.x : r.y;
         std::cout << "MRECON " << id << ' ' << axis << ' ' << f.corrections.size() << ' ' << f.limited_corrections << ' '

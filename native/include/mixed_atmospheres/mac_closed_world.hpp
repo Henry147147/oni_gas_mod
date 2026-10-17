@@ -90,6 +90,8 @@ struct MacClosedAdvanceReport {
     double gravity_internal_change_j = 0, body_impulse_y = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
+    MacEnergy remap_work_wide_j;
+    std::size_t physical_admission_backtracks = 0;
     MacEnergy compression_heat_wide_j;
     double compression_heat_j = 0;
     std::size_t rounded_energy_projections = 0;

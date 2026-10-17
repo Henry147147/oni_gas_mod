@@ -150,7 +150,7 @@ void invalid() {
         else if (kind == 5) {
             MacEnergySum left, right; left.add(-1); const MacMomentumWorkBudget budget{left, right};
             static_cast<void>(limit_mac_momentum_pair_quadratic(1, 1, {}, {}, {}, {}, value(1), &budget));
-        } else { auto bad = MacClosedSettings{}; bad.momentum_reconstruction = static_cast<MacMomentumReconstruction>(3); bad.validate(); }
+        } else { auto bad = MacClosedSettings{}; bad.momentum_reconstruction = static_cast<MacMomentumReconstruction>(4); bad.validate(); }
     } catch (const std::invalid_argument&) { ++rejected; }
     // A huge requested impulse is representable in range arithmetic; it is
     // admitted at a zero limiter here, so it must not be a false rejection.

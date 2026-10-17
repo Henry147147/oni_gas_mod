@@ -105,7 +105,8 @@ void MacClosedSettings::validate() const {
         (reconstruction == MacMaterialReconstruction::donor_cell || reconstruction == MacMaterialReconstruction::limited_linear ||
             reconstruction == MacMaterialReconstruction::swept_first_moment) &&
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear ||
-            momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear) &&
+            momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear ||
+            momentum_reconstruction == MacMomentumReconstruction::swept_physical) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic) &&
         (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated ||
@@ -348,7 +349,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer;
+    MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     Account conductive_entropy;
     MacScaledSum wx, wy; Account gravity_change, body_impulse;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
@@ -396,6 +397,8 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                     after_conduction=std::move(conducted.report); candidate.state=std::move(conducted.state);
                 }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
+                remap_work.add(candidate.transport.remap_work_wide_j);
+                result.report.physical_admission_backtracks += candidate.transport.physical_admission_backtracks;
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
                 wx.add(candidate.full_pressure_wall_impulse_x); wy.add(candidate.full_pressure_wall_impulse_y);
                 for (const auto& reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
@@ -429,7 +432,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
                 result.report.unresolved_momentum_updates += candidate.unresolved_momentum_updates;
                 for (const auto* component : {&candidate.transport.x, &candidate.transport.y}) {
-                    result.report.momentum_correction_events += component->corrections.size();
+                    result.report.momentum_correction_events += component->corrections.size() + component->remap_corrections.size();
                     result.report.limited_momentum_corrections += component->limited_corrections;
                     result.report.unresolved_momentum_corrections += component->unresolved_momentum_corrections;
                     result.report.unresolved_remainder_corrections += component->unresolved_remainder_corrections;
@@ -448,6 +451,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget) co
     if (!within_energy_budget(total.terms(), bounds)) throw std::domain_error("MAC closed interval energy exceeds accumulated stage bounds");
     result.report.energy_residual_wide_j = total.residual(); result.report.energy_bound_wide_j = bounds.value();
     result.report.mixing_heat_wide_j = mix.value(); result.report.wall_heat_wide_j = wall.value();
+    result.report.remap_work_wide_j = remap_work.value();
     result.report.compression_heat_wide_j = compression_heat.value();
     result.report.conductive_redistribution_j=conductive_redistribution.value();
     result.report.conductive_entropy_j_per_k=conductive_entropy.value();

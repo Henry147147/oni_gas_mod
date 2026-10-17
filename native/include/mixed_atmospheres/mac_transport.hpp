@@ -4,13 +4,15 @@
 #include "mac_energy.hpp"
 #include "mac_fields.hpp"
 #include "mac_momentum_limiter.hpp"
+#include <array>
 #include <cstdint>
 #include <span>
 
 namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
-enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2 };
+enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2,
+    swept_physical = 3 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Every fluid cell must remain occupied.
@@ -81,6 +83,17 @@ struct MacFaceEnergy {
     // stage accounts. Cancellation cannot reset inherited roundoff to the
     // magnitude of only the much smaller final transported energy.
     MacEnergy composed_energy_bound{};
+    // Signed compatible remap work, distinct from nonnegative upwind variance.
+    // Only swept_physical uses this term; admission checks the completed EOS,
+    // entropy and conserved state before returning any candidate.
+    MacEnergy remap_work_energy{};
+};
+struct MacMomentumRemapEvent {
+    std::size_t dual_edge = 0, transport_axis = 0;
+    MacScaled predictor_delta_velocity, bounded_delta_velocity, requested_impulse, impulse;
+    MacScaled transported_work_limiter;
+    MacScaled before_left, before_right, after_left, after_right;
+    MacEnergy energy_flux, work_change_left, work_change_right;
 };
 struct MacMomentumReconstructionEvent {
     std::size_t dual_edge = 0, transport_axis = 0;
@@ -99,6 +112,8 @@ struct MacFaceTransportReport {
     std::vector<MacScaled> upwind_momentum, velocity_slope_x, velocity_slope_y, centered_courant_x, centered_courant_y;
     std::vector<MacEnergy> upwind_mixing_heat, upwind_transported_kinetic;
     std::vector<MacMomentumReconstructionEvent> corrections;
+    std::vector<MacMomentumRemapEvent> remap_corrections;
+    std::vector<std::array<double, 2>> source_centroid_offsets;
     std::size_t limited_corrections = 0, unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
 };
 struct MacTransportReport {
@@ -114,6 +129,9 @@ struct MacTransportReport {
     MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
     std::size_t scaled_primary_parcels = 0;
     std::vector<double> advected_internal_energy_j; // populated before heat deposition in reconstructed momentum mode
+    double physical_correction_fraction = 1;
+    std::size_t physical_admission_backtracks = 0;
+    MacEnergy remap_work_wide_j, entropy_change_j_per_k, entropy_allowance_j_per_k;
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };

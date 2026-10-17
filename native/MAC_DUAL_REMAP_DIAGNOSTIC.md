@@ -95,6 +95,11 @@ or an unlimited-candidate comparison cannot satisfy the new solver gate.
 
 ## Reproduction and evidence
 
+An opt-in replacement now implements both repairs and passes actual stored
+affine controls on Windows, Linux and ASan/UBSan. See
+[swept physical momentum](MAC_SWEPT_MOMENTUM.md) for the implementation,
+completed-state admission, retained failures and remaining acceptance gates.
+
 Build the explicit `ma_mac_dual_affine_diagnostic` target. It emits diagnostic
 records and exits after complete collection; exit 0 is not a claim that the
 affine criterion passes. Review a bounded saved stream with

@@ -87,6 +87,13 @@ passes 179 prerequisite groups and 29 saved reviews on each OS and under Linux
 sanitizers, then still fails the original collision density refinement bound
 (0.856557 versus 0.85). It remains opt-in; this does not satisfy the exit below.
 
+The subsequent [swept physical momentum mode](../native/MAC_SWEPT_MOMENTUM.md)
+implements the reproduced dual-geometry and completed-state admission repairs.
+Windows, Linux and sanitizer controls pass 138 actual affine readings and all
+72 checkpoint continuations per platform, including both true one-dimensional
+axes. Full prerequisites, strong flow and production acceptance remain open;
+the default is unchanged.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

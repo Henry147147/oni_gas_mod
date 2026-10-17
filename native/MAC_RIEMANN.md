@@ -2,8 +2,11 @@
 
 The subsequent [affine momentum diagnosis](MAC_DUAL_REMAP_DIAGNOSTIC.md)
 reproduces a geometry error before limiting and an unnecessarily rejected
-physical translation candidate. It establishes two repair requirements;
-the replacement operator and this strong-flow gate remain incomplete.
+physical translation candidate. The implemented
+[swept physical momentum replacement](MAC_SWEPT_MOMENTUM.md) now passes 24
+actual-state controls and 72 continuations on each OS and under sanitizers.
+Its full prerequisite review and changed-method strong run remain pending;
+this strong-flow gate is still incomplete.
 
 The latest [quadratic momentum admission](MAC_QUADRATIC_LIMITER.md), combined
 with swept material reconstruction, also fails collision density refinement:
