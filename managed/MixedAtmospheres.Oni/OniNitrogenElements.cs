@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 
@@ -195,19 +197,53 @@ namespace MixedAtmospheres.Oni
 
     // SimHashes is the shipped enum and cannot acquire new members. Native tag
     // helpers otherwise stringify custom values as integers, breaking prefab
-    // lookup and SpawnResource. Only these three identities are intercepted.
+    // lookup and SpawnResource. Replace only enum stringification, keeping
+    // the game's Tag construction and struct-return path. Native identities
+    // retain their original Enum.ToString() result.
     [HarmonyPatch]
     internal static class NitrogenElementTagPatch
     {
+        // The shipped Harmony assembly binds Label to mscorlib, while this
+        // adapter targets netstandard. Keep that runtime list untyped, as in
+        // the other native-IL adapters, so labels retain their actual identity.
+        private static IList Labels(CodeInstruction code) => (IList)typeof(CodeInstruction).GetField("labels")!.GetValue(code);
         private static IEnumerable<MethodBase> TargetMethods()
         {
             yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.Create));
             yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.CreateTag));
         }
-        internal static bool Prefix(SimHashes id, ref Tag __result)
+        internal static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            if (!OniNitrogenElements.TryIdentity(id, out var identity)) return true;
-            __result = TagManager.Create(identity); return false;
+            var code=instructions.ToList();var replacements=0;
+            for(var i=0;i<code.Count;++i)
+            {
+                if(i+2<code.Count && (code[i].opcode==OpCodes.Ldarga || code[i].opcode==OpCodes.Ldarga_S) &&
+                    code[i+1].opcode==OpCodes.Constrained && Equals(code[i+1].operand,typeof(SimHashes)) &&
+                    code[i+2].opcode==OpCodes.Callvirt && Equals(code[i+2].operand,AccessTools.Method(typeof(object),nameof(ToString),Type.EmptyTypes)))
+                {
+                    if(Labels(code[i+1]).Count!=0 || Labels(code[i+2]).Count!=0 ||
+                        code[i].blocks.Count!=0 || code[i+1].blocks.Count!=0 || code[i+2].blocks.Count!=0)
+                        throw new InvalidDataException("Unexpected branch/exception boundary in the native enum tag helper.");
+                    var load=new CodeInstruction(OpCodes.Ldarg_0);
+                    foreach(var label in Labels(code[i]))Labels(load).Add(label);
+                    yield return load;
+                    yield return new CodeInstruction(OpCodes.Call,AccessTools.Method(typeof(OniNitrogenElements),nameof(OniNitrogenElements.Identity)));
+                    ++replacements;i+=2;
+                }
+                else yield return code[i];
+            }
+            if(replacements!=1)throw new InvalidDataException("The native enum tag helper no longer has exactly one inspected stringification.");
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void VerifyCalls()
+        {
+            foreach(var id in new[]{SimHashes.Oxygen,SimHashes.Water,SimHashes.Unobtanium,SimHashes.Vacuum,
+                OniNitrogenElements.Gas,OniNitrogenElements.Liquid,OniNitrogenElements.Solid,(SimHashes)int.MaxValue})
+            {
+                var expected=TagManager.Create(OniNitrogenElements.Identity(id));
+                if(GameTagExtensions.Create(id)!=expected || id.CreateTag()!=expected)
+                    throw new InvalidDataException("Patched native tag helper changed its identity or return contract: "+(int)id);
+            }
         }
     }
 }

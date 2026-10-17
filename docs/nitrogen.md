@@ -41,10 +41,20 @@ other consumer. A failed or removed adapter therefore registers no nitrogen at
 all rather than half-registered phases. A save that already contains these
 elements still requires the working adapter.
 
-The shipped `SimHashes` enum cannot acquire new members. Scoped patches to
-`GameTagExtensions.Create` and `CreateTag` resolve only these three hashes to
-their actual element tags; all native and unknown hashes pass through. This
+The shipped `SimHashes` enum cannot acquire new members. Scoped IL changes to
+`GameTagExtensions.Create` and `CreateTag` resolve these three hashes to
+their actual element names; native and unknown hashes retain their exact
+`Enum.ToString()` names. The original `TagManager.Create` call and struct
+return instructions stay intact. A changed instruction shape rejects, and
+startup checks invoke both actual patched helpers for native, custom and
+unknown identities before the rest of the adapter is installed. This
 avoids integer prefab names without patching `System.Enum` globally.
+
+The first modded WindowsPlayer/Proton run exposed a startup exception in the
+earlier ref-result prefix while ordinary native tags were being created. That
+failed run remains retained. The IL change avoids that prefix and its
+`__result` handling; the precise runtime cause and repaired player result must
+be assessed separately from declaration tests.
 
 ## Property scope
 
@@ -81,7 +91,10 @@ is added to ordinary generated worlds by this registration step.
 `tools/NitrogenRegistrationTests` checks stable noncolliding hashes, exhaustive
 native enum pass-through, the custom tag bridge, localization casing, explicit
 YAML description mapping through the actual native `ElementEntry` getter under
-Turkish culture, and the installed helper signatures. Its optional second argument replays a private
+Turkish culture, and the installed helper signatures. Both actual helper IL
+bodies are rewritten and executed against every native enum value, unknown
+values and all three custom identities. Changed enum/branch/duplicate bodies
+reject. All eight groups pass against the Linux and Windows assemblies. Its optional second argument replays a private
 actual-game `nitrogen-validation.json` report.
 
 The disposable presentation runner adds three real native material items after

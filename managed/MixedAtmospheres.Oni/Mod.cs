@@ -36,6 +36,7 @@ namespace MixedAtmospheres.Oni
                 if (ColonyRuntimeValidation.Settings?.Mode == "load-rejection")
                     OwnedReservoirLoadVisualValidation.Install(harmony);
                 base.OnLoad(harmony);
+                NitrogenElementTagPatch.VerifyCalls();
                 MixtureWorldRendering.Install(harmony);
                 OwnedReservoirOwnerMarker.Install(harmony);
                 var report = IntegrationProbe.Run(verifiedAssemblyHash);
