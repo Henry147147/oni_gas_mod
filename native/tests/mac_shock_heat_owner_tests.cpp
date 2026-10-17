@@ -1,4 +1,5 @@
 #include "mac_shock_heat_fixture.hpp"
+#include "mac_acoustic_compression_fixture.hpp"
 #include <array>
 #include <iomanip>
 #include <string_view>
@@ -50,6 +51,7 @@ struct Expected {
 };
 void run_case(std::size_t gid, MacTransportState state, MacClosedSettings options, std::size_t steps, bool tiny = false) {
     const auto& s = ma::testing::setup(); options.maximum_timestep_s = dt;
+    std::cout << "SHLAW " << gid << ' ' << static_cast<int>(options.compression_viscosity) << '\n';
     const MacClosedWorld owner(s.registry, s.eos, state, options); const auto held = ma::testing::fingerprint(state);
     auto manual = state; Expected expected; std::size_t current = 0; frame(gid, current, "source", manual);
     const bool enabled = options.shock_heat == MacShockHeatRegularization::compression_activated;
@@ -83,8 +85,11 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
         };
         const auto compression = [&]() {
             const auto id = gid * 100 + step * 10 + order;
-            auto a = advance_mac_compression(s.registry, *s.eos, manual, .5 * dt);
-            ma::testing::export_compression(id, manual, a, .5 * dt, "K");
+            const bool acoustic = options.compression_viscosity == MacCompressionViscosity::acoustic_quadratic;
+            auto a = advance_mac_compression(s.registry, *s.eos, manual, .5 * dt,
+                acoustic ? MacCompressionLaw::pressure_sensed_acoustic : MacCompressionLaw::quadratic);
+            if (acoustic) ma::testing::export_acoustic_compression(id, manual, a, .5 * dt, "K");
+            else ma::testing::export_compression(id, manual, a, .5 * dt, "K");
             expected.compression += a.report.events.size(); expected.bounds.add(a.report.energy_bound);
             manual = std::move(a.state); path('C', id);
         };
@@ -127,9 +132,10 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
     for (auto v : {r.absolute_shock_heat_transfer_wide_j, r.energy_residual_wide_j, r.energy_bound_wide_j, r.conductive_redistribution_j, r.full_wall_impulse_x, r.full_wall_impulse_y}) full(v);
     std::cout << ' ' << r.entropy_change_j_per_k << ' ' << r.entropy_roundoff_j_per_k << '\n';
 }
-void controls() {
+void controls(MacClosedSettings options) {
     const auto& s = ma::testing::setup(); const auto state = source(true); const auto held = ma::testing::fingerprint(state);
-    MacClosedSettings options; options.maximum_timestep_s = dt; auto bad = options; bad.shock_heat = static_cast<MacShockHeatRegularization>(99);
+    std::cout << "SHLAW 6 " << static_cast<int>(options.compression_viscosity) << '\n';
+    options.maximum_timestep_s = dt; auto bad = options; bad.shock_heat = static_cast<MacShockHeatRegularization>(99);
     std::size_t rejected = 0;
     try { const MacClosedWorld invalid(s.registry, s.eos, state, bad); } catch (const std::invalid_argument&) { ++rejected; }
     try { static_cast<void>(advance_mac_closed_substep(s.registry, *s.eos, state, dt, bad)); } catch (const std::invalid_argument&) { ++rejected; }
@@ -146,14 +152,19 @@ void controls() {
     std::cout << "SHCONTROL " << rejected << ' ' << failed << ' ' << owner.time_s() << ' ' << owner.revision() << ' ' << a.report.substeps << ' ' << a.report.shock_heat_stages << '\n';
 }
 }
-int main() { try {
+int main(int argc, char** argv) { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17); const auto& s = ma::testing::setup();
     for (const auto& m : s.eos->reference().materials()) {
         const auto index = s.registry.index(m.id);
         std::cout << "MATERIAL " << index << ' ' << static_cast<int>(m.phase) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' << m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
         std::cout << "SHKAPPA " << index << ' ' << s.registry[index].conductivity << '\n';
     }
-    MacClosedSettings options; check(options.shock_heat == MacShockHeatRegularization::compression_activated, "Default heat setting is disabled");
+    MacClosedSettings baseline;
+    check(baseline.shock_heat == MacShockHeatRegularization::compression_activated &&
+        baseline.compression_viscosity == MacCompressionViscosity::acoustic_quadratic, "Default regularization setting differs");
+    if (argc == 2 && std::string_view(argv[1]) == "--quadratic-compression") baseline.compression_viscosity = MacCompressionViscosity::quadratic;
+    else check(argc == 1, "Unknown heat-owner test arguments");
+    auto options = baseline;
     run_case(0, source(true), options, 1); std::cout << "PASS default wet heat, compression and pressure stages\n";
     run_case(1, source(true, true), options, 1); std::cout << "PASS default wet corner and closed wall accounts\n";
     options.thermal_conduction = true; run_case(2, source(false), options, 1); std::cout << "PASS physical conduction with default shock heat\n";
@@ -162,7 +173,7 @@ int main() { try {
     for (std::size_t f = 0; f < j.size(); ++f) j[f] = MacScaled::from_parts(f % 3 == 1 ? -.75 : .75, -1200).multiplied(inertia.x[f]);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j); tiny.momentum_y.assign(tiny.momentum_y.size(), 0);
     run_case(4, tiny, options, 1, true); std::cout << "PASS retained below-range source heat and unresolved owner updates\n";
-    options.shock_heat = MacShockHeatRegularization::none; run_case(5, source(true), options, 1); controls();
+    options.shock_heat = MacShockHeatRegularization::none; run_case(5, source(true), options, 1); controls(baseline);
     std::cout << "PASS disabled reference, invalid modes and atomic later failure\n";
     return 0;
 } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; } }

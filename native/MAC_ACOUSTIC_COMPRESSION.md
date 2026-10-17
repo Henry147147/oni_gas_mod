@@ -1,10 +1,10 @@
 # Acoustic and quadratic compression component
 
-This candidate adds a linear acoustic term to the separate compatible
-compression component. The owning timestep still selects its original
-quadratic mode; no checkpoint setting, native domain or game behavior selects
-the new law. Component validation passes on both platforms, including Linux
-sanitizers. Owning/strong-flow acceptance remains pending.
+This component adds a linear acoustic term to compatible compression.
+Its component validation passes on both platforms, including Linux sanitizers.
+The subsequent [owning source](MAC_ACOUSTIC_OWNER.md) now selects this law by
+default; its owning/strong-flow and real-game acceptance remain pending. The
+component cohort recorded below retains the original quadratic owner.
 The latest failed [collision profiles](MAC_RIEMANN.md) show alternating pressure
 behind the fronts after heat redistribution repairs most central excess entropy.
 That observation motivates testing additional weak-compression damping; it
@@ -130,9 +130,11 @@ Private accepted cohorts under `local/occupied-staggered-validation`:
   `14a3b141a6e3626b75c5dc4da1b4ddac430ed0181c16b28e68b14aa107964261`.
 
 The original Riemann/gravity sources and physical bounds remain unchanged.
-The owning timestep still selects quadratic compression and default shock
-heat. No strong-flow retry, game dispatch, Unity, production, independent-agent
-or performance acceptance follows from these component controls. The default
+At that component cohort the owner still selects quadratic compression and
+default shock heat. The later [pressure-sensed owning integration](MAC_ACOUSTIC_OWNER.md)
+passes its prerequisites and retains a failed original strong-flow gate.
+No game dispatch, Unity, production, independent-agent or performance acceptance
+follows from these component controls. The default
 game DLL remains unchanged. Owning integration must preserve explicit
 quadratic/disabled references and checkpoint settings, review its complete
 staged states and pass the original scientific gates before game acceptance.

@@ -17,30 +17,36 @@ void put(std::vector<std::uint8_t>& bytes,std::size_t offset,std::uint64_t value
 }
 void seal(std::vector<std::uint8_t>& bytes) { put(bytes,bytes.size()-8,hash(std::span(bytes).first(bytes.size()-8))); }
 MacClosedWorld owner(const ma::testing::Setup& setup,bool wet,
-    MacShockHeatRegularization heat=MacShockHeatRegularization::compression_activated) {
+    MacShockHeatRegularization heat=MacShockHeatRegularization::compression_activated,
+    MacCompressionViscosity compression=MacCompressionViscosity::acoustic_quadratic) {
     auto state=setup.state(4,3,false,wet,true);
     const auto inertia=mac_face_inertias(setup.registry,state,*setup.eos);
     state.momentum_x[state.grid.x_face(2,0)]=inertia.x[state.grid.x_face(2,0)]*.1;
     state.momentum_y[state.grid.y_face(3,1)]=inertia.y[state.grid.y_face(3,1)]*-.025;
     MacClosedSettings settings; settings.gravity_m_per_s2=9.81; settings.thermal_conduction=!wet;
-    settings.shock_heat=heat;
+    settings.shock_heat=heat; settings.compression_viscosity=compression;
     return MacClosedWorld(setup.registry,setup.eos,std::move(state),settings).advanced(.02).world;
 }
 }
 int main(int argc,char** argv) {
     try {
         const auto& setup=ma::testing::setup();
-        for (const bool wet : {false,true}) for (const auto heat : {MacShockHeatRegularization::none,MacShockHeatRegularization::compression_activated}) {
-            const auto source=owner(setup,wet,heat); const auto image=source.checkpoint(); const auto fingerprint=ma::testing::fingerprint(source.state());
+        for (const bool wet : {false,true}) for (const auto heat : {MacShockHeatRegularization::none,MacShockHeatRegularization::compression_activated})
+            for (const auto compression : {MacCompressionViscosity::none,MacCompressionViscosity::quadratic,MacCompressionViscosity::acoustic_quadratic}) {
+            const auto source=owner(setup,wet,heat,compression); const auto image=source.checkpoint(); const auto fingerprint=ma::testing::fingerprint(source.state());
             const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
             require(restored.checkpoint()==image && ma::testing::fingerprint(restored.state())==fingerprint &&
-                restored.time_s()==source.time_s() && restored.revision()==source.revision() && restored.settings().shock_heat==heat,
+                restored.time_s()==source.time_s() && restored.revision()==source.revision() && restored.settings().shock_heat==heat &&
+                restored.settings().compression_viscosity==compression,
                 "Physical checkpoint changed canonical state, trace/passive quantities, heat setting or clock");
             const auto expected=source.advanced(.02),resumed=restored.advanced(.02);
             require(expected.world.checkpoint()==resumed.world.checkpoint() && expected.report.substeps==resumed.report.substeps &&
                 expected.report.shock_heat_stages==resumed.report.shock_heat_stages &&
                 expected.report.absolute_shock_heat_transfer_wide_j.mantissa()==resumed.report.absolute_shock_heat_transfer_wide_j.mantissa() &&
                 expected.report.absolute_shock_heat_transfer_wide_j.exponent()==resumed.report.absolute_shock_heat_transfer_wide_j.exponent() &&
+                expected.report.compression_events==resumed.report.compression_events &&
+                expected.report.compression_heat_wide_j.mantissa()==resumed.report.compression_heat_wide_j.mantissa() &&
+                expected.report.compression_heat_wide_j.exponent()==resumed.report.compression_heat_wide_j.exponent() &&
                 (expected.report.shock_heat_stages>0)==(heat==MacShockHeatRegularization::compression_activated),
                 "Checkpoint continuation differs from the uninterrupted physical owner");
             auto corrupt=image; corrupt[image.size()/2]^=1; bool rejected=false;
@@ -53,7 +59,7 @@ int main(int argc,char** argv) {
             // Version 2 appends one u32 heat enum after the conduction flag.
             const auto shock_setting=clock+16+26+41;
             require(image.at(shock_setting)==static_cast<std::uint8_t>(heat),"Checkpoint heat setting has the wrong wire position");
-            for (int malformed=0;malformed<8;++malformed) {
+            for (int malformed=0;malformed<9;++malformed) {
                 corrupt=image;
                 if (malformed==0) put(corrupt,clock,std::bit_cast<std::uint64_t>(-1.0));
                 if (malformed==1) put(corrupt,clock+8,0);
@@ -63,6 +69,7 @@ int main(int argc,char** argv) {
                 if (malformed==5) put(corrupt,8,3,4);
                 if (malformed==6) put(corrupt,shock_setting,99,4);
                 if (malformed==7) corrupt.at(shock_setting-1)=2;
+                if (malformed==8) put(corrupt,shock_setting-9,99,4);
                 seal(corrupt); rejected=false;
                 try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,corrupt); } catch (const std::exception&) { rejected=true; }
                 require(rejected,"Malformed saved version, heat setting, clock, geometry or trailing data was accepted");
@@ -89,9 +96,10 @@ int main(int argc,char** argv) {
             tiny_restored.state().momentum_x[face]==0,"Physical checkpoint discarded below-range canonical momentum");
         if (argc==3) {
             const std::string operation=argv[1];
-            if (operation=="--write-checkpoint" || operation=="--write-checkpoint-no-heat") {
-                const auto heat=operation=="--write-checkpoint" ? MacShockHeatRegularization::compression_activated : MacShockHeatRegularization::none;
-                const auto image=owner(setup,false,heat).checkpoint(); std::ofstream output(argv[2],std::ios::binary);
+            if (operation=="--write-checkpoint" || operation=="--write-checkpoint-no-heat" || operation=="--write-checkpoint-quadratic") {
+                const auto heat=operation=="--write-checkpoint-no-heat" ? MacShockHeatRegularization::none : MacShockHeatRegularization::compression_activated;
+                const auto compression=operation=="--write-checkpoint-quadratic" ? MacCompressionViscosity::quadratic : MacCompressionViscosity::acoustic_quadratic;
+                const auto image=owner(setup,false,heat,compression).checkpoint(); std::ofstream output(argv[2],std::ios::binary);
                 output.write(reinterpret_cast<const char*>(image.data()),static_cast<std::streamsize>(image.size()));
                 require(output.good(),"Could not write the independent cross-platform checkpoint fixture");
             } else if (operation=="--read-checkpoint") {
@@ -101,7 +109,7 @@ int main(int argc,char** argv) {
                     "Cross-platform checkpoint did not retain the complete original bytes");
             } else throw std::invalid_argument("Unknown checkpoint fixture operation");
         } else require(argc==1,"Invalid checkpoint test arguments");
-        std::cout<<"PASS physical checkpoint, exact continuation with heat enabled/disabled, trace/passive/full momentum, model identity and malformed/truncated images\n";
+        std::cout<<"PASS physical checkpoint, exact continuation for all compression/heat modes, trace/passive/full momentum, model identity and malformed/truncated images\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

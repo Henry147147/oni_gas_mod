@@ -1,11 +1,11 @@
 # Closed-gas Riemann gate
 
-The gate remains failed. The latest Windows compression-activated heat owner
-completes Sod N64/128/256 and reduces central collision density errors below
-0.7%, then fails collision density and pressure refinement at N128. Both
-platforms pass all 102 prerequisite groups; Linux does not repeat the known
-strong-flow failure. Earlier compression, velocity and range failures remain
-recorded below.
+The gate remains failed. The latest Windows pressure-sensed acoustic owner
+completes Sod N64/128/256, then fails collision density/pressure refinement at
+N128 with ratios 0.859942 / 0.881544 against 0.85. Both platforms pass all 119
+prerequisite groups, and 58 Linux sanitizer groups pass. Linux does not repeat
+the known strong-flow failure. Earlier heat, compression, velocity and range
+failures remain recorded below.
 The first-source failures remain recorded below. The passing smooth-wave/gravity controls in
 [reconstruction evidence](MAC_RECONSTRUCTION.md) do not establish shock or
 strong-expansion behavior. The original gate introduced tests/build declarations;
@@ -75,7 +75,54 @@ No multidimensional shock, elastic-liquid impact, exact vacuum/free surface,
 immiscible interface, phase, production performance or game acceptance follows
 from this gate. Earlier failed physical gates remain separate evidence.
 
-## Current heat owner: shock-profile refinement failure
+## Current pressure-sensed owner: collision refinement failure
+
+The [pressure-sensed owning method](MAC_ACOUSTIC_OWNER.md) passes all 119
+Windows/Linux native groups and saved reviews, including the original weak
+Fourier profile, gravity and checkpoint controls, and 58 Linux sanitizer groups
+before one changed-source Windows retry. Original Riemann/gravity sources,
+inputs, timesteps, grids and physical limits remain unchanged.
+
+| Case | Grid | Density L1 | Pressure L1 | Velocity L1 |
+| --- | --- | --- | --- | --- |
+| Sod | 64 | 0.0110221976083 | 0.00791388203365 | 0.0180416308500 |
+| Sod | 128 | 0.00662186330486 | 0.00454159149262 | 0.0103072605535 |
+| Sod | 256 | 0.00345796018439 | 0.00227339484776 | 0.00503681200641 |
+| Collision | 64 | 0.0411263405403 | 0.0870810088399 | 0.0726161593478 |
+| Collision | 128 | 0.0353662800089 | 0.0767657320036 | 0.0440731558739 |
+
+Collision N128/N64 ratios are **0.85994230 / 0.88154390 / 0.60693317**.
+All three errors decrease, but density/pressure do not meet 0.85. Native exits
+1 normally after 56.2 seconds, with 573,115 stdout bytes, no rejected timesteps,
+no timeout or pipe overflow. It stops before collision N256 or any separation
+profile. The partial saved review passes 59,205 identities over five complete
+profiles and independently reproduces the failed norms. Actual EOS,
+constituent/passive positivity, U+face-K, entropy and momentum/wall accounts
+pass. The full gate's three corruption controls are not run.
+
+Saved-only regional pressure errors (unshocked / shock-cut / compressed) are
+0.037458 / 0.005823 / 0.043800 at N64 and
+0.032550 / 0.026824 / 0.017392 at N128. Central density errors are
+1.361% / 1.264%; central pressure errors are 0.743% / 0.649%.
+The left central sample's specific entropy excess is 8.718 / 8.396 J/(kg K),
+compared with 1.416 / 1.318 in the preceding quadratic-compression/heat owner.
+These are final fixed-cell readings, not parcel-production measurements.
+The profiles motivate investigating the relation between added acoustic
+viscosity and the still unchanged closing-speed heat conductance; they do not
+establish a cause or justify tuning a coefficient to the failed norms.
+
+Private regional analysis is `local/mac-acoustic-owner-collision-analysis-r1`.
+The native/partial cohort is
+`local/occupied-staggered-validation/mac-acoustic-owner-strong-windows-r1`,
+source-freeze SHA256
+`c31affb1ac9f6de749b64f734405c5c8df62b712b70b89404836eb5e56c2e57b`,
+failed terminal SHA256
+`9de37096046bbcfbcd095c40ca44328939058a7504f800bfc4f74b01cb0546c6`.
+The default game DLL is unchanged. No independent-agent, Unity, production,
+performance or full strong-flow acceptance is claimed. Linux does not repeat
+this shared failure.
+
+## Earlier heat owner: shock-profile refinement failure
 
 The [heat owner](MAC_SHOCK_HEAT_OWNER.md) passes all 102 strict Windows/Linux
 groups and saved reviews, plus 35 Linux sanitizer groups, before this one
@@ -122,9 +169,10 @@ production or performance acceptance. Linux does not repeat the same failure.
 
 The subsequent [acoustic/quadratic component](MAC_ACOUSTIC_COMPRESSION.md)
 passes seven new groups, all 110 prerequisites on both platforms and 49 Linux
-sanitizer groups. It is still separate from the owning law. This adds no
-strong-flow retry or acceptance; the failed heat-owner result above remains
-the latest full scientific attempt.
+sanitizer groups. That component cohort keeps the quadratic owner. The
+subsequent [owning candidate](MAC_ACOUSTIC_OWNER.md) still needs its own
+acceptance. There is no new strong-flow retry; the failed heat-owner result
+above remains the latest full scientific attempt.
 
 ## Earlier reconstructed-momentum owner: density/pressure refinement failure
 

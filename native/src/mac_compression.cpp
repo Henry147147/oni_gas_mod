@@ -53,6 +53,16 @@ std::vector<bool> fixed_faces(const MacGrid& g, bool x_axis) {
     return fixed;
 }
 }
+MacScaled mac_compression_pressure_sensor(double left, double centre, double right) {
+    require_mac_energy_environment();
+    require(std::isfinite(left) && std::isfinite(centre) && std::isfinite(right) && left >= 0 && centre >= 0 && right >= 0,
+        "Invalid MAC compression sensor pressure");
+    MacScaledSum numerator, denominator;
+    numerator.add(left); numerator.add(MacScaled::from_double(centre).multiplied(-2)); numerator.add(right);
+    denominator.add(left); denominator.add(MacScaled::from_double(centre).multiplied(2)); denominator.add(right);
+    const auto d = denominator.value();
+    return d.is_zero() ? MacScaled{} : numerator.value().magnitude().shared(MacScaled::from_double(1), d);
+}
 MacCompressionPair relax_mac_compression_pair(double il, double ir, MacScaled jl, MacScaled jr,
     bool fl, bool fr, MacScaled integrated, MacScaled linear_speed) {
     require_mac_energy_environment();
@@ -98,7 +108,8 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     const MacTransportState& source, double dt, MacCompressionLaw law) {
     require_mac_energy_environment();
     require(std::isfinite(dt) && dt > 0 && dt <= 1, "Invalid MAC compression timestep");
-    require(law == MacCompressionLaw::quadratic || law == MacCompressionLaw::acoustic_quadratic, "Invalid MAC compression law");
+    require(law == MacCompressionLaw::quadratic || law == MacCompressionLaw::acoustic_quadratic ||
+        law == MacCompressionLaw::pressure_sensed_acoustic, "Invalid MAC compression law");
     if (.5 * dt == 0) precision("MAC compression half timestep cannot be represented");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
@@ -113,17 +124,47 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
         }
     }
     MacCompressionAdvance result{source, {}}; MacEnergySum heat; MacScaledSum wx, wy;
-    if (law == MacCompressionLaw::acoustic_quadratic) {
+    if (law != MacCompressionLaw::quadratic) {
         result.report.source_linear_speeds.resize(source.cells.size());
+        if (law == MacCompressionLaw::pressure_sensed_acoustic) result.report.source_pressures_pa.resize(source.cells.size());
         for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
             const auto& mixture = source.cells[i].mixture;
             const auto anchor = model.reference().make_isentrope(model.to_reference(mixture, g.volume_m3()));
             const auto compliance = model.compression_compliance(anchor);
+            if (law == MacCompressionLaw::pressure_sensed_acoustic)
+                result.report.source_pressures_pa[i] = anchor.reference_state().mechanical_pressure_pa;
             // c_s^2 = V^2 / (mass * (-dV/dp)_S). Separate square roots avoid
             // under/overflow in an otherwise representable mass*compliance.
             const auto sound = (g.volume_m3() / std::sqrt(mixture.mass())) / std::sqrt(compliance);
             if (!std::isfinite(sound) || sound <= 0) precision("MAC compression sound speed cannot be represented");
             result.report.source_linear_speeds[i] = MacScaled::from_double(sound).shifted(-1);
+        }
+    }
+    if (law == MacCompressionLaw::pressure_sensed_acoustic) {
+        const auto neighbour = [&](std::size_t cell, int axis, bool forward) {
+            const auto coordinate = axis == 0 ? cell % g.width : cell / g.width;
+            const auto extent = axis == 0 ? g.width : g.height;
+            const bool periodic = axis == 0 ? g.periodic_x : g.periodic_y;
+            if (!periodic && (forward ? coordinate + 1 == extent : coordinate == 0)) return cell;
+            const auto next = forward ? (coordinate + 1) % extent : (coordinate + extent - 1) % extent;
+            const auto index = axis == 0 ? next + (cell / g.width) * g.width : cell % g.width + next * g.width;
+            return g.walls[index] ? cell : index;
+        };
+        for (int axis = 0; axis < 2; ++axis) {
+            std::vector<MacScaled> curvature(source.cells.size());
+            for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (!g.walls[cell]) {
+                const auto& p = result.report.source_pressures_pa;
+                curvature[cell] = mac_compression_pressure_sensor(p[neighbour(cell, axis, false)], p[cell], p[neighbour(cell, axis, true)]);
+            }
+            auto& sensors = result.report.source_pressure_sensors[static_cast<std::size_t>(axis)]; sensors.resize(source.cells.size());
+            for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (!g.walls[cell]) {
+                auto value = curvature[cell];
+                for (const bool forward : {false, true}) {
+                    const auto candidate = curvature[neighbour(cell, axis, forward)];
+                    if (mac_scaled_difference(candidate, value).mantissa() > 0) value = candidate;
+                }
+                sensors[cell] = value;
+            }
         }
     }
     for (int axis = 0; axis < 2; ++axis) for (std::size_t sweep = 0; sweep < 2; ++sweep)
@@ -136,8 +177,10 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
             auto& j = axis == 0 ? jx : jy; const auto& m = axis == 0 ? inertia.x : inertia.y;
             const auto& fixed = axis == 0 ? fixed_x : fixed_y;
             const auto integrated = MacScaled::from_double(source.cells[cell].mixture.mass()).multiplied(.5 * dt).shared(1, g.spacing_m);
-            auto pair = relax_mac_compression_pair(m[l], m[r], j[l], j[r], fixed[l], fixed[r], integrated,
-                law == MacCompressionLaw::quadratic ? MacScaled{} : result.report.source_linear_speeds[cell]);
+            auto linear_speed = law == MacCompressionLaw::quadratic ? MacScaled{} : result.report.source_linear_speeds[cell];
+            if (law == MacCompressionLaw::pressure_sensed_acoustic)
+                linear_speed = linear_speed.shared(result.report.source_pressure_sensors[static_cast<std::size_t>(axis)][cell], MacScaled::from_double(1));
+            auto pair = relax_mac_compression_pair(m[l], m[r], j[l], j[r], fixed[l], fixed[r], integrated, linear_speed);
             if (pair.impulse.is_zero()) continue;
             j[l] = pair.after_left; j[r] = pair.after_right; heat.add(pair.heat);
             (axis == 0 ? wx : wy).add(pair.wall_impulse);

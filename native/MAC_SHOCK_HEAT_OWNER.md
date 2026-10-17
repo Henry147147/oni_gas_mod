@@ -13,11 +13,16 @@ Each attempted substep uses this order:
 
 1. Physical material conduction half-step, when enabled.
 2. Compression-activated heat half-step, enabled by default.
-3. Quadratic compression half-step, when enabled.
+3. Selected compatible compression half-step, when enabled.
 4. Existing implicit pressure work and material/momentum transport.
-5. Quadratic compression half-step.
+5. Selected compatible compression half-step.
 6. Compression-activated heat half-step.
 7. Physical material conduction half-step.
+
+The original cohort below selects quadratic compression. The later
+[acoustic owning source](MAC_ACOUSTIC_OWNER.md) changes that default and
+retains this cohort as an explicit quadratic reference; its acceptance is
+recorded separately.
 
 The primitive pressure/transport API remains a separate component. Existing
 primitive, momentum-only and compression-only comparison tests explicitly

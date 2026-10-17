@@ -1,8 +1,12 @@
 #pragma once
 #include "mac_transport.hpp"
+#include <array>
 
 namespace ma::experimental {
-enum class MacCompressionLaw { quadratic, acoustic_quadratic };
+enum class MacCompressionLaw { quadratic, acoustic_quadratic, pressure_sensed_acoustic };
+// Dimensionless normalized pressure curvature. Exact zero for zero/affine
+// triples; retains a positive ratio below binary64's exponent range.
+[[nodiscard]] MacScaled mac_compression_pressure_sensor(double left_pa, double centre_pa, double right_pa);
 // Exact-in-time relaxation of one compressing normal-velocity pair for
 // q = rho * (v^2 + linear_speed*v), v=max(u_left-u_right,0).
 // Zero linear speed retains the original one-grid-spacing quadratic law.
@@ -36,9 +40,11 @@ struct MacCompressionReport {
     // Empty in the original quadratic mode; otherwise one frozen half-sound
     // speed per source cell (zero at solids), independent of deposited heat.
     std::vector<MacScaled> source_linear_speeds;
+    std::vector<double> source_pressures_pa;
+    std::array<std::vector<MacScaled>, 2> source_pressure_sensors;
 };
 struct MacCompressionAdvance { MacTransportState state; MacCompressionReport report; };
-// Quadratic remains the default component/owner law. Acoustic mode freezes
+// Quadratic remains the default separate component law. Acoustic mode freezes
 // source-cell half-sound speeds for the forward/reverse half sweeps; this
 // freezing is a first-order treatment of their thermal dependence.
 // Species/passives and cell volumes stay fixed; kinetic loss heats the cell.

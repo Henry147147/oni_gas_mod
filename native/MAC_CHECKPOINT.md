@@ -50,6 +50,10 @@ physical inventories and EOS validity are checked separately. Parsing does not
 infer missing values, clip traces, normalize corrupted data or repair energy.
 Version 1 lacks the heat setting and is rejected explicitly; it is not restored
 using whichever default happens to be compiled into the current binary.
+The compression field's values are 0 (none), 1 (quadratic), and now 2
+(acoustic/quadratic). Existing field values and layout retain their meaning;
+the [new owning controls](MAC_ACOUSTIC_OWNER.md) require legacy quadratic
+images and all heat/compression combinations to keep their explicit settings.
 
 ## Native domain boundary
 
@@ -256,3 +260,14 @@ The merge/source review SHA256 is
 These are standalone native controls. The original strong-flow gate is not
 repeated; there is no new sanitizer, Unity, ordinary colony save/reload,
 production or performance acceptance. The default game DLL remains unchanged.
+
+The subsequent [pressure-sensed owner](MAC_ACOUSTIC_OWNER.md) passes all twelve
+gas/wet, heat on/off and compression none/quadratic/acoustic continuation
+combinations on both platforms, including full next-state and heat/compression
+diagnostics. Valid-checksum unknown compression enums reject. Both platforms
+reserialize all four earlier quadratic images and the other platform's new
+acoustic, heat-disabled and quadratic images byte-for-byte. Writer completion
+and dependency hashes are checked before readers launch. The twelve-mode
+continuation and malformed-image controls also pass in the new 58-group Linux
+sanitizer run. This is physical image
+identity and same-binary continuation, not ordinary full-colony save/reload.

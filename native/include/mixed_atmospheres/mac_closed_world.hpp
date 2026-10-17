@@ -9,7 +9,7 @@
 
 namespace ma::experimental {
 enum class MacMaterialReconstruction { donor_cell, limited_linear };
-enum class MacCompressionViscosity { none, quadratic };
+enum class MacCompressionViscosity { none, quadratic, acoustic_quadratic };
 enum class MacShockHeatRegularization { none, compression_activated };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
@@ -21,7 +21,7 @@ struct MacClosedSettings {
     MacMaterialReconstruction reconstruction = MacMaterialReconstruction::limited_linear;
     // The owning interval applies compression half steps around each
     // pressure/transport candidate. The primitive substep stays separate.
-    MacCompressionViscosity compression_viscosity = MacCompressionViscosity::quadratic;
+    MacCompressionViscosity compression_viscosity = MacCompressionViscosity::acoustic_quadratic;
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::compression_activated;

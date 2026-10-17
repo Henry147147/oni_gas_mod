@@ -22,6 +22,7 @@ MacTransportState source(std::size_t id) {
 void combined(std::size_t id) {
     const auto& set = ma::testing::setup(); const auto s = source(id); const auto held = ma::testing::fingerprint(s); constexpr double dt = 1e-4;
     MacClosedSettings settings; settings.maximum_timestep_s = dt; settings.shock_heat = MacShockHeatRegularization::none;
+    settings.compression_viscosity = MacCompressionViscosity::quadratic;
     const auto first = advance_mac_compression(set.registry, *set.eos, s, .5 * dt);
     const auto primitive = advance_mac_closed_substep(set.registry, *set.eos, first.state, dt, settings);
     const auto compression = advance_mac_compression(set.registry, *set.eos, primitive.state, .5 * dt);

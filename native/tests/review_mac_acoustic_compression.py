@@ -78,18 +78,39 @@ def equilibrium(masses,materials,u,v):
     p,t,s,_=heat.eos(masses,materials,u,v)
     return p,t,D(0),s
 
-def review(data,extra):
+def review_pressure_sensors(data,extra):
+    expected_pressures=set();expected_sensors=set()
+    for gid,g in data['grids'].items():
+        w,h,_,_,px,py=g[:6];walls={i:data['walls'][gid,i] for i in range(w*h)}
+        p={i:extra['pressures'][gid,i] for i in walls}
+        for i in walls:
+            expected_pressures.add((gid,i))
+            check(p[i]==(0 if walls[i] else data['cells'][gid,0,i][2]),'Sensor pressure differs from actual source EOS')
+        def neighbour(i,axis,forward):
+            c,extent,periodic=(i%w,w,px) if axis==0 else (i//w,h,py)
+            if not periodic and (c==extent-1 if forward else c==0):return i
+            n=(c+(1 if forward else -1))%extent;j=n+(i//w)*w if axis==0 else i%w+n*w
+            return i if walls[j] else j
+        for axis in (0,1):
+            raw={}
+            for i in walls:
+                if walls[i]:raw[i]=F(0);continue
+                a,b=p[neighbour(i,axis,False)],p[neighbour(i,axis,True)];den=a+2*p[i]+b
+                raw[i]=abs(a-2*p[i]+b)/den if den else F(0)
+            for i in walls:
+                expected_sensors.add((gid,axis,i));actual=extra['sensors'][gid,axis,i]
+                expected=F(0) if walls[i] else max(raw[i],raw[neighbour(i,axis,False)],raw[neighbour(i,axis,True)])
+                check(0<=actual<=1,'Pressure sensor outside dimensionless interval')
+                close(actual,expected,expected,'Independent pressure curvature and neighbour maximum',16)
+    check(set(extra['pressures'])==expected_pressures and set(extra['sensors'])==expected_sensors,'Missing/orphan pressure sensor field')
+
+def review_component(data,extra,pressure_sensed=False):
+    check(set(extra['linear'])==set(data['pairs']),'Missing/orphan acoustic pair metadata')
+    if pressure_sensed:review_pressure_sensors(data,extra)
+    else:check(not extra.get('pressures') and not extra.get('sensors'),'Unsensed component contains pressure sensor fields')
     for key,p in data['pairs'].items():pair(p,extra['linear'][key])
-    first,half,twice=(data['pairs'][i] for i in (0,4,5))
-    for i in (12,13):close(first[i],twice[i],abs(first[i]),'Acoustic exact semigroup',128)
-    close(half[11]+twice[11],first[11],first[11],'Acoustic semigroup heat',128)
-    check(data['pairs'][22][7:12]==data['pairs'][23][7:12],'Acoustic Galilean work differs')
-    check(data['pairs'][10][10]>0 and float(data['pairs'][10][10])==0 and data['pairs'][10][11]>0 and float(data['pairs'][10][11])==0,'Missing subrange acoustic impulse/heat')
-    check(data['pairs'][11][13]>0 and float(data['pairs'][11][13])==0 and data['pairs'][11][4]==1,'Missing new subrange canonical target/unresolved flag')
-    grid_data=copy.deepcopy(data);grid_data['pairs']={key:p for key,p in data['pairs'].items() if key>=1000}
-    # Every pair was independently checked above, including standalone controls.
-    # The shared grid review now reconstructs their chronological application.
-    comp.review(grid_data,analytic=False,pair_reviewer=lambda p:None,equilibrium=equilibrium)
+    # Every pair was independently checked above. Reconstruct its grid path.
+    comp.review(data,analytic=False,pair_reviewer=lambda p:None,equilibrium=equilibrium)
     expected_speeds=set()
     for gid,g in data['grids'].items():
         w,h,spacing,depth=g[:4];volume=spacing*spacing*depth
@@ -107,16 +128,30 @@ def review(data,extra):
             mass=sum(masses.values(),F(0));expected=dec(volume)/(dec(mass)*compliance).sqrt()/2
             check(compliance>0 and speed>0,'Nonpositive occupied acoustic stiffness')
             check(abs(dec(speed)-expected)<=D('5e-10')*expected,'Frozen acoustic speed differs from independent mixed EOS')
-            if (gid,cell) in extra['tangents']:
+            if (gid,cell) in extra.get('tangents',{}):
                 delta,lo,hi=extra['tangents'][gid,cell]
                 check(delta==number('1e-5') and lo>hi>0,'Invalid finite-difference tangent operands')
                 measured=(dec(lo-hi)*dec(volume)**2/(2*dec(delta)*dec(mass))).sqrt()/2
                 check(abs(dec(speed)-measured)<D('1e-5')*dec(speed),'Independent tangent finite difference failed')
         for (gkey,_),event in data['events'].items():
             if gkey!=gid:continue
-            _,cell,_,key=event
-            check(extra['linear'][key][0]==extra['speeds'][gid,cell],'Event did not use its frozen source-cell acoustic speed')
+            axis,cell,_,key=event
+            expected=extra['speeds'][gid,cell]*(extra['sensors'][gid,axis,cell] if pressure_sensed else 1)
+            close(extra['linear'][key][0],expected,expected,'Event did not use its frozen source-cell acoustic coefficient',8)
     check(set(extra['speeds'])==expected_speeds,'Missing/orphan frozen acoustic speed')
+
+def review(data,extra):
+    for key,p in data['pairs'].items():
+        if key<1000:pair(p,extra['linear'][key])
+    first,half,twice=(data['pairs'][i] for i in (0,4,5))
+    for i in (12,13):close(first[i],twice[i],abs(first[i]),'Acoustic exact semigroup',128)
+    close(half[11]+twice[11],first[11],first[11],'Acoustic semigroup heat',128)
+    check(data['pairs'][22][7:12]==data['pairs'][23][7:12],'Acoustic Galilean work differs')
+    check(data['pairs'][10][10]>0 and float(data['pairs'][10][10])==0 and data['pairs'][10][11]>0 and float(data['pairs'][10][11])==0,'Missing subrange acoustic impulse/heat')
+    check(data['pairs'][11][13]>0 and float(data['pairs'][11][13])==0 and data['pairs'][11][4]==1,'Missing new subrange canonical target/unresolved flag')
+    grid_data=copy.deepcopy(data);grid_data['pairs']={key:p for key,p in data['pairs'].items() if key>=1000}
+    grid_extra=extra|{'linear':{key:v for key,v in extra['linear'].items() if key>=1000}}
+    review_component(grid_data,grid_extra)
     tiny=data['grids'][5]
     check(tiny[10]>0 and float(tiny[10])==0 and tiny[8]>0,'Missing grid subrange heat/unresolved storage')
     check(data['grids'][6][7]==0,'Stationary composition contact has compression events')
@@ -138,7 +173,7 @@ def main():
             except ValueError:rejected+=1
         check(rejected==4,'Altered acoustic impulse/heat/trace/tangent escaped review')
     result=dict(Passed=True,SavedSha256=hashlib.sha256(raw).hexdigest(),SavedChecks=checks,CorruptionsRejected=rejected,
-        NativeProcessLaunched=False,IndependentAgentReview=False,Scope='Separate acoustic/quadratic compression component; owner remains quadratic. No strong-flow, game or performance acceptance.')
+        NativeProcessLaunched=False,IndependentAgentReview=False,Scope='Separate acoustic/quadratic compression component only; no owning, strong-flow, game or performance acceptance from this review.')
     if len(sys.argv)>2:
         with Path(sys.argv[2]).open('x') as output:json.dump(result,output,indent=2)
     print(json.dumps(result))
