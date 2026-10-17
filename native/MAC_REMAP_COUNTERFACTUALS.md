@@ -143,3 +143,75 @@ Evidence: `local/mac-symmetric-pooled-probe-r1`, terminal SHA-256
 The next question is whether explicit local feasibility search can resolve the
 remaining finite-precision rejection. No local bound, scientific criterion,
 initial state, benchmark timestep or production selection has changed.
+
+## Local admission and reconstruction trial
+
+The private symmetric method then retains its analytic paired upper fraction
+and 64 adjacent impulse backoffs. If those do not resolve the strict local
+signs, it verifies zero correction and performs at most 53 scaled bisections,
+retaining only an admitted pair. The unchanged final per-side and completed
+state guards still apply. All 46 N64 steps complete. Saved review checks 2,208
+selected paired events, 276 averaging records and the returned canonical
+momentum. Six selected local searches record 92 rejected trials; the accepted
+signs and recorded brackets are checked independently, but rejected trial
+operands are not independently replayed. Evidence:
+`local/mac-symmetric-pooled-probe-r2`, terminal SHA-256
+`d7167a6fd7c3a1f94b2875cf9e3268a45682a3842256cf4fafa1c0df5db8727e`.
+
+Using one full traversal in each direction instead of two three-pass branches
+also completes the coarse case. The relative central mass difference is about
+5.5e-16, but density/pressure/velocity L1 errors remain
+0.0600926/0.0593387/0.176997. Its terminal evidence is
+`local/mac-symmetric-pooled-probe-r3`, SHA-256
+`1a77046d3b1abf52e709384c7aaadc8d866190344b6a2bbae251ec4ee995a13d`.
+These isolated native timings do not establish game rendering performance.
+
+A separate reconstruction experiment removes the neighbour-density envelope
+and admits parcels and retained material against the current donor-stencil
+minimum specific entropy. This is motivated by the convex admissible sets in
+[Zhang and Shu's perfect-gas FV/DG work](https://math.umd.edu/~tadmor/references/files/Zhang%20%26%20Shu%20Minimum%20entropy%20NM2012.pdf).
+Their theorem is not a proof for this deformed implicit mixture method.
+The original positive-field half-stock limit, conservative donor subtraction,
+EOS checks and reconstruction backtracking remain. The comparison uses the
+original 128-epsilon stored-U/T allowance, scaling the reference inventory
+homogeneously to the candidate mass. Only reconstruction theta changes;
+canonical energy and entropy are not clamped.
+
+Saved review verifies 456 selected reconstructed entropy admissions and all
+prior pair, averaging, EOS and material accounts. The coarse errors improve to
+0.0493508/0.0476480/0.178860. No sampled central specific entropy falls below
+the uniform initial value in this capture. Evidence:
+`local/mac-entropy-reconstruction-probe-r1`, terminal SHA-256
+`aca3aa9c8eed5d7bd91e4956a2d12de270fe74e84a717df8a9a0bb6002194cb6`.
+
+The next single original N256 separation case still fails. It completes 182
+steps with zero timestep retries and preserves the original balances. Its
+density/pressure/velocity errors are 0.0136829/0.0141810/0.0869008; velocity
+exceeds 0.06. Central density and pressure relative errors are 31.5502 and
+131.525, above 0.5. The central cells contain about 0.0106165 kg/m3 at 55.575 K,
+versus exact star density 0.00032616 kg/m3 at 13.650 K. The process exits 1 on
+the original finest error guard. Full initial profile bytes match the earlier
+N256 source. The original 180-second/2-MiB capture limits are fixed before this
+single-profile run; it is not a prerequisite, joint-refinement or full strong
+gate attempt. Evidence: `local/mac-entropy-reconstruction-fine-r1`, terminal
+SHA-256 `807c65bcecc1c47c4a5b777cdad8feacb6776e2dc41e26034e89ee44efb1d23b`.
+
+Saved localization assigns 0.0812167 of velocity error to the expansion fans
+and 0.00149103 to the central star region. The adjacent central velocities are
+about -35.697/+35.697 m/s where the exact values are zero. Density divided by
+grid spacing is about 2.765 at N64 and 2.718 at N256. These are observations,
+not a proof of asymptotic order, impossible criteria or inconsistent inputs.
+Four distant cells have independently recomputed specific entropy about
+1.9e-11 to 2.3e-11 J/(kg K) below the uniform initial value, beyond the single
+endpoint allowance. Cumulative stage roundoff is not recoverable from the
+final profile, so a global pointwise entropy theorem is not claimed.
+
+The first localization reader incorrectly compares pressure computed from
+conserved U with a norm using the printed pressure projection at a much
+tighter analysis precision. Using conserved-EOS pressure consistently repairs
+that saved-only analysis without changing any scientific threshold or running
+native code again. Evidence: `local/mac-entropy-reconstruction-fine-analysis-r2`,
+SHA-256 `ae2f68738cba479a42db8718c5b71be6747c490f57309e2fac453925f659299c`.
+No method, default or production gate is promoted, and no unchanged Linux
+strong repeat is launched. Spatial expansion profiles and their pressure/mass
+transport remain unresolved.

@@ -143,6 +143,13 @@ energy accounts but increases left/right imbalance; a later local entropy drop
 enters through scalar reconstruction. Update order, scalar entropy transport,
 the original finest-grid accuracy gate and production coverage remain open.
 
+A later symmetric local-admission trial completes its coarse controls. Adding
+source-stencil entropy admission improves the coarse density/pressure errors,
+but its single original N256 separation case still fails velocity and central
+density/pressure criteria. Saved localization keeps these failures explicit;
+the changed methods remain private experiments. The tracked solver, original
+217-group prerequisites and full failed strong-flow gate remain unchanged.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.
