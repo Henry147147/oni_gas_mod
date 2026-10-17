@@ -30,3 +30,17 @@ skips; the actual-declaration suite retains its 122 passing groups per platform.
 New actual Linux mixed-air/CO2 and water fresh-process/same-process cohorts are
 pending behind the natural day-rollover run. Production consumption, metabolism,
 live actors and whole-colony authority remain open.
+
+## Later Windows merge preflight
+
+The Windows merge through `d6674e3` passes nine nitrogen-registration, 122
+snapshot/persistence/boundary and 31 inspection groups against the installed
+ONI assemblies. The adapter builds with no C# warnings or errors and the two
+previously recorded MSB3277 reference conflicts. Targeted WSL suites pass
+76 headless, 13 matrix, 15 Proton and six portable hover-protocol tests,
+without skips. This preflight launches no game and grants no new Unity reader
+or image-review acceptance. All 95 checked numerical kernel inputs remain
+unchanged; the physical strong-flow gate remains failed.
+
+Private evidence: `local/windows-dual-remap-merge-r1`; terminal-review SHA256:
+`54bf0d3231fcb0383a04c78dd1e4f35bb8542c4123b0cd704ce35dc98dec5740`.
