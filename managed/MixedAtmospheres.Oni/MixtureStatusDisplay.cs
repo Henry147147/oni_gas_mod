@@ -109,8 +109,9 @@ namespace MixedAtmospheres.Oni
             measurement = "Cell " + (sampleCell % frame.Width) + ", " + (sampleCell / frame.Width) + " · " + reading.BreathingStatus + "\n" +
                 Number(reading.TotalMassKg) + " kg · " + Number(reading.TemperatureKelvin - 273.15) + " °C\n" +
                 "Gas " + Number(reading.TotalPressurePa / 1000) + " kPa · O₂ " + Number(reading.OxygenPartialPressurePa / 1000) + " kPa";
-            if (reading.MechanicalPressurePa.HasValue)
-                measurement += "\nFluid " + Number(reading.MechanicalPressurePa.Value / 1000) + " kPa";
+            if (reading.MechanicalPressurePa.HasValue && reading.LiquidVolumeFraction > 0)
+                measurement += "\nFluid " + (reading.MechanicalPressurePa.Value >= 1e6 ?
+                    Number(reading.MechanicalPressurePa.Value / 1e6) + " MPa" : Number(reading.MechanicalPressurePa.Value / 1000) + " kPa");
             if (reading.LiquidVolumeFraction > 0)
                 measurement += " · liquid " + Number(100 * reading.LiquidVolumeFraction) + "% by volume";
             composition = string.Join(" · ", reading.GasConstituents.Where(value => !value.IsTrace)
@@ -158,7 +159,7 @@ namespace MixedAtmospheres.Oni
             if (key.type == EventType.KeyDown && (key.keyCode == KeyCode.F5 || key.keyCode == KeyCode.F8 ||
                 key.keyCode == KeyCode.F9 || key.keyCode == KeyCode.F10))
                 lastShortcutEvent = key.keyCode + " · " + key.modifiers;
-            if (key.type == EventType.KeyDown && key.control)
+            if (key.type == EventType.KeyDown && (key.shift || key.control))
             {
                 var accepted = true;
                 switch (key.keyCode)
@@ -171,16 +172,19 @@ namespace MixedAtmospheres.Oni
                 }
                 if (accepted)
                 {
-                    lastShortcut = "Ctrl+" + key.keyCode; ++shortcutsAccepted;
+                    lastShortcut = (key.shift ? "Shift+" : "Ctrl+") + key.keyCode; ++shortcutsAccepted;
                     key.Use(); RecordValidationStatus();
                 }
             }
             var scale = Mathf.Max(1, Screen.height / 900f);
             if (titleStyle == null)
             {
-                titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, wordWrap = true };
-                textStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
-                hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
+                // ONI's IMGUI skin supplies an italic debug font. Use Unity's
+                // shipped runtime font so this persistent panel stays legible.
+                var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                titleStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 16, fontStyle = FontStyle.Bold, wordWrap = true };
+                textStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 14, fontStyle = FontStyle.Normal, wordWrap = true };
+                hintStyle = new GUIStyle(GUI.skin.label) { font = font, fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = true };
             }
             var previousMatrix = GUI.matrix;
             var previousColor = GUI.color;
@@ -200,7 +204,7 @@ namespace MixedAtmospheres.Oni
                     if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
                     body += "\n\nAttention: " + message;
                 }
-                var hints = "Ctrl+F8 details · Ctrl+F9 find fluid\nCtrl+F5 overlay · Ctrl+F10 boundary\nHover a cell; select it for full composition.";
+                var hints = "Shift+F8 details · Shift+F9 find fluid\nShift+F5 overlay · Shift+F10 boundary\nHover a cell; select it for full composition.";
                 var height = 66f + (expanded ? textStyle!.CalcHeight(new GUIContent(body), contentWidth) +
                     hintStyle!.CalcHeight(new GUIContent(hints), contentWidth) + 14 : 0);
                 var top = InColony ? 200 : Screen.height / scale - height - 20;

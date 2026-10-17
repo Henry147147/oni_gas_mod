@@ -43,7 +43,7 @@ def main() -> None:
         output.write("\n")
     print(f"Prepared {args.scene} scene: {destination}")
     print("Enable the mod, restart ONI and manually start a disposable new colony.")
-    print("The scene pauses after 120 completed frames. Ctrl+F9 centres the fluid region.")
+    print("The scene pauses after 120 completed frames. Shift+F9 centres the fluid region.")
 
 
 if __name__ == "__main__":

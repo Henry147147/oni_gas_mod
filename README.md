@@ -30,10 +30,10 @@ Blank overlay areas have no mixture data; they do not indicate vacuum.
 
 | Control | Effect |
 | --- | --- |
-| Ctrl+F5 | Cycle composition, pressure, oxygen partial pressure, breathability, and normal view |
-| Ctrl+F8 | Expand/collapse the status panel |
-| Ctrl+F9 | Centre and zoom the camera on the supplied fluid region |
-| Ctrl+F10 | Show/hide the cyan region outline |
+| Shift+F5 | Cycle composition, pressure, oxygen partial pressure, breathability, and normal view |
+| Shift+F8 | Expand/collapse the status panel |
+| Shift+F9 | Centre and zoom the camera on the supplied fluid region |
+| Shift+F10 | Show/hide the cyan region outline |
 
 An ordinary load currently reports **native ONI physics**: production whole-colony
 ownership is unfinished. To actually see the custom solver, build the package
@@ -50,7 +50,7 @@ with `--native-observer`. It leaves colony creation to you and keeps ONI open.
 Enable the mod, restart ONI, then manually start a **new disposable colony**
 (Terra/Terrania, seed `147147` is the verified development setup). After selecting
 the starting duplicants, allow preparation and 120 custom worker frames to
-complete. The game pauses for inspection; press **Ctrl+F9** to find the six-cell
+complete. The game pauses for inspection; press **Shift+F9** to find the six-cell
 chamber. Surrounding colony physics still belongs to ONI. These scenes are
 bounded implementation controls, not a complete playable overhaul.
 
