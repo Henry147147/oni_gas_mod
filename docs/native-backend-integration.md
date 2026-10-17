@@ -23,6 +23,10 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The [native orbital reference check](native-orbital-references.md) separately
+admits retained world/background save roots before restored time or paired
+serialization. A dangling native object cannot be inferred healthy from an
+exact fluid continuation.
 The new [filled-liquid gravity scenario](native-liquid-gravity.md) keeps
 material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.

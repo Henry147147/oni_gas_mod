@@ -91,6 +91,10 @@ namespace MixedAtmospheres.Oni
             restoredActorImage=lastSavedActorImage=currentActorImage=null;currentActorImageHash="";
             restoredZeroTimeEmitterConfigurations=0;
             persistentFixtureStarted=persistentFixtureVerified=restoredActorBindingsVerified=restoredActorsVerified=false;
+            restoredOrbitalReferencesVerified=orbitalReferencesVerified=false;orbitalReferenceInspections=0;
+            restoredOrbitalReferenceFrame=0;restoredOrbitalReferenceTime=0;
+            orbitalReferenceStage=orbitalReferenceError="";
+            orbitalWorlds=Array.Empty<NativeOrbitalWorldFact>();orbitalReferences=Array.Empty<NativeOrbitalReferenceFact>();
             persistentFixtureObjects.Clear();NativeActorRegistrationOwner.Current=null;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
             actorConfigurationBatchVerified=nativeActorBatchVerified=false;actorFixtureStage=0;fixtureEmitter=-1;

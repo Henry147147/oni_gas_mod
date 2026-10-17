@@ -289,6 +289,16 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             'SavePauseDepthBefore':0,'SavePauseDepthAfter':0,'SavedFileReadbackVerified':True,
             'SerializedHeaderCaptures':1,'SerializedHeaderSha256':'c'*64,
             'SerializedBodyCaptures':1,'SerializedBodyBytes':160000,'SerializedBodySha256':'d'*64}
+        self.set_orbital_references()
+
+    def set_orbital_references(self, restored=False):
+        self.report['NativeOrbitalReferences']=dict(Required=True,Verified=True,RestoredBeforeAdvanceVerified=restored,
+            Source='read-only-native-orbital-reference-and-save-root-registry',Stage='restored-before-positive-time' if restored else 'before-paired-save',
+            RestoredPhysicalFrame=0,RestoredPhysicalTime=self.report['ColonyCheckpoint']['SourceTime'] if restored else 0,
+            Inspections=1,Error='',RewrittenReferences=0,GeneralManagedReferenceIntegrityVerified=False,
+            Worlds=[dict(OwnerId=1,WorldId=0,Tracked=True,RootInitialized=True,RootSpawned=True,SaveRegistrations=1)],
+            References=[dict(OwnerId=1,Slot=0,SavedId=2,TargetId=2,OrbitingWorldId=0,Prefab='OrbitalBG',Tracked=True,
+                RootInitialized=True,RootSpawned=True,SaveRegistrations=1)])
 
     def set_persistent_actors(self,restored=False):
         self.set_restored_colony() if restored else self.set_saved_colony()
@@ -308,6 +318,48 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             Restored=restored,RestoredBindingsVerified=restored,RestoredContinuationVerified=restored,
             PendingRestores=0,UnsavedActors=0,Native=dict(Size=64,Version=1,State=1,Session=1,CompletedFrame=30,LiveActors=3,ConsumerSamples=30),
             SavedActors=actors,CurrentActors=copy.deepcopy(actors),BoundObjects=bindings,CurrentImageSha256=('b' if restored else 'a')*64)
+
+    def test_saved_native_references_require_an_explicit_successful_unmodified_audit(self):
+        self.set_saved_colony()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        missing=copy.deepcopy(self.report);missing.pop('NativeOrbitalReferences')
+        self.assertFalse(runner.native_domain_passed(missing,self.observation,30,saved=True))
+        for key,value in [('Required',False),('Verified',False),('Error','missing object'),('Source','scalar guess'),
+                          ('Inspections',0),('Inspections',True),('RewrittenReferences',1),('RewrittenReferences',False),
+                          ('GeneralManagedReferenceIntegrityVerified',True),('Stage','unknown')]:
+            report=copy.deepcopy(self.report);report['NativeOrbitalReferences'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),(key,value))
+
+    def test_saved_native_references_reject_late_missing_or_wrong_world_targets_and_unregistered_roots(self):
+        self.set_saved_colony()
+        for collection,key,value in [('References','SavedId',3),('References','TargetId',-1),('References','OrbitingWorldId',9),
+                                     ('References','Prefab','Asteroid'),('References','Tracked',False),('References','SaveRegistrations',0),
+                                     ('References','SaveRegistrations',2),('References','RootInitialized',False),('References','RootSpawned',False),
+                                     ('References','OwnerId',5),('References','Slot',-1),('References','SavedId',-2),
+                                     ('Worlds','Tracked',False),('Worlds','WorldId',-1),('Worlds','SaveRegistrations',2)]:
+            report=copy.deepcopy(self.report);report['NativeOrbitalReferences'][collection][0][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),(collection,key,value))
+        for collection in ('Worlds','References'):
+            report=copy.deepcopy(self.report);rows=report['NativeOrbitalReferences'][collection];rows.append(copy.deepcopy(rows[0]))
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),collection)
+
+    def test_orbital_admission_accepts_distinct_native_worlds_and_genuinely_empty_optional_references(self):
+        self.set_saved_colony();audit=self.report['NativeOrbitalReferences']
+        world=copy.deepcopy(audit['Worlds'][0]);world.update(OwnerId=10,WorldId=7);audit['Worlds'].append(world)
+        reference=copy.deepcopy(audit['References'][0]);reference.update(OwnerId=10,SavedId=11,TargetId=11,OrbitingWorldId=7)
+        audit['References'].append(reference)
+        audit['References'].append(dict(OwnerId=10,Slot=1,SavedId=-1,TargetId=-1,OrbitingWorldId=-1))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        reference['OrbitingWorldId']=0
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+
+    def test_restored_orbital_reference_admission_must_precede_positive_physical_time(self):
+        self.set_restored_colony()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        for key,value in [('RestoredBeforeAdvanceVerified',False),('RestoredPhysicalFrame',1),('RestoredPhysicalFrame',False),
+                          ('RestoredPhysicalTime',1.4),('RestoredPhysicalTime',float('nan'))]:
+            report=copy.deepcopy(self.report);report['NativeOrbitalReferences'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),(key,value))
 
     def test_live_actor_save_and_restore_require_current_objects_callbacks_and_snapshot_identity(self):
         self.set_persistent_actors()
@@ -422,6 +474,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             'ManagedSceneRestored':True,'RendererVerified':True,'NativeStartupBatchesDelivered':2,'SourceFrame':31,'SourceTime':1.2,'SourcePhysicalSha256':'a'*64,
             'RestoredInitialSha256':'a'*64,'CurrentPhysicalSha256':'b'*64,'ExactContinuationFrames':30,'ReplayedFrame':30,
             'ReplayedTime':self.report['NativeDomain']['TimeSeconds']}
+        self.set_orbital_references(restored=True)
 
     def test_actual_restored_colony_requires_exact_initial_state_and_every_worker_frame(self):
         self.set_restored_colony()
