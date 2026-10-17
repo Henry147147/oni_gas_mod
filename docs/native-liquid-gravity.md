@@ -116,6 +116,19 @@ same-process reload pass is claimed. Focus/window-manager interventions do not
 release that gate and are recorded separately. This is Windows Unity on a Linux
 host, not validation on the Windows OS or with an MSVC build of this feature.
 
+The later `windows-wine-runtime-false-v4` diagnostic reaches the same paused
+restore with both original/patched tag checks passing. Its save indicator is
+spawned, enabled, visible and waiting for its ordinary `working_pre` animation;
+dragging is false. Unity reports about 0.00001 s of unscaled time per rendered
+frame, and the animation has advanced only about 0.011 s after several minutes.
+The diagnostic report now records both Unity clocks, capture/max-delta settings
+and the independent monotonic/UTC clocks while this callback is pending.
+It changes no clock, physics or save callback. This isolated run uses
+`MONOMOD_RunningOnWine=false`; it is a retained experiment, not an accepted
+runtime requirement or a reload pass. A scoped enum-formatting alternative also
+fails inside real Unity and has been removed. The timing cause and repeatable
+Proton startup remain unresolved; the native Windows results below are separate.
+
 ### Actual Windows native and Unity controls
 
 The clean `018c0df` merge is frozen in `windows-native-domain-liquid-gravity-r1`

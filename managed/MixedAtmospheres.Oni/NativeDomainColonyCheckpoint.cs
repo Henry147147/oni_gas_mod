@@ -452,6 +452,32 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
             ColonyRuntimeValidation.CompletePresentation("actual-game-restored-native-domain-validation");
         }
+        private static object DeferredSaveDiagnostics()
+        {
+            var game=Game.Instance;
+            var pre=game==null ? null : AccessTools.Field(typeof(Game),"activatePreCB").GetValue(game) as Delegate;
+            var indicator=pre?.Target as SaveActive;
+            var animation=indicator==null ? null : AccessTools.Field(typeof(SaveActive),"controller").GetValue(indicator) as KBatchedAnimController;
+            object? Field(string name)=>animation==null ? null : AccessTools.Field(typeof(KAnimControllerBase),name)?.GetValue(animation);
+            return new {Frame=Time.frameCount,ScaledDelta=Time.deltaTime,UnscaledDelta=Time.unscaledDeltaTime,TimeScale=Time.timeScale,
+                UnscaledTime=Time.unscaledTimeAsDouble,Realtime=Time.realtimeSinceStartupAsDouble,
+                CaptureDelta=Time.captureDeltaTime,MaximumDelta=Time.maximumDeltaTime,
+                MonotonicTicks=Stopwatch.GetTimestamp(),MonotonicFrequency=Stopwatch.Frequency,
+                UtcTicks=System.DateTime.UtcNow.Ticks,
+                GameActive=game!=null && game.gameObject.activeInHierarchy,GamePaused=game==null ? null : AccessTools.Field(typeof(Game),"IsPaused").GetValue(game),
+                HasFirstSimTick=game==null ? null : AccessTools.Field(typeof(Game),"hasFirstSimTickRun").GetValue(game),
+                IsDragging=PlayerController.Instance!=null && PlayerController.Instance.IsDragging(),
+                PreCallback=pre?.Method.DeclaringType?.FullName+"."+pre?.Method.Name,
+                IndicatorPresent=indicator!=null,IndicatorActive=indicator!=null && indicator.gameObject.activeInHierarchy,
+                IndicatorSpawned=indicator!=null && indicator.isSpawned,
+                AnimationCallbackPending=indicator!=null && AccessTools.Field(typeof(SaveActive),"readyForSaveCallback").GetValue(indicator)!=null,
+                AnimationPresent=animation!=null,AnimationEnabled=animation!=null && animation.enabled,
+                AnimationActive=animation!=null && animation.gameObject.activeInHierarchy,
+                AnimationAwake=Field("hasAwakeRun"),AnimationHasEnabled=Field("hasEnableRun"),
+                AnimationName=animation==null ? "" : animation.currentAnim.ToString(),
+                AnimationElapsed=Field("elapsedTime"),AnimationStopped=Field("stopped"),AnimationVisible=Field("isVisible"),
+                AnimationUsesGameTime=Field("forceUseGameTime"),AnimationMode=Field("mode")?.ToString()};
+        }
         private static object ColonyCheckpointReport()=>new {Saved=colonyFileSaved,Loaded=colonyLoaded,ZeroTimeRestoreVerified=zeroRestoreVerified,
             ManagedSceneRestored=restoredSceneStarted,RendererVerified=restoredRendererVerified,SimSaveWrites=stagedSaveWrites,
             AutomaticSaveAdmissions=automaticSaveAdmissions,SavePauseStateRestored=savePauseStateRestored,
@@ -469,6 +495,7 @@ namespace MixedAtmospheres.Oni
             FrameZeroResaveUsedGameDelayedSave=frameZeroResaveScheduled,
             InitialPauseChallengeVerified=initialPauseChallengeVerified,InitialPauseTicksHeld=initialPauseTicksHeld,
             InitialPositiveTicksHeld=initialPositiveTicksHeld,
+            DeferredSaveStartup=frameZeroResaveScheduled && !frameZeroResaveVerified ? DeferredSaveDiagnostics() : null,
             ExactContinuationFrames=exactReplayComparisons,ReplayedFrame=replayFrame,ReplayedTime=replayTime,NativeStartupBatchesDelivered=restoredNativeBatches,
             CurrentPhysicalSha256=CheckpointHash(restoredExpected),SavedFile=savedFilePath,SavedFileSha256=savedFileHash,
             NativeColonyId=SaveLoader.Instance?.GameInfo.colonyGuid.ToString("N"),WholeColonyFluidCheckpoint=false};
