@@ -379,6 +379,8 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             "EmitterPublications": 24, "RemovalConsumerSamples": 16, "RemovalEmitterSamples": 24, "RemovedAtFrame": 20,
             "EmitterGameStatusObserved": True, "ActualEmitterRegistrations": 1, "ActualBlockedCallbacks": 1,
             "ConfigurationBatchVerified": True, "NativeActorBatchVerified": True, "ConfigurationBatchesRouted": 1,
+            "RegistrationBatchVerified":True,"RetirementBatchVerified":True,"ActualBatchEmitterRegistrations":1,
+            "RegistrationBatchesRouted":1,"RetirementBatchesRouted":1,
             "ActualUnblockedCallbacks": 1, "EnergyResidualJoules": 1e-9, "MaximumRelativeMassError": 1e-15}
         self.assertTrue(runner.native_domain_passed(self.report, self.observation, 30, actors=True))
         for field, value in (("ActualConsumerCallbacks", 0), ("ActualBlockedCallbacks", 2), ("ActualUnblockedCallbacks", 0),
@@ -386,7 +388,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 ("EnergyResidualJoules", float("nan")), ("MaximumRelativeMassError", 1e-8), ("Stage", 6)):
             bad = copy.deepcopy(self.report); bad["RegisteredActors"][field] = value
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, actors=True), field)
-        for field in ("ConfigurationBatchVerified", "NativeActorBatchVerified", "ConfigurationBatchesRouted"):
+        for field in ("ConfigurationBatchVerified", "NativeActorBatchVerified", "ConfigurationBatchesRouted",
+                      "RegistrationBatchVerified", "RetirementBatchVerified", "ActualBatchEmitterRegistrations",
+                      "RegistrationBatchesRouted", "RetirementBatchesRouted"):
             bad=copy.deepcopy(self.report);bad["RegisteredActors"].pop(field)
             self.assertFalse(runner.native_domain_passed(bad, self.observation, 30, actors=True), field)
 

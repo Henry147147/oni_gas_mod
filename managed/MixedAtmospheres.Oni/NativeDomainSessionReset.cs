@@ -53,6 +53,9 @@ namespace MixedAtmospheres.Oni
             ioSavePreCallbacks=ioSaveActiveCallbacks=ioSavePostCallbacks=0;
 
             actorMessagesRouted=actorConsumerPublications=actorEmitterPublications=actorBlockedPublications=actorUnblockedPublications=actorBatchesRouted=0;
+            actorRegistrationBatches=actorRetirementBatches=0;
+            batchFixtureEmitter=-1;batchFixtureRegistrations=0;
+            actorRegistrationBatchVerified=actorRetirementBatchVerified=false;
             actorStatus=default;emissionStatusFrame=0;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
             actorConfigurationBatchVerified=nativeActorBatchVerified=false;actorFixtureStage=0;fixtureEmitter=-1;

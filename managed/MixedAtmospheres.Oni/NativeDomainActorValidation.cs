@@ -14,6 +14,8 @@ namespace MixedAtmospheres.Oni
         private static GameObject? outsideActorObject;
         private static bool actorConfigurationBatchVerified, nativeActorBatchVerified;
         private static int actorFixtureStage, fixtureEmitter = -1, fixtureRegistrations, fixtureBlockedCallbacks, fixtureUnblockedCallbacks;
+        private static int batchFixtureEmitter = -1, batchFixtureRegistrations;
+        private static bool actorRegistrationBatchVerified, actorRetirementBatchVerified;
         private static int fixtureConsumptionCallbacks;
         private static ulong actorStageFrame, actorRemovalFrame, removalConsumerSamples, removalEmitterSamples;
         private static double actorBeforeEnergy, actualConsumerMass, actualEmitterMass, actorEnergyResidual, actorMassResidual;
@@ -42,7 +44,13 @@ namespace MixedAtmospheres.Oni
                 fixtureUnblockedHandle = actorFixtureGame.callbackManager.Add(new Game.CallbackInfo(() => ++fixtureUnblockedCallbacks, manually_release: true));
                 var registration = actorFixtureGame.simComponentCallbackManager.Add((handle, _) =>
                 { fixtureEmitter = handle; ++fixtureRegistrations; }, new object(), "MA registered fluid boundary fixture");
-                SimMessages.AddElementEmitter(10000, registration.index, fixtureBlockedHandle.index, fixtureUnblockedHandle.index);
+                var batchRegistration = actorFixtureGame.simComponentCallbackManager.Add((handle, _) =>
+                { batchFixtureEmitter=handle; ++batchFixtureRegistrations; },new object(),"MA second batch emitter fixture");
+                var registrations=stackalloc int[8] { BitConverter.SingleToInt32Bits(10000),registration.index,
+                    fixtureBlockedHandle.index,fixtureUnblockedHandle.index,BitConverter.SingleToInt32Bits(10000),batchRegistration.index,-1,-1 };
+                var before=actorRegistrationBatches;
+                NativeMessageBoundary.HandleBatch(-505471181,16,2,(byte*)registrations);
+                actorRegistrationBatchVerified=actorRegistrationBatches==before+1;
                 actorConsumerObject = new GameObject("MA private real ElementConsumer");
                 actorConsumerObject.SetActive(false);
                 actorConsumerObject.transform.position = Grid.CellToPosCCC(target, Grid.SceneLayer.Ore);
@@ -77,9 +85,11 @@ namespace MixedAtmospheres.Oni
             {
                 var handle = (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(actorConsumer);
                 Require(latest.CompletedFrames - actorStageFrame <= 15, "Native actor registration did not reach the real components.");
-                if (fixtureEmitter == -1 || !actorBindings.TryGetValue((1U, handle), out var binding) || !binding.Configured ||
+                if (fixtureEmitter == -1 || batchFixtureEmitter == -1 || !actorBindings.TryGetValue((1U, handle), out var binding) || !binding.Configured ||
                     (int)AccessTools.Field(typeof(SimComponent), "simHandle").GetValue(outsideActorConsumer) == -1) return;
-                ConfigureFixtureEmitter(10000, .03125f); actorStageFrame = latest.CompletedFrames; actorFixtureStage = 2; return;
+                ConfigureFixtureEmitter(10000, .03125f);
+                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,.015625f,300,10000,255,0);
+                actorStageFrame = latest.CompletedFrames; actorFixtureStage = 2; return;
             }
             if (fixtureEmitter != -1 && currentSnapshot != null && actorFixtureStage < 6)
             {
@@ -93,6 +103,7 @@ namespace MixedAtmospheres.Oni
             if (latest.CompletedFrames - actorStageFrame < 8) return;
             if (actorFixtureStage == 2)
             {
+                SimMessages.ModifyElementEmitter(batchFixtureEmitter,target+2,0,FixtureActorElement,.2f,0,300,10000,255,0);
                 actorConsumer!.consumptionRate = .025f; actorConsumer.RefreshConsumptionRate();
                 VerifyActorConfigurationBatches();
                 ConfigureFixtureEmitter(10000, .0625f);
@@ -111,7 +122,12 @@ namespace MixedAtmospheres.Oni
                 consumerAccumulatedMass = actorConsumer!.consumedMass;
                 UnityEngine.Object.Destroy(actorConsumerObject);
                 UnityEngine.Object.Destroy(outsideActorObject);
-                SimMessages.RemoveElementEmitter(-1, fixtureEmitter);
+                var retirements=stackalloc int[4] { fixtureEmitter,-1,batchFixtureEmitter,-1 };
+                var before=actorRetirementBatches;
+                NativeMessageBoundary.HandleBatch(-1524118282,8,2,(byte*)retirements);
+                actorRetirementBatchVerified=actorRetirementBatches==before+1 &&
+                    actorBindings[(2U,fixtureEmitter)].Removed && actorBindings[(2U,batchFixtureEmitter)].Removed &&
+                    !actorBindings[(2U,fixtureEmitter)].Configured && !actorBindings[(2U,batchFixtureEmitter)].Configured;
                 actorRemovalFrame = latest.CompletedFrames;
             }
             else if (actorFixtureStage == 7)
@@ -159,6 +175,7 @@ namespace MixedAtmospheres.Oni
                 else actorMassResidual = Math.Max(actorMassResidual, Math.Abs(current - actorBeforeMasses[k] - change) / scale);
             }
             actorFixtureVerified = actorFixtureStage == 8 && actorConsumerObject == null && outsideActorObject == null && fixtureRegistrations == 1 &&
+                batchFixtureRegistrations==1 && actorRegistrationBatchVerified && actorRetirementBatchVerified &&
                 actorConfigurationBatchVerified && nativeActorBatchVerified &&
                 fixtureConsumptionCallbacks > 10 && fixtureBlockedCallbacks == 1 && fixtureUnblockedCallbacks == 1 &&
                 emitterGameStatusObserved && actorStatus.LiveActors == 0 && latest.CompletedFrames - actorRemovalFrame >= 8 &&
@@ -179,6 +196,9 @@ namespace MixedAtmospheres.Oni
             MessagesRouted = actorMessagesRouted, ConsumerPublications = actorConsumerPublications, EmitterPublications = actorEmitterPublications,
             ConfigurationBatchesRouted = actorBatchesRouted, ConfigurationBatchVerified = actorConfigurationBatchVerified,
             NativeActorBatchVerified = nativeActorBatchVerified,
+            RegistrationBatchVerified=actorRegistrationBatchVerified,RetirementBatchVerified=actorRetirementBatchVerified,
+            RegistrationBatchesRouted=actorRegistrationBatches,RetirementBatchesRouted=actorRetirementBatches,
+            ActualBatchEmitterRegistrations=batchFixtureRegistrations,
             BlockedPublications = actorBlockedPublications, UnblockedPublications = actorUnblockedPublications,
             ActualConsumerCallbacks = fixtureConsumptionCallbacks, ActualEmitterRegistrations = fixtureRegistrations,
             ActualBlockedCallbacks = fixtureBlockedCallbacks, ActualUnblockedCallbacks = fixtureUnblockedCallbacks,

@@ -327,9 +327,18 @@ separate; configuring a batch advances no time and emits no mass callbacks.
 The managed native-message bridge preflights ownership before admission.
 Supported batches containing only owned consumer/emitter configurations use
 the custom registry; batches of unowned actors retain native dispatch.
-Moving an owned handle outside, mixing owners, or batching owned native
-registration/removal still requires additional admission/retirement work and
-rejects before dispatch. Forwarding an inactive registration to a native
+Consumer/emitter registration batches now decode all owned callback bindings
+before publishing any of them, then forward the original inactive native
+registrations. Duplicate callbacks, unsupported materials/radii and malformed
+late entries reject the complete plan without adding earlier bindings. An
+outside consumer keeps its native admission rules. Emitter location/material
+admission still occurs at its later configuration message.
+
+Owned removal batches atomically retire their complete custom registry set,
+then forward the original batch to retire ONI's inactive registrations. A
+missing/stale/duplicate removal changes no earlier custom actor. Mixed-owner
+mutation batches and moving an owned handle outside still reject before
+dispatch; these need a cross-owner reservation. Forwarding an inactive registration to a native
 outside transfer retires its eligibility for later custom admission.
 
 `native-actor-domain` spawns an actual Unity `ElementConsumer`, registers an
@@ -342,6 +351,14 @@ The same control also sends two ordered rate changes for the actual owned
 consumer in one batch, verifies the batch avoids original native dispatch,
 and forwards a zero-rate batch for a second actual Unity consumer outside the
 domain. Subsequent physical callbacks must reflect the final owned rate.
+The extended fixture registers two real emitter handles in one native batch,
+configures both, disables the second after eight frames, and removes both in
+one owned/native retirement batch. Reports separately require both handle
+callbacks and both batch admissions, all physical receipts, and continued
+frames without transfers after retirement. Five declaration-level regression
+groups pass against each platform's licensed assemblies (106 total per
+platform); the extended real-player control is tracked separately from the
+historical one-emitter cohorts below.
 
 ### Filled-liquid registered actors
 

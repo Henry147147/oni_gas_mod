@@ -312,12 +312,75 @@ internal static unsafe class Program
         FluidRouterTests.Run(Test, Check, Reject);
         FluidFrameCoordinatorTests.Run(Test, Check, Reject);
         MixtureRuntimeTests.Run(Test, Check, Reject);
+        ActorRegistrationTests();
         if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");
         return 0;
     }
 
     private static void Test(string name, System.Action action) { action(); ++passed; Console.WriteLine("PASS " + name); }
+    private static void ActorRegistrationTests()
+    {
+        byte[] Consumers(int firstCallback=41,int secondCallback=42)
+        {
+            var data=new byte[24];
+            for(var i=0;i<2;++i)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(12*i),10+i);
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(12*i+4),i==0 ? firstCallback : secondCallback);
+                BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(12*i+10),7);
+            }
+            return data;
+        }
+        NativeActorRegistration[] Decode(byte[] data,IEnumerable<int>? pending=null)=>
+            NativeActorRegistrationPlan.Decode(2024405073,12,2,data,cell=>cell==10 || cell==11,
+                element=>element==7 ? 3U : throw new NotSupportedException("material"),pending ?? Array.Empty<int>());
+        Test("actor batch admission preserves both consumer callbacks and phase",()=>
+        {
+            var plan=Decode(Consumers());
+            Check(plan.Length==2 && plan[0].Callback==41 && plan[1].Callback==42 && plan[0].Cell==10 && plan[1].Cell==11 &&
+                plan.All(item=>item.Kind==1 && item.Species==3 && item.Blocked==-1 && item.Unblocked==-1));
+        });
+        Test("late invalid actor registration leaves existing pending bindings untouched",()=>
+        {
+            var pending=new HashSet<int>{42,90};
+            Reject(()=>Decode(Consumers(),pending));Check(pending.SetEquals(new[]{42,90}));
+            Reject(()=>Decode(Consumers(41,41)));var bad=Consumers();bad[20]=1;Reject(()=>Decode(bad));
+            bad=Consumers();bad[21]=1;Reject(()=>Decode(bad));
+            bad=Consumers();BinaryPrimitives.WriteUInt16LittleEndian(bad.AsSpan(22),99);Reject(()=>Decode(bad));
+            Reject(()=>Decode(Consumers(41,-1)));
+        });
+        Test("unowned consumer packet retains its native admission semantics",()=>
+        {
+            var data=Consumers();BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(12),900);
+            data[20]=255;data[21]=255;BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(22),99);
+            var plan=Decode(data);Check(plan.Length==1 && plan[0].Callback==41);
+        });
+        Test("emitter batches preserve registration and blocked callback identities",()=>
+        {
+            var data=new byte[48];
+            for(var i=0;i<3;++i)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(i*16+4),i==2 ? -1 : 50+i);
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(i*16+8),70+i);
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(i*16+12),80+i);
+            }
+            var plan=NativeActorRegistrationPlan.Decode(-505471181,16,3,data,_=>throw new Exception("emitter has no cell"),
+                _=>throw new Exception("emitter has no material yet"),Array.Empty<int>());
+            Check(plan.Length==2 && plan[0].Kind==2 && plan[0].Callback==50 && plan[1].Callback==51 &&
+                plan[0].Blocked==70 && plan[1].Unblocked==81);
+            Reject(()=>NativeActorRegistrationPlan.Decode(-505471181,16,3,data,_=>true,_=>0,new[]{51}));
+        });
+        Test("malformed and oversized registration batches reject before dispatch",()=>
+        {
+            Reject(()=>NativeActorRegistrationPlan.Decode(0,12,2,Consumers(),_=>true,_=>0,Array.Empty<int>()));
+            Reject(()=>NativeActorRegistrationPlan.Decode(2024405073,16,2,Consumers(),_=>true,_=>0,Array.Empty<int>()));
+            Reject(()=>NativeActorRegistrationPlan.Decode(2024405073,12,-1,Array.Empty<byte>(),_=>true,_=>0,Array.Empty<int>()));
+            var data=new byte[16*257];
+            for(var i=0;i<257;++i)BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(16*i+4),i);
+            Reject(()=>NativeActorRegistrationPlan.Decode(-505471181,16,257,data,_=>true,_=>0,Array.Empty<int>()));
+        });
+    }
     private static void Check(bool condition) { if (!condition) throw new InvalidOperationException("Assertion failed"); }
     private static void Reject(System.Action action)
     {

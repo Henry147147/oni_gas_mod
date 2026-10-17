@@ -18,6 +18,7 @@ namespace MixedAtmospheres.Oni
         private static readonly Dictionary<(uint kind, int handle), ActorBinding> actorBindings = new Dictionary<(uint, int), ActorBinding>();
         private static long actorMessagesRouted, actorConsumerPublications, actorEmitterPublications, actorBlockedPublications, actorUnblockedPublications;
         private static long actorBatchesRouted;
+        private static long actorRegistrationBatches, actorRetirementBatches;
         private static ActorStatus actorStatus;
         private static ulong emissionStatusFrame;
         private static readonly Dictionary<int, Sim.EmittedMassInfo> completedEmissionStatus = new Dictionary<int, Sim.EmittedMassInfo>();
@@ -29,6 +30,13 @@ namespace MixedAtmospheres.Oni
         }
         private static bool ActorMessage(int message) => message == 2024405073 || message == 1575539738 || message == 894417742 ||
             message == -505471181 || message == 403589164 || message == -1524118282;
+        private static void AdmitActorRegistrations(int message,int length,int count,byte* payload)
+        {
+            var plan=NativeActorRegistrationPlan.Decode(message,length,count,new ReadOnlySpan<byte>(payload,checked(length*count)),
+                OwnsPublicCell,ActorFluidSpecies,pendingActorRegistrations.Keys);
+            foreach(var item in plan) pendingActorRegistrations.Add(item.Callback,new ActorBinding {
+                Kind=item.Kind,Cell=checked((uint)item.Cell),Species=item.Species,Blocked=item.Blocked,Unblocked=item.Unblocked });
+        }
         internal static bool TryHandleActorMessage(int message, int length, byte* payload)
         {
             if (!active || !ActorMessage(message)) return false;
@@ -36,22 +44,10 @@ namespace MixedAtmospheres.Oni
             {
                 var expected = message == 2024405073 || message == 1575539738 ? 12 : message == -505471181 ? 16 : message == 403589164 ? 32 : 8;
                 if (length != expected || payload == null) throw new ArgumentException("Invalid registered actor message.");
-                var data = new ReadOnlySpan<byte>(payload, length);
                 int Int(int offset) => BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(payload + offset, 4));
-                if (message == 2024405073)
+                if (message == 2024405073 || message == -505471181)
                 {
-                    if (!OwnsPublicCell(Int(0))) return false;
-                    if (data[8] != 0 || data[9] != 0 || Int(4) == -1)
-                        throw new NotSupportedException("Owned consumers require selective, single-cell registration with a callback.");
-                    pendingActorRegistrations.Add(Int(4), new ActorBinding { Kind = 1, Cell = checked((uint)Int(0)),
-                        Species = ActorFluidSpecies(BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(10))) });
-                    // Native registration starts at rate zero. Its normal handle
-                    // callback is retained; later rate setters are custom-owned.
-                    return false;
-                }
-                if (message == -505471181)
-                {
-                    if (Int(4) != -1) pendingActorRegistrations.Add(Int(4), new ActorBinding { Kind = 2, Blocked = Int(8), Unblocked = Int(12) });
+                    AdmitActorRegistrations(message,length,1,payload);
                     return false;
                 }
                 var kind = message == 1575539738 || message == 894417742 ? 1U : 2U;
@@ -118,24 +114,29 @@ namespace MixedAtmospheres.Oni
                 var expected = message == 2024405073 || message == 1575539738 ? 12 : message == -505471181 ? 16 : message == 403589164 ? 32 : 8;
                 if (count < 0 || length != expected || payload == null) throw new ArgumentException("Invalid registered actor batch.");
                 _ = checked(length * count);
+                if(message==2024405073 || message==-505471181)
+                {
+                    AdmitActorRegistrations(message,length,count,payload);
+                    ++actorRegistrationBatches;
+                    return false; // Original inactive registration and handle callbacks.
+                }
                 var commands = new List<ActorCommand>(); var bindings = new List<ActorBinding>();
                 var nativeBindings = new List<ActorBinding>(); var removals = new List<ActorBinding>();
+                var retiring=message==894417742 || message==-1524118282;
                 var nativeCount = 0;
                 for (var index = 0; index < count; ++index)
                 {
                     var item = payload + checked(index * length);
                     int Int(int offset) => BinaryPrimitives.ReadInt32LittleEndian(new ReadOnlySpan<byte>(item + offset, 4));
-                    if (message == 2024405073)
-                    {
-                        if (OwnsPublicCell(Int(0))) throw new NotSupportedException("Owned actor batch registration requires callback admission.");
-                        ++nativeCount; continue;
-                    }
-                    if (message == -505471181) { ++nativeCount; continue; }
                     var kind = message == 1575539738 || message == 894417742 ? 1U : 2U;
                     actorBindings.TryGetValue((kind, Int(0)), out var binding);
-                    if (message == 894417742 || message == -1524118282)
+                    if (retiring)
                     {
-                        if (binding?.Configured == true) throw new NotSupportedException("Owned actor batch removal requires native retirement admission.");
+                        if(binding?.Configured==true)
+                        {
+                            commands.Add(new ActorCommand { Handle=Int(0),Kind=kind,Flags=1 });
+                            bindings.Add(binding); continue;
+                        }
                         if (binding != null) removals.Add(binding);
                         ++nativeCount; continue;
                     }
@@ -154,7 +155,7 @@ namespace MixedAtmospheres.Oni
                     foreach (var binding in removals) binding.Removed = true;
                     return false;
                 }
-                if (nativeCount != 0 || count > 256) throw new NotSupportedException("Actor configuration batches require one owner and at most 256 commands.");
+                if (nativeCount != 0 || count > 256) throw new NotSupportedException("Actor mutation batches require one owner and at most 256 commands.");
                 var requests = commands.ToArray();
                 for (var attempt = 0; attempt < 8; ++attempt)
                 {
@@ -167,8 +168,14 @@ namespace MixedAtmospheres.Oni
                     if (code == 3) continue;
                     Check(code);
                     for (var i = 0; i < requests.Length; ++i)
-                    { bindings[i].Configured = true; bindings[i].Cell = requests[i].PublicCell; bindings[i].Species = requests[i].Species; }
-                    actorStatus = result; actorMessagesRouted += requests.Length; ++actorBatchesRouted; return true;
+                    {
+                        bindings[i].Configured = !retiring;
+                        if(retiring) bindings[i].Removed=true;
+                        else { bindings[i].Cell = requests[i].PublicCell; bindings[i].Species = requests[i].Species; }
+                    }
+                    actorStatus = result; actorMessagesRouted += requests.Length;
+                    if(retiring) { ++actorRetirementBatches; return false; } // Retire original inactive registrations too.
+                    ++actorBatchesRouted; return true;
                 }
                 throw new InvalidOperationException("Native actor batch frame kept changing during reservation.");
             }
