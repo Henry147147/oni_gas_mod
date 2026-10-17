@@ -62,7 +62,23 @@ to 399.9931640625 K with 54.003907716833055 J loss; water reaches
 
 The first licensed control is retained as failed: native job threads could not
 see its thread-local duration, so it recorded no accepted contact inputs. The
-shared-frame interval fixes that failure. The sanitizer run and actual Unity
-source/save/reload controls are in progress. These controls do not establish
-actual Windows OS support, whole-colony heat, arbitrary moving/changing solids,
-building thermal components or phase-changing boundaries.
+shared-frame interval fixes that failure. Those original controls do not
+establish actual Windows OS support.
+
+Fresh isolated worker controls now also pass on the actual Windows host with
+its installed ONI 744825 SimDLL. Gas and water each complete 61 exact input
+replays and 56 positive solid contacts, reaching the same solid temperatures
+and represented losses listed above. Saved review reconstructs solid loss from
+the original binary32 temperatures and the separate licensed mass/specific-heat
+values. The report retains summary fluid-energy bounds and journal digests;
+it does not export raw journals or every fluid/contact operand. These passing
+solid controls are retained inside the checkpoint whose separate cold-JIT
+startup self-check initially rejected; see the [wire correction](native-float-wire.md).
+
+The full Windows/Linux/ASan/UBSan regression passes 239 native groups and 40
+saved-data reviews per environment. The sanitizer build's 95 composed compile
+commands are all instrumented: 83 C++ and 12 C. Review SHA-256:
+`c84be8ffe7e0e3e2b215c2facad4e79aed51544308e10af8506fdb4115af7f78`.
+Actual Unity source/save/reload controls remain open, together with whole-colony
+heat, arbitrary moving/changing solids, building thermal components and
+phase-changing boundaries.

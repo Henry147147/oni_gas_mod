@@ -69,3 +69,29 @@ The console report does not export raw journals or all per-contact operands;
 it is not an independent fluid solution. Strong-flow accuracy, complete native
 reader/writer coverage, real Windows/Linux Unity screenshots and the complete
 first playable colony remain open under the [completion plan](completion-plan.md).
+
+After merging main through `2a9eb01`, the fresh complete native regression passes
+239 groups and 40 saved-data reviews on Windows, Linux and Linux ASan/UBSan.
+The sanitizer build's 95 composed commands are instrumented: 83 C++ and 12 C.
+The new controls cover solid-boundary registration and the separate binary32
+mass/specific-heat product, retaining every earlier physics, epoch and C ABI
+check. Evidence: `local/solid-particle-native-r1`, terminal SHA-256
+`c84be8ffe7e0e3e2b215c2facad4e79aed51544308e10af8506fdb4115af7f78`.
+
+Fresh actual Windows licensed gas/water controls each pass 56 positive solid
+contacts and 61 exact accepted-input replays. Gas/water body controls also pass
+56 contacts and 61 replays each; the pending-input scene retains its two
+batches, three commands and immutable completed image. Saved solid review uses
+the original binary32 temperatures and licensed material capacity. Raw journals
+and full per-contact fluid operands remain unexported. Python discovery passes
+144 tests with three skips; managed/native and presentation suites pass 91 and
+45 groups, respectively.
+
+The same checkpoint initially rejects a separate startup self-check when cold
+JIT compilation under DAZ folds its tiny test constant to zero. Dynamic wire
+conversions still preserve the trace. The [runtime-input repair](native-float-wire.md)
+then passes the unchanged 172-scenario installed-Windows declaration suite with
+actual DAZ/FTZ enabled and compiles the adapter with its two retained MSB3277
+warnings. Linux runtime probes reproduce the original self-check failure and
+pass the repair using the same captured managed assembly. These are isolated
+worker/runtime checks; they add no Unity, strong-flow or first-playable result.
