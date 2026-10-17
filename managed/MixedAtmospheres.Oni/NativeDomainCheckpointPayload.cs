@@ -110,7 +110,7 @@ namespace MixedAtmospheres.Oni
             TransientParticles?.ValidateGrid(Geometry.GridWidth,checked((uint)height-2));
         }
         internal void ValidateNativeInventory(ReadOnlySpan<byte> native,IReadOnlyDictionary<int,NativeMatterPhase> phases,
-            int vacuumHash,int gasHash,int liquidHash,int wallHash)
+            int vacuumHash,int gasHash,int liquidHash,int wallHash,int? solidContactHash=null)
         {
             ValidateNativeSection(native);
             // Validate every native material, inventory, backwall and guard
@@ -125,8 +125,21 @@ namespace MixedAtmospheres.Oni
                     var boundary=x<Geometry.X || y<Geometry.Y || x>=Geometry.X+Geometry.Width || y>=Geometry.Y+Geometry.Height;
                     var hash=BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset));
                     var mass=BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+8)));
-                    Require(hash==(boundary ? wallHash : (Geometry.Scenario==1 || Geometry.Scenario==3) ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
-                    if(boundary) Require(mass>0,"Saved sealed native boundary is empty.");
+                    var thermal=boundary && solidContactHash.HasValue && hash==solidContactHash.Value && x==(int)Geometry.X-1 && y==Geometry.Y;
+                    Require(hash==(boundary ? thermal ? solidContactHash!.Value : wallHash : (Geometry.Scenario==1 || Geometry.Scenario==3) ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
+                    if(boundary) {
+                        Require(mass>0,"Saved sealed native boundary is empty.");
+                        if(thermal) {
+                            var temperature=BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+4)));
+                            Require(Geometry.X>=3 && mass==10f && temperature>=1 && temperature<=1e6 &&
+                                phases.TryGetValue(hash,out var phase) && phase==NativeMatterPhase.Solid,
+                                "Saved native solid contact has unsupported geometry, mass, temperature or phase.");
+                            var back=index-1;
+                            Require(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(29+16*back))==wallHash &&
+                                BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(29+16*back+8)))==20000f,
+                                "Saved native solid contact lost its insulating backer.");
+                        }
+                    }
                     else
                     {
                         var column=x-(int)Geometry.X;

@@ -60,7 +60,7 @@ namespace MixedAtmospheres.Oni
         private static void AdmitNativeInventory(NativeDomainCheckpointPayload payload,ReadOnlySpan<byte> native)
         {
             var phases=ElementLoader.elements.ToDictionary(e=>(int)e.id,e=>e.IsGas ? NativeMatterPhase.Gas : e.IsLiquid ? NativeMatterPhase.Liquid : e.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum);
-            try {payload.ValidateNativeInventory(native,phases,(int)SimHashes.Vacuum,(int)SimHashes.Oxygen,(int)SimHashes.Water,(int)SimHashes.Unobtanium);}
+            try {payload.ValidateNativeInventory(native,phases,(int)SimHashes.Vacuum,(int)SimHashes.Oxygen,(int)SimHashes.Water,(int)SimHashes.Unobtanium,(int)SimHashes.Granite);}
             catch(InvalidDataException)
             {
                 if(IsMode)
@@ -320,6 +320,7 @@ namespace MixedAtmospheres.Oni
                 SendZeroTimeFrame();var restored=WaitZeroTimeFrame();
                 Require(NoMaterialEvents(restored),"Zero-time compatibility restoration emitted native material.");
                 var source=baseline.Pointer;
+                RegisterNativeSolidHeat(restored);
                 for(var global=0;global<Grid.CellCount;++global)
                 {
                     var xx=global%Grid.WidthInCells;var yy=global/Grid.WidthInCells;
@@ -497,6 +498,7 @@ namespace MixedAtmospheres.Oni
             });
             nativeRendererAdvanced=restoredRendererVerified;
             if(LiveBreathingRequired) VerifyLiveBreathing();
+            VerifyNativeSolidHeatCompletion();
             VerifySavedParticleDeposit();
             Require(exactReplayComparisons>=(int)ColonyRuntimeValidation.Settings.CompletedFrames && zeroRestoreVerified && restoredNativeBatches>=2 &&
                 restoreNativeOutbox.Count==0 && nativeSnapshotVerified &&

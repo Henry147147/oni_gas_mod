@@ -79,7 +79,7 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
+            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode || SolidHeatMode;
         private static bool LiquidGravityMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-gravity-domain";
         private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain" || LiquidGravityMode;
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
@@ -186,6 +186,7 @@ namespace MixedAtmospheres.Oni
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (ViscousMode) Require(ViscosityVerified, "Native worker did not complete physical viscosity and represented heating.");
                 if (LiveBreathingRequired) VerifyLiveBreathing();
+                VerifyNativeSolidHeatCompletion();
                 if (HeatMode)
                 {
                     heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - FixtureHeatJoules;
@@ -311,7 +312,7 @@ namespace MixedAtmospheres.Oni
             for (var xx = start.x - 8; xx <= start.x + 8 && !chosen; ++xx)
             {
                 var clear = true;
-                for (var dy = -1; dy <= Height; ++dy) for (var dx = -1; dx <= Width + 3; ++dx)
+                for (var dy = -1; dy <= Height; ++dy) for (var dx = SolidHeatMode ? -2 : -1; dx <= Width + 3; ++dx)
                 {
                     var index = Grid.XYToCell(xx + dx, yy + dy);
                     if (!Grid.IsValidCell(index)) { clear = false; continue; }
@@ -327,9 +328,11 @@ namespace MixedAtmospheres.Oni
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
                 Grid.Visible[index] = byte.MaxValue;
-                SimMessages.ReplaceElement(index, wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : InitialInventoryMode && dy == 0 ? SimHashes.CarbonDioxide : SimHashes.Oxygen,
-                    eventId, wall ? 20000 : ProjectionMass(dx), wall ? 300 : ProjectionTemperature(dx));
+                var thermalWall=SolidHeatMode && dx== -1 && dy==0;
+                SimMessages.ReplaceElement(index, thermalWall ? SimHashes.Granite : wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : InitialInventoryMode && dy == 0 ? SimHashes.CarbonDioxide : SimHashes.Oxygen,
+                    eventId, thermalWall ? 10 : wall ? 20000 : ProjectionMass(dx), thermalWall ? 400 : wall ? 300 : ProjectionTemperature(dx));
             }
+            if(SolidHeatMode) SimMessages.ReplaceElement(Grid.XYToCell(x-2,y),SimHashes.Unobtanium,eventId,20000,300);
             SimMessages.ReplaceElement(hotSolid, SimHashes.Granite, eventId, 1000, 350);
             SimMessages.ReplaceElement(coldSolid, SimHashes.Granite, eventId, 1000, 250);
             SpeedControlScreen.Instance.Unpause(false);
@@ -341,7 +344,7 @@ namespace MixedAtmospheres.Oni
             for (var dy = -1; dy <= Height; ++dy) for (var dx = -1; dx <= Width; ++dx)
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
-                if (Grid.Solid[index] != wall || (wall && Grid.Element[index].id != SimHashes.Unobtanium) ||
+                if (Grid.Solid[index] != wall || (wall && Grid.Element[index].id != (IsSolidHeatBoundary(dx,dy) ? SimHashes.Granite : SimHashes.Unobtanium)) ||
                     (!wall && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
                 if (!wall)
                 {
@@ -399,6 +402,7 @@ namespace MixedAtmospheres.Oni
             latest = Status.Empty;
             if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
+            RegisterNativeSolidHeat(source);
             domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
             writingProjection = true;
@@ -438,6 +442,7 @@ namespace MixedAtmospheres.Oni
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
             CaptureChunkHeat();
+            CaptureNativeSolidHeat();
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;
             var transfers = TransferStatus.Empty; Check(CopyTransferStatus(ref transfers)); transferStatus = transfers;
         }
@@ -457,6 +462,7 @@ namespace MixedAtmospheres.Oni
                     ActivateOwner(source);
                 }
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
+                ObserveNativeSolidEndpoints(source);
                 nativeProjectionMasses = Enumerable.Range(0, cells.Length).Select(index =>
                     source->mass[Grid.XYToCell(x + index % Width, y + index / Width)]).ToArray();
                 nativeProjectionTemperatures = Enumerable.Range(0, cells.Length).Select(index =>
@@ -703,6 +709,7 @@ namespace MixedAtmospheres.Oni
             MixedPhase = MixedPhaseReport(),
             PhysicalViscosity = ViscosityReport(),
             NativeBodyHeat = ChunkHeatReport(),
+            NativeSolidHeat = NativeSolidHeatReport(),
             RenderingInputs = RenderingInputs(),
             GpuGasTextures = GpuGasReport(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,

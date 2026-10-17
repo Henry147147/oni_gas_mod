@@ -48,6 +48,10 @@ saved duplicant now completes 120 exact replayed frames with original breathing
 callbacks and body heat. Full same-process and WindowsPlayer live controls
 remain in progress.
 
+[Native solid-cell heat](docs/native-solid-heat.md) also has a bounded contact
+bridge, with licensed gas/water worker controls on both native libraries.
+Its actual Unity colony acceptance tests are in progress.
+
 ## What currently works
 
 - A development [sealed native fluid domain](docs/sealed-native-domain.md)

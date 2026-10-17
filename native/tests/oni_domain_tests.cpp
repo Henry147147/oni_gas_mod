@@ -22,6 +22,47 @@ void require(bool condition,const char* message) { if (!condition) throw std::ru
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
 }
+void solid_boundary_heat() {
+    using namespace ma::oni;
+    static_assert(sizeof(MAOniDomainSolidHeatCell)==48);
+    constexpr int fluid=11+11*66,solid=10+11*66;
+    for(const auto scenario:{0U,1U,4U,5U,6U}) {
+        MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
+        std::vector<MAOniDomainCell> cells(6);const auto source=capture(cells);const auto image=snapshot_domain(source.session,0);
+        MAOniDomainSolidHeatCell input{48,1,649,123,source.session,0,1.125F,.793F,2.F,255};
+        MAOniDomainSolidHeatStatus heat{};configure_domain_solid_heat(&input,1,heat);
+        require(domain_solid_heat_registered(solid) && heat.contacts==0,"Native solid registration lost its completed source");
+        auto invalid=input;invalid.public_cell=650;std::array<MAOniDomainSolidHeatCell,2> batch{input,invalid};bool rejected=false;
+        try {configure_domain_solid_heat(batch.data(),2,heat);} catch(const std::invalid_argument&) {rejected=true;}
+        require(rejected && domain_solid_heat_registered(solid) && snapshot_domain(source.session,0)==image,"Late invalid solid partially changed registration or physical state");
+        auto contact=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,350,.2F);
+        require(contact.handled && contact.temperature<350,"Registered solid did not cool into the fluid");
+        const auto duplicate=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,contact.temperature,.2F);
+        require(duplicate.temperature==contact.temperature,"A repeated native pair exchanged heat twice in one frame");
+        copy_domain_solid_heat_status(heat);require(heat.contacts==0 && heat.transfers==0,"Pending solid heat was published before its fluid frame");
+        require(copy_completed_domain_snapshot(source.session,0)==image,"Pending solid heat rewrote the completed snapshot");
+        advance_domain(1,.2F,2);const auto completed=capture(cells);copy_domain_solid_heat_status(heat);
+        const auto represented=static_cast<double>(input.mass_kg)*input.specific_heat_kj_per_kg_k*1000*(350.-contact.temperature);
+        require(completed.state==1 && heat.completed_frame==1 && heat.contacts==1 && heat.transfers==1 &&
+            heat.body_heat_loss_j==represented && heat.stored_fluid_heat_j!=0 && heat.maximum_balance_residual_j<=heat.maximum_balance_bound_j,
+            "Completed native solid heat lost its represented closed endpoint account");
+        const auto journal=copy_domain_frame_inputs(source.session,1);
+        require(advance_domain_snapshot_with_inputs(image,journal)==snapshot_domain(source.session,1),"Solid heat input did not replay the complete fluid image exactly");
+        MAOniDomainChunkHeatStatus body{};copy_domain_chunk_heat_status(body);require(body.contacts==0,"Solid heat was counted as native body heat");
+        input.expected_frame=1;configure_domain_solid_heat(&input,1,heat);
+        const auto insulated=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,contact.temperature,.2F,255,0);
+        require(insulated.temperature==contact.temperature,"A fully insulated native fluid face exchanged heat");
+        advance_domain(2,.2F,2);copy_domain_solid_heat_status(heat);
+        require(heat.contacts==2 && heat.transfers==1,"Insulated solid contact changed the completed heat account");
+        (void)capture(cells);const auto held_cells=cells;
+        const auto changed=exchange_domain_solid_heat(fluid,solid,124,input.mass_kg,contact.temperature,.2F);
+        require(changed.temperature==contact.temperature && capture(cells).state==3 &&
+            std::memcmp(held_cells.data(),cells.data(),cells.size()*sizeof(MAOniDomainCell))==0,
+            "Changed native solid material modified a thermal endpoint before rejection");
+        shutdown_domain();require(!domain_solid_heat_registered(solid),"Native solid registration survived shutdown");
+    }
+    std::cout<<"PASS atomic native solid registration, represented gas/water/wet heat, once-per-frame pairs, insulation, separate completed accounts and exact input replay\n";
+}
 void persistent_actors() {
     static_assert(sizeof(MAOniDomainPersistentActor)==96);
     using namespace ma::oni;
@@ -244,6 +285,7 @@ int main(int argc,char** argv) {
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
+        solid_boundary_heat();
         persistent_actors();
         initial_inventory();
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};

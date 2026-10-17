@@ -146,6 +146,17 @@ namespace MixedAtmospheres.Oni
             public double EntropyLowerBound, RequestedAbsoluteHeatJoules;
             internal static ChunkHeatStatus Empty => new ChunkHeatStatus { Size = 112, Version = 1 };
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct SolidHeatCell
+        {
+            public uint Size,Version,PublicCell,NativeElementIndex;
+            public ulong Session,ExpectedFrame;
+            public float MassKg,SpecificHeatKJPerKgK,ConductivityWPerMK;
+            public uint NativeInsulation;
+        }
+        [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_abi_version",CallingConvention=CallingConvention.Cdecl)] internal static extern uint SolidHeatVersion();
+        [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_configure",CallingConvention=CallingConvention.Cdecl)] internal static extern int ConfigureSolidHeat([In] SolidHeatCell[] input,uint count,ref ChunkHeatStatus status);
+        [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_status",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidHeat(ref ChunkHeatStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ChunkHeatVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyChunkHeatStatus(ref ChunkHeatStatus status);
         [StructLayout(LayoutKind.Sequential)]

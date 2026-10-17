@@ -30,6 +30,7 @@ static_assert(sizeof(void*) == 8, "ONI native observer requires x64");
 static_assert(sizeof(MAOniObserverConfig) == 24);
 static_assert(sizeof(MAOniObserverStatus) == 528);
 static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
+static_assert(sizeof(MAOniDomainSolidHeatCell) == 48);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
@@ -78,6 +79,10 @@ std::uint64_t native_thread() noexcept {
 }
 struct PendingTimestep { std::uint64_t ticket{}; float seconds{}; };
 thread_local PendingTimestep pending_timestep;
+// Cell temperature pairs can execute on native job threads. The outer frame
+// fence owns one interval for all of them; thread-local duration misses those
+// contacts even though body components run on the frame's main worker.
+std::atomic<std::uint32_t> native_heat_contact_bits{};
 // A domain save must exclude native cell processing as well as publication.
 // BeginFrame may wait for the main thread, so acquire only after it returns,
 // at ProcessNextFrame, and release after EndFrame finishes.
@@ -144,12 +149,21 @@ void on_end_save() {
     original<void (*)()>(MA_ONI_END_SAVE)(); native_save_open=false;
 }
 FORWARD(on_main, MA_ONI_MAIN, void, (void* self), (self))
-FORWARD(on_process_frame, MA_ONI_PROCESS_FRAME, void, (void* frame,void* data), (frame,data))
+void on_process_frame(void* frame,void* data) {
+    Call call(MA_ONI_PROCESS_FRAME);
+    // Cell-pair physics runs inside ProcessNextFrame, before that function
+    // returns its duration. SimFrameInfo carries elapsedSeconds at offset 0
+    // in both inspected native builds.
+    float seconds{};if(frame) std::memcpy(&seconds,frame,sizeof(seconds));
+    native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(seconds),std::memory_order_release);
+    original<void (*)(void*,void*)>(MA_ONI_PROCESS_FRAME)(frame,data);
+}
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
     if (ma::oni::domain_active() && !worker_frame_fence.owns_lock())
         worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
+    native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(dt),std::memory_order_release);
     call.bits = std::bit_cast<std::uint32_t>(dt);
     if (dt > 0) pending_timestep={positive_steps.fetch_add(1,std::memory_order_relaxed)+1,dt};
     return dt;
@@ -162,7 +176,9 @@ void on_update_data(void* self,void* data) {
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
+    native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    native_heat_contact_bits.store(0,std::memory_order_release);
     if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
 }
 float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
@@ -177,8 +193,43 @@ void on_liquid(void* data,void* events,int cell) {
 }
 void on_temperature(void* data,void* events,int a,int b) {
     Call call(MA_ONI_TEMPERATURE);
-    if (!ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,a) && !ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,b))
+    const auto owned_a=ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,a);
+    const auto owned_b=ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,b);
+    if (!owned_a && !owned_b)
         original<void (*)(void*,void*,int,int)>(MA_ONI_TEMPERATURE)(data,events,a,b);
+    else if(owned_a!=owned_b) {
+        const auto seconds=std::bit_cast<float>(native_heat_contact_bits.load(std::memory_order_acquire));
+        if(!(seconds>0)) return;
+        const auto fluid=owned_a ? a : b,solid=owned_a ? b : a;
+        if(!ma::oni::domain_solid_heat_registered(solid)) return;
+        // These exact-build CellSOA offsets are independently inspected on
+        // both native libraries. Pair indices come from the original worker.
+        if(!data) {ma::oni::fault_domain_solid_heat("Native solid heat has no SimData accessor");return;}
+        auto* sim=static_cast<std::byte*>(data);void* cells{};void* updated{};
+        std::memcpy(&cells,sim+32,sizeof(cells));std::memcpy(&updated,sim+40,sizeof(updated));
+#if defined(_WIN32)
+        constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72,insulation_offset=136;
+#else
+        constexpr std::size_t element_offset=0,temperature_offset=24,mass_offset=48,insulation_offset=96;
+#endif
+        std::uint16_t* elements{};float* masses{};float* temperatures{};float* next_temperatures{};std::uint8_t* insulation{};
+        if(!cells || !updated) {ma::oni::fault_domain_solid_heat("Native solid heat has incomplete cell owners");return;}
+        std::memcpy(&elements,static_cast<std::byte*>(cells)+element_offset,sizeof(elements));
+        std::memcpy(&masses,static_cast<std::byte*>(cells)+mass_offset,sizeof(masses));
+        std::memcpy(&temperatures,static_cast<std::byte*>(cells)+temperature_offset,sizeof(temperatures));
+        std::memcpy(&insulation,static_cast<std::byte*>(cells)+insulation_offset,sizeof(insulation));
+        std::memcpy(&next_temperatures,static_cast<std::byte*>(updated)+temperature_offset,sizeof(next_temperatures));
+        if(!elements || !masses || !temperatures || !next_temperatures || !insulation)
+        {ma::oni::fault_domain_solid_heat("Native solid heat has an incomplete CellSOA layout");return;}
+        // Original UpdateTemperature accumulates into updatedCells while
+        // reading the old cells. Couple to that current accumulated endpoint;
+        // retain every earlier native contribution and the original old grid.
+        const auto before=next_temperatures[solid];
+        const auto result=ma::oni::exchange_domain_solid_heat(fluid,solid,elements[solid],masses[solid],before,seconds,
+            insulation[solid],insulation[fluid]);
+        if(result.handled && std::bit_cast<std::uint32_t>(result.temperature)!=std::bit_cast<std::uint32_t>(before))
+            next_temperatures[solid]=result.temperature;
+    }
 }
 bool on_transition(void* data,void* events,int cell,const void* definition) {
     Call call(MA_ONI_STATE_TRANSITION);
@@ -653,6 +704,24 @@ MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) 
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native body heat status ABI");
         ma::oni::copy_domain_chunk_heat_status(*output);
+    });
+}
+std::uint32_t ma_oni_domain_solid_heat_abi_version() { return 1; }
+MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus* output) {
+    return boundary([&] {
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid heat status ABI");
+        ma::oni::copy_domain_solid_heat_status(*output);
+    });
+}
+MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell* inputs,std::uint32_t count,MAOniDomainSolidHeatStatus* output) {
+    return boundary([&] {
+        if(!inputs || !count || count>128 || !output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid heat configuration ABI");
+        std::lock_guard frame_lock(ma::oni::domain_frame_mutex());
+        try {ma::oni::configure_domain_solid_heat(inputs,count,*output);}
+        catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        catch(const std::logic_error& error) {throw Failure(MA_ONI_BUSY,error.what());}
     });
 }
 MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus* output) {

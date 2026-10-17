@@ -124,7 +124,7 @@ def domain_options(args) -> dict:
     mode = args.mode
     return dict(expected_platform=PLATFORM,mixed_phase=mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
-        heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
+        solid_heat=mode=="native-solid-heat-domain", heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode in ("native-transfer-domain", "native-radius-domain"), radial_consumption=mode == "native-radius-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
         liquid_actors=mode == "native-liquid-actor-domain", pressure_read=mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=mode == "native-breathing-read-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",
         conduction=mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=mode == "native-gravity-domain",
