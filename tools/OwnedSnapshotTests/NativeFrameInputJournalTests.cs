@@ -45,5 +45,20 @@ internal static class NativeFrameInputJournalTests
             var extra=new byte[Journal(false).Length+1];Journal(false).CopyTo(extra,0);reject(()=>Parse(Rehash(extra)));
             reject(()=>Parse(new byte[NativeFrameInputJournal.MaximumBytes+1]));
         });
+        test("physical input transcript ignores delivery identity and retains actual heat, mass, flags and timing",()=> {
+            var original=Journal(true);var expected=Parse(original).PhysicalInputsSha256;
+            var delivery=(byte[])original.Clone();foreach(var offset in new[]{16,184,240}) BinaryPrimitives.WriteUInt64LittleEndian(delivery.AsSpan(offset),11);
+            BinaryPrimitives.WriteInt32LittleEndian(delivery.AsSpan(272),int.MinValue);
+            var parsed=NativeFrameInputJournal.Parse(Rehash(delivery),source,11,9,1.8,.2f,geometry);
+            check(parsed.PhysicalInputsSha256==expected);
+            foreach(var offset in new[]{200,204,208,216,256,260,269,288}) {
+                var changed=(byte[])original.Clone();changed[offset]^=1;
+                check(Parse(Rehash(changed)).PhysicalInputsSha256!=expected);
+            }
+            var mass=(byte[])original.Clone();BinaryPrimitives.WriteInt64LittleEndian(mass.AsSpan(280),BitConverter.DoubleToInt64Bits((double).03f));
+            check(Parse(Rehash(mass)).PhysicalInputsSha256!=expected);
+            var timed=(byte[])original.Clone();BinaryPrimitives.WriteInt64LittleEndian(timed.AsSpan(48),BitConverter.DoubleToInt64Bits((double).1f));
+            check(NativeFrameInputJournal.Parse(Rehash(timed),source,4,9,1.8,.1f,geometry).PhysicalInputsSha256!=expected);
+        });
     }
 }

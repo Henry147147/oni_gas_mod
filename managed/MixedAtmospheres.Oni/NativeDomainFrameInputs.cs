@@ -10,6 +10,9 @@ namespace MixedAtmospheres.Oni
     {
         private static Configuration replayGeometry;
         private static readonly List<object> replayInputEvidence=new List<object>();
+        private static readonly List<string> replayPhysicalInputs=new List<string>();
+        private static string PhysicalInputTranscriptHash()=>System.Text.Encoding.ASCII.GetString(NativeFrameInputJournal.Digest(
+            System.Text.Encoding.ASCII.GetBytes(string.Concat(replayPhysicalInputs))));
         private static int replayInputFrames,replayInputHeatBatches,replayInputTransferBatches,replayActorRefreshFrames;
         private static byte[] ReadCompletedPhysicalFrame()
         {
@@ -49,15 +52,18 @@ namespace MixedAtmospheres.Oni
             if(replayInputEvidence.Count==0)
                 File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-frame-inputs-source-"+latest.Session+".bin"),source);
             File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,name),bytes);
+            replayPhysicalInputs.Add(journal.PhysicalInputsSha256);
             replayInputEvidence.Add(new {File=name,Bytes=size,Sha256=CheckpointHash(bytes),SourceSha256=CheckpointHash(source),
                 latest.Session,SourceFrame=replayFrame,CompletedFrame=latest.CompletedFrames,SourceTime=replayTime,Seconds=latest.LastTimestepSeconds,
-                journal.Flags,journal.HeatBatches,journal.TransferBatches,journal.HeatCommands,journal.TransferCommands,journal.ReplaySupported});
+                journal.Flags,journal.HeatBatches,journal.TransferBatches,journal.HeatCommands,journal.TransferCommands,journal.ReplaySupported,
+                journal.PhysicalInputsSha256});
             return result;
         }
         private static object FrameInputReplayReport()=>new
         {
             AbiVersion=1,CompletedSnapshotAbiVersion=1,ReplayedFrames=replayInputFrames,ActorRefreshFramesCompared=replayActorRefreshFrames,
             HeatBatches=replayInputHeatBatches,TransferBatches=replayInputTransferBatches,Journals=replayInputEvidence.ToArray(),
+            PhysicalInputTranscriptSha256=PhysicalInputTranscriptHash(),
             PredictsFutureGameCommands=false,ActorReconfigurationReplayImplemented=false
         };
     }

@@ -397,7 +397,9 @@ namespace MixedAtmospheres.Oni
             {
                 File.WriteAllText(Path.Combine(OutputDirectory,"first-load-colony-validation.json"),ReportJson.Serialize(Report));
                 Report.Status="pending";Report.Stage="returning-to-main-menu-for-reload";Report.FinishedUtc="";done=false;WriteReport();
-                LoadingOverlay.Load(PauseScreen.TriggerQuitGame);return;
+                var driver=UnityEngine.Object.FindFirstObjectByType<ColonyValidationDriver>();
+                if(driver==null) throw new InvalidOperationException("In-process reload has no screenshot handoff driver.");
+                driver.StartCoroutine(ReturnToMenuAfterScreenshot());return;
             }
             done = true; WriteReport();
         }
@@ -434,6 +436,31 @@ namespace MixedAtmospheres.Oni
             var capture = Type.GetType("UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule");
             capture?.GetMethod("CaptureScreenshot", new[] { typeof(string), typeof(int) })?.Invoke(null,
                 new object[] { Path.Combine(OutputDirectory, NativeSealedDomainValidation.ReloadScreenshotName(filename)), 1 });
+        }
+        private static System.Collections.IEnumerator ReturnToMenuAfterScreenshot()
+        {
+            // Unity captures at the end of the frame. Starting the loading
+            // overlay immediately would put that overlay in the evidence PNG.
+            var path=Path.Combine(OutputDirectory,"first-load-native-domain.png");
+            var deadline=Time.realtimeSinceStartup+10;
+            yield return new WaitForEndOfFrame();
+            while(!CompletedScreenshot(path)) {
+                if(Time.realtimeSinceStartup>deadline) {Fail(new IOException("First colony screenshot did not finish before reload."));yield break;}
+                yield return null;
+            }
+            yield return null;
+            LoadingOverlay.Load(PauseScreen.TriggerQuitGame);
+        }
+        private static bool CompletedScreenshot(string path)
+        {
+            try {
+                using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite)) {
+                    if(stream.Length<20) return false;
+                    var start=new byte[8];if(stream.Read(start,0,8)!=8 || !start.SequenceEqual(new byte[]{137,80,78,71,13,10,26,10})) return false;
+                    stream.Position=stream.Length-12;var end=new byte[12];
+                    return stream.Read(end,0,12)==12 && end.SequenceEqual(new byte[]{0,0,0,0,73,69,78,68,174,66,96,130});
+                }
+            } catch(IOException) {return false;}
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
         internal static void Shutdown()

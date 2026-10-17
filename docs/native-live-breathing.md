@@ -68,6 +68,30 @@ A conservative body/item heat bridge and new saved reloads are required; the
 writer check and energy bounds remain unchanged. The source result alone does
 not establish working saved live breathing or conserved in-flight CO2 effects.
 
+The `5ccf08a` retry now passes its first real Linux Unity reload for all 120
+individually exact completed frames. It restores the saved duplicant without
+teleportation, delivers eight original positive oxygen callbacks totaling
+0.14500001119449735 kg, and commits 120 native body contacts totaling
+2601.864585885778 J. Compatibility cells remain unchanged, paired frame-zero
+autosave and GPU checks pass, and the independent binary review matches all
+120 body-heat commands to the completed contact account. First report SHA-256:
+`3fd4eeaecbac6a2bd74fc0ff294b160320e636eceadab55b6a2b8f9dedaf04cc`.
+
+The two-session wrapper still fails its old final-state equality check. Its
+second load submits five oxygen requests instead of eight; the captured inputs
+first differ at frame 2 (0.005000001285225153 versus 0.00833333469927311 kg).
+The fluid solver matches each run's actual inputs, but different requests
+produce different final states. The failed complete runner result is retained:
+`471c8144f37d3ff19ab0004ff493e8a94e24458b54161a815b01244c3a47a7f6`.
+The [reload contract](native-menu-reload.md) now distinguishes identical physical
+inputs from live game decisions, retaining exact per-frame replay in both cases.
+A fresh full run is still required.
+
+Visual inspection also caught the first-leg PNG showing the loading overlay:
+Unity completed its asynchronous screenshot after the immediate menu transition.
+The new handoff waits for the completed PNG while the colony remains paused,
+before beginning that transition. Earlier images remain unchanged.
+
 This establishes no conserved metabolism. Vanilla's oxygen-to-CO2 policy can
 credit requested oxygen before its eventual callback; body and food chemistry,
 suit/tube providers, fluid-solid body heat, ventilation and complete long-term

@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 sys.path.insert(0,str(Path(__file__).parents[1]))
-from oni_frame_input_evidence import decode,review
+from oni_frame_input_evidence import decode,review,physical_inputs_digest
 
 class FrameInputEvidenceTests(unittest.TestCase):
     def journal(self):
@@ -51,3 +51,17 @@ class FrameInputEvidenceTests(unittest.TestCase):
             for key,value in [('Transfers',2),('BodyHeatLossJoules',11.),('CompletedFrame',0),('Session',8)]:
                 changed=copy.deepcopy(report);changed['NativeBodyHeat']['Status'][key]=value
                 with self.subTest(key=key),self.assertRaises(ValueError):review(changed,root)
+
+    def test_physical_command_digest_distinguishes_inputs_from_delivery_identifiers(self):
+        original=self.journal();expected=physical_inputs_digest(original)
+        changed=bytearray(original[:-64]);struct.pack_into('<Q',changed,16,11)
+        for offset in (184,240):struct.pack_into('<Q',changed,offset,11)
+        struct.pack_into('<i',changed,272,-2147483648)
+        signed=bytes(changed)+hashlib.sha256(changed).hexdigest().encode()
+        self.assertEqual(physical_inputs_digest(signed),expected)
+        for offset in (200,204,208,216,256,260,269,288):
+            changed=bytearray(original[:-64]);changed[offset]^=1
+            signed=bytes(changed)+hashlib.sha256(changed).hexdigest().encode()
+            with self.subTest(offset=offset):self.assertNotEqual(physical_inputs_digest(signed),expected)
+        changed=bytearray(original[:-64]);struct.pack_into('<d',changed,280,.015625)
+        self.assertNotEqual(physical_inputs_digest(bytes(changed)+hashlib.sha256(changed).hexdigest().encode()),expected)

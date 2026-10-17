@@ -96,3 +96,11 @@ comparison exposes the [completed-frame reader requirement](native-frame-inputs.
 the duplicant has already reserved its next oxygen request, while the old save
 snapshot operation requires drained commands. A new completed-image reader and
 another real-game reload are required before claiming saved live breathing.
+
+The later `5ccf08a` first Unity leg passes all 120 exact input-replayed frames,
+eight original positive breathing callbacks and 120 native body contacts.
+The represented body heat delivered to fluid is 2601.864585885778 J; compatibility
+tuples, frame-zero autosave and actual GPU checks pass. Its saved binary review
+matches all 120 body-heat commands to that account. The overall two-session run
+still fails an obsolete equal-final-state assumption after the game submits
+different live requests. See [the full evidence and next controls](native-live-breathing.md).

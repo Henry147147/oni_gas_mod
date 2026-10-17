@@ -573,6 +573,22 @@ def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool
         return False
 
 
+def _reload_input_comparison_passed(workflow: dict, physical: dict, colony: dict, live: bool) -> bool:
+    try:
+        comparison=workflow.get('ComparisonMode')
+        if comparison is None:return not live  # Original fixed-input evidence.
+        if comparison=='identical-final-physical-state':
+            return workflow.get('IdenticalFinalPhysicalImage') is True and (not live or workflow.get('IdenticalPhysicalInputs') is True)
+        return (comparison=='captured-live-inputs' and live and workflow.get('IdenticalPhysicalInputs') is False
+            and all(_sha256(workflow.get(k)) for k in ('FirstPhysicalInputTranscriptSha256','CurrentPhysicalInputTranscriptSha256'))
+            and workflow['FirstPhysicalInputTranscriptSha256']!=workflow['CurrentPhysicalInputTranscriptSha256']
+            and workflow.get('FirstExactContinuationFrames')==workflow['FirstCompletedFrame']
+            and workflow.get('CurrentExactContinuationFrames')==physical['CompletedFrames']
+            and colony['FrameInputReplay'].get('PhysicalInputTranscriptSha256')==workflow['CurrentPhysicalInputTranscriptSha256']
+            and workflow.get('IdenticalFinalPhysicalImage') is (workflow['FirstPhysicalSha256']==colony['CurrentPhysicalSha256']))
+    except (KeyError,TypeError,AttributeError):return False
+
+
 def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
@@ -986,6 +1002,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or workflow.get("CurrentNativeSession")!=physical["Session"] or workflow.get("MatchedSession")!=physical["Session"]
                 or type(workflow.get("FirstCompletedFrame")) is not int or not frames<=workflow["FirstCompletedFrame"]<=physical["CompletedFrames"]
                 or any(not _sha256(workflow.get(key)) for key in ("FirstPhysicalSha256","FirstReportSha256","InputSha256"))):
+            return False
+        if not _reload_input_comparison_passed(workflow,physical,colony,live_breathing or breathing.get('Required') is True):
             return False
     physics_exercised = (physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 0 if liquid_actors else
                          physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 2.2e8 if liquid_transfers else

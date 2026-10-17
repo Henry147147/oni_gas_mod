@@ -67,17 +67,29 @@ def decode(data: bytes) -> dict:
         geometry=geometry,source_sha256=digest,batches=batches,heat_commands=heat,transfer_commands=transfers,
         heat_batches=sum(b['kind']==1 for b in batches),transfer_batches=sum(b['kind']==2 for b in batches))
 
+def physical_inputs_digest(data: bytes) -> str:
+    decoded=decode(data);body=bytearray(data[:-64]);body[16:24]=bytes(8);body[104:168]=bytes(64);offset=168
+    for batch in decoded['batches']:
+        offset+=8;stride=48 if batch['kind']==1 else 64
+        for _ in batch['commands']:
+            body[offset+8:offset+16]=bytes(8)
+            if batch['kind']==2:body[offset+40:offset+44]=bytes(4)
+            offset+=stride
+    return hashlib.sha256(body).hexdigest()
+
 def review(report: dict, directory: Path) -> dict:
     require(report.get('Status')=='passed','A complete passed Unity report is required')
     colony=report['ColonyCheckpoint'];physical=report['NativeDomain'];value=colony['FrameInputReplay'];rows=value['Journals']
     require(value['AbiVersion']==1 and value['PredictsFutureGameCommands'] is False and value['ActorReconfigurationReplayImplemented'] is False,'Unsupported replay scope')
     require(value['ActorRefreshFramesCompared']==0 and value['ReplayedFrames']==len(rows)==colony['ExactContinuationFrames'] and len(rows)>0,'Every frame must use supported input replay')
-    directory=directory.resolve();session=physical['Session'];time=colony['SourceTime'];heat=transfers=0;body_heat=[]
+    directory=directory.resolve();session=physical['Session'];time=colony['SourceTime'];heat=transfers=0;body_heat=[];physical_inputs=[]
     first=directory/f'native-frame-inputs-source-{session}.bin'
     require(hashlib.sha256(first.read_bytes()).hexdigest()==colony['RestoredInitialSha256']==rows[0]['SourceSha256'],'Initial captured source differs')
     for i,row in enumerate(rows):
         name=row['File'];require(isinstance(name,str) and Path(name).name==name and name==f'native-frame-inputs-{session}-{i+1}.bin','Invalid journal file identity')
         data=(directory/name).read_bytes();decoded=decode(data)
+        commands_digest=physical_inputs_digest(data);physical_inputs.append(commands_digest)
+        if 'PhysicalInputsSha256' in row:require(row['PhysicalInputsSha256']==commands_digest,'Physical input digest differs from captured commands')
         require(len(data)==row['Bytes'] and hashlib.sha256(data).hexdigest()==row['Sha256'],'Captured bytes differ from their receipt')
         require(decoded['flags']==row['Flags']==0 and row['ReplaySupported'] is True and
             decoded['session']==row['Session']==session and decoded['source_frame']==row['SourceFrame']==i and
@@ -91,6 +103,8 @@ def review(report: dict, directory: Path) -> dict:
             if batch['kind']==1:
                 body_heat.extend(command['joules'] for command in batch['commands'] if command['source']==0x4d414348)
     require(heat==value['HeatBatches'] and transfers==value['TransferBatches'] and time==colony['ReplayedTime']==physical['TimeSeconds'],'Completed replay totals or clock differ')
+    transcript=hashlib.sha256(''.join(physical_inputs).encode('ascii')).hexdigest()
+    if 'PhysicalInputTranscriptSha256' in value:require(value['PhysicalInputTranscriptSha256']==transcript,'Physical input transcript digest differs')
     if 'NativeBodyHeat' in report:
         body=report['NativeBodyHeat'];status=body['Status']
         require(body['AbiVersion']==1 and body['Source']=='native-element-chunk-contact' and status['Size']==112 and
@@ -99,6 +113,7 @@ def review(report: dict, directory: Path) -> dict:
             'Captured native body heat commands differ from their completed contact account')
     return dict(passed=True,frames=len(rows),heat_batches=heat,transfer_batches=transfers,
         native_body_heat_commands=len(body_heat),
+        physical_input_transcript_sha256=transcript,
         native_code_loaded=False,independent_physics_solution=False,predicts_future_game_commands=False)
 
 def main() -> int:

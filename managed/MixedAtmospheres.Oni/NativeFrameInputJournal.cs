@@ -16,6 +16,7 @@ namespace MixedAtmospheres.Oni
         internal int TransferBatches { get; private set; }
         internal int HeatCommands { get; private set; }
         internal int TransferCommands { get; private set; }
+        internal string PhysicalInputsSha256 { get; private set; }="";
         internal bool ReplaySupported=>Flags==0;
         private static void Require(bool valid,string message) {if(!valid) throw new InvalidDataException(message);}
         private static uint U(ReadOnlySpan<byte> b,int p)=>BinaryPrimitives.ReadUInt32LittleEndian(b.Slice(p,4));
@@ -41,6 +42,7 @@ namespace MixedAtmospheres.Oni
             Require(body.Slice(104,64).SequenceEqual(Digest(source)),"Frame input journal belongs to another complete source snapshot.");
             var count=U(body,96);Require(count<=2048 && U(body,100)==0,"Invalid frame input batch count or reserved word.");
             var result=new NativeFrameInputJournal{Flags=U(body,12)};var offset=168;
+            var physical=body.ToArray();Array.Clear(physical,16,8);Array.Clear(physical,104,64);
             for(uint i=0;i<count;++i)
             {
                 Require(offset<=body.Length-8,"Truncated frame input batch header.");
@@ -51,11 +53,17 @@ namespace MixedAtmospheres.Oni
                 if(kind==1) {++result.HeatBatches;result.HeatCommands+=checked((int)commands);}
                 else {++result.TransferBatches;result.TransferCommands+=checked((int)commands);}
                 Require(result.HeatCommands<=4096 && result.TransferCommands<=4096,"Frame input commands exceed live reservation bounds.");
-                for(uint j=0;j<commands;++j,offset+=stride)
+                for(uint j=0;j<commands;++j,offset+=stride) {
                     Require(U(body,offset)==stride && U(body,offset+4)==(kind==1 ? 1U : 2U) && L(body,offset+8)==session && L(body,offset+16)==sourceFrame,
                         "Frame input command differs from its source epoch or ABI.");
+                    // Session IDs, source-state hashes and callback handles
+                    // identify delivery; all physical operands and batch
+                    // chronology remain in the comparison transcript.
+                    Array.Clear(physical,offset+8,8);if(kind==2) Array.Clear(physical,offset+40,4);
+                }
             }
-            Require(offset==body.Length,"Frame input journal has trailing bytes.");return result;
+            Require(offset==body.Length,"Frame input journal has trailing bytes.");
+            result.PhysicalInputsSha256=Encoding.ASCII.GetString(Digest(physical));return result;
         }
     }
 }

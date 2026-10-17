@@ -42,8 +42,10 @@ physics, reserved metabolism/devices and live-actor persistence remain open.
 [Native object heat](docs/native-body-heat.md) now routes element-chunk contacts
 into the same fluid owner and accepted-input journal. It conserves represented
 object heat and full-EOS fluid energy, keeps native compatibility temperatures
-unchanged and commits both endpoints on the native worker frame. Real saved
-duplicant reload verification is the next gate for this bridge.
+unchanged and commits both endpoints on the native worker frame. A real Linux
+saved duplicant now completes 120 exact replayed frames with original breathing
+callbacks and body heat. Full same-process and WindowsPlayer live controls
+remain in progress.
 
 ## What currently works
 

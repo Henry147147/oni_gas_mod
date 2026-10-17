@@ -15,6 +15,9 @@ namespace MixedAtmospheres.Oni
             internal ulong FirstSession,FirstFrame;
             internal byte[] FirstImage=Array.Empty<byte>();
             internal string InputPath="",InputHash="",FirstReportHash="",FirstGuid="";
+            internal string FirstInputTranscriptHash="",ComparisonMode="identical-final-physical-state";
+            internal int FirstExactFrames,FirstInputFrames;
+            internal bool IdenticalPhysicalInputs,IdenticalFinalPhysicalImage;
             internal bool ShutdownObserved,MainMenuObserved,MatchingFrameVerified,Verified,FirstAutosaveVerified;
             internal ulong MatchedSession;
         }
@@ -33,6 +36,8 @@ namespace MixedAtmospheres.Oni
                 reloadWorkflow.ProcessId=Process.GetCurrentProcess().Id;
                 reloadWorkflow.FirstSession=latest.Session;reloadWorkflow.FirstFrame=latest.CompletedFrames;
                 reloadWorkflow.FirstImage=image;reloadWorkflow.FirstGuid=SaveLoader.Instance.GameInfo.colonyGuid.ToString("N");
+                reloadWorkflow.FirstInputTranscriptHash=PhysicalInputTranscriptHash();
+                reloadWorkflow.FirstExactFrames=exactReplayComparisons;reloadWorkflow.FirstInputFrames=replayInputFrames;
                 reloadWorkflow.FirstAutosaveVerified=frameZeroResaveVerified;
                 reloadWorkflow.InputPath=ColonyRuntimeValidation.Settings!.LoadSavePath;
                 reloadWorkflow.InputHash=CheckpointHash(File.ReadAllBytes(reloadWorkflow.InputPath));
@@ -63,8 +68,17 @@ namespace MixedAtmospheres.Oni
         private static void ObserveReloadPhysicalFrame(byte[] image)
         {
             if(!ReloadRequested || reloadWorkflow.Stage!=2 || latest.CompletedFrames!=reloadWorkflow.FirstFrame) return;
-            Require(latest.Session>reloadWorkflow.FirstSession && image.SequenceEqual(reloadWorkflow.FirstImage),
-                "The reloaded native owner differs from the first session at the same completed physical frame.");
+            Require(latest.Session>reloadWorkflow.FirstSession,"The reloaded native owner did not create a new session.");
+            reloadWorkflow.IdenticalPhysicalInputs=PhysicalInputTranscriptHash()==reloadWorkflow.FirstInputTranscriptHash;
+            reloadWorkflow.IdenticalFinalPhysicalImage=image.SequenceEqual(reloadWorkflow.FirstImage);
+            if(LiveBreathingRequired && !reloadWorkflow.IdenticalPhysicalInputs) {
+                Require(reloadWorkflow.FirstExactFrames==(long)reloadWorkflow.FirstFrame &&
+                    reloadWorkflow.FirstInputFrames==(long)reloadWorkflow.FirstFrame && exactReplayComparisons+1==(long)latest.CompletedFrames &&
+                    replayInputFrames==(long)latest.CompletedFrames && replayActorRefreshFrames==0,
+                    "Divergent live inputs require individually exact captured-input replay in both sessions.");
+                reloadWorkflow.ComparisonMode="captured-live-inputs";
+            } else Require(reloadWorkflow.IdenticalFinalPhysicalImage,
+                "The reloaded native owner differs from the first session with the same physical inputs.");
             reloadWorkflow.MatchingFrameVerified=true;reloadWorkflow.MatchedSession=latest.Session;
         }
         private static object? InProcessReloadReport()=>!ReloadRequested ? null : new {
@@ -75,6 +89,9 @@ namespace MixedAtmospheres.Oni
             reloadWorkflow.ShutdownObserved,reloadWorkflow.MainMenuObserved,reloadWorkflow.MatchingFrameVerified,
             reloadWorkflow.FirstAutosaveVerified,FirstPhysicalSha256=CheckpointHash(reloadWorkflow.FirstImage),
             FirstReportSha256=reloadWorkflow.FirstReportHash,InputSha256=reloadWorkflow.InputHash,
+            reloadWorkflow.ComparisonMode,reloadWorkflow.IdenticalPhysicalInputs,reloadWorkflow.IdenticalFinalPhysicalImage,
+            FirstPhysicalInputTranscriptSha256=reloadWorkflow.FirstInputTranscriptHash,CurrentPhysicalInputTranscriptSha256=PhysicalInputTranscriptHash(),
+            FirstExactContinuationFrames=reloadWorkflow.FirstExactFrames,CurrentExactContinuationFrames=exactReplayComparisons,
             InputUnchanged=reloadWorkflow.InputPath.Length!=0 && File.Exists(reloadWorkflow.InputPath) &&
                 CheckpointHash(File.ReadAllBytes(reloadWorkflow.InputPath))==reloadWorkflow.InputHash,
             WholeColonyFluidAuthority=false

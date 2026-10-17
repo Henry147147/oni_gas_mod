@@ -4,8 +4,8 @@ The private load runner can exercise two saved-colony sessions in one Unity
 process. After the first paused autosave and exact physical continuation, it
 uses ONI's normal quit-to-main-menu entry, observes simulation shutdown and
 the returned menu, then loads the same staged input again. The second session
-must pass another paused autosave and reproduce the first session's complete
-physical image at the same completed native frame.
+must pass another paused autosave and complete the same number of physical
+frames. Identical physical inputs require the same complete final image.
 
 ```sh
 python3 tools/oni_headless.py run --package /path/to/probe \
@@ -31,6 +31,27 @@ session ID, observed shutdown/menu boundaries, both initial autosaves, an
 exact matching physical milestone and an unchanged input hash. The existing
 complete saved-state replay, rendering, native-cell and conservation checks
 also apply to the second leg. A first passing load alone cannot pass this mode.
+
+Live breathing adds a second comparison mode. Each session must replay every
+completed fluid frame exactly from the saved source and its captured actual
+game inputs, with no actor-refresh fallback. A separate input transcript hashes
+all physical heat/mass operands, batch order, geometry and timing. It removes
+only session IDs, source-state hashes and callback handles; source-image
+admission and callback delivery remain independently checked. Equal transcripts
+still require identical final images. Different transcripts are admitted only
+for the explicit live-breathing control, with both complete exact timelines
+and both transcript hashes reported as `captured-live-inputs`. Different game
+requests are not treated as a deterministic fixed-input experiment.
+
+The independent saved-binary reviewer reconstructs these transcript hashes and
+checks them against the report. Pure tests verify that callback/session changes
+leave the physical-input digest unchanged, while heat, mass, radius, target,
+constituent and timing changes remain distinguishable.
+
+The screenshot handoff also waits for Unity's complete first-leg PNG, including
+its final IEND record, while the colony stays paused. Only then does it start
+the loading overlay and normal menu transition. This prevents a passed colony
+report from receiving a screenshot of the subsequent loading screen.
 
 The actual Linux `in-process-native-reload-v1` cohort passes with the frozen
 `466bde0` runner/managed package and compatibility native build v7. One Unity
