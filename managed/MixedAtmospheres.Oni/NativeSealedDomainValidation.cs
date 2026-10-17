@@ -312,7 +312,13 @@ namespace MixedAtmospheres.Oni
             for (var xx = start.x - 8; xx <= start.x + 8 && !chosen; ++xx)
             {
                 var clear = true;
-                for (var dy = -1; dy <= Height; ++dy) for (var dx = SolidHeatMode ? -2 : -1; dx <= Width + 3; ++dx)
+                // Replacing a neighbouring support cell can uproot flora and
+                // spawn a seed into an otherwise empty chamber. Reserve an
+                // object-free margin around every cell this fixture changes,
+                // including the solid backer and the outside conduction pair.
+                const int occupantMargin = 3;
+                for (var dy = -1 - occupantMargin; dy <= Height + occupantMargin; ++dy)
+                for (var dx = (SolidHeatMode ? -2 : -1) - occupantMargin; dx <= Width + 3 + occupantMargin; ++dx)
                 {
                     var index = Grid.XYToCell(xx + dx, yy + dy);
                     if (!Grid.IsValidCell(index)) { clear = false; continue; }
