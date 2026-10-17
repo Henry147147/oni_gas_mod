@@ -76,7 +76,8 @@ namespace MixedAtmospheres.Oni
             RestoredPhysicalFrame = restoredOrbitalReferenceFrame, RestoredPhysicalTime = restoredOrbitalReferenceTime,
             Source = "read-only-native-orbital-reference-and-save-root-registry", Stage = orbitalReferenceStage,
             Inspections = orbitalReferenceInspections, Error = orbitalReferenceError, Worlds = orbitalWorlds, References = orbitalReferences,
-            RewrittenReferences = 0, GeneralManagedReferenceIntegrityVerified = false
+            RewrittenReferences = 0, GeneralManagedReferenceIntegrityVerified = false,
+            SaveRootLifecycle = NativeOrbitalSaveLifecycle.Report()
         };
     }
 }

@@ -95,6 +95,7 @@ namespace MixedAtmospheres.Oni
             restoredOrbitalReferenceFrame=0;restoredOrbitalReferenceTime=0;
             orbitalReferenceStage=orbitalReferenceError="";
             orbitalWorlds=Array.Empty<NativeOrbitalWorldFact>();orbitalReferences=Array.Empty<NativeOrbitalReferenceFact>();
+            NativeOrbitalSaveLifecycle.Reset();
             persistentFixtureObjects.Clear();NativeActorRegistrationOwner.Current=null;
             actorConsumerObject=outsideActorObject=null;actorConsumer=outsideActorConsumer=null;
             actorConfigurationBatchVerified=nativeActorBatchVerified=false;actorFixtureStage=0;fixtureEmitter=-1;
