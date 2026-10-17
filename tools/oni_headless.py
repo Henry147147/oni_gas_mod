@@ -464,6 +464,11 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Pat
 
 def git_output(*arguments: str) -> str | None:
     try:
+        checkout=subprocess.check_output(["git","rev-parse","--show-toplevel"],cwd=ROOT,text=True,stderr=subprocess.DEVNULL)
+        # A frozen archive may live under a changing checkout. That enclosing
+        # repository cannot identify the archived runner's source revision.
+        if Path(checkout.strip()).resolve()!=ROOT.resolve():
+            return None
         return subprocess.check_output(["git", *arguments], cwd=ROOT, text=True, stderr=subprocess.DEVNULL)
     except (OSError, subprocess.CalledProcessError):
         return None

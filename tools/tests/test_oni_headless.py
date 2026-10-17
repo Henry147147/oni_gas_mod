@@ -683,6 +683,17 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(fields["runner_git_revision"], head)
         self.assertNotEqual(fields["source_revision"], fields["runner_git_revision"])
 
+    def test_archive_runner_cannot_inherit_its_enclosing_repositories_revision(self):
+        subprocess.run(["git","init","-q",str(self.root)],check=True,capture_output=True)
+        subprocess.run(["git","-C",str(self.root),"-c","user.name=Fixture","-c","user.email=fixture@invalid",
+                        "commit","-q","--allow-empty","-m","enclosing checkout"],check=True,capture_output=True)
+        archived=self.root/"frozen-runner";archived.mkdir()
+        with mock.patch.object(runner,"ROOT",archived):
+            fields=runner.revision_fields(self.manifest)
+        self.assertIsNone(fields["runner_git_revision"])
+        self.assertIsNone(fields["runner_git_status"])
+        self.assertEqual(fields["source_revision"],self.manifest["source_revision"])
+
     def test_unlisted_dll_is_rejected(self):
         (self.root / "StaleMod.dll").write_bytes(b"unlisted")
         with self.assertRaises(ValueError):
