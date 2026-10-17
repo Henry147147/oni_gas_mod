@@ -92,6 +92,25 @@ Unity completed its asynchronous screenshot after the immediate menu transition.
 The new handoff waits for the completed PNG while the colony remains paused,
 before beginning that transition. Earlier images remain unchanged.
 
+The `bd0b6df` cohort now passes both real Linux Unity sessions: 120 exact
+captured-input continuations per session, original positive callbacks, 120 body
+contacts per session, frame-zero autosaves, retained source input, native
+references, GPU checks and the normal shutdown/menu transition. Both saved
+binary reviews pass all 240 journals, including their physical-input transcript
+hashes and body-heat totals. Visual inspection confirms the first PNG now shows
+the actual duplicant and mixture room before leaving the colony.
+
+The original outer runner result remains `failed-mod-log-errors` because its
+old substring scan matched `failed` inside the evidence directory name. The
+corrected parser and all strict gates were applied to the unchanged capture in
+a separate review; no game replay or native code was used for that review.
+Original result SHA-256:
+`895e811f24a0b187743c441eba58e4f3bca6f552796fd10fa48f817eb22cd583`.
+Classification/binary-review receipt SHA-256:
+`95eb4b0fc94536af1b82464057f110eb741e374b98b2f2c318c263aa8169966d`.
+Fresh source/save controls and WindowsPlayer/cross-load controls remain in
+progress; this is scoped breathing and native body heat, not conserved metabolism.
+
 This establishes no conserved metabolism. Vanilla's oxygen-to-CO2 policy can
 credit requested oxygen before its eventual callback; body and food chemistry,
 suit/tube providers, fluid-solid body heat, ventilation and complete long-term

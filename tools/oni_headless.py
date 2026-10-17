@@ -51,7 +51,7 @@ EXPORT_FAILED_MARKERS = ("[Mixed Atmospheres] Native contract export failed:",
 MENU_EXPORT_WAIT_SECONDS = 120
 MENU_SETTLE_SECONDS = 5
 MOD_IDENTIFIERS = ("Mixed Atmospheres", "MixedAtmospheres")
-FAILURE_WORDS = re.compile(r"fail|error|exception", re.IGNORECASE)
+FAILURE_WORDS = re.compile(r"(?<![\w./\\-])(?:fail(?:ed|ure|ures|ing)?|errors?|[\w.]*exception)\b", re.IGNORECASE)
 # Mono "  at Type.Method (...)", "(wrapper ...)" and Unity "Type:Method (...)" frames.
 STACK_FRAME = re.compile(r"^\s+at |^\s*\(wrapper |^[\w.`+<>]+:[\w.`+<>|]+ ?\(")
 # Mod code, Harmony-generated replacements (DMD<...>) or Harmony itself.

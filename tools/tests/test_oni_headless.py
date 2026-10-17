@@ -1110,6 +1110,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(runner.classify("menu", log, self.probe, None, False, None, ("MA-Linux-x",)),
                          ("passed-scoped-main-menu", 0))
 
+    def test_failure_words_in_evidence_paths_do_not_turn_success_messages_into_errors(self):
+        for path in ('/tmp/original-failed-live/mods/MixedAtmospheres.IntegrationProbe/report.json',
+                     r'C:\captures\original-failed-live\mods\MixedAtmospheres.IntegrationProbe\report.json',
+                     '/tmp/error/MixedAtmospheres.IntegrationProbe/Exception/report.json'):
+            log='[Mixed Atmospheres] Integration probe completed. Report: '+path
+            self.assertEqual(runner.mod_failure_lines(log),[])
+            self.assertTrue(runner.mod_failure_lines('[Mixed Atmospheres] Integration probe failed. Report: '+path))
+            self.assertTrue(runner.mod_failure_lines('[Mixed Atmospheres] System.InvalidOperationException: sentinel at '+path))
+
     def test_menu_requires_contract_export_completion(self):
         log = "[17:30:01.000] [1] [INFO] -- MAIN MENU -- \n"
         self.assertEqual(runner.contract_export(log), None)
