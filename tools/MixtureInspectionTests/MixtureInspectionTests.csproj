@@ -11,6 +11,8 @@
   <ItemGroup>
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureInspection.cs" Link="MixtureInspection.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureHoverLayout.cs" Link="MixtureHoverLayout.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureHoverViewport.cs" Link="MixtureHoverViewport.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureInspectionValidation.cs" Link="MixtureInspectionValidation.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationLifecycle.cs" Link="MixturePresentationLifecycle.cs" />
