@@ -52,3 +52,14 @@ The initial licensed-player bootstrap reaches the U59-744825-S main menu and
 exits normally with Proton Experimental `experimental-11.0-20261014-x86_64`.
 That bootstrap did not load the mod; native feature verification follows
 separately.
+
+The first public runner attempt retained a missing compatibility-root failure;
+the runner now creates that directory before Proton takes `pfx.lock`. The next
+attempt loads the Windows mod and passes its six scoped probe checks, then
+fails game startup at native tag creation and contract export. Its failed
+reports and screenshot remain retained; it supplies no passed physical scene.
+The tag adapter now rewrites only the inspected enum stringification and
+checks real helper calls at startup. Both old and new adapters pass a separate
+experiment with the licensed Windows Mono DLL under Wine; that experiment
+does not reproduce the Unity failure or certify the repaired player. The
+WindowsPlayer/Proton retry is tracked independently.

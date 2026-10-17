@@ -360,6 +360,19 @@ groups pass against each platform's licensed assemblies (106 total per
 platform); the extended real-player control is tracked separately from the
 historical one-emitter cohorts below.
 
+Frozen `d43f880` with compatibility build v9 passes the extended Linux gas
+source in `actor-batch-unity-matrix-v1/actor-save`: 121 frames / 24.200000361 s,
+both real emitter registration callbacks, one registration batch, one
+retirement batch, 32 actual consumer callbacks and 80 emitter status samples.
+Both density-edge callbacks occur once; removal at frame 47 is followed by
+74 frames without actor transfers. U+K residual is -1.77527e-9 J against the
+unchanged 1e-6 J bound; maximum relative mass error is 1.80e-15. The ordinary
+save passes full header/body readback with physical SHA-256
+`937e1e16012e214832759073a06b4188d6bc7731d8125bef58e36a795a866281`
+and colony-file SHA-256
+`8fe04815aea3c61497a37beb2462f7b60072ad83a10c2a672a725dcaecc05215`.
+The fresh-process gas reload and both water controls are still running.
+
 ### Filled-liquid registered actors
 
 Actor ABI 1 also admits water consumers and emitters in the compressed-water
