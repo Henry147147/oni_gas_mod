@@ -121,3 +121,20 @@ The later [Linux reader lifecycle cohort](native-reader-restore.md) additionally
 verifies actual pressure, world breathing and duplicant oxygen-cell selection
 after both loaded sessions, for mixed air with CO2 and for filled water.
 All four sessions retain their matching 120-frame images and paused autosaves.
+
+## Fluid regression matrix
+
+The frozen `9eb6769` runner and native v18 complete all 18 real-game cases:
+six source cases and twelve load processes containing 24 continued sessions.
+The scenes cover legacy fixed-opacity compatibility, phase-volume appearance,
+physical viscosity and radius-three consumption. New LinuxPlayer and
+WindowsPlayer sources each pass local and cross-platform reloads. Every
+continued session verifies all 120 complete physical frames individually,
+totaling 2,880 exact continued frames. Ordinary frame-zero saves, native
+references/readers, completed rendering and unchanged source files also pass.
+WindowsPlayer uses official Proton on Linux; the actual Windows OS gate stays
+separate. These are bounded six-cell controls, with free-surface geometry and
+whole-colony ownership still open.
+The saved-only review checks the retained case hashes, both reports per load
+and frame counts without importing native code or running a replay. Review
+SHA-256: `bbf650e50826e776c6eb382ec07e40833922073fd0c795cc44066c6d9ff977cc`.

@@ -62,8 +62,17 @@ to 399.9931640625 K with 54.003907716833055 J loss; water reaches
 
 The first licensed control is retained as failed: native job threads could not
 see its thread-local duration, so it recorded no accepted contact inputs. The
-shared-frame interval fixes that failure. Those original controls do not
+shared-frame interval fixes that failure. All 20 groups also pass on the clean
+Ubuntu 22.04 build and under ASan/UBSan (563.40 s). A Linux control with the
+owned room in the second of two active native regions passes its 61 exact
+worker frames and actual contacts as well. Those original controls do not
 establish actual Windows OS support.
+
+Actual Unity source/save/reload controls are queued. The first Unity attempt
+stopped before ownership because arena construction uprooted nearby flora and
+spawned an unbound seed into the chamber. Placement now reserves a three-cell
+object-free margin around every changed fixture cell, including its backer and
+outside conduction pair. The actor guard remains active.
 
 Fresh isolated worker controls now also pass on the actual Windows host with
 its installed ONI 744825 SimDLL. Gas and water each complete 61 exact input

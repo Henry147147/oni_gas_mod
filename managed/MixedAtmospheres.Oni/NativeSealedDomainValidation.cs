@@ -312,7 +312,13 @@ namespace MixedAtmospheres.Oni
             for (var xx = start.x - 8; xx <= start.x + 8 && !chosen; ++xx)
             {
                 var clear = true;
-                for (var dy = -1; dy <= Height; ++dy) for (var dx = SolidHeatMode ? -2 : -1; dx <= Width + 3; ++dx)
+                // Replacing a neighbouring support cell can uproot flora and
+                // spawn a seed into an otherwise empty chamber. Reserve an
+                // object-free margin around every cell this fixture changes,
+                // including the solid backer and the outside conduction pair.
+                const int occupantMargin = 3;
+                for (var dy = -1 - occupantMargin; dy <= Height + occupantMargin; ++dy)
+                for (var dx = (SolidHeatMode ? -2 : -1) - occupantMargin; dx <= Width + 3 + occupantMargin; ++dx)
                 {
                     var index = Grid.XYToCell(xx + dx, yy + dy);
                     if (!Grid.IsValidCell(index)) { clear = false; continue; }
@@ -350,7 +356,14 @@ namespace MixedAtmospheres.Oni
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
                     for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer)
-                        if (Grid.Objects[index, layer] != null && !IsLiveBreatherObject(Grid.Objects[index,layer])) throw new InvalidOperationException("An actor entered the unbound native domain.");
+                    {
+                        var occupant = Grid.Objects[index, layer];
+                        if (occupant != null && !IsLiveBreatherObject(occupant))
+                            throw new InvalidOperationException("An actor entered the unbound native domain: cell=" + index +
+                                ", layer=" + layer + ", name=" + occupant.name + ", instance=" + occupant.GetInstanceID() +
+                                ", position=" + occupant.transform.position + ", components=" +
+                                string.Join(",", occupant.GetComponents<Component>().Select(component => component == null ? "missing" : component.GetType().FullName)) + ".");
+                    }
                 }
             }
             return Grid.Element[hotSolid].id == SimHashes.Granite && Grid.Element[coldSolid].id == SimHashes.Granite;

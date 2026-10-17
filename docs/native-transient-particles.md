@@ -69,11 +69,39 @@ inspection confirms the first completed PNG shows the actual duplicant in the
 mixture room. Complete load-result SHA-256:
 `a380a9334e4b552d4723a6e14c8205ec6383d414341f2b1a3864d34990c244dc`.
 
+The Linux source also passes two WindowsPlayer reload sessions under official
+Proton, each with 120 exact frames, the two restored parcels and one test-parcel
+deposition. Their actual breathing callback counts are 14 and 13; their body
+heat losses are 2576.449547195807 J and 2582.8033068683 J. Both independent
+journal reviews pass. A separate saved-only review retains the private
+controller's Linux-only cleanup-field mismatch after the game had already
+passed. Raw game-result SHA-256:
+`6692f1a02b1a1876fa370b84ce69e8fd1913b4e0cf65749f748b23bfbdc4f662`.
+Review SHA-256:
+`947f89d9fb7cf10cdb20a7798367c5d512e0fcc3523aee5f4c003689bc86d327`.
+
+The WindowsPlayer-origin source at the same frozen revision also passes. It
+saves two in-flight parcels after 18 positive original breathing callbacks.
+Both local WindowsPlayer reloads and both Linux reloads restore those parcels,
+preserve them in frame-zero autosaves and complete 120 individually exact
+continuation frames per session. Each continuation has a separate passing
+binary journal review. The local and cross-platform load-result SHA-256 values
+are `b9aafc785f31d0d6943c8346fba258b4bf302545a28d0d5aa17aea4fb19dc847`
+and `ed96715c3bc847cea127808725ed6b70ec7afe7c752a6683bc6dd8343937dedd`.
+WindowsPlayer evidence uses official Proton on Linux; an actual Windows OS
+run remains a separate gate.
+
 The format/parser cohort passes 165 declaration scenarios on both installed
-players. WindowsPlayer and cross-player controls are running. This remains the
-bounded sealed-region adapter. Whole-colony particles, conserved metabolism,
+players. This remains the bounded sealed-region adapter.
+Whole-colony particles, conserved metabolism,
 bubble/exhaust persistence and complete material support remain open.
 
 The later [binary32 wire conversion](native-float-wire.md) preserves tiny parcel
 inputs even when the managed caller enables DAZ/FTZ. The actual smallest-float
 deposition control is separate from this ordinary-mass persistence result.
+
+The retirement witness now latches the parcel identity when it leaves the
+original active pool. Subsequent native factory reuse of its Unity component
+is recorded separately and cannot undo that original retirement. The combined
+smallest-float in-flight save control checks exact restore, one deposit and a
+positive transported CO2 inventory from an initially empty constituent.

@@ -826,8 +826,8 @@ def main() -> int:
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
-    if args.command=="run" and args.subnormal_carbon_particle and args.mode!="native-carbon-particle-domain":
-        parser.error("Subnormal carbon particle input requires native-carbon-particle-domain")
+    if args.command=="run" and args.subnormal_carbon_particle and args.mode!="native-carbon-particle-domain" and not (args.verify_transient_particles and args.mode in ("native-domain","native-load-domain") and not args.verify_live_breathing):
+        parser.error("Subnormal carbon input requires the carbon-particle scene or transient-particle save/load without a live producer")
     if args.command=="run" and args.verify_transient_particles and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
         parser.error("Transient particle validation requires a gas source save or a reload with a frame-zero resave")
     if args.command=="run" and args.verify_live_breathing and (args.mode not in ("native-domain","native-load-domain") or

@@ -147,8 +147,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
-    if getattr(args,"subnormal_carbon_particle",False) is True and args.mode!="native-carbon-particle-domain":
-        raise ValueError("Subnormal carbon particle input requires native-carbon-particle-domain")
+    if getattr(args,"subnormal_carbon_particle",False) is True and args.mode!="native-carbon-particle-domain" and not (getattr(args,"verify_transient_particles",False) is True and args.mode in ("native-domain","native-load-domain") and not getattr(args,"verify_live_breathing",False)):
+        raise ValueError("Subnormal carbon input requires the carbon-particle scene or transient-particle save/load without a live producer")
     if getattr(args,"verify_transient_particles",False) is True and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
         raise ValueError("Transient particle validation requires a gas source save or a reload with a frame-zero resave")
     if getattr(args,"verify_live_breathing",False) is True and (args.mode not in ("native-domain","native-load-domain") or

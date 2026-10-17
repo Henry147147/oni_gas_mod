@@ -243,7 +243,9 @@ same worker clock. It accounts separately for kinetic dissipation, represented
 heating, wall reactions and unresolved updates. Both dynamic viscosity
 coefficients persist in physical checkpoint version 3. Scenarios 0–5 retain
 their zero-viscosity version 2 images exactly; no second managed simulation
-clock is introduced. Actual Unity viscosity acceptance remains required.
+clock is introduced. Actual LinuxPlayer and WindowsPlayer source/save and
+bidirectional two-session reloads now pass the
+[fluid regression matrix](native-menu-reload.md#fluid-regression-matrix).
 
 Only new colonies opt into mixture ownership. Headless world-generation
 settling and vanilla saves retain the original simulator. Stage all generated
