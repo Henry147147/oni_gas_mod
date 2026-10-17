@@ -37,7 +37,7 @@ namespace MixedAtmospheres.Oni
                 .OrderBy(b=>b.ConsumptionRate).ThenBy(b=>b.GetInstanceID()).ToArray();
             if(restoring && candidates.Length==0) return false;
             Require(candidates.Length>0 && (!restoring || candidates.Length==1),"The live breathing scene requires one saved organic duplicant inside its owned room.");
-            NativeMessagePatch.RequirePatched(AccessTools.Method(typeof(GasBreatherFromWorldProvider),"OnSimConsumeCallback"));
+            NativeLiveBreathingCallbackObservation.RequireInstalled();
             liveBreather=candidates[0];liveBreathingStartedFrame=latest.CompletedFrames;
             liveBreathingInitialEnergy=PhysicalEnergy;
             liveBreathingInitialScale=cells.Sum(c=>Math.Abs(c.InternalEnergy)+c.ResolvedKineticEnergy);
@@ -160,6 +160,13 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(GasBreatherFromWorldProvider),"OnSimConsumeCallback")]
     internal static class NativeLiveBreathingCallbackObservation
     {
+        internal static void RequireInstalled()
+        {
+            var info=Harmony.GetPatchInfo(AccessTools.Method(typeof(GasBreatherFromWorldProvider),"OnSimConsumeCallback"));
+            if(info?.Prefixes.Any(p=>p.PatchMethod==AccessTools.Method(typeof(NativeLiveBreathingCallbackObservation),nameof(Prefix)))!=true ||
+                info?.Postfixes.Any(p=>p.PatchMethod==AccessTools.Method(typeof(NativeLiveBreathingCallbackObservation),nameof(Postfix)))!=true)
+                throw new InvalidOperationException("The actual world-provider callback observer is not installed.");
+        }
         private static void Prefix(Sim.MassConsumedCallback mass_cb_info,object data,ref bool __state)
         {__state=NativeSealedDomainValidation.BeforeLiveBreathingCallback(mass_cb_info,data);}
         private static void Postfix(bool __state)=>NativeSealedDomainValidation.AfterLiveBreathingCallback(__state);
