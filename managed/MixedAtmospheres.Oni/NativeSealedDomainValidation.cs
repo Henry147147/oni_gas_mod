@@ -21,7 +21,8 @@ namespace MixedAtmospheres.Oni
     {
         private const int Width = 3, Height = 2;
         private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water", "carbon_dioxide" };
-        private static bool prepared, active, arming, completed, failed;
+        private static bool prepared, arming, completed, failed;
+        private static volatile bool active;
         private static int x, y, target, hotSolid, coldSolid, preparedFrame, publications;
         private static float started, nextReport;
         private static int rendererWaitFrame = -1;
@@ -72,13 +73,13 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonySaveMode || ColonyRestoreMode;
-        private static bool Liquid => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
+            ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
-        private static bool GravityMode => ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
+        private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
         private static double ProjectedPotential => cells.Select((cell, index) => cell.TotalMass * 9.81 * (index / Width + .5)).Sum();
         private static double PhysicalEnergy => cells.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) + (GravityMode ? ProjectedPotential : 0);
@@ -103,6 +104,8 @@ namespace MixedAtmospheres.Oni
                 nativeSolidsAdvanced = Grid.Temperature[hotSolid] < initialHot && Grid.Temperature[coldSolid] > initialCold;
                 if (Time.realtimeSinceStartup >= nextReport) { nextReport = Time.realtimeSinceStartup + 1; WriteReport(); }
                 Require(projectionPrimed || latest.CompletedFrames <= 10, "Native projection bootstrap did not retain its requested fluid cells.");
+                if (SaveRejectionRequired && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !rejectedSaveVerified)
+                { VerifyPendingSaveRejection(); return; }
                 if (HeatMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !heatSubmitted)
                 {
                     heatBeforeEnergy = PhysicalEnergy;
@@ -329,7 +332,7 @@ namespace MixedAtmospheres.Oni
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
                 X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
-            Check(Begin(ref configuration, ref latest)); active = true; arming = false;
+            Check(Begin(ref configuration, ref latest)); domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
             writingProjection = true;
             try
@@ -653,7 +656,7 @@ namespace MixedAtmospheres.Oni
             currentSnapshot?.Dispose(); currentSnapshot = null;
             ResetActorBindings();
             if (active) { var stopped = Status.Empty; Check(Stop(ref stopped)); }
-            active = false; arming = false;
+            active = false; arming = false; restoredScenarioSelected=false;
         }
         internal static void DrawLabel()
         {

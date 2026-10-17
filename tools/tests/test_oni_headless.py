@@ -51,19 +51,24 @@ class NativeDomainEvidenceTests(unittest.TestCase):
     def test_actual_colony_save_requires_one_paused_paired_section_and_source_clock(self):
         self.report['ColonyCheckpoint']={'Saved':True,'Loaded':False,'WholeColonyFluidCheckpoint':False,'SimSaveWrites':1,
             'SourceFrame':30,'SourceTime':self.report['NativeDomain']['TimeSeconds'],'SourcePhysicalSha256':'a'*64,
-            'SavedFile':'private/native-colony.sav','SavedFileSha256':'b'*64}
+            'SavedFile':'private/native-colony.sav','SavedFileSha256':'b'*64,'AutomaticSaveAdmissions':1,'SavePauseStateRestored':True,
+            'SavePauseDepthBefore':0,'SavePauseDepthAfter':0}
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
         for key,value in [('Saved',False),('Loaded',True),('WholeColonyFluidCheckpoint',True),('SimSaveWrites',2),('SourceFrame',29),
-                          ('SourceTime',0),('SourcePhysicalSha256',''),('SavedFileSha256',''),('SavedFile','')]:
+                          ('SourceTime',0),('SourcePhysicalSha256',''),('SavedFileSha256',''),('SavedFile',''),('AutomaticSaveAdmissions',0),('SavePauseStateRestored',False),
+                          ('SavePauseDepthBefore',-1),('SavePauseDepthBefore',False),('SavePauseDepthAfter',None),('SavePauseDepthAfter',1)]:
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
 
-    def test_actual_restored_colony_requires_exact_initial_state_and_every_worker_frame(self):
+    def set_restored_colony(self):
         self.report['NativeFlowControlObserved']=False
         self.report['ColonyCheckpoint']={'Saved':False,'Loaded':True,'WholeColonyFluidCheckpoint':False,'ZeroTimeRestoreVerified':True,
             'ManagedSceneRestored':True,'RendererVerified':True,'NativeStartupBatchesDelivered':2,'SourceFrame':31,'SourceTime':1.2,'SourcePhysicalSha256':'a'*64,
             'RestoredInitialSha256':'a'*64,'CurrentPhysicalSha256':'b'*64,'ExactContinuationFrames':30,'ReplayedFrame':30,
             'ReplayedTime':self.report['NativeDomain']['TimeSeconds']}
+
+    def test_actual_restored_colony_requires_exact_initial_state_and_every_worker_frame(self):
+        self.set_restored_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30))
         for key,value in [('Saved',True),('Loaded',False),('WholeColonyFluidCheckpoint',True),('ZeroTimeRestoreVerified',False),
@@ -83,6 +88,31 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertFalse(runner.native_domain_passed(report, self.observation, 30), field)
         observation = copy.deepcopy(self.observation); observation["Observation"]["ForwardingOnly"] = True
         self.assertFalse(runner.native_domain_passed(self.report, observation, 30))
+
+    def test_restored_frame_zero_resave_preserves_clock_state_and_nested_pause_depth(self):
+        self.set_restored_colony()
+        colony=self.report['ColonyCheckpoint']
+        colony.update(Saved=True,AutomaticSaveAdmissions=1,SimSaveWrites=1,SavePauseStateRestored=True,
+            SavePauseDepthBefore=2,SavePauseDepthAfter=2,SavedFile='private/resaved-colony.sav',SavedFileSha256='c'*64,
+            SavedFrame=0,SavedTime=colony['SourceTime'],SavedPhysicalSha256=colony['SourcePhysicalSha256'],
+            FrameZeroResaveRequired=True,FrameZeroResaveVerified=True,SavedAsAutoSave=True)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        for key,value in [('SimSaveWrites',2),('AutomaticSaveAdmissions',2),('SavePauseDepthAfter',3),
+                          ('SavePauseDepthAfter',1),('FrameZeroResaveVerified',False),('SavedAsAutoSave',False),('SavedFrame',1),
+                          ('SavedTime',colony['SourceTime']+.2),('SavedPhysicalSha256','d'*64)]:
+            report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),key)
+
+    def test_restored_equilibrium_and_water_still_require_complete_exact_replay(self):
+        self.set_restored_colony()
+        self.report['NativeDomain']['CurrentOxygenKg']=self.report['NativeDomain']['InitialOxygenKg']
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['Scenario']='compressed-liquid'
+        self.report['NativeDomain'].update(LiquidMassKg=1100.0,PressurePa=2.2e8,SuppressedLiquid=100,
+            InitialOxygenKg=0,CurrentOxygenKg=0)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['NativeDomain']['PressurePa']=0
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
 
     def test_compressed_liquid_requires_elastic_pressure(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, True))
@@ -537,7 +567,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
         state.mkdir()
         output = root / "evidence"
         args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
-                         frames=1, timeout=30, keep_open=True, load_save=None, mod_id=None)
+                         frames=1, timeout=30, keep_open=True, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False)
         steam = {"unit_role": "steam"}
         xvfb = {"unit_role": "xvfb"}
         session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}

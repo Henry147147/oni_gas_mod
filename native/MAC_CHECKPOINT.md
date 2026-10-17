@@ -169,15 +169,28 @@ native simulator beneath existing game objects.
 
 ## Paused Unity colony save/load
 
-`native-save-domain` first completes the normal six-cell game checks, pauses
-and synchronizes through ONI's ordinary zero-time frame/publication path. It
-requests a completed native/physical pair and verifies the exact source frame
-and clock. Only that retained pair authorizes one `Sim.Save` call within the
-normal `SaveLoader.Save` serializer. The native simulation section contains
+The ordinary `SaveLoader.Save(string,bool,bool)` entry now reserves a paired
+checkpoint when the bounded owner is active. It adds one pause request,
+synchronizes through ONI's ordinary zero-time frame/publication path, and
+requests a completed native/physical pair at the exact source frame and clock.
+Only that retained pair authorizes one `Sim.Save` call within the normal
+serializer. Both manual and autosave calls use this entry. Nested saves,
+foreign threads, pending commands, live owned actors and undelivered receipts
+reject before the original serializer runs. The native simulation section contains
 the length-prefixed `MACOLONY` envelope; ONI serializes its normal managed
-objects and settings around it. A fresh temporary file is flushed and renamed
-to `native-colony.sav`. Serialization must leave the physical image unchanged.
-Direct native and unstaged managed scalar saves still reject.
+objects and settings around it. Serialization must leave the physical image
+unchanged. A finalizer releases the retained pair and exactly the pause
+request added by this save, including callers that were already paused.
+ONI's pause counter is reference counted; comparing only `IsPaused` allowed a
+leaked request that prevented a subsequent resume. Direct native saves and
+unstaged `Sim.Save` calls still reject.
+
+`native-save-domain` exercises an unprepared ordinary save from a running
+colony, verifies the pause depth returns to zero, and flushes/renames its
+private temporary file to `native-colony.sav`. It first attempts a save with
+one reserved heat command: rejection must create no file, retain the command
+and physical clock, and restore the running game. Other native scene modes
+accept `--save-colony` to run the same source-save check.
 
 `native-load-domain` reads that actual colony file through the normal scene
 loader in a fresh game process. Before original native Load, it checks the
@@ -195,15 +208,28 @@ once. The five handle-indexed status tables use the current native snapshot.
 Rejected publications retain the outbox. All 29 channel records, current status
 tables and source immutability have regression coverage.
 
+Gas, compressed-water and gravity configurations are admitted from the saved
+metadata. Restored owners start with a new publication frame counter while
+retaining the complete saved physical clock. An owner at publication frame
+zero with positive restored time can be saved immediately; a new, unadvanced
+owner at time zero still rejects. `--resave-before-resume` exercises this
+boundary through the normal autosave entry while the loaded colony is paused.
+The resulting file can itself be loaded in a fresh process.
+
 The loaded scene must retain its colony GUID and duplicants, consume both
 startup batches and continue on the actual worker clock. Every observed
 positive frame must match independent checkpoint continuation exactly, with
-the saved clock preserved. Rendering, game Grid, native compatibility tuples,
+the saved clock preserved. The validation driver publishes the preceding
+worker frame through the ordinary game path before submitting another one;
+otherwise ONI can issue two simulation intervals in one Unity update and skip
+an intermediate observation. This pacing is an exact-replay validation aid.
+Rendering, game Grid, native compatibility tuples,
 outside native solid heat, physical accounts and both scalar-save guards must
 also pass. Linux Unity has passed an automated 120-frame fresh-process round trip; Windows
 managed declarations compile, and licensed Windows native restores pass under
-Wine. Windows Unity, registered actor persistence, manual/autosave admission
-and general production ownership remain separate gates.
+Wine. Windows Unity, registered actor persistence, the actual menu/autosave
+scheduler and general production ownership remain separate gates. Ordinary
+save-entry admission is limited to the drained, actor-free development domain.
 
 ## Verification
 

@@ -17,16 +17,27 @@ namespace MixedAtmospheres.Oni
     // guarded; only one paused, completed pair can enter one Sim.Save call.
     internal static unsafe partial class NativeSealedDomainValidation
     {
-        internal static bool ColonySaveMode=>ColonyRuntimeValidation.Settings?.Mode=="native-save-domain";
+        internal static bool ColonySaveMode=>ColonyRuntimeValidation.Settings?.Mode=="native-save-domain" || ColonyRuntimeValidation.Settings?.SaveOnComplete==true;
         internal static bool ColonyRestoreMode=>ColonyRuntimeValidation.Settings?.Mode=="native-load-domain";
         private static ColonySaveEnvelope? stagedColonySave;
         private static NativeDomainCheckpointPayload? pendingColonyRestore;
         private static byte[]? restoredExpected;
         private static ulong replayFrame, savedSourceFrame;
+        private static ulong restoredSubmittedFrames;
         private static double savedSourceTime, replayTime;
+        private static ulong loadedSourceFrame;
+        private static double loadedSourceTime;
+        private static string loadedSourceHash="";
+        private static bool frameZeroResaveVerified;
+        private static int resumePreparationFrame=-1;
+        internal static bool HoldInitialRestorePause=>ColonyRestoreMode && colonyLoaded &&
+            ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
         private static string savedPhysicalHash="", restoredInitialHash="", savedFileHash="", savedFilePath="";
         private static bool colonyFileSaved, colonyLoaded, zeroRestoreVerified, restoredSceneStarted, restoredRendererVerified;
         private static int stagedSaveWrites, exactReplayComparisons;
+        private static bool restoredScenarioSelected;
+        private static uint restoredScenario;
+        private static int domainManagedThread;
         private static readonly List<OwnedGameDataSnapshot> restoreNativeOutbox=new List<OwnedGameDataSnapshot>();
         private static int restoredNativeBatches;
         private static byte[] CatalogHash()=>Enumerable.Range(0,32).Select(i=>Convert.ToByte(catalog!.Fingerprint.Substring(2*i,2),16)).ToArray();
@@ -35,17 +46,86 @@ namespace MixedAtmospheres.Oni
             var phases=ElementLoader.elements.ToDictionary(e=>(int)e.id,e=>e.IsGas ? NativeMatterPhase.Gas : e.IsLiquid ? NativeMatterPhase.Liquid : e.IsSolid ? NativeMatterPhase.Solid : NativeMatterPhase.Vacuum);
             payload.ValidateNativeInventory(native,phases,(int)SimHashes.Vacuum,(int)SimHashes.Oxygen,(int)SimHashes.Water,(int)SimHashes.Unobtanium);
         }
-        private static void SavePausedColony()
+        private static int automaticSaveAdmissions;
+        private static bool savedAsAutoSave;
+        private static bool savePauseStateRestored;
+        private static int savePauseDepthBefore,savePauseDepthAfter;
+        private static int PauseDepth()=>(int)AccessTools.Field(typeof(SpeedControlScreen),"pauseCount").GetValue(SpeedControlScreen.Instance);
+        private static bool rejectedSaveVerified;
+        private static bool SaveRejectionRequired=>ColonyRuntimeValidation.Settings?.Mode=="native-save-domain";
+        private static void VerifyPendingSaveRejection()
         {
-            Require(SpeedControlScreen.Instance.IsPaused && stagedColonySave==null && !colonyFileSaved,"Colony checkpoint requires a fresh paused save.");
-            var synchronize=AccessTools.Method(typeof(Game),"UnsafeSim200ms");
-            var publish=AccessTools.Method(typeof(Game),"StepTheSim");
-            synchronize.Invoke(Game.Instance,new object[]{0f});
-            Capture();var source=latest;var requested=PairStatus.Empty;
-            Check(RequestPair(source.Session,source.CompletedFrames,0,0,ref requested));
-            var token=requested.Token;
+            if(rejectedSaveVerified || !SaveRejectionRequired) return;
+            SpeedControlScreen.Instance.Pause(false);
+            AccessTools.Method(typeof(Game),"UnsafeSim200ms").Invoke(Game.Instance,new object[]{0f});Capture();
+            var frame=latest.CompletedFrames;var time=latest.TimeSeconds;
+            SimMessages.ModifyEnergy(target,.001f,1000,SimMessages.EnergySourceID.DebugHeat);
+            var heat=HeatStatus.Empty;Check(CopyHeat(ref heat));Require(heat.PendingBatches==1,"Pending save rejection has no reserved command.");
+            var rejectedPath=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"rejected-pending-colony.sav");
+            Require(!File.Exists(rejectedPath),"Pending save rejection destination already exists.");
+            SpeedControlScreen.Instance.Unpause(false);var declined=false;
+            try {SaveLoader.Instance.Save(rejectedPath,false,false);}
+            catch(InvalidOperationException caught) when(caught.Message.Contains("drained")) {declined=true;}
+            Capture();Check(CopyHeat(ref heat));
+            rejectedSaveVerified=declined && !File.Exists(rejectedPath) && !SpeedControlScreen.Instance.IsPaused && stagedColonySave==null &&
+                automaticSaveAdmissions==0 && latest.State==1 && latest.CompletedFrames==frame && latest.TimeSeconds==time && heat.PendingBatches==1;
+            Require(rejectedSaveVerified,"Declined pending save wrote a file, changed time, lost its command or left the game paused.");
+        }
+        internal sealed class ColonySaveLease
+        {
+            internal readonly ulong Token;
+            internal readonly byte[] Physical;
+            internal readonly bool WasPaused;
+            internal readonly int InitialPauseDepth;
+            private bool finished;
+            internal ColonySaveLease(ulong token,byte[] physical,bool paused,int depth) {Token=token;Physical=physical;WasPaused=paused;InitialPauseDepth=depth;}
+            internal void CompleteFile(string requested,string actual)
+            {
+                Require(Path.GetFullPath(requested)==Path.GetFullPath(actual) && File.Exists(actual) && new FileInfo(actual).Length>0,
+                    "Normal colony save did not finish its requested file.");
+                savedFilePath=actual;savedFileHash=CheckpointHash(File.ReadAllBytes(actual));
+            }
+            internal void Finish(bool success)
+            {
+                if(finished) return;finished=true;
+                try
+                {
+                    if(success)
+                    {
+                        Require(stagedSaveWrites==1 && TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(Physical),
+                            "Normal colony serialization reused its sim section or changed physical state.");
+                        colonyFileSaved=true;
+                    }
+                }
+                finally
+                {
+                    stagedColonySave=null;
+                    try {Check(ReleasePair(Token));}
+                    finally
+                    {
+                        // Pause is reference-counted. Release exactly the
+                        // request this lease added, including an already
+                        // paused caller; preserve a latched domain fault.
+                        if(WasPaused || (active && latest.State==1 && !failed)) SpeedControlScreen.Instance.Unpause(false);
+                        savePauseDepthBefore=InitialPauseDepth;savePauseDepthAfter=PauseDepth();
+                        savePauseStateRestored=savePauseDepthAfter==savePauseDepthBefore;
+                    }
+                }
+            }
+        }
+        internal static ColonySaveLease BeginAutomaticColonySave(bool isAutoSave)
+        {
+            Require(Thread.CurrentThread.ManagedThreadId==domainManagedThread && active && !arming && !failed && Game.Instance!=null && Game.Instance.GameStarted() && stagedColonySave==null &&
+                restoreNativeOutbox.Count==0,"Colony save requires one live, fully published domain and no nested save.");
+            var wasPaused=SpeedControlScreen.Instance.IsPaused;var pauseDepth=PauseDepth();SpeedControlScreen.Instance.Pause(false);
+            ulong token=0;
             try
             {
+                var synchronize=AccessTools.Method(typeof(Game),"UnsafeSim200ms");
+                var publish=AccessTools.Method(typeof(Game),"StepTheSim");
+                synchronize.Invoke(Game.Instance,new object[]{0f});
+                Capture();var source=latest;var requested=PairStatus.Empty;
+                Check(RequestPair(source.Session,source.CompletedFrames,0,0,ref requested));token=requested.Token;
                 synchronize.Invoke(Game.Instance,new object[]{0f});var timer=Stopwatch.StartNew();var ready=PairStatus.Empty;
                 do
                 {
@@ -59,30 +139,42 @@ namespace MixedAtmospheres.Oni
                 Check(CopyPair(token,native,ready.NativeBytes,physical,ready.PhysicalBytes));
                 var payload=NativeDomainCheckpointPayload.Create(ready,physical);AdmitNativeInventory(payload,native);
                 var config=payload.Geometry;Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
-                stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());
+                stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
-                var temporary=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.pending.sav");
-                var final=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.sav");
-                Require(!File.Exists(temporary) && !File.Exists(final),"Checkpoint destination already exists.");
-                try
-                {
-                    var written=SaveLoader.Instance.Save(temporary,false,false);
-                    Require(written==temporary && stagedSaveWrites==1 && File.Exists(temporary) && new FileInfo(temporary).Length>0,
-                        "Normal colony serialization did not write exactly one complete paired sim section.");
-                    using(var file=new FileStream(temporary,FileMode.Open,FileAccess.ReadWrite,FileShare.None)) file.Flush(true);
-                    File.Move(temporary,final);
-                }
-                finally {stagedColonySave=null;}
-                Require(TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(physical),"Normal managed serialization advanced the paused physical owner.");
-                savedFilePath=final;savedFileHash=CheckpointHash(File.ReadAllBytes(final));colonyFileSaved=true;
-                File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"saved-colony-physical.bin"),physical);
+                ++automaticSaveAdmissions;savePauseStateRestored=false;savedAsAutoSave=isAutoSave;
+                return new ColonySaveLease(token,physical,wasPaused,pauseDepth);
             }
-            finally {stagedColonySave=null;Check(ReleasePair(token));}
+            catch
+            {
+                stagedColonySave=null;
+                try {if(token!=0) Check(ReleasePair(token));}
+                finally {if(wasPaused || (active && latest.State==1 && !failed)) SpeedControlScreen.Instance.Unpause(false);}
+                throw;
+            }
+        }
+        private static void SavePausedColony()
+        {
+            Require(SpeedControlScreen.Instance.IsPaused && !colonyFileSaved,"Colony checkpoint fixture requires a fresh source.");
+            var temporary=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.pending.sav");
+            var final=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"native-colony.sav");
+            Require(!File.Exists(temporary) && !File.Exists(final),"Checkpoint destination already exists.");
+            // Exercise the same unprepared public entry used by menu/autosave,
+            // including pausing and restoring a previously running game.
+            SpeedControlScreen.Instance.Unpause(false);
+            var written=SaveLoader.Instance.Save(temporary,false,false);
+            Require(written==temporary && colonyFileSaved && automaticSaveAdmissions==1 && stagedSaveWrites==1 &&
+                savePauseStateRestored && !SpeedControlScreen.Instance.IsPaused && stagedColonySave==null,
+                "The ordinary colony save entry did not reserve, write and retire one complete pair.");
+            SpeedControlScreen.Instance.Pause(false);
+            using(var file=new FileStream(temporary,FileMode.Open,FileAccess.ReadWrite,FileShare.None)) file.Flush(true);
+            File.Move(temporary,final);savedFilePath=final;savedFileHash=CheckpointHash(File.ReadAllBytes(final));
+            Require(TryCapturePhysicalCheckpoint(out var physical),"Saved physical owner is unavailable after ordinary save.");
+            File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"saved-colony-physical.bin"),physical);
         }
         internal static bool TryWriteStagedColonySave(BinaryWriter writer,int offsetX,int offsetY)
         {
             if(stagedColonySave==null) return false;
-            Require(ColonySaveMode && active && SpeedControlScreen.Instance.IsPaused && offsetX==0 && offsetY==0 && stagedSaveWrites==0,
+            Require(active && SpeedControlScreen.Instance.IsPaused && offsetX==0 && offsetY==0 && stagedSaveWrites==0,
                 "Staged colony save was reused or changed placement.");
             stagedColonySave.WriteLengthPrefixed(writer);++stagedSaveWrites;return true;
         }
@@ -96,7 +188,7 @@ namespace MixedAtmospheres.Oni
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
             var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);
-            Require(payload.CompletedFrame==envelope.CompletedFrame && payload.Geometry.Scenario==0,"Saved colony physical source/scenario differs.");
+            Require(payload.CompletedFrame==envelope.CompletedFrame,"Saved colony physical source differs.");
             var physical=payload.PhysicalImage.ToArray();var config=payload.Geometry;
             Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
             // Consume original framing only after full admission. The normal
@@ -111,13 +203,15 @@ namespace MixedAtmospheres.Oni
         {
             var payload=pendingColonyRestore;if(payload==null) return;
             Require(ColonyRestoreMode && !active,"Native start attempted to replace a live physical owner.");
+            restoredScenario=payload.Geometry.Scenario;restoredScenarioSelected=true;domainManagedThread=Thread.CurrentThread.ManagedThreadId;
             x=checked((int)payload.Geometry.X);y=checked((int)payload.Geometry.Y);target=Grid.XYToCell(x,y);
             hotSolid=Grid.XYToCell(x+Width+2,y);coldSolid=hotSolid+1;
             var config=payload.Geometry;var physical=payload.PhysicalImage.ToArray();latest=Status.Empty;
             arming=true;
             Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
             prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;
-            savedSourceFrame=payload.CompletedFrame;savedSourceTime=payload.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
+            savedSourceFrame=loadedSourceFrame=payload.CompletedFrame;savedSourceTime=loadedSourceTime=payload.PhysicalTime;
+            savedPhysicalHash=loadedSourceHash=CheckpointHash(physical);
             // No Unity simulation objects have been deserialized yet. Restore
             // omitted native flags through lifecycle-only worker passes.
             for(var index=0;index<cells.Length;++index)
@@ -136,7 +230,7 @@ namespace MixedAtmospheres.Oni
                     var packet=Packet(writer=>
                     {
                         writer.Write(global);writer.Write(-1);writer.Write(ProjectionTemperature(column));writer.Write(ProjectionMass(column));writer.Write(0);
-                        writer.Write((ushort)ElementLoader.FindElementByHash(SimHashes.Oxygen).idx);writer.Write((byte)1);writer.Write((byte)255);writer.Write((byte)1);writer.Write(new byte[3]);
+                        writer.Write((ushort)ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);writer.Write((byte)1);writer.Write((byte)255);writer.Write((byte)1);writer.Write(new byte[3]);
                     });SendRaw(-1252920804,packet);
                 }
                 SendZeroTimeFrame();var restored=WaitZeroTimeFrame();
@@ -200,6 +294,29 @@ namespace MixedAtmospheres.Oni
             replayTime+=latest.LastTimestepSeconds;Require(latest.TimeSeconds==replayTime,"Restored colony reset or changed its physical clock.");
             restoredExpected=expected;replayFrame=latest.CompletedFrames;++exactReplayComparisons;
         }
+        internal static void BeforeRestoredNativeFrame(int message,int length,byte* payload)
+        {
+            if(message!=-775326397 || !ColonyRestoreMode || !colonyLoaded || completed || failed) return;
+            Require(length>0 && length%sizeof(Sim.NewGameFrame)==0 && payload!=null,"Restored frame publication has an invalid payload.");
+            var frames=(Sim.NewGameFrame*)payload;var seconds=frames[0].elapsedSeconds;
+            for(var index=1;index<length/sizeof(Sim.NewGameFrame);++index)
+                Require(frames[index].elapsedSeconds==seconds,"Restored active regions disagree on their physical interval.");
+            var timer=Stopwatch.StartNew();
+            while(replayFrame<restoredSubmittedFrames && timer.ElapsedMilliseconds<5000)
+            {
+                // Read through ONI's ordinary publication/callback path. The
+                // preceding frame has already been submitted; queueing another
+                // could retire its complete state before the game observes it.
+                AccessTools.Method(typeof(Game),"StepTheSim").Invoke(Game.Instance,new object[]{0f});
+                Capture();if(replayFrame<restoredSubmittedFrames) Thread.Sleep(1);
+            }
+            Require(replayFrame==restoredSubmittedFrames,"The preceding restored worker frame was not published before the next submission.");
+            if(seconds>0)
+            {
+                Require(seconds==.2f,"Restored game changed its declared timestep.");
+                restoredSubmittedFrames=checked(restoredSubmittedFrames+1);
+            }
+        }
         private static void TickRestoredColony()
         {
             Require(colonyLoaded && active && restoredExpected!=null,"Selected game did not restore a complete paired physical owner.");
@@ -207,6 +324,20 @@ namespace MixedAtmospheres.Oni
             if(!restoredSceneStarted)
             {
                 Require(SaveLoader.Instance.loadedFromSave,"Restored validation was created as a new colony.");
+                if(ColonyRuntimeValidation.Settings!.SaveBeforeResume && !frameZeroResaveVerified)
+                {
+                    if(!SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
+                    if(resumePreparationFrame<0) {resumePreparationFrame=Time.frameCount;return;}
+                    if(Time.frameCount-resumePreparationFrame<3) return;
+                    Require(latest.CompletedFrames==0 && latest.TimeSeconds==loadedSourceTime,"Initial resave advanced before its paused admission.");
+                    var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"resaved-colony.sav");
+                    Require(!File.Exists(path),"Initial resave destination already exists.");
+                    SaveLoader.Instance.Save(path,true,false);
+                    frameZeroResaveVerified=colonyFileSaved && savedSourceFrame==0 && savedSourceTime==loadedSourceTime &&
+                        savedPhysicalHash==loadedSourceHash && stagedSaveWrites==1 && automaticSaveAdmissions==1 &&
+                        savedAsAutoSave && savePauseStateRestored && SpeedControlScreen.Instance.IsPaused && stagedColonySave==null;
+                    Require(frameZeroResaveVerified,"Ordinary save before resume changed the saved image/clock, reused a pair or unpaused the game.");
+                }
                 restoredSceneStarted=true;initialHot=Grid.Temperature[hotSolid];initialCold=Grid.Temperature[coldSolid];
                 var center=Grid.CellToPosCCC(target,Grid.SceneLayer.Background);CameraController.Instance.SnapTo(center);
                 CameraController.Instance.SetTargetPos(center,20,false);CameraController.Instance.OrthographicSize=7;
@@ -224,7 +355,7 @@ namespace MixedAtmospheres.Oni
             gameGridProjectionVerified=Enumerable.Range(0,cells.Length).All(index=>
             {
                 var global=Grid.XYToCell(x+index%Width,y+index/Width);return Grid.Mass[global]==(float)cells[index].TotalMass &&
-                    Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==SimHashes.Oxygen;
+                    Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==(Liquid ? SimHashes.Water : SimHashes.Oxygen);
             });
             nativeRendererAdvanced=restoredRendererVerified;
             Require(exactReplayComparisons>=(int)ColonyRuntimeValidation.Settings.CompletedFrames && zeroRestoreVerified && restoredNativeBatches>=2 &&
@@ -238,7 +369,14 @@ namespace MixedAtmospheres.Oni
         }
         private static object ColonyCheckpointReport()=>new {Saved=colonyFileSaved,Loaded=colonyLoaded,ZeroTimeRestoreVerified=zeroRestoreVerified,
             ManagedSceneRestored=restoredSceneStarted,RendererVerified=restoredRendererVerified,SimSaveWrites=stagedSaveWrites,
-            SourceFrame=savedSourceFrame,SourceTime=savedSourceTime,SourcePhysicalSha256=savedPhysicalHash,RestoredInitialSha256=restoredInitialHash,
+            AutomaticSaveAdmissions=automaticSaveAdmissions,SavePauseStateRestored=savePauseStateRestored,
+            SavedAsAutoSave=savedAsAutoSave,
+            SavePauseDepthBefore=savePauseDepthBefore,SavePauseDepthAfter=savePauseDepthAfter,
+            PendingSaveRejectionRequired=SaveRejectionRequired,PendingSaveRejectionVerified=rejectedSaveVerified,
+            SourceFrame=colonyLoaded ? loadedSourceFrame : savedSourceFrame,SourceTime=colonyLoaded ? loadedSourceTime : savedSourceTime,
+            SourcePhysicalSha256=colonyLoaded ? loadedSourceHash : savedPhysicalHash,RestoredInitialSha256=restoredInitialHash,
+            SavedFrame=savedSourceFrame,SavedTime=savedSourceTime,SavedPhysicalSha256=savedPhysicalHash,
+            FrameZeroResaveRequired=ColonyRuntimeValidation.Settings?.SaveBeforeResume==true,FrameZeroResaveVerified=frameZeroResaveVerified,
             ExactContinuationFrames=exactReplayComparisons,ReplayedFrame=replayFrame,ReplayedTime=replayTime,NativeStartupBatchesDelivered=restoredNativeBatches,
             CurrentPhysicalSha256=CheckpointHash(restoredExpected),SavedFile=savedFilePath,SavedFileSha256=savedFileHash,
             NativeColonyId=SaveLoader.Instance?.GameInfo.colonyGuid.ToString("N"),WholeColonyFluidCheckpoint=false};
@@ -252,4 +390,27 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(Sim),nameof(Sim.Start))]
     internal static class NativeDomainColonyStartPatch
     {private static void Postfix()=>NativeSealedDomainValidation.RestoreAfterNativeStart();}
+    [HarmonyPatch(typeof(SpeedControlScreen),nameof(SpeedControlScreen.Unpause))]
+    internal static class NativeDomainInitialRestorePausePatch
+    {
+        private static void Postfix()
+        {
+            if(NativeSealedDomainValidation.HoldInitialRestorePause && !SpeedControlScreen.Instance.IsPaused)
+                SpeedControlScreen.Instance.Pause(false);
+        }
+    }
+    [HarmonyPatch(typeof(SaveLoader),nameof(SaveLoader.Save),new[]{typeof(string),typeof(bool),typeof(bool)})]
+    internal static class NativeDomainAutomaticSavePatch
+    {
+        private static void Prefix(bool __1,out NativeSealedDomainValidation.ColonySaveLease? __state)
+        {__state=null;if(NativeSealedDomainValidation.Active) __state=NativeSealedDomainValidation.BeginAutomaticColonySave(__1);}
+        private static void Postfix(string __0,string __result,NativeSealedDomainValidation.ColonySaveLease? __state)
+        {__state?.CompleteFile(__0,__result);}
+        private static Exception? Finalizer(Exception? __exception,NativeSealedDomainValidation.ColonySaveLease? __state)
+        {
+            try {__state?.Finish(__exception==null);}
+            catch(Exception failure) {return __exception ?? failure;}
+            return __exception;
+        }
+    }
 }

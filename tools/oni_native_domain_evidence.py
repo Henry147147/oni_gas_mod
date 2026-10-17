@@ -18,6 +18,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
+    if restored:
+        liquid = report.get("Scenario") == "compressed-liquid"
     physical = report.get("NativeDomain")
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
@@ -158,15 +160,24 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         colony = report.get("ColonyCheckpoint")
         if not isinstance(colony, dict) or colony.get("WholeColonyFluidCheckpoint") is not False:
             return False
-        if (type(colony.get("SourceFrame")) is not int or colony["SourceFrame"] <= 0
+        if (type(colony.get("SourceFrame")) is not int or colony["SourceFrame"] < 0
                 or type(colony.get("SourceTime")) not in (int, float) or not math.isfinite(colony["SourceTime"]) or colony["SourceTime"] <= 0
                 or not _sha256(colony.get("SourcePhysicalSha256"))):
             return False
+        if colony.get("Saved") is True:
+            # ONI Pause/Unpause retain a count, so a true IsPaused flag does
+            # not prove the save released the pause request it added.
+            if (type(colony.get("SavePauseDepthBefore")) is not int or colony["SavePauseDepthBefore"] < 0
+                    or type(colony.get("SavePauseDepthAfter")) is not int
+                    or colony["SavePauseDepthAfter"] != colony["SavePauseDepthBefore"]):
+                return False
         if saved and (colony.get("Saved") is not True or colony.get("Loaded") is not False or colony.get("SimSaveWrites") != 1
+                or colony.get("AutomaticSaveAdmissions") != 1 or colony.get("SavePauseStateRestored") is not True
+                or (colony.get("PendingSaveRejectionRequired") is True and colony.get("PendingSaveRejectionVerified") is not True)
                 or not _sha256(colony.get("SavedFileSha256")) or not colony.get("SavedFile")
                 or colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]):
             return False
-        if restored and (colony.get("Loaded") is not True or colony.get("Saved") is not False
+        if restored and (colony.get("Loaded") is not True or type(colony.get("Saved")) is not bool
                 or any(colony.get(key) is not True for key in ("ZeroTimeRestoreVerified", "ManagedSceneRestored", "RendererVerified"))
                 or type(colony.get("NativeStartupBatchesDelivered")) is not int or colony["NativeStartupBatchesDelivered"] < 2
                 or colony.get("RestoredInitialSha256") != colony["SourcePhysicalSha256"]
@@ -175,9 +186,24 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or colony.get("ReplayedFrame") != physical["CompletedFrames"] or colony.get("ReplayedTime") != physical["TimeSeconds"]
                 or physical["TimeSeconds"] <= colony["SourceTime"]):
             return False
+    if restored and colony.get("Saved"):
+        if (colony.get("AutomaticSaveAdmissions") != 1 or colony.get("SimSaveWrites") != 1 or colony.get("SavePauseStateRestored") is not True
+                or not _sha256(colony.get("SavedFileSha256")) or not colony.get("SavedFile")
+                or type(colony.get("SavedFrame")) is not int or not 0 <= colony["SavedFrame"] <= physical["CompletedFrames"]
+                or not _sha256(colony.get("SavedPhysicalSha256"))):
+            return False
+    if restored and colony.get("FrameZeroResaveRequired") is True:
+        if (colony.get("Saved") is not True or colony.get("SavedAsAutoSave") is not True
+                or colony.get("FrameZeroResaveVerified") is not True or colony.get("SavedFrame") != 0
+                or colony.get("SavedTime") != colony["SourceTime"] or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]):
+            return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
+    if restored and not liquid:
+        # Exact complete-state replay and the saved-clock checks above cover
+        # valid equilibrium restarts as well as moving mixtures.
+        physics_exercised = physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
     return (report.get("Kind") == "actual-game-sealed-native-fluid-domain" and report.get("Status") == "passed"
             and report.get("Platform") == expected_platform and report.get("BoundedFluidAuthority") is True
             and report.get("WholeColonyFluidAuthority") is False and report.get("FirstPlayableColonyPassed") is False
@@ -200,6 +226,7 @@ def main() -> int:
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
     parser.add_argument("--mode", choices=("gas", "water", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
     args = parser.parse_args()
     if not 1 <= args.frames <= 10000:
@@ -209,7 +236,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode == "water",
             heat=args.mode == "heat", transfers=args.mode == "transfer", actors=args.mode == "actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save", restored=args.mode == "load")
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

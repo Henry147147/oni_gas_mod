@@ -8,6 +8,8 @@ param(
     [switch]$TileHover,
     [switch]$CoupledPresentation,
     [switch]$NativeObserver,
+    [switch]$SaveColony,
+    [switch]$ResaveBeforeResume,
     [ValidateSet('gas','water','heat','transfer','actor','carbon','conduction','gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
@@ -25,6 +27,8 @@ if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registrati
 $oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) { $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path }
+if ($ResaveBeforeResume -and $NativeDomain -ne 'load') { throw 'ResaveBeforeResume requires NativeDomain load.' }
+if ($SaveColony -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires an initial native domain scene.' }
 $oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
 if ($NativeObserver -and ($Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Native observer validation uses its own forwarding-only colony mode.' }
 if ($CoupledPresentation -and ($TileHover -or $Presentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'Coupled presentation uses its own explicit closed-reference scene.' }
@@ -100,7 +104,7 @@ $oniExitCode = 1
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
     $oniValidationConfiguration = @{
-        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $LoadSave
+        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $LoadSave; SaveOnComplete = [bool]$SaveColony; SaveBeforeResume = [bool]$ResaveBeforeResume
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }
@@ -165,6 +169,7 @@ try {
             $oniEvidenceChecker = Join-Path $PSScriptRoot 'oni_native_domain_evidence.py'
             $oniCheckArguments = @($oniEvidenceChecker, '--domain', $oniDomainReport, '--observation', $oniObserverReport,
                 '--mode', $NativeDomain, '--frames', [string]$Frames, '--platform', 'WindowsPlayer')
+            if ($SaveColony) { $oniCheckArguments += '--saved' }
             & $Python @oniCheckArguments
             if ($LASTEXITCODE -ne 0) { throw 'Native physical domain, callback, projection or ownership acceptance failed.' }
         }

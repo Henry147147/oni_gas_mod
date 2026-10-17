@@ -27,6 +27,8 @@ namespace MixedAtmospheres.Oni
             public string PrivateFileProtocolAssemblySha256 = "";
             public bool PrivateOwnedLoadRejection = false;
             public bool QuitWhenComplete = false;
+            public bool SaveOnComplete = false;
+            public bool SaveBeforeResume = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
             public string Seed = "147147";
@@ -104,6 +106,10 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode == "load-rejection") != configuration.PrivateOwnedLoadRejection ||
                 (configuration.Mode == "load-rejection" && (configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 0)))
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
+            if (configuration.SaveOnComplete && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
+                throw new InvalidDataException("SaveOnComplete requires an initial native domain validation scene.");
+            if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
+                throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             Directory.CreateDirectory(OutputDirectory);
             if (NativeSealedDomainValidation.IsMode)
             {

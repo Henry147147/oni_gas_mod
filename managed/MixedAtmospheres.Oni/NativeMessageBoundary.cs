@@ -73,6 +73,7 @@ namespace MixedAtmospheres.Oni
             var world = ProbeScope.World;
             if (world == null)
             {
+                NativeSealedDomainValidation.BeforeRestoredNativeFrame(message,length,payload);
                 if (NativeSealedDomainValidation.TryHandleHeat(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleActorMessage(message, length, payload)) return IntPtr.Zero;

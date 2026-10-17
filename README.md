@@ -34,7 +34,7 @@ for ownership, interfaces, failures and implementation gates.
   completed mixture readings. Its Linux compressed-water equilibrium control
   passes actual grid, renderer and save-guard checks. The corrected mixed-air
   control also passes 120 native frames after projection priming. This remains an
-  opt-in development experiment with saving disabled.
+  opt-in development experiment with scalar saving disabled.
   Owned-cell heating/cooling messages now commit conserved external heat on the
   native tick; the real-game control verifies both energy and presentation.
   Gas point injection and selective consumption also commit on that clock,
@@ -62,8 +62,12 @@ for ownership, interfaces, failures and implementation gates.
   in a fresh game process: its managed objects return, its initial physical
   bytes are exact, and all 120 resumed worker frames match independent
   continuation. Native startup events deliver once; grid/rendering and outside
-  native heat pass. General manual/autosave admission, owned actor persistence
-  and Windows Unity validation remain unfinished. See the
+  native heat pass. The ordinary colony save entry now captures a complete pair
+  and restores the caller's exact pause count; pending commands reject without
+  writing or losing their reservation. Compressed-water save, initial paused
+  resave and 120 exact resumed frames also pass in Linux Unity. Owned actor
+  persistence, actual menu/autosave scheduler and Windows Unity validation
+  remain unfinished. See the
   [checkpoint protocol](native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 
 - Opt-in native SimDLL forwarding hooks with exact-build Windows/Linux profiles,
