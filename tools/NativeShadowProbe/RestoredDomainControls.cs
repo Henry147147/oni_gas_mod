@@ -104,7 +104,7 @@ internal static unsafe partial class Program
         }
         sim.Send(-775326397,Frame(0));var flagged=sim.PrepareAfterFrame(contract);
         Require(Enumerable.Range(0,6).All(i=>(flagged.CellData[DomainCell(i)].Properties&3)==3),"Restored flow flags were not acknowledged at zero time.");
-        var liquid=geometry.Scenario==1;
+        var liquid=geometry.Scenario==1 || geometry.Scenario==3;
         for(var i=0;i<6;++i)
         {
             var column=i%DomainWidth;var cell=DomainCell(i);

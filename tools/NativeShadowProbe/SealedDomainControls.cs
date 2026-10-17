@@ -33,7 +33,7 @@ internal static unsafe partial class Program
         sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
         Require(Enumerable.Range(0, 6).All(i => (snapshot.CellData[DomainCell(i)].Properties & 3) == 3), "Native flow flags were not installed.");
         var config = new OniNativeDomain.Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = Width,
-            X = DomainX, Y = DomainY, Width = DomainWidth, Height = DomainHeight, Scenario = liquid ? 1U : gravity ? 2U : 0U };
+            X = DomainX, Y = DomainY, Width = DomainWidth, Height = DomainHeight, Scenario = liquid ? gravity ? 3U : 1U : gravity ? 2U : 0U };
         var status = OniNativeDomain.Status.Empty;
         var wrongPitch = config; wrongPitch.GridWidth -= 1;
         Require(OniNativeDomain.Begin(ref wrongPitch, ref status) == 2 && status.State == 0 && status.Session == 0,
@@ -49,6 +49,7 @@ internal static unsafe partial class Program
         Require(OniNativeDomain.GravityVersion() == 1 && Marshal.SizeOf<OniNativeDomain.GravityStatus>() == 96 &&
             OniNativeDomain.CopyGravityStatus(ref initialGravity) == 0, "Gravity diagnostic ABI mismatch.");
         var initialEnergy = initialPhysical.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) + initialGravity.Potential;
+        var initialEnergyScale=initialPhysical.Sum(cell=>Math.Abs(cell.InternalEnergy)+cell.ResolvedKineticEnergy);
         for (var i = 0; i < 6; ++i)
         {
             var cell = DomainCell(i); var mass = DomainProjectionMass(i % DomainWidth, liquid);
@@ -133,7 +134,8 @@ internal static unsafe partial class Program
                 "Native worker/filter controls did not execute.");
             Require(snapshot.ColdTemperature > initial.ColdTemperature && snapshot.HotTemperature < initial.HotTemperature,
                 "Native solid heat stopped.");
-            Require(liquid ? values[0].Water == 1100 && Math.Abs(values[0].Pressure - 2.2e8) < 1 :
+            Require(liquid ? gravity ? values[0].Water>1000 && values[0].Pressure>values[DomainWidth].Pressure :
+                values[0].Water == 1100 && Math.Abs(values[0].Pressure - 2.2e8) < 1 :
                 status.CurrentOxygenKg != status.InitialOxygenKg, "Intended physical model did not execute.");
             if (heating)
             {
@@ -166,15 +168,18 @@ internal static unsafe partial class Program
             report["sealedNativeDomainPassed"] = true; report["projectionPrimedAtFrame"] = primedAt;
             if (gravity)
             {
+                var gravityBound=liquid ? 128*2.2204460492503131e-16*(initialEnergyScale+
+                    values.Sum(cell=>Math.Abs(cell.InternalEnergy)+cell.ResolvedKineticEnergy)) : 1e-6;
                 var field = OniNativeDomain.GravityStatus.Empty;
                 Require(OniNativeDomain.CopyGravityStatus(ref field) == 0 && field.Enabled == 1 && field.State == 1 && field.Gravity == 9.81 &&
                     field.Session == status.Session && field.CompletedFrame == status.CompletedFrames && field.BodyImpulseY < 0 &&
-                    field.PendingBoundaryPotential == 0 && field.CommittedBoundaryPotential == 0 && field.MaximumEnergyResidual <= 1e-6 &&
+                    field.PendingBoundaryPotential == 0 && field.CommittedBoundaryPotential == 0 && field.MaximumEnergyResidual <= gravityBound &&
                     field.Potential != field.InitialPotential && values.Any(cell => cell.MomentumY != 0), "Gravity did not advance on the actual native clock.");
                 var projected = values.Select((cell, index) => cell.TotalMass * 9.81 * (index / DomainWidth + .5)).Sum();
                 var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) + projected - initialEnergy;
-                Require(Math.Abs(projected-field.Potential)<1e-9 && Math.Abs(residual)<1e-6, "Physical U+K+G disagrees with its independent projection.");
+                Require(Math.Abs(projected-field.Potential)<1e-9 && Math.Abs(residual)<=gravityBound, "Physical U+K+G disagrees with its independent projection.");
                 report["gravityPassed"] = true; report["gravityEnergyResidualJoules"] = residual;
+                report["gravityEnergyBoundJoules"]=gravityBound;
                 report["gravity"] = new { field.Size, field.Version, field.State, field.Enabled, field.Session, field.CompletedFrame, field.Gravity,
                     field.InitialPotential, field.Potential, field.CommittedBoundaryPotential, field.PendingBoundaryPotential,
                     field.BodyImpulseY, field.InternalWork, field.MaximumEnergyResidual };

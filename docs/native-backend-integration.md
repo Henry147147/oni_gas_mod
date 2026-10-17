@@ -17,6 +17,9 @@ Saved domains resume with exact physical continuation, including a two-session
 main-menu reload in one Unity process. The native/public padded-index mismatch
 that caused earlier gas failures is fixed. Surrounding colony physics,
 production actors and persistent live actors remain outside this experiment.
+The new [filled-liquid gravity scenario](native-liquid-gravity.md) keeps
+material reference energy separate from small work/heat updates while
+retaining it in physical totals, messages and checkpoint identity.
 
 ## Supported build and installation
 
