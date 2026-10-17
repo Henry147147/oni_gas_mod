@@ -88,6 +88,14 @@ executes under Wine. Full colony save/reload remains open.
 The Windows PowerShell wrapper accepts these modes with `-Observer` and
 `-GameDirectory`.
 
+Set `MA_VERIFY_FRAME_INPUTS=1` with a current backend to additionally copy each
+completed worker's accepted-input journal through the C ABI and independently
+resume its preceding physical image. The heat scenes require exactly one
+successful two-command batch; the rejected late-invalid batch must be absent.
+All sixty post-priming frames must match byte for byte. This runs the licensed
+simulation worker in an isolated console process and remains separate from
+actual Unity save/reload and duplicant tests.
+
 On Linux, those same controls can execute the Windows binaries by adding
 `--wine`, `--wine-prefix` and `--windows-dotnet` to the wrapper; point `--native`
 at the licensed Windows SimDLL and `--observer` at the Windows backend.

@@ -67,11 +67,13 @@ internal static unsafe partial class Program
         var pairVerified=false;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
         Stage("advance-sealed-native-domain");
+        var inputControl=Environment.GetEnvironmentVariable("MA_VERIFY_FRAME_INPUTS")=="1" ? new FrameInputControl(config,status) : null;
         for (var frame = 0; frame < 75; ++frame)
         {
             sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
             status = OniNativeDomain.Status.Empty;
             Require(OniNativeDomain.Copy(ref status, values, 6) == 0 && status.State == 1, "Domain failed: " + status.Error);
+            inputControl?.Observe(status);
             var source = Enumerable.Range(0, 6).Select(i => snapshot.CellData[DomainCell(i)]).ToArray();
             trace.Add(new { status.CompletedFrames, status.NativeTicket, status.TimeSeconds, status.SuppressedGas, status.SuppressedLiquid,
                 status.SuppressedTemperature, status.SuppressedPostProcess, status.SolverThread, status.StartThread,
@@ -130,6 +132,7 @@ internal static unsafe partial class Program
             }
             if (status.CompletedFrames - primedAt < 60) continue;
             Require(!checkpoint || checkpointVerified,"Physical checkpoint continuation was not observed.");
+            if(inputControl!=null) report["frameInputReplay"]=inputControl.Finish(heating);
             Require(status.SolverThread != status.StartThread && status.SuppressedTemperature > 0 && status.SuppressedPostProcess > 0,
                 "Native worker/filter controls did not execute.");
             Require(snapshot.ColdTemperature > initial.ColdTemperature && snapshot.HotTemperature < initial.HotTemperature,

@@ -65,6 +65,19 @@ All 19 backend groups also pass on GNU Linux, Windows binaries under Wine and
 the clean Ubuntu 22.04 compatibility build, plus Linux ASan/UBSan (600.74 s).
 Actual Unity journal gates remain pending.
 
+The isolated licensed simulation worker also passes the journal path for gas
+and compressed-water heat on both platforms (Windows binaries under Wine).
+Each case checks 61 complete frames, including sixty after projection priming,
+for 244 exact worker continuations. The C ABI exports a coherent journal;
+managed code checks its source digest/epoch/geometry and statelessly replays it
+to the actual complete worker image. Exactly one successful batch containing
+two heat commands appears; the late-invalid batch is absent. Frame-zero journal
+reads reject without changing output. Enable this additional console control
+with `MA_VERIFY_FRAME_INPUTS=1`; see the
+[headless native interface harness](../tools/NativeShadowProbe/README.md).
+These controls use real licensed simulation workers, but do not start Unity or
+certify an actual Windows OS.
+
 This supplies a prerequisite for [live radius consumption](native-radial-consumption.md),
 not proof of a live duplicant, conserved metabolism or whole-colony ownership.
 Those remain explicit work in the [completion plan](completion-plan.md).
