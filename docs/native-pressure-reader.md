@@ -3,8 +3,8 @@
 ONI's `Grid.Pressure` accessor derives a pressure-like scalar from cell mass.
 For the native-owned development domain it now reads the completed physical
 mechanical pressure and converts pascals to the accessor's kPa scale. This
-covers mixed gas and filled compressed water. Native-owned cells retain their
-original accessor result. Invalid, overflowing or underflowing positive
+covers mixed gas and filled compressed water. Cells outside the owned domain
+retain their original accessor result. Invalid, overflowing or underflowing positive
 projections reject instead of acquiring a pressure floor.
 
 The adapter patches the accessor and rewrites all five inspected game callers,
@@ -84,3 +84,21 @@ The original comparison mixes a returned binary32 scalar with an intermediate
 Mono multiplication. The retry records both binary32 bit patterns and compares
 those exact patterns, retaining the unchanged outside-read counter requirement.
 No pressure or physical conservation tolerance is widened. The first failure remains retained; the subsequent exact-bit rerun above passes.
+
+## Windows declaration preflight
+
+After merging the reader and owned-display runner work through `2db8758`,
+Windows passes nine nitrogen-registration, 121 snapshot/persistence/boundary,
+and 31 inspection groups against the installed ONI assemblies. The adapter
+build passes with no C# warnings or errors; its two existing MSB3277 reference
+conflicts remain recorded. The updated WSL runner suites pass 72 headless,
+13 matrix and 14 Proton tests, without skips. These checks include breathing
+selection and pressure-accessor declarations and the inspected caller plan.
+
+The merge preserves all 157 checked native C++/CMake inputs from the completed
+physics capture. That capture's strong density gate remains failed. These are
+managed declaration, build and runner results; Windows Unity coverage of the
+incoming hooks remains open. The protected default DLL and installed SimDLL
+are unchanged. Private evidence: `local/windows-quadratic-readers-merge-r1`;
+terminal-review SHA256:
+`c2026e661287bb92cd0560f2e3a7ccb138d2d9f2ee3aebeaacd932e45da2dc33`.

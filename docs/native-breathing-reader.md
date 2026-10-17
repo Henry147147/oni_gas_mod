@@ -68,3 +68,7 @@ radius/bulk reservations, coupling actual consumed oxygen to metabolic
 products, food/body inventories, suit/tube providers and persistent live
 actors remain open. In particular, vanilla's early requested-mass CO2 emission
 cannot establish a conserved metabolism transaction.
+
+The later [Windows declaration preflight](native-pressure-reader.md#windows-declaration-preflight)
+passes the merged managed tests and adapter against the installed assemblies.
+It leaves actual Windows Unity breathing-reader acceptance open.

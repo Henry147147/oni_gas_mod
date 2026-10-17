@@ -82,6 +82,11 @@ repair a reproduced moving-cell affine error with an opt-in selector. Component,
 checkpoint and selected Windows/Linux regressions pass; the strong-flow,
 exact-vacuum and production-colony exit gates remain open.
 
+The later [quadratic momentum admission](../native/MAC_QUADRATIC_LIMITER.md)
+passes 179 prerequisite groups and 29 saved reviews on each OS and under Linux
+sanitizers, then still fails the original collision density refinement bound
+(0.856557 versus 0.85). It remains opt-in; this does not satisfy the exit below.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.
