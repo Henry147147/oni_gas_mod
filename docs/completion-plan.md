@@ -98,6 +98,14 @@ and 31 reviews per platform. The changed-method strong run passes Sod and still
 fails collision density refinement (0.856332 versus 0.85). Strong flow and
 production acceptance remain open; the default is unchanged.
 
+The explicit [coupled compressive pressure work](../native/MAC_COMPRESSIVE_WORK.md)
+then passes 207 prerequisite groups and 34 saved reviews on each normal OS and
+under Linux sanitizers. Its first Windows strong-flow attempt passes all Sod
+and collision refinement checks, including the former collision density bound,
+but stops in separation on the original stored-state entropy allowance. Six
+completed profiles pass 82,824 independent saved checks. The full strong-flow
+gate remains failed; no unchanged Linux repeat or default promotion is made.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

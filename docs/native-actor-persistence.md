@@ -152,6 +152,16 @@ claimed for this managed-only merge. Private evidence is
 Its fresh Windows hover launch again encounters Steam's other-computer session
 warning and is canceled. This supplies no new Windows Unity or pixel result.
 
+The subsequent orbital save-root lifecycle repair (`9a1a894`) is verified from
+an immutable Git archive while the native prerequisites use their separate
+frozen source. It passes 139 installed-game declaration groups and builds the
+Windows adapter with the same two reference conflicts. All 36 Python/PowerShell
+runner scripts match the prior 125-test runner cohort. Private evidence is
+`local/windows-orbital-lifecycle-r7`, terminal SHA-256
+`b23dc0bcd658ad4835d271256b705ff113aa2589e4f65e0ba4de26c015cd6a70`.
+This is build/declaration verification; it supplies no Windows Unity lifecycle
+or actor save/reload result.
+
 ## WindowsPlayer and native Linux Spaced Out gas
 
 The later `74c9ec1` mod and native v12 pass real WindowsPlayer gas actor saving
