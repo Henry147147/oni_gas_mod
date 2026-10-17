@@ -386,8 +386,7 @@ namespace MixedAtmospheres.Oni
                     NativeFlowMask);
             initialHot = Grid.Temperature[hotSolid]; initialCold = Grid.Temperature[coldSolid];
             var center = Grid.CellToPosCCC(target, Grid.SceneLayer.Background);
-            CameraController.Instance.SnapTo(center); CameraController.Instance.SetTargetPos(center, 20, false);
-            CameraController.Instance.OrthographicSize = 7;
+            CameraController.Instance.SnapTo(center, 4);
             SpeedControlScreen.Instance.Unpause(false);
             ColonyRuntimeValidation.SetStage("fencing-sealed-native-domain"); WriteReport();
         }

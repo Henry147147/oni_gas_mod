@@ -127,9 +127,16 @@ namespace MixedAtmospheres.Oni
             if (!InColony || frame == null || frame.SuppliedCells.Count == 0 || CameraController.Instance == null) return;
             var cell = frame.SuppliedCells.Keys.Min();
             var point = Grid.CellToPosCCC(cell, Grid.SceneLayer.Background);
-            CameraController.Instance.SnapTo(point);
-            CameraController.Instance.SetTargetPos(point, 20, false);
-            CameraController.Instance.OrthographicSize = 4;
+            if (TryRectangle(frame, out var minX, out var minY, out var maxX, out var maxY))
+                point = (Grid.CellToPosCCC(Grid.XYToCell(minX, minY), Grid.SceneLayer.Background) +
+                    Grid.CellToPosCCC(Grid.XYToCell(maxX, maxY), Grid.SceneLayer.Background)) * .5f;
+            var world = Grid.WorldIdx[cell];
+            if (ClusterManager.Instance != null && world != byte.MaxValue && ClusterManager.Instance.activeWorldId != world)
+                ClusterManager.Instance.SetActiveWorld(world);
+            // Set both the current and target zoom. Setting OrthographicSize
+            // alone lets ONI immediately interpolate back to its old target.
+            // SnapTo also leaves the caller's pause state intact.
+            CameraController.Instance.SnapTo(point, 4);
         }
 
         private void CycleOverlay()
@@ -252,12 +259,11 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        private static void DrawBoundary(RuntimeMixturePresentationFrame view, float scale)
+        private static bool TryRectangle(RuntimeMixturePresentationFrame view, out int minX, out int minY, out int maxX, out int maxY)
         {
-            var camera = CameraController.Instance?.baseCamera;
             // Bound per-frame decoration even if a future provider owns a world.
-            if (camera == null || view.SuppliedCells.Count == 0 || view.SuppliedCells.Count > 512) return;
-            var minX = view.Width; var minY = view.Height; var maxX = -1; var maxY = -1;
+            minX = view.Width; minY = view.Height; maxX = maxY = -1;
+            if (view.SuppliedCells.Count == 0 || view.SuppliedCells.Count > 512) return false;
             foreach (var cell in view.SuppliedCells.Keys)
             {
                 minX = Math.Min(minX, cell % view.Width); maxX = Math.Max(maxX, cell % view.Width);
@@ -265,7 +271,13 @@ namespace MixedAtmospheres.Oni
             }
             // A single outline only denotes a filled rectangle; sparse providers
             // must not visually claim the native cells between their readings.
-            if ((maxX - minX + 1) * (maxY - minY + 1) != view.SuppliedCells.Count) return;
+            return (maxX - minX + 1) * (maxY - minY + 1) == view.SuppliedCells.Count;
+        }
+
+        private static void DrawBoundary(RuntimeMixturePresentationFrame view, float scale)
+        {
+            var camera = CameraController.Instance?.baseCamera;
+            if (camera == null || !TryRectangle(view, out var minX, out var minY, out var maxX, out var maxY)) return;
             var lower = camera.WorldToScreenPoint(Grid.CellToPosCCC(Grid.XYToCell(minX, minY), Grid.SceneLayer.Background) - new Vector3(.5f, .5f));
             var upper = camera.WorldToScreenPoint(Grid.CellToPosCCC(Grid.XYToCell(maxX, maxY), Grid.SceneLayer.Background) + new Vector3(.5f, .5f));
             if (lower.z <= 0 || upper.z <= 0) return;
