@@ -105,6 +105,12 @@ and collision refinement checks, including the former collision density bound,
 but stops in separation on the original stored-state entropy allowance. Six
 completed profiles pass 82,824 independent saved checks. The full strong-flow
 gate remains failed; no unchanged Linux repeat or default promotion is made.
+The relative-entropy measurement repair then passes 208 prerequisite groups
+and 34 saved reviews per configuration. Its next Windows attempt completes
+all nine profiles without timestep retries, preserving the six earlier
+trajectories byte for byte. Separation still fails the finest velocity error
+and central density/pressure limits. The absolute bounds remain unchanged and
+the full strong-flow and production exits stay open.
 
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.

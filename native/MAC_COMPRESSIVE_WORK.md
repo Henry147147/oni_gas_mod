@@ -312,3 +312,37 @@ are `local/mac-compressive-entropy-review-r2`, terminal SHA-256:
 `8cec7fd567706702e9911e242c1f964a984f632db13fcdd095c782948e730d74`.
 The complete prerequisite rerun and changed-method strong-flow acceptance are
 still required. No default or production claim changes.
+
+The complete rerun from `f09d0e4` passes 208 native groups and 34 saved reviews
+on Windows, Linux and Linux ASan/UBSan, plus normal-OS ABI/detour checks. All 66
+dependency/test compile commands in the sanitizer graph are instrumented. Its
+new streams match the focused repair captures exactly; all eight selected
+normal-OS legacy streams remain byte identical. All processes and pipes are
+terminal. Private evidence is `local/mac-compressive-prerequisites-r2`;
+terminal SHA-256:
+`3fd6cfa66b72d88f2a989508ca93f48f71d98ad07143b643c1cd9d2278114489`.
+
+## Separation accuracy remains failed
+
+After those prerequisites close, the changed entropy-measurement method runs
+the original Windows strong-flow benchmark once. It completes all nine profiles
+with zero timestep retries. All six prior Sod/collision profiles remain byte
+identical, so the repair changes no previously completed physical trajectory.
+The separation entropy rejection is resolved. The process exits 1 after
+103.594 seconds on the original finest-error bound. Both raw pipes reach EOF
+and close; the 1,217,692-byte stdout SHA-256 is
+`6459137bbb05dec96437ddb276f19a58c5a720d930c5df145cc8d94baf5f822b`.
+
+At 256 cells, separation density/pressure/velocity L1 errors are
+0.017920/0.021640/0.076338. Velocity exceeds the unchanged 0.06 limit. Central
+density and pressure relative errors are 81.8118 and 721.5274, also exceeding
+the original 0.5 limits. All three errors refine, but refinement alone does not
+satisfy these absolute criteria. Saved-only review performs 124,190 data checks
+and confirms the failed fine-profile criteria; it does not certify strong flow.
+
+Private evidence is `local/mac-compressive-strong-r2`; terminal SHA-256:
+`d2845970a1f950d7692616630d76703c77474652b804a27dc869acd3947be902`.
+No unchanged Linux strong repeat is launched and no default is promoted. The
+remaining separation error needs analysis of actual momentum transport,
+remap heat, shock heat and initial representation before another method change.
+Production, exact-vacuum interfaces and playable-colony acceptance remain open.
