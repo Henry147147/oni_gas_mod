@@ -70,7 +70,8 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                        MassKg=.03125,Temperature=310,InternalEnergy=-270000.0,KineticEnergy=0)
         report['CarbonParticle'] = dict(Required=True,Started=True,Verified=True,ParticleRetired=True,NativeDispatchAvoided=True,
             Source='CO2Manager.SpawnBreath',MassKg=.03125,TemperatureK=310,SourceFrame=4,CompletedFrame=5,
-            Receipts=1,Receipt=receipt,MassErrorKg=1e-15,EnergyResidualJoules=1e-9,EnergyBoundJoules=1e-6)
+            Receipts=1,Receipt=receipt,MassErrorKg=1e-15,EnergyResidualJoules=1e-9,EnergyBoundJoules=1e-6,
+            RetirementObservedBy='CO2Manager.Sim33ms-postfix',ParticleRetirementUnityFrame=100,ParticleReusedAfterRetirement=False)
         return report
 
     def test_native_co2_particle_requires_actual_retirement_and_conserved_single_deposition(self):
@@ -80,10 +81,15 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True,expected_platform='WindowsPlayer'))
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,carbon_particle=True))
 
+    def test_completed_particle_retirement_survives_native_pool_reuse(self):
+        report=self.carbon_particle();report['CarbonParticle']['ParticleReusedAfterRetirement']=True
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+
     def test_particle_cannot_pass_duplicate_native_effects_or_relaxed_energy_bounds(self):
         changes = [('Verified',False),('ParticleRetired',False),('NativeDispatchAvoided',False),('Receipts',2),
                    ('Source','manual-fixture'),('SourceFrame',0),('CompletedFrame',31),('EnergyBoundJoules',1),
-                   ('EnergyResidualJoules',1e-5),('MassErrorKg',1e-9)]
+                   ('EnergyResidualJoules',1e-5),('MassErrorKg',1e-9),('RetirementObservedBy','object-identity-at-save'),
+                   ('ParticleRetirementUnityFrame',-1)]
         for key,value in changes:
             report=self.carbon_particle();report['CarbonParticle'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True),key)

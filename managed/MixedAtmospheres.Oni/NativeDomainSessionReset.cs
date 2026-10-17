@@ -41,7 +41,8 @@ namespace MixedAtmospheres.Oni
             initialNativeMasses=initialNativeTemperatures=Array.Empty<float>();initialInventoryBeforeFence=false;
             cellMassEditsRouted=0;
             cellMassEditsAvoidedNativeDispatch=true;
-            carbonParticleStarted=carbonParticleVerified=false;carbonParticle=null;carbonParticleReceipt=null;
+            carbonParticleStarted=carbonParticleVerified=carbonParticleRetired=false;carbonParticle=null;carbonParticleReceipt=null;
+            carbonParticleRetiredAtUnityFrame=-1;
             carbonParticleReceipts=0;carbonParticleSourceFrame=0;
             carbonParticleBeforeEnergy=carbonParticleEnergyResidual=carbonParticleMassError=0;
             carbonParticleBeforeMasses=Array.Empty<double>();

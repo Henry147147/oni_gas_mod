@@ -11,7 +11,8 @@ namespace MixedAtmospheres.Oni
     {
         private static bool CarbonParticleMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-particle-domain";
         private const float CarbonParticleMass = .03125f, CarbonParticleTemperature = 310;
-        private static bool carbonParticleStarted, carbonParticleVerified;
+        private static bool carbonParticleStarted, carbonParticleVerified, carbonParticleRetired;
+        private static int carbonParticleRetiredAtUnityFrame = -1;
         private static CO2? carbonParticle;
         private static Receipt? carbonParticleReceipt;
         private static int carbonParticleReceipts;
@@ -43,6 +44,17 @@ namespace MixedAtmospheres.Oni
                 "Native CO2 particle produced a duplicate or unexpected mass receipt.");
             carbonParticleReceipt = receipt; ++carbonParticleReceipts;
         }
+        internal static void ObserveCarbonParticleManagerUpdate()
+        {
+            if (!CarbonParticleMode || !carbonParticleStarted || carbonParticleRetired) return;
+            // Observe removal before another breath reuses the pooled object.
+            // A Unity component's identity is not its particle incarnation.
+            if (carbonParticle == null || !CarbonParticles().Contains(carbonParticle))
+            {
+                carbonParticleRetired = true;
+                carbonParticleRetiredAtUnityFrame = Time.frameCount;
+            }
+        }
         private static void VerifyCarbonParticleFixture()
         {
             Require(carbonParticleStarted && carbonParticleReceipt.HasValue, "Native CO2 particle did not reach the physical owner.");
@@ -57,7 +69,7 @@ namespace MixedAtmospheres.Oni
                 receipt.InternalEnergy == transferStatus.MaterialEnergyChange && receipt.KineticEnergy == 0 && transferStatus.KineticEnergyChange == 0 &&
                 transferStatus.AcceptedBatches == 1 && transferStatus.CommittedBatches == 1 && transferStatus.PendingBatches == 0 &&
                 transferStatus.UnacknowledgedReceipts == 0 && transferStatus.MassChangesKg[4] == CarbonParticleMass &&
-                (carbonParticle == null || !CarbonParticles().Contains(carbonParticle)) &&
+                carbonParticleRetired && carbonParticleRetiredAtUnityFrame > 0 &&
                 carbonParticleMassError <= 1e-10 && Math.Abs(carbonParticleEnergyResidual) <= 1e-6;
             Require(carbonParticleVerified, "Native CO2 particle deposition, retirement or physical mass/energy account failed.");
         }
@@ -68,6 +80,14 @@ namespace MixedAtmospheres.Oni
             Receipts = carbonParticleReceipts, Receipt = carbonParticleReceipt,
             NativeDispatchAvoided = cellMassEditsAvoidedNativeDispatch, MassErrorKg = carbonParticleMassError,
             EnergyResidualJoules = carbonParticleEnergyResidual, EnergyBoundJoules = 1e-6,
-            ParticleRetired = carbonParticleStarted && (carbonParticle == null || !CarbonParticles().Contains(carbonParticle)) };
+            ParticleRetired = carbonParticleRetired, ParticleRetirementUnityFrame = carbonParticleRetiredAtUnityFrame,
+            RetirementObservedBy = "CO2Manager.Sim33ms-postfix",
+            ParticleReusedAfterRetirement = carbonParticleRetired && carbonParticle != null && CarbonParticles().Contains(carbonParticle) };
+    }
+
+    [HarmonyPatch(typeof(CO2Manager), nameof(CO2Manager.Sim33ms))]
+    internal static class NativeCarbonParticleRetirementPatch
+    {
+        private static void Postfix() => NativeSealedDomainValidation.ObserveCarbonParticleManagerUpdate();
     }
 }

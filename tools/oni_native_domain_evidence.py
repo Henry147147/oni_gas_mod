@@ -75,6 +75,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or any(particle.get(key) is not True for key in ("Required", "Started", "Verified", "ParticleRetired", "NativeDispatchAvoided"))
                 or particle.get("Source") != "CO2Manager.SpawnBreath" or particle.get("MassKg") != .03125
                 or particle.get("TemperatureK") != 310 or particle.get("Receipts") != 1
+                or particle.get("RetirementObservedBy") != "CO2Manager.Sim33ms-postfix"
+                or type(particle.get("ParticleRetirementUnityFrame")) is not int or particle["ParticleRetirementUnityFrame"] <= 0
                 or account.get("Size") != 104 or account.get("Version") != 2 or account.get("State") != 1
                 or account.get("Session") != physical["Session"]
                 or report.get("CellMassEditsRouted") != 1 or report.get("ReceiptsPublished") != 1

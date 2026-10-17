@@ -44,8 +44,20 @@ generic gas transfer evidence alone cannot pass this control.
 
 Both game-declaration suites pass 111 snapshot/message groups, including late
 invalid edits, ownership boundaries, padding, exact packet layout and capacity.
-The Python runner/evidence suite passes 189 checks with four platform/optional
+The Python runner/evidence suite passes 190 checks with four platform/optional
 skips. Real Unity particle and save/load results remain pending.
+
+The retained first Linux `carbon-particle-unity-matrix-v1` source run reaches
+frame 121 with exactly one native-manager deposition, 2.22e-15 kg maximum
+constituent error and -6.05e-9 J energy residual. It rejects before saving:
+the game has already retired the original particle, then reused its pooled
+component for a different breath. Checking list membership at save time confuses
+those incarnations. The corrected witness latches removal in the native
+`CO2Manager.Sim33ms` postfix, before subsequent producer updates can reuse the
+component. Pool reuse remains reported separately; a copied physical receipt
+and every conservation/retirement check are still required. The failed run is
+retained. The reviewer also now follows the actual receipt layout: ABI size and
+version belong to the transfer-status envelope, not individual receipt rows.
 
 This path does not implement negative mass edits, replacement, bulk spatial
 consumption, native callback-bearing edits, disease, live particle persistence
