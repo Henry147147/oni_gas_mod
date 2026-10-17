@@ -234,7 +234,7 @@ def playtest(args, state: Path, session: dict) -> int:
     (output / "runtime").mkdir(mode=0o700)
     result = {"kind": "actual-unity-bounded-native-proton-run", "status": "initializing", "exit_code": 2,
         "mode": args.mode, "output": str(output), "host_platform": "linux", "target_platform": PLATFORM,
-        "actual_windows_os": False, "real_unity_player": True, "software_rendering": True,
+        "actual_windows_os": False, "real_unity_player": False, "software_rendering": True,
         "first_playable_colony_passed": False, "whole_colony_fluid_authority": False,
         "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
         "package_manifest": manifest, "game_hashes": game_hashes,
@@ -284,7 +284,12 @@ def playtest(args, state: Path, session: dict) -> int:
         print(f"WindowsPlayer under Proton PID {record['pid']}; evidence: {output}", flush=True)
         deadline = time.monotonic() + args.timeout + 60
         timed_out = False
+        stopped_for_mod_failure = False
         while common.alive(record):
+            player_log=output/"Player.log"
+            if player_log.exists() and common.mod_failure_lines(player_log.read_text(errors="replace"),(MOD_ID,)):
+                stopped_for_mod_failure = True
+                break
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
@@ -317,6 +322,8 @@ def playtest(args, state: Path, session: dict) -> int:
         if common.verify_package(package, "win-x64") != manifest:
             raise ValueError("The immutable source package changed during the game run")
         result.update(status=status, exit_code=code, timed_out=timed_out, observed_player_exit_code=player_exit,
+            stopped_early_for_mod_failure=stopped_for_mod_failure,
+            real_unity_player=bool(probe and probe.get("Platform")==PLATFORM),
             integration_probe=probe, colony_report=report, native_domain=domain,
             native_backend_observation=observation, bounded_native_domain_passed=domain_ok,
             steam_blocked=common.steam_blocked(log), main_menu_reached=common.MAIN_MENU_MARKER in log,

@@ -64,7 +64,7 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
             "--frames",str(frames),"--timeout",str(timeout),"--output",str(run),*extra]
         if game_dir:command.extend(["--game-dir",str(game_dir.resolve())])
         print("START",name,flush=True)
-        code=invoke(command,output/(name+".log"),timeout+120)
+        code=invoke(command,output/(name+".log"),timeout+(360 if windows else 120))
         result=run/"result.json"
         if not result.is_file():
             report["cases"].append({"name":name,"mode":mode,"exit_code":code,"status":"missing-result","result":str(result)})
