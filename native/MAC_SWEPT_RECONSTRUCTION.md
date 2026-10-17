@@ -128,7 +128,7 @@ The baseline diagnostic's first reviewer compared platform line endings
 literally; its corrected reviewer preserves both raw files and compares their
 records after newline normalization.
 
-No strong-flow retry, exact-vacuum case, new Unity launch, production colony,
+The R3 component cohort supplies no strong-flow retry, exact-vacuum case, new Unity launch, production colony,
 phase/interface acceptance, performance acceptance or independent-agent review
 is claimed. The default game DLL and installed ONI SimDLL remain unchanged.
 
@@ -169,3 +169,61 @@ The same 9/106/31 Windows managed groups, adapter build and 85 Linux runner
 checks pass again; native source and build-configuration hashes are unchanged.
 That focused review is `local/windows-swept-import-gate-r1`, SHA256
 `267e3c68cc25a0388bc8cde7596eafaa6c00b2af8461c53fb89df23c83a90af6`.
+
+## Original strong-flow gate with the new material selector
+
+The remaining original prerequisites now pass on Windows and Linux. The record
+combines 149 existing component groups (the expanded domain test now reports
+three groups instead of one) with the nine new selected-method groups, for
+158 per platform. Thirteen earlier component streams per platform and the
+earlier selected-method controls are reused with matching source hashes and
+closed receipts. The sanitizer record combines 19 preceding groups with 83
+newly completed groups, for 102. Saved-data reviews pass. Native and review
+stderr are empty; the Linux configure stages retain the pinned Funchook
+dependency's CMake-version deprecation warning.
+
+The old 60-second domain-test envelope expired on Linux. Its earlier source
+lacked the new inventory-admission cases and 1,200-frame water-gravity test.
+The first timeout is retained. An explicit expanded-test envelope of 300 seconds
+for Release and 900 for sanitizers lets the unchanged tests complete in about
+79 and 217 seconds. Frame count, physical inputs and tolerances stay unchanged.
+The original Riemann budget remains 180 seconds and 2 MiB per raw pipe.
+This follows the functional-first execution plan and supplies no production
+performance acceptance. Closing review also retains two schema corrections:
+configure warnings are distinct from native diagnostics, and the standalone
+momentum-limiter reviewer has no `NativeProcessLaunched` metadata field. Its
+source only reads and checks saved data; no native run is repeated for review.
+
+The scientific Riemann source is unchanged. A private client differs by one
+assignment: material reconstruction selector 2. Heat and compression remain
+their default selector 2. Compiler inspection checks strict floating-point and
+warning settings on both clients before the Windows run.
+
+Windows completes Sod N64/128/256, then collision N64/128, and stops at the
+original joint-refinement assertion. Collision density/pressure/velocity error
+ratios are **0.8565247685 / 0.7952006743 / 0.6110320057**. Density exceeds 0.85.
+The run takes about 62 seconds and exits 1 with closed, complete raw pipes.
+The independent saved-data implementation performs 59,205 checks and confirms
+the five available profiles' mass/trace, U+K, momentum, entropy and nominal-step
+criteria. It explicitly reports partial review and `Passed=false`. Collision
+N256 and the separating-rarefaction case are unexecuted. The identical method
+is not repeated on Linux. Default material reconstruction remains selector 1.
+
+A separate saved-only, post-hoc localization compares these records with the
+preceding index-space method. In the fixed central band `[31/64,33/64]`, the
+new method's contribution to normalized density L1 error grows from
+0.000719129 to 0.002193161 between N64 and N128. The older method has a similar
+increase. That band also has specific entropy below the exact star state.
+This provides a diagnostic for pressure/momentum/energy coupling; it does not
+prove a cause or introduce a new acceptance criterion. The affine-coordinate
+defect is real, but repairing it does not remove the collision failure.
+
+Evidence is `local/mac-swept-prerequisites-r1`. Source-freeze SHA256 is
+`3799af303adc0e4fede17f828f26593650ec1c9126bc7634fd6360bb38de94e1`;
+combined-readiness SHA256 is
+`35b65e05e02ce5aed430299a63d61600d13794c757b81f6479260561e63fe35a`;
+strong terminal-review SHA256 is
+`83947768c21ea3e76ab68e25790eef083f1de906a33082104c5b12df581c1399`.
+The post-hoc localization is
+`8335b8f52bb2d03578b9cb294770824c90d7de3a3fb8d29c306a9c4db9c7c95c`.
+No exact-vacuum, new game, full-colony or release acceptance follows.

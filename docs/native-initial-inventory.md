@@ -73,3 +73,12 @@ retained. Admission now waits for a positive completed-native-frame count and
 records all six original source tuples before validating them. No missing
 mass or temperature is synthesized. The exact rejected source values and the
 subsequent real-game result remain under investigation.
+
+The prepared Windows `windows-native-inventory-import-r1` attempt does not
+reach Unity: Steam reports ONI active on another computer and warns that
+continuing would disconnect that session. The launch is cancelled, and the
+runner exits after its 90-second launch deadline. All 13 backed-up profile
+files are independently verified as restored; the default and installed
+SimDLLs are unchanged. Package assembly passes, but there is no Windows
+inventory-import gameplay result. The retained launch-review SHA256 is
+`fae63ab7cb0bf4aaa98f848aef875edd48ab8024873e98ae49ac4cec40d4e005`.
