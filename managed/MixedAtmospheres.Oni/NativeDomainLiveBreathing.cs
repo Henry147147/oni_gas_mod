@@ -47,6 +47,9 @@ namespace MixedAtmospheres.Oni
             {
                 var nav=liveBreather.GetComponent<Navigator>() ?? throw new InvalidOperationException("Live breathing duplicant has no normal navigator.");
                 nav.Stop();liveBreather.transform.position=Grid.CellToPosCBC(target+1,Grid.SceneLayer.Move);
+                // A fixture teleport must enter the game's normal cell-change
+                // monitor, which moves the registered native heat component.
+                Singleton<CellChangeMonitor>.Instance.MarkDirty(liveBreather.transform);
                 nav.SetCurrentNavType(NavType.Floor);nav.UpdateProbe(true);liveBreathingTeleported=true;
             }
             Require(OwnsPublicCell(Grid.PosToCell(liveBreather)),"Live breathing duplicant is outside the owned room.");return true;
@@ -88,12 +91,13 @@ namespace MixedAtmospheres.Oni
                 Require(liveBreathingPending.TryGetValue(liveBreathingActiveCallback,out var pending) && pending!=null && pending.Receipt.HasValue,
                     "Actual breather callback has no active published owned receipt.");
                 var receipt=pending!.Receipt!.Value;var command=pending.Command;
-                Require((float)receipt.MassKg==mass && (mass==0 ? temperature==0 : (float)receipt.Temperature==temperature) &&
+                var delivered=NativeBinary32.ToDouble(mass);
+                Require(receipt.MassKg==delivered && (delivered==0 ? temperature==0 : (float)receipt.Temperature==temperature) &&
                     element==SimHashes.Oxygen && disease==255 && diseaseCount==0,
                     "Actual duplicant callback differs from its published physical receipt.");
                 liveBreathingPending.Remove(liveBreathingActiveCallback);liveBreathingActiveCallback=-1;
-                ++liveBreathingCallbacks;if(mass>0) ++liveBreathingPositiveCallbacks;
-                liveBreathingCallbackMass+=mass;
+                ++liveBreathingCallbacks;if(delivered>0) ++liveBreathingPositiveCallbacks;
+                liveBreathingCallbackMass+=delivered;
                 liveBreathingEvidence.Add(new {Request=command,Receipt=receipt,CallbackMassKg=mass,CallbackTemperature=temperature,
                     Element=(int)element,Disease=disease,DiseaseCount=diseaseCount});
             }
@@ -154,10 +158,21 @@ namespace MixedAtmospheres.Oni
             OxygenElementId=(int)SimHashes.Oxygen,
             StartedFrame=liveBreathingStartedFrame,SourcePlacement=liveBreathingTeleported,RestoredWithoutTeleport=ColonyRestoreMode && liveBreather!=null && !liveBreathingTeleported,
             BreatherInstance=liveBreather==null ? 0 : liveBreather.GetInstanceID(),Requests=liveBreathingRequests,Receipts=liveBreathingReceipts,
+            NativeBodyBinding=LiveBreathingBodyBinding(),
             Callbacks=liveBreathingCallbacks,PositiveCallbacks=liveBreathingPositiveCallbacks,Outstanding=liveBreathingPending.Count,
             RequestedMassKg=liveBreathingRequestedMass,DeliveredMassKg=liveBreathingDeliveredMass,CallbackMassKg=liveBreathingCallbackMass,
             Evidence=liveBreathingEvidence.ToArray(),GameClockUnchanged=true,ArtificialBreathingTicks=0,CompleteMetabolismVerified=false
         };
+        private static object? LiveBreathingBodyBinding()
+        {
+            if(liveBreather==null) return null;
+            var body=liveBreather.GetComponent<CreatureSimTemperatureTransfer>();var element=liveBreather.GetComponent<PrimaryElement>();
+            return new {Present=body!=null,Enabled=body!=null && body.enabled,Spawned=body!=null && body.isSpawned,
+                SimHandle=body==null ? -1 : body.SimHandle,PublicCell=Grid.PosToCell(liveBreather),
+                MassKg=element==null ? 0 : element.Mass,Element=element==null ? 0 : (int)element.ElementID,
+                TemperatureK=element==null ? 0 : element.Temperature,SurfaceArea=body==null ? 0 : body.SurfaceArea,
+                Thickness=body==null ? 0 : body.Thickness};
+        }
     }
     [HarmonyPatch(typeof(GasBreatherFromWorldProvider),"OnSimConsumeCallback")]
     internal static class NativeLiveBreathingCallbackObservation

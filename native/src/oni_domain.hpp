@@ -34,6 +34,14 @@ struct DomainChunkHeat { bool handled{};float temperature{},delta_kj{}; };
 DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,
     float transfer_scale,float contact_scale,float seconds) noexcept;
 void copy_domain_chunk_heat_status(MAOniDomainChunkHeatStatus&);
+void configure_domain_solid_heat(const MAOniDomainSolidHeatCell*,std::uint32_t count,MAOniDomainSolidHeatStatus&);
+void copy_domain_solid_heat_status(MAOniDomainSolidHeatStatus&);
+bool domain_solid_heat_registered(int native_cell) noexcept;
+void fault_domain_solid_heat(const char*) noexcept;
+// The native detour supplies the current native cell facts. A changed material
+// or mass faults the owner before either thermal endpoint is modified.
+DomainChunkHeat exchange_domain_solid_heat(int fluid_native_cell,int solid_native_cell,std::uint16_t element,
+    float mass,float temperature,float seconds,std::uint8_t solid_insulation=255,std::uint8_t fluid_insulation=255) noexcept;
 std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t completed_frame);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);

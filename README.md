@@ -35,6 +35,7 @@ and supplies actual mixture oxygen and pressure to game readers. Linux controls
 verify ordinary paired saves, frame-zero autosaves and exact fresh-process
 continuation for these paths. See [inventory admission](docs/native-initial-inventory.md),
 [particle deposition](docs/native-cell-mass-edits.md),
+[in-flight particle saves](docs/native-transient-particles.md),
 [breathing selection](docs/native-breathing-reader.md) and
 [pressure readers](docs/native-pressure-reader.md). Production whole-colony
 physics, reserved metabolism/devices and live-actor persistence remain open.
@@ -46,6 +47,10 @@ unchanged and commits both endpoints on the native worker frame. A real Linux
 saved duplicant now completes 120 exact replayed frames with original breathing
 callbacks and body heat. Full same-process and WindowsPlayer live controls
 remain in progress.
+
+[Native solid-cell heat](docs/native-solid-heat.md) also has a bounded contact
+bridge, with licensed gas/water worker controls on both native libraries.
+Its actual Unity colony acceptance tests are in progress.
 
 ## What currently works
 

@@ -79,8 +79,28 @@ void unresolved_and_invalid() {
     require(constrained.checkpoint()==held && source.checkpoint()==image,"Rejected native heat changed an owner");
     std::cout<<"PASS unresolved heat without a floor, insulation, zero time, EOS limit and immutable invalid-input rejection\n";
 }
+void unrounded_solid_capacity() {
+    const double capacity=static_cast<double>(20.125F)*static_cast<double>(.793F);
+    require(static_cast<double>(static_cast<float>(capacity))!=capacity,"Solid capacity control was already binary32");
+    for (const double water:{0.,.35,1.}) {
+        const auto source=owner(water,water==1 ? 2.2e8 : water>0 ? 5e8 : 1e5);const auto held=source.checkpoint();
+        const MacNativeHeatBody body{350,capacity};
+        const auto result=exchange_mac_native_heat(source,0,body,100,.2);check(source,result,body);
+        require(result.report.body_heat_loss_j>0 && result.body_temperature_k<body.temperature_k && source.checkpoint()==held,
+            "Native solid capacity contact failed to exchange heat immutably");
+        const double represented=capacity*1000*(static_cast<double>(body.temperature_k)-result.body_temperature_k);
+        const double rounded=static_cast<double>(static_cast<float>(capacity))*1000*(static_cast<double>(body.temperature_k)-result.body_temperature_k);
+        require(result.report.body_heat_loss_j==represented && std::abs(represented-rounded)>128*std::numeric_limits<double>::epsilon()*std::abs(represented),
+            "Native solid heat rounded the independent mass/specific-heat product to binary32");
+    }
+    const auto source=owner();const auto held=source.checkpoint();
+    for(const auto invalid_capacity:{-1.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::max()})
+        rejects([&] {(void)exchange_mac_native_heat(source,0,{350,invalid_capacity},100,.2);});
+    require(source.checkpoint()==held,"Invalid double-capacity heat contact changed its source");
+    std::cout<<"PASS native solid mass/specific-heat capacity without binary32 product rounding, gas/water/wet endpoint accounts and immutable capacity rejection\n";
+}
 }
 int main() {
-    try {std::cout<<std::setprecision(17);physical_contacts();unresolved_and_invalid();return 0;}
+    try {std::cout<<std::setprecision(17);physical_contacts();unresolved_and_invalid();unrounded_solid_capacity();return 0;}
     catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

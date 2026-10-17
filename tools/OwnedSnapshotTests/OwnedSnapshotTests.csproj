@@ -15,7 +15,9 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeOrbitalReferenceAdmission.cs" Link="NativeOrbitalReferenceAdmission.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainReading.cs" Link="NativeDomainReading.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainCheckpointPayload.cs" Link="NativeDomainCheckpointPayload.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeTransientParticleImage.cs" Link="NativeTransientParticleImage.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeBinary32.cs" Link="NativeBinary32.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeCellMassEditPlan.cs" Link="NativeCellMassEditPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeFluidTransferPlan.cs" Link="NativeFluidTransferPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeFrameInputJournal.cs" Link="NativeFrameInputJournal.cs" />

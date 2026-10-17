@@ -9,6 +9,26 @@ sys.path.insert(0,str(Path(__file__).parents[1]))
 from oni_frame_input_evidence import decode,review,physical_inputs_digest
 
 class FrameInputEvidenceTests(unittest.TestCase):
+    def test_native_solid_heat_has_its_own_binary_command_source_and_completed_account(self):
+        source=b'opaque completed solid-control source';digest=hashlib.sha256(source).hexdigest()
+        body=bytearray(self.journal()[:-64]);struct.pack_into('<QQdd',body,24,0,1,0.,.2);body[104:168]=digest.encode()
+        struct.pack_into('<Q',body,192,0);struct.pack_into('<I',body,204,0x4d415348);struct.pack_into('<Q',body,248,0)
+        journal=bytes(body)+hashlib.sha256(body).hexdigest().encode()
+        row=dict(File='native-frame-inputs-7-1.bin',Bytes=len(journal),Sha256=hashlib.sha256(journal).hexdigest(),SourceSha256=digest,
+            Session=7,SourceFrame=0,CompletedFrame=1,SourceTime=0.,Seconds=.2,Flags=0,ReplaySupported=True,
+            HeatBatches=1,HeatCommands=1,TransferBatches=1,TransferCommands=1)
+        value=dict(AbiVersion=1,PredictsFutureGameCommands=False,ActorReconfigurationReplayImplemented=False,ActorRefreshFramesCompared=0,
+            ReplayedFrames=1,Journals=[row],HeatBatches=1,TransferBatches=1)
+        report=dict(Status='passed',NativeDomain=dict(Session=7,TimeSeconds=.2,LastTimestepSeconds=.2),
+            ColonyCheckpoint=dict(FrameInputReplay=value,ExactContinuationFrames=1,SourceTime=0.,RestoredInitialSha256=digest,ReplayedTime=.2),
+            NativeSolidHeat=dict(Required=True,AbiVersion=1,Source='actual-native-UpdateTemperature-cell-pair',Status=dict(
+                Size=112,Version=1,Session=7,CompletedFrame=1,Transfers=1,BodyHeatLossJoules=12.)))
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'native-frame-inputs-source-7.bin').write_bytes(source);(root/row['File']).write_bytes(journal)
+            result=review(report,root);self.assertEqual(result['native_solid_heat_commands'],1);self.assertEqual(result['native_body_heat_commands'],0)
+            report['NativeSolidHeat']['Status']['BodyHeatLossJoules']=11.
+            with self.assertRaises(ValueError):review(report,root)
+
     def journal(self):
         body=b'MAFRIN01'+struct.pack('<IIQQQdd',1,0,7,3,4,.6,.2)+struct.pack('<10I',40,2,1,64,10,10,3,2,0,0)
         body+=struct.pack('<II',2,0)+b'a'*64

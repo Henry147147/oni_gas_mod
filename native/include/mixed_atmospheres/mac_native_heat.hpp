@@ -3,7 +3,11 @@
 
 namespace ma::experimental {
 struct MacNativeHeatBody {
-    float temperature_k{},heat_capacity_kj_per_k{};
+    float temperature_k{};
+    // Element chunks supply an already rounded binary32 capacity. Solid cells
+    // instead derive capacity from separate native mass and specific heat;
+    // retain that product rather than imposing another binary32 rounding.
+    double heat_capacity_kj_per_k{};
 };
 struct MacNativeHeatReport {
     double requested_heat_j{},body_heat_loss_j{},stored_fluid_heat_j{};

@@ -14,14 +14,17 @@ namespace MixedAtmospheres.Oni
         private const int HeaderBytes=88;
         private static readonly byte[] Magic=System.Text.Encoding.ASCII.GetBytes("MAONID01");
         private readonly byte[] bytes;
+        private readonly int physicalBytes;
         internal ulong Session { get; }
         internal ulong CompletedFrame { get; }
         internal ulong NativeEpoch { get; }
         internal double PhysicalTime { get; }
         internal Configuration Geometry { get; }
-        internal ReadOnlySpan<byte> PhysicalImage=>bytes.AsSpan(HeaderBytes);
-        private NativeDomainCheckpointPayload(byte[] image,ulong session,ulong frame,ulong epoch,double time,Configuration geometry)
-        { bytes=image;Session=session;CompletedFrame=frame;NativeEpoch=epoch;PhysicalTime=time;Geometry=geometry; }
+        internal ReadOnlySpan<byte> PhysicalImage=>bytes.AsSpan(HeaderBytes,physicalBytes);
+        internal NativeTransientParticleImage? TransientParticles { get; }
+        private NativeDomainCheckpointPayload(byte[] image,ulong session,ulong frame,ulong epoch,double time,Configuration geometry,
+            NativeTransientParticleImage? particles=null)
+        { bytes=image;physicalBytes=BinaryPrimitives.ReadInt32LittleEndian(image.AsSpan(84));Session=session;CompletedFrame=frame;NativeEpoch=epoch;PhysicalTime=time;Geometry=geometry;TransientParticles=particles; }
         private static void Require(bool value,string message) { if (!value) throw new InvalidDataException(message); }
         private static void Validate(ulong session,ulong frame,ulong epoch,double time,Configuration geometry,ReadOnlySpan<byte> physical)
         {
@@ -50,13 +53,16 @@ namespace MixedAtmospheres.Oni
                 BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(offset+20))==geometry.Height,
                 "Physical checkpoint clock or grid differs from its saved domain metadata.");
         }
-        internal static NativeDomainCheckpointPayload Create(PairStatus source,ReadOnlySpan<byte> physical)
+        internal static NativeDomainCheckpointPayload Create(PairStatus source,ReadOnlySpan<byte> physical,NativeTransientParticleImage? particles=null)
         {
             Require(source.Size==112 && source.Version==1 && source.State==2 && source.PhysicalBytes==physical.Length,"Paired source is incomplete.");
             Validate(source.Session,source.CompletedFrame,source.NativeEpoch,source.PhysicalTime,source.Configuration,physical);
             Require(physical.Length<=ColonySaveEnvelope.MaximumPayloadBytes-HeaderBytes,"Physical domain section exceeds the envelope limit.");
-            var data=new byte[HeaderBytes+physical.Length]; Magic.CopyTo(data,0);
-            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8),NativeActorCheckpointImage.HasMagic(physical) ? 2 : 1);
+            var transient=particles!=null && particles.Particles.Count>0 ? particles.CopyEncodedData() : Array.Empty<byte>();
+            if(transient.Length>0) particles=NativeTransientParticleImage.Parse(transient,source.Configuration);else particles=null;
+            Require((long)physical.Length+HeaderBytes+(transient.Length>0 ? 4+transient.Length : 0)<=ColonySaveEnvelope.MaximumPayloadBytes,"Transient domain section exceeds the envelope limit.");
+            var data=new byte[HeaderBytes+physical.Length+(transient.Length>0 ? 4+transient.Length : 0)]; Magic.CopyTo(data,0);
+            BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(8),transient.Length>0 ? 3 : NativeActorCheckpointImage.HasMagic(physical) ? 2 : 1);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(12),source.Session);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(20),source.CompletedFrame);
             BinaryPrimitives.WriteUInt64LittleEndian(data.AsSpan(28),source.NativeEpoch);
@@ -64,20 +70,33 @@ namespace MixedAtmospheres.Oni
             var g=source.Configuration;var values=new[]{g.Size,g.Version,g.Flags,g.GridWidth,g.X,g.Y,g.Width,g.Height,g.Scenario,g.Reserved};
             for(var i=0;i<values.Length;++i) BinaryPrimitives.WriteUInt32LittleEndian(data.AsSpan(44+4*i),values[i]);
             BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(84),physical.Length); physical.CopyTo(data.AsSpan(HeaderBytes));
-            return new NativeDomainCheckpointPayload(data,source.Session,source.CompletedFrame,source.NativeEpoch,source.PhysicalTime,g);
+            if(transient.Length>0) {
+                BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(HeaderBytes+physical.Length),transient.Length);
+                transient.CopyTo(data,HeaderBytes+physical.Length+4);
+            }
+            return new NativeDomainCheckpointPayload(data,source.Session,source.CompletedFrame,source.NativeEpoch,source.PhysicalTime,g,particles);
         }
         internal static NativeDomainCheckpointPayload Parse(ReadOnlySpan<byte> data)
         {
             Require(data.Length>=HeaderBytes+32 && data.Length<=ColonySaveEnvelope.MaximumPayloadBytes && data.Slice(0,8).SequenceEqual(Magic) &&
-                (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==1 || BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==2),"Unsupported native-domain checkpoint section.");
-            Require(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(84))==data.Length-HeaderBytes,"Native-domain checkpoint section length differs.");
-            Require(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))==(NativeActorCheckpointImage.HasMagic(data.Slice(HeaderBytes)) ? 2 : 1),
+                (U(data,8)==1 || U(data,8)==2 || U(data,8)==3),"Unsupported native-domain checkpoint section.");
+            var version=U(data,8);var size=BinaryPrimitives.ReadInt32LittleEndian(data.Slice(84));
+            Require(size>=32 && size<=data.Length-HeaderBytes,"Native-domain physical section length differs.");
+            Require(version==3 || (size==data.Length-HeaderBytes && version==(NativeActorCheckpointImage.HasMagic(data.Slice(HeaderBytes,size)) ? 2U : 1U)),
                 "Saved actor extension differs from its enclosing format version.");
             var session=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(12));var frame=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(20));
             var epoch=BinaryPrimitives.ReadUInt64LittleEndian(data.Slice(28));var time=BitConverter.Int64BitsToDouble(BinaryPrimitives.ReadInt64LittleEndian(data.Slice(36)));
             var g=new Configuration{Size=U(data,44),Version=U(data,48),Flags=U(data,52),GridWidth=U(data,56),X=U(data,60),Y=U(data,64),Width=U(data,68),Height=U(data,72),Scenario=U(data,76),Reserved=U(data,80)};
-            Validate(session,frame,epoch,time,g,data.Slice(HeaderBytes));
-            return new NativeDomainCheckpointPayload(data.ToArray(),session,frame,epoch,time,g);
+            Validate(session,frame,epoch,time,g,data.Slice(HeaderBytes,size));
+            NativeTransientParticleImage? particles=null;
+            if(version==3) {
+                var offset=HeaderBytes+size;Require(data.Length-offset>=4,"Missing transient CO2 section length.");
+                var length=BinaryPrimitives.ReadInt32LittleEndian(data.Slice(offset));
+                Require(length==data.Length-offset-4 && length>0,"Transient CO2 section length differs.");
+                particles=NativeTransientParticleImage.Parse(data.Slice(offset+4,length),g);
+                Require(particles.Particles.Count>0,"Empty transient CO2 section must use the legacy domain format.");
+            }
+            return new NativeDomainCheckpointPayload(data.ToArray(),session,frame,epoch,time,g,particles);
         }
         internal void ValidateNativeSection(ReadOnlySpan<byte> native)
         {
@@ -88,9 +107,10 @@ namespace MixedAtmospheres.Oni
                 (ulong)Geometry.Y+Geometry.Height<(ulong)height-2,"Native paired world does not contain its physical domain.");
             Require(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(20))==0 && BinaryPrimitives.ReadInt32LittleEndian(native.Slice(24))==0,
                 "Nonzero native world placement requires cluster restore staging.");
+            TransientParticles?.ValidateGrid(Geometry.GridWidth,checked((uint)height-2));
         }
         internal void ValidateNativeInventory(ReadOnlySpan<byte> native,IReadOnlyDictionary<int,NativeMatterPhase> phases,
-            int vacuumHash,int gasHash,int liquidHash,int wallHash)
+            int vacuumHash,int gasHash,int liquidHash,int wallHash,int? solidContactHash=null)
         {
             ValidateNativeSection(native);
             // Validate every native material, inventory, backwall and guard
@@ -105,8 +125,21 @@ namespace MixedAtmospheres.Oni
                     var boundary=x<Geometry.X || y<Geometry.Y || x>=Geometry.X+Geometry.Width || y>=Geometry.Y+Geometry.Height;
                     var hash=BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset));
                     var mass=BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+8)));
-                    Require(hash==(boundary ? wallHash : (Geometry.Scenario==1 || Geometry.Scenario==3) ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
-                    if(boundary) Require(mass>0,"Saved sealed native boundary is empty.");
+                    var thermal=boundary && solidContactHash.HasValue && hash==solidContactHash.Value && x==(int)Geometry.X-1 && y==Geometry.Y;
+                    Require(hash==(boundary ? thermal ? solidContactHash!.Value : wallHash : (Geometry.Scenario==1 || Geometry.Scenario==3) ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
+                    if(boundary) {
+                        Require(mass>0,"Saved sealed native boundary is empty.");
+                        if(thermal) {
+                            var temperature=BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+4)));
+                            Require(Geometry.X>=3 && mass==10f && temperature>=1 && temperature<=1e6 &&
+                                phases.TryGetValue(hash,out var phase) && phase==NativeMatterPhase.Solid,
+                                "Saved native solid contact has unsupported geometry, mass, temperature or phase.");
+                            var back=index-1;
+                            Require(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(29+16*back))==wallHash &&
+                                BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(29+16*back+8)))==20000f,
+                                "Saved native solid contact lost its insulating backer.");
+                        }
+                    }
                     else
                     {
                         var column=x-(int)Geometry.X;

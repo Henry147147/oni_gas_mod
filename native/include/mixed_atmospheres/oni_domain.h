@@ -239,6 +239,24 @@ typedef struct MAOniDomainChunkHeatStatus {
 MA_ONI_API uint32_t ma_oni_domain_chunk_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus*);
 
+/* Sealed-domain solid boundary admission, ABI 1. Each cell is outside the
+ * fluid rectangle and shares a face with it. Native mass and material index
+ * must still match at every actual temperature-pair contact. Capacity uses
+ * the separate native binary32 mass and specific heat without rounding their
+ * product to binary32. Zero/insulating solids need no registered contact.
+ * Registration is atomic and requires a drained completed source frame. */
+typedef struct MAOniDomainSolidHeatCell {
+    uint32_t struct_size, abi_version, public_cell, native_element_index;
+    uint64_t session, expected_frame;
+    float mass_kg, specific_heat_kj_per_kg_k, conductivity_w_per_m_k;
+    uint32_t native_insulation; /* exact native byte, 0..255 */
+} MAOniDomainSolidHeatCell;
+typedef MAOniDomainChunkHeatStatus MAOniDomainSolidHeatStatus;
+MA_ONI_API uint32_t ma_oni_domain_solid_heat_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell*, uint32_t count,
+    MAOniDomainSolidHeatStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus*);
+
 /* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
  * owned rectangle, at cell centres. Boundary transfers carry the same datum.
  * All values describe the completed frame; pending potential is reserved only. */

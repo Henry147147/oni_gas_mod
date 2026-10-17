@@ -11,6 +11,51 @@ internal static class ActorCheckpointImageTests
 {
     internal static void Run(System.Action<string,System.Action> test,System.Action<bool> check,System.Action<System.Action> reject)
     {
+        test("native solid contact descriptor matches the exact native ABI and captured insulation byte declaration",()=> {
+            check(Marshal.SizeOf<OniNativeDomain.SolidHeatCell>()==48 &&
+                Marshal.OffsetOf<OniNativeDomain.SolidHeatCell>(nameof(OniNativeDomain.SolidHeatCell.Session)).ToInt32()==16 &&
+                Marshal.OffsetOf<OniNativeDomain.SolidHeatCell>(nameof(OniNativeDomain.SolidHeatCell.MassKg)).ToInt32()==32 &&
+                Marshal.OffsetOf<OniNativeDomain.SolidHeatCell>(nameof(OniNativeDomain.SolidHeatCell.NativeInsulation)).ToInt32()==44);
+            check(typeof(Sim.GameDataUpdate).GetField(nameof(Sim.GameDataUpdate.insulation))!.FieldType.GetElementType()==typeof(byte));
+        });
+        test("native solid checkpoint admission requires one supported contact and its insulating backer before native loading",()=> {
+            var image=Fixture();var geometry=NativeActorCheckpointImage.Parse(image).Geometry;
+            var pair=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,Session=1,
+                CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=geometry};
+            var payload=NativeDomainCheckpointPayload.Create(pair,image);
+            var phases=new System.Collections.Generic.Dictionary<int,MixedAtmospheres.Core.Interop.NativeMatterPhase> {
+                [1]=MixedAtmospheres.Core.Interop.NativeMatterPhase.Vacuum,[2]=MixedAtmospheres.Core.Interop.NativeMatterPhase.Gas,
+                [3]=MixedAtmospheres.Core.Interop.NativeMatterPhase.Liquid,[4]=MixedAtmospheres.Core.Interop.NativeMatterPhase.Solid,
+                [5]=MixedAtmospheres.Core.Interop.NativeMatterPhase.Solid};
+            const int width=66,height=34,count=width*height;var native=new byte[29+36*count];
+            Encoding.ASCII.GetBytes("SIMSAVE\0").CopyTo(native,0);BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(8),15);
+            BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(12),width);BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(16),height);
+            int Cell(int x,int y)=>29+16*(x+1+(y+1)*width);
+            void Set(int x,int y,int hash,float mass,float temperature) {
+                var offset=Cell(x,y);BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(offset),hash);
+                BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(offset+4),BitConverter.SingleToInt32Bits(temperature));
+                BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(offset+8),BitConverter.SingleToInt32Bits(mass));
+            }
+            for(var i=0;i<count;++i) {
+                BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(29+16*i),1);
+                BinaryPrimitives.WriteInt32LittleEndian(native.AsSpan(29+24*count+12*i),1);
+            }
+            for(var y=9;y<=12;++y) for(var x=9;x<=13;++x) {
+                var wall=x==9 || x==13 || y==9 || y==12;
+                Set(x,y,wall ? 4 : 2,wall ? 20000 : x==10 ? .6f : x==11 ? 1.2f : 2.4f,wall ? 300 : 280+20*(x-10));
+            }
+            Set(9,10,5,10,399);Set(8,10,4,20000,300);var retained=(byte[])native.Clone();
+            payload.ValidateNativeInventory(native,phases,1,2,3,4,5);
+            reject(()=>payload.ValidateNativeInventory(native,phases,1,2,3,4));
+            foreach(var fault in new[]{0,1,2,3}) {
+                if(fault==0) Set(9,10,5,11,399);
+                if(fault==1) Set(9,10,5,10,0);
+                if(fault==2) Set(8,10,1,0,0);
+                if(fault==3) Set(10,9,5,10,399);
+                reject(()=>payload.ValidateNativeInventory(native,phases,1,2,3,4,5));retained.CopyTo(native,0);
+            }
+            check(native.AsSpan().SequenceEqual(retained));
+        });
         test("persistent native actors have an exact 96-byte ABI and real component registration contracts",()=> {
             check(Marshal.SizeOf<OniNativeDomain.PersistentActorCommand>()==96);
             foreach(var type in new[]{typeof(ElementConsumer),typeof(ElementEmitter)}) {
@@ -77,6 +122,22 @@ internal static class ActorCheckpointImageTests
                 var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
                 check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
             }
+        });
+        test("transient particle extension preserves old payload bytes and coexists with durable actors",()=> {
+            var image=Fixture();var g=NativeActorCheckpointImage.Parse(image).Geometry;
+            var source=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,
+                Session=1,CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=g};
+            var original=NativeDomainCheckpointPayload.Create(source,image).CopyEncodedData();
+            var empty=NativeTransientParticleImage.Create(Array.Empty<NativeTransientParticle>(),g);
+            check(NativeDomainCheckpointPayload.Create(source,image,empty).CopyEncodedData().AsSpan().SequenceEqual(original));
+            var particle=new NativeTransientParticle(7,650,0,new[]{10.5f,10.5f,-.5f,0f,-1f,0f,.03125f,333.25f,3f,0f});
+            var effects=NativeTransientParticleImage.Create(new[]{particle},g);
+            var encoded=NativeDomainCheckpointPayload.Create(source,image,effects).CopyEncodedData();
+            var restored=NativeDomainCheckpointPayload.Parse(encoded);
+            check(BinaryPrimitives.ReadUInt32LittleEndian(encoded.AsSpan(8))==3 && restored.PhysicalImage.SequenceEqual(image) &&
+                restored.TransientParticles!.Particles.Count==1 && restored.TransientParticles.Particles[0].Identity==7);
+            foreach(var size in new[]{encoded.Length-1,original.Length,original.Length+3}) reject(()=>NativeDomainCheckpointPayload.Parse(encoded.AsSpan(0,size)));
+            var bad=(byte[])encoded.Clone();BinaryPrimitives.WriteUInt32LittleEndian(bad.AsSpan(8),2);reject(()=>NativeDomainCheckpointPayload.Parse(bad));
         });
         test("viscous domain framing requires physical version three and preserves its distinct scenario",()=> {
             var image=Fixture();BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(48),6);

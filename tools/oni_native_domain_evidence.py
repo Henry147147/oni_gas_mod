@@ -589,14 +589,92 @@ def _reload_input_comparison_passed(workflow: dict, physical: dict, colony: dict
     except (KeyError,TypeError,AttributeError):return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False) -> bool:
+def _transient_particles_passed(report: dict, restored: bool) -> bool:
+    try:
+        value=report['TransientParticles'];fixture=value['Fixture']
+        if (value.get('Format')!='MACO2P01' or value.get('Version')!=1 or value.get('MaximumParticles')!=4096
+                or value.get('Source')!='original-CO2Manager.SpawnCO2-pool'
+                or value.get('UsesOriginalGameFactory') is not True or value.get('WholeColonyParticlePersistence') is not False
+                or fixture.get('Required') is not True or type(fixture.get('Identity')) is not int or fixture['Identity']<=0
+                or fixture.get('MassKg')!=.03125 or fixture.get('TemperatureK')!=333.25
+                or type(value.get('NativeSaveRootChecks')) is not int or value['NativeSaveRootChecks']<1
+                or type(value.get('SavedCount')) is not int or not 1<=value['SavedCount']<=4096
+                or not _sha256(value.get('SavedSha256'))):return False
+        if not restored:
+            return fixture.get('Seeded') is True and fixture.get('DepositReceipts')==0 and fixture.get('DepositVerified') is False
+        receipt=fixture['Deposit'];physical=report['NativeDomain']
+        return (value.get('RestoreRequired') is True and value.get('Restored') is True
+            and value.get('RestoredCount')==value['SavedCount'] and value.get('RestoredSha256')==value['SavedSha256']
+            and fixture.get('Seeded') is False and fixture.get('DepositReceipts')==1 and fixture.get('DepositVerified') is True
+            and receipt.get('Session')==physical['Session'] and type(receipt.get('CompletedFrame')) is int
+            and 0<receipt['CompletedFrame']<=physical['CompletedFrames'] and receipt.get('Callback')==-1
+            and receipt.get('Kind')==1 and receipt.get('Species')==4 and receipt.get('MassKg')==.03125
+            and receipt.get('Temperature')==333.25)
+    except (KeyError,TypeError,AttributeError):return False
+
+
+def _native_solid_heat_passed(report: dict, restored: bool) -> bool:
+    try:
+        value=report['NativeSolidHeat'];heat=value['Status'];physical=report['NativeDomain']
+        cells=value['ConfiguredCells'];endpoints=value['Endpoints']
+        if (value.get('Required') is not True or value.get('AbiVersion')!=1
+                or value.get('Source')!='actual-native-UpdateTemperature-cell-pair'
+                or value.get('CapacityModel')!='native-mass-times-native-specific-heat-without-binary32-product-rounding'
+                or value.get('ConductivityModel')!='harmonic-conductivity-with-squared-native-insulation-fractions'
+                or value.get('EndpointsVerified') is not True or value.get('NativeOldTemperatureGridPreserved') is not True
+                or value.get('WholeColonySolidHeat') is not False or value.get('ObservedFrame')!=physical['CompletedFrames']
+                or not isinstance(cells,list) or len(cells)!=1 or not isinstance(endpoints,list) or len(endpoints)!=1
+                or heat.get('Size')!=112 or heat.get('Version')!=1 or heat.get('State')!=1 or heat.get('Reserved')!=0
+                or heat.get('Session')!=physical['Session'] or heat.get('CompletedFrame')!=physical['CompletedFrames']):return False
+        for key in ('Contacts','Transfers','Unresolved','Iterations'):
+            if type(heat.get(key)) is not int or heat[key]<0:return False
+        if not 0<heat['Transfers']<=heat['Contacts']<=physical['CompletedFrames'] or heat['Unresolved']>heat['Contacts']:return False
+        for key in ('BodyHeatLossJoules','StoredFluidHeatJoules','MaximumBalanceResidualJoules','MaximumBalanceBoundJoules','EntropyLowerBound','RequestedAbsoluteHeatJoules'):
+            if type(heat.get(key)) not in (int,float) or not math.isfinite(heat[key]):return False
+        if (heat['BodyHeatLossJoules']<=0 or heat['StoredFluidHeatJoules']<=0 or heat['EntropyLowerBound']<0
+                or not 0<=heat['MaximumBalanceResidualJoules']<=heat['MaximumBalanceBoundJoules']
+                or abs(heat['StoredFluidHeatJoules']-heat['BodyHeatLossJoules'])>heat['Contacts']*heat['MaximumBalanceBoundJoules']
+                or heat['RequestedAbsoluteHeatJoules']<abs(heat['BodyHeatLossJoules'])):return False
+        cell=cells[0];end=endpoints[0]
+        if (cell.get('Size')!=48 or cell.get('Version')!=1 or cell.get('Session')!=physical['Session']
+                or cell.get('ExpectedFrame')!=0 or cell.get('MassKg')!=10 or type(cell.get('NativeElementIndex')) is not int
+                or not 0<=cell['NativeElementIndex']<=65535 or type(cell.get('NativeInsulation')) is not int
+                or not 0<=cell['NativeInsulation']<=255 or cell.get('PublicCell')!=report['TargetCell']-1
+                or end.get('PublicCell')!=cell['PublicCell'] or end.get('MassKg')!=10):return False
+        cp=struct.unpack('<f',struct.pack('<f',cell['SpecificHeatKJPerKgK']))[0]
+        conductivity=struct.unpack('<f',struct.pack('<f',cell['ConductivityWPerMK']))[0]
+        if not 0<cp<math.inf or not 0<conductivity<math.inf or end.get('SpecificHeatKJPerKgK')!=cp:return False
+        capacity=10*cp*1000;before=end['BeforeTemperatureK'];after=end['PublishedTemperatureK']
+        if (end.get('HeatCapacityJoulesPerKelvin')!=capacity or not 1<=after<before<=1e6
+                or struct.unpack('<f',struct.pack('<f',before))[0]!=before
+                or struct.unpack('<f',struct.pack('<f',after))[0]!=after):return False
+        loss=capacity*(before-after);residual=loss-heat['BodyHeatLossJoules']
+        bound=128*2.220446049250313e-16*(capacity*(abs(before)+abs(after))+abs(loss)+abs(heat['BodyHeatLossJoules']))
+        if (value.get('ObservedSolidHeatLossJoules')!=loss or value.get('ObservedBalanceResidualJoules')!=residual
+                or value.get('ObservedBalanceBoundJoules')!=bound or abs(residual)>bound):return False
+        if restored:
+            replay=report['ColonyCheckpoint']['FrameInputReplay']
+            if replay.get('ActorRefreshFramesCompared')!=0 or replay.get('HeatBatches',0)<1:return False
+        return True
+    except (KeyError,TypeError,AttributeError,ValueError,OverflowError,struct.error):return False
+
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
+    solid=report.get('NativeSolidHeat',{})
+    if not isinstance(solid,dict):return False
+    if (solid_heat or solid.get('Required') is True) and not _native_solid_heat_passed(report,restored):return False
     breathing=report.get('LiveBreathing',{})
     if not isinstance(breathing,dict):return False
     if (live_breathing or breathing.get('Required') is True) and not _live_breathing_passed(report,report.get('NativeDomain',{}),restored):
         return False
+    particles=report.get('TransientParticles',{})
+    if not isinstance(particles,dict) or not isinstance(particles.get('Fixture',{}),dict):return False
+    if (transient_particles or particles.get('Fixture',{}).get('Required') is True) and not _transient_particles_passed(report,restored):
+        return False
+    if subnormal_carbon_particle and not carbon_particle:return False
     if reload_in_process and not restored:
         return False
     if save_io_recovery and (not saved or restored):
@@ -665,9 +743,16 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if carbon_particle:
         particle = report.get("CarbonParticle")
         account = report.get("GasTransfers")
+        tiny=subnormal_carbon_particle or isinstance(particle,dict) and particle.get("SubnormalInput") is True
+        expected_mass=math.ldexp(1.,-149) if tiny else .03125
+        if tiny:
+            if not isinstance(particle,dict) or particle.get('SubnormalInput') is not True or type(particle.get('InputMassBits')) is not int or particle['InputMassBits']!=1:return False
+            current=particle.get('FinalCarbonDioxideMassKg')
+            if (particle.get('InitialCarbonDioxideMassKg')!=0 or type(current) not in (int,float) or not 0<current<math.inf
+                    or abs(current-expected_mass)>128*2.220446049250313e-16*(current+expected_mass)):return False
         if (not isinstance(particle, dict) or not isinstance(account, dict)
                 or any(particle.get(key) is not True for key in ("Required", "Started", "Verified", "ParticleRetired", "NativeDispatchAvoided"))
-                or particle.get("Source") != "CO2Manager.SpawnBreath" or particle.get("MassKg") != .03125
+                or particle.get("Source") != "CO2Manager.SpawnBreath" or particle.get("MassKg") != expected_mass
                 or particle.get("TemperatureK") != 310 or particle.get("Receipts") != 1
                 or particle.get("RetirementObservedBy") != "CO2Manager.Sim33ms-postfix"
                 or type(particle.get("ParticleRetirementUnityFrame")) is not int or particle["ParticleRetirementUnityFrame"] <= 0
@@ -680,14 +765,14 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(particle.get("SourceFrame")) is not int or type(particle.get("CompletedFrame")) is not int
                 or not 0 < particle["SourceFrame"] < particle["CompletedFrame"] <= physical["CompletedFrames"]
                 or account.get("PendingBatches") != 0 or account.get("AcceptedBatches") != 1 or account.get("CommittedBatches") != 1
-                or account.get("UnacknowledgedReceipts") != 0 or account.get("MassChangesKg") != [0, 0, 0, 0, .03125]
+                or account.get("UnacknowledgedReceipts") != 0 or account.get("MassChangesKg") != [0, 0, 0, 0, expected_mass]
                 or account.get("KineticEnergyChange") != 0):
             return False
         receipt = particle.get("Receipt")
         if (not isinstance(receipt, dict) or receipt.get("Session") != physical["Session"]
                 or receipt.get("CompletedFrame") != particle["CompletedFrame"]
                 or receipt.get("Sequence") != 1 or receipt.get("Kind") != 1 or receipt.get("Callback") != -1
-                or receipt.get("Species") != 4 or receipt.get("MassKg") != .03125 or receipt.get("Temperature") != 310
+                or receipt.get("Species") != 4 or receipt.get("MassKg") != expected_mass or receipt.get("Temperature") != 310
                 or type(receipt.get("InternalEnergy")) not in (int, float) or not math.isfinite(receipt["InternalEnergy"])
                 or receipt["InternalEnergy"] != account.get("MaterialEnergyChange") or receipt.get("KineticEnergy") != 0):
             return False
@@ -1042,11 +1127,13 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("mixed", "mixed-heat", "viscous", "radius", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("solid-heat", "mixed", "mixed-heat", "viscous", "radius", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
     parser.add_argument("--live-breathing",action="store_true",help="Require actual duplicant world-provider requests, physical receipts and original callbacks")
+    parser.add_argument("--subnormal-carbon-particle",action="store_true",help="Require the smallest positive native binary32 CO2 input and retained trace")
+    parser.add_argument("--transient-particles",action="store_true",help="Require exact saved native CO2 particles and one original deposit")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -1062,7 +1149,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode in ("transfer", "radius"), actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            live_breathing=args.live_breathing,persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            live_breathing=args.live_breathing,solid_heat=args.mode=="solid-heat",subnormal_carbon_particle=args.subnormal_carbon_particle,transient_particles=args.transient_particles,persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

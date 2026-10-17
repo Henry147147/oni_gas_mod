@@ -23,6 +23,15 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The [solid-cell heat bridge](native-solid-heat.md) registers native boundary
+faces and couples their actual temperature-pair calls to the full-EOS fluid
+owner. Licensed gas/water controls pass on Linux and Windows native libraries;
+actual Unity source/save/reload acceptance is in progress.
+The [transient particle section](native-transient-particles.md) retains in-flight
+CO2 parcels alongside the paired fluid/native snapshot. The game keeps control
+of movement and deposition after exact field restoration through its original
+pool. Its fresh Linux source/save and two 120-frame reload sessions pass;
+WindowsPlayer and cross-player controls are in progress.
 The [accepted frame-input journal](native-frame-inputs.md) adds ordered,
 source-bound replay of external heat and mass requests for saved continuation.
 Its native controls pass; actual Unity acceptance remains pending.
