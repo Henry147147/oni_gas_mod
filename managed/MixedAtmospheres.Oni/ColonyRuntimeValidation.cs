@@ -492,7 +492,6 @@ namespace MixedAtmospheres.Oni
         private readonly HashSet<int> visited = new HashSet<int>();
         internal void Initialize(MainMenu mainMenu)
         {
-            foreach(var label in GetComponents<NativeSealedDomainLabel>()) UnityEngine.Object.Destroy(label);
             menu=mainMenu;started=Time.realtimeSinceStartup;nextAction=started+3;
             completionWaitFrames=0;minionsReadyAt=-1;visited.Clear();
         }

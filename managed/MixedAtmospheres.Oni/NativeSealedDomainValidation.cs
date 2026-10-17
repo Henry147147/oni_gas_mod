@@ -74,6 +74,8 @@ namespace MixedAtmospheres.Oni
         private static IReadOnlyDictionary<int, MixtureThermodynamicReading>? publishedReadings;
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
+        internal static bool Failed => failed;
+        internal static string FailureMessage => error;
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => RectangularConsumptionMode || RadialConsumptionMode || MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
@@ -344,7 +346,6 @@ namespace MixedAtmospheres.Oni
             SimMessages.ReplaceElement(hotSolid, SimHashes.Granite, eventId, 1000, 350);
             SimMessages.ReplaceElement(coldSolid, SimHashes.Granite, eventId, 1000, 250);
             SpeedControlScreen.Instance.Unpause(false);
-            UnityEngine.Object.FindFirstObjectByType<ColonyValidationDriver>().gameObject.AddComponent<NativeSealedDomainLabel>();
             ColonyRuntimeValidation.SetStage("preparing-sealed-native-domain"); WriteReport();
         }
         private static bool BoundaryReady(bool requireFluidIdentity = true)
@@ -798,16 +799,6 @@ namespace MixedAtmospheres.Oni
             ObserveReloadShutdown();
             ResetEndedNativeSession();
         }
-        internal static void DrawLabel()
-        {
-            if (!prepared) return;
-            var saveStatus = failed || !active || latest.State != 1
-                ? "Colony saves blocked until the native domain is ready."
-                : "Paired colony saves require a completed state, drained callbacks and stable saved actor identities.";
-            GUI.Box(new Rect(Screen.width * .12f, 100, Screen.width * .76f, 80),
-                "SEALED NATIVE FLUID DOMAIN · " + (MixedPhaseMode ? "gas/liquid coexistence" : Liquid ? "compressed water" : "mixed air") + "\n" +
-                latest.CompletedFrames + " native frames · 6 owned cells · surrounding colony: original ONI\n" + saveStatus);
-        }
         private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
         private static void Check(int value) { if (value != 0) throw new InvalidOperationException("Native sealed domain " + value + ": " + Marshal.PtrToStringAnsi(LastError())); }
         // Match the inspected private Sim import, bypassing its managed save
@@ -816,7 +807,6 @@ namespace MixedAtmospheres.Oni
         private static extern byte* ProbeNativeBeginSave(int* size, int width, int height);
 
     }
-    public sealed class NativeSealedDomainLabel : MonoBehaviour { private void OnGUI() => NativeSealedDomainValidation.DrawLabel(); }
     [HarmonyPatch(typeof(Sim), nameof(Sim.Save))]
     internal static class NativeSealedDomainSaveGuard
     {

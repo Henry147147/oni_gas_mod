@@ -479,7 +479,6 @@ namespace MixedAtmospheres.Oni
                 restoredSceneStarted=true;initialHot=Grid.Temperature[hotSolid];initialCold=Grid.Temperature[coldSolid];
                 var center=Grid.CellToPosCCC(target,Grid.SceneLayer.Background);CameraController.Instance.SnapTo(center);
                 CameraController.Instance.SetTargetPos(center,20,false);CameraController.Instance.OrthographicSize=7;
-                UnityEngine.Object.FindFirstObjectByType<ColonyValidationDriver>().gameObject.AddComponent<NativeSealedDomainLabel>();
                 SpeedControlScreen.Instance.Unpause(false);ColonyRuntimeValidation.SetStage("running-restored-native-colony");
             }
             nativeSolidsAdvanced=Grid.Temperature[hotSolid]<initialHot && Grid.Temperature[coldSolid]>initialCold;

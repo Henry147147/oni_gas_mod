@@ -464,6 +464,8 @@ namespace MixedAtmospheres.Oni
 
     internal sealed class RuntimeMixturePresentationFrame
     {
+        private static readonly IReadOnlyDictionary<int, MixturePresentation> NoCells =
+            new ReadOnlyDictionary<int, MixturePresentation>(new Dictionary<int, MixturePresentation>());
         private readonly MixturePresentationFrame? world;
         private readonly bool includeWorldCells;
         private readonly IReadOnlyDictionary<int, MixturePresentation>? fixtures;
@@ -478,6 +480,10 @@ namespace MixedAtmospheres.Oni
         internal IReadOnlyDictionary<string, MixturePresentation> Inventories { get; }
         internal IReadOnlyDictionary<string, string> InventoryErrors { get; }
         internal bool HasWorld => (world != null && includeWorldCells) || fixtures != null;
+        // Explicit supplied readings, never inferred from native dominant elements.
+        // Empty owned cells may be sampled through TryGetCell without an entry here.
+        internal IReadOnlyDictionary<int, MixturePresentation> SuppliedCells =>
+            fixtures ?? (includeWorldCells ? world?.Cells : null) ?? NoCells;
 
         internal RuntimeMixturePresentationFrame(int unityFrame, long generation, long sessionEpoch, MixturePresentationModel model,
             MixturePresentationFrame? world, IReadOnlyDictionary<int, MixturePresentation>? fixtures, int width, int height,
