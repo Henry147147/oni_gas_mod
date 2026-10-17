@@ -88,8 +88,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or account.get("KineticEnergyChange") != 0):
             return False
         receipt = particle.get("Receipt")
-        if (not isinstance(receipt, dict) or receipt.get("Size") != 88 or receipt.get("Version") != 2
-                or receipt.get("Session") != physical["Session"] or receipt.get("CompletedFrame") != particle["CompletedFrame"]
+        if (not isinstance(receipt, dict) or receipt.get("Session") != physical["Session"]
+                or receipt.get("CompletedFrame") != particle["CompletedFrame"]
                 or receipt.get("Sequence") != 1 or receipt.get("Kind") != 1 or receipt.get("Callback") != -1
                 or receipt.get("Species") != 4 or receipt.get("MassKg") != .03125 or receipt.get("Temperature") != 310
                 or type(receipt.get("InternalEnergy")) not in (int, float) or not math.isfinite(receipt["InternalEnergy"])

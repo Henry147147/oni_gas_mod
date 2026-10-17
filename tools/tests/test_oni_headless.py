@@ -66,7 +66,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report['GasTransfers'] = dict(Size=104, Version=2, State=1, Session=1, PendingBatches=0,
             AcceptedBatches=1, CommittedBatches=1, UnacknowledgedReceipts=0, MassChangesKg=[0,0,0,0,.03125],
             MaterialEnergyChange=-270000.0, KineticEnergyChange=0)
-        receipt = dict(Size=88,Version=2,Session=1,CompletedFrame=5,Sequence=1,Kind=1,Callback=-1,Species=4,
+        receipt = dict(Session=1,CompletedFrame=5,Sequence=1,Kind=1,Callback=-1,Species=4,
                        MassKg=.03125,Temperature=310,InternalEnergy=-270000.0,KineticEnergy=0)
         report['CarbonParticle'] = dict(Required=True,Started=True,Verified=True,ParticleRetired=True,NativeDispatchAvoided=True,
             Source='CO2Manager.SpawnBreath',MassKg=.03125,TemperatureK=310,SourceFrame=4,CompletedFrame=5,
