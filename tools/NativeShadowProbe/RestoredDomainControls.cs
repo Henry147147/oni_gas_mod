@@ -26,7 +26,8 @@ internal static unsafe partial class Program
         for(var fault=0;fault<8;++fault)
         {
             var inner=payload.CopyEncodedData();
-            if(fault<3) Array.Clear(inner,12+8*fault,8);
+            if(fault==0 || fault==2) Array.Clear(inner,12+8*fault,8);
+            if(fault==1) Array.Clear(inner,48,4);
             if(fault==3) System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(inner.AsSpan(36),BitConverter.DoubleToInt64Bits(double.NaN));
             if(fault==4) Array.Clear(inner,44,4);
             if(fault==5) Array.Clear(inner,68,4);
@@ -114,6 +115,8 @@ internal static unsafe partial class Program
         }
         Require(restored.FallingLiquidEvents==0 && restored.OreEvents==0,"Restoring compatibility cells emitted material.");
         report["restoreZeroTimeFlagsAndCompatibilityVerified"]=true;report["restoreOutsideCellsUnchanged"]=true;
+        VerifyPairedCheckpoint(sim,contract,observer,status,report);
+        report["restoredFrameZeroPairVerified"]=true;
         var expected=physical;var expectedTime=admitted.PhysicalTime;var trace=new List<object>();
         Stage("advance-restored-native-worker");
         for(var frame=1;frame<=12;++frame)

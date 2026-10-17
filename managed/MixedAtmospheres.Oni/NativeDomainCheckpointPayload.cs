@@ -25,7 +25,7 @@ namespace MixedAtmospheres.Oni
         private static void Require(bool value,string message) { if (!value) throw new InvalidDataException(message); }
         private static void Validate(ulong session,ulong frame,ulong epoch,double time,Configuration geometry,ReadOnlySpan<byte> physical)
         {
-            Require(session>0 && frame>0 && epoch>0 && !double.IsNaN(time) && !double.IsInfinity(time) && time>0,"Invalid physical checkpoint source epoch/clock.");
+            Require(session>0 && epoch>0 && !double.IsNaN(time) && !double.IsInfinity(time) && time>0,"Invalid physical checkpoint source epoch/clock.");
             Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=2 &&
                 geometry.Width>=2 && geometry.Width<=16 && geometry.Height>=2 && geometry.Height<=16 && geometry.X>0 && geometry.Y>0 &&
                 (ulong)geometry.X+geometry.Width<geometry.GridWidth,"Invalid saved native domain geometry.");

@@ -40,6 +40,9 @@ internal static unsafe partial class Program
             "A public grid with the wrong native pitch was accepted or changed its output.");
         report["wrongNativePitchRejectedBeforeActivation"] = true;
         Require(OniNativeDomain.Begin(ref config, ref status) == 0, "Domain start failed: " + Marshal.PtrToStringAnsi(OniNativeDomain.LastError()));
+        var premature=OniNativeDomain.PairStatus.Empty;
+        Require(OniNativeDomain.RequestPair(status.Session,0,0,0,ref premature)==3 && premature.Token==0,
+            "A never-advanced initial physical owner was admitted as a completed paired source.");
         var initialPhysical = new OniNativeDomain.Cell[6];
         Require(OniNativeDomain.Copy(ref status, initialPhysical, 6) == 0, "Initial physical domain did not copy.");
         var initialGravity = OniNativeDomain.GravityStatus.Empty;

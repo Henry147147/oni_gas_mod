@@ -102,6 +102,10 @@ session/frame on the activation thread and returns a pending token. The native
 zero-time synchronization frame can complete this request while physical time
 stays fixed. The 112-byte status records the actual captured frame, native
 epoch, capture thread, geometry, time and both lengths.
+An already restored owner may capture publication frame zero when its saved
+physical time is positive. This permits saving a paused loaded colony before
+its first new timestep. A never-advanced initial owner at time zero still
+rejects; the activation-thread and drained-source requirements remain in force.
 
 `ma_oni_domain_pair_poll` observes completion; `ma_oni_domain_pair_copy` copies
 the retained immutable buffers. Neither repeats native saving. Undersized or

@@ -665,7 +665,7 @@ MAOniResult ma_oni_domain_pair_request(std::uint64_t session,std::uint64_t frame
         auto candidate=std::make_unique<DomainPair>(); MAOniDomainStatus source{};
         try { ma::oni::domain_checkpoint_source(session,frame,candidate->status.configuration,source); }
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
-        if (!source.completed_frames || source.start_thread!=native_thread())
+        if ((!source.completed_frames && source.time_seconds<=0) || source.start_thread!=native_thread())
             throw Failure(MA_ONI_BUSY,"Paired request requires a completed frame on its activation thread");
         if (pair_sequence==UINT64_MAX) throw Failure(MA_ONI_BUSY,"Paired checkpoint token range exhausted");
         candidate->x=x; candidate->y=y;
