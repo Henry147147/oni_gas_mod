@@ -91,8 +91,12 @@ The subsequent [swept physical momentum mode](../native/MAC_SWEPT_MOMENTUM.md)
 implements the reproduced dual-geometry and completed-state admission repairs.
 Windows, Linux and sanitizer controls pass 138 actual affine readings and all
 72 checkpoint continuations per platform, including both true one-dimensional
-axes. Full prerequisites, strong flow and production acceptance remain open;
-the default is unchanged.
+axes. The subsequent full prerequisite run passes 185 groups and 30 saved
+reviews per normal OS and under sanitizers; a published deformed-EOS control
+verifies an actual intermediate correction, bringing verification to 186 groups
+and 31 reviews per platform. The changed-method strong run passes Sod and still
+fails collision density refinement (0.856332 versus 0.85). Strong flow and
+production acceptance remain open; the default is unchanged.
 
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.

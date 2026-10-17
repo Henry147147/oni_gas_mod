@@ -232,11 +232,15 @@ physics, reserved metabolism/devices and live-actor persistence remain open.
   density-aware opacity and composition textures, plus composition, pressure,
   oxygen partial-pressure and breathability overlays. Windows disposable
   fixtures exercise changing mixtures, paused inspection, zoom and UI scaling.
-  Tile hover lists every non-trace gas and its mole percentage; hazardous trace
-  warnings remain visible. This is an explicit [first-playable requirement](docs/completion-plan.md#d-first-playable-development-colony).
+  Tile hover lists every non-trace gas and its mole percentage directly, without
+  a click or top-N limit; hazardous trace warnings remain visible. This is an
+  explicit [first-playable requirement](docs/completion-plan.md#d-first-playable-development-colony).
   Windows V54 passes the four-gas native hover fixture, including the trace
-  cutoff and 125% UI scale. Linux hover and production colony binding remain
-  required; the earlier failed UI runs remain recorded.
+  cutoff and 125% UI scale. The later Linux four-case native mouse-hover control
+  also passes, including the repaired 125% tooltip at 1280 by 720. Every bulk
+  row and hazardous trace warning remains visible. Production colony binding
+  and actual Windows verification of the viewport repair remain required;
+  the earlier failed UI runs remain recorded.
 - An explicit two-reservoir ownership experiment with conserved transfers,
   native-empty storage, native meter/logic queries, mutation fences and orphan
   recovery. Windows Unity acceptance passes; native pipe/heat/power gameplay

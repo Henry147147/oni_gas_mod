@@ -5,8 +5,16 @@ reproduces a geometry error before limiting and an unnecessarily rejected
 physical translation candidate. The implemented
 [swept physical momentum replacement](MAC_SWEPT_MOMENTUM.md) now passes 24
 actual-state controls and 72 continuations on each OS and under sanitizers.
-Its full prerequisite review and changed-method strong run remain pending;
-this strong-flow gate is still incomplete.
+Its complete prerequisites and additional intermediate EOS admission control
+pass 186 groups and 31 saved reviews on each OS and under sanitizers. The
+changed-method Windows strong run passes Sod, then fails collision density
+refinement: 0.856332 / 0.795889 / 0.613329 for density/pressure/velocity against
+0.85. All five completed profiles meet their individual physical criteria in
+59,205 saved checks. Native exit 1 follows 67.12 seconds without timeout;
+collision N256, separation and Linux strong flow remain unexecuted. The
+default stays 1 and no original scientific input or limit changes. Retained
+terminal SHA256:
+`43eb2b4485940d8f14e7b4e0ce7765897795472cee7736e7bfc01d0a125898ca`.
 
 The latest [quadratic momentum admission](MAC_QUADRATIC_LIMITER.md), combined
 with swept material reconstruction, also fails collision density refinement:

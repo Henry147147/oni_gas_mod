@@ -68,11 +68,30 @@ checkpoint reads preserve their original images and exact local continuation.
 Independent Windows/Linux computations are not required to produce identical
 checkpoint bytes.
 
-The lower-temperature boundary control correctly accepts its safe full
-correction. A separate upper-boundary control rejects both the unsafe full
-candidate and unsafe donor fallback without changing its source. A nontrivial
-intermediate global correction-fraction witness is still required; the current
-boundary control must not be represented as one.
+The original lower-temperature boundary control correctly accepts its safe
+full correction. A separate upper-boundary control rejects both the unsafe
+full candidate and unsafe donor fallback without changing its source.
+
+A subsequent two-dimensional deformed remap exercises actual intermediate
+admission. Its unrestricted candidate reaches 299.9620683 K, while its donor
+fallback remains above 300.0009458 K. A fixture-only EOS lower boundary of
+300 K selects correction fraction 0.3356288673, with 30 rejected candidates on
+Windows and 28 on Linux/ASan. The returned temperature retains the original
+EOS arithmetic allowance of 32 epsilons; it is not clipped or warmed to a floor.
+An independent 80-digit reading of the canonical state verifies that original
+boundary and all original conservation/entropy bounds. All three platforms
+pass 7,014 saved checks and three corruption rejections. This does not change
+any production or strong-flow model boundary. Private witness evidence is
+`local/mac-swept-admission-r1`, terminal SHA256
+`8cb7108b4b18e04ec721e5619197666522ef7ad1df403001537d350e92bc8025`.
+The published `ma_mac_physical_admission_tests` and saved reader preserve that
+fixture verbatim. Strict captured public builds pass on all three platforms,
+and every native stream is byte-identical to its matching private capture.
+Together with the complete prerequisites, this gives 186 groups and 31 saved
+reviews per platform. All 97 checked numerical inputs remain unchanged, and
+the CMake difference adds only this explicit test target and its options.
+Public readiness SHA256:
+`91776d52c534ec3670ada129a8fd6481985951ef332c9e3fcf48e7506d216109`.
 
 The initial global work restriction failed the consistent affine control at
 a stationary face. That failed capture is retained; the per-edge work limiter
@@ -89,13 +108,36 @@ covering the new source and linked numerical dependencies. Every owned process
 and pipe is terminal. This evidence precedes only an explicit standard-library
 include added to the public header; numerical source and test bodies match.
 
+The subsequent full `local/mac-swept-physical-owner-r1` cohort compiles that
+final header and passes 185 groups and 30 saved reviews on each normal OS and
+under Linux ASan/UBSan. It retains all 179 previous prerequisites and adds the
+six physical-mode groups. Both normal backend ABI/detour controls pass, and
+all three Windows game libraries are freshly built. The merged GPU-coordinate
+adapter passes 126 Windows snapshot groups and builds with only the two known
+MSB3277 reference conflicts; four WSL runner suites pass 116 tests without
+skips. No game is launched. Both protected DLLs remain unchanged. Component
+readiness SHA256:
+`394416315e267b3158b1265a95cc4e405d959e26b2fdf578184eb94b04195a27`.
+
 ## Remaining acceptance
 
-Complete the full original prerequisites and independent saved reviews before
-running the changed method through the original strong-flow gate. Keep its
-grids, timesteps, coefficients, norms, 180-second budget and 2-MiB capture bound.
-The previous selector-2 strong result remains failed and is not rerun unchanged.
-Do not promote selector 3 on the strength of affine or checkpoint controls.
+The changed-method Windows run passes all three Sod resolutions, then fails
+the original collision density refinement bound. Density/pressure/velocity
+ratios are 0.8563318058 / 0.7958889962 / 0.6133285918 against 0.85. Density L1
+falls from 0.04270701864 at N64 to 0.03657137839 at N128. No grid, timestep,
+coefficient, norm, 180-second budget or 2-MiB capture bound changes.
+
+The native process exits 1 after 67.12 seconds without timeout. Its complete
+573,152-byte stream passes the 59,205-check partial reader; all five completed
+profiles meet their individual physical/accounting criteria. Collision N256,
+all separating-flow profiles and Linux strong flow remain unexecuted. The same
+failed method is not repeated on Linux. This result improves the components
+and diagnoses their limits; it does not pass the strong-flow gate. Selector 3
+remains opt-in and the default stays 1. Retained strong terminal-review SHA256:
+`43eb2b4485940d8f14e7b4e0ce7765897795472cee7736e7bfc01d0a125898ca`.
+
+Investigate the remaining accuracy defect before a distinct-method retry.
+The previous selector-2 failure retains its own status and evidence.
 
 Production world ownership, exact vacuum, physical material/phase/device
 coverage, metabolism, live actors, Windows/Linux game UI, performance and the
