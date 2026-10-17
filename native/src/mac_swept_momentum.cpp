@@ -213,13 +213,24 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
                 MacScaled::from_parts(reduced,event.transported_work_limiter.exponent());
         }
         if (!work_admitted) precision("Swept MAC transported work limiter cannot resolve its original budget");
-        const auto linear=product(mac_scaled_difference(ul,ur),event.impulse).shifted(-1);
-        event.work_change_left=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.left],event.impulse).negated());
-        event.work_change_right=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.right],event.impulse).negated());
-        if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux) {
-            const auto work_difference=mac_scaled_difference(requested_work,event.energy_flux);
-            event.work_change_left=sum(event.work_change_left,work_difference);
-            event.work_change_right=sum(event.work_change_right,work_difference.negated());
+        if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux &&
+            exceeds(MacScaled::from_double(1),event.transported_work_limiter)) {
+            // The same compatible law, evaluated per side. Forming rounded
+            // (ul-ur)*dJ/2 first and then adding the opposite carried-energy
+            // difference can erase dJ^2/(2I) at a stationary face. Keep the
+            // side's work operands in one additive expansion instead.
+            MacEnergySum left_work,right_work;
+            left_work.add(product(ul,event.impulse));
+            left_work.add(MacEnergy::kinetic(report.new_inertia[edge.left],event.impulse).negated());
+            left_work.add(event.energy_flux.negated());
+            right_work.add(product(ur,event.impulse).negated());
+            right_work.add(MacEnergy::kinetic(report.new_inertia[edge.right],event.impulse).negated());
+            right_work.add(event.energy_flux);
+            event.work_change_left=represented(left_work);event.work_change_right=represented(right_work);
+        } else {
+            const auto linear=product(mac_scaled_difference(ul,ur),event.impulse).shifted(-1);
+            event.work_change_left=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.left],event.impulse).negated());
+            event.work_change_right=sum(linear,MacEnergy::kinetic(report.new_inertia[edge.right],event.impulse).negated());
         }
         MacScaledSum left, right; left.add(event.before_left); left.add(event.impulse.negated());
         right.add(event.before_right); right.add(event.impulse);

@@ -35,6 +35,22 @@ def main():
             rejected.append(name)
         else:
             raise ValueError('Corrupted saved stream accepted: ' + name)
+    lines = raw.decode('ascii').splitlines()
+    index = next(i for i, line in enumerate(lines) if line.startswith('SWEVENT ') and
+                 int(line.split()[1]) >= 28 and float(line.split()[16]) == 0 and
+                 float(line.split()[20]) == 0 and float(line.split()[24]) != 0 and
+                 float(line.split()[26]) == 0 and float(line.split()[30]) != 0)
+    row = lines[index].split()
+    row[30] = row[31] = '0'
+    lines[index] = ' '.join(row)
+    try:
+        review(('\n'.join(lines) + '\n').encode('ascii'))
+    except ValueError as error:
+        if str(error) != 'Original right pair-work account':
+            raise ValueError('Tiny cold-work corruption reached the wrong guard: ' + str(error))
+        rejected.append('tiny-stationary-work')
+    else:
+        raise ValueError('Erased tiny stationary work accepted')
     result.update(InputSha256=hashlib.sha256(raw).hexdigest(), NativeProcessLaunched=False,
                   AnalysisSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                   SharedReaderSha256=hashlib.sha256(Path(swept.__file__).read_bytes()).hexdigest(),

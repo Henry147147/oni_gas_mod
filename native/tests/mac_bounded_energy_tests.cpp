@@ -16,10 +16,10 @@ void affine(int id, int axis, int control, int direction, int exponent, std::siz
     const auto& set=ma::testing::setup(); constexpr std::size_t n=10;
     auto source=set.state(axis==0 ? n : transverse, axis==0 ? transverse : n, false);
     auto& g=source.grid; g.periodic_x=axis==1 && transverse>1; g.periodic_y=axis==0 && transverse>1;
-    const double a=control==5 ? direction*-.625 : control==2 ? 1 : control==4 ? -.125 : .25;
-    const double b=control==5 ? direction*.125 : control==2 ? 0 : .125;
+    const double a=control>=5 ? direction*-.625 : control==2 ? 1 : control==4 ? -.125 : .25;
+    const double b=control>=5 ? direction*.125 : control==2 ? 0 : .125;
     std::array<double,n+1> q{};
-    for (std::size_t f=1;f<n;++f) q[f]=control==5 ? direction*(static_cast<double>(f)-5)/(64-direction) : direction*(control==3 ? 0 : control==1 ? .125 : static_cast<double>(f-1)/64);
+    for (std::size_t f=1;f<n;++f) q[f]=control==6 ? direction*std::ldexp(static_cast<double>(f)-5,-80) : control==5 ? direction*(static_cast<double>(f)-5)/(64-direction) : direction*(control==3 ? 0 : control==1 ? .125 : static_cast<double>(f-1)/64);
     MacMassFluxes sweeps{std::vector<double>(g.x_width()*g.height),std::vector<double>(g.width*g.y_height())};
     std::vector<double> volumes(source.cells.size());
     for (std::size_t i=0;i<source.cells.size();++i) {
@@ -55,7 +55,7 @@ void affine(int id, int axis, int control, int direction, int exponent, std::siz
     for (std::size_t other=0;other<transverse;++other) for (std::size_t f=4;f<=6;++f) {
         const auto face=axis==0 ? g.x_face(f,other) : g.y_face(other,f);
         const auto expected=scale.multiplied(report.new_inertia[face]*(a+b*static_cast<double>(f)));
-        if (control==5 && expected.is_zero()) {
+        if (control>=5 && expected.is_zero()) {
             MacScaledSum residual, allowance;
             residual.add(actual[face]);residual.add(expected.negated());
             for (const auto& value:{actual[face],expected,report.upwind_momentum[face]}) allowance.add(value.magnitude().shifted(-45));
@@ -190,8 +190,10 @@ int main(int argc,char** argv) { try {
     for (int axis=0;axis<2;++axis) affine(id++,axis,0,1,-1200);
     for (int axis=0;axis<2;++axis) affine(id++,axis,0,1,0,1);
     for (int axis=0;axis<2;++axis) for (const int direction:{-1,1}) affine(id++,axis,5,direction,0);
+    for (int axis=0;axis<2;++axis) for (const int direction:{-1,1}) affine(id++,axis,6,direction,0);
     invalid(); std::cout << "SWCOMPLETE " << id << '\n';
     std::cout << "PASS stagnation affine controls and original-mode defect\n";
+    std::cout << "PASS tiny stationary-donor compatible work\n";
     std::cout << "PASS actual stored affine controls, both axes and sweep signs\n";
     std::cout << "PASS kinematically consistent affine control\n";
     std::cout << "PASS below-binary64 full momentum remap\n";

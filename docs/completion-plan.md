@@ -120,6 +120,15 @@ configuration, plus cross-OS image reads. Eight existing-mode streams remain
 byte identical. Full prerequisites, strong-flow accuracy and production remain
 open; the default remains selector 1.
 
+Its complete 216-group/36-review prerequisite suite then passes on all three
+configurations. The first strong attempt stops before a complete profile on a
+paired-work guard. A saved-operand diagnostic identifies cancellation of tiny
+work at a stationary face. The same analytic law evaluated per side passes
+eight new scoped groups and 231,450 saved checks per platform, including a
+regression that fails with the original libraries. Fresh complete prerequisites
+and strong-flow accuracy remain open; see the linked investigation for retained
+failures and exact scope.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.

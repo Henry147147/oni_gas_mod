@@ -101,3 +101,76 @@ All processes and pipes are terminal. The checked shared reader is promoted
 with identical normalized source. Explicit selector-4 intermediate admission,
 complete prerequisites, strong flow and game acceptance remain to be checked.
 Independent agent review is unavailable for this evidence and is not claimed.
+
+## Complete prerequisites and the first strong attempt
+
+The complete suite passes 216 native groups and 36 saved reviews on Windows,
+Linux and Linux ASan/UBSan. Selector 4 also passes the explicit intermediate
+EOS-admission control with 7,017 saved checks and three corruption rejections
+per platform. The original 128-epsilon accounts and 32-epsilon EOS boundary
+remain unchanged. The first suite exposes an old negative test that still
+expects selector 4 to be invalid; it now uses unused selector 99. Only that
+test is rebuilt, with all 232 other passed source-identical stages retained.
+The repaired test's outputs match the previous successful outputs exactly.
+
+A sanitizer domain capture is interrupted by WSL power-off. The journal records
+shutdown at the capture's exit time. Its retry on the restarted VM uses the
+identical executable, arguments and original 900-second limit, and passes with
+byte-identical output to the previous successful domain capture. The interrupted
+and stale-test failures remain retained. Both normal-OS ABI/detour controls
+pass. All 67 original dependency/test commands and 33 repair commands are
+sanitizer instrumented. Complete evidence is
+`local/mac-bounded-energy-prerequisites-r2`, terminal SHA-256
+`79ac4d6bd5793be239b459dc3238c8c722c65478228a457adb55b20343bfd7fd`.
+
+The first Windows strong-flow attempt then exits 1 in 0.122 seconds on the
+original paired compatible-work guard in Sod N64, before any complete profile.
+Strict compilation and the selection-only benchmark change are inspected
+before execution. Its 363-byte stdout and both pipes close normally. No Linux
+strong repeat or partial-profile certification is attempted. Terminal evidence:
+`local/mac-bounded-energy-strong-r1`, SHA-256
+`3363187a4e802fc6cb42089b2c348a2e74c3b504c8a3e5ce972b8ebc675c137d`.
+
+## Preserve tiny work at stationary faces
+
+A read-only diagnostic reproduces the original throw. At the failing right
+face, J and carried K start at zero. The impulse is 3.01395e-38 kg m/s and its
+new kinetic energy is 1.48831e-71 J. The old evaluation rounds the quadratic
+work away while combining terms of order 7.32777e-53 J; the subsequent opposite
+term cancels the stored work to zero. The original guard correctly rejects
+that state. Exact saved Fractions confirm the residual is 2^45 times the
+original operand-based bound. Diagnostic terminal evidence is
+`local/mac-bounded-work-diagnostic-r1`, SHA-256
+`ed33b4fb375238fde8e5c5dab9bb191213d77ac6d63f4b25798eff140c669d5e`.
+The first saved reader reverses one right-side algebra sign in an assertion;
+that failed reader is retained and corrected without native relaunch.
+
+For limited carried energy, evaluate the same law directly per side in one
+additive expansion:
+
+- Wl = ul dJ - dJ² / (2 Il) - F;
+- Wr = -ur dJ - dJ² / (2 Ir) + F.
+
+This retains the cold face's negative quadratic work without intermediate
+cancellation. Unrestricted events keep the original velocity-difference
+evaluation. The stress, impulse, energy-flux limit, EOS/entropy admission and
+128-epsilon account rule are unchanged.
+
+Eight focused groups pass per platform after the repair, with 32 affine cases,
+186 selected readings, 368 work events and 20 nonzero corrections at zero
+carried-energy limit. Four new tiny-transfer controls exercise both axes and
+flow signs. The same new executable source linked to the original libraries
+fails at the outward tiny-transfer case, proving it catches the original bug.
+The strengthened saved review checks each actual side's kinetic-energy change,
+signed work and carried energy under the original rule. It performs 231,450
+checks per platform and rejects five corruptions, including erased tiny cold-face
+work at the exact paired-work guard. All 96 local checkpoint combinations and
+both cross-OS image reads pass. Eight legacy normal-OS streams stay byte
+identical; all 33 composed sanitizer compile commands are instrumented.
+
+Focused evidence is `local/mac-bounded-energy-r4`, terminal SHA-256
+`328c01903bbc1e584640c7907d3c1bc75bdb763190a64a4bab2b29a179dbd9a3`.
+The stronger readers are promoted with identical normalized source after all
+captures close. The fresh 217-group prerequisites and changed-method strong
+benchmark remain required. No default, production or playable-colony gate is
+promoted.
