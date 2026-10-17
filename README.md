@@ -26,7 +26,9 @@ Normal world rendering uses ONI's gas/liquid shaders with the mixture's colour,
 density and phase. Open the top-right **Overlays** menu for **Gas composition**,
 **Gas pressure**, **Oxygen partial pressure**, and **Breathability**. Hover a cell
 for each non-trace gas; select it for full composition, including traces.
-Blank overlay areas have no mixture data; they do not indicate vacuum.
+Overlays apply only where mixture readings exist. The gas-composition view also
+leaves gas-free cells blank; use the panel, hover and normal liquid view to
+identify water. Blank areas do not indicate vacuum.
 
 | Control | Effect |
 | --- | --- |
@@ -58,6 +60,11 @@ Use a fresh package or move aside `colony-validation.json` before selecting a
 different scene. To return to ordinary observation, remove that configuration
 and restart ONI. Keep development scenes and their saves separate from valued
 colonies. [Rendering details and evidence](docs/native-fluid-rendering.md).
+
+![ONI showing the outlined custom water region, live mod status and liquid pressure](docs/images/mixed-atmospheres-water.png)
+
+Actual headless Linux ONI: six custom water cells, visible liquid fill, 220 MPa
+fluid pressure and 100% liquid volume. The surrounding colony uses native ONI.
 
 ## Compile, install and enable
 
@@ -114,7 +121,7 @@ warnings are expected; a successful build has zero errors.
    folder. Use the package for the operating system running the game.
    Keep only one installed folder with the mod's `MixedAtmospheres.IntegrationProbe`
    static ID, so an older copy cannot take precedence.
-3. Launch ONI through Steam, open **Mods**, enable **Mixed Atmospheres**, and
+3. Launch ONI through Steam, open **Mods**, enable **Mixed Atmospheres - Integration Probe**, and
    accept its restart. After loading, look for the status panel. For an ordinary
    package it reports native physics; for the visual demo, start a new colony
    as described above.
