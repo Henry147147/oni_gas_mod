@@ -45,7 +45,28 @@ generic gas transfer evidence alone cannot pass this control.
 Both game-declaration suites pass 111 snapshot/message groups, including late
 invalid edits, ownership boundaries, padding, exact packet layout and capacity.
 The Python runner/evidence suite passes 190 checks with four platform/optional
-skips. Real Unity particle and save/load results remain pending.
+skips. The actual Linux source/save and fresh-process reload now both pass in
+`carbon-particle-unity-matrix-v2/matrix.json`, using frozen `cfd67c8` and native
+compatibility build v11. The real manager creates the particle at physical
+frame 6, deposits it at frame 16 and retires it before its component is reused.
+At the source save (frame 122 / 24.400000364 s), maximum constituent error is
+2.665e-15 kg and carried-energy residual is -3.376e-9 J, within the original
+bounds. Native scalar dispatch is avoided, the receipt is delivered once,
+and grid/rendering, unchanged native tuples and outside native-solid heat pass.
+
+The ordinary save verifies its complete header and 5,124,062-byte body. The
+physical image hash is
+`ab4f3f1bc4ea9d41a3b6361fdd76cf8948fe3d0ef81a03849958b6eba05ffb04`
+and colony-file hash is
+`12ef575a526228bb7f8ab41965a1cb279a0e9a6eae128cad38c0bf6d881a6ee2`.
+The fresh-process load passes its paused frame-zero autosave, both native startup
+batches and 120 exact physical continuation frames, reaching 48.400000721 s.
+Its frame-zero autosave file hash is
+`c1edfbd99d92d784d8f5f73977a532e3647fceab123d2fdaca6e8106911989e6`
+and final physical image is
+`21ec192d847bbb984d763dadf19af7f1e31d0f7f01cd62e7e2a63f3108fc7327`.
+The original source file stays unchanged. Windows Unity particle validation
+and live-particle persistence remain open.
 
 The retained first Linux `carbon-particle-unity-matrix-v1` source run reaches
 frame 121 with exactly one native-manager deposition, 2.22e-15 kg maximum
