@@ -60,3 +60,18 @@ four platform-specific skips. All 13 licensed Linux native domain controls
 also pass, including attach, worker execution, shutdown, detach and exact
 checkpoint continuation. These isolated native runs use the real SimDLL but
 do not launch the Unity game player.
+
+The frozen `a5aa2de` runner/package and Ubuntu 22.04 compatibility build v8 now
+pass actual Linux Unity gravity save/reload and registered gas-actor
+save/reload. Each source reaches frame 122 / 24.400000364 s; each fresh process
+performs its paused initial autosave and matches all 120 resumed physical
+frames through 48.400000721 s. The gravity source physical hash is
+`c6694fe2cee654da3026be1ef1e57c9b69ce5a0a3305c905f5b9b13bfc6b682d`,
+with colony-file hash
+`87d23a0da3cec6dda264ce6b225ef12244b673ee45350d47fcd466a7d0209ebb`.
+The actor source physical hash is
+`c1d280df4139cb633827b6ffa7f95eaa2903cfe94794d902a4149513aade19b5`.
+These four completed cases belong to
+`verified-trampoline-unity-matrix-v1`; the remaining matrix cases are still
+running. All 13 licensed Windows SimDLL domain controls also pass under Wine;
+those do not establish Windows Unity verification of this package.
