@@ -1,5 +1,10 @@
 # Closed-gas Riemann gate
 
+The subsequent [affine momentum diagnosis](MAC_DUAL_REMAP_DIAGNOSTIC.md)
+reproduces a geometry error before limiting and an unnecessarily rejected
+physical translation candidate. It establishes two repair requirements;
+the replacement operator and this strong-flow gate remain incomplete.
+
 The latest [quadratic momentum admission](MAC_QUADRATIC_LIMITER.md), combined
 with swept material reconstruction, also fails collision density refinement:
 0.856557 / 0.795159 / 0.611016 for density/pressure/velocity against 0.85.

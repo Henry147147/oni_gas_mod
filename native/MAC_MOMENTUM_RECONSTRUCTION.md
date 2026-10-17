@@ -5,6 +5,11 @@ predictor with [quadratic heat admission](MAC_QUADRATIC_LIMITER.md). Selectors
 0/1 and the default remain unchanged. Both modes have explicit geometric and
 owning controls; selector 2 has not passed the strong-flow gate.
 
+The [dual remap diagnostic](MAC_DUAL_REMAP_DIAGNOSTIC.md) now reproduces an
+affine predictor error under known deformation before admission, and separates
+the additional restriction imposed by the current face-remainder contract.
+The physical replacement remains required.
+
 The scoped Windows/Linux controls below pass. The explicit `limited_linear`
 momentum mode uses actual primal/dual mass fluxes in MAC transport and applies the
 [compatible limiter](MAC_MOMENTUM_LIMITER.md) before material heat deposition.

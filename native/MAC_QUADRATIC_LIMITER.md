@@ -7,6 +7,12 @@ donor and sufficient-linear modes retain values 0 and 1. The closed owner
 still defaults to value 1; this component does not change game dispatch.
 Strong-flow and first-playable acceptance remain open.
 
+The later [affine remap diagnosis](MAC_DUAL_REMAP_DIAGNOSTIC.md) identifies
+both a predictor geometry error and a physically admissible translation
+candidate excluded by the nonnegative-remainder condition. The quadratic
+root remains correct for its stated remainder constraint; the replacement
+needs to address both geometry and completed-state physical admission.
+
 ## Defect and correction
 
 A correction removes `theta * R` from left momentum and adds it to right
