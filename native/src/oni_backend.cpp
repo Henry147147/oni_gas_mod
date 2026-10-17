@@ -763,7 +763,6 @@ MAOniResult ma_oni_domain_solid_cell_state(MAOniDomainSolidCellState* output) {
     return boundary([&] {
         if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid completed native solid cell observation ABI");
-        std::lock_guard frame_lock(ma::oni::domain_frame_mutex());
         ma::oni::copy_domain_solid_cell_state(*output);
     });
 }

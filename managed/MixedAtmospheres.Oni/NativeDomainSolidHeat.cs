@@ -58,10 +58,10 @@ namespace MixedAtmospheres.Oni
                 endpoint.State==latest.State && endpoint.ContactFrame<=latest.CompletedFrames,"Native solid endpoint observation differs from its owner frame.");
             solidHeatLastContact=endpoint;
             var cell=SolidCellState.Empty;Check(CopySolidCellState(ref cell));
+            solidHeatCompletedCell=cell;
             Require(cell.Session==latest.Session && cell.State==latest.State && cell.Reserved==0 &&
                 (latest.CompletedFrames==0 || cell.CompletedFrame==latest.CompletedFrames && cell.NativeTicket==latest.NativeTicket),
                 "Completed native solid cell observation differs from its fluid frame.");
-            solidHeatCompletedCell=cell;
         }
         private static void ObserveNativeSolidEndpoints(Sim.GameDataUpdate* source)
         {
