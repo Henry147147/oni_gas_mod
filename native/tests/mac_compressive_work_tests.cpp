@@ -1,4 +1,5 @@
 #include "mac_compressive_fixture.hpp"
+#include "../src/mac_material_entropy_detail.hpp"
 #include <iomanip>
 #include <utility>
 
@@ -89,6 +90,32 @@ void subrange() {
         r.unresolved_energy_update && !r.isentropic.endpoint_volume_resolves_change && r.mixture.energy==source.energy,
         "Subrange compression heat or unresolved canonical update was discarded");
 }
+void entropy_reference_precision() {
+    // Exact input retained from the failed separation64 Newton trial. Its
+    // actual U crosses the caloric reference while thermal energy stays large.
+    const auto& set=ma::testing::setup();MixtureInventory source(set.registry.size());
+    source.masses[set.registry.index("nitrogen")]=0.00016762971735930963;
+    source.masses[set.registry.index("helium")]=1.6762971735930964e-32;
+    source.energy=0.2881186565689019;
+    constexpr double volume=0.000244140625;
+    const auto r=record(16,0,*set.eos,source,volume,6.2390787779808469e-06,.015625,2.0884559497703817e-06,
+        MacEnergy::from_parts(.84580507210591793,MacExponent(3)));
+    MacEnergySum admitted;admitted.add(r.entropy_change_j_per_k);admitted.add(r.entropy_allowance_j_per_k);
+    check(admitted.sign()>=0 && r.mixture.energy<0,"Actual reference-crossing state lost the original entropy allowance");
+    const auto initial=set.eos->evaluate(source,volume);
+    for(int probe=0;probe<2;++probe) {
+        auto endpoint=source;if(probe)endpoint.energy-=.001;
+        const auto end=set.eos->evaluate(endpoint,volume);
+        const auto ds=entropy_detail::change(*set.eos,source,volume,initial,endpoint,volume,end);
+        MacEnergySum allowance;allowance.add(MacEnergy::from_double(std::abs(source.energy)).shared(1,initial.temperature_k).shifted(-45));
+        allowance.add(MacEnergy::from_double(std::abs(endpoint.energy)).shared(1,end.temperature_k).shifted(-45));
+        MacEnergySum lower;lower.add(ds);lower.add(allowance.value());
+        check(probe ? lower.sign()<0 : ds.is_zero(),"Relative entropy hides real cooling or changes an identical state");
+        std::cout<<"CWENTROPY "<<probe<<" 16 "<<endpoint.energy<<' '<<volume<<' '<<end.mechanical_pressure_pa<<' '<<
+            end.temperature_k<<' '<<end.entropy_j_per_k<<' '<<ds.mantissa()<<' '<<ds.exponent()<<' '<<
+            allowance.value().mantissa()<<' '<<allowance.value().exponent()<<'\n';
+    }
+}
 void invalid() {
     const auto& set=ma::testing::setup();const auto source=set.mixture(1,100000,300);const auto held=source;int rejected=0;
     const auto rejects=[&](auto call) {
@@ -126,6 +153,7 @@ int main() {try {
     tangent();std::cout<<"PASS monotone stress and complete work tangent\n";
     scaled_geometry();std::cout<<"PASS equivalent geometry retains intensive stress\n";
     subrange();std::cout<<"PASS subrange positive heat and unresolved U remain explicit\n";
+    entropy_reference_precision();std::cout<<"PASS actual relative entropy across zero reference U and genuine cooling\n";
     invalid();std::cout<<"PASS input void and late EOS rejection leave source unchanged\n";
     return 0;
 } catch(const std::exception& e) {std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

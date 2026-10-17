@@ -263,3 +263,52 @@ Private evidence is `local/mac-compressive-strong-r1`; terminal SHA-256:
 `5f1ad7eb9acadedaac4e61f9165acbeb2ec8015c73350bfe1eff65a545496e8b`.
 Production ownership, exact vacuum interfaces and playable-colony acceptance
 remain open.
+
+## Separation entropy measurement repair under validation
+
+A bounded Windows diagnostic runs only the failing 64-cell separation case;
+private instrumentation prints the rejected conserved state and identifies a
+Newton trial. It then throws the original exception. The actual source and
+endpoint U are 0.2881186565689019 and -0.23594879742432628 J, crossing the
+arbitrary caloric reference while thermal energy remains about 52.2661 J.
+Subtracting rounded absolute entropy readings gives -4.16334e-17 J/K, outside
+the original 3.56655e-17 J/K allowance. Independent 100-digit calculation from
+the actual masses/U/V gives -2.53940e-18 J/K, inside that same allowance.
+The conserved-caloric relative estimate is -2.60209e-18 J/K. This is a false
+admission failure caused by subtraction of absolute entropy cache values.
+
+The diagnostic and all owned processes/pipes are terminal. Private evidence is
+`local/mac-compressive-entropy-diagnostic-r1`; terminal SHA-256:
+`eae274d62964d403790a964e1d2322b76a4ddb0c748f72df5197642209fa9ee7`.
+The saved analysis does not relaunch a native process or certify strong flow.
+
+The proposed repair computes constant-composition relative entropy. Pure gas
+uses actual conserved caloric increments and actual cell volumes, avoiding
+rounded temperature differences as well as absolute entropy subtraction.
+Mixed/liquid states use stable log ratios of their actual EOS temperature and
+gas headspace, following the existing canonical-material calculation. Full-
+exponent leading terms retain their sign when their scalar projection is zero.
+The original stored-U/T allowance, canonical U, pressure-work law, source
+coefficients and scientific bounds are unchanged. Identical-state and actual
+cooling controls challenge the measurement separately from the new admitted
+reference-crossing response. Complete prerequisites and another changed-method
+strong gate remain required before any promotion.
+
+The repair passes eight constitutive, six coupled and seven owning groups on
+Windows, Linux and Linux ASan/UBSan. Each saved-only review cohort passes 12,657
+checks and rejects all 11 corruptions. The new reference-crossing response is
+admitted, identical-state entropy is exactly zero, and real cooling remains
+negative beyond the original allowance. All preceding physical source/endpoint
+fields and stored-U allowances are unchanged; only relative entropy diagnostics
+and their aggregate change. All eight normal-OS legacy streams remain byte
+identical. All 35 composed dependency/test compile commands are instrumented.
+
+The first saved comparator accounted for per-response relative entropy but
+omitted its coupled aggregate. Its three retained failures are corrected in a
+separate reader, which passes the same native captures without relaunching.
+All processes and pipes are terminal. Private native captures are
+`local/mac-compressive-entropy-r1`; corrected comparison and terminal evidence
+are `local/mac-compressive-entropy-review-r2`, terminal SHA-256:
+`8cec7fd567706702e9911e242c1f964a984f632db13fcdd095c782948e730d74`.
+The complete prerequisite rerun and changed-method strong-flow acceptance are
+still required. No default or production claim changes.

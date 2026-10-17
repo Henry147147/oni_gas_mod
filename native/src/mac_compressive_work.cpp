@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_compressive_work.hpp"
+#include "mac_material_entropy_detail.hpp"
 #include <cmath>
 #include <limits>
 
@@ -57,11 +58,12 @@ MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& mode
     energy.add(result.total_work_pressure_pa.multiplied(delta));
     if (!energy.within_bound()) precision("Compressive actual stored U and pressure work exceed the original operand bound");
     result.energy_residual_j=energy.residual(); result.energy_bound_j=energy.bound();
-    MacEnergySum entropy,allowance;
-    entropy.add(result.state.entropy_j_per_k); entropy.add(-anchor.reference_state().entropy_j_per_k);
+    MacEnergySum allowance;
     allowance.add(MacEnergy::from_double(std::abs(source.energy)).shared(1,anchor.reference_state().temperature_k).shifted(-45));
     allowance.add(MacEnergy::from_double(std::abs(result.mixture.energy)).shared(1,result.state.temperature_k).shifted(-45));
-    result.entropy_change_j_per_k=entropy.value(); result.entropy_allowance_j_per_k=allowance.value();
+    result.entropy_change_j_per_k=entropy_detail::change(model,source,volume,anchor.reference_state(),
+        result.mixture,iso.endpoint.volume_m3,result.state);
+    result.entropy_allowance_j_per_k=allowance.value();
     if (above(result.entropy_change_j_per_k.negated(),result.entropy_allowance_j_per_k))
         precision("Compressive actual stored-state entropy falls below the original stored-U allowance");
     return result;

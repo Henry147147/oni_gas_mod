@@ -9,8 +9,8 @@ thermal=importlib.util.module_from_spec(spec);spec.loader.exec_module(thermal)
 base=thermal.base;check,close,number,unique=base.check,base.close,base.number,base.unique
 dec=thermal.dec;EPS=base.EPS;R=thermal.ref.R
 
-def parse(raw,case_ids=tuple(range(16)),profiles=(0,1),groups=7,rejections=10):
-    d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full')};passes=[];rejected=None
+def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=10):
+    d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full','entropy_probes')};passes=[];rejected=None
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty compressive record');kind=r[0]
         if kind=='CWDEF':
@@ -28,6 +28,8 @@ def parse(raw,case_ids=tuple(range(16)),profiles=(0,1),groups=7,rejections=10):
             check(len(r)==5,'Constituent shape');unique(d['masses'],tuple(map(int,r[1:3])),tuple(map(number,r[3:])))
         elif kind=='CWFULL':
             check(len(r)==22,'Full-range response shape');unique(d['full'],int(r[1]),tuple(base.scaled_energy(r[i],r[i+1]) for i in range(2,22,2)))
+        elif kind=='CWENTROPY':
+            check(len(r)==12,'Actual relative entropy probe shape');unique(d['entropy_probes'],int(r[1]),(int(r[2]),*map(number,r[3:8]),base.scaled_energy(r[8],r[9]),base.scaled_energy(r[10],r[11])))
         elif kind=='CWREJECTED':
             check(len(r)==2 and rejected is None,'Rejection shape');rejected=int(r[1])
         else:
@@ -102,8 +104,10 @@ def review(d,fixture_controls=True):
         check(all(i in materials for i in masses),'Constituent lacks a declared material')
         u0,p0,t0,s0=d['initial'][c];v1,u1,p1,t1,s1=d['end'][c];isodu,isop,rv,ru=d['iso'][c]
         check(v1==F(float(v+dv)) and v1>0,'Actual endpoint volume differs')
+        exact_states=[]
         for endpoint,(u,p,t,s,volume) in enumerate(((u0,p0,t0,s0,v),(u1,p1,t1,s1,v1))):
             ep,et,es,_=thermal.eos(masses,materials,u,volume)
+            exact_states.append((ep,et,es,volume))
             for actual,expected,name in ((p,ep,'pressure'),(t,et,'temperature'),(s,es,'entropy')):
                 reading(actual,expected,'Actual stored endpoint '+name)
             check(all(dec(definitions[i][6])<=et<=dec(definitions[i][7]) for i in masses),'Actual EOS outside declared temperature domain')
@@ -135,10 +139,29 @@ def review(d,fixture_controls=True):
         allowance=128*EPS*(abs(u0)/t0+abs(u1)/t1)
         close(sb,allowance,allowance,'Original stored-U entropy allowance differs',8)
         check(ds>=-sb,'Actual stored entropy reduced beyond original allowance')
+        exact_ds=exact_states[1][2]-exact_states[0][2]
+        check(exact_ds>=-dec(sb),'Independent actual conserved-state entropy reduced beyond original allowance')
+        _,_,capacity,_,moles=thermal.ref.eos_values(masses,materials,exact_states[0][0])
+        temp_term=capacity*(exact_states[1][1]/exact_states[0][1]).ln()
+        # A physical comparison uses relative thermodynamic terms and the
+        # original stored-U allowance, never a floor or absolute entropy zero.
+        comparison=dec(sb)+128*dec(EPS)*(abs(temp_term)+abs(exact_ds-temp_term))
+        check(abs(dec(ds)-exact_ds)<=comparison,'Relative entropy does not describe actual conserved endpoints')
         expected_unresolved=abs(u1-u0-requested)>128*EPS*abs(requested)
         check(unresolved==int(expected_unresolved),'Unresolved canonical U flag differs')
         if fixture_controls and c==15:check(unresolved==1 and rv==ru==0 and u1==u0 and v1==v,'Subrange canonical representability was hidden')
     if fixture_controls:check(subrange==1 and negative>=1 and d['initial'][6][0]<0,'Missing subrange heat or negative-reference control')
+    if fixture_controls:check(set(d['entropy_probes'])=={0,1},'Missing unchanged-state or genuine-cooling entropy probe')
+    for probe,row in d['entropy_probes'].items():
+        c,u1,v1,p1,t1,s1,ds,sb=row;profile,v0,*_=d['cases'][c]
+        definitions={i:q for (p,i),q in d['definitions'].items() if p==profile};materials={i:q[:6] for i,q in definitions.items()}
+        masses={i:m[0] for (j,i),m in d['masses'].items() if j==c};u0,p0,t0,s0=d['initial'][c]
+        ep,et,es,_=thermal.eos(masses,materials,u1,v1);initial=thermal.eos(masses,materials,u0,v0)
+        for actual,expected in ((p1,ep),(t1,et),(s1,es)):reading(actual,expected,'Entropy probe actual EOS')
+        expected=es-initial[2];allowance=128*EPS*(abs(u0)/t0+abs(u1)/t1)
+        close(sb,allowance,allowance,'Entropy probe changed original stored-U allowance',8)
+        check(abs(dec(ds)-expected)<=dec(sb)+128*dec(EPS)*abs(expected),'Entropy probe disagrees with actual U/V')
+        check((ds==0 and expected==0) if probe==0 else (ds<-sb and expected<-dec(sb)),'Entropy probe hides genuine cooling')
 
 def main():
     if len(sys.argv)!=3:raise SystemExit('Usage: review_mac_compressive_work.py <saved.raw> <fresh-report.json>')
@@ -157,7 +180,7 @@ def main():
             try:review(corrupt)
             except ValueError:rejected+=1
             else:raise ValueError('Corrupted compressive '+kind+' admitted')
-    result=dict(Passed=True,SavedChecks=saved_checks,Cases=16,NativeGroups=7,CorruptionsRejected=rejected,
+    result=dict(Passed=True,SavedChecks=saved_checks,Cases=17,NativeGroups=8,ActualEntropyProbes=2,CorruptionsRejected=rejected,
                 SavedSha256=hashlib.sha256(raw).hexdigest(),NativeProcessLaunched=False,IndependentAgentReview=False,
                 Scope='Local constitutive pressure-work response; no owning timestep, strong-flow or game acceptance')
     with Path(sys.argv[2]).open('x') as output:json.dump(result,output,indent=2);output.write('\n')
