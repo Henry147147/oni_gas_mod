@@ -7,6 +7,40 @@ provides real WindowsPlayer execution on Linux. Testing on the Windows OS,
 including the MSVC build and Windows-specific system behavior, remains a
 separate gate.
 
+The headless runner selects OpenGL Core by default and records `graphics_api`.
+Use `--graphics-api d3d11` for explicit Direct3D11 comparisons. The official
+Proton 10 independent control reproduces a stalled Unity unscaled clock on
+software Direct3D11; OpenGL advances that clock through the ordinary pause and
+resume phases. The full mod also passes its patched tag helpers, scoped probe
+and main-menu export on OpenGL. Actual colony feature controls follow
+separately; this graphics selection does not change the simulation or replace
+the game clock.
+
+The official `1785139158 proton-10.0-4b` OpenGL control completes 19 independent
+clock samples across ordinary time-scale 1/0/1 phases. Its unscaled clock
+advances 16.43756849489796 seconds over a 15.027258599999996-second realtime
+span including startup stalls. The final unscaled/realtime values are
+34.07467329931973/34.08787610572562 seconds. The diagnostic installs no Harmony
+patches and loads no custom physics libraries. Its diagnostic SHA-256 is
+`4d20eeff2df0e48416f9788007ff2a35abb12283b7629b0aa954b8438b1a8325`;
+its raw runner result is intentionally `failed-integration-probe` because this
+independent probe does not supply the mod's integration report.
+
+The full `74c9ec1` mod then passes the OpenGL main-menu control with the normal
+recorded environment (`PROTON_USE_WINED3D=1`, `WINEDEBUG=-all`). Result SHA-256:
+`034616aeefe0eb01d39de900013663b4ce493c0b7166b2cc095ba9826df2053c`.
+Its subsequent real WindowsPlayer source generates a fresh nine-world Spaced
+Out cluster and saves three live gas actors after 122 physical frames. It
+receives 114 matching consumer callbacks carrying 1.1400000331923366 kg, retains
+emitter timing/blocked state, passes calibrated GPU readback and admits all
+nine native world save roots and orbital object 2. The complete 10,680,044-byte
+save body/header pass readback and pause depth returns from zero to zero.
+The source result SHA-256 is
+`51c8bfa7a5d59d4f7a729f7cff074c4d82d9a4ec9bfc935aca23b0b1cac6b2ff`;
+the save file is
+`9b1c6cad9a1abb482d64514ad7f14e723c7a749326aa6887301cc70cf6483bf4`.
+Windows and Linux continuation of this fresh source are checked separately.
+
 Start the private Steam desktop with `tools/oni_headless.py start` and sign in
 with an account that owns ONI. Install a complete official Proton tool; pass its
 directory containing `proton`, `version` and `files/bin/wineserver`. Build the
@@ -19,6 +53,7 @@ python3 tools/oni_proton_headless.py \
   --proton /path/to/proton-experimental \
   --game-dir /path/to/Windows/OxygenNotIncluded \
   --package /path/to/windows-probe \
+  --graphics-api glcore \
   --mode native-liquid-gravity-domain --frames 120 --save-colony \
   --output artifacts/windows-water-gravity-001
 ```
