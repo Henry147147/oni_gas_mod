@@ -607,6 +607,76 @@ menu/day-rollover triggers, arbitrary fluid materials and geometry, the failed
 strong-flow gate, whole-colony performance and first-playable acceptance
 remain open. Nothing is released.
 
+### Windows paused-start and menu controls
+
+`local/windows-paused-restore-r1` separately verifies the later restored-tick
+gate from `2e05423` plus the recorded development-banner change. Air and water
+each reject the forced positive 0.2-second interval while the initial deferred
+autosave is pending. Both hold three positive intervals (80 total held ticks
+for air; 72 for water), retain the exact saved state/time and pause depth, then
+match all 120 physical continuation frames. Final physical hashes remain
+identical to the preceding air/water controls. All 100 snapshot/declaration
+scenarios pass against the Windows assemblies; all 51 Linux Python guard tests
+pass. Native binaries remain unchanged. The banner now describes the admitted
+paired-save conditions, replacing its stale blanket “saves disabled” text. The
+actual Windows 2560×1440 screenshot shows all three lines without clipping;
+other UI scales remain unverified by this observation.
+
+The air session also uses the actual Escape → Save As → New Save flow, creating
+`MA-Menu-Validation-20261017.sav`. Its 1,146,148 bytes have SHA256
+`b5ce947f771c54e2ed63de5c63df35d8e5c585b14faf8411b86d878b62f3f067`.
+The menu reports “Already Saved”. The old runner loaded its source directly,
+so this new file was created beside that private source; the original source
+file's hash remains exact. The new file is retained in this cohort's observations.
+
+That finding prompted the Windows runner to stage a separate, hash-checked
+`loaded-colony.sav` in each fresh evidence directory. The game configuration
+uses that copy. `load-source-manifest.json` records the original and staged
+hashes before and after the session; a changed original source fails validation
+after profile restoration. Normal Save As paths now stay in the current run.
+
+`local/windows-menu-save-load-r1` verifies this runner change using the actual
+menu-created file. Its package is reused only after all 293 selected source/build
+inputs match their accepted frozen inputs. A fresh game process restores its
+exact `a23a15bb…` physical image at 30.200000450 s, retains the colony GUID and
+three duplicants, passes the forced pause challenge/deferred autosave, and
+matches all 120 subsequent frames to 54.200000808 s. Native cells, completed
+snapshots, game Grid/rendering, outside native heat and scalar-save guards pass.
+
+The actual Save As menu then creates `MA-Isolated-Menu-20261017.sav` **inside
+that run's evidence directory**. A read-only managed reviewer derives the
+saved header, directory, inflated body and sim-section boundaries, validates
+the paired envelope checksum against the admitted source identity, and checks
+all 3,507 physical bytes against the completed game frame. Their SHA256 is
+`56d4f06c5cba17d55bfbad079e870d88c33379e66e7004635976d67500454cdc`.
+The 1,145,778-byte file has SHA256
+`fc163db3dd9f283433faa4c6f9a6b3d6274d46fcd583ee7e738959a977c67573`.
+This reviewer invokes no native simulator and grants no whole-file preflight
+or restore authority. The original input and staged input both remain unchanged.
+The normal Save button's overwrite confirmation is cancelled; overwrite Save
+acceptance is not claimed. Save As creation and the earlier file's actual
+fresh-process load are the admitted menu scope.
+
+Both paused-start sessions and the menu-load session exit normally, return
+wrapper exit 0, drain/close output pipes, restore all 13 profile files and
+remove their temporary mod. The default project DLL and installed SimDLL
+remain unchanged. The retained water reload logs also contain a missing
+KPrefabID-reference warning; these physical controls do not certify every
+managed reference in the colony. General object/actor persistence remains open.
+
+Private terminal SHA256 receipts:
+
+- Paused start and banner: `681aa230b9183de68f69eb9a13ccf5011c0d2408e00482cc59d65679be8f55d1`.
+- Menu file reload and source isolation: `99260d1b03209b51ff029970558da5349525ee2932c78655ba6141c7608f0fdb`.
+- Saved-physical comparison: `25311405a7966f7e6400bfb5279eaa9f3b64b3f0edf98a2eeedb6488933b0e00`.
+
+The first cohort's source-freeze SHA256 is
+`34f26b93ab6531efe77309b9dd5c5dc064d6786442c99a7b2ef19086dec969ec`;
+the menu cohort's is
+`6ce7e88a2b76d6e9dcd3f769a739464bca7a92deb85f130781c30640f1305bcf`.
+No independent agent review, four-gas production hover, whole-colony,
+first-playable or rendering-performance acceptance is claimed.
+
 ## Limits and next work
 
 Only the fixed sealed scene is enabled. Direct known native mutation packets

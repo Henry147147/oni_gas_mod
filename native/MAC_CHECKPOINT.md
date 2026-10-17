@@ -256,6 +256,16 @@ batches deliver once. Registered actor persistence, actual menu clicks/day-rollo
 triggers and general production ownership remain separate gates. Ordinary
 save-entry admission is limited to the drained, actor-free development domain.
 
+Later [Windows paused-start and menu controls](../docs/sealed-native-domain.md#windows-paused-start-and-menu-controls)
+force the latched positive-timestep challenge for both air and water, then
+exercise the actual Save As menu. A fresh process loads that menu-created file
+at its exact physical state and matches all 120 subsequent frames. Another
+Save As writes the completed physical image inside the new run's evidence
+directory. Overwrite Save, Load menu clicks and day-rollover triggers remain
+unverified. The Windows runner now copies its input to `loaded-colony.sav`
+inside each fresh evidence directory, checks both hashes during staging, and
+requires the original source hash to remain unchanged after the session.
+
 ## Verification
 
 The native `mac_physical_checkpoint` CTest checks exact restored state and

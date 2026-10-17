@@ -26,7 +26,10 @@ if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $Co
 if ($NativeDomain -eq 'actor' -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
 $oniDomainModes = @{ gas='native-domain'; water='native-liquid-domain'; heat='native-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
-if ($LoadSave) { $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path }
+if ($LoadSave) {
+    $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path
+    if (!(Test-Path -LiteralPath $LoadSave -PathType Leaf)) { throw 'LoadSave must name an existing colony file.' }
+}
 if ($ResaveBeforeResume -and $NativeDomain -ne 'load') { throw 'ResaveBeforeResume requires NativeDomain load.' }
 if ($SaveColony -and (!$NativeDomain -or $NativeDomain -eq 'load')) { throw 'SaveColony requires an initial native domain scene.' }
 $oniNeedsNative = [bool]($NativeObserver -or $NativeDomain)
@@ -101,10 +104,31 @@ $oniGameId = $null
 $oniLaunchUtc = [DateTime]::UtcNow
 $oniProcessIds = @()
 $oniExitCode = 1
+$oniLoadFixtureManifest = $null
 try {
     Copy-Item -LiteralPath $oniPackagePath -Destination $oniInstalledMod -Recurse
+    $oniValidationLoadPath = $LoadSave
+    if ($LoadSave) {
+        $oniLoadSourceHash = (Get-FileHash -LiteralPath $LoadSave -Algorithm SHA256).Hash.ToLowerInvariant()
+        $oniStagedLoadSave = Join-Path $oniEvidence 'loaded-colony.sav'
+        Copy-Item -LiteralPath $LoadSave -Destination $oniStagedLoadSave
+        $oniStagedLoadHash = (Get-FileHash -LiteralPath $oniStagedLoadSave -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($oniStagedLoadHash -ne $oniLoadSourceHash -or
+            (Get-FileHash -LiteralPath $LoadSave -Algorithm SHA256).Hash.ToLowerInvariant() -ne $oniLoadSourceHash) {
+            throw 'Colony load source changed during staging.'
+        }
+        # Normal Save and Save As use the active file's directory. Loading a
+        # separate copy keeps menu writes inside this invocation's evidence.
+        $oniValidationLoadPath = $oniStagedLoadSave
+        $oniLoadFixtureManifest = [ordered]@{
+            SchemaVersion = 1; SourcePath = $LoadSave; SourceSha256Before = $oniLoadSourceHash
+            StagedPath = $oniStagedLoadSave; StagedSha256Before = $oniStagedLoadHash
+            SourceSha256After = $null; StagedSha256After = $null; SourceUnchanged = $null; StagedChanged = $null
+        }
+        $oniLoadFixtureManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniEvidence 'load-source-manifest.json') -Encoding utf8
+    }
     $oniValidationConfiguration = @{
-        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $LoadSave; SaveOnComplete = [bool]$SaveColony; SaveBeforeResume = [bool]$ResaveBeforeResume
+        Mode = $(if ($NativeDomain) { $oniDomainModes[$NativeDomain] } elseif ($NativeObserver) { 'native-observer' } elseif ($LoadRejection) { 'load-rejection' } elseif ($CoupledPresentation) { 'coupled-presentation' } elseif ($TileHover) { 'tile-hover' } elseif ($Presentation) { 'presentation' } else { 'snapshot-copy' }); AutoStartNewColony = $true; ReuseGeneratedWorld = [bool]$ReuseGeneratedWorld; LoadSavePath = $oniValidationLoadPath; SaveOnComplete = [bool]$SaveColony; SaveBeforeResume = [bool]$ResaveBeforeResume
         CompletedFrames = $Frames; TimeoutSeconds = $TimeoutSeconds; QuitWhenComplete = !$KeepOpen; Seed = '147147'
         ColonyName = $oniColonyName
     }
@@ -223,6 +247,14 @@ finally {
             New-Item -ItemType Directory -Path $oniSaveEvidence -Force | Out-Null
             Move-Item -LiteralPath $oniTestSave -Destination (Join-Path $oniSaveEvidence $oniSaveKind)
         }
+    }
+    if ($null -ne $oniLoadFixtureManifest) {
+        $oniLoadFixtureManifest.SourceSha256After = (Get-FileHash -LiteralPath $LoadSave -Algorithm SHA256).Hash.ToLowerInvariant()
+        $oniLoadFixtureManifest.StagedSha256After = (Get-FileHash -LiteralPath $oniStagedLoadSave -Algorithm SHA256).Hash.ToLowerInvariant()
+        $oniLoadFixtureManifest.SourceUnchanged = $oniLoadFixtureManifest.SourceSha256After -eq $oniLoadFixtureManifest.SourceSha256Before
+        $oniLoadFixtureManifest.StagedChanged = $oniLoadFixtureManifest.StagedSha256After -ne $oniLoadFixtureManifest.StagedSha256Before
+        $oniLoadFixtureManifest | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $oniEvidence 'load-source-manifest.json') -Encoding utf8
+        if (!$oniLoadFixtureManifest.SourceUnchanged) { throw 'Original colony load source changed during validation.' }
     }
     Write-Output "Restored original mods, preferences and generated-world files byte-for-byte. Evidence: $oniEvidence"
 }
