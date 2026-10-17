@@ -34,7 +34,14 @@ The corrected scope has a dedicated `native_oni_arithmetic_environment` test.
 A generated nonuniform water checkpoint continues through 16 identical frames
 under both GNU caller precision settings, downward caller rounding and enabled
 FTZ/DAZ. It preserves original exception flags and every caller control on
-successful and rejected input. Linux and Windows-binary controls pass. Full
-native rebuilds, mutation checks, sanitizer and actual Unity verification are
-still in progress. The strict cross-platform water bound remains open; the
-scope repair alone does not establish that the two math libraries agree.
+successful and rejected input. The original v13 library fails this synthetic
+precision-independence comparison at its first frame. Both fresh Ubuntu
+compatibility and Windows-binary suites pass all 14 native groups.
+
+The actual saved water image also replays through all 120 intervals identically
+under both caller precision settings with the corrected libraries. On each
+platform the results match the original library's extended-precision replay.
+Sanitizer and actual Unity verification remain in progress. The strict
+cross-platform water bound remains open: the two extended-precision replays
+still differ, with maximum stored-momentum relative difference about 2.1e-7.
+The scope repair does not establish agreement between the math libraries.

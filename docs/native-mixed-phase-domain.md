@@ -43,5 +43,10 @@ and whole-colony ownership retain their separate completion gates.
 The explicit component target `ma_mac_mixed_transfer_tests` now passes six
 accepted transfers and eight rejection controls on GNU Linux, GNU Windows
 binaries under Wine, and Linux ASan/UBSan. Checkpoint continuation matches
-exactly, and the existing single-phase entry still rejects phase mixing. A
-saved-operand review and native worker/Unity integration remain required.
+exactly, and the existing single-phase entry still rejects phase mixing.
+The saved-only reviewer reconstructs caloric/elastic U, phase volumes, face
+inertias, carried momentum/kinetic/potential energy and complete balances with
+90-digit arithmetic. All three captures pass 1,036 checks and reject altered
+parcel U, trace mass, face momentum and liquid volume. It imports no native
+solver code and retains the original operand/volume bounds. Native worker and
+Unity integration remain required.
