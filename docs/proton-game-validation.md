@@ -76,3 +76,33 @@ checks real helper calls at startup. Both old and new adapters pass a separate
 experiment with the licensed Windows Mono DLL under Wine; that experiment
 does not reproduce the Unity failure or certify the repaired player. The
 WindowsPlayer/Proton retry is tracked independently.
+
+
+The later GE-Proton10-34 control uses version `1774238111 GE-Proton10-34`,
+with release archive SHA-256
+`51c580b66a833c73998fe00f0717eeac57197654040a2f2ed5189e3ee68d773d`
+verified against the author's checksum. Its default
+`ge10-native-water-gravity-reload-v1` still fails the tag startup check.
+With the explicit `MONOMOD_RunningOnWine=false` diagnostic override,
+`ge10-windows-runtime-false-reload-v2` reaches the actual restored colony at
+physical frame zero and delivers both native startup batches. The ordinary
+SaveActive pre-animation then stalls. A controlled stop retains the failed raw
+runner result; no resumed physical frames or successful load is claimed.
+
+During that stall, Unity's `unscaledTimeAsDouble` stays at about
+65,358,361,937 s and `unscaledDeltaTime` at about 10 microseconds while realtime,
+Stopwatch and UTC advance normally. This is near the signed IntegerTime limit;
+clock saturation is an inference, not a diagnosed root cause. Unity documents
+[the maximum representable seconds](https://docs.unity.com/en-us/engine/6000.3/script-reference/unity/integertime/discretetime/maxvalueseconds).
+
+The independent `ge10-independent-clock-control-v2` repeats the frozen unscaled
+clock at the main menu, with no Harmony patches installed by the diagnostic
+mod, no custom physics invoked and neither custom native library loaded.
+Its 20 samples cover ordinary time scale 1, pause and resumed time scale 1;
+unscaled time stays fixed even while resumed scaled time and realtime advance.
+The clock-only experiment completes and quits, but its public runner correctly
+reports `failed-integration-probe` because this diagnostic supplies none of the
+mod's normal contract evidence. It does not pass a native feature. These
+controls isolate an engine/runtime problem without bypassing save callbacks,
+forcing animation completion or inventing physical time. A supported runtime
+and successful fresh-process continuation remain required.

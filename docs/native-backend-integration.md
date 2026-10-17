@@ -22,8 +22,8 @@ material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.
 The [native inventory admission path](native-initial-inventory.md) adds an
 explicit control for starting those rooms from completed native masses and
-temperatures rather than a synthetic mixture. Its actual Linux gas source/save
-and exact fresh-process continuation pass; water controls are in progress.
+temperatures rather than a synthetic mixture. Its actual Linux gas and water source/save
+and exact fresh-process continuation controls all pass.
 Complete world/geometry import remains open.
 
 ## Supported build and installation
@@ -49,6 +49,12 @@ The first substantive rejection is unknown native element `134298891`
 (Uranium Ore) during preserved-inventory admission. ONI's subsequent
 world-generation fallback then fails. This is not a completed cross-platform
 colony test; matching DLC installation and a new real-game load remain required.
+The subsequent actual Linux `missing-dlc-preflight-linux-v1` negative control
+rejects the same source at the main menu: required/unavailable content is
+`EXPANSION1_ID`, compatibility is false, no colony starts and neither backend
+initialization nor world-generation fallback occurs. The unchanged source hash
+and normal observer forwarding are retained. Its raw runtime result remains
+failed; this is evidence for early rejection, not successful colony loading.
 
 | Platform | Native image | SHA256 |
 | --- | --- | --- |
