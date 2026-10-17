@@ -85,6 +85,13 @@ agree with the same physical reading while the water is visibly filled. Both
 autosaves/readbacks and exact restoration of all 13 original profile files pass;
 see [the rendering evidence and limits](native-fluid-rendering.md#repaired-water-through-the-main-menu).
 
+The later Windows [actor-batch controls](sealed-native-domain.md#actual-windows-actor-batches)
+save a water state after actual registration/retirement batches. Two loaded
+sessions again pass paused autosaves and all 120 exact physical frames, with
+coherent GPU/water hover and exact profile restoration. That newer input does
+not log the older missing KPrefabID warning during either resave. Its actors
+have retired before saving; this does not accept live-actor persistence.
+
 This remains a drained six-cell development domain.
 Live actor/outbox persistence, the Load screen's file-selection UI, arbitrary
 colony ownership and first-playable acceptance remain open.

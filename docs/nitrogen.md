@@ -53,8 +53,19 @@ avoids integer prefab names without patching `System.Enum` globally.
 The first modded WindowsPlayer/Proton run exposed a startup exception in the
 earlier ref-result prefix while ordinary native tags were being created. That
 failed run remains retained. The IL change avoids that prefix and its
-`__result` handling; the precise runtime cause and repaired player result must
-be assessed separately from declaration tests.
+`__result` handling; the precise Proton runtime cause and repaired Proton
+player result remain separate from declaration tests.
+
+The merged adapter now passes native Windows ONI startup, gas and water actor
+source/save scenes, and both loaded water sessions described in the
+[Windows actor-batch controls](sealed-native-domain.md#actual-windows-actor-batches).
+This executes the startup check against both actual patched helpers before
+the integration probe and colony initialization. The Windows .NET 10 test build
+initially rejects the unguarded reflection cast with CS8600/CS8603. The adapter
+now explicitly requires the instruction label list, with a useful rejection if
+Harmony's field contract is unavailable. All eight nitrogen groups then pass,
+alongside 106 snapshot/actor-boundary and 31 inspection groups. The failed
+compile attempt remains retained; it never packages or launches the game.
 
 ## Property scope
 

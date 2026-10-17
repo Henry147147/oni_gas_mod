@@ -206,7 +206,9 @@ namespace MixedAtmospheres.Oni
         // The shipped Harmony assembly binds Label to mscorlib, while this
         // adapter targets netstandard. Keep that runtime list untyped, as in
         // the other native-IL adapters, so labels retain their actual identity.
-        private static IList Labels(CodeInstruction code) => (IList)typeof(CodeInstruction).GetField("labels")!.GetValue(code);
+        private static IList Labels(CodeInstruction code) =>
+            typeof(CodeInstruction).GetField("labels")?.GetValue(code) as IList ??
+            throw new InvalidDataException("The native tag adapter requires Harmony's instruction label list.");
         private static IEnumerable<MethodBase> TargetMethods()
         {
             yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.Create));

@@ -112,4 +112,6 @@ These controls accept full-water appearance and the observed gas regression in
 the bounded Windows scenes, including the recorded source binding and reload.
 Linux rendering, other liquid materials, free surfaces and sustained performance
 still require evidence. The missing KPrefabID 246809 warning remains unresolved
-on loaded water resaves. Whole-colony and first-playable acceptance remain open.
+for the older loaded water input. The later [Windows actor-batch water control](sealed-native-domain.md#actual-windows-actor-batches)
+retains the repaired rendering through both reloads without that warning for
+its newer input. Whole-colony and first-playable acceptance remain open.

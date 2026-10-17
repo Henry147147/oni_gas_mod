@@ -373,6 +373,58 @@ and colony-file SHA-256
 `8fe04815aea3c61497a37beb2462f7b60072ad83a10c2a672a725dcaecc05215`.
 The fresh-process gas reload and both water controls are still running.
 
+### Actual Windows actor batches
+
+The merged `9e57308` source with the explicit nitrogen reflection check passes
+8 nitrogen groups, 106 snapshot/actor-boundary scenarios, 31 inspection groups,
+the adapter/package build and actual native Windows ONI. Native libraries are
+reused only after checking their hashes and unchanged native build inputs
+against the prior completed MSVC readiness run.
+
+`windows-actor-batch-merge-r3` and `windows-water-actor-batch-r1` both pass the
+extended real-consumer/two-emitter fixture: one registration batch, both handle
+callbacks, one retirement batch, 32 actual consumer callbacks and 80 emitter
+status samples. The two density-edge notifications occur once, ordinary
+outside actors retain native dispatch, and no actor transfer follows removal.
+
+| Windows source | Completed frame | U+K residual | Unchanged energy bound |
+| --- | ---: | ---: | ---: |
+| Mixed gas | 120 | -2.0305062e-9 J | 1e-6 J |
+| Filled water | 121 | -0.00270530765 J | 0.00594629911 J |
+
+Both ordinary paired saves pass complete header/body readback. Actual mouse
+hover retains the same completed physical object and publication as the bound
+GPU phase, colour, opacity and danger pixels. Gas hover lists both non-trace
+gases; water remains visibly blue and reports its actual fluid pressure and
+no breathable gas phase. Source physical hashes are
+`338f3c1b6b85cf7afd2339ff6adf0b9739d337eb931832e7c40784efcd1b9d9f`
+and `5bc367dcfd108d2a77d5a69d99eaf6d481620c15c92f33a2f5030afb4f05f3ca`.
+
+`windows-water-actor-batch-reload-r1` loads that water save twice in one Unity
+process, observing shutdown and the main menu between native sessions 1 and 2.
+Both paused autosaves/readbacks pass and all 120 continued physical frames
+match. Both sessions retain physical hash
+`d483b6778feaa50b4b10b8aa5212c12a1ab0e6b98aba6f83f0b2436354719461`
+at 48.200000718 s. Second-session water hover and the GPU inputs still match
+the completed physical reading. Neither resave logs a missing KPrefabID warning
+for this newer input; the older retained water input's warning is not claimed
+fixed. Each process closes successfully, removes its temporary mod and restores
+all 13 original profile files exactly. The original/staged load input and the
+default/installed native libraries remain unchanged.
+
+Private terminal review SHA-256 values:
+
+- Gas source: `0a024be165cafe1de7afa4a9bfbd1aebb0a779db374e4e044c31f46c2dd7f3ea`.
+- Water source: `b5da438b744287fe6c96336dc7b7ec8ac7277c70de36f7915dc874083cc81b5c`.
+- Water reload: `29498216eea4967d1b1a02d6db157e0db2ab7ac7f2e1b6dbc5fae531dca437ff`.
+
+The first preflight's compile failure and the next launch's rejected plural
+mode name remain recorded separately; neither starts ONI. The corrected game
+launch reuses the unchanged passing package. These saves contain the completed
+state **after actors have retired**. Live actor/outbox persistence, production
+device reservations, mixed-owner mutations, arbitrary colony ownership and
+first-playable acceptance remain open.
+
 ### Filled-liquid registered actors
 
 Actor ABI 1 also admits water consumers and emitters in the compressed-water
