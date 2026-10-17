@@ -15,7 +15,7 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 SCENES={"gas":"native-domain","water":"native-liquid-domain","water-transfer":"native-liquid-transfer-domain","heat":"native-heat-domain","water-heat":"native-liquid-heat-domain",
     "transfer":"native-transfer-domain","carbon":"native-carbon-domain","conduction":"native-conduction-domain",
-    "gravity":"native-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
+    "gravity":"native-gravity-domain","water-gravity":"native-liquid-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
     "pair":"native-paired-checkpoint-domain","save":"native-save-domain"}
 
 def digest(path:Path)->str:

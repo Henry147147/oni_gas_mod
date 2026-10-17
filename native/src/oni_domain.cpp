@@ -19,6 +19,8 @@ namespace ma::oni {
 namespace {
 using namespace experimental;
 constexpr std::array<const char*,5> ids{"nitrogen","oxygen","helium","water","carbon_dioxide"};
+constexpr bool liquid_scenario(std::uint32_t scenario) { return scenario==1 || scenario==3; }
+constexpr bool gravity_scenario(std::uint32_t scenario) { return scenario==2 || scenario==3; }
 std::mutex state_mutex;
 std::mutex frame_mutex;
 std::atomic<bool> enabled{};
@@ -65,7 +67,25 @@ struct ArithmeticScope {
     ~ArithmeticScope() { (void)std::fesetenv(&saved); _mm_setcsr(sse); }
 };
 
-std::shared_ptr<const FluidThermodynamics> model(const SpeciesRegistry& registry) {
+constexpr char liquid_gravity_profile[]="oni-sealed-domain-liquid-gravity-v1";
+constexpr double liquid_reference_temperature=300;
+SpeciesRegistry domain_registry(std::uint32_t scenario) {
+    auto registry=SpeciesRegistry::standard();
+    if (scenario!=3) return registry;
+    SpeciesRegistry shifted;
+    for (auto species : registry.all()) {
+        // An affine coordinate change, not a change to physical formation
+        // energy. The versioned owner stores water's anomaly about 300 K;
+        // physical_internal_energy and every boundary account retain the
+        // original per-mass reference separately. Small mechanical/thermal
+        // updates no longer round against the large chemical reference.
+        if (species.id=="water")
+            species.formation_enthalpy=-species.cv()*(liquid_reference_temperature-reference_temperature)*species.molar_mass;
+        shifted.add(std::move(species));
+    }
+    return shifted;
+}
+std::shared_ptr<const FluidThermodynamics> model(const SpeciesRegistry& registry,std::uint32_t scenario=0) {
     std::vector<ReferenceMaterial> materials;
     for (const auto* id : ids) {
         const auto& species=registry[registry.index(id)]; ReferenceMaterial material;
@@ -80,7 +100,28 @@ std::shared_ptr<const FluidThermodynamics> model(const SpeciesRegistry& registry
         material.provenance="Sealed ONI development domain: explicit constant-capacity reference, not a complete game catalogue";
         materials.push_back(std::move(material));
     }
-    return std::make_shared<const FluidThermodynamics>(registry,"oni-sealed-domain-v2",std::move(materials));
+    return std::make_shared<const FluidThermodynamics>(registry,scenario==3 ? liquid_gravity_profile : "oni-sealed-domain-v2",std::move(materials));
+}
+bool separated_reference_energy(const MacClosedWorld& owner) {
+    return owner.thermodynamics().reference().profile_version()==liquid_gravity_profile;
+}
+MacEnergySum physical_reference_energy(const MacClosedWorld& owner,std::size_t species,double mass) {
+    MacEnergySum result;
+    if (!separated_reference_energy(owner) || owner.registry()[species].id!="water") return result;
+    static const auto physical_registry=SpeciesRegistry::standard();
+    MacEnergySum offset;
+    offset.add(physical_registry[physical_registry.index("water")].internal_energy(0));
+    offset.add(-owner.registry()[species].internal_energy(0));
+    for (std::size_t k=0;k<offset.size();++k) result.add(offset.component(k).multiplied(mass));
+    return result;
+}
+MacEnergySum physical_internal_energy(const MacClosedWorld& owner,const MixtureInventory& mixture) {
+    MacEnergySum result;result.add(mixture.energy);
+    if (separated_reference_energy(owner)) for (std::size_t k=0;k<mixture.masses.size();++k) {
+        const auto reference=physical_reference_energy(owner,k,mixture.masses[k]);
+        for (std::size_t n=0;n<reference.size();++n) result.add(reference.component(n));
+    }
+    return result;
 }
 std::array<long double,MA_ONI_DOMAIN_SPECIES> masses(const MacClosedWorld& owner) {
     std::array<long double,MA_ONI_DOMAIN_SPECIES> values{};
@@ -97,7 +138,10 @@ double potential(const MacClosedWorld& owner) {
 }
 long double energy(const MacClosedWorld& owner) {
     const auto& state=owner.state(); long double value=0;
-    for (const auto& cell : state.cells) value+=cell.mixture.energy;
+    for (const auto& cell : state.cells) {
+        const auto internal=physical_internal_energy(owner,cell.mixture);
+        for (std::size_t k=0;k<internal.size();++k) value+=internal.component(k).require_representable();
+    }
     const auto inertia=mac_face_inertias(owner.registry(),state,owner.thermodynamics());
     const auto jx=mac_field_values(state.momentum_x,state.full_momentum_x);
     const auto jy=mac_field_values(state.momentum_y,state.full_momentum_y);
@@ -116,11 +160,11 @@ std::vector<MAOniDomainCell> project(const MacClosedWorld& owner,std::uint32_t s
         const auto reading=owner.thermodynamics().evaluate(source.mixture,1);
         MAOniDomainCell cell{};
         for (std::size_t k=0;k<ids.size();++k) cell.masses[k]=source.mixture.masses[owner.registry().index(ids[k])];
-        cell.internal_energy=source.mixture.energy; cell.pressure=reading.mechanical_pressure_pa;
+        cell.internal_energy=physical_internal_energy(owner,source.mixture).value().require_representable(); cell.pressure=reading.mechanical_pressure_pa;
         cell.temperature=reading.temperature_k;
         // This domain admits either gas-only cells or a completely filled
         // compressed-liquid control. It does not infer fraction from m/rho0.
-        cell.liquid_fraction=scenario == 1 ? 1 : 0;
+        cell.liquid_fraction=liquid_scenario(scenario) ? 1 : 0;
         const auto x=index%state.grid.width, y=index/state.grid.width;
         const auto half_mass=.5*source.mixture.mass();
         MacEnergySum kinetic; MacScaledSum px, py;
@@ -207,11 +251,15 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
     auto prepared=work.owner->with_fluid_transfers(std::span(&request,1));
     const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
     work.mass[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
-    work.material.add(inject ? packet.internal_energy_j : -packet.internal_energy_j);
+    MacEnergySum packet_energy;packet_energy.add(packet.internal_energy_j);
+    const auto reference=physical_reference_energy(*work.owner,species,packet.mass_kg);
+    for (std::size_t k=0;k<reference.size();++k) packet_energy.add(reference.component(k));
+    for (std::size_t k=0;k<packet_energy.size();++k)
+        work.material.add(inject ? packet_energy.component(k) : packet_energy.component(k).negated());
     work.potential.add(inject ? packet.potential_energy : packet.potential_energy.negated());
     if (!inject) work.kinetic.add(packet.resolved_kinetic_energy.negated());
     work.append({0,0,0,input.public_cell,input.species,input.callback,receipt_kind,
-        packet.mass_kg,packet.temperature_k,packet.internal_energy_j,packet.resolved_kinetic_energy.require_representable(),
+        packet.mass_kg,packet.temperature_k,packet_energy.value().require_representable(),packet.resolved_kinetic_energy.require_representable(),
         packet.momentum_x.require_representable(),packet.momentum_y.require_representable()});
     work.owner=std::make_unique<MacClosedWorld>(std::move(prepared.world));
 }
@@ -262,7 +310,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
 }
 void validate_domain_geometry(const MAOniDomainConfig& config) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
-        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 2 ||
+        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 3 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
@@ -272,18 +320,18 @@ void validate_domain_geometry(const MAOniDomainConfig& config) {
 std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& config,std::span<const std::uint8_t> image,double saved_time) {
     validate_domain_geometry(config);
     if (image.empty() || !std::isfinite(saved_time) || saved_time<0) throw std::invalid_argument("Invalid saved native domain source");
-    const auto registry=SpeciesRegistry::standard(); const auto eos=model(registry);
+    const auto registry=domain_registry(config.scenario); const auto eos=model(registry,config.scenario);
     auto candidate=std::make_unique<MacClosedWorld>(MacClosedWorld::from_checkpoint(registry,eos,image));
     const auto& state=candidate->state(); const auto& grid=state.grid;
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
-        candidate->settings().gravity_m_per_s2!=(config.scenario==2 ? 9.81 : 0))
+        candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0))
         throw std::invalid_argument("Physical checkpoint clock, grid or gravity differs from its native domain configuration");
     const auto water=registry.index("water");
     for (const auto& cell : state.cells) {
         if (!cell.passive_quantities.empty()) throw std::invalid_argument("Saved native domain requires a passive-metadata adapter");
         for (std::size_t k=0;k<registry.size();++k)
-            if (cell.mixture.masses[k]!=0 && ((config.scenario==1)!=(k==water)))
+            if (cell.mixture.masses[k]!=0 && (liquid_scenario(config.scenario)!=(k==water)))
                 throw std::invalid_argument("Saved native domain phase differs from its declared scenario");
     }
     (void)project(*candidate,config.scenario); (void)energy(*candidate);
@@ -298,12 +346,12 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     std::lock_guard lock(state_mutex);
     if (enabled.load(std::memory_order_acquire)) throw std::logic_error("A sealed native domain is already active");
     const ArithmeticScope arithmetic;
-    const auto registry=SpeciesRegistry::standard(); const auto eos=model(registry);
+    const auto registry=domain_registry(config.scenario); const auto eos=model(registry,config.scenario);
     MacTransportState state;
     state.grid={config.width,config.height,1,1,false,false,std::vector<std::uint8_t>(config.width*config.height)};
     for (std::uint32_t y=0;y<config.height;++y) for (std::uint32_t x=0;x<config.width;++x) {
         std::vector<double> values(registry.size());
-        if (config.scenario == 1) values[registry.index("water")]=1100;
+        if (liquid_scenario(config.scenario)) values[registry.index("water")]=1100;
         else {
             const double oxygen=.18+.12*static_cast<double>(x)/static_cast<double>(config.width-1);
             const double pressure=100000+1000*static_cast<double>(x)/static_cast<double>(config.width-1);
@@ -318,7 +366,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
     MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=true;
-    settings.gravity_m_per_s2=config.scenario == 2 ? 9.81 : 0;
+    settings.gravity_m_per_s2=gravity_scenario(config.scenario) ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
     if (!image.empty()) candidate=restored_domain_owner(config,image,saved_time);
@@ -577,7 +625,7 @@ void configure_domain_actors(const MAOniDomainActor* inputs,std::uint32_t count,
             if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
         } else {
             (void)domain_index(input.public_cell);
-            if (input.species >= ids.size() || ((geometry.scenario == 1) != (input.species == 3)) ||
+            if (input.species >= ids.size() || (liquid_scenario(geometry.scenario) != (input.species == 3)) ||
                 !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
                 !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
                 (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||
@@ -631,7 +679,14 @@ MAOniDomainStatus domain_status_under_fence() {
 std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t> image,double seconds) {
     const ArithmeticScope arithmetic;
     if (!std::isfinite(seconds) || seconds < 0) throw std::invalid_argument("Invalid physical checkpoint interval");
-    auto registry=SpeciesRegistry::standard(); auto restored=MacClosedWorld::from_checkpoint(registry,model(registry),image);
+    auto registry=SpeciesRegistry::standard();
+    auto restored=[&] {
+        try { return MacClosedWorld::from_checkpoint(registry,model(registry),image); }
+        catch (const std::invalid_argument&) {
+            auto shifted=domain_registry(3);
+            return MacClosedWorld::from_checkpoint(shifted,model(shifted,3),image);
+        }
+    }();
     return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096).world.checkpoint();
 }
 

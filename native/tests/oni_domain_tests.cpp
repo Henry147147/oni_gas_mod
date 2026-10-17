@@ -1,10 +1,12 @@
 #include "../src/oni_domain.hpp"
+#include <algorithm>
 #include <cmath>
 #include <array>
 #include <cfenv>
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <iomanip>
 #include <future>
 #include <fstream>
 #include <iterator>
@@ -18,6 +20,72 @@ namespace {
 void require(bool condition,const char* message) { if (!condition) throw std::runtime_error(message); }
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
+}
+void liquid_gravity() {
+    MAOniDomainConfig config{40,2,1,64,10,10,3,2,3,0};
+    std::vector<MAOniDomainCell> cells(6);
+    auto unshifted=config;unshifted.scenario=1;
+    ma::oni::start_domain(unshifted,1);(void)capture(cells);
+    const auto physical_reference=cells;
+    ma::oni::shutdown_domain();
+    ma::oni::start_domain(config,1);
+    auto status=capture(cells);
+    for (std::size_t i=0;i<cells.size();++i)
+        require(std::abs(cells[i].internal_energy-physical_reference[i].internal_energy)<=
+                    32*std::numeric_limits<double>::epsilon()*std::abs(physical_reference[i].internal_energy) &&
+                std::abs(cells[i].temperature-physical_reference[i].temperature)<1e-8 &&
+                std::abs(cells[i].pressure-physical_reference[i].pressure)<1 && cells[i].masses[3]==1100,
+                "Water energy basis omitted reference energy or changed its initial physical pressure/temperature");
+    MAOniDomainGravityStatus gravity{};ma::oni::copy_domain_gravity_status(gravity);
+    require(gravity.enabled==1 && gravity.gravity_m_per_s2==9.81 && gravity.initial_potential_j==6600*9.81,
+            "Filled water gravity did not initialize the cell-centre potential datum");
+    long double before=gravity.potential_j,scale{};
+    for (const auto& cell : cells) { before+=cell.internal_energy+cell.resolved_kinetic_energy;scale+=std::abs(cell.internal_energy)+cell.resolved_kinetic_energy; }
+    MAOniDomainTransferStatus transfers{};
+    MAOniDomainTransfer input{64,2,status.session,0,10+11*64,3,1,1,71,0,.05F,300};
+    ma::oni::queue_domain_transfers(&input,1,transfers);
+    ma::oni::advance_domain(1,.2,2);
+    std::array<MAOniDomainReceipt,4> receipts{};std::uint32_t count{};
+    ma::oni::copy_domain_receipts(status,cells.data(),6,receipts.data(),4,count);
+    require(status.state==1 && count==1 && receipts[0].kind==1,"Filled-water gravity injection failed");
+    ma::oni::ack_domain_receipts(status.session,receipts[0].sequence);
+    input.expected_frame=1;input.public_cell=10+10*64;input.kind=2;input.callback=72;input.mass_kg=.02F;input.temperature_k=0;
+    ma::oni::queue_domain_transfers(&input,1,transfers);
+    ma::oni::advance_domain(2,.2,2);
+    ma::oni::copy_domain_receipts(status,cells.data(),6,receipts.data(),4,count);
+    require(status.state==1 && count==1 && receipts[0].kind==2 && receipts[0].kinetic_energy_j>0,
+            "Filled-water gravity extraction did not carry moving fluid energy");
+    ma::oni::ack_domain_receipts(status.session,receipts[0].sequence);
+    for (std::uint64_t frame=3;frame<=1200;++frame) ma::oni::advance_domain(frame,.2,2);
+    status=capture(cells);ma::oni::copy_domain_gravity_status(gravity);ma::oni::copy_domain_transfer_status(transfers);
+    if (status.state!=1) throw std::runtime_error(std::string("Filled-water gravity frame: ")+status.error);
+    long double after=gravity.potential_j;
+    for (const auto& cell : cells) { after+=cell.internal_energy+cell.resolved_kinetic_energy;scale+=std::abs(cell.internal_energy)+cell.resolved_kinetic_energy; }
+    const auto boundary=(static_cast<double>(.05F)*1.5-static_cast<double>(.02F)*.5)*9.81;
+    const auto residual=after-before-transfers.material_energy_change_j-transfers.kinetic_energy_change_j-boundary;
+    const auto bound=128*std::numeric_limits<double>::epsilon()*scale;
+    std::cout<<std::setprecision(17)<<"Filled-water gravity accounting: frames="<<status.completed_frames
+             <<" residual="<<static_cast<double>(residual)<<" bound="<<static_cast<double>(bound)
+             <<" maximum="<<gravity.maximum_energy_residual_j<<" body="<<gravity.body_impulse_y
+             <<" pressure head="<<cells[0].pressure-cells[3].pressure<<'\n';
+    require(gravity.body_impulse_y<0 && gravity.potential_j!=gravity.initial_potential_j && cells[0].pressure>cells[3].pressure &&
+            std::abs(gravity.committed_boundary_potential_j-boundary)<1e-15 && std::abs(residual)<=bound &&
+            gravity.maximum_energy_residual_j<=bound,"Filled-water pressure head, body force or U+K+G accounting failed");
+    require(std::all_of(cells.begin(),cells.end(),[](const auto& cell) { return cell.liquid_fraction==1 && cell.masses[3]>1000; }),
+            "Filled-water gravity changed phase or lost occupied liquid");
+    const auto image=ma::oni::checkpoint_domain(status.session,status.completed_frames);
+    const auto continued=ma::oni::advance_domain_checkpoint(image,.2);
+    auto wrong=config;wrong.scenario=1;bool rejected{};
+    try { ma::oni::validate_domain_checkpoint(wrong,image,status.time_seconds); } catch(const std::invalid_argument&) { rejected=true; }
+    require(rejected,"Gravity water checkpoint admitted with gravity disabled");
+    const auto saved_time=status.time_seconds;ma::oni::shutdown_domain();
+    ma::oni::start_domain(config,1,image,saved_time);status=capture(cells);
+    require(status.completed_frames==0 && ma::oni::checkpoint_domain(status.session,0)==image,"Water gravity restore changed its physical source");
+    ma::oni::advance_domain(1,.2,2);status=capture(cells);
+    require(status.state==1 && ma::oni::checkpoint_domain(status.session,1)==continued,"Water gravity reload lost exact physical continuation");
+    ma::oni::shutdown_domain();
+    std::cout<<"PASS filled-water gravity, pressure head, carried boundary potential, U+K+G residual="<<static_cast<double>(residual)
+             <<" bound="<<static_cast<double>(bound)<<" and exact reload\n";
 }
 }
 int main(int argc,char** argv) {
@@ -446,6 +514,7 @@ int main(int argc,char** argv) {
             gravity.body_impulse_y==held_gravity.body_impulse_y && gravity.committed_boundary_potential_j==held_gravity.committed_boundary_potential_j,
             "Failed gravity frame published a potential, force or boundary account");
         ma::oni::shutdown_domain();
+        liquid_gravity();
         config.offset_x=63;
         try { ma::oni::start_domain(config,1); throw std::runtime_error("row-wrap geometry accepted"); }
         catch (const std::invalid_argument&) {}

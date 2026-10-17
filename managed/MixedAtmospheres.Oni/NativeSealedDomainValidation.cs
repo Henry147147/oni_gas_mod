@@ -79,16 +79,17 @@ namespace MixedAtmospheres.Oni
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
-        private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain";
+        private static bool LiquidGravityMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-gravity-domain";
+        private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain" || LiquidGravityMode;
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
         private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
         private static double FixtureHeatJoules => LiquidHeatMode ? 1500000 : 1500;
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode;
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
-        private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
+        private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 || restoredScenario==3 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || LiquidGravityMode;
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" || LiquidActorMode;
         private static double ProjectedPotential => cells.Select((cell, index) => cell.TotalMass * 9.81 * (index / Width + .5)).Sum();
         private static double PhysicalEnergy => cells.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) + (GravityMode ? ProjectedPotential : 0);
@@ -243,7 +244,7 @@ namespace MixedAtmospheres.Oni
                 {
                     gravityVerified = transfersVerified && gravityStatus.Enabled == 1 && gravityStatus.State == 1 && gravityStatus.Gravity == 9.81 &&
                         gravityStatus.Session == latest.Session && gravityStatus.CompletedFrame == latest.CompletedFrames &&
-                        gravityStatus.PendingBoundaryPotential == 0 && gravityStatus.BodyImpulseY < 0 && gravityStatus.MaximumEnergyResidual <= 1e-6 &&
+                        gravityStatus.PendingBoundaryPotential == 0 && gravityStatus.BodyImpulseY < 0 && gravityStatus.MaximumEnergyResidual <= (Liquid ? transferEnergyBound : 1e-6) &&
                         gravityStatus.Potential > 0 && gravityStatus.Potential != gravityStatus.InitialPotential &&
                         Math.Abs(gravityStatus.Potential - ProjectedPotential) < 1e-9 && cells.Any(cell => cell.MomentumY != 0) &&
                         Math.Abs(gravityStatus.CommittedBoundaryPotential - ((double).05f - .02f) * 9.81 * .5) < 1e-15;
@@ -368,7 +369,7 @@ namespace MixedAtmospheres.Oni
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
-                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = Liquid ? 1U : GravityMode ? 2U : 0U };
+                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
             Check(Begin(ref configuration, ref latest)); domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
@@ -669,7 +670,8 @@ namespace MixedAtmospheres.Oni
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
             Kind = "actual-game-sealed-native-fluid-domain", Status = completed ? "passed" : failed ? "failed" : "pending", Error = error,
-            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = Liquid ? "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
+            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
+            EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
             NativeFlowControlObserved = nativeFlowControlObserved, ProjectionPrimed = projectionPrimed,
@@ -681,6 +683,7 @@ namespace MixedAtmospheres.Oni
             HeatCommands = heatStatus, HeatCommandsVerified = heatVerified, HeatPacketsRouted = heatPacketsRouted,
             ThermalConduction = thermalStatus, ThermalConductionVerified = thermalVerified,
             Gravity = gravityStatus, GravityVerified = gravityVerified, ProjectedPotentialJoules = GravityMode ? ProjectedPotential : 0,
+            LiquidGravityVerified = Liquid && GravityMode && gravityVerified,
             HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
             HeatEnergyResidualJoules = heatEnergyResidual,
             LiquidHeatVerified = LiquidHeatMode && heatVerified && thermalVerified,

@@ -14,7 +14,7 @@ import struct
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -22,9 +22,14 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     if save_io_recovery and (not saved or restored):
         return False
+    gravity = gravity or liquid_gravity
+    liquid_transfers = liquid_transfers or liquid_gravity
     liquid = liquid or liquid_transfers or liquid_actors or liquid_heat
     if restored:
-        liquid = report.get("Scenario") == "compressed-liquid"
+        liquid = report.get("Scenario") in ("compressed-liquid", "compressed-liquid-gravity")
+        if (report.get("Scenario") == "compressed-liquid-gravity" and
+                report.get("EnergyRepresentation") != "water-anomaly-about-300K-plus-original-reference-from-mass"):
+            return False
     physical = report.get("NativeDomain")
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
@@ -77,6 +82,15 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
             return False
     if gravity:
         field = report.get("Gravity")
+        gravity_bound = 1e-6
+        if liquid_gravity:
+            scale = report.get("TransferEnergyScaleJoules")
+            if (report.get("LiquidGravityVerified") is not True or report.get("Scenario") != "compressed-liquid-gravity"
+                    or report.get("EnergyRepresentation") != "water-anomaly-about-300K-plus-original-reference-from-mass"
+                    or type(scale) not in (int, float) or not 0 < scale < math.inf
+                    or report.get("TransferEnergyBoundJoules") != 128 * 2.2204460492503131e-16 * scale):
+                return False
+            gravity_bound = report["TransferEnergyBoundJoules"]
         if (report.get("GravityVerified") is not True or not isinstance(field, dict)
                 or field.get("Size") != 96 or field.get("Version") != 1 or field.get("Enabled") != 1 or field.get("State") != 1
                 or field.get("Session") != physical["Session"] or field.get("CompletedFrame") != physical["CompletedFrames"]
@@ -84,7 +98,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or any(type(field.get(key)) not in (int, float) or not math.isfinite(field[key])
                        for key in ("Potential", "InitialPotential", "CommittedBoundaryPotential", "BodyImpulseY", "InternalWork", "MaximumEnergyResidual"))
                 or field["Potential"] <= 0 or field["Potential"] == field["InitialPotential"] or field["BodyImpulseY"] >= 0
-                or not 0 <= field["MaximumEnergyResidual"] <= 1e-6
+                or not 0 <= field["MaximumEnergyResidual"] <= gravity_bound
                 or type(report.get("ProjectedPotentialJoules")) not in (int, float)
                 or not abs(report["ProjectedPotentialJoules"] - field["Potential"]) < 1e-9
                 or not abs(field["CommittedBoundaryPotential"] - (struct.unpack("<f", struct.pack("<f", .05))[0] - struct.unpack("<f", struct.pack("<f", .02))[0]) * 9.81 * .5) < 1e-15):
@@ -316,7 +330,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
@@ -333,7 +347,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, liquid=args.mode in ("water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

@@ -26,7 +26,7 @@ namespace MixedAtmospheres.Oni
         private static void Validate(ulong session,ulong frame,ulong epoch,double time,Configuration geometry,ReadOnlySpan<byte> physical)
         {
             Require(session>0 && epoch>0 && !double.IsNaN(time) && !double.IsInfinity(time) && time>0,"Invalid physical checkpoint source epoch/clock.");
-            Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=2 &&
+            Require(geometry.Size==40 && geometry.Version==2 && geometry.Flags==1 && geometry.Reserved==0 && geometry.Scenario<=3 &&
                 geometry.Width>=2 && geometry.Width<=16 && geometry.Height>=2 && geometry.Height<=16 && geometry.X>0 && geometry.Y>0 &&
                 (ulong)geometry.X+geometry.Width<geometry.GridWidth,"Invalid saved native domain geometry.");
             Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
@@ -93,12 +93,12 @@ namespace MixedAtmospheres.Oni
                     var boundary=x<Geometry.X || y<Geometry.Y || x>=Geometry.X+Geometry.Width || y>=Geometry.Y+Geometry.Height;
                     var hash=BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset));
                     var mass=BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+8)));
-                    Require(hash==(boundary ? wallHash : Geometry.Scenario==1 ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
+                    Require(hash==(boundary ? wallHash : (Geometry.Scenario==1 || Geometry.Scenario==3) ? liquidHash : gasHash),"Saved sealed native material/boundary differs.");
                     if(boundary) Require(mass>0,"Saved sealed native boundary is empty.");
                     else
                     {
                         var column=x-(int)Geometry.X;
-                        var expectedMass=Geometry.Scenario==1 ? column==0 ? 1000f : column==1 ? 1200f : 1100f : column==0 ? .6f : column==1 ? 1.2f : 2.4f;
+                        var expectedMass=(Geometry.Scenario==1 || Geometry.Scenario==3) ? column==0 ? 1000f : column==1 ? 1200f : 1100f : column==0 ? .6f : column==1 ? 1.2f : 2.4f;
                         Require(mass==expectedMass && BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+4))==BitConverter.SingleToInt32Bits(280+20*column) &&
                             BinaryPrimitives.ReadInt32LittleEndian(native.Slice(offset+12))==0 &&
                             BinaryPrimitives.ReadInt32LittleEndian(native.Slice(29+16*count+8*index))==0 &&

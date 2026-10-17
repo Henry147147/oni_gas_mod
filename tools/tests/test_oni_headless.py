@@ -307,7 +307,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report["EmissionCallbacks"]=0
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, gravity=True))
 
-    def test_liquid_transfers_require_water_receipts_later_extraction_and_roundoff_account(self):
+    def add_liquid_transfers(self):
         self.add_gas_transfers()
         self.report.update(Scenario="compressed-liquid", LiquidTransfersVerified=True,
             TransferEnergyScaleJoules=2e11, TransferEnergyBoundJoules=128*2.2204460492503131e-16*2e11,
@@ -320,6 +320,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report["FluidTransfers"]=copy.deepcopy(self.report["GasTransfers"])
         self.report["FluidTransfers"]["MassChangesKg"]=[0,0,0,.030000001192092896,0]
         self.report["FluidTransfers"]["MaterialEnergyChange"]=-475457
+
+    def test_liquid_transfers_require_water_receipts_later_extraction_and_roundoff_account(self):
+        self.add_liquid_transfers()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,liquid=True,liquid_transfers=True))
         for section,key,value in ((None,"LiquidTransfersVerified",False),(None,"TransferEnergyBoundJoules",1),
                 (None,"TransferEnergyScaleJoules",float("inf")),(None,"TransferEnergyResidualJoules",.01),
@@ -332,11 +335,39 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             (bad[section] if section else bad)[key]=value
             self.assertFalse(runner.native_domain_passed(bad,self.observation,30,liquid=True,liquid_transfers=True),(section,key))
 
+    def test_liquid_gravity_requires_reference_energy_potential_and_water_receipts(self):
+        self.add_liquid_transfers()
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,liquid_gravity=True))
+        self.report.update(Scenario="compressed-liquid-gravity",LiquidGravityVerified=True,GravityVerified=True,
+            EnergyRepresentation="water-anomaly-about-300K-plus-original-reference-from-mass",ProjectedPotentialJoules=64746.2,
+            Gravity={"Size":96,"Version":1,"State":1,"Enabled":1,"Session":1,"CompletedFrame":30,
+                "Gravity":9.81,"Potential":64746.2,"InitialPotential":64746.0,"PendingBoundaryPotential":0,
+                "CommittedBoundaryPotential":.030000001192092896*9.81*.5,"BodyImpulseY":-70000,
+                "InternalWork":.01,"MaximumEnergyResidual":.00025})
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,liquid_gravity=True))
+        for section,key,value in ((None,"LiquidGravityVerified",False),(None,"EnergyRepresentation","full-internal-energy"),
+                (None,"Scenario","compressed-liquid"),(None,"TransferEnergyBoundJoules",1),
+                ("Gravity","MaximumEnergyResidual",.01),("Gravity","CommittedBoundaryPotential",0),
+                ("NativeDomain","SuppressedLiquid",0),("LiquidExtractionReceipt","Species",1)):
+            bad=copy.deepcopy(self.report);(bad[section] if section else bad)[key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,liquid_gravity=True),(section,key))
+
     def test_loaded_water_transfer_state_requires_exact_saved_continuation(self):
         self.set_restored_colony()
         self.report["Scenario"]="compressed-liquid"
         self.report["NativeDomain"].update(LiquidMassKg=1100.005,PressurePa=220010000,SuppressedLiquid=100,
             InitialOxygenKg=0,CurrentOxygenKg=0)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report["ColonyCheckpoint"]["ExactContinuationFrames"]-=1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
+    def test_loaded_water_gravity_requires_its_energy_basis_and_exact_replay(self):
+        self.set_restored_colony()
+        self.report["Scenario"]="compressed-liquid-gravity"
+        self.report["NativeDomain"].update(LiquidMassKg=1100.005,PressurePa=220010000,SuppressedLiquid=100,
+            InitialOxygenKg=0,CurrentOxygenKg=0)
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report["EnergyRepresentation"]="water-anomaly-about-300K-plus-original-reference-from-mass"
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
         self.report["ColonyCheckpoint"]["ExactContinuationFrames"]-=1
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
