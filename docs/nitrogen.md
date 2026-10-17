@@ -46,15 +46,24 @@ The shipped `SimHashes` enum cannot acquire new members. Scoped IL changes to
 their actual element names; native and unknown hashes retain their exact
 `Enum.ToString()` names. The original `TagManager.Create` call and struct
 return instructions stay intact. A changed instruction shape rejects, and
-startup checks invoke both actual patched helpers for native, custom and
+Before installing Harmony patches, the adapter invokes both original helpers
+through reflection with a native oxygen identity. Startup checks then invoke
+both actual patched helpers directly for native, custom and
 unknown identities before the rest of the adapter is installed. This
 avoids integer prefab names without patching `System.Enum` globally.
 
 The first modded WindowsPlayer/Proton run exposed a startup exception in the
-earlier ref-result prefix while ordinary native tags were being created. That
-failed run remains retained. The IL change avoids that prefix and its
-`__result` handling; the precise runtime cause and repaired player result must
-be assessed separately from declaration tests.
+earlier ref-result prefix while ordinary native tags were being created. The
+IL-only attempt still fails the direct runtime check. Both failed runs remain
+retained. Pre-invoking the original helpers before composition passes both
+original and patched checks, normal database initialization, and main-menu
+contract export in the next real WindowsPlayer run. This points to cold native
+entry preparation/composition; the precise Unity/Mono implementation cause is
+not established. Standalone licensed-Mono experiments under Wine and Proton
+pass both warmed and cold forms and do not reproduce Unity's failure.
+`NativeTagHelpersVerified` is written only after the direct patched checks
+complete, and probe completion requires that result. The subsequent physical
+scene and reload gates remain separate.
 
 ## Property scope
 
@@ -94,7 +103,8 @@ YAML description mapping through the actual native `ElementEntry` getter under
 Turkish culture, and the installed helper signatures. Both actual helper IL
 bodies are rewritten and executed against every native enum value, unknown
 values and all three custom identities. Changed enum/branch/duplicate bodies
-reject. All eight groups pass against the Linux and Windows assemblies. Its optional second argument replays a private
+reject. A ninth group invokes both original helpers before composition and
+ensures this alone cannot certify patched helpers. Its optional second argument replays a private
 actual-game `nitrogen-validation.json` report.
 
 The disposable presentation runner adds three real native material items after

@@ -203,10 +203,12 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch]
     internal static class NitrogenElementTagPatch
     {
+        internal static bool Verified { get; private set; }
         // The shipped Harmony assembly binds Label to mscorlib, while this
         // adapter targets netstandard. Keep that runtime list untyped, as in
         // the other native-IL adapters, so labels retain their actual identity.
-        private static IList Labels(CodeInstruction code) => (IList)typeof(CodeInstruction).GetField("labels")!.GetValue(code);
+        private static IList Labels(CodeInstruction code) => (IList)(typeof(CodeInstruction).GetField("labels")!.GetValue(code)
+            ?? throw new InvalidDataException("Harmony instruction label list is unavailable."));
         private static IEnumerable<MethodBase> TargetMethods()
         {
             yield return AccessTools.Method(typeof(GameTagExtensions), nameof(GameTagExtensions.Create));
@@ -235,8 +237,24 @@ namespace MixedAtmospheres.Oni
             if(replacements!=1)throw new InvalidDataException("The native enum tag helper no longer has exactly one inspected stringification.");
         }
         [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void WarmNativeCalls()
+        {
+            Verified=false;
+            // The real WindowsPlayer/Proton control fails at a cold CreateTag
+            // entry after composition. Pre-invocation makes its direct runtime
+            // checks pass; standalone Mono does not reproduce the Unity fault.
+            foreach(var name in new[]{"Create","CreateTag"})
+            {
+                var method=AccessTools.Method(typeof(GameTagExtensions),name,new[]{typeof(SimHashes)})
+                    ?? throw new MissingMethodException("Native tag helper is unavailable: "+name);
+                if(!(method.Invoke(null,new object[]{SimHashes.Oxygen}) is Tag tag) || tag!=TagManager.Create("Oxygen"))
+                    throw new InvalidDataException("Native tag helper differs before patching: "+name);
+            }
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
         internal static void VerifyCalls()
         {
+            Verified=false;
             foreach(var id in new[]{SimHashes.Oxygen,SimHashes.Water,SimHashes.Unobtanium,SimHashes.Vacuum,
                 OniNitrogenElements.Gas,OniNitrogenElements.Liquid,OniNitrogenElements.Solid,(SimHashes)int.MaxValue})
             {
@@ -244,6 +262,7 @@ namespace MixedAtmospheres.Oni
                 if(GameTagExtensions.Create(id)!=expected || id.CreateTag()!=expected)
                     throw new InvalidDataException("Patched native tag helper changed its identity or return contract: "+(int)id);
             }
+            Verified=true;
         }
     }
 }

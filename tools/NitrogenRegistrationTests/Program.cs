@@ -33,7 +33,9 @@ internal static class Program
             ("explicit YAML descriptions bypass the native culture-dependent default", DescriptionMapping),
             ("native tag bridge still exposes exactly the inspected signatures", BridgeContract),
             ("YAML phases load only through the adapter's private content gate", ContentGate),
-            ("tag IL rewrite rejects changed enum and branch shapes", InvalidBridge)
+            ("tag IL rewrite rejects changed enum and branch shapes", InvalidBridge),
+            ("both original native tag helpers can be invoked before patch composition",()=>
+            { NitrogenElementTagPatch.WarmNativeCalls();Check(!NitrogenElementTagPatch.Verified,"Unpatched preflight cannot certify patched helpers."); })
         };
         var failed = 0;
         foreach (var (name, test) in tests)
