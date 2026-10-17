@@ -11,6 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeActorRegistrationPlan.cs" Link="NativeActorRegistrationPlan.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeCellMassEditPlan.cs" Link="NativeCellMassEditPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ExperimentalFluidMessageRouter.cs" Link="ExperimentalFluidMessageRouter.cs" />

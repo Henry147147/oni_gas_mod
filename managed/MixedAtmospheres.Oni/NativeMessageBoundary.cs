@@ -74,6 +74,7 @@ namespace MixedAtmospheres.Oni
             if (world == null)
             {
                 NativeSealedDomainValidation.BeforeRestoredNativeFrame(message,length,payload);
+                if (NativeSealedDomainValidation.TryHandleCellMassEdits(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleHeat(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleActorMessage(message, length, payload)) return IntPtr.Zero;
@@ -122,6 +123,7 @@ namespace MixedAtmospheres.Oni
             if (ProbeScope.World == null)
             {
                 if (NativeSealedDomainValidation.TryHandleHeat(message, length, count, payload)) return IntPtr.Zero;
+                if (NativeSealedDomainValidation.TryHandleCellMassEdits(message, length, count, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, count, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleActorBatch(message, length, count, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active)

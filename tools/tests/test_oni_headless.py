@@ -60,6 +60,39 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         if liquid: report['NativeDomain'].update(LiquidMassKg=1100, SuppressedLiquid=100)
         return report
 
+    def carbon_particle(self):
+        report = copy.deepcopy(self.report)
+        report.update(CellMassEditsRouted=1, ReceiptsPublished=1)
+        report['GasTransfers'] = dict(Size=104, Version=2, State=1, Session=1, PendingBatches=0,
+            AcceptedBatches=1, CommittedBatches=1, UnacknowledgedReceipts=0, MassChangesKg=[0,0,0,0,.03125],
+            MaterialEnergyChange=-270000.0, KineticEnergyChange=0)
+        receipt = dict(Size=88,Version=2,Session=1,CompletedFrame=5,Sequence=1,Kind=1,Callback=-1,Species=4,
+                       MassKg=.03125,Temperature=310,InternalEnergy=-270000.0,KineticEnergy=0)
+        report['CarbonParticle'] = dict(Required=True,Started=True,Verified=True,ParticleRetired=True,NativeDispatchAvoided=True,
+            Source='CO2Manager.SpawnBreath',MassKg=.03125,TemperatureK=310,SourceFrame=4,CompletedFrame=5,
+            Receipts=1,Receipt=receipt,MassErrorKg=1e-15,EnergyResidualJoules=1e-9,EnergyBoundJoules=1e-6)
+        return report
+
+    def test_native_co2_particle_requires_actual_retirement_and_conserved_single_deposition(self):
+        report = self.carbon_particle()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+        report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True,expected_platform='WindowsPlayer'))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,carbon_particle=True))
+
+    def test_particle_cannot_pass_duplicate_native_effects_or_relaxed_energy_bounds(self):
+        changes = [('Verified',False),('ParticleRetired',False),('NativeDispatchAvoided',False),('Receipts',2),
+                   ('Source','manual-fixture'),('SourceFrame',0),('CompletedFrame',31),('EnergyBoundJoules',1),
+                   ('EnergyResidualJoules',1e-5),('MassErrorKg',1e-9)]
+        for key,value in changes:
+            report=self.carbon_particle();report['CarbonParticle'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True),key)
+        for key,value in [('Callback',0),('Kind',2),('Sequence',2),('Species',1),('InternalEnergy',0),('MassKg',.0625)]:
+            report=self.carbon_particle();report['CarbonParticle']['Receipt'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True),key)
+        report=self.carbon_particle();report['CellMassEditsRouted']=2
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+
     @staticmethod
     def rehash_inventory(report):
         inventory = report['ImportedNativeInventory']

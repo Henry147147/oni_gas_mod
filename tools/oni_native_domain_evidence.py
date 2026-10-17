@@ -27,7 +27,7 @@ def _same_native_float(actual, supplied) -> bool:
     except (OverflowError, struct.error):
         return False
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -68,6 +68,33 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     primed = report.get("ProjectionPrimedAtNativeFrame")
     if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
         return False
+    if carbon_particle:
+        particle = report.get("CarbonParticle")
+        account = report.get("GasTransfers")
+        if (not isinstance(particle, dict) or not isinstance(account, dict)
+                or any(particle.get(key) is not True for key in ("Required", "Started", "Verified", "ParticleRetired", "NativeDispatchAvoided"))
+                or particle.get("Source") != "CO2Manager.SpawnBreath" or particle.get("MassKg") != .03125
+                or particle.get("TemperatureK") != 310 or particle.get("Receipts") != 1
+                or account.get("Size") != 104 or account.get("Version") != 2 or account.get("State") != 1
+                or account.get("Session") != physical["Session"]
+                or report.get("CellMassEditsRouted") != 1 or report.get("ReceiptsPublished") != 1
+                or particle.get("EnergyBoundJoules") != 1e-6
+                or type(particle.get("MassErrorKg")) not in (int, float) or not 0 <= particle["MassErrorKg"] <= 1e-10
+                or type(particle.get("EnergyResidualJoules")) not in (int, float) or not abs(particle["EnergyResidualJoules"]) <= 1e-6
+                or type(particle.get("SourceFrame")) is not int or type(particle.get("CompletedFrame")) is not int
+                or not 0 < particle["SourceFrame"] < particle["CompletedFrame"] <= physical["CompletedFrames"]
+                or account.get("PendingBatches") != 0 or account.get("AcceptedBatches") != 1 or account.get("CommittedBatches") != 1
+                or account.get("UnacknowledgedReceipts") != 0 or account.get("MassChangesKg") != [0, 0, 0, 0, .03125]
+                or account.get("KineticEnergyChange") != 0):
+            return False
+        receipt = particle.get("Receipt")
+        if (not isinstance(receipt, dict) or receipt.get("Size") != 88 or receipt.get("Version") != 2
+                or receipt.get("Session") != physical["Session"] or receipt.get("CompletedFrame") != particle["CompletedFrame"]
+                or receipt.get("Sequence") != 1 or receipt.get("Kind") != 1 or receipt.get("Callback") != -1
+                or receipt.get("Species") != 4 or receipt.get("MassKg") != .03125 or receipt.get("Temperature") != 310
+                or type(receipt.get("InternalEnergy")) not in (int, float) or not math.isfinite(receipt["InternalEnergy"])
+                or receipt["InternalEnergy"] != account.get("MaterialEnergyChange") or receipt.get("KineticEnergy") != 0):
+            return False
     if initial_inventory:
         inventory = report.get("ImportedNativeInventory")
         if (restored or not isinstance(inventory, dict) or inventory.get("Required") is not True
@@ -395,7 +422,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
@@ -412,7 +439,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

@@ -150,7 +150,7 @@ def domain_options(args) -> dict:
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         heat=mode == "native-heat-domain", liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode == "native-transfer-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
-        liquid_actors=mode == "native-liquid-actor-domain", carbon=mode == "native-carbon-domain",
+        liquid_actors=mode == "native-liquid-actor-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",
         conduction=mode == "native-conduction-domain", gravity=mode == "native-gravity-domain",
         liquid_gravity=mode == "native-liquid-gravity-domain",
         checkpoint=mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"),
@@ -167,6 +167,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if args.mode == "native-carbon-particle-domain" and args.frames < 30:
+        raise ValueError("The CO2 particle control requires at least 30 frames")
     if args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:
         raise ValueError("Registered actor scenes require at least 80 frames")
     if bool(args.load_save) != (args.mode == "native-load-domain"):

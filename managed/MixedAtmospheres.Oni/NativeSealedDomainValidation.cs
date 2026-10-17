@@ -74,7 +74,7 @@ namespace MixedAtmospheres.Oni
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -138,6 +138,7 @@ namespace MixedAtmospheres.Oni
                 if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
                 if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
                 if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
+                if (CarbonParticleMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartCarbonParticleFixture();
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -254,6 +255,7 @@ namespace MixedAtmospheres.Oni
                 }
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
+                if (CarbonParticleMode) VerifyCarbonParticleFixture();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
                 if (ColonySaveMode) SavePausedColony();
@@ -501,6 +503,7 @@ namespace MixedAtmospheres.Oni
                         receipt.Sequence == through + 1 && receipt.Species < Ids.Length,
                         "Native gas receipt disagrees with its completed physical frame or delivery order.");
                     through = receipt.Sequence;
+                    ObserveCarbonParticleReceipt(receipt);
                     if (LiquidTransferMode && receipt.Kind == 1) liquidInjectionReceipt = receipt;
                     if (LiquidTransferMode && receipt.Kind == 2) liquidExtractionReceipt = receipt;
                     if (receipt.Callback == -1) continue;
@@ -710,6 +713,8 @@ namespace MixedAtmospheres.Oni
             LiquidHeatVerified = LiquidHeatMode && heatVerified && thermalVerified,
             HeatEnergyScaleJoules = heatEnergyScale, HeatEnergyBoundJoules = heatEnergyBound,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
+            CellMassEditsRouted = cellMassEditsRouted,
+            CarbonParticle = CarbonParticleReport(),
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),

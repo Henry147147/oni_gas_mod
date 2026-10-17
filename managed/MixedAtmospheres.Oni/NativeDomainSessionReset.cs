@@ -39,6 +39,12 @@ namespace MixedAtmospheres.Oni
             initialInventory=Array.Empty<InitialCell>();initialInventoryElements=Array.Empty<ushort>();
             initialInventoryVerified=false;initialInventoryHash="";initialInventoryNativeFrames=0;
             initialNativeMasses=initialNativeTemperatures=Array.Empty<float>();initialInventoryBeforeFence=false;
+            cellMassEditsRouted=0;
+            cellMassEditsAvoidedNativeDispatch=true;
+            carbonParticleStarted=carbonParticleVerified=false;carbonParticle=null;carbonParticleReceipt=null;
+            carbonParticleReceipts=0;carbonParticleSourceFrame=0;
+            carbonParticleBeforeEnergy=carbonParticleEnergyResidual=carbonParticleMassError=0;
+            carbonParticleBeforeMasses=Array.Empty<double>();
             initialPauseTicksHeld=initialPositiveTicksHeld=0;resumePreparationFrame=-1;
             savedPhysicalHash=restoredInitialHash=savedFileHash=savedFilePath="";
             colonyFileSaved=colonyLoaded=zeroRestoreVerified=restoredSceneStarted=restoredRendererVerified=false;
