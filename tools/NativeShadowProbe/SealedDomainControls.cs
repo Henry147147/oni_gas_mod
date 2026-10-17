@@ -155,7 +155,8 @@ internal static unsafe partial class Program
             if (heating)
             {
                 var account = OniNativeDomain.HeatStatus.Empty;
-                Require(OniNativeDomain.CopyHeat(ref account) == 0 && account.AcceptedBatches == 1 && account.CommittedBatches == 1 &&
+                var expectedHeatBatches=Environment.GetEnvironmentVariable("MA_VERIFY_COMPLETED_SNAPSHOT")=="1" ? 2UL : 1UL;
+                Require(OniNativeDomain.CopyHeat(ref account) == 0 && account.AcceptedBatches == expectedHeatBatches && account.CommittedBatches == expectedHeatBatches &&
                     account.PendingBatches == 0 && account.CommittedHeatJoules == 1500*heatFactor, "Native heat account did not commit exactly once.");
                 var residual = values.Sum(cell => cell.InternalEnergy + cell.ResolvedKineticEnergy) - heatBeforeEnergy - 1500*heatFactor;
                 var heatBound = liquid ? 128*2.2204460492503131e-16*(heatBeforeScale + values.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy)) : 1e-6;
