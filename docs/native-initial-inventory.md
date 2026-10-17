@@ -65,12 +65,13 @@ The Windows runner exposes `-NativeDomain import` and
 continues to report WindowsPlayer on a Linux host separately from native
 Windows OS evidence.
 
-Both adapters compile, all 186 Python checks pass, and the Linux Release,
-ASan/UBSan, Ubuntu 22.04 compatibility and Windows-under-Wine native suites each
-pass all 13 controls. The new native controls include late-cell atomic
+Both adapters compile and all 187 Python checks pass. The initial v10 Linux
+Release, ASan/UBSan, Ubuntu 22.04 compatibility and Windows-under-Wine native
+suites each pass all 13 controls. The merged `e243756` v11 Ubuntu compatibility
+and GNU Windows-under-Wine builds also pass all 13. The new controls include late-cell atomic
 rejection, unchanged constituent inventories/temperature/zero motion, physical
 advancement and exact checkpoint continuation for gas, water and water with
-gravity. Real Unity import runs are in progress.
+gravity. Real Unity import runs are described below.
 No playable-colony or whole-colony acceptance follows from the helper tests.
 
 The first real Linux `native-inventory-unity-matrix-v1/import-save` rejects an
@@ -80,4 +81,30 @@ gas cells of about 4.2 kg each. Native flow-flag installation can displace
 fluid; reading the initial inventory after that operation was too late. Both
 failures remain retained. The reordered admission above captures and verifies
 the physical owner before installing those flags. No missing mass or temperature
-is synthesized. Its new real-game result remains pending.
+is synthesized.
+
+`native-inventory-unity-matrix-v3/import-save` now passes in actual Linux ONI
+744825, using the frozen `e243756` runner/adapter and compatibility build v11.
+It captures one completed native packet containing three CO2 cells and three
+oxygen cells. The admitted totals are 4.200000047683716 kg CO2 and
+4.200000405311584 kg oxygen; absent constituents stay zero. Every source
+temperature and binary32 mass matches its frame-zero physical admission.
+The ordered input SHA-256 is
+`d431cd193824e75c515813930cc6c06f1df330838696d5506b259901318336b8`.
+
+The physical owner advances 121 native worker frames / 24.200000361 s, with
+maximum relative mass/energy errors 1.692e-15 / 1.214e-14. The original native
+compatibility tuples stay unchanged, actual grid/rendering consumes the
+completed custom state, and outside native-solid heat continues. The ordinary
+paired colony save passes complete header and 5,105,309-byte body readback.
+Its physical image is
+`3412477259ef0177ffef3c278108be364e6594a108d69fc1949ff7a6768e1838`
+and colony-file SHA-256 is
+`b8896b5055e24a2a228e9418057a693da5895bb0e003d0f551eb3538268e1e18`.
+The fresh-process load also passes its paused frame-zero deferred autosave,
+both native startup batches and all 120 exact continued physical frames. The
+final physical image at 48.200000718 s is
+`2a94ca738ef95637f44a4b70d4112fa82c3b85feb9aebb6798651c4e87d1e097`;
+the frame-zero autosave file hash is
+`d23f17dac85574c4636771250e664d6402b615e1e1e171d8a1612be77ea17beb`.
+The source file remains unchanged. The water import control remains pending.

@@ -34,11 +34,17 @@ mechanical pressure is 220 MPa, with elastic energy retained separately from
 thermal energy. These are explicit development materials, not a complete ONI
 material catalogue or free-surface solver.
 
-The driver first queues ONI's gas/liquid impermeability flags and verifies them
+The synthetic controls first queue ONI's gas/liquid impermeability flags and verify them
 in the original native snapshot. Flag installation can displace fluid before
 ownership begins. After activation it restores deliberately unbalanced,
 nonvacuum scalar cells, then requires an exact match before starting the
 30-frame acceptance interval. A missing projection fails within ten frames.
+
+The explicit [native inventory controls](native-initial-inventory.md) capture
+the initial physical inventory before flag installation, activate the custom
+exclusions, then install the flags and restore those same canonical native
+compatibility cells. The captured inventory supplies the physical owner;
+compatibility writes do not initialize or replace it.
 
 Native per-cell post-processing and pressure, gas, liquid, thermal and transition
 entry hooks exclude owned cells. **Native indices include a one-cell halo:**
