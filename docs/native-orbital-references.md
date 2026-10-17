@@ -107,7 +107,14 @@ root counts and the checked frame/time/full-image hash. Session cleanup clears
 it. The portable reviewer rejects an outstanding wait or a claimed witness
 without the original restored image. Four new declaration groups distinguish
 legitimate native startup from dangling references and inconsistent registry
-states. Actual repeated-load verification of this wait remains in progress.
+states. Frozen `2df8e7b` with the unchanged v15 native libraries now loads the
+same mixed-state source twice in WindowsPlayer/Proton and twice in native Linux.
+Both second sessions naturally wait once for all ten roots while preserving the
+complete source image and physical time at frame zero. All four sessions finish
+paused autosaves/readbacks and compare 120 complete physical frames exactly;
+the Windows final image also equals the earlier successful pre-wait session.
+The combined saved-receipt review passes 36 checks, SHA-256
+`aaed03f27ffa1f2ac611e462d8227d2adcba295532db0178475c9c44fa103846`.
 
 ## Reproduced input and current verification
 

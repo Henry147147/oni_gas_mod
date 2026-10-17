@@ -99,8 +99,26 @@ equal the original successful session's
 `020d8824ffb622c72c3c4b42d0a2e8ee759cb297895902730dd0b8eb46246c20`.
 The raw result SHA-256 is
 `65199f80815acaf94a6b4c238aaf10c9ea628250ebd6b514f371f9858b855f76`.
-Native Linux loading the same unchanged source remains under verification.
+Native Linux now also loads the unchanged Windows source twice. Both sessions
+complete paused saves/readbacks, readers and GPU checks and compare all 120
+complete frames exactly. Its second session naturally waits once for the same
+ten roots without changing the original frame-zero image or physical time.
+Both final Linux images are
+`102767292cfcbc8a48b2386cf7036cfdcdaa5e520592827f39be71b1d874991c`.
+
+An independent complete-state comparison checks all 119 stored quantities, all
+16 registry entries, exact material/model/geometry/settings/walls/clock/revision
+and native cell mapping. Both inputs are actor-free. Thirty-four quantities
+differ numerically; the largest relative difference is 1.9120647643104946e-9,
+below the original 1e-8 bound. Zeros remain exact and traces receive no absolute
+floor. Comparison SHA-256:
+`a8b9ec4598969a7a7d9541421fe9daee7d8e2500659ee2dfee713948f55d93cd`.
+The source/four-session saved-receipt review passes 36 checks; SHA-256
+`aaed03f27ffa1f2ac611e462d8227d2adcba295532db0178475c9c44fa103846`.
+This accepts bounded cross-platform occupied-mixture continuation, without
+liquid interface rendering, actual Windows OS or whole-colony acceptance.
 
 The separate [nonlinear conduction component](native-mixed-conduction.md) now
-passes its native and saved-only controls. A heated Unity mixture still needs
-its own source/load acceptance; scenario 4 continues to disable conduction.
+passes its native and saved-only controls. The new scenario 5
+heated-mixture fixture still needs its own Unity source/load acceptance;
+scenario 4 continues to disable conduction.

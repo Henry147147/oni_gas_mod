@@ -122,6 +122,40 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             report=self.mixed_phase_report();mutation(report)
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
 
+    def mixed_heat_report(self):
+        report=self.mixed_phase_report()
+        report['MixedPhase'].update(NativeScenario=5,SinglePhaseConductionDisabled=False,
+            ConductionModel='complete-EOS-contact-split-backward-Euler-v1')
+        report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,
+            Stages=2*report['NativeDomain']['Substeps'],Contacts=8400,Iterations=9000,RedistributedEnergy=12.0,EntropyChange=.001)
+        report.update(HeatCommandsVerified=True,MixedHeatVerified=True,HeatAvoidedNativeDispatch=True,HeatPacketsRouted=2,
+            ThermalConductionVerified=True,HeatEnergyResidualJoules=0.0,HeatEnergyScaleJoules=1e10,
+            HeatEnergyBoundJoules=128*2.2204460492503131e-16*1e10,
+            HeatCommands=dict(PendingBatches=0,AcceptedBatches=2,CommittedBatches=2,CommittedHeatJoules=1500000))
+        return report
+
+    def test_heated_mixture_requires_full_eos_conduction_and_large_capacity_heat_accounts(self):
+        report=self.mixed_heat_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+        for change in [lambda r:r['MixedPhase'].update(NativeScenario=4),
+            lambda r:r['MixedPhase'].update(ConductionModel='constant initial heat capacity'),
+            lambda r:r['MixedPhase'].update(SinglePhaseConductionDisabled=True),
+            lambda r:r['ThermalConduction'].update(Enabled=0),lambda r:r['ThermalConduction'].update(Enabled=True),
+            lambda r:r['ThermalConduction'].update(Stages=0),lambda r:r['ThermalConduction'].update(CompletedFrame=29),
+            lambda r:r['ThermalConduction'].update(EntropyChange=0),lambda r:r['ThermalConduction'].update(RedistributedEnergy=float('nan')),
+            lambda r:r.update(MixedHeatVerified=False),lambda r:r.update(HeatEnergyBoundJoules=1e-6),
+            lambda r:r['HeatCommands'].update(CommittedHeatJoules=1500)]:
+            altered=copy.deepcopy(report);change(altered)
+            self.assertFalse(runner.native_domain_passed(altered,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+
+    def test_restored_heated_mixture_retains_its_operator_without_requiring_new_source_heat_packets(self):
+        self.report=self.mixed_heat_report();self.set_restored_colony();self.report['Scenario']='gas-liquid-mixture'
+        self.report.update(HeatCommandsVerified=False,MixedHeatVerified=False,HeatPacketsRouted=0)
+        self.report['HeatCommands'].update(AcceptedBatches=0,CommittedBatches=0,CommittedHeatJoules=0)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['MixedPhase']['ConductionModel']='disabled'
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
     def test_cpu_counters_and_exact_physics_cannot_hide_zero_or_stale_gpu_texels(self):
         changes=[lambda r:r['GpuGasTextures'].update(Verified=False),lambda r:r['GpuGasTextures'].update(BindingsVerified=False),
                  lambda r:r['GpuGasTextures'].update(CompletedFrame=29),lambda r:r['GpuGasTextures'].update(Session=2),

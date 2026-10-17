@@ -21,7 +21,7 @@ namespace {
 using namespace experimental;
 constexpr std::array<const char*,5> ids{"nitrogen","oxygen","helium","water","carbon_dioxide"};
 constexpr bool liquid_scenario(std::uint32_t scenario) { return scenario==1 || scenario==3; }
-constexpr bool mixed_scenario(std::uint32_t scenario) { return scenario==4; }
+constexpr bool mixed_scenario(std::uint32_t scenario) { return scenario==4 || scenario==5; }
 constexpr bool admitted_species(std::uint32_t scenario,std::uint32_t species) {
     return mixed_scenario(scenario) || liquid_scenario(scenario)==(species==3);
 }
@@ -351,7 +351,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
 }
 void validate_domain_geometry(const MAOniDomainConfig& config) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
-        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 4 ||
+        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 5 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
@@ -388,7 +388,7 @@ std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& c
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
         candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0) ||
-        (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction))
+        (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction!=(config.scenario==5)))
         throw std::invalid_argument("Physical checkpoint clock, grid or gravity differs from its native domain configuration");
     const auto water=registry.index("water");
     for (const auto& cell : state.cells) {
@@ -448,7 +448,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     }
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
-    MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=!mixed_scenario(config.scenario);
+    MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=config.scenario!=4;
     settings.gravity_m_per_s2=gravity_scenario(config.scenario) ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.

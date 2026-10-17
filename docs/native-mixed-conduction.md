@@ -1,9 +1,9 @@
 # Heat exchange in occupied gas/liquid cells
 
 The native MAC owner now has a conservative conduction operator for cells that
-contain both gas and liquid. The component is implemented and tested; a real
-Unity heated-mixture source/save/reload is still required. Scenario 4 retains
-its saved conduction-disabled setting.
+contain both gas and liquid. The component and its native development scene are implemented. A real Unity
+heated-mixture source/save/reload is still required. Scenario 4 retains its
+saved conduction-disabled setting.
 
 The single-phase path retains the existing constant-capacity graph solve. A
 mixed cell uses the complete EOS at fixed constituent masses and occupied
@@ -85,3 +85,28 @@ players remains the next acceptance step. Related contracts:
 [gas/liquid ownership](native-mixed-phase-domain.md),
 [native backend](native-backend-integration.md) and
 [remaining features](completion-plan.md).
+
+## Native heated-mixture scene
+
+Scenario 5 uses the same six occupied gas/water cells as scenario 4, with
+complete-EOS conduction enabled. The checkpoint stores the enabled flag and
+scenario separately: restoring scenario 4 still requires conduction disabled,
+and restoring scenario 5 requires it enabled. The existing ABI 2 configuration
+remains 40 bytes; older adapters reject the unknown scenario.
+
+`native-mixed-heat-domain` submits two actual game energy messages after
+ownership: +2 MJ heating and -0.5 MJ cooling. It requires exactly two committed
+commands, no original native fluid dispatch, the 1.5 MJ net energy account at
+the existing 128-epsilon operand bound, a warmer source and neighbor, and
+positive completed conduction/entropy progress from the simulation worker.
+Readings and saves retain actual EOS phase volumes. The portable reviewer
+requires the declared nonlinear model and completed worker counters; restored
+checks retain that operator without inventing new source heat commands.
+
+The matrix scene is `mixed-heat`; Windows PowerShell accepts
+`-NativeDomain mixed-heat`. Both native worker scenarios now pass gas/liquid
+callbacks, complete energy/trace accounts and exact restored continuation in
+the Linux component control. Both adapters build, the Linux declaration suite
+passes 148 groups and 234 Python checks pass (four optional/platform skips).
+Full native suites and actual Unity verification are in progress. This scene
+provides no free surfaces, phase changes or liquid world geometry.

@@ -412,13 +412,23 @@ def _mixed_phase_passed(report: dict, physical: dict) -> bool:
     try:
         value=report['MixedPhase'];thermal=report['ThermalConduction'];rows=report['RenderingInputs']['Rows']
         if (report.get('Scenario')!='gas-liquid-mixture' or not isinstance(value,dict)
-                or any(value.get(k) is not True for k in ('Required','Verified','SinglePhaseConductionDisabled'))
-                or value.get('Source')!='completed-native-EOS-partial-volumes' or type(value.get('NativeScenario')) is not int or value['NativeScenario']!=4
+                or any(value.get(k) is not True for k in ('Required','Verified'))
+                or value.get('Source')!='completed-native-EOS-partial-volumes' or type(value.get('NativeScenario')) is not int or value['NativeScenario'] not in (4,5)
                 or value.get('LiquidWorldRenderingVerified') is not False or value.get('FreeSurfaceDynamicsVerified') is not False
-                or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=0
-                or any(type(thermal.get(k)) is not int or thermal[k]!=0 for k in ('Stages','Contacts','Iterations'))
-                or any(type(thermal.get(k)) not in (int,float) or thermal[k]!=0 for k in ('RedistributedEnergy','EntropyChange'))
                 or not isinstance(rows,list) or len(rows)!=physical['Cells']):return False
+        if value['NativeScenario']==4:
+            if (value.get('SinglePhaseConductionDisabled') is not True or value.get('ConductionModel','disabled')!='disabled'
+                    or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=0
+                    or any(type(thermal.get(k)) is not int or thermal[k]!=0 for k in ('Stages','Contacts','Iterations'))
+                    or any(type(thermal.get(k)) not in (int,float) or thermal[k]!=0 for k in ('RedistributedEnergy','EntropyChange'))):return False
+        elif (value.get('SinglePhaseConductionDisabled') is not False
+                or value.get('ConductionModel')!='complete-EOS-contact-split-backward-Euler-v1'
+                or thermal.get('Size')!=80 or thermal.get('Version')!=1 or thermal.get('State')!=1
+                or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=1
+                or thermal.get('Session')!=physical['Session'] or thermal.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(thermal.get('Stages')) is not int or thermal['Stages']!=2*physical['Substeps']
+                or any(type(thermal.get(k)) is not int or thermal[k]<=0 for k in ('Contacts','Iterations'))
+                or any(type(thermal.get(k)) not in (int,float) or not math.isfinite(thermal[k]) or thermal[k]<=0 for k in ('RedistributedEnergy','EntropyChange'))):return False
         positions=set()
         for index,row in enumerate(rows):
             reading=row['Reading'];position=row['Cell'];t=reading['TemperatureKelvin'];p=reading['MechanicalPressurePa']
@@ -478,9 +488,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if not isinstance(physical, dict) or not isinstance(observed, dict):
         return False
     mixed_phase=mixed_phase or report.get('Scenario')=='gas-liquid-mixture'
+    mixed_heat=mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('NativeScenario')==5
     if not mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('Required') is True:
         return False
-    if mixed_phase and (liquid or conduction or not _mixed_phase_passed(report,physical)):
+    if mixed_phase and (liquid or conduction and not mixed_heat or not _mixed_phase_passed(report,physical)):
         return False
     if persistent_actors and (restored or not saved):
         return False
@@ -591,16 +602,16 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if heat or conduction or liquid_heat:
         account = report.get("HeatCommands")
         heat_bound = 1e-6
-        if liquid_heat:
+        if liquid_heat or mixed_heat:
             scale = report.get("HeatEnergyScaleJoules")
-            if (report.get("LiquidHeatVerified") is not True or type(scale) not in (int, float) or not 0 < scale < math.inf
+            if (report.get("MixedHeatVerified" if mixed_heat else "LiquidHeatVerified") is not True or type(scale) not in (int, float) or not 0 < scale < math.inf
                     or report.get("HeatEnergyBoundJoules") != 128 * 2.2204460492503131e-16 * scale):
                 return False
             heat_bound = report["HeatEnergyBoundJoules"]
         if (not isinstance(account, dict) or report.get("HeatCommandsVerified") is not True or
                 report.get("HeatAvoidedNativeDispatch") is not True or report.get("HeatPacketsRouted") != 2 or
                 account.get("PendingBatches") != 0 or account.get("AcceptedBatches") != 2 or account.get("CommittedBatches") != 2 or
-                account.get("CommittedHeatJoules") != (1500000 if liquid_heat else 1500) or
+                account.get("CommittedHeatJoules") != (1500000 if liquid_heat or mixed_heat else 1500) or
                 type(report.get("HeatEnergyResidualJoules")) not in (int, float) or not abs(report["HeatEnergyResidualJoules"]) <= heat_bound):
             return False
     if conduction or liquid_heat:
@@ -893,7 +904,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("mixed", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("mixed", "mixed-heat", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
@@ -910,9 +921,9 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode == "mixed", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
-            heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat"), initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+            heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
+            persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

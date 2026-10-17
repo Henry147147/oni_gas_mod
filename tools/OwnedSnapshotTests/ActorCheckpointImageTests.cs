@@ -66,6 +66,18 @@ internal static class ActorCheckpointImageTests
             BinaryPrimitives.WriteInt32LittleEndian(encoded.AsSpan(8),1);reject(()=>NativeDomainCheckpointPayload.Parse(encoded));
             source.Configuration.X++;reject(()=>NativeDomainCheckpointPayload.Create(source,image));
         });
+        test("mixed checkpoint framing retains distinct disabled and nonlinear conduction scenarios and rejects unknown modes",()=> {
+            foreach(var scenario in new[]{4U,5U,6U}) {
+                var image=Fixture();BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(48),scenario);Rehash(image);
+                var g=NativeActorCheckpointImage.Parse(image).Geometry;
+                var source=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,
+                    Session=1,CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=g};
+                if(scenario==6) {reject(()=>NativeDomainCheckpointPayload.Create(source,image));continue;}
+                var payload=NativeDomainCheckpointPayload.Create(source,image);
+                var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+                check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
+            }
+        });
     }
     // A framing fixture only. Native C++ admits the complete thermodynamic
     // checkpoint; these managed tests deliberately do not claim to do that.

@@ -27,12 +27,13 @@ MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
 }
 int main() {
     try {
-        const MAOniDomainConfig config{40,2,1,64,10,10,3,2,4,0};start_domain(config,1);
+        for (const auto scenario : {4U,5U}) {
+        const MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);
         std::vector<MAOniDomainCell> cells(6);auto state=capture(cells);const auto initial=cells;
         const auto held=snapshot_domain(state.session,0);
         require(advance_domain_snapshot(held,0)==held,"Mixed frame-zero checkpoint did not retain every physical byte");
         MAOniDomainThermalStatus thermal{};copy_domain_thermal_status(thermal);
-        require(thermal.enabled==0 && thermal.stages==0,"Mixed scenario silently enabled single-phase conduction");
+        require(thermal.enabled==(scenario==5 ? 1U : 0U) && thermal.stages==0,"Mixed scenario changed its declared conduction setting");
         std::array<MAOniDomainTransfer,2> edits{{
             {64,2,state.session,0,650,3,1,1,21,0,.03125,310},
             {64,2,state.session,0,651,1,2,1,22,0,.015625,0}}};
@@ -41,6 +42,9 @@ int main() {
         require(rejected && snapshot_domain(state.session,0)==held,"Late mixed batch rejection changed an earlier cell or command");
         queue_domain_transfers(edits.data(),2,transfers);require(transfers.pending_batches==1 && transfers.accepted_batches==1,"Mixed transfer batch was not reserved");
         advance_domain(1,.2F,2);state=capture(cells);
+        copy_domain_thermal_status(thermal);
+        if (scenario==5) require(thermal.stages==2*state.substeps && thermal.contacts>0 && thermal.iterations>0 &&
+            thermal.redistributed_energy_j>0,"Mixed native worker omitted its nonlinear conductive half stages");
         std::array<MAOniDomainReceipt,8> receipts{};std::uint32_t count=0;
         copy_domain_receipts(state,cells.data(),6,receipts.data(),8,count);
         require(count==2 && receipts[0].species==3 && receipts[0].kind==1 && receipts[0].callback==21 && receipts[0].mass_kg==.03125 &&
@@ -65,6 +69,8 @@ int main() {
         require(state.completed_frames==0 && state.time_seconds==time && snapshot_domain(state.session,0)==image,"Mixed native restore changed its frame-zero physical state");
         advance_domain(1,.2F,2);state=capture(cells);
         require(snapshot_domain(state.session,1)==expected,"Mixed native worker disagreed with complete checkpoint continuation");
-        shutdown_domain();std::cout << "PASS mixed native pressure transport, EOS phase volumes, gas/liquid callbacks, trace/energy accounts, atomic rejection and exact restored continuation\n";return 0;
+        shutdown_domain();
+        }
+        std::cout << "PASS mixed native pressure transport with/without nonlinear conduction, EOS phase volumes, gas/liquid callbacks, trace/energy accounts, atomic rejection and exact restored continuation\n";return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n';return 1; }
 }

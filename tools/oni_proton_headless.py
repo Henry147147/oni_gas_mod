@@ -122,12 +122,12 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
 
 def domain_options(args) -> dict:
     mode = args.mode
-    return dict(expected_platform=PLATFORM,mixed_phase=mode == "native-mixed-domain",
+    return dict(expected_platform=PLATFORM,mixed_phase=mode in ("native-mixed-domain", "native-mixed-heat-domain"),
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
-        heat=mode == "native-heat-domain", liquid_heat=mode == "native-liquid-heat-domain",
+        heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode == "native-transfer-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
         liquid_actors=mode == "native-liquid-actor-domain", pressure_read=mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=mode == "native-breathing-read-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",
-        conduction=mode == "native-conduction-domain", gravity=mode == "native-gravity-domain",
+        conduction=mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=mode == "native-gravity-domain",
         liquid_gravity=mode == "native-liquid-gravity-domain",
         checkpoint=mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"),
         persistent_actors=getattr(args,"verify_persistent_actors",False) is True,

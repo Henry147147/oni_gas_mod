@@ -83,10 +83,10 @@ namespace MixedAtmospheres.Oni
         private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain" || LiquidGravityMode;
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
         private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
-        private static double FixtureHeatJoules => LiquidHeatMode ? 1500000 : 1500;
+        private static double FixtureHeatJoules => LiquidHeatMode || MixedHeatMode ? 1500000 : 1500;
         private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
-        private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode;
+        private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode || MixedHeatMode;
         private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 || restoredScenario==3 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || LiquidGravityMode;
@@ -125,8 +125,8 @@ namespace MixedAtmospheres.Oni
                     var method = AccessTools.Method(typeof(SimMessages), nameof(SimMessages.ModifyEnergy));
                     NativeMessagePatch.RequirePatched(method);
                     var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
-                    SimMessages.ModifyEnergy(target, LiquidHeatMode ? 2000 : 2, 1000, SimMessages.EnergySourceID.DebugHeat);
-                    SimMessages.ModifyEnergy(target, LiquidHeatMode ? -500 : -.5f, 1000, SimMessages.EnergySourceID.DebugCool);
+                    SimMessages.ModifyEnergy(target, LiquidHeatMode || MixedHeatMode ? 2000 : 2, 1000, SimMessages.EnergySourceID.DebugHeat);
+                    SimMessages.ModifyEnergy(target, LiquidHeatMode || MixedHeatMode ? -500 : -.5f, 1000, SimMessages.EnergySourceID.DebugCool);
                     heatAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
                     Require(heatAvoidedNativeDispatch && heatPacketsRouted == 2, "Actual game heat packets bypassed the custom native owner.");
                     heatSubmitted = true;
@@ -175,7 +175,7 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == 0 :
+                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == (MixedHeatMode ? 1U : 0U) :
                     InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
                     Liquid ? LiquidActorMode || PersistentActorValidationRequired ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
@@ -184,12 +184,12 @@ namespace MixedAtmospheres.Oni
                 if (HeatMode)
                 {
                     heatEnergyResidual = PhysicalEnergy - heatBeforeEnergy - FixtureHeatJoules;
-                    if (LiquidHeatMode)
+                    if (LiquidHeatMode || MixedHeatMode)
                     {
                         heatEnergyScale += cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
                         heatEnergyBound = 128 * 2.2204460492503131e-16 * heatEnergyScale;
                         Require(cells[0].Temperature>300 && cells.Skip(1).Any(cell => cell.Temperature>300+1e-9),
-                            "Water heat did not change both the source and a conductive neighbor.");
+                            "Fluid heat did not change both the source and a conductive neighbor.");
                     }
                     heatVerified = heatSubmitted && heatAvoidedNativeDispatch && heatPacketsRouted == 2 && heatStatus.PendingBatches == 0 &&
                         heatStatus.AcceptedBatches == 2 && heatStatus.CommittedBatches == 2 && heatStatus.CommittedHeatJoules == FixtureHeatJoules &&
@@ -385,7 +385,7 @@ namespace MixedAtmospheres.Oni
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
-                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
+                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = MixedHeatMode ? 5U : MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
             if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
@@ -714,6 +714,7 @@ namespace MixedAtmospheres.Oni
             HeatAvoidedNativeDispatch = heatAvoidedNativeDispatch, HeatBeforeEnergyJoules = heatBeforeEnergy,
             HeatEnergyResidualJoules = heatEnergyResidual,
             LiquidHeatVerified = LiquidHeatMode && heatVerified && thermalVerified,
+            MixedHeatVerified = MixedHeatMode && !ColonyRestoreMode && heatVerified && thermalVerified,
             HeatEnergyScaleJoules = heatEnergyScale, HeatEnergyBoundJoules = heatEnergyBound,
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             CellMassEditsRouted = cellMassEditsRouted,
