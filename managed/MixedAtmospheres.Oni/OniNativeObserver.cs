@@ -9,14 +9,14 @@ namespace MixedAtmospheres.Oni
     internal sealed class OniNativeObserver : IDisposable
     {
         private const string Library = "mixed_atmospheres_oni";
-        private const int HookCount = 28;
+        private const int HookCount = 29;
         private bool disposed;
         private readonly string gameDirectory;
         internal static readonly string[] HookNames = {
             "initialize", "shutdown", "message", "messages", "begin-save", "end-save", "main", "process-frame",
             "next-frame", "update-data", "pressure", "liquid", "temperature", "state-transition", "load-transition",
             "sublimation", "post-process", "step", "begin-frame", "end-frame", "consumer", "emitter", "building-heat",
-            "gas-interaction", "gas-interaction-pair", "gas-displacement", "liquid-displacement", "emitter-dispatch"
+            "gas-interaction", "gas-interaction-pair", "gas-displacement", "liquid-displacement", "emitter-dispatch", "chunk-heat"
         };
 
         [StructLayout(LayoutKind.Sequential)]
@@ -38,7 +38,7 @@ namespace MixedAtmospheres.Oni
             public ulong InstalledMask, ActiveCalls, PositiveTimestepReturns, TraceReserved, TraceDropped;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = HookCount)]
             public HookStatistics[] Hooks;
-            internal static Status Empty => new Status { Size = 512, Version = 3, Hooks = new HookStatistics[HookCount] };
+            internal static Status Empty => new Status { Size = 528, Version = 4, Hooks = new HookStatistics[HookCount] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct TraceEvent
@@ -81,9 +81,9 @@ namespace MixedAtmospheres.Oni
 
         internal OniNativeObserver(string directory)
         {
-            if (IntPtr.Size != 8 || Marshal.SizeOf<Config>() != 24 || Marshal.SizeOf<Status>() != 512 || Marshal.SizeOf<TraceEvent>() != 32)
+            if (IntPtr.Size != 8 || Marshal.SizeOf<Config>() != 24 || Marshal.SizeOf<Status>() != 528 || Marshal.SizeOf<TraceEvent>() != 32)
                 throw new PlatformNotSupportedException("Native observer ABI layouts differ.");
-            if (NativeVersion() != 3) throw new NotSupportedException("Unsupported native observer ABI; rebuild the managed and native backend together.");
+            if (NativeVersion() != 4) throw new NotSupportedException("Unsupported native observer ABI; rebuild the managed and native backend together.");
             gameDirectory = directory ?? throw new ArgumentNullException(nameof(directory));
             WithConfig((ref Config config) => {
                 var status = Status.Empty;
@@ -97,7 +97,7 @@ namespace MixedAtmospheres.Oni
             var path = Marshal.StringToCoTaskMemUTF8(gameDirectory);
             try
             {
-                var config = new Config { Size = 24, Version = 3, Flags = 1, GameDirectory = path };
+                var config = new Config { Size = 24, Version = 4, Flags = 1, GameDirectory = path };
                 action(ref config);
             }
             finally { Marshal.FreeCoTaskMem(path); }

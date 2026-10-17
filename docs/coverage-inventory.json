@@ -6,7 +6,7 @@
     "coverage_policy": "4e36cd207d0e0930d16a22a60a1644f5222a97809a6db2063b1b455556399e45",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "92feeeb398361b4bc556d91a7792fc345a9236b655f8cec641e3707b0fd02015"
+    "native_hook_profiles": "549ff922c38101ef88620cd5bad7e2fe0f26f07e10102e848777291f6c78b28b"
   },
   "assembly_hashes": {
     "windows-x64": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -36292,6 +36292,58 @@
       "status": "unimplemented",
       "fact": {
         "description": "Digging, construction, doors, occupiers, terrain changes, templates and sandbox placement."
+      }
+    },
+    {
+      "id": "native-hook/chunk-heat",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 28,
+            "role": "chunk-heat",
+            "symbol": "ExchangeHeatEnergyWithWorld",
+            "rva": 258448,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "e60fa35a716bfb30c3c5f7da6455918616eefa765b542c27fdb04547a0cd247e",
+            "signature": "float(float,const-data*,const-handle*,cell-accessor*,float,element-chunk*)",
+            "native_layout": {
+              "accessor_bytes": 16,
+              "cell_index_offset": 8,
+              "chunk_bytes": 44,
+              "temperature_offset": 4,
+              "heat_capacity_offset": 8,
+              "conductivity_offset": 12,
+              "transfer_scale_offset": 16
+            }
+          },
+          {
+            "platform": "linux-x64",
+            "index": 28,
+            "role": "chunk-heat",
+            "symbol": "<inspected-GCC-private-chunk-contact>",
+            "rva": 398624,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "1a026cfcddaf872a17d5197efd04b9e0a8a3037f72acabbe9bad07aee71e6644",
+            "signature": "float(cell-accessor*,element-chunk*,float,float)",
+            "native_layout": {
+              "accessor_bytes": 16,
+              "cell_index_offset": 8,
+              "chunk_bytes": 44,
+              "temperature_offset": 4,
+              "heat_capacity_offset": 8,
+              "conductivity_offset": 12,
+              "transfer_scale_offset": 16
+            }
+          }
+        ],
+        "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
       }
     }
   ],

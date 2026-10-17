@@ -32,6 +32,7 @@ namespace MixedAtmospheres.Oni
             public bool VerifySaveIoRecovery = false;
             public bool VerifyNaturalAutosave = false;
             public bool VerifyPersistentActors = false;
+            public bool VerifyLiveBreathing = false;
             public bool ReloadInProcess = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -94,11 +95,14 @@ namespace MixedAtmospheres.Oni
             configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
             { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
                 ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-import-domain" && configuration.Mode != "native-liquid-import-domain" && configuration.Mode != "native-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-liquid-transfer-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-liquid-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-liquid-actor-domain" && configuration.Mode != "native-pressure-read-domain" && configuration.Mode != "native-liquid-pressure-read-domain" && configuration.Mode != "native-breathing-read-domain" && configuration.Mode != "native-carbon-particle-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-liquid-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
+            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-import-domain" && configuration.Mode != "native-liquid-import-domain" && configuration.Mode != "native-domain" && configuration.Mode != "native-mixed-domain" && configuration.Mode != "native-mixed-heat-domain" && configuration.Mode != "native-viscous-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-liquid-transfer-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-liquid-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-radius-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-liquid-actor-domain" && configuration.Mode != "native-pressure-read-domain" && configuration.Mode != "native-liquid-pressure-read-domain" && configuration.Mode != "native-breathing-read-domain" && configuration.Mode != "native-carbon-particle-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-liquid-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
                 configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "native-carbon-particle-domain" || configuration.Mode == "native-breathing-read-domain") && configuration.CompletedFrames < 30)
                 throw new InvalidDataException("Native CO2 particle and breathing-reader controls require at least 30 frames.");
+            if(configuration.VerifyLiveBreathing && ((configuration.Mode!="native-domain" && configuration.Mode!="native-load-domain") ||
+                configuration.VerifyPersistentActors || (configuration.Mode=="native-domain" && (configuration.CompletedFrames<20 || configuration.CompletedFrames>25))))
+                throw new InvalidDataException("Live breathing requires a 20–25-frame gas source or its saved reload, without registered fixture actors.");
             if (configuration.VerifyNaturalAutosave && (configuration.Mode != "native-domain" || configuration.CompletedFrames < 3100 || configuration.CompletedFrames > 5000 || configuration.SaveOnComplete))
                 throw new InvalidDataException("Natural autosave validation requires mixed air, 3100..5000 frames and no manual source save.");
             if(configuration.VerifyPersistentActors && ((configuration.Mode!="native-domain" && configuration.Mode!="native-liquid-domain") ||
@@ -393,7 +397,9 @@ namespace MixedAtmospheres.Oni
             {
                 File.WriteAllText(Path.Combine(OutputDirectory,"first-load-colony-validation.json"),ReportJson.Serialize(Report));
                 Report.Status="pending";Report.Stage="returning-to-main-menu-for-reload";Report.FinishedUtc="";done=false;WriteReport();
-                LoadingOverlay.Load(PauseScreen.TriggerQuitGame);return;
+                var driver=UnityEngine.Object.FindFirstObjectByType<ColonyValidationDriver>();
+                if(driver==null) throw new InvalidOperationException("In-process reload has no screenshot handoff driver.");
+                driver.StartCoroutine(ReturnToMenuAfterScreenshot());return;
             }
             done = true; WriteReport();
         }
@@ -430,6 +436,31 @@ namespace MixedAtmospheres.Oni
             var capture = Type.GetType("UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule");
             capture?.GetMethod("CaptureScreenshot", new[] { typeof(string), typeof(int) })?.Invoke(null,
                 new object[] { Path.Combine(OutputDirectory, NativeSealedDomainValidation.ReloadScreenshotName(filename)), 1 });
+        }
+        private static System.Collections.IEnumerator ReturnToMenuAfterScreenshot()
+        {
+            // Unity captures at the end of the frame. Starting the loading
+            // overlay immediately would put that overlay in the evidence PNG.
+            var path=Path.Combine(OutputDirectory,"first-load-native-domain.png");
+            var deadline=Time.realtimeSinceStartup+10;
+            yield return new WaitForEndOfFrame();
+            while(!CompletedScreenshot(path)) {
+                if(Time.realtimeSinceStartup>deadline) {Fail(new IOException("First colony screenshot did not finish before reload."));yield break;}
+                yield return null;
+            }
+            yield return null;
+            LoadingOverlay.Load(PauseScreen.TriggerQuitGame);
+        }
+        private static bool CompletedScreenshot(string path)
+        {
+            try {
+                using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite)) {
+                    if(stream.Length<20) return false;
+                    var start=new byte[8];if(stream.Read(start,0,8)!=8 || !start.SequenceEqual(new byte[]{137,80,78,71,13,10,26,10})) return false;
+                    stream.Position=stream.Length-12;var end=new byte[12];
+                    return stream.Read(end,0,12)==12 && end.SequenceEqual(new byte[]{0,0,0,0,73,69,78,68,174,66,96,130});
+                }
+            } catch(IOException) {return false;}
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
         internal static void Shutdown()

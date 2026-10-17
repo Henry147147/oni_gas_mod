@@ -17,8 +17,11 @@ class NativeProfileTests(unittest.TestCase):
     def test_pinned_profiles_and_platform_specific_step(self):
         profiles.validate(self.value)
         win, linux = self.value["profiles"]
-        self.assertEqual(len(win["hooks"]), 24)
-        self.assertEqual(len(linux["hooks"]), 28)
+        self.assertEqual(len(win["hooks"]), 25)
+        self.assertEqual(len(linux["hooks"]), 29)
+        a,b=(next(h for h in p['hooks'] if h['role']=='chunk-heat') for p in (win,linux))
+        self.assertNotEqual(a['signature'],b['signature'])
+        self.assertEqual(a['native_layout'],b['native_layout'])
         self.assertNotIn("emitter-dispatch", [h["role"] for h in win["hooks"]])
         self.assertEqual(next(h["signature"] for h in linux["hooks"] if h["role"] == "gas-displacement"), "float(uint16,int,int,int,data*)")
         self.assertNotIn("gas-interaction", [h["role"] for h in win["hooks"]])
@@ -51,6 +54,16 @@ class NativeProfileTests(unittest.TestCase):
             self.assertIn(value["native_sha256"], text)
             self.assertIn(value["assembly_sha256"], text)
         self.assertNotIn("0x48,", text)
+
+    def test_native_body_layout_and_private_location_drift_rejected(self):
+        for platform in range(2):
+            for key in profiles.CHUNK_HEAT_LAYOUT:
+                value=copy.deepcopy(self.value)
+                next(h for h in value['profiles'][platform]['hooks'] if h['role']=='chunk-heat')['native_layout'][key]+=4
+                with self.assertRaises(ValueError):profiles.validate(value)
+            value=copy.deepcopy(self.value)
+            next(h for h in value['profiles'][platform]['hooks'] if h['role']=='chunk-heat')['rva']+=16
+            with self.assertRaises(ValueError):profiles.validate(value)
 
     def test_invalid_trampoline_storage_rejected(self):
         original=self.value["profiles"][1]["trampoline_storage"]

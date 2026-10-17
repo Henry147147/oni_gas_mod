@@ -10,11 +10,12 @@ param(
     [switch]$NativeObserver,
     [switch]$SaveColony,
     [switch]$VerifyPersistentActors,
+    [switch]$VerifyLiveBreathing,
     [switch]$VerifyNaturalAutosave,
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
     [switch]$ReloadInProcess,
-    [ValidateSet('gas','water','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
+    [ValidateSet('gas','water','mixed','mixed-heat','viscous','import','water-import','water-transfer','heat','water-heat','transfer','radius','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
     [string]$Python = 'python',
@@ -29,9 +30,10 @@ $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
 if ($VerifyPersistentActors -and ($NativeDomain -notin @('gas','water') -or !($SaveColony -or $VerifyNaturalAutosave) -or $Frames -lt 80)) { throw 'VerifyPersistentActors requires a gas/water source, a source save or natural autosave, and at least eighty frames.' }
+if ($VerifyLiveBreathing -and ($NativeDomain -notin @('gas','load') -or $VerifyPersistentActors -or ($NativeDomain -eq 'gas' -and ($Frames -lt 20 -or $Frames -gt 25)))) { throw 'VerifyLiveBreathing requires a 20–25-frame gas source or its saved load, without fixture actors.' }
 if ($VerifyNaturalAutosave -and ($NativeDomain -ne 'gas' -or $Frames -lt 3100 -or $Frames -gt 5000 -or $SaveColony)) { throw 'VerifyNaturalAutosave requires a gas source, 3100..5000 frames and no SaveColony.' }
 if ($NativeDomain -in @('carbon-particle','breathing-read') -and $Frames -lt 30) { throw 'The CO2 particle and breathing-reader controls require at least 30 frames.' }
-$oniDomainModes = @{ import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
+$oniDomainModes = @{ mixed='native-mixed-domain'; 'mixed-heat'='native-mixed-heat-domain'; viscous='native-viscous-domain'; import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; radius='native-radius-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path
@@ -143,6 +145,7 @@ try {
     }
     if ($VerifySaveIoRecovery) { $oniValidationConfiguration.VerifySaveIoRecovery = $true }
     if ($VerifyPersistentActors) { $oniValidationConfiguration.VerifyPersistentActors = $true }
+    if ($VerifyLiveBreathing) { $oniValidationConfiguration.VerifyLiveBreathing = $true }
     if ($VerifyNaturalAutosave) { $oniValidationConfiguration.VerifyNaturalAutosave = $true }
     if ($ReloadInProcess) { $oniValidationConfiguration.ReloadInProcess = $true }
     if ($IdleReservoirLease) { $oniValidationConfiguration.IdleReservoirLeaseOnly = $true }
@@ -208,6 +211,7 @@ try {
                 '--mode', $NativeDomain, '--frames', [string]$Frames, '--platform', 'WindowsPlayer')
             if ($SaveColony) { $oniCheckArguments += '--saved' }
             if ($VerifyPersistentActors) { $oniCheckArguments += '--persistent-actors' }
+            if ($VerifyLiveBreathing) { $oniCheckArguments += '--live-breathing' }
             if ($VerifyNaturalAutosave) { $oniCheckArguments += '--natural-autosave' }
             if ($VerifySaveIoRecovery) { $oniCheckArguments += '--save-io-recovery' }
             if ($ReloadInProcess) { $oniCheckArguments += '--reload-in-process' }

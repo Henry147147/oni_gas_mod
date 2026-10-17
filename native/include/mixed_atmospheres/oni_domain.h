@@ -17,7 +17,7 @@ extern "C" {
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
-    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity */
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied mixture without conduction, 5: mixture with conduction, 6: mixture with conduction and physical viscosity */
 } MAOniDomainConfig;
 
 typedef struct MAOniDomainStatus {
@@ -44,7 +44,9 @@ typedef struct MAOniDomainSpecies {
 
 /* Additive initial-inventory ABI 1. Row-major occupied cells, at rest, with
  * exact supplied masses and temperature in the declared domain EOS. No
- * synthetic background constituents, vacuum, mixed phases or passive data.
+ * synthetic background constituents, vacuum or passive data. Scenarios 4..6
+ * explicitly admit occupied gas/liquid mixtures; scenarios 0..3 retain
+ * their single-phase admission.
  * Complete validation precedes activation; caller retains the input. */
 typedef struct MAOniDomainInitialCell {
     uint32_t struct_size, abi_version;
@@ -84,11 +86,13 @@ MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
 /* Fluid point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
- * Gas-only or one matching liquid material in an occupied cell. Liquid parcels
+ * Gas-only or one matching liquid material by default; scenarios 4..6 explicitly
+ * admits occupied gas/liquid mixtures. Liquid parcels
  * carry elastic internal energy at the cell's pre-edit pressure. Void creation
- * and phase mixing reject the complete batch. No implicit enthalpy/pump work.
+ * reject the complete batch; phase mixing requires scenarios 4..6. No implicit enthalpy/pump work.
  * Receipts are retained until acknowledged after an owned snapshot publication.
- * Quantities are binary32-compatible when flags bit 0 is set; any remainder
+ * Quantities are binary32-compatible when flags bit 0 is set; radial capability
+ * 1 additionally admits bits 8..15 for a selective-consumption radius. Any remainder
  * stays in the physical source. These are not pump/aperture transactions. */
 typedef struct MAOniDomainTransfer {
     uint32_t struct_size, abi_version;
@@ -118,6 +122,15 @@ MA_ONI_API MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus*)
 MA_ONI_API MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus*, MAOniDomainCell*, uint32_t cell_capacity,
     MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* receipt_count);
 MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t through_sequence);
+/* Additive radial consumption capability 1. Transfer flags bits 8..15 select
+ * a face-connected radius for kind 2; bit 0 must also be set. Radius zero
+ * retains the original point rule. The sealed owner boundary is impermeable.
+ * Allocation is centre-first breadth-first order, on the aggregate binary32
+ * callback lattice. Finer residual inventory stays in each physical source.
+ * Exactly one kind-2 receipt carries total mass, mass-weighted temperature,
+ * parcel U/K/momentum and the original callback; public_cell is its centre.
+ * A complete batch is prepared atomically, including overlapping requests. */
+MA_ONI_API uint32_t ma_oni_domain_radial_consumption_abi_version(void);
 
 /* Registered point-boundary actors, ABI 1. Native handles are opaque 32-bit
  * values. Native registration remains intact, but its transfer stays inactive.
@@ -163,8 +176,30 @@ MA_ONI_API uint32_t ma_oni_domain_pending_actor_restores(void);
  * absent from the image. Actor-free images keep the legacy physical format. */
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_copy(uint64_t session, uint64_t completed_frame,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+/* Additive completed-frame image capability 1. Copies the immutable full
+ * physical/durable-actor image published with the frame journal, even when
+ * future inputs or completed callback receipts are pending. Never authorizes
+ * saving: snapshot_copy and paired saves retain their drained-state guards.
+ * Exact current session/frame required; all failure outputs are unchanged. */
+MA_ONI_API uint32_t ma_oni_domain_completed_snapshot_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_completed_snapshot_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+
+/* Accepted frame inputs, additive ABI 1. Each checksummed journal is bound to
+ * the exact source snapshot, geometry, session/frame and physical timestep.
+ * It preserves successful heat/transfer batch order, including radius requests;
+ * failed reservations are absent. Copy observes only the last completed frame.
+ * Stateless replay invokes no game callbacks and changes no live owner. Actor
+ * configuration changes and actors without durable identities are marked and
+ * explicitly refuse input replay. Maximum journal size is 1 MiB. Output and
+ * required_bytes are unchanged on failure, including insufficient capacity. */
+MA_ONI_API uint32_t ma_oni_domain_frame_inputs_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_frame_inputs_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance_with_inputs(const uint8_t* source, uint32_t source_bytes,
+    const uint8_t* journal, uint32_t journal_bytes, uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 
 /* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
  * are read-only projections, never authority for a producer transaction.
@@ -177,6 +212,32 @@ typedef struct MAOniDomainThermalStatus {
 } MAOniDomainThermalStatus;
 MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);
+
+/* Additive physical-viscosity diagnostics, ABI 1. Requested modal kinetic
+ * dissipation and represented cell-U heating are separate accounts. Unresolved
+ * heat/momentum updates are explicit. Entropy is a positive-heating lower
+ * bound, not a difference of rounded state entropies. */
+typedef struct MAOniDomainViscosityStatus {
+    uint32_t struct_size, abi_version, state, enabled;
+    uint64_t session, completed_frame, stages, modes, unresolved_heat_updates, unresolved_momentum_updates;
+    double shear_pa_s, bulk_pa_s, dissipated_kinetic_j, stored_heat_j, entropy_lower_bound_j_per_k;
+    double wall_impulse_x, wall_impulse_y;
+} MAOniDomainViscosityStatus;
+MA_ONI_API uint32_t ma_oni_domain_viscosity_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_viscosity_status(MAOniDomainViscosityStatus*);
+
+/* Completed native body/item contacts, ABI 1. Body heat is measured from the
+ * represented binary32 native temperature and its supplied heat capacity.
+ * Fluid heat uses the complete EOS. Unresolved contacts change neither owner.
+ * These are fluid-boundary accounts, not a complete metabolic/body model. */
+typedef struct MAOniDomainChunkHeatStatus {
+    uint32_t struct_size, abi_version, state, reserved;
+    uint64_t session, completed_frame, contacts, transfers, unresolved, iterations;
+    double body_heat_loss_j, stored_fluid_heat_j, maximum_balance_residual_j, maximum_balance_bound_j;
+    double entropy_lower_bound_j_per_k, requested_absolute_heat_j;
+} MAOniDomainChunkHeatStatus;
+MA_ONI_API uint32_t ma_oni_domain_chunk_heat_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus*);
 
 /* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
  * owned rectangle, at cell centres. Boundary transfers carry the same datum.

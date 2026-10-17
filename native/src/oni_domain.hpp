@@ -29,6 +29,12 @@ void configure_persistent_domain_actors(const MAOniDomainPersistentActor*,std::u
 std::uint32_t pending_domain_actor_restores();
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
+void copy_domain_viscosity_status(MAOniDomainViscosityStatus&);
+struct DomainChunkHeat { bool handled{};float temperature{},delta_kj{}; };
+DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,
+    float transfer_scale,float contact_scale,float seconds) noexcept;
+void copy_domain_chunk_heat_status(MAOniDomainChunkHeatStatus&);
+std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t completed_frame);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);
 // Caller must hold domain_frame_mutex; native and physical capture share it.
@@ -39,5 +45,7 @@ std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t
 std::vector<std::uint8_t> snapshot_domain(std::uint64_t session,std::uint64_t frame);
 std::vector<std::uint8_t> snapshot_domain_under_fence(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig&,MAOniDomainStatus&);
 std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t>,double seconds);
+std::vector<std::uint8_t> copy_domain_frame_inputs(std::uint64_t session,std::uint64_t completed_frame);
+std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const std::uint8_t> source,std::span<const std::uint8_t> journal);
 std::mutex& domain_frame_mutex() noexcept;
 }

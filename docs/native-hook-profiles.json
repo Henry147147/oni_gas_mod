@@ -240,6 +240,24 @@
           "fingerprint_bytes": 32,
           "fingerprint_sha256": "2d5ebe42a0cd309feb6d61182ad55936b3758b1663aff8afdb0d4ae0d9fe3a41",
           "signature": "float(uint16,int,int,int,data*)"
+        },
+        {
+          "index": 28,
+          "role": "chunk-heat",
+          "symbol": "ExchangeHeatEnergyWithWorld",
+          "rva": 258448,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "e60fa35a716bfb30c3c5f7da6455918616eefa765b542c27fdb04547a0cd247e",
+          "signature": "float(float,const-data*,const-handle*,cell-accessor*,float,element-chunk*)",
+          "native_layout": {
+            "accessor_bytes": 16,
+            "cell_index_offset": 8,
+            "chunk_bytes": 44,
+            "temperature_offset": 4,
+            "heat_capacity_offset": 8,
+            "conductivity_offset": 12,
+            "transfer_scale_offset": 16
+          }
         }
       ]
     },
@@ -512,6 +530,24 @@
           "fingerprint_bytes": 32,
           "fingerprint_sha256": "7816fb169a325b21f8c1429ad46a52b25b17ae3701fa385143da4f692e583c09",
           "signature": "void(adjusted-this*,float,data*,const-region*)"
+        },
+        {
+          "index": 28,
+          "role": "chunk-heat",
+          "symbol": "<inspected-GCC-private-chunk-contact>",
+          "rva": 398624,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "1a026cfcddaf872a17d5197efd04b9e0a8a3037f72acabbe9bad07aee71e6644",
+          "signature": "float(cell-accessor*,element-chunk*,float,float)",
+          "native_layout": {
+            "accessor_bytes": 16,
+            "cell_index_offset": 8,
+            "chunk_bytes": 44,
+            "temperature_offset": 4,
+            "heat_capacity_offset": 8,
+            "conductivity_offset": 12,
+            "transfer_scale_offset": 16
+          }
         }
       ],
       "trampoline_storage": {

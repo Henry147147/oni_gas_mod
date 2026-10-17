@@ -148,3 +148,9 @@ the adapter retains the same two MSB3277 reference warnings. This is build and
 helper evidence, with Windows import gameplay still pending. Review SHA256 is
 `9ee286076e358828c8eda1df5a711724b1600d6865ac0581953d47f06be3e049`
 under `local/windows-pre-fence-import-merge-r1`.
+
+The subsequent [actual WindowsPlayer matrix](native-windows-feature-matrix.md)
+passes both gas and water imports from completed native snapshots, complete
+save readback and fresh-process frame-zero autosaves followed by 120 exact
+complete continued frames. This closes the bounded WindowsPlayer gameplay
+gate for the pinned build under Proton. Whole-world import remains separate.

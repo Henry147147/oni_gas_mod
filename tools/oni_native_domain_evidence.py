@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import struct
+from oni_world_appearance_evidence import world_appearance_passed
 
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
@@ -235,7 +236,7 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
                     or gpu['ExpectedOpacity'][index] != expected['Pressure'] or gpu['Opacity']['Rgba'][index][3] != expected['Pressure']
                     or gpu['ExpectedDanger'][index] != expected['Danger'] or gpu['Danger']['Rgba'][index][3] != expected['Danger']):
                 return False
-        return True
+        return 'WorldAppearance' not in inputs or world_appearance_passed(report)
     except (KeyError,TypeError,ValueError,AttributeError,IndexError):
         return False
 
@@ -327,6 +328,41 @@ def _native_orbital_references_passed(report: dict, saved: bool, restored: bool)
         value = report['NativeOrbitalReferences']
         if not isinstance(value, dict) or type(value.get('Required')) is not bool:
             return False
+        if 'RestoreLifecycleHold' in value:
+            hold=value['RestoreLifecycleHold']
+            if (not isinstance(hold,dict) or hold.get('Source')!='waiting-for-native-KMonoBehaviour.Start-before-positive-time'
+                    or type(hold.get('WaitInspections')) is not int or hold['WaitInspections']<0
+                    or type(hold.get('PendingSaveRoots')) is not int or hold['PendingSaveRoots']!=0
+                    or type(hold.get('MaximumPendingSaveRoots')) is not int or hold['MaximumPendingSaveRoots']<0
+                    or type(hold.get('PhysicalFrame')) is not int or hold['PhysicalFrame']!=0
+                    or type(hold.get('PhysicalTime')) not in (int,float) or not math.isfinite(hold['PhysicalTime'])):
+                return False
+            if hold['WaitInspections']==0:
+                if (hold.get('Required') is not False or hold.get('PhysicalStateVerified') is not False
+                        or hold.get('PhysicalSha256')!='' or hold['PhysicalTime']!=0 or hold['MaximumPendingSaveRoots']!=0):return False
+            elif (not restored or hold.get('Required') is not True or hold.get('PhysicalStateVerified') is not True
+                    or type(value.get('Inspections')) is not int or value['Inspections']<=hold['WaitInspections']
+                    or hold['MaximumPendingSaveRoots']<1 or hold['PhysicalTime']!=report['ColonyCheckpoint']['SourceTime']
+                    or not _sha256(hold.get('PhysicalSha256'))
+                    or hold['PhysicalSha256']!=report['ColonyCheckpoint']['RestoredInitialSha256']
+                    or hold['PhysicalSha256']!=report['ColonyCheckpoint']['SourcePhysicalSha256']):return False
+        # Older frozen audits predate the spawn-order adapter. When its
+        # receipt is present, errors or invented/rewritten identities cannot
+        # hide behind a later successful reference-registration observation.
+        if 'SaveRootLifecycle' in value:
+            lifecycle = value['SaveRootLifecycle']
+            if (not isinstance(lifecycle, dict)
+                    or lifecycle.get('Source') != 'existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn'
+                    or lifecycle.get('Error') != ''
+                    or any(type(lifecycle.get(key)) is not int or lifecycle[key] != 0
+                           for key in ('ReferencesRewritten', 'ObjectsCreated'))
+                    or type(lifecycle.get('AlreadySpawnedRoots')) is not int or lifecycle['AlreadySpawnedRoots'] < 0):
+                return False
+            completed = lifecycle.get('CompletedRootIds')
+            if (not isinstance(completed, list)
+                    or any(type(identity) is not int or not 0 <= identity <= 2147483647 for identity in completed)
+                    or len(set(completed)) != len(completed)):
+                return False
         if value['Required'] is False:
             return not (saved or restored) and value.get('Inspections') == 0 and value.get('Worlds') == [] and value.get('References') == []
         if (value.get('Verified') is not True or value.get('Error') != ''
@@ -373,9 +409,193 @@ def _native_orbital_references_passed(report: dict, saved: bool, restored: bool)
         return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False) -> bool:
+def _mixed_phase_passed(report: dict, physical: dict) -> bool:
+    try:
+        value=report['MixedPhase'];thermal=report['ThermalConduction'];rows=report['RenderingInputs']['Rows']
+        if (report.get('Scenario')!='gas-liquid-mixture' or not isinstance(value,dict)
+                or any(value.get(k) is not True for k in ('Required','Verified'))
+                or value.get('Source')!='completed-native-EOS-partial-volumes' or type(value.get('NativeScenario')) is not int or value['NativeScenario'] not in (4,5,6)
+                or value.get('LiquidWorldRenderingVerified') is not False or value.get('FreeSurfaceDynamicsVerified') is not False
+                or not isinstance(rows,list) or len(rows)!=physical['Cells']):return False
+        if value['NativeScenario']==4:
+            if (value.get('SinglePhaseConductionDisabled') is not True or value.get('ConductionModel','disabled')!='disabled'
+                    or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=0
+                    or any(type(thermal.get(k)) is not int or thermal[k]!=0 for k in ('Stages','Contacts','Iterations'))
+                    or any(type(thermal.get(k)) not in (int,float) or thermal[k]!=0 for k in ('RedistributedEnergy','EntropyChange'))):return False
+        elif (value.get('SinglePhaseConductionDisabled') is not False
+                or value.get('ConductionModel')!='complete-EOS-contact-split-backward-Euler-v1'
+                or thermal.get('Size')!=80 or thermal.get('Version')!=1 or thermal.get('State')!=1
+                or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=1
+                or thermal.get('Session')!=physical['Session'] or thermal.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(thermal.get('Stages')) is not int or thermal['Stages']!=2*physical['Substeps']
+                or any(type(thermal.get(k)) is not int or thermal[k]<=0 for k in ('Contacts','Iterations'))
+                or any(type(thermal.get(k)) not in (int,float) or not math.isfinite(thermal[k]) or
+                    (thermal[k]<=0 if value['NativeScenario']==5 else thermal[k]<0) for k in ('RedistributedEnergy','EntropyChange'))):return False
+        positions=set()
+        for index,row in enumerate(rows):
+            reading=row['Reading'];position=row['Cell'];t=reading['TemperatureKelvin'];p=reading['MechanicalPressurePa']
+            vg=reading['GasVolumeCubicMetres'];vl=reading['LiquidVolumeCubicMetres'];parts=reading['Constituents']
+            if (type(position) is not int or position<0 or position in positions or reading.get('SourceId')!='native-domain:cell:'+str(position)
+                    or type(reading.get('Revision')) is not int or reading['Revision']!=physical['CompletedFrames']
+                    or type(reading.get('VolumeCubicMetres')) not in (int,float) or reading['VolumeCubicMetres']!=1
+                    or reading.get('VacuumVolumeCubicMetres')!=0 or reading.get('GasPressurePa')!=p
+                    or any(type(v) not in (int,float) or not math.isfinite(v) or v<=0 for v in (t,p,vg,vl))
+                    or vl>=1 or abs(vg+vl-1)>2e-10 or not isinstance(parts,list)):return False
+            positions.add(position);ids=set();masses=[];gas_masses=[];moles=[];volumes=[];water=0
+            for part in parts:
+                name=part['MaterialId'];mass=part['MassKg'];molar=part['MolarMassKgPerMol'];volume=part['PartialVolumeCubicMetres']
+                if (name in ids or name not in ('nitrogen','oxygen','helium','water','carbon_dioxide')
+                        or any(type(v) not in (int,float) or not math.isfinite(v) or v<=0 for v in (mass,molar,volume))
+                        or type(part.get('Phase')) is not int or part['Phase']!=(2 if name=='water' else 1)):return False
+                ids.add(name);masses.append(mass)
+                if name=='water':
+                    water=mass;expected=mass/(1000*(1+p/2.2e9))
+                    if volume!=vl or abs(vl-expected)>2e-10*max(vl,expected):return False
+                else:
+                    expected=mass/molar*8.31446261815324*t/p
+                    if abs(volume-expected)>2e-10*max(volume,expected):return False
+                    gas_masses.append(mass);moles.append(mass/molar);volumes.append(volume)
+            if not {'nitrogen','oxygen','helium','water'}<=ids:return False
+            for actual,expected in ((reading['TotalMassKg'],sum(masses)),(reading['GasMassKg'],sum(gas_masses)),(reading['GasMoles'],sum(moles)),(vg,sum(volumes))):
+                if type(actual) not in (int,float) or not math.isfinite(actual) or abs(actual-expected)>2e-10*max(abs(actual),abs(expected)):return False
+            if index==0 and (water!=physical['LiquidMassKg'] or p!=physical['PressurePa']):return False
+        return True
+    except (KeyError,TypeError,ValueError,AttributeError,IndexError,ZeroDivisionError,OverflowError):
+        return False
+
+
+def _viscosity_passed(report: dict, physical: dict) -> bool:
+    try:
+        required=report.get('MixedPhase',{}).get('NativeScenario')==6
+        value=report.get('PhysicalViscosity')
+        if value is None:return not required
+        status=value['Status']
+        if (value.get('Required') is not required or value.get('Verified') is not required
+                or value.get('Source')!='completed-native-worker-physical-stress'
+                or value.get('Model')!='plane-strain-Newtonian-exact-mode-split-v1'
+                or value.get('Boundary')!='impermeable-free-slip' or value.get('CompleteMaterialViscosityModel') is not False
+                or status.get('Size')!=120 or status.get('Version')!=1 or status.get('State')!=1
+                or status.get('Session')!=physical['Session'] or status.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(status.get('Enabled')) is not int or status['Enabled']!=int(required)):
+            return False
+        for key in ('Stages','Modes','UnresolvedHeatUpdates','UnresolvedMomentumUpdates'):
+            if type(status.get(key)) is not int or status[key]<0:return False
+        for key in ('ShearPaSeconds','BulkPaSeconds','DissipatedKineticEnergy','StoredHeat','EntropyLowerBound','WallImpulseX','WallImpulseY'):
+            if type(status.get(key)) not in (int,float) or not math.isfinite(status[key]):return False
+        if required:
+            return (status['ShearPaSeconds']==.5 and status['BulkPaSeconds']==.25
+                and status['Stages']==2*physical['Substeps'] and status['Modes']>0
+                and all(status[key]>0 for key in ('DissipatedKineticEnergy','StoredHeat','EntropyLowerBound')))
+        return all(status[key]==0 for key in ('Stages','Modes','UnresolvedHeatUpdates','UnresolvedMomentumUpdates',
+            'ShearPaSeconds','BulkPaSeconds','DissipatedKineticEnergy','StoredHeat','EntropyLowerBound','WallImpulseX','WallImpulseY'))
+    except (KeyError,TypeError,ValueError,AttributeError):
+        return False
+
+
+def _radial_consumption_passed(report: dict, physical: dict) -> bool:
+    try:
+        value=report['RadialConsumption'];receipt=value['Receipt'];source=value['SourceFrame']
+        injected=struct.unpack('<f',struct.pack('<f',.05))[0];requested=struct.unpack('<f',struct.pack('<f',.4))[0]
+        if (any(value.get(key) is not True for key in ('Required','Verified','SingleCallbackForMultipleSourceCells'))
+                or value.get('Source')!='actual-SimMessages.ConsumeMass-radius-3' or value.get('Radius')!=3
+                or value.get('ActualDuplicantMetabolismVerified') is not False or value.get('Receipts')!=1
+                or report.get('RadialConsumptionMessagesRouted')!=1 or value.get('PublicCell')!=report['TargetCell']
+                or type(source) is not int or not 0<=source<physical['CompletedFrames']
+                or value.get('InjectedOxygenKg')!=injected or value.get('RequestedMassKg')!=requested
+                or type(value.get('SourceCellOxygenKg')) not in (int,float) or not 0<value['SourceCellOxygenKg']<math.inf):
+            return False
+        return (receipt.get('Session')==physical['Session'] and receipt.get('Kind')==2 and receipt.get('Species')==1
+            and receipt.get('PublicCell')==value['PublicCell'] and receipt.get('MassKg')==requested
+            and requested>value['SourceCellOxygenKg']+injected
+            and type(receipt.get('CompletedFrame')) is int and source<receipt['CompletedFrame']<=physical['CompletedFrames']
+            and type(receipt.get('Callback')) is int and receipt['Callback']==report['ConsumptionResult']['callbackIdx'])
+    except (KeyError,TypeError,ValueError,AttributeError):
+        return False
+
+
+def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool:
+    try:
+        value=report['LiveBreathing'];rows=value['Evidence'];count=value['Requests']
+        if (value.get('Required') is not True or value.get('Verified') is not True
+                or value.get('Source')!='actual-OxygenBreather-Sim200ms-world-provider'
+                or value.get('GameClockUnchanged') is not True or value.get('ArtificialBreathingTicks')!=0
+                or value.get('CompleteMetabolismVerified') is not False or value.get('Outstanding')!=0
+                or type(count) is not int or count<(1 if restored else 4)
+                or value.get('Receipts')!=count or value.get('Callbacks')!=count
+                or type(value.get('PositiveCallbacks')) is not int or not 0<value['PositiveCallbacks']<=count
+                or not isinstance(rows,list) or len(rows)!=count
+                or type(value.get('BreatherInstance')) is not int or value['BreatherInstance']==0
+                or value.get('SourcePlacement') is not (not restored) or value.get('RestoredWithoutTeleport') is not restored
+                or report.get('RadialConsumptionMessagesRouted')!=count):
+            return False
+        requested=delivered=0.;positive=0;last_sequence=0
+        for row in rows:
+            command,receipt=row['Request'],row['Receipt'];mass=receipt['MassKg'];wanted=command['MassKg']
+            if (command.get('Size')!=64 or command.get('Version')!=2 or command.get('Kind')!=2 or command.get('Species')!=1
+                    or command.get('Flags')!=769 or command.get('Session')!=physical['Session']
+                    or type(command.get('ExpectedFrame')) is not int or not 0<=command['ExpectedFrame']<receipt['CompletedFrame']<=physical['CompletedFrames']
+                    or type(command.get('Callback')) is not int or command['Callback']==-1
+                    or receipt.get('Session')!=command['Session'] or receipt.get('Callback')!=command['Callback']
+                    or receipt.get('Kind')!=2 or receipt.get('Species')!=1 or receipt.get('PublicCell')!=command.get('PublicCell')
+                    or type(receipt.get('Sequence')) is not int or receipt['Sequence']<=last_sequence
+                    or type(wanted) not in (int,float) or not 0<wanted<math.inf
+                    or type(mass) not in (int,float) or not 0<=mass<=wanted
+                    or not _same_native_float(row.get('CallbackMassKg'),mass)
+                    or row.get('Element')!=value.get('OxygenElementId') or type(row.get('Element')) is not int
+                    or row.get('Disease')!=255 or row.get('DiseaseCount')!=0):
+                return False
+            expected_temperature=0 if mass==0 else struct.unpack('<f',struct.pack('<f',receipt['Temperature']))[0]
+            if not _same_native_float(row.get('CallbackTemperature'),expected_temperature):return False
+            requested+=wanted;delivered+=mass;positive+=mass>0;last_sequence=receipt['Sequence']
+        if not (value.get('RequestedMassKg')==requested and value.get('DeliveredMassKg')==value.get('CallbackMassKg')==delivered>0
+                and value['PositiveCallbacks']==positive):return False
+        native_heat=report['NativeBodyHeat'];body=native_heat['Status']
+        if (native_heat.get('AbiVersion')!=1 or native_heat.get('Source')!='native-element-chunk-contact'
+                or native_heat.get('CompleteMetabolicBodyModel') is not False
+                or body.get('Size')!=112 or body.get('Version')!=1 or body.get('State')!=1 or body.get('Reserved')!=0
+                or body.get('Session')!=physical['Session'] or body.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(body.get('Contacts')) is not int or type(body.get('Transfers')) is not int
+                or not 0<body['Transfers']<=body['Contacts'] or type(body.get('Unresolved')) is not int
+                or not 0<=body['Unresolved']<=body['Contacts']):return False
+        for key in ('BodyHeatLossJoules','StoredFluidHeatJoules','MaximumBalanceResidualJoules','MaximumBalanceBoundJoules',
+                    'EntropyLowerBound','RequestedAbsoluteHeatJoules'):
+            if type(body.get(key)) not in (int,float) or not math.isfinite(body[key]):return False
+        if not (0<=body['MaximumBalanceResidualJoules']<=body['MaximumBalanceBoundJoules'] and
+                body['EntropyLowerBound']>=0 and body['RequestedAbsoluteHeatJoules']>0):return False
+        account=report['GasTransfers'];changes=account['MassChangesKg']
+        if restored:
+            inputs=report['ColonyCheckpoint']['FrameInputReplay']
+            if inputs.get('CompletedSnapshotAbiVersion')!=1 or inputs.get('HeatBatches',0)<body['Transfers']:return False
+        return (account['Session']==physical['Session'] and account['PendingBatches']==account['UnacknowledgedReceipts']==0
+            and changes[1]==-delivered and changes[0]==changes[2]==changes[3]==0 and changes[4]>=0
+            and (not restored or report['ColonyCheckpoint']['FrameInputReplay']['TransferBatches']>=count))
+    except (KeyError,TypeError,ValueError,AttributeError,OverflowError,struct.error):
+        return False
+
+
+def _reload_input_comparison_passed(workflow: dict, physical: dict, colony: dict, live: bool) -> bool:
+    try:
+        comparison=workflow.get('ComparisonMode')
+        if comparison is None:return not live  # Original fixed-input evidence.
+        if comparison=='identical-final-physical-state':
+            return workflow.get('IdenticalFinalPhysicalImage') is True and (not live or workflow.get('IdenticalPhysicalInputs') is True)
+        return (comparison=='captured-live-inputs' and live and workflow.get('IdenticalPhysicalInputs') is False
+            and all(_sha256(workflow.get(k)) for k in ('FirstPhysicalInputTranscriptSha256','CurrentPhysicalInputTranscriptSha256'))
+            and workflow['FirstPhysicalInputTranscriptSha256']!=workflow['CurrentPhysicalInputTranscriptSha256']
+            and workflow.get('FirstExactContinuationFrames')==workflow['FirstCompletedFrame']
+            and workflow.get('CurrentExactContinuationFrames')==physical['CompletedFrames']
+            and colony['FrameInputReplay'].get('PhysicalInputTranscriptSha256')==workflow['CurrentPhysicalInputTranscriptSha256']
+            and workflow.get('IdenticalFinalPhysicalImage') is (workflow['FirstPhysicalSha256']==colony['CurrentPhysicalSha256']))
+    except (KeyError,TypeError,AttributeError):return False
+
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
+        return False
+    breathing=report.get('LiveBreathing',{})
+    if not isinstance(breathing,dict):return False
+    if (live_breathing or breathing.get('Required') is True) and not _live_breathing_passed(report,report.get('NativeDomain',{}),restored):
         return False
     if reload_in_process and not restored:
         return False
@@ -398,6 +618,17 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     observed = observation.get("Observation")
     if not isinstance(physical, dict) or not isinstance(observed, dict):
         return False
+    radial_consumption=radial_consumption or isinstance(report.get('RadialConsumption'),dict) and report['RadialConsumption'].get('Required') is True
+    if radial_consumption:
+        if not _radial_consumption_passed(report,physical):return False
+        transfers=True
+    mixed_phase=mixed_phase or report.get('Scenario')=='gas-liquid-mixture'
+    mixed_heat=mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('NativeScenario')==5
+    if not mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('Required') is True:
+        return False
+    if mixed_phase and (liquid or conduction and not mixed_heat or not _mixed_phase_passed(report,physical)):
+        return False
+    if not _viscosity_passed(report,physical):return False
     if persistent_actors and (restored or not saved):
         return False
     if (persistent_actors or 'PersistentActors' in report) and not _persistent_actors_passed(report,physical,restored,persistent_actors):
@@ -507,16 +738,16 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if heat or conduction or liquid_heat:
         account = report.get("HeatCommands")
         heat_bound = 1e-6
-        if liquid_heat:
+        if liquid_heat or mixed_heat:
             scale = report.get("HeatEnergyScaleJoules")
-            if (report.get("LiquidHeatVerified") is not True or type(scale) not in (int, float) or not 0 < scale < math.inf
+            if (report.get("MixedHeatVerified" if mixed_heat else "LiquidHeatVerified") is not True or type(scale) not in (int, float) or not 0 < scale < math.inf
                     or report.get("HeatEnergyBoundJoules") != 128 * 2.2204460492503131e-16 * scale):
                 return False
             heat_bound = report["HeatEnergyBoundJoules"]
         if (not isinstance(account, dict) or report.get("HeatCommandsVerified") is not True or
                 report.get("HeatAvoidedNativeDispatch") is not True or report.get("HeatPacketsRouted") != 2 or
                 account.get("PendingBatches") != 0 or account.get("AcceptedBatches") != 2 or account.get("CommittedBatches") != 2 or
-                account.get("CommittedHeatJoules") != (1500000 if liquid_heat else 1500) or
+                account.get("CommittedHeatJoules") != (1500000 if liquid_heat or mixed_heat else 1500) or
                 type(report.get("HeatEnergyResidualJoules")) not in (int, float) or not abs(report["HeatEnergyResidualJoules"]) <= heat_bound):
             return False
     if conduction or liquid_heat:
@@ -556,7 +787,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         account = report.get("FluidTransfers" if liquid_transfers else "GasTransfers")
         emission, consumption = report.get("EmissionResult"), report.get("ConsumptionResult")
         injected = struct.unpack("f", struct.pack("f", .05))[0]
-        consumed = struct.unpack("f", struct.pack("f", .02))[0]
+        consumed = struct.unpack("f", struct.pack("f", .4 if radial_consumption else .02))[0]
         energy_bound = 1e-6
         if liquid_transfers:
             scale = report.get("TransferEnergyScaleJoules")
@@ -591,7 +822,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(account.get("KineticEnergyChange")) not in (int, float) or not math.isfinite(account["KineticEnergyChange"]) or account["KineticEnergyChange"] >= 0
                 or type(account.get("MaterialEnergyChange")) not in (int, float) or not math.isfinite(account["MaterialEnergyChange"])
                 or not isinstance(emission, dict) or not isinstance(consumption, dict)
-                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != .02
+                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != (.4 if radial_consumption else .02)
                 or type(emission.get("elemIdx")) is not int or emission["elemIdx"] != consumption.get("elemIdx")
                 or emission.get("temperature") != (310 if carbon else 300)
                 or type(consumption.get("temperature")) not in (int, float) or not 0 < consumption["temperature"] < float("inf")
@@ -772,6 +1003,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(workflow.get("FirstCompletedFrame")) is not int or not frames<=workflow["FirstCompletedFrame"]<=physical["CompletedFrames"]
                 or any(not _sha256(workflow.get(key)) for key in ("FirstPhysicalSha256","FirstReportSha256","InputSha256"))):
             return False
+        if not _reload_input_comparison_passed(workflow,physical,colony,live_breathing or breathing.get('Required') is True):
+            return False
     physics_exercised = (physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 0 if liquid_actors else
                          physical["LiquidMassKg"] > 1000 and physical["PressurePa"] > 2.2e8 if liquid_transfers else
                          physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
@@ -809,10 +1042,11 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("mixed", "mixed-heat", "viscous", "radius", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
+    parser.add_argument("--live-breathing",action="store_true",help="Require actual duplicant world-provider requests, physical receipts and original callbacks")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -826,9 +1060,9 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
-            heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+            heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode in ("transfer", "radius"), actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
+            live_breathing=args.live_breathing,persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

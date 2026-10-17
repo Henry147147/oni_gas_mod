@@ -1,5 +1,6 @@
 #pragma once
 #include "mac_thermal.hpp"
+#include "mac_viscosity.hpp"
 #include "mac_shock_heat.hpp"
 #include "mac_reconstruction.hpp"
 #include "mac_compression.hpp"
@@ -31,6 +32,7 @@ struct MacClosedSettings {
     MacMomentumReconstruction momentum_reconstruction = MacMomentumReconstruction::limited_linear;
     bool thermal_conduction = false;
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
+    MacViscosity viscosity;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -86,6 +88,11 @@ struct MacClosedAdvanceReport {
     std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0, unresolved_conduction_updates = 0;
     MacEnergy conductive_redistribution_j;
     double conductive_entropy_j_per_k = 0;
+    std::size_t viscosity_stages = 0, viscosity_modes = 0;
+    std::size_t unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
+    MacEnergy viscous_heat,viscous_stored_heat;
+    MacScaled viscous_wall_impulse_x,viscous_wall_impulse_y;
+    double viscous_entropy_lower_bound_j_per_k = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double mixing_heat_j = 0, wall_heat_j = 0;
     double wall_impulse_x = 0, wall_impulse_y = 0;
@@ -121,6 +128,7 @@ struct MacFluidParcel {
 using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;
 using MacGasTransferResult = MacFluidTransferResult;
+enum class MacFluidTransferTopology { single_phase, occupied_mixture };
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
@@ -151,6 +159,10 @@ public:
     // This is a point source contract, with no implicit pump/enthalpy work.
     // Gas/liquid mixing, void creation and passive metadata reject atomically.
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>) const;
+    // Explicit opt-in for gas/liquid coexistence. The same parcel/accounting
+    // contract applies, and the complete result must remain occupied. This
+    // does not supply free-surface dynamics or a device work reservation.
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring
     // requires the exact registry/EOS identity and validates the complete image.
     [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;

@@ -33,7 +33,7 @@ def check_observation(report: dict, mode: str) -> dict:
     if status["ActiveCalls"] or not report["nativeObserverDetached"] or not report["nativeObserverLiveDetachRejected"]:
         raise ValueError("Unbalanced observer lifecycle")
     hooks = {item["Name"]: item for item in status["Hooks"]}
-    if len(hooks) != 28 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
+    if len(hooks) != 29 or any(item["Entries"] != item["Exits"] for item in hooks.values()):
         raise ValueError("Hook entry/exit imbalance")
     if hooks["update-data"]["Entries"] != (13 if mode == "fluid-actors" else 12):
         raise ValueError("Native physical update count differs from requested timesteps")
@@ -41,6 +41,8 @@ def check_observation(report: dict, mode: str) -> dict:
         raise ValueError("Native control/physics hooks were not exercised")
     if hooks["messages"]["Entries"] < 2:
         raise ValueError("Empty and populated native batch branches were not exercised")
+    if report.get('nativeBodyHeatForwardingControlPassed') is True and hooks['chunk-heat']['Entries']==0:
+        raise ValueError('Native body heat forwarding did not exercise the private contact hook')
     emitter_entries = hooks["emitter"]["Entries"] + hooks["emitter-dispatch"]["Entries"]
     if mode == "fluid-actors" and (not report["fluidActorRegistrationModificationRemovalPassed"] or
                                   hooks["consumer"]["Entries"] != 13 or emitter_entries != 13):
@@ -77,7 +79,10 @@ def main() -> int:
     parser.add_argument("--probe", type=Path, default=ROOT / "tools/NativeShadowProbe/bin/Release/net10.0/NativeShadowProbe.dll")
     add_runtime_arguments(parser)
     parser.add_argument("--mode", choices=(*MODES, "all"), default="all")
+    parser.add_argument('--native-body-heat',action='store_true',help='Add a real native body to the baseline forwarding comparison')
     args = parser.parse_args()
+    if args.native_body_heat and args.mode!='baseline':parser.error('--native-body-heat requires --mode baseline')
+    if args.native_body_heat:os.environ['MA_VERIFY_CHUNK_HEAT_FORWARDING']='1'
     runtime = ProbeRuntime(args, parser)
     native = args.game / "OxygenNotIncluded_Data/Plugins" / ("x86_64/SimDLL.dll" if runtime.windows_binary else "libSimDLL.so")
     for path in (native, args.observer, args.probe, *(args.contract / name for name in ("contract.json", "elements.bin", "diseases.bin"))):

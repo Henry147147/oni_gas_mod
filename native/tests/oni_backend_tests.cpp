@@ -45,14 +45,14 @@ int main() {
             require(!ma::oni::verified_trampoline_segment(headers,invalid),"invalid trampoline bounds accepted");
         }
 #endif
-        require(ma_oni_abi_version()==3,"ABI version");
-        require(sizeof(MAOniObserverConfig)==24 && sizeof(MAOniObserverStatus)==512 && sizeof(MAOniTraceEvent)==32,"ABI layouts");
+        require(ma_oni_abi_version()==4,"ABI version");
+        require(sizeof(MAOniObserverConfig)==24 && sizeof(MAOniObserverStatus)==528 && sizeof(MAOniTraceEvent)==32,"ABI layouts");
         require(ma::oni::hash_memory("",0)=="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","empty SHA256");
         require(ma::oni::hash_memory("abc",3)=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 abc");
         const std::string many(1000000,'a');
         require(ma::oni::hash_memory(many.data(),many.size())=="cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0","SHA256 multi-block");
         MAOniObserverStatus status{};
-        status.struct_size=sizeof(status); status.abi_version=3;
+        status.struct_size=sizeof(status); status.abi_version=4;
         require(ma_oni_observer_status(&status)==MA_ONI_OK && !status.attached && !status.authoritative_fluid_owner,"inactive observer status");
         const auto before=status;
         require(ma_oni_probe(nullptr,&status)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&before,&status,sizeof(status))==0,"invalid config changed output");
@@ -69,7 +69,7 @@ int main() {
         std::filesystem::create_directories(fake_image.parent_path());
         { std::ofstream file(fake_image,std::ios::binary); file << "Not a licensed ONI native image"; }
         const auto path=temporary.u8string();
-        const MAOniObserverConfig invalid_image{24,3,MA_ONI_OBSERVER_ONLY,0,reinterpret_cast<const char*>(path.c_str())};
+        const MAOniObserverConfig invalid_image{24,4,MA_ONI_OBSERVER_ONLY,0,reinterpret_cast<const char*>(path.c_str())};
         require(ma_oni_probe(&invalid_image,&status)==MA_ONI_INCOMPATIBLE && std::memcmp(&before,&status,sizeof(status))==0,
                 "unknown image probe changed output or accepted native code");
         require(ma_oni_attach_observer(&invalid_image,&status)==MA_ONI_INCOMPATIBLE && std::memcmp(&before,&status,sizeof(status))==0,
@@ -82,6 +82,11 @@ int main() {
         require(ma_oni_copy_trace(nullptr,0,&count)==MA_ONI_OK && count==0,"empty trace");
         require(ma_oni_copy_trace(nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT,"null trace count");
         require(ma_oni_domain_abi_version()==2 && ma_oni_domain_active()==0,"sealed-domain extension ABI");
+        require(ma_oni_domain_completed_snapshot_abi_version()==1,"Completed frame snapshot capability ABI");
+        std::array<std::uint8_t,32> completed{};completed.fill(0x5a);const auto held_completed=completed;
+        std::uint32_t completed_bytes=123;
+        require(ma_oni_domain_completed_snapshot_copy(1,0,completed.data(),32,&completed_bytes)==MA_ONI_BUSY &&
+            completed_bytes==123 && completed==held_completed,"Inactive completed frame copy changed outputs");
         MAOniDomainStatus domain{}; domain.struct_size=sizeof(domain); domain.abi_version=2;
         require(ma_oni_domain_copy(&domain,nullptr,0)==MA_ONI_OK && domain.state==0,"inactive domain status");
         auto obsolete_domain=domain; obsolete_domain.abi_version=1; const auto held_obsolete=obsolete_domain;
@@ -110,6 +115,12 @@ int main() {
         require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");
         MAOniDomainHeatStatus heat{56,1,0,0,0,0,0,0,0};
         require(ma_oni_domain_heat_status(&heat)==MA_ONI_OK && heat.state==0,"inactive heat status");
+        require(ma_oni_domain_chunk_heat_abi_version()==1 && sizeof(MAOniDomainChunkHeatStatus)==112,"Native body heat ABI");
+        MAOniDomainChunkHeatStatus chunk_heat{};chunk_heat.struct_size=112;chunk_heat.abi_version=1;
+        require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_OK && chunk_heat.state==0 && chunk_heat.contacts==0,"Inactive native body heat status");
+        chunk_heat.abi_version=2;const auto held_chunk=chunk_heat;
+        require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&chunk_heat,&held_chunk,sizeof(chunk_heat))==0,"Invalid native body heat ABI changed output");
         const auto held_heat=heat;
         const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
         require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,
@@ -126,6 +137,13 @@ int main() {
         require(ma_oni_domain_thermal_abi_version()==1 && sizeof(MAOniDomainThermalStatus)==80,"conduction extension ABI");
         MAOniDomainThermalStatus thermal{}; thermal.struct_size=80; thermal.abi_version=1;
         require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_OK && thermal.state==0 && thermal.enabled==0,"inactive conduction status");
+        require(ma_oni_domain_viscosity_abi_version()==1 && sizeof(MAOniDomainViscosityStatus)==120,"physical viscosity extension ABI");
+        require(ma_oni_domain_radial_consumption_abi_version()==1,"radial consumption capability ABI");
+        MAOniDomainViscosityStatus viscosity{};viscosity.struct_size=120;viscosity.abi_version=1;
+        require(ma_oni_domain_viscosity_status(&viscosity)==MA_ONI_OK && viscosity.state==0 && viscosity.enabled==0,"inactive viscosity status");
+        viscosity.abi_version=2;const auto held_viscosity=viscosity;
+        require(ma_oni_domain_viscosity_status(&viscosity)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&viscosity,&held_viscosity,sizeof(viscosity))==0,"Invalid viscosity ABI changed output");
         require(ma_oni_domain_gravity_abi_version()==1 && sizeof(MAOniDomainGravityStatus)==96,"gravity extension ABI");
         MAOniDomainGravityStatus gravity{}; gravity.struct_size=96; gravity.abi_version=1;
         require(ma_oni_domain_gravity_status(&gravity)==MA_ONI_OK && gravity.state==0 && gravity.enabled==0,"inactive gravity status");

@@ -51,7 +51,7 @@ EXPORT_FAILED_MARKERS = ("[Mixed Atmospheres] Native contract export failed:",
 MENU_EXPORT_WAIT_SECONDS = 120
 MENU_SETTLE_SECONDS = 5
 MOD_IDENTIFIERS = ("Mixed Atmospheres", "MixedAtmospheres")
-FAILURE_WORDS = re.compile(r"fail|error|exception", re.IGNORECASE)
+FAILURE_WORDS = re.compile(r"(?<![\w./\\-])(?:fail(?:ed|ure|ures|ing)?|errors?|[\w.]*exception)\b", re.IGNORECASE)
 # Mono "  at Type.Method (...)", "(wrapper ...)" and Unity "Type:Method (...)" frames.
 STACK_FRAME = re.compile(r"^\s+at |^\s*\(wrapper |^[\w.`+<>]+:[\w.`+<>|]+ ?\(")
 # Mod code, Harmony-generated replacements (DMD<...>) or Harmony itself.
@@ -594,7 +594,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -648,6 +648,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
             **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
             **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
+            **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
             **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
@@ -729,16 +730,18 @@ def playtest(args, state: Path, session: dict) -> int:
                 hover_ok = tile_hover_passed(hover_report, colony_file.parent)
                 if code == 0 and not hover_ok:
                     status, code = "failed-tile-hover-evidence", 2
-            if args.mode in ("native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
+            if args.mode in ("native-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
                 try:
                     domain_report = read_json(colony_file.parent / "native-domain.json")
                 except (OSError, json.JSONDecodeError):
                     pass
                 domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
-                    initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain", liquid_heat=args.mode == "native-liquid-heat-domain",
-                    transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
-                    pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
+                    mixed_phase=args.mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
+                    initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=args.mode == "native-liquid-heat-domain",
+                    transfers=args.mode in ("native-transfer-domain", "native-radius-domain"), radial_consumption=args.mode == "native-radius-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
+                    pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
                     persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
+                    live_breathing=getattr(args,"verify_live_breathing",False) is True,
                     natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=args.mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True, restored=args.mode == "native-load-domain",
                     save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
@@ -799,7 +802,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)
@@ -811,11 +814,15 @@ def main() -> int:
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")
     play.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; requires a gas/water source, source save or natural autosave, and at least eighty frames")
+    play.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command=="run" and args.verify_live_breathing and (args.mode not in ("native-domain","native-load-domain") or
+            args.verify_persistent_actors or args.mode=="native-domain" and not 20<=args.frames<=25):
+        parser.error("Live breathing requires a 20–25-frame gas source or its saved load, without fixture actors")
     if args.command=="run" and args.verify_persistent_actors and (args.mode not in ("native-domain","native-liquid-domain") or not (args.save_colony or args.verify_natural_autosave) or args.frames<80):
         parser.error("Persistent actor validation requires a gas/water source, a source save or natural autosave, and at least eighty frames")
     if args.command == "run" and args.verify_natural_autosave and (args.mode != "native-domain" or not 3100 <= args.frames <= 5000 or args.save_colony):

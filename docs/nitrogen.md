@@ -41,48 +41,45 @@ other consumer. A failed or removed adapter therefore registers no nitrogen at
 all rather than half-registered phases. A save that already contains these
 elements still requires the working adapter.
 
-The shipped `SimHashes` enum cannot acquire new members. Scoped IL changes to
-`GameTagExtensions.Create` and `CreateTag` resolve these three hashes to
-their actual element names; native and unknown hashes retain their exact
-`Enum.ToString()` names. The original `TagManager.Create` call and struct
-return instructions stay intact. A changed instruction shape rejects, and
-Before installing Harmony patches, the adapter invokes both original helpers
-through reflection with a native oxygen identity. Startup checks then invoke
-both actual patched helpers directly for native, custom and
-unknown identities before the rest of the adapter is installed. This
-avoids integer prefab names without patching `System.Enum` globally.
+The shipped `SimHashes` enum cannot acquire new members. Both original
+`GameTagExtensions.Create` and `CreateTag` stringify an unknown enum value as
+an integer and pass it to `TagManager.Create`. The adapter now leaves those
+Tag-returning methods untouched. A prefix on the void `Tag.Name` setter maps
+only the three exact decimal strings in the table above to their canonical
+names, before native string interning and SDBM hashing. This also covers native
+tag deserialization through that setter. Native names and all other strings
+retain their original behavior. `Tag(string)` construction stays native;
+callers constructing a custom tag directly must use its canonical string.
 
-The first modded WindowsPlayer/Proton run exposed a startup exception in the
-earlier ref-result prefix while ordinary native tags were being created. The
-IL-only attempt still fails the direct runtime check. Both failed runs remain
-retained. Pre-invoking the original helpers before composition passes both
-original and patched checks, normal database initialization, and main-menu
-contract export in one real WindowsPlayer cohort, but a later instrumented
-build still fails. Prewarming alone is not a reliable repair. The precise
-Unity/Mono implementation cause is not established; an alternative Harmony
-method-generation path is under test. Standalone licensed-Mono experiments under Wine and Proton
-pass both warmed and cold forms and do not reproduce Unity's failure.
-`NativeTagHelpersVerified` is written only after the direct patched checks
-complete, and probe completion requires that result. The subsequent physical
-scene and reload gates remain separate.
+These three decimal names are reserved aliases while the adapter is loaded.
+Before patching, it checks both native proper-name dictionaries and rejects an
+existing alias or hash collision. It never overwrites that entry. There is no
+patch to `System.Enum` and no change to the shipped enum values or names.
+The failed-load path removes this owner's setter patch and clears runtime
+verification. The YAML content gate still prevents partial element loading.
 
-The merged adapter now passes native Windows ONI startup, gas and water actor
-source/save scenes, and both loaded water sessions described in the
-[Windows actor-batch controls](sealed-native-domain.md#actual-windows-actor-batches).
-This executes the startup check against both actual patched helpers before
-the integration probe and colony initialization. The Windows .NET 10 test build
-initially rejects the unguarded reflection cast with CS8600/CS8603. The adapter
-now explicitly requires the instruction label list, with a useful rejection if
-Harmony's field contract is unavailable. All eight nitrogen groups then pass,
-alongside 106 snapshot/actor-boundary and 31 inspection groups. The failed
-compile attempt remains retained; it never packages or launches the game.
+Startup first checks both original helpers through reflection, then directly
+calls the untouched helpers, tag manager, name setter and original constructor
+for native, custom and unknown identities. It compares both names and hashes;
+Tag equality alone would only compare hashes. `NativeTagHelpersVerified` is
+written only after every check completes and is required by the integration
+probe. Physical scene and save/reload checks remain separate.
 
-The later clean `c346d93` Windows package also includes original-helper
-preparation and the explicit `NativeTagHelpersVerified` report field. All nine
-nitrogen groups pass, including the new pre-composition invocation check. The
-actual Windows water-emitter scene passes both original and patched helper
-checks and records the verification flag before completing its physical/save
-control; see [the bounded result](sealed-native-domain.md#initially-disabled-emitters).
+Earlier ref-result and transpiler patches on the two Tag-returning helpers
+intermittently fail in real WindowsPlayer/Mono under Proton. Prewarming does
+not reliably repair that fault, despite successful source/load cohorts. A later
+constructor-plus-setter alternative crashes at the patched `Tag(string)` call;
+per-call diagnostics locate that boundary after both untouched helpers have
+returned. The constructor patch is therefore removed. The failed runs and crash
+logs remain retained. The setter-only diagnostic package passes the full startup identity check,
+122 physical frames and complete paired-save readback in the first cold
+WindowsPlayer inventory-import run. Both installed-assembly nitrogen suites
+pass all ten groups. The final `2df8e7b` adapter now passes all twelve cold
+WindowsPlayer source/load controls in the
+[native feature matrix](native-windows-feature-matrix.md), plus both repeated
+occupied-mixture load sessions. These actual controls accept the startup path
+for the pinned player/build; arbitrary future Unity versions remain unverified.
+No precise Unity/Mono implementation cause is claimed.
 
 ## Property scope
 
@@ -116,15 +113,15 @@ is added to ordinary generated worlds by this registration step.
 
 ## Validation
 
-`tools/NitrogenRegistrationTests` checks stable noncolliding hashes, exhaustive
-native enum pass-through, the custom tag bridge, localization casing, explicit
-YAML description mapping through the actual native `ElementEntry` getter under
-Turkish culture, and the installed helper signatures. Both actual helper IL
-bodies are rewritten and executed against every native enum value, unknown
-values and all three custom identities. Changed enum/branch/duplicate bodies
-reject. A ninth group invokes both original helpers before composition and
-ensures this alone cannot certify patched helpers. Its optional second argument replays a private
-actual-game `nitrogen-validation.json` report.
+`tools/NitrogenRegistrationTests` has ten groups covering stable noncolliding
+hashes, exhaustive native enum pass-through, exact custom aliases, localization,
+explicit YAML descriptions under Turkish culture, the unchanged helper IL and
+single void patch target, the content gate, malformed strings, collisions in
+either native name dictionary, and original-helper preflight. Alias checks use
+the installed native tag construction/setter implementations after normalizing
+the input; only real Unity controls certify installed Harmony dispatch. Its
+optional second argument replays a private actual-game
+`nitrogen-validation.json` report.
 
 The disposable presentation runner adds three real native material items after
 the six mixture inspection fixtures. It checks phase links, template isolation,

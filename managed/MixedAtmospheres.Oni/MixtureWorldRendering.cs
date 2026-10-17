@@ -40,6 +40,7 @@ namespace MixedAtmospheres.Oni
         // Includes stock PropertyTextures.LateUpdate and its synchronous jobs.
         internal static double MaximumTextureBatchMs => Interlocked.Read(ref maximumBatchTicks) * 1000.0 / Stopwatch.Frequency;
         internal static long LastTexturePublicationGeneration { get; private set; }
+        internal static OpacityParameters OpacitySettingsForValidation => opacity;
         internal static bool ValidationProbesActive => Volatile.Read(ref validationProbes) != null;
         internal static long ValidationProbeEpoch => Volatile.Read(ref validationProbes)?.Epoch ?? 0;
 
@@ -229,7 +230,7 @@ namespace MixedAtmospheres.Oni
                     {
                         var cell = x + y * frame.Width;
                         if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                        var value = DensityOpacity(reading!, opacity);
+                        var value = WorldFluidOpacity(reading!, opacity);
                         __0.SetBytes(x, y, value); ++written;
                         probes.Record(1, __0, cell, x, y, frame, reading!, opacity, value, 0, 0, 0);
                     }
@@ -240,7 +241,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var cell = x + y * frame.Width;
                     if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                    __0.SetBytes(x, y, DensityOpacity(reading!, opacity)); ++written;
+                    __0.SetBytes(x, y, WorldFluidOpacity(reading!, opacity)); ++written;
                 }
             Interlocked.Add(ref pressureCells, written);
         }
@@ -299,21 +300,35 @@ namespace MixedAtmospheres.Oni
         {
             if (reading == null) throw new ArgumentNullException(nameof(reading));
             if (reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0) return default;
-            var color = reading.ColorAt(worldX, worldY);
+            var color = reading.WorldFluidColorAt(worldX, worldY);
             return new GasVisualSample(Byte(color.R), Byte(color.G), Byte(color.B), byte.MaxValue,
-                DensityOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
+                WorldFluidOpacity(reading, parameters), HazardByte(reading), reading.TotalPressurePa);
         }
 
         internal static GasVisualSample SampleForValidation(MixturePresentation reading, double worldX, double worldY)
             => Sample(reading, worldX, worldY, opacity);
 
         internal static byte DensityOpacity(MixturePresentation reading, OpacityParameters parameters)
+            => Byte(GasOpacityFraction(reading, parameters));
+
+        private static double GasOpacityFraction(MixturePresentation reading, OpacityParameters parameters)
         {
             if (reading.GasMassKg <= 0 || reading.GasVolumeCubicMetres <= 0) return 0;
             // Preserve familiar ONI density-based visibility. 101.3 is a legacy
             // visual normalization, NOT an equation of state or pressure query.
             var normalized = Clamp01((reading.GasDensityKgPerCubicMetre * 101.3 - parameters.Minimum) / (parameters.Maximum - parameters.Minimum));
-            return Byte(Math.Max(normalized, parameters.MinimumVisibility));
+            return Math.Max(normalized, parameters.MinimumVisibility);
+        }
+
+        internal static byte WorldFluidOpacity(MixturePresentation reading, OpacityParameters parameters)
+        {
+            if (!reading.HasPhaseVolumeAppearance) return DensityOpacity(reading, parameters);
+            var physical = reading.ThermodynamicReading!;
+            // Opaque liquid and the existing gas visibility are composited by
+            // actual occupied phase volume. This is a visual approximation,
+            // independent of physical pressure and gas breathing quantities.
+            return Byte(GasOpacityFraction(reading, parameters) * physical.GasVolumeCubicMetres / physical.VolumeCubicMetres +
+                physical.LiquidVolumeCubicMetres / physical.VolumeCubicMetres);
         }
         internal static byte HazardByte(MixturePresentation reading) => reading.GasMassKg > 0 && !reading.IsBreathable ? byte.MaxValue : (byte)0;
         private static byte Byte(double value) => (byte)Math.Round(Clamp01(value) * 255, MidpointRounding.AwayFromZero);

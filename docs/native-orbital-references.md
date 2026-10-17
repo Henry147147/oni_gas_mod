@@ -53,9 +53,68 @@ An already spawned root keeps its ordinary lifecycle. The native orbital body
 still controls visibility and rendering. No object or reference is created or
 reassigned, and an already missing saved object still fails admission.
 `NativeOrbitalReferences.SaveRootLifecycle` records the completed root IDs and
-any error, and resets between sessions. The default observer modes do not
-install this lifecycle patch. Actual source and reload verification of this
-change remains in progress.
+any error, and resets between sessions. The portable reviewer rejects errors,
+duplicate/invalid root IDs and any created object or rewritten reference in
+this receipt; older audits without it do not establish the new spawn ordering.
+The default observer modes do not install this lifecycle patch.
+
+Frozen `9a1a894` and native v13 now pass a fresh nine-world WindowsPlayer/Proton
+OpenGL water source. Orbital ID 2 completes its original save root once before
+native deactivation; the later Unity root start remains idempotent. At physical
+frame 121 all three point actors save, with 114 matching consumer callbacks
+carrying 1.1400000331923366 kg. The complete 10,593,603-byte body and header pass
+readback and retain the serialized background. The physical image is unchanged
+from the successful unpatched lifecycle-observation control. Independent source
+review SHA-256:
+`eaf8705bbb79ab17d9858d35fd4480e0482048bf206b3496e7d5743a084a2d91`.
+
+Both WindowsPlayer and native Linux then load that same intact source twice.
+Every session admits the original references at physical frame zero, completes
+its paused autosave/readback, binds the three actors and compares 120 complete
+frames exactly against its local continuation. An additional load of the older
+missing-object input still rejects at frame zero, without rewriting its raw
+reference or producing a save. The combined saved-receipt review for the water
+loads and later precision/day controls passes 88 checks, SHA-256
+`9b378dc21153abfa82994b79c0d94995e0860c2cfcdc9e882cff86597d5fba95`.
+The local exact-continuation result does not accept the separate cross-platform
+water numerical comparison; see [arithmetic controls](native-floating-point-environment.md).
+
+## Waiting for the restored native Start lifecycle
+
+The first `51d5ce9`/v15 mixed gas/liquid WindowsPlayer source saves correctly,
+and its first load completes a paused autosave and 120 exact physical frames.
+The second load in the same process reaches the admission check before Unity
+has called the native save roots' `Start`: all nine world roots and the existing
+orbital object are tracked and initialized, with `RootSpawned=false` and zero
+registrations. The strict check correctly refuses advancement, but treating
+this transient lifecycle state as a damaged save makes ordinary reloads race.
+The failed second-session result is retained; it does not invalidate the
+completed first session or accept the failed two-session control.
+
+Restored admission now waits only for that exact initialized/unspawned/zero-
+registration combination. It inspects every world and reference before waiting,
+so a missing target, changed identity, duplicate registration or inconsistent
+root state still rejects immediately. Ordinary save admission remains strict.
+The existing restored pause keeps physical frame zero while Unity completes
+its normal lifecycle; the adapter does not spawn or register world roots itself.
+Every waiting observation and the final admission compare the entire native
+physical checkpoint byte for byte with the restored source and require its
+original physical time. A bounded lifecycle timeout starts at the first actual
+waiting observation, after loading and shader warmup.
+
+`RestoreLifecycleHold` records waiting inspections, current/maximum pending
+root counts and the checked frame/time/full-image hash. Session cleanup clears
+it. The portable reviewer rejects an outstanding wait or a claimed witness
+without the original restored image. Four new declaration groups distinguish
+legitimate native startup from dangling references and inconsistent registry
+states. Frozen `2df8e7b` with the unchanged v15 native libraries now loads the
+same mixed-state source twice in WindowsPlayer/Proton and twice in native Linux.
+Both second sessions naturally wait once for all ten roots while preserving the
+complete source image and physical time at frame zero. All four sessions finish
+paused autosaves/readbacks and compare 120 complete physical frames exactly;
+the Windows final image also equals the earlier successful pre-wait session.
+The combined saved-receipt review passes 36 checks, SHA-256
+`aaed03f27ffa1f2ac611e462d8227d2adcba295532db0178475c9c44fa103846`.
 
 ## Reproduced input and current verification
 
@@ -71,8 +130,9 @@ continuation mismatch; it exposes a separate missing native object.
 Later read-only native and fluid-owned source observations find orbital
 instance 2 tracked and its save root registered. The newer Linux gas, water
 and natural-day actor saves contain the background entry. These observations
-do not establish why the older source omitted it, and no spawn-order repair is
-shipped on that basis.
+do not establish why the older source omitted it. The later lifecycle repair
+above follows a separately reproduced fresh-source failure and native spawn
+ordering; it does not reconstruct the older missing object.
 
 The pure admission controls cover missing targets, changed IDs, wrong worlds,
 duplicate slots/worlds, uninitialized or duplicate save registration, valid

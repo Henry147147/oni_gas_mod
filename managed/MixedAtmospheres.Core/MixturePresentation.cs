@@ -110,6 +110,8 @@ namespace MixedAtmospheres.Core
         internal int GasConstituentCount { get; }
         private readonly bool patternEnabled;
         private readonly double patternContrast;
+        private readonly double worldGasWeight = 1, liquidR, liquidG, liquidB;
+        public bool HasPhaseVolumeAppearance { get; }
         private string? displayName;
         private IReadOnlyList<MixtureConstituentPresentation>? constituents, gasConstituents;
         private IReadOnlyList<string>? warnings;
@@ -191,6 +193,19 @@ namespace MixedAtmospheres.Core
             Failures = failures;
             Values = values; GasConstituentCount = gasConstituentCount;
             patternEnabled = options.PatternEnabled; patternContrast = options.PatternContrast;
+            if (thermodynamicReading != null && gasVolume > 0 && thermodynamicReading.LiquidVolumeCubicMetres > 0)
+            {
+                HasPhaseVolumeAppearance = true;
+                worldGasWeight = gasVolume / thermodynamicReading.VolumeCubicMetres;
+                foreach (var constituent in values)
+                {
+                    if (constituent.Definition.Material.Phase != NativeMatterPhase.Liquid) continue;
+                    var weight = constituent.ThermodynamicPartialVolume!.Value / thermodynamicReading.VolumeCubicMetres;
+                    liquidR += weight * constituent.Definition.LinearR;
+                    liquidG += weight * constituent.Definition.LinearG;
+                    liquidB += weight * constituent.Definition.LinearB;
+                }
+            }
             BaseColor = Blend(0, 0, false);
         }
 
@@ -201,14 +216,27 @@ namespace MixedAtmospheres.Core
             return patternEnabled && patternContrast != 0 ? Blend(worldX % 4, worldY % 4, true) : BaseColor;
         }
 
-        private MixtureSrgbColor Blend(double x, double y, bool textured)
+        // Homogeneous, volume-averaged world colour. Gas composition colours
+        // and their mole fractions remain separately available through ColorAt.
+        // A partial volume supplies no liquid interface or surface geometry.
+        public MixtureSrgbColor WorldFluidColorAt(double worldX, double worldY)
         {
-            var r = 0.0; var g = 0.0; var b = 0.0;
+            if (!HasPhaseVolumeAppearance) return ColorAt(worldX, worldY);
+            FluidChecks.Finite(worldX, nameof(worldX)); FluidChecks.Finite(worldY, nameof(worldY));
+            return Blend(worldX % 4, worldY % 4, patternEnabled && patternContrast != 0, true);
+        }
+
+        private MixtureSrgbColor Blend(double x, double y, bool textured, bool phaseVolumes = false)
+        {
+            var r = phaseVolumes ? liquidR : 0; var g = phaseVolumes ? liquidG : 0; var b = phaseVolumes ? liquidB : 0;
+            var gasWeight = phaseVolumes ? worldGasWeight : 1;
             foreach (var species in Values)
             {
                 var style = species.Definition.Pattern; if (style == null) continue;
                 var modulation = textured ? 1 + patternContrast * style.Signal(x, y) : 1;
-                r += species.GasFraction * style.R * modulation; g += species.GasFraction * style.G * modulation; b += species.GasFraction * style.B * modulation;
+                r += gasWeight * species.GasFraction * style.R * modulation;
+                g += gasWeight * species.GasFraction * style.G * modulation;
+                b += gasWeight * species.GasFraction * style.B * modulation;
             }
             return MixtureSrgbColor.Linear(r, g, b);
         }
@@ -257,6 +285,7 @@ namespace MixedAtmospheres.Core
         public string BreathingStatus => data.BreathingStatus;
         public IReadOnlyList<string> Warnings => data.Warnings;
         public MixtureSrgbColor BaseColor => data.BaseColor;
+        public bool HasPhaseVolumeAppearance => data.HasPhaseVolumeAppearance;
         public bool PatternEnabled => data.PatternEnabled;
         public double PatternContrast => data.PatternContrast;
         internal MixturePresentation(MixturePresentationData data, long revision, string sourceId)
@@ -266,6 +295,7 @@ namespace MixedAtmospheres.Core
         { this.data = data; Revision = revision; this.cellIndex = cellIndex; }
 
         public MixtureSrgbColor ColorAt(double worldX, double worldY) => data.ColorAt(worldX, worldY);
+        public MixtureSrgbColor WorldFluidColorAt(double worldX, double worldY) => data.WorldFluidColorAt(worldX, worldY);
     }
 
     internal sealed class MixturePatternStyle
@@ -294,6 +324,9 @@ namespace MixedAtmospheres.Core
         internal FluidMaterial Material { get; }
         internal MixtureSpeciesStyle Style { get; }
         internal MixturePatternStyle? Pattern { get; }
+        internal double LinearR { get; }
+        internal double LinearG { get; }
+        internal double LinearB { get; }
         internal double? ContaminantLimit { get; }
         internal bool IsOxygen { get; }
         internal bool IsCo2 { get; }
@@ -301,6 +334,9 @@ namespace MixedAtmospheres.Core
         {
             Material = material; Style = style; ContaminantLimit = limit;
             if (material.Phase == NativeMatterPhase.Gas) Pattern = new MixturePatternStyle(material.Id, style.Color);
+            LinearR = Pattern?.R ?? MixtureSrgbColor.ToLinear(style.Color.R);
+            LinearG = Pattern?.G ?? MixtureSrgbColor.ToLinear(style.Color.G);
+            LinearB = Pattern?.B ?? MixtureSrgbColor.ToLinear(style.Color.B);
             IsOxygen = material.Id == oxygenId; IsCo2 = material.Id == co2Id;
         }
     }

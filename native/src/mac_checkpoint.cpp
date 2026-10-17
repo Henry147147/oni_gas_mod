@@ -10,7 +10,7 @@ namespace ma::experimental {
 namespace {
 constexpr std::size_t maximum_bytes=1024ULL*1024*1024;
 constexpr std::string_view magic="MACCLS01";
-constexpr std::uint32_t format_version=2;
+constexpr std::uint32_t legacy_format_version=2,viscous_format_version=3;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -87,7 +87,9 @@ void read_field(Reader& in,std::size_t count,std::vector<double>& projected,std:
 std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     require_mac_energy_environment(); Writer out;
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
-    out.u32(format_version);
+    // Keep every pre-viscosity checkpoint byte unchanged when disabled.
+    const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
+    out.u32(viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -98,6 +100,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     out.u32(static_cast<std::uint32_t>(settings_.reconstruction)); out.u32(static_cast<std::uint32_t>(settings_.compression_viscosity));
     out.u32(static_cast<std::uint32_t>(settings_.momentum_reconstruction)); out.byte(settings_.thermal_conduction ? 1 : 0);
     out.u32(static_cast<std::uint32_t>(settings_.shock_heat));
+    if (viscous) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
     out.count(state_.cells.size()); for (auto wall : state_.grid.walls) out.byte(wall);
     for (const auto& cell : state_.cells) {
         out.number(cell.mixture.energy); for (auto mass : cell.mixture.masses) out.number(mass);
@@ -115,7 +118,8 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader trailer{bytes.last(8)}; check(trailer.u64()==checksum(bytes.first(bytes.size()-8)),"MAC checkpoint checksum differs");
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
-    check(in.u32()==format_version,"Unsupported MAC checkpoint version");
+    const auto version=in.u32();
+    check(version==legacy_format_version || version==viscous_format_version,"Unsupported MAC checkpoint version");
     const auto model=identity(registry,*eos);
     check(in.u32()==model.size() && model.size()<=in.remaining(),"Saved MAC model size differs");
     for (auto value : model) check(in.byte()==value,"Saved MAC registry/EOS identity differs");
@@ -126,7 +130,12 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     settings.preconditioner=static_cast<PressurePreconditioner>(in.u32()); settings.gravity_m_per_s2=in.number();
     settings.reconstruction=static_cast<MacMaterialReconstruction>(in.u32()); settings.compression_viscosity=static_cast<MacCompressionViscosity>(in.u32());
     settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>(in.u32()); settings.thermal_conduction=in.flag();
-    settings.shock_heat=static_cast<MacShockHeatRegularization>(in.u32()); settings.validate();
+    settings.shock_heat=static_cast<MacShockHeatRegularization>(in.u32());
+    if (version==viscous_format_version) {
+        settings.viscosity.shear_pa_s=in.number();settings.viscosity.bulk_pa_s=in.number();
+        check(settings.viscosity.shear_pa_s>0 || settings.viscosity.bulk_pa_s>0,"Noncanonical viscosity-disabled checkpoint version");
+    }
+    settings.validate();
     const auto count=in.u32();
     check(state.grid.width>0 && state.grid.height>0 && static_cast<std::uint64_t>(state.grid.width)*state.grid.height==count &&
         count<=in.remaining()/(13+8*registry.size()),"Saved MAC geometry disagrees with its payload");

@@ -99,5 +99,52 @@ internal static class NativeOrbitalReferenceTests
                 check(valid.SavedId == 2 && valid.TargetId == 2 && valid.SaveRegistrations == 1);
             }
         });
+        test("restored initialized save roots wait for native Start and become admissible without changing their facts", () => {
+            var worlds = Enumerable.Range(1, 9).Select(World).ToArray(); var reference = Reference();
+            foreach (var world in worlds) { world.RootSpawned = false; world.SaveRegistrations = 0; }
+            reference.RootSpawned = false; reference.SaveRegistrations = 0;
+            check(NativeOrbitalReferenceAdmission.PendingRestoreRoots(worlds, new[] { reference }) == 10);
+            reject(() => NativeOrbitalReferenceAdmission.Validate(worlds, new[] { reference }));
+            check(worlds.All(world => !world.RootSpawned && world.SaveRegistrations == 0) && !reference.RootSpawned && reference.SavedId == 2);
+            foreach (var world in worlds) { world.RootSpawned = true; world.SaveRegistrations = 1; }
+            check(NativeOrbitalReferenceAdmission.PendingRestoreRoots(worlds, new[] { reference }) == 1);
+            reference.RootSpawned = true; reference.SaveRegistrations = 1;
+            check(NativeOrbitalReferenceAdmission.PendingRestoreRoots(worlds, new[] { reference }) == 0);
+            NativeOrbitalReferenceAdmission.Validate(worlds, new[] { reference });
+        });
+        test("a pending world never postpones a missing or mismatched orbital identity", () => {
+            var world = World(); world.RootSpawned = false; world.SaveRegistrations = 0;
+            for (var fault = 0; fault < 5; ++fault)
+            {
+                var reference = Reference();
+                switch (fault) {
+                    case 0: reference.TargetId = -1; break;
+                    case 1: reference.TargetId = 3; break;
+                    case 2: reference.Prefab = "Asteroid"; break;
+                    case 3: reference.Tracked = false; break;
+                    case 4: reference.OrbitingWorldId = 99; break;
+                }
+                reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world }, new[] { reference }));
+                check(reference.SavedId == 2 && !world.RootSpawned && world.SaveRegistrations == 0);
+            }
+        });
+        test("inconsistent or uninitialized native roots reject instead of waiting", () => {
+            foreach (var (initialized, spawned, registrations) in new[] {
+                (false, false, 0), (false, true, 1), (true, true, 0), (true, false, 1), (true, true, 2), (true, false, -1) })
+            {
+                var world = World(); world.RootInitialized = initialized; world.RootSpawned = spawned; world.SaveRegistrations = registrations;
+                reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world }, new[] { Reference() }));
+                var reference = Reference(); reference.RootInitialized = initialized; reference.RootSpawned = spawned; reference.SaveRegistrations = registrations;
+                reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { World() }, new[] { reference }));
+            }
+        });
+        test("restore waiting retains the strict world slot and optional-reference rules", () => {
+            var world = World(); world.RootSpawned = false; world.SaveRegistrations = 0;
+            reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world, world }, Array.Empty<NativeOrbitalReferenceFact>()));
+            reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world }, new[] { Reference(9) }));
+            reject(() => NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world }, new[] { Reference(), Reference() }));
+            var optional = new NativeOrbitalReferenceFact { OwnerId = 1, Slot = 0, SavedId = -1 };
+            check(NativeOrbitalReferenceAdmission.PendingRestoreRoots(new[] { world }, new[] { optional }) == 1 && optional.TargetId == -1);
+        });
     }
 }

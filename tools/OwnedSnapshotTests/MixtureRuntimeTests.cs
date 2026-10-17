@@ -441,6 +441,44 @@ internal static class MixtureRuntimeTests
             check(MixtureWorldRendering.DensityOpacity(light, options) < MixtureWorldRendering.DensityOpacity(heavy, options));
             check(a.Alpha == 255 && b.Alpha == 255 && a.Hazard == 0 && b.Hazard == 0);
         });
+        test("wet world pixels combine actual gas visibility and compressed liquid volume without changing pressure or hazards", () =>
+        {
+            var setup = Setup(); var parameters = new MixtureWorldRendering.OpacityParameters(15, 200, .1);
+            foreach (var liquidVolume in new[] { .2, .7 })
+            {
+                var gasVolume = 1 - liquidVolume;
+                var rows = new[]
+                {
+                    new MixtureThermodynamicConstituent("oxygen", NativeMatterPhase.Gas, 8.4 * .032 * gasVolume, .032, .21 * gasVolume),
+                    new MixtureThermodynamicConstituent("nitrogen", NativeMatterPhase.Gas, 31.6 * .028 * gasVolume, .028, .79 * gasVolume),
+                    new MixtureThermodynamicConstituent("water", NativeMatterPhase.Liquid, 1250 * liquidVolume, .018, liquidVolume)
+                };
+                var pressure = 40 * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * 300;
+                var physical = new MixtureThermodynamicReading(rows, rows.Sum(r => r.MassKg), 1e6, 0,
+                    300, pressure, pressure, 1, gasVolume, liquidVolume, 0, "pixel-test", "actual-volume");
+                var view = setup.model.Describe(physical); var pixel = MixtureWorldRendering.Sample(view, 1.25, 2.5, parameters);
+                var gasOpacity = Math.Max(.1, Math.Clamp((view.GasDensityKgPerCubicMetre * 101.3 - 15) / 185, 0, 1));
+                var expected = (byte)Math.Round(255 * (gasOpacity * gasVolume + liquidVolume), MidpointRounding.AwayFromZero);
+                var nominal = (byte)Math.Round(255 * (gasOpacity * (1 - liquidVolume * 1.25) + liquidVolume * 1.25), MidpointRounding.AwayFromZero);
+                var colour = view.WorldFluidColorAt(1.25, 2.5);
+                check(view.HasPhaseVolumeAppearance && pixel.Opacity == expected && pixel.Opacity != nominal);
+                check(pixel.R == (byte)Math.Round(colour.R * 255, MidpointRounding.AwayFromZero) &&
+                    pixel.G == (byte)Math.Round(colour.G * 255, MidpointRounding.AwayFromZero) &&
+                    pixel.B == (byte)Math.Round(colour.B * 255, MidpointRounding.AwayFromZero));
+                check(pixel.Alpha == 255 && pixel.Hazard == 0 && pixel.PhysicalPressurePa == pressure && view.IsBreathable);
+                check(pixel.Opacity > MixtureWorldRendering.DensityOpacity(view, parameters));
+            }
+        });
+        test("legacy wet world pixels retain gas-only opacity and colour without actual EOS phase volumes", () =>
+        {
+            var setup = Setup(); var parameters = new MixtureWorldRendering.OpacityParameters(15, 200, .1);
+            var masses = Air(setup.catalog).MassesKg.ToDictionary(p => p.Key, p => p.Value); masses["water"] = 250;
+            var view = setup.model.Describe(setup.catalog.CreateInventory(masses, 300), 1);
+            var pixel = MixtureWorldRendering.Sample(view, 1.25, 2.5, parameters); var gas = view.ColorAt(1.25, 2.5);
+            check(!view.HasPhaseVolumeAppearance && pixel.Opacity == MixtureWorldRendering.DensityOpacity(view, parameters));
+            check(pixel.R == (byte)Math.Round(gas.R * 255, MidpointRounding.AwayFromZero) &&
+                pixel.B == (byte)Math.Round(gas.B * 255, MidpointRounding.AwayFromZero));
+        });
         test("trace hazard stays visible independently of tint or texture contrast", () =>
         {
             var setup = Setup(); var safe = Air(setup.catalog);

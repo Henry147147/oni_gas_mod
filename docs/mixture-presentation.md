@@ -81,8 +81,8 @@ container ownership, save authority, or first-playable acceptance. See the
 The independent supplied-reading controls run with
 `dotnet run --project managed/MixedAtmospheres.Presentation.Tests -c Release -- --thermodynamic-readings`;
 that selection does not load or invoke the native reference solver.
-All 14 focused groups pass on Windows and Linux .NET 10. The combined 41-group
-Windows presentation suite also passes against the pinned native assessment
+All 18 focused groups pass in the Linux .NET 10 host. The combined 45-group
+presentation suite also passes against the pinned native assessment
 library; it does not advance physical simulation or establish Unity rendering.
 
 Names join the two leading meaningful gases with an en dash (default threshold
@@ -205,8 +205,64 @@ rounded display total-energy projection.
 Base colour is weighted by gas mole fraction **in linear RGB**, then encoded
 as sRGB. A stable species-ID hash supplies a smooth world-anchored 4-by-4-cell
 pattern. Each gas's contribution is blended continuously; crossing a dominant
-species tie cannot switch the pattern abruptly. Liquids do not tint the gas
-phase. Texture is enabled at contrast 0.04 by default.
+species tie cannot switch the pattern abruptly. Texture is enabled at contrast
+0.04 by default. `BaseColor` and `ColorAt` retain this gas composition contract.
+
+For a canonical reading containing gas and liquid, `WorldFluidColorAt` supplies
+a homogeneous world appearance. It scales the gas's linear RGB by actual
+`Vgas / Vcell` and adds each liquid's configured linear RGB times its actual
+compressed partial volume divided by cell volume. The world adapter uses that
+colour and composites density-based gas visibility with opaque liquid by the
+same phase volumes, rounding only the final opacity byte. `HasPhaseVolumeAppearance`
+identifies this path. The liquid mass divided by nominal density is never
+substituted for the completed EOS volume. Gas mole percentages, partial pressure,
+breathing policy and the gas composition overlay retain their gas-only meaning.
+Dry readings and legacy inventory appearances preserve their existing policy.
+Gasless liquid continues through the native liquid renderer.
+
+This is a cell-average appearance, with no inferred liquid surface or interface
+geometry. Development receipts capture styles, pattern settings, opacity range
+and exact physical readings. `oni_world_appearance_evidence.py` independently
+reconstructs each colour/opacity byte from those saved operands; the native
+domain gate also requires shader-bound GPU readback, calibrated coordinates and
+matching publication revisions. Component tests pass; the repeated Windows
+reloads below also pass. Fresh sources remain in progress.
+
+The first actual WindowsPlayer/Proton source finds an opacity upload wiring
+error: all six GPU colour texels match, but the opacity texture still receives
+gas-only values (149–152 instead of the expected 171–177). Publication epochs,
+shader bindings and the independent saved-input reconstruction agree. Both
+normal and diagnostic opacity upload loops now call `WorldFluidOpacity`.
+The failed capture remains retained. Frozen `9eb6769` then loads the unchanged
+heated Linux v16 colony twice in WindowsPlayer under official Proton/OpenGL.
+Both sessions match all six actual shader-bound colour and opacity texels,
+pass independent saved-operand reconstruction, paused frame-zero saves and
+readbacks, and 120 individually exact physical continuations. The final physical
+SHA-256 remains the previously accepted
+`9c68cd94867929b3c706f68a811cba4b4393da3461832e2ad7eaf9fa2be4270e`;
+the appearance repair changes no physical trajectory. Result SHA-256:
+`5fb160511fd85fad7d56d26b9bc3046e2dccab4b57fa8eaa9779f443fbae9599`.
+The actual Unity PNG was viewed: the six-cell room has the blended wet colour,
+and hover retains gas mole rows, trace notice, actual liquid volume and breathing
+status. This establishes repeated WindowsPlayer loading of the new appearance,
+with no claim of a liquid surface or an actual Windows OS run.
+
+The same frozen package also passes both native Linux reloads: each has 120
+individually exact frames, independent appearance reconstruction and all six
+actual colour/opacity texels. Its final physical SHA-256 remains
+`85552853053e1410dcbcf11ee2fc7991b0d9a8acd3f34cc399368136f8917c73`.
+Result SHA-256: `273373414055e882114ea26befdd6c293d2a616eec2d2b13cdb0cd6dfb458ec4`.
+
+Fresh source/save runs now pass on both installed players through frame 121,
+including the actual GPU colours/opacity and independent saved-input review.
+Their physical images remain exactly the accepted v16 Windows and Linux source
+images, respectively. Raw result SHA-256 receipts are
+`348e258e5715c1596b4343007c1d93026e563c81f69b28ff896c80ba7eddca4b`
+(WindowsPlayer under Proton) and
+`556a44ae8f69380e1479b3666774059c76a865f0f3c8c7e66e0f6e60748eb838`
+(native Linux). The new Linux source also passes both local reload sessions,
+each with 120 exact frames and matching actual GPU texels. These remain bounded
+six-cell homogeneous appearances, with interface geometry still unimplemented.
 
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to

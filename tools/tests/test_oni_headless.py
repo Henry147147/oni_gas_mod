@@ -81,6 +81,121 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report['Platform']='WindowsPlayer';report['GpuGasTextures'].update(GraphicsDevice='Direct3D11')
         self.assertTrue(runner.native_domain_passed(report,self.observation,30,expected_platform='WindowsPlayer'))
 
+    def mixed_phase_report(self):
+        report=self.gpu_texture_report();report['Scenario']='gas-liquid-mixture'
+        report['MixedPhase']=dict(Required=True,Verified=True,Source='completed-native-EOS-partial-volumes',NativeScenario=4,
+            SinglePhaseConductionDisabled=True,LiquidWorldRenderingVerified=False,FreeSurfaceDynamicsVerified=False)
+        report['ThermalConduction']=dict(Enabled=0,Stages=0,Contacts=0,Iterations=0,RedistributedEnergy=0.0,EntropyChange=0.0)
+        pressure=100000.0;temperature=300.0;moles=.8*pressure/(8.31446261815324*temperature)
+        contents=[dict(MaterialId=name,Phase=phase,MassKg=mass,MolarMassKgPerMol=molar,
+            PartialVolumeCubicMetres=.2 if phase==2 else mass/molar*8.31446261815324*temperature/pressure)
+            for name,phase,mass,molar in [('nitrogen',1,.8*moles*.028,.028),('oxygen',1,.2*moles*.032,.032),
+                ('helium',1,1e-28,.004),('water',2,.2*1000*(1+pressure/2.2e9),.018)]]
+        for row in report['RenderingInputs']['Rows']:
+            row['Reading'].update(SourceId='native-domain:cell:'+str(row['Cell']),TemperatureKelvin=temperature,
+                MechanicalPressurePa=pressure,GasPressurePa=pressure,GasVolumeCubicMetres=.8,LiquidVolumeCubicMetres=.2,
+                VolumeCubicMetres=1.0,VacuumVolumeCubicMetres=0.0,Constituents=copy.deepcopy(contents),
+                TotalMassKg=sum(c['MassKg'] for c in contents),GasMassKg=sum(c['MassKg'] for c in contents if c['Phase']==1),
+                GasMoles=sum(c['MassKg']/c['MolarMassKgPerMol'] for c in contents if c['Phase']==1))
+        report['NativeDomain'].update(PressurePa=pressure,LiquidMassKg=contents[-1]['MassKg'],CurrentOxygenKg=contents[1]['MassKg'])
+        return report
+
+    def test_mixed_phase_requires_completed_eos_volumes_without_promoting_liquid_rendering_or_free_surfaces(self):
+        report=self.mixed_phase_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,mixed_phase=True))
+        for key,value in [('Verified',False),('Required',False),('NativeScenario',4.0),('Source','nominal density'),
+                          ('SinglePhaseConductionDisabled',False),('LiquidWorldRenderingVerified',True),('FreeSurfaceDynamicsVerified',True)]:
+            changed=copy.deepcopy(report);changed['MixedPhase'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,mixed_phase=True),(key,value))
+
+    def test_mixed_phase_reviewer_rejects_nominal_liquid_volume_missing_traces_and_inconsistent_common_pressure(self):
+        mutations=[lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(LiquidVolumeCubicMetres=.21),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(GasVolumeCubicMetres=.9),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(GasPressurePa=90000),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading']['Constituents'].pop(2),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading']['Constituents'][-1].update(Phase=1),
+            lambda r:r['ThermalConduction'].update(Enabled=1),lambda r:r['ThermalConduction'].update(Stages=2),
+            lambda r:r.update(Scenario='mixed-air')]
+        for mutation in mutations:
+            report=self.mixed_phase_report();mutation(report)
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+
+    def mixed_heat_report(self):
+        report=self.mixed_phase_report()
+        report['MixedPhase'].update(NativeScenario=5,SinglePhaseConductionDisabled=False,
+            ConductionModel='complete-EOS-contact-split-backward-Euler-v1')
+        report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,
+            Stages=2*report['NativeDomain']['Substeps'],Contacts=8400,Iterations=9000,RedistributedEnergy=12.0,EntropyChange=.001)
+        report.update(HeatCommandsVerified=True,MixedHeatVerified=True,HeatAvoidedNativeDispatch=True,HeatPacketsRouted=2,
+            ThermalConductionVerified=True,HeatEnergyResidualJoules=0.0,HeatEnergyScaleJoules=1e10,
+            HeatEnergyBoundJoules=128*2.2204460492503131e-16*1e10,
+            HeatCommands=dict(PendingBatches=0,AcceptedBatches=2,CommittedBatches=2,CommittedHeatJoules=1500000))
+        return report
+
+    def test_heated_mixture_requires_full_eos_conduction_and_large_capacity_heat_accounts(self):
+        report=self.mixed_heat_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+        for change in [lambda r:r['MixedPhase'].update(NativeScenario=4),
+            lambda r:r['MixedPhase'].update(ConductionModel='constant initial heat capacity'),
+            lambda r:r['MixedPhase'].update(SinglePhaseConductionDisabled=True),
+            lambda r:r['ThermalConduction'].update(Enabled=0),lambda r:r['ThermalConduction'].update(Enabled=True),
+            lambda r:r['ThermalConduction'].update(Stages=0),lambda r:r['ThermalConduction'].update(CompletedFrame=29),
+            lambda r:r['ThermalConduction'].update(EntropyChange=0),lambda r:r['ThermalConduction'].update(RedistributedEnergy=float('nan')),
+            lambda r:r.update(MixedHeatVerified=False),lambda r:r.update(HeatEnergyBoundJoules=1e-6),
+            lambda r:r['HeatCommands'].update(CommittedHeatJoules=1500)]:
+            altered=copy.deepcopy(report);change(altered)
+            self.assertFalse(runner.native_domain_passed(altered,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+
+    def test_restored_heated_mixture_retains_its_operator_without_requiring_new_source_heat_packets(self):
+        self.report=self.mixed_heat_report();self.set_restored_colony();self.report['Scenario']='gas-liquid-mixture'
+        self.report.update(HeatCommandsVerified=False,MixedHeatVerified=False,HeatPacketsRouted=0)
+        self.report['HeatCommands'].update(AcceptedBatches=0,CommittedBatches=0,CommittedHeatJoules=0)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['MixedPhase']['ConductionModel']='disabled'
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
+    def viscous_report(self):
+        report=self.mixed_phase_report();report['MixedPhase'].update(NativeScenario=6,SinglePhaseConductionDisabled=False,
+            ConductionModel='complete-EOS-contact-split-backward-Euler-v1')
+        report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,
+            Stages=1260,Contacts=8400,Iterations=24,RedistributedEnergy=0.0,EntropyChange=0.0)
+        report['PhysicalViscosity']=dict(Required=True,Verified=True,Source='completed-native-worker-physical-stress',
+            Model='plane-strain-Newtonian-exact-mode-split-v1',Boundary='impermeable-free-slip',CompleteMaterialViscosityModel=False,
+            Status=dict(Size=120,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Stages=1260,Modes=16800,
+                UnresolvedHeatUpdates=12,UnresolvedMomentumUpdates=4,ShearPaSeconds=.5,BulkPaSeconds=.25,
+                DissipatedKineticEnergy=.75,StoredHeat=.74999,EntropyLowerBound=.0024,WallImpulseX=-.01,WallImpulseY=.02))
+        return report
+
+    def test_viscosity_requires_completed_stress_and_separate_represented_heat_without_source_heat_packets(self):
+        report=self.viscous_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+        changes=[lambda r:r.pop('PhysicalViscosity'),lambda r:r['PhysicalViscosity'].update(Verified=False),
+            lambda r:r['PhysicalViscosity'].update(Model='compression-only'),
+            lambda r:r['PhysicalViscosity'].update(Boundary='no-slip'),
+            lambda r:r['PhysicalViscosity'].update(CompleteMaterialViscosityModel=True)]
+        for key,value in [('Size',112),('Enabled',0),('CompletedFrame',29),('Stages',1259),('Modes',0),
+            ('ShearPaSeconds',.25),('BulkPaSeconds',.5),('StoredHeat',0),('DissipatedKineticEnergy',0),
+            ('EntropyLowerBound',0),('UnresolvedHeatUpdates',-1),('WallImpulseY',float('nan'))]:
+            changes.append(lambda r,k=key,v=value:r['PhysicalViscosity']['Status'].update({k:v}))
+        for change in changes:
+            bad=copy.deepcopy(report);change(bad)
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,mixed_phase=True))
+
+    def test_restored_viscosity_retains_its_worker_profile_and_cannot_claim_work_for_disabled_scenes(self):
+        self.report=self.viscous_report();self.set_restored_colony();self.report['Scenario']='gas-liquid-mixture'
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report['MixedPhase'].update(NativeScenario=5)
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
+    def test_gpu_gate_requires_independent_appearance_review_when_operands_are_present(self):
+        report=self.gpu_texture_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30))
+        for invalid in (None, {}, {'Model':'invented-phase-renderer'}):
+            report['RenderingInputs']['WorldAppearance']=invalid
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30))
+
     def test_cpu_counters_and_exact_physics_cannot_hide_zero_or_stale_gpu_texels(self):
         changes=[lambda r:r['GpuGasTextures'].update(Verified=False),lambda r:r['GpuGasTextures'].update(BindingsVerified=False),
                  lambda r:r['GpuGasTextures'].update(CompletedFrame=29),lambda r:r['GpuGasTextures'].update(Session=2),
@@ -353,6 +468,33 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         reference['OrbitingWorldId']=0
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
 
+    def test_completed_native_save_root_lifecycle_keeps_unique_original_identities(self):
+        self.set_saved_colony()
+        lifecycle=dict(Source='existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn',CompletedRootIds=[2],
+            AlreadySpawnedRoots=0,Error='',ReferencesRewritten=0,ObjectsCreated=0)
+        self.report['NativeOrbitalReferences']['SaveRootLifecycle']=lifecycle
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        lifecycle.update(CompletedRootIds=[],AlreadySpawnedRoots=1)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+
+    def test_later_registered_orbital_reference_cannot_hide_a_failed_or_fabricated_lifecycle(self):
+        self.set_saved_colony()
+        valid=dict(Source='existing-SaveLoadRoot.Spawn-before-OrbitalObject.OnSpawn',CompletedRootIds=[2],
+            AlreadySpawnedRoots=0,Error='',ReferencesRewritten=0,ObjectsCreated=0)
+        mutations=[('Source','direct registry insertion'),('Error','root registration failed'),
+            ('ObjectsCreated',1),('ObjectsCreated',False),('ReferencesRewritten',1),('ReferencesRewritten',False),
+            ('AlreadySpawnedRoots',-1),('AlreadySpawnedRoots',False),('CompletedRootIds',[2,2]),
+            ('CompletedRootIds',[-1]),('CompletedRootIds',[2147483648]),('CompletedRootIds',[False]),
+            ('CompletedRootIds',[2.0]),('CompletedRootIds',None)]
+        for key,value in mutations:
+            report=copy.deepcopy(self.report);receipt=copy.deepcopy(valid);receipt[key]=value
+            report['NativeOrbitalReferences']['SaveRootLifecycle']=receipt
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),(key,value))
+        for key in valid:
+            report=copy.deepcopy(self.report);receipt=copy.deepcopy(valid);receipt.pop(key)
+            report['NativeOrbitalReferences']['SaveRootLifecycle']=receipt
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
+
     def test_restored_orbital_reference_admission_must_precede_positive_physical_time(self):
         self.set_restored_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
@@ -360,6 +502,36 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                           ('RestoredPhysicalTime',1.4),('RestoredPhysicalTime',float('nan'))]:
             report=copy.deepcopy(self.report);report['NativeOrbitalReferences'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),(key,value))
+
+    def test_native_restore_lifecycle_hold_requires_the_unchanged_frame_zero_image(self):
+        self.set_restored_colony()
+        hold=dict(Source='waiting-for-native-KMonoBehaviour.Start-before-positive-time',Required=True,
+            WaitInspections=1,PendingSaveRoots=0,MaximumPendingSaveRoots=10,PhysicalStateVerified=True,
+            PhysicalFrame=0,PhysicalTime=self.report['ColonyCheckpoint']['SourceTime'],PhysicalSha256='a'*64)
+        self.report['NativeOrbitalReferences']['RestoreLifecycleHold']=hold
+        self.report['NativeOrbitalReferences']['Inspections']=2
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        for key,value in [('Source','manually registered objects'),('Required',False),('WaitInspections',False),
+            ('WaitInspections',-1),('PendingSaveRoots',1),('PendingSaveRoots',False),('MaximumPendingSaveRoots',0),
+            ('MaximumPendingSaveRoots',True),('PhysicalStateVerified',False),('PhysicalFrame',1),('PhysicalFrame',False),
+            ('PhysicalTime',float('nan')),('PhysicalTime',9),('PhysicalTime',True),('PhysicalSha256','b'*64)]:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,restored=True),(key,value))
+        for key in hold:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'].pop(key)
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,restored=True),key)
+
+    def test_unused_native_restore_lifecycle_hold_cannot_claim_a_physical_witness(self):
+        self.set_saved_colony()
+        hold=dict(Source='waiting-for-native-KMonoBehaviour.Start-before-positive-time',Required=False,
+            WaitInspections=0,PendingSaveRoots=0,MaximumPendingSaveRoots=0,PhysicalStateVerified=False,
+            PhysicalFrame=0,PhysicalTime=0,PhysicalSha256='')
+        self.report['NativeOrbitalReferences']['RestoreLifecycleHold']=hold
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        for key,value in [('Required',True),('WaitInspections',1),('MaximumPendingSaveRoots',1),
+            ('PhysicalStateVerified',True),('PhysicalTime',1),('PhysicalSha256','a'*64)]:
+            changed=copy.deepcopy(self.report);changed['NativeOrbitalReferences']['RestoreLifecycleHold'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,saved=True),(key,value))
 
     def test_live_actor_save_and_restore_require_current_objects_callbacks_and_snapshot_identity(self):
         self.set_persistent_actors()
@@ -682,6 +854,25 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             ConsumptionResult={"elemIdx": 176, "mass": .02, "temperature": 300.1,
                 "diseaseIdx": 255, "diseaseCount": 0})
 
+    def test_radius_consumption_requires_one_real_callback_exceeding_the_centre_inventory(self):
+        self.add_gas_transfers()
+        self.report.update(TargetCell=100,RadialConsumptionMessagesRouted=1)
+        injected=struct.unpack('f',struct.pack('f',.05))[0];consumed=struct.unpack('f',struct.pack('f',.4))[0]
+        self.report['GasTransfers']['MassChangesKg']=[0,injected-consumed,0,0,0]
+        self.report['ConsumptionResult'].update(mass=.4,callbackIdx=71)
+        self.report['RadialConsumption']=dict(Required=True,Verified=True,Source='actual-SimMessages.ConsumeMass-radius-3',Radius=3,
+            PublicCell=100,SourceFrame=4,SourceCellOxygenKg=.2,InjectedOxygenKg=injected,RequestedMassKg=consumed,
+            Receipts=1,SingleCallbackForMultipleSourceCells=True,ActualDuplicantMetabolismVerified=False,
+            Receipt=dict(Session=1,Kind=2,Species=1,PublicCell=100,MassKg=consumed,CompletedFrame=5,Callback=71))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,radial_consumption=True))
+        changes=[lambda r:r['RadialConsumption'].update(SourceCellOxygenKg=.5),
+            lambda r:r['RadialConsumption'].update(Receipts=2),lambda r:r['RadialConsumption'].update(ActualDuplicantMetabolismVerified=True),
+            lambda r:r['RadialConsumption']['Receipt'].update(Callback=72),lambda r:r['RadialConsumption']['Receipt'].update(MassKg=.02),
+            lambda r:r['RadialConsumption'].update(SourceFrame=5),lambda r:r.update(RadialConsumptionMessagesRouted=0)]
+        for change in changes:
+            bad=copy.deepcopy(self.report);change(bad)
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,radial_consumption=True))
+
     def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
         self.add_gas_transfers()
@@ -918,6 +1109,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(runner.mod_failure_lines(log, ("MA-Linux-x",)), [])
         self.assertEqual(runner.classify("menu", log, self.probe, None, False, None, ("MA-Linux-x",)),
                          ("passed-scoped-main-menu", 0))
+
+    def test_failure_words_in_evidence_paths_do_not_turn_success_messages_into_errors(self):
+        for path in ('/tmp/original-failed-live/mods/MixedAtmospheres.IntegrationProbe/report.json',
+                     r'C:\captures\original-failed-live\mods\MixedAtmospheres.IntegrationProbe\report.json',
+                     '/tmp/error/MixedAtmospheres.IntegrationProbe/Exception/report.json'):
+            log='[Mixed Atmospheres] Integration probe completed. Report: '+path
+            self.assertEqual(runner.mod_failure_lines(log),[])
+            self.assertTrue(runner.mod_failure_lines('[Mixed Atmospheres] Integration probe failed. Report: '+path))
+            self.assertTrue(runner.mod_failure_lines('[Mixed Atmospheres] System.InvalidOperationException: sentinel at '+path))
 
     def test_menu_requires_contract_export_completion(self):
         log = "[17:30:01.000] [1] [INFO] -- MAIN MENU -- \n"

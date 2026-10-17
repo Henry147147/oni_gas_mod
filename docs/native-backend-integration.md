@@ -23,6 +23,11 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The [accepted frame-input journal](native-frame-inputs.md) adds ordered,
+source-bound replay of external heat and mass requests for saved continuation.
+Its native controls pass; actual Unity acceptance remains pending.
+The solver's [arithmetic scope](native-floating-point-environment.md) also
+isolates its precision, rounding and underflow settings from the native caller.
 The later WindowsPlayer/Proton OpenGL gas source and both reload sessions also
 pass in a fresh nine-world Spaced Out cluster. Native Linux reloads that same
 save twice, preserving the exact initial image and bounded cross-platform
@@ -108,7 +113,7 @@ including a widened prologue that cannot fit the trampoline buffer.
 Source-hash-checked patches also replace unaligned code-operand accesses in
 Funchook/diStorm with `memcpy` and make diStorm's high-bit instruction flag
 unsigned. Dependency C sources are included in the sanitizer build.
-The Linux backend now uses [verified executable-page padding for all 28
+The Linux backend now uses [verified executable-page padding for all 29
 trampolines](native-trampoline-storage.md). It validates the loaded segment
 boundaries, original zero bytes, bounded capacity and private RX permissions.
 Cleanup restores the original bytes and RX permissions without unmapping the
@@ -205,11 +210,14 @@ callers can reference them.
 
 Expose a versioned `ma_oni_*` C ABI with explicit sizes and buffer ownership.
 The observer surface is inspection, attachment, counters and detachment.
-Observer ABI 3 has 28 hook slots and a 512-byte status; older libraries reject
+Observer ABI 4 has 29 hook slots and a 528-byte status; older libraries reject
 before their different status layout is read. Two gas interaction slots are
-Linux-only; Windows has 24 concrete locations and Linux has 28. Windows's
+Linux-only; Windows has 25 concrete locations and Linux has 29. Windows's
 `Step`, gas interaction functions and Linux secondary-base emitter dispatch
 have no standalone profiled locations.
+The added [native body heat contact](native-body-heat.md) has separately
+inspected Windows and GCC signatures. It preserves original outside contacts
+and stages owned heat before custom fluid advancement and native publication.
 The separate development-domain ABI 2 has 40-byte configuration, 440-byte
 status and 96-byte five-species cell readings, with explicit start/copy/stop and material
 queries. Activation checks the exact profile and padded-grid dimensions on both
@@ -218,6 +226,15 @@ physical-frame leases, checkpoints and shutdown follow separate gates. There
 is no independent managed advance creating a second clock. Domain ABI 1's
 four-species layout is historical. Rebuild native/managed clients together;
 exact ABI checks reject older binaries before copying.
+
+The additive [physical viscosity ABI](native-viscosity.md) is version 1 with a
+120-byte completed status. Native scenario 6 combines occupied gas/liquid
+cells, nonlinear conduction and symmetric Newtonian stress relaxation on the
+same worker clock. It accounts separately for kinetic dissipation, represented
+heating, wall reactions and unresolved updates. Both dynamic viscosity
+coefficients persist in physical checkpoint version 3. Scenarios 0–5 retain
+their zero-viscosity version 2 images exactly; no second managed simulation
+clock is introduced. Actual Unity viscosity acceptance remains required.
 
 Only new colonies opt into mixture ownership. Headless world-generation
 settling and vanilla saves retain the original simulator. Stage all generated

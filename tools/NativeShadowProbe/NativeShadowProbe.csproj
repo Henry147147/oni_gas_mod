@@ -15,5 +15,6 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeActorCheckpointImage.cs" Link="NativeActorCheckpointImage.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeObserver.cs" Link="OniNativeObserver.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeFrameInputJournal.cs" Link="NativeFrameInputJournal.cs" />
   </ItemGroup>
 </Project>

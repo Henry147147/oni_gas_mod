@@ -41,7 +41,24 @@ namespace MixedAtmospheres.Oni
                 RenderedRevision = renderedRevision,
                 PublicationGeneration = view?.PublicationGeneration,
                 TexturePublicationGeneration = MixtureWorldRendering.LastTexturePublicationGeneration,
+                WorldAppearance = WorldAppearanceInputs(view),
                 Rows = rows, Textures = RenderingTextures()
+            };
+        }
+
+        private static object? WorldAppearanceInputs(RuntimeMixturePresentationFrame? view)
+        {
+            if (view == null) return null;
+            var parameters = MixtureWorldRendering.OpacitySettingsForValidation;
+            var options = view.Model.VisualOptions;
+            return new {
+                Model = "actual-phase-volume-linear-rgb-v1", GridWidth = view.Width, GridHeight = view.Height,
+                options.PatternEnabled, options.PatternContrast,
+                Opacity = new { parameters.Minimum, parameters.Maximum, parameters.MinimumVisibility },
+                Styles = view.Model.Styles.Values.OrderBy(style => style.MaterialId).Select(style => new {
+                    style.MaterialId, Srgb = new[] { style.Color.R, style.Color.G, style.Color.B }
+                }).ToArray(),
+                LiquidInterfaceGeometry = false
             };
         }
 

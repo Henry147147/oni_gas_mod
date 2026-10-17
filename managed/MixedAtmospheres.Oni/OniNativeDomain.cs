@@ -127,6 +127,28 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
         [StructLayout(LayoutKind.Sequential)]
+        internal struct ViscosityStatus
+        {
+            public uint Size, Version, State, Enabled;
+            public ulong Session, CompletedFrame, Stages, Modes, UnresolvedHeatUpdates, UnresolvedMomentumUpdates;
+            public double ShearPaSeconds, BulkPaSeconds, DissipatedKineticEnergy, StoredHeat, EntropyLowerBound, WallImpulseX, WallImpulseY;
+            internal static ViscosityStatus Empty => new ViscosityStatus { Size = 120, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ViscosityVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_radial_consumption_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RadialConsumptionVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyViscosityStatus(ref ViscosityStatus status);
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ChunkHeatStatus
+        {
+            public uint Size, Version, State, Reserved;
+            public ulong Session, CompletedFrame, Contacts, Transfers, Unresolved, Iterations;
+            public double BodyHeatLossJoules, StoredFluidHeatJoules, MaximumBalanceResidualJoules, MaximumBalanceBoundJoules;
+            public double EntropyLowerBound, RequestedAbsoluteHeatJoules;
+            internal static ChunkHeatStatus Empty => new ChunkHeatStatus { Size = 112, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ChunkHeatVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyChunkHeatStatus(ref ChunkHeatStatus status);
+        [StructLayout(LayoutKind.Sequential)]
         internal struct GravityStatus
         {
             public uint Size, Version, State, Enabled;
@@ -145,7 +167,12 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_configure_persistent_actors", CallingConvention = CallingConvention.Cdecl)] internal static extern int ConfigurePersistentActors([In] PersistentActorCommand[] commands, uint count, ref ActorStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_pending_actor_restores", CallingConvention = CallingConvention.Cdecl)] internal static extern uint PendingActorRestores();
         [DllImport(Library, EntryPoint = "ma_oni_domain_snapshot_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyDomainSnapshot(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_completed_snapshot_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CompletedSnapshotVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_completed_snapshot_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyCompletedSnapshot(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_snapshot_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceDomainSnapshot([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_frame_inputs_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint FrameInputsVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_frame_inputs_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyFrameInputs(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_snapshot_advance_with_inputs", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceDomainSnapshotWithInputs([In] byte[] source, uint sourceBytes, [In] byte[] inputs, uint inputBytes, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint CheckpointVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyCheckpoint(ulong session, ulong frame, [Out] byte[]? output, uint capacity, out uint required);
         [DllImport(Library, EntryPoint = "ma_oni_domain_checkpoint_advance", CallingConvention = CallingConvention.Cdecl)] internal static extern int AdvanceCheckpoint([In] byte[] input, uint count, double seconds, [Out] byte[]? output, uint capacity, out uint required);

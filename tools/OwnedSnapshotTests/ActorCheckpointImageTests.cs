@@ -66,6 +66,36 @@ internal static class ActorCheckpointImageTests
             BinaryPrimitives.WriteInt32LittleEndian(encoded.AsSpan(8),1);reject(()=>NativeDomainCheckpointPayload.Parse(encoded));
             source.Configuration.X++;reject(()=>NativeDomainCheckpointPayload.Create(source,image));
         });
+        test("mixed checkpoint framing retains distinct disabled and nonlinear conduction scenarios and rejects unknown modes",()=> {
+            foreach(var scenario in new[]{4U,5U,7U}) {
+                var image=Fixture();BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(48),scenario);Rehash(image);
+                var g=NativeActorCheckpointImage.Parse(image).Geometry;
+                var source=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,
+                    Session=1,CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=g};
+                if(scenario==7) {reject(()=>NativeDomainCheckpointPayload.Create(source,image));continue;}
+                var payload=NativeDomainCheckpointPayload.Create(source,image);
+                var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+                check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
+            }
+        });
+        test("viscous domain framing requires physical version three and preserves its distinct scenario",()=> {
+            var image=Fixture();BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(48),6);
+            var solver=image.Length-64-128;BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(solver+8),3);Rehash(image);
+            var g=NativeActorCheckpointImage.Parse(image).Geometry;
+            var source=new OniNativeDomain.PairStatus {Size=112,Version=1,State=2,PhysicalBytes=(uint)image.Length,
+                Session=1,CompletedFrame=62,NativeEpoch=2,PhysicalTime=12.4,Configuration=g};
+            var payload=NativeDomainCheckpointPayload.Create(source,image);
+            var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+            check(restored.Geometry.Scenario==6 && restored.PhysicalImage.SequenceEqual(image));
+            source.Configuration.Scenario=5;reject(()=>NativeDomainCheckpointPayload.Create(source,image));
+            source.Configuration.Scenario=6;BinaryPrimitives.WriteUInt32LittleEndian(image.AsSpan(solver+8),2);Rehash(image);
+            reject(()=>NativeDomainCheckpointPayload.Create(source,image));
+        });
+        test("physical viscosity C ABI is exactly 120 bytes with separate stored heat and kinetic dissipation",()=> {
+            check(System.Runtime.InteropServices.Marshal.SizeOf<OniNativeDomain.ViscosityStatus>()==120);
+            var value=OniNativeDomain.ViscosityStatus.Empty;value.DissipatedKineticEnergy=1;value.StoredHeat=.75;
+            check(value.Size==120 && value.Version==1 && value.DissipatedKineticEnergy!=value.StoredHeat);
+        });
     }
     // A framing fixture only. Native C++ admits the complete thermodynamic
     // checkpoint; these managed tests deliberately do not claim to do that.
