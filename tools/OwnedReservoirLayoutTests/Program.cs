@@ -4,7 +4,7 @@ using MixedAtmospheres.Oni;
 
 internal static partial class Program
 {
-    private const int ExpectedGroups = 74;
+    private const int ExpectedGroups = 81;
     private static readonly List<(string Name, Action Body)> Tests = new();
     private static readonly List<string> Passed = new();
     private static void Add(string name, Action action) => Tests.Add((name, action));
@@ -118,7 +118,7 @@ internal static partial class Program
         try
         {
             Check(args.Length <= 1, "Expected optional fresh receipt path");
-            RegisterLayoutChecks(); RegisterLimitChecks();
+            RegisterLayoutChecks(); RegisterLimitChecks(); RegisterReadbackChecks();
             Check(Tests.Count == ExpectedGroups, "Source-declared complete group count differs");
             foreach (var test in Tests)
             {

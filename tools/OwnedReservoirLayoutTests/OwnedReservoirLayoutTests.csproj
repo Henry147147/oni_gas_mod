@@ -14,11 +14,12 @@
   <ItemGroup>
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirLoadHeaderV1.cs" Link="OwnedReservoirLoadHeaderV1.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedLayout.cs" Link="OwnedReservoirSavedLayout.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveReadback.cs" Link="ColonySaveReadback.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedInflation.cs" Link="OwnedReservoirSavedInflation.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedDeflateStructure.cs" Link="OwnedReservoirSavedDeflateStructure.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirBodyPrefixInspection.cs" Link="OwnedReservoirBodyPrefixInspection.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirKsavInspection.cs" Link="OwnedReservoirKsavInspection.cs" />
-    <Compile Include="Program.cs;IndependentWire.cs;LayoutChecks.cs;LimitChecks.cs" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <Compile Include="Program.cs;IndependentWire.cs;LayoutChecks.cs;LimitChecks.cs;ReadbackChecks.cs" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
   </ItemGroup>
 </Project>

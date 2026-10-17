@@ -171,6 +171,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                     or type(colony.get("SavePauseDepthAfter")) is not int
                     or colony["SavePauseDepthAfter"] != colony["SavePauseDepthBefore"]):
                 return False
+            if (colony.get("SavedFileReadbackVerified") is not True or colony.get("SerializedBodyCaptures") != 1
+                    or type(colony.get("SerializedBodyBytes")) is not int or not 0 < colony["SerializedBodyBytes"] <= 256 << 20
+                    or not _sha256(colony.get("SerializedBodySha256"))):
+                return False
         if saved and (colony.get("Saved") is not True or colony.get("Loaded") is not False or colony.get("SimSaveWrites") != 1
                 or colony.get("AutomaticSaveAdmissions") != 1 or colony.get("SavePauseStateRestored") is not True
                 or (colony.get("PendingSaveRejectionRequired") is True and colony.get("PendingSaveRejectionVerified") is not True)
@@ -194,7 +198,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
             return False
     if restored and colony.get("FrameZeroResaveRequired") is True:
         if (colony.get("Saved") is not True or colony.get("SavedAsAutoSave") is not True
-                or colony.get("FrameZeroResaveVerified") is not True or colony.get("SavedFrame") != 0
+                or colony.get("FrameZeroResaveVerified") is not True or colony.get("FrameZeroResaveUsedGameDelayedSave") is not True
+                or colony.get("SavedFrame") != 0
                 or colony.get("SavedTime") != colony["SourceTime"] or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]):
             return False
     physics_exercised = (physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else

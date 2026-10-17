@@ -29,6 +29,7 @@ namespace MixedAtmospheres.Oni
         private static double loadedSourceTime;
         private static string loadedSourceHash="";
         private static bool frameZeroResaveVerified;
+        private static bool frameZeroResaveScheduled;
         private static int resumePreparationFrame=-1;
         internal static bool HoldInitialRestorePause=>ColonyRestoreMode && colonyLoaded &&
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
@@ -48,6 +49,9 @@ namespace MixedAtmospheres.Oni
         }
         private static int automaticSaveAdmissions;
         private static bool savedAsAutoSave;
+        private static int serializedBodyCaptures,serializedBodyBytes;
+        private static string serializedBodyHash="";
+        private static bool savedFileReadbackVerified;
         private static bool savePauseStateRestored;
         private static int savePauseDepthBefore,savePauseDepthAfter;
         private static int PauseDepth()=>(int)AccessTools.Field(typeof(SpeedControlScreen),"pauseCount").GetValue(SpeedControlScreen.Instance);
@@ -83,7 +87,15 @@ namespace MixedAtmospheres.Oni
             {
                 Require(Path.GetFullPath(requested)==Path.GetFullPath(actual) && File.Exists(actual) && new FileInfo(actual).Length>0,
                     "Normal colony save did not finish its requested file.");
-                savedFilePath=actual;savedFileHash=CheckpointHash(File.ReadAllBytes(actual));
+                Require(serializedBodyCaptures==1 && stagedColonySave!=null,"Normal colony save has no complete serialized body.");
+                using var file=new FileStream(actual,FileMode.Open,FileAccess.Read,FileShare.Read);
+                Require(file.Length<=1<<30,"Saved colony exceeds the supported readback limit.");
+                var bytes=new byte[checked((int)file.Length)];var count=0;
+                while(count<bytes.Length) {var got=file.Read(bytes,count,bytes.Length-count);Require(got>0,"Saved colony was truncated during readback.");count+=got;}
+                Require(file.ReadByte()==-1,"Saved colony grew during readback.");
+                var receipt=ColonySaveReadback.Verify(bytes,serializedBodyBytes,serializedBodyHash,
+                    stagedColonySave!.CopyEncodedData(),SaveLoader.Instance.GameInfo.colonyGuid);
+                savedFilePath=actual;savedFileHash=receipt.FileSha256;savedFileReadbackVerified=true;
             }
             internal void Finish(bool success)
             {
@@ -92,7 +104,7 @@ namespace MixedAtmospheres.Oni
                 {
                     if(success)
                     {
-                        Require(stagedSaveWrites==1 && TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(Physical),
+                        Require(stagedSaveWrites==1 && savedFileReadbackVerified && TryCapturePhysicalCheckpoint(out var after) && after.SequenceEqual(Physical),
                             "Normal colony serialization reused its sim section or changed physical state.");
                         colonyFileSaved=true;
                     }
@@ -142,6 +154,7 @@ namespace MixedAtmospheres.Oni
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
                 ++automaticSaveAdmissions;savePauseStateRestored=false;savedAsAutoSave=isAutoSave;
+                serializedBodyCaptures=serializedBodyBytes=0;serializedBodyHash="";savedFileReadbackVerified=false;
                 return new ColonySaveLease(token,physical,wasPaused,pauseDepth);
             }
             catch
@@ -177,6 +190,16 @@ namespace MixedAtmospheres.Oni
             Require(active && SpeedControlScreen.Instance.IsPaused && offsetX==0 && offsetY==0 && stagedSaveWrites==0,
                 "Staged colony save was reused or changed placement.");
             stagedColonySave.WriteLengthPrefixed(writer);++stagedSaveWrites;return true;
+        }
+        internal static void CaptureSerializedColonyBody(BinaryWriter writer)
+        {
+            if(stagedColonySave==null) return;
+            Require(serializedBodyCaptures==0 && stagedSaveWrites==1 && writer.BaseStream is MemoryStream,
+                "Ordinary save did not produce one complete in-memory colony body.");
+            writer.Flush();var stream=(MemoryStream)writer.BaseStream;
+            Require(stream.Position==stream.Length && stream.Length>0 && stream.Length<=256<<20,
+                "Ordinary save body is incomplete or exceeds its supported size.");
+            var body=stream.ToArray();serializedBodyBytes=body.Length;serializedBodyHash=CheckpointHash(body);++serializedBodyCaptures;
         }
         internal static bool TryLoadPairedColony(IReader reader,ref int result)
         {
@@ -331,11 +354,17 @@ namespace MixedAtmospheres.Oni
                     if(Time.frameCount-resumePreparationFrame<3) return;
                     Require(latest.CompletedFrames==0 && latest.TimeSeconds==loadedSourceTime,"Initial resave advanced before its paused admission.");
                     var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"resaved-colony.sav");
-                    Require(!File.Exists(path),"Initial resave destination already exists.");
-                    SaveLoader.Instance.Save(path,true,false);
+                    if(!frameZeroResaveScheduled)
+                    {
+                        Require(!File.Exists(path),"Initial resave destination already exists.");
+                        frameZeroResaveScheduled=true;
+                        Game.Instance.StartDelayedSave(path,true,false);
+                        ColonyRuntimeValidation.SetStage("waiting-for-initial-deferred-autosave");return;
+                    }
+                    if(!colonyFileSaved) {WriteReport();return;}
                     frameZeroResaveVerified=colonyFileSaved && savedSourceFrame==0 && savedSourceTime==loadedSourceTime &&
                         savedPhysicalHash==loadedSourceHash && stagedSaveWrites==1 && automaticSaveAdmissions==1 &&
-                        savedAsAutoSave && savePauseStateRestored && SpeedControlScreen.Instance.IsPaused && stagedColonySave==null;
+                        savedAsAutoSave && savedFilePath==path && savePauseStateRestored && SpeedControlScreen.Instance.IsPaused && stagedColonySave==null;
                     Require(frameZeroResaveVerified,"Ordinary save before resume changed the saved image/clock, reused a pair or unpaused the game.");
                 }
                 restoredSceneStarted=true;initialHot=Grid.Temperature[hotSolid];initialCold=Grid.Temperature[coldSolid];
@@ -371,12 +400,15 @@ namespace MixedAtmospheres.Oni
             ManagedSceneRestored=restoredSceneStarted,RendererVerified=restoredRendererVerified,SimSaveWrites=stagedSaveWrites,
             AutomaticSaveAdmissions=automaticSaveAdmissions,SavePauseStateRestored=savePauseStateRestored,
             SavedAsAutoSave=savedAsAutoSave,
+            SavedFileReadbackVerified=savedFileReadbackVerified,SerializedBodyCaptures=serializedBodyCaptures,
+            SerializedBodyBytes=serializedBodyBytes,SerializedBodySha256=serializedBodyHash,
             SavePauseDepthBefore=savePauseDepthBefore,SavePauseDepthAfter=savePauseDepthAfter,
             PendingSaveRejectionRequired=SaveRejectionRequired,PendingSaveRejectionVerified=rejectedSaveVerified,
             SourceFrame=colonyLoaded ? loadedSourceFrame : savedSourceFrame,SourceTime=colonyLoaded ? loadedSourceTime : savedSourceTime,
             SourcePhysicalSha256=colonyLoaded ? loadedSourceHash : savedPhysicalHash,RestoredInitialSha256=restoredInitialHash,
             SavedFrame=savedSourceFrame,SavedTime=savedSourceTime,SavedPhysicalSha256=savedPhysicalHash,
             FrameZeroResaveRequired=ColonyRuntimeValidation.Settings?.SaveBeforeResume==true,FrameZeroResaveVerified=frameZeroResaveVerified,
+            FrameZeroResaveUsedGameDelayedSave=frameZeroResaveScheduled,
             ExactContinuationFrames=exactReplayComparisons,ReplayedFrame=replayFrame,ReplayedTime=replayTime,NativeStartupBatchesDelivered=restoredNativeBatches,
             CurrentPhysicalSha256=CheckpointHash(restoredExpected),SavedFile=savedFilePath,SavedFileSha256=savedFileHash,
             NativeColonyId=SaveLoader.Instance?.GameInfo.colonyGuid.ToString("N"),WholeColonyFluidCheckpoint=false};
@@ -412,5 +444,11 @@ namespace MixedAtmospheres.Oni
             catch(Exception failure) {return __exception ?? failure;}
             return __exception;
         }
+    }
+    [HarmonyPatch]
+    internal static class NativeDomainSerializedBodyPatch
+    {
+        private static MethodBase TargetMethod()=>AccessTools.Method(typeof(SaveLoader),"Save",new[]{typeof(BinaryWriter)});
+        private static void Postfix(BinaryWriter __0)=>NativeSealedDomainValidation.CaptureSerializedColonyBody(__0);
     }
 }

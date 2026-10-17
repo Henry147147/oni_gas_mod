@@ -38,3 +38,15 @@ require at most glibc 2.34, within the 2.35 target. It freezes native source
 `61e8ef3` plus its recorded changes; later working-tree changes do not replace
 that snapshot. This is native ABI and binary-floor evidence. Real-game checks
 and all normal ownership, persistence and release gates still apply.
+
+The second frozen cohort includes source through `9484f45`, including the
+separate heat component from `988c507`. Both libraries still require at most
+glibc 2.34 and all 13 native tests pass. Its actual Linux Unity gravity colony
+(`automatic-admission-baseline-gravity-save-v1` and `...gravity-load-v1`) saves,
+loads in a fresh process, autosaves again before its first new timestep with
+the original pause depth, and matches all 120 resumed physical images exactly.
+The original GUID/three duplicants, grid/rendering, outside native heat and
+native compatibility cells pass. This tests the baseline-built libraries on
+the current host; it does not claim a Unity run on an Ubuntu 22.04 host.
+The provenance's `actual_game_test: false` describes the native build command;
+the separate game reports retain the runtime evidence and exact package hashes.

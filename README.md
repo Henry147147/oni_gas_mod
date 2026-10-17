@@ -66,7 +66,7 @@ for ownership, interfaces, failures and implementation gates.
   and restores the caller's exact pause count; pending commands reject without
   writing or losing their reservation. Compressed-water save, initial paused
   resave and 120 exact resumed frames also pass in Linux Unity. Owned actor
-  persistence, actual menu/autosave scheduler and Windows Unity validation
+  persistence, menu/day-rollover triggers and Windows Unity validation
   remain unfinished. See the
   [checkpoint protocol](native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 
