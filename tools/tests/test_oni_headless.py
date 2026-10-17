@@ -81,6 +81,47 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report['Platform']='WindowsPlayer';report['GpuGasTextures'].update(GraphicsDevice='Direct3D11')
         self.assertTrue(runner.native_domain_passed(report,self.observation,30,expected_platform='WindowsPlayer'))
 
+    def mixed_phase_report(self):
+        report=self.gpu_texture_report();report['Scenario']='gas-liquid-mixture'
+        report['MixedPhase']=dict(Required=True,Verified=True,Source='completed-native-EOS-partial-volumes',NativeScenario=4,
+            SinglePhaseConductionDisabled=True,LiquidWorldRenderingVerified=False,FreeSurfaceDynamicsVerified=False)
+        report['ThermalConduction']=dict(Enabled=0,Stages=0,Contacts=0,Iterations=0,RedistributedEnergy=0.0,EntropyChange=0.0)
+        pressure=100000.0;temperature=300.0;moles=.8*pressure/(8.31446261815324*temperature)
+        contents=[dict(MaterialId=name,Phase=phase,MassKg=mass,MolarMassKgPerMol=molar,
+            PartialVolumeCubicMetres=.2 if phase==2 else mass/molar*8.31446261815324*temperature/pressure)
+            for name,phase,mass,molar in [('nitrogen',1,.8*moles*.028,.028),('oxygen',1,.2*moles*.032,.032),
+                ('helium',1,1e-28,.004),('water',2,.2*1000*(1+pressure/2.2e9),.018)]]
+        for row in report['RenderingInputs']['Rows']:
+            row['Reading'].update(SourceId='native-domain:cell:'+str(row['Cell']),TemperatureKelvin=temperature,
+                MechanicalPressurePa=pressure,GasPressurePa=pressure,GasVolumeCubicMetres=.8,LiquidVolumeCubicMetres=.2,
+                VolumeCubicMetres=1.0,VacuumVolumeCubicMetres=0.0,Constituents=copy.deepcopy(contents),
+                TotalMassKg=sum(c['MassKg'] for c in contents),GasMassKg=sum(c['MassKg'] for c in contents if c['Phase']==1),
+                GasMoles=sum(c['MassKg']/c['MolarMassKgPerMol'] for c in contents if c['Phase']==1))
+        report['NativeDomain'].update(PressurePa=pressure,LiquidMassKg=contents[-1]['MassKg'],CurrentOxygenKg=contents[1]['MassKg'])
+        return report
+
+    def test_mixed_phase_requires_completed_eos_volumes_without_promoting_liquid_rendering_or_free_surfaces(self):
+        report=self.mixed_phase_report()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,mixed_phase=True))
+        for key,value in [('Verified',False),('Required',False),('NativeScenario',4.0),('Source','nominal density'),
+                          ('SinglePhaseConductionDisabled',False),('LiquidWorldRenderingVerified',True),('FreeSurfaceDynamicsVerified',True)]:
+            changed=copy.deepcopy(report);changed['MixedPhase'][key]=value
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,mixed_phase=True),(key,value))
+
+    def test_mixed_phase_reviewer_rejects_nominal_liquid_volume_missing_traces_and_inconsistent_common_pressure(self):
+        mutations=[lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(LiquidVolumeCubicMetres=.21),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(GasVolumeCubicMetres=.9),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(GasPressurePa=90000),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading']['Constituents'].pop(2),
+            lambda r:r['RenderingInputs']['Rows'][0]['Reading']['Constituents'][-1].update(Phase=1),
+            lambda r:r['ThermalConduction'].update(Enabled=1),lambda r:r['ThermalConduction'].update(Stages=2),
+            lambda r:r.update(Scenario='mixed-air')]
+        for mutation in mutations:
+            report=self.mixed_phase_report();mutation(report)
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,mixed_phase=True))
+
     def test_cpu_counters_and_exact_physics_cannot_hide_zero_or_stale_gpu_texels(self):
         changes=[lambda r:r['GpuGasTextures'].update(Verified=False),lambda r:r['GpuGasTextures'].update(BindingsVerified=False),
                  lambda r:r['GpuGasTextures'].update(CompletedFrame=29),lambda r:r['GpuGasTextures'].update(Session=2),

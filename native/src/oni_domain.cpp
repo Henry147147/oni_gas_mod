@@ -21,6 +21,10 @@ namespace {
 using namespace experimental;
 constexpr std::array<const char*,5> ids{"nitrogen","oxygen","helium","water","carbon_dioxide"};
 constexpr bool liquid_scenario(std::uint32_t scenario) { return scenario==1 || scenario==3; }
+constexpr bool mixed_scenario(std::uint32_t scenario) { return scenario==4; }
+constexpr bool admitted_species(std::uint32_t scenario,std::uint32_t species) {
+    return mixed_scenario(scenario) || liquid_scenario(scenario)==(species==3);
+}
 constexpr bool gravity_scenario(std::uint32_t scenario) { return scenario==2 || scenario==3; }
 std::mutex state_mutex;
 std::mutex frame_mutex;
@@ -180,9 +184,9 @@ std::vector<MAOniDomainCell> project(const MacClosedWorld& owner,std::uint32_t s
         for (std::size_t k=0;k<ids.size();++k) cell.masses[k]=source.mixture.masses[owner.registry().index(ids[k])];
         cell.internal_energy=physical_internal_energy(owner,source.mixture).value().require_representable(); cell.pressure=reading.mechanical_pressure_pa;
         cell.temperature=reading.temperature_k;
-        // This domain admits either gas-only cells or a completely filled
-        // compressed-liquid control. It does not infer fraction from m/rho0.
-        cell.liquid_fraction=liquid_scenario(scenario) ? 1 : 0;
+        // Single-phase controls retain their declared filled phase. The
+        // explicit mixed scenario publishes the actual elastic liquid volume.
+        cell.liquid_fraction=mixed_scenario(scenario) ? reading.liquid_volume_m3 : liquid_scenario(scenario) ? 1 : 0;
         const auto x=index%state.grid.width, y=index/state.grid.width;
         const auto half_mass=.5*source.mixture.mass();
         MacEnergySum kinetic; MacScaledSum px, py;
@@ -275,7 +279,9 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
         amount=projected;
     }
     const MacFluidTransfer request{cell,species,input.kind == 1,amount,input.temperature_k};
-    auto prepared=work.owner->with_fluid_transfers(std::span(&request,1));
+    auto prepared=mixed_scenario(work.configuration.scenario) ?
+        work.owner->with_fluid_transfers(std::span(&request,1),MacFluidTransferTopology::occupied_mixture) :
+        work.owner->with_fluid_transfers(std::span(&request,1));
     const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
     work.mass[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
     MacEnergySum packet_energy;packet_energy.add(packet.internal_energy_j);
@@ -345,7 +351,7 @@ void prepare_actors(GasWork& work,std::map<std::pair<std::uint32_t,std::int32_t>
 }
 void validate_domain_geometry(const MAOniDomainConfig& config) {
     if (config.struct_size != sizeof(config) || config.abi_version != MA_ONI_DOMAIN_ABI_VERSION ||
-        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 3 ||
+        config.flags != MA_ONI_DOMAIN_SEALED_TEST || config.reserved || config.scenario > 4 ||
         config.width < 2 || config.height < 2 || config.width > 16 || config.height > 16 ||
         config.native_grid_width < config.width+2 || config.offset_x == 0 || config.offset_y == 0 ||
         static_cast<std::uint64_t>(config.offset_x)+config.width >= config.native_grid_width ||
@@ -367,7 +373,7 @@ actor_checkpoint::Image decoded_actor_image(const MAOniDomainConfig& config,std:
     if (!actor_checkpoint::same_geometry(config,result.geometry)) throw std::invalid_argument("Durable actor geometry differs from its saved domain");
     for (const auto& actor : result.actors) {
         (void)domain_index(actor.cell,config);
-        if (liquid_scenario(config.scenario)!=(actor.species==3)) throw std::invalid_argument("Durable actor phase differs from its saved domain");
+        if (!admitted_species(config.scenario,actor.species)) throw std::invalid_argument("Durable actor phase differs from its saved domain");
     }
     return result;
 }
@@ -381,13 +387,14 @@ std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& c
     const auto& state=candidate->state(); const auto& grid=state.grid;
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
-        candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0))
+        candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0) ||
+        (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction))
         throw std::invalid_argument("Physical checkpoint clock, grid or gravity differs from its native domain configuration");
     const auto water=registry.index("water");
     for (const auto& cell : state.cells) {
         if (!cell.passive_quantities.empty()) throw std::invalid_argument("Saved native domain requires a passive-metadata adapter");
         for (std::size_t k=0;k<registry.size();++k)
-            if (cell.mixture.masses[k]!=0 && (liquid_scenario(config.scenario)!=(k==water)))
+            if (cell.mixture.masses[k]!=0 && !mixed_scenario(config.scenario) && (liquid_scenario(config.scenario)!=(k==water)))
                 throw std::invalid_argument("Saved native domain phase differs from its declared scenario");
     }
     (void)project(*candidate,config.scenario); (void)energy(*candidate);
@@ -418,7 +425,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
             bool occupied=false;
             for (std::size_t k=0;k<ids.size();++k) {
                 const auto mass=input.masses[k];
-                if (!std::isfinite(mass) || mass<0 || (mass!=0 && liquid_scenario(config.scenario)!=(k==3)))
+                if (!std::isfinite(mass) || mass<0 || (mass!=0 && !admitted_species(config.scenario,static_cast<std::uint32_t>(k))))
                     throw std::invalid_argument("Initial native inventory mass or phase is unsupported");
                 values[registry.index(ids[k])]=mass; occupied|=mass>0;
             }
@@ -431,15 +438,17 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
             const double pressure=100000+1000*static_cast<double>(x)/static_cast<double>(config.width-1);
             const double coefficient=gas_constant*((1-oxygen)/registry[registry.index("nitrogen")].molar_mass+
                 oxygen/registry[registry.index("oxygen")].molar_mass+1e-28/registry[registry.index("helium")].molar_mass);
-            const double gas=pressure/(coefficient*300);
+            const double water_fraction=mixed_scenario(config.scenario) ? .2+.05*static_cast<double>(x)/static_cast<double>(config.width-1) : 0;
+            const double gas=(1-water_fraction)*pressure/(coefficient*300);
             values[registry.index("nitrogen")]=(1-oxygen)*gas; values[registry.index("oxygen")]=oxygen*gas;
             values[registry.index("helium")]=1e-28*gas;
+            if (mixed_scenario(config.scenario)) values[registry.index("water")]=water_fraction*1000*(1+pressure/2.2e9);
         }
         state.cells.push_back({eos->initialize_at_temperature(values,temperature,1).mixture,{}});
     }
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
-    MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=true;
+    MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=!mixed_scenario(config.scenario);
     settings.gravity_m_per_s2=gravity_scenario(config.scenario) ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
     // All allocations and checks happen before publishing the activation flag.
@@ -714,7 +723,7 @@ void configure_actors_impl(const MAOniDomainActor* inputs,std::uint32_t count,MA
             if (!next.erase(key)) throw std::invalid_argument("Native actor handle is not registered");
         } else {
             (void)domain_index(input.public_cell);
-            if (input.species >= ids.size() || (liquid_scenario(geometry.scenario) != (input.species == 3)) ||
+            if (input.species >= ids.size() || !admitted_species(geometry.scenario,input.species) ||
                 !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.interval_s) ||
                 !std::isfinite(input.temperature_k) || !std::isfinite(input.maximum_gas_density_kg_m3) ||
                 (input.mass_kg > 0 && input.kind == 2 && (input.interval_s <= 0 || input.temperature_k < 1 ||

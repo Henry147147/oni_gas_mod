@@ -17,7 +17,7 @@ extern "C" {
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
-    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity */
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied gas/liquid mixture without conduction */
 } MAOniDomainConfig;
 
 typedef struct MAOniDomainStatus {
@@ -44,7 +44,9 @@ typedef struct MAOniDomainSpecies {
 
 /* Additive initial-inventory ABI 1. Row-major occupied cells, at rest, with
  * exact supplied masses and temperature in the declared domain EOS. No
- * synthetic background constituents, vacuum, mixed phases or passive data.
+ * synthetic background constituents, vacuum or passive data. Scenario 4
+ * explicitly admits occupied gas/liquid mixtures; other scenarios retain
+ * their single-phase admission.
  * Complete validation precedes activation; caller retains the input. */
 typedef struct MAOniDomainInitialCell {
     uint32_t struct_size, abi_version;
@@ -84,9 +86,10 @@ MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
 /* Fluid point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
- * Gas-only or one matching liquid material in an occupied cell. Liquid parcels
+ * Gas-only or one matching liquid material by default; scenario 4 explicitly
+ * admits occupied gas/liquid mixtures. Liquid parcels
  * carry elastic internal energy at the cell's pre-edit pressure. Void creation
- * and phase mixing reject the complete batch. No implicit enthalpy/pump work.
+ * reject the complete batch; phase mixing requires scenario 4. No implicit enthalpy/pump work.
  * Receipts are retained until acknowledged after an owned snapshot publication.
  * Quantities are binary32-compatible when flags bit 0 is set; any remainder
  * stays in the physical source. These are not pump/aperture transactions. */

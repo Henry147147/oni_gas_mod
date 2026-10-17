@@ -14,7 +14,7 @@ param(
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
     [switch]$ReloadInProcess,
-    [ValidateSet('gas','water','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
+    [ValidateSet('gas','water','mixed','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
     [string]$Python = 'python',
@@ -31,7 +31,7 @@ if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The
 if ($VerifyPersistentActors -and ($NativeDomain -notin @('gas','water') -or !($SaveColony -or $VerifyNaturalAutosave) -or $Frames -lt 80)) { throw 'VerifyPersistentActors requires a gas/water source, a source save or natural autosave, and at least eighty frames.' }
 if ($VerifyNaturalAutosave -and ($NativeDomain -ne 'gas' -or $Frames -lt 3100 -or $Frames -gt 5000 -or $SaveColony)) { throw 'VerifyNaturalAutosave requires a gas source, 3100..5000 frames and no SaveColony.' }
 if ($NativeDomain -in @('carbon-particle','breathing-read') -and $Frames -lt 30) { throw 'The CO2 particle and breathing-reader controls require at least 30 frames.' }
-$oniDomainModes = @{ import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
+$oniDomainModes = @{ mixed='native-mixed-domain'; import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path

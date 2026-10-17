@@ -31,9 +31,22 @@ changing the source checkpoint. Restore and subsequent physical continuation
 must retain every authoritative field. Existing single-phase controls must
 still pass unchanged.
 
-Then add an explicit native scenario, restore its exact mixed state and publish
-its actual partial volumes through the existing completed-snapshot boundary.
-Verify source/save and fresh-process continuation in both installed players,
+Native scenario 4 now selects that policy and retains both phases in all six
+occupied cells. Its published liquid volume is the EOS's compressed volume;
+gas partial volumes use each constituent's ideal-gas volume at the same
+completed temperature and mechanical pressure. The managed reading retains
+those exact phase facts, including trace headspace smaller than the rounding
+unit of the liquid-volume field. A scenario flag never supplies the fraction.
+Scenario 4 checkpoints and durable actor records admit both gas and water;
+existing scenarios retain their original phase admission.
+
+`native-mixed-domain` selects the scene in either player runner. The matrix
+scene is `mixed`, and `run_colony_validation.ps1 -NativeDomain mixed` exposes
+it on Windows. The portable reviewer independently reconstructs every
+constituent partial volume, compressed-water volume, gas moles/mass and complete
+occupied volume. Restored scenario 4 reports select the same strict check.
+Liquid world rendering and free-surface dynamics are explicitly unverified.
+Source/save and fresh-process continuation still require actual Unity controls,
 including manual mixture hover and calibrated GPU readback. Mixed-cell thermal
 conduction needs a separate variable-capacity operator; the current
 single-phase conduction rule cannot be relabelled as mixed-phase support.
@@ -48,5 +61,10 @@ The saved-only reviewer reconstructs caloric/elastic U, phase volumes, face
 inertias, carried momentum/kinetic/potential energy and complete balances with
 90-digit arithmetic. All three captures pass 1,036 checks and reject altered
 parcel U, trace mass, face momentum and liquid volume. It imports no native
-solver code and retains the original operand/volume bounds. Native worker and
-Unity integration remain required.
+solver code and retains the original operand/volume bounds. The native worker now passes its separate pressure-transport, water-injection
+and oxygen-removal callback control, complete constituent/U+K accounting,
+late-batch rejection and exact restored continuation. It is the fifteenth
+backend CTest; all 15 pass on host Linux and GNU Windows binaries under Wine.
+The new group also passes Linux ASan/UBSan. Four additional installed-assembly
+reading groups pass on both platforms, alongside 230 Python checks (four
+optional/platform skips). Actual Unity coexistence acceptance remains pending.

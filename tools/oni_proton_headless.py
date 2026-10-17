@@ -122,7 +122,7 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
 
 def domain_options(args) -> dict:
     mode = args.mode
-    return dict(expected_platform=PLATFORM,
+    return dict(expected_platform=PLATFORM,mixed_phase=mode == "native-mixed-domain",
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         heat=mode == "native-heat-domain", liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode == "native-transfer-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),

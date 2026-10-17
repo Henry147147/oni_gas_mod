@@ -59,7 +59,7 @@ int main(int argc,char** argv) {
                     std::fetestexcept(FE_ALL_EXCEPT)==before_flags,"Native replay changed the caller's precision, rounding, flags or SSE controls");
                 require(candidate==expected[frame],"Native water continuation inherited the caller's x87 precision");
             }
-            auto malformed=source;malformed.back()^=1;bool rejected=false;
+            auto malformed=source;malformed.at(malformed.size()-1)^=1;bool rejected=false;
             try { (void)ma::oni::advance_domain_checkpoint(malformed,.2F); } catch (const std::exception&) { rejected=true; }
             require(rejected && control()==before_control && _mm_getcsr()==before_sse && std::fegetround()==FE_DOWNWARD &&
                 std::fetestexcept(FE_ALL_EXCEPT)==before_flags,"Rejected native replay changed the caller's arithmetic environment");

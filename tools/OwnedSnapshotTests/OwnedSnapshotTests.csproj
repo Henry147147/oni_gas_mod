@@ -13,6 +13,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeActorRegistrationPlan.cs" Link="NativeActorRegistrationPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeActorCheckpointImage.cs" Link="NativeActorCheckpointImage.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeOrbitalReferenceAdmission.cs" Link="NativeOrbitalReferenceAdmission.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainReading.cs" Link="NativeDomainReading.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainCheckpointPayload.cs" Link="NativeDomainCheckpointPayload.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeCellMassEditPlan.cs" Link="NativeCellMassEditPlan.cs" />

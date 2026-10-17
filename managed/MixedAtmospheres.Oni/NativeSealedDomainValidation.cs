@@ -74,7 +74,7 @@ namespace MixedAtmospheres.Oni
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -175,7 +175,8 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
+                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == 0 :
+                    InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
                     Liquid ? LiquidActorMode || PersistentActorValidationRequired ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
@@ -384,7 +385,7 @@ namespace MixedAtmospheres.Oni
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
-                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
+                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
             if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
@@ -468,18 +469,7 @@ namespace MixedAtmospheres.Oni
                         else Require(first.Equals(native), "An unhandled native writer changed custom domain compatibility cell " +
                             global + ": " + first + " -> " + native + ".");
                     }
-                    var constituents = new List<MixtureThermodynamicConstituent>();
-                    for (var k = 0; k < Ids.Length; ++k)
-                    {
-                        if (cell.Mass(k) == 0) continue;
-                        var material = catalog!.Materials[Ids[k]];
-                        var volume = k == 3 ? 1 : cell.Mass(k) / material.MolarMassKgPerMol * FluidMaterialCatalog.GasConstantJoulesPerMolKelvin * cell.Temperature / cell.Pressure;
-                        constituents.Add(new MixtureThermodynamicConstituent(Ids[k], material.Phase, cell.Mass(k), material.MolarMassKgPerMol, volume));
-                    }
-                    readings.Add(global, new MixtureThermodynamicReading(constituents, cell.TotalMass, cell.InternalEnergy, cell.ResolvedKineticEnergy,
-                        cell.Temperature, Liquid ? 0 : cell.Pressure, cell.Pressure, 1, Liquid ? 0 : 1, Liquid ? 1 : 0, 0,
-                        catalog!.Version, catalog.Fingerprint, (long)latest.CompletedFrames, "native-domain:cell:" + global,
-                        momentumX: cell.MomentumX, momentumY: cell.MomentumY));
+                    readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global));
                 }
                 // Capture first and prove every native channel was copied. Only
                 // the owned copy is subsequently overlaid with custom readings.
@@ -702,9 +692,10 @@ namespace MixedAtmospheres.Oni
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
             Kind = "actual-game-sealed-native-fluid-domain", Status = completed ? "passed" : failed ? "failed" : "pending", Error = error,
-            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
+            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
+            MixedPhase = MixedPhaseReport(),
             RenderingInputs = RenderingInputs(),
             GpuGasTextures = GpuGasReport(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,
@@ -774,7 +765,7 @@ namespace MixedAtmospheres.Oni
                 ? "Colony saves blocked until the native domain is ready."
                 : "Paired colony saves require a completed state, drained callbacks and stable saved actor identities.";
             GUI.Box(new Rect(Screen.width * .12f, 100, Screen.width * .76f, 80),
-                "SEALED NATIVE FLUID DOMAIN · " + (Liquid ? "compressed water" : "mixed air") + "\n" +
+                "SEALED NATIVE FLUID DOMAIN · " + (MixedPhaseMode ? "gas/liquid coexistence" : Liquid ? "compressed water" : "mixed air") + "\n" +
                 latest.CompletedFrames + " native frames · 6 owned cells · surrounding colony: original ONI\n" + saveStatus);
         }
         private static void Require(bool value, string message) { if (!value) throw new InvalidOperationException(message); }

@@ -32,7 +32,7 @@ namespace MixedAtmospheres.Oni
         private static uint ActorFluidSpecies(ushort element)
         {
             for (uint species = 0; species < Ids.Length; ++species)
-                if ((species == 3) == Liquid && ElementLoader.FindElementByHash(SpeciesHash(species)).idx == element) return species;
+                if ((MixedPhaseMode || (species == 3) == Liquid) && ElementLoader.FindElementByHash(SpeciesHash(species)).idx == element) return species;
             throw new NotSupportedException("The registered point actor has an unsupported fluid material or phase.");
         }
         private static bool ActorMessage(int message) => message == 2024405073 || message == 1575539738 || message == 894417742 ||
