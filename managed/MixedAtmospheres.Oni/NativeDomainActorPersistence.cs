@@ -70,8 +70,9 @@ namespace MixedAtmospheres.Oni
                 "Persistent source consumer, native emission slot or blocked emitter was not exercised.");
             Require(TryCapturePhysicalCheckpoint(out var image),"Live persistent actors did not produce a drained complete snapshot.");
             var saved=NativeActorCheckpointImage.Parse(image);
-            Require(saved.Actors.Count==3 && saved.Actors.Any(a=>a.Kind==1 && a.Remainder>0) && saved.Actors.Any(a=>a.Kind==2 && a.Elapsed>0) &&
+            Require(saved.Actors.Count==3 && (NaturalAutosaveRequired || saved.Actors.Any(a=>a.Kind==1 && a.Remainder>0)) && saved.Actors.Any(a=>a.Kind==2 && a.Elapsed>0) &&
                 saved.Actors.Any(a=>a.Kind==2 && a.Blocked),"Source snapshot omitted actor timing, consumer remainder or blocked state.");
+            currentActorImage=saved;currentActorImageHash=CheckpointHash(image);
             persistentFixtureVerified=true;
         }
         private static void VerifyPersistentCallbacks(KeyValuePair<(uint kind,int handle),ActorBinding>[] bindings)

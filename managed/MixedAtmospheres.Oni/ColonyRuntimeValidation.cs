@@ -102,8 +102,8 @@ namespace MixedAtmospheres.Oni
             if (configuration.VerifyNaturalAutosave && (configuration.Mode != "native-domain" || configuration.CompletedFrames < 3100 || configuration.CompletedFrames > 5000 || configuration.SaveOnComplete))
                 throw new InvalidDataException("Natural autosave validation requires mixed air, 3100..5000 frames and no manual source save.");
             if(configuration.VerifyPersistentActors && ((configuration.Mode!="native-domain" && configuration.Mode!="native-liquid-domain") ||
-                !configuration.SaveOnComplete || configuration.CompletedFrames<80))
-                throw new InvalidDataException("Persistent actor validation requires a gas/water source, at least eighty frames and an ordinary source save.");
+                (!configuration.SaveOnComplete && !configuration.VerifyNaturalAutosave) || configuration.CompletedFrames<80))
+                throw new InvalidDataException("Persistent actor validation requires a gas/water source, at least eighty frames and an ordinary source save or natural autosave.");
             if ((configuration.Mode == "native-actor-domain" || configuration.Mode == "native-liquid-actor-domain") && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
                 throw new InvalidDataException("The registered actor scene requires at least 80 native frames.");
             if (NativeSealedDomainValidation.ColonyRestoreMode != !string.IsNullOrEmpty(configuration.LoadSavePath) ||

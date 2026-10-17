@@ -133,7 +133,15 @@ This is declaration/build verification; Unity save/reload remains required.
 The private `--verify-persistent-actors` source fixture uses three real,
 saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
-80 frames. `native-load-domain --resave-before-resume --reload-in-process`
+80 frames. A separate natural-day control combines `--verify-persistent-actors`
+with `--verify-natural-autosave --frames 3302`, using `native-domain` and no
+manual source save. It retains the actual day scheduler and independently
+replays every subsequent solver/actor interval before comparing the final
+complete image. Its current actor report identifies the final image separately
+from the earlier saved image; local oxygen exhaustion is a valid selective
+consumer result. The fixed short control retains its positive saved-remainder
+challenge. Natural-day execution with live actors is still under validation.
+`native-load-domain --resave-before-resume --reload-in-process`
 then exercises paused autosave and two actual managed scene loads.
 On Windows, `tools/run_colony_validation.ps1 -VerifyPersistentActors` exposes
 the same source check: use `-NativeDomain gas` or `water`, `-SaveColony` and

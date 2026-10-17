@@ -375,6 +375,21 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report['Platform']='WindowsPlayer'
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,expected_platform='WindowsPlayer'))
 
+    def test_live_actor_day_save_compares_the_later_complete_image_and_allows_exhausted_local_oxygen(self):
+        self.set_persistent_actors();actors=copy.deepcopy(self.report['PersistentActors'])
+        self.set_natural_autosave();self.report['PersistentActors']=actors
+        actors['Native']['CompletedFrame']=3300
+        actors['CurrentImageSha256']='e'*64
+        actors['SavedActors'][0]['Remainder']=0
+        actors['CurrentActors'][0]['Remainder']=0
+        self.report['NativeDomain']['CurrentOxygenKg']=0
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,persistent_actors=True))
+        actors['CurrentImageSha256']='a'*64
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,persistent_actors=True))
+        actors['CurrentImageSha256']='e'*64
+        actors['BoundObjects'][0]['PersistentConsumerCallbacks']+=1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,persistent_actors=True))
+
     def test_natural_autosave_rejects_manual_calls_missing_rollover_and_lost_intervals(self):
         for key,value in [('Verified',False),('Source','manual-save'),('Requests',2),('RequestedCycle',0),
                           ('SavedNativeGameSeconds',599),('ExactContinuationFrames',309),('CurrentPhysicalSha256','f'*64)]:

@@ -263,10 +263,13 @@ def _persistent_actors_passed(report: dict, physical: dict, restored: bool, requ
                     or value.get('RestoredContinuationVerified') is not True
                     or value['CurrentImageSha256']!=report['ColonyCheckpoint']['CurrentPhysicalSha256']):
                 return False
-        elif (value.get('Restored') is not False or value.get('SourceFixtureRequired') is not True
-                or value.get('SourceFixtureVerified') is not True or len(saved)!=3
-                or value['CurrentImageSha256']!=report['ColonyCheckpoint']['SourcePhysicalSha256']):
-            return False
+        else:
+            natural=report.get('NaturalAutosave',{}).get('Required') is True
+            expected_current=(report['NaturalAutosave'].get('CurrentPhysicalSha256') if natural else report['ColonyCheckpoint']['SourcePhysicalSha256'])
+            if (value.get('Restored') is not False or value.get('SourceFixtureRequired') is not True
+                    or value.get('SourceFixtureVerified') is not True or len(saved)!=3
+                    or value['CurrentImageSha256']!=expected_current):
+                return False
         def actor_key(a):
             return a['Kind'],a['Owner'],a['Prefab'],a['Component']
         identities=[]
@@ -310,7 +313,7 @@ def _persistent_actors_passed(report: dict, physical: dict, restored: bool, requ
                 return False
         if by_key or type(native.get('ConsumerSamples')) is not int or native['ConsumerSamples']<expected_callbacks:
             return False
-        if not restored and (not any(a['Kind']==1 and a['Remainder']>0 for a in saved)
+        if not restored and ((not natural and not any(a['Kind']==1 and a['Remainder']>0 for a in saved))
                 or not any(a['Kind']==2 and a['Elapsed']>0 for a in saved) or not any(a['Kind']==2 and a['Blocked'] for a in saved)
                 or not any(b.get('PersistentEmitterStatusObserved') is True for b in bindings if b['Kind']==2)):
             return False
@@ -727,8 +730,11 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         physics_exercised = physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
     if initial_inventory:
         physics_exercised = physical["PressurePa"] > 0
-    if persistent_actors and liquid:
-        physics_exercised = physical['LiquidMassKg']>1000 and physical['PressurePa']>0
+    if persistent_actors:
+        # A long-lived selective consumer can exhaust its local oxygen while
+        # the occupied nitrogen atmosphere and accountable transfers continue.
+        physics_exercised = (physical['PressurePa']>0 and (physical['LiquidMassKg']>1000 if liquid else
+            physical['InitialOxygenKg']>0 and 0<=physical['CurrentOxygenKg']!=physical['InitialOxygenKg']))
     return (report.get("Kind") == "actual-game-sealed-native-fluid-domain" and report.get("Status") == "passed"
             and report.get("Platform") == expected_platform and report.get("BoundedFluidAuthority") is True
             and report.get("WholeColonyFluidAuthority") is False and report.get("FirstPlayableColonyPassed") is False
