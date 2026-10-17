@@ -218,6 +218,19 @@ typedef struct MAOniDomainViscosityStatus {
 MA_ONI_API uint32_t ma_oni_domain_viscosity_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_viscosity_status(MAOniDomainViscosityStatus*);
 
+/* Completed native body/item contacts, ABI 1. Body heat is measured from the
+ * represented binary32 native temperature and its supplied heat capacity.
+ * Fluid heat uses the complete EOS. Unresolved contacts change neither owner.
+ * These are fluid-boundary accounts, not a complete metabolic/body model. */
+typedef struct MAOniDomainChunkHeatStatus {
+    uint32_t struct_size, abi_version, state, reserved;
+    uint64_t session, completed_frame, contacts, transfers, unresolved, iterations;
+    double body_heat_loss_j, stored_fluid_heat_j, maximum_balance_residual_j, maximum_balance_bound_j;
+    double entropy_lower_bound_j_per_k, requested_absolute_heat_j;
+} MAOniDomainChunkHeatStatus;
+MA_ONI_API uint32_t ma_oni_domain_chunk_heat_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus*);
+
 /* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
  * owned rectangle, at cell centres. Boundary transfers carry the same datum.
  * All values describe the completed frame; pending potential is reserved only. */

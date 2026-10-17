@@ -53,7 +53,23 @@ SPECS = (
     # GCC emits a separate implementation for the secondary-base virtual call.
     # Its this pointer is already adjusted by the caller; forward it unchanged.
     ("emitter-dispatch", None, "_ZThn128_N14ElementEmitter6UpdateEfR7SimDataRK6Region", "void(adjusted-this*,float,data*,const-region*)"),
+    ("chunk-heat", "ExchangeHeatEnergyWithWorld", "<inspected-GCC-private-chunk-contact>",
+        {"windows-x64":"float(float,const-data*,const-handle*,cell-accessor*,float,element-chunk*)",
+         "linux-x64":"float(cell-accessor*,element-chunk*,float,float)"}),
 )
+
+# These private procedure locations are supported only in the independently
+# inspected files. Windows PDB 0xCFFD retains six arguments; GCC specializes
+# away the unused SimData/Handle arguments and reorders the remaining ones.
+CHUNK_HEAT_LOCATIONS={
+    "windows-x64":("031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727",258448),
+    "linux-x64":("85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d",398624),
+}
+CHUNK_HEAT_LAYOUT=dict(accessor_bytes=16,cell_index_offset=8,chunk_bytes=44,temperature_offset=4,
+    heat_capacity_offset=8,conductivity_offset=12,transfer_scale_offset=16)
+
+def signature_for(signature,platform):
+    return signature if isinstance(signature,str) else signature[platform]
 
 
 def sha(data: bytes) -> str:
@@ -174,14 +190,27 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
                                     if platform == "windows-x64" else linux_symbols(data, image))
     hooks = []
     for index, (role, win, linux, signature) in enumerate(SPECS):
+        signature=signature_for(signature,platform)
         symbol = win if platform == "windows-x64" else linux
         if symbol is None:
             continue  # Windows Step is inlined; never invent an address.
-        rva = symbols[symbol]
+        if role=="chunk-heat":
+            identity,rva=CHUNK_HEAT_LOCATIONS[platform]
+            if sha(data)!=identity:raise ValueError("Private chunk heat contact requires the exact inspected native image")
+            if platform=="windows-x64":
+                private=subprocess.check_output([utility,"dump","-symbols",str(image.with_suffix('.pdb'))],text=True)
+                found=re.findall(r'S_[LG]PROC32[^\n]*`ExchangeHeatEnergyWithWorld`\s*\n[^\n]*addr = (\d+):(\d+)',private)
+                if len(found)!=1 or sections[int(found[0][0])-1][0]+int(found[0][1])!=rva:
+                    raise ValueError("Private PDB chunk heat procedure differs from its inspected location")
+            else:
+                call=0x61f27;start=file_offset(sections,call,5,executable=True);instruction=data[start:start+5]
+                if instruction[0]!=0xe8 or call+5+struct.unpack('<i',instruction[1:])[0]!=rva:
+                    raise ValueError("Specialized GCC chunk contact call differs from its inspected target")
+        else:rva = symbols[symbol]
         offset = file_offset(sections, rva, 32, executable=True)
         hooks.append({"index": index, "role": role, "symbol": symbol, "rva": rva,
                       "fingerprint_bytes": 32, "fingerprint_sha256": sha(data[offset:offset + 32]),
-                      "signature": signature})
+                      "signature": signature,**({"native_layout":CHUNK_HEAT_LAYOUT} if role=="chunk-heat" else {})})
     globals_ = []
     for name in ("gSim", "gSimData"):
         symbol = (f"?{name}@@3V?$unique_ptr@V{name[1:]}@@U?$default_delete@V{name[1:]}@@@std@@@std@@A"
@@ -208,8 +237,12 @@ def validate(value: dict) -> None:
             raise ValueError("Missing or duplicate required hook")
         for hook in profile["hooks"]:
             role, win, linux, signature = SPECS[hook["index"]]
+            signature=signature_for(signature,profile['platform'])
             if (hook["role"], hook["symbol"], hook["signature"]) != (role, win if profile["platform"] == "windows-x64" else linux, signature):
                 raise ValueError("Hook identity/signature mismatch")
+            if role=='chunk-heat' and (hook.get('native_layout')!=CHUNK_HEAT_LAYOUT or
+                    (profile['native_sha256'],hook['rva'])!=CHUNK_HEAT_LOCATIONS[profile['platform']]):
+                raise ValueError("Private chunk contact layout/location differs from its inspected image")
             if not 0 < hook["rva"] < profile["native_bytes"] or hook["fingerprint_bytes"] != 32:
                 raise ValueError("Invalid hook location/fingerprint size")
         for digest in (profile["native_sha256"], profile["assembly_sha256"], *(h["fingerprint_sha256"] for h in profile["hooks"])):

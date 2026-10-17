@@ -113,7 +113,7 @@ including a widened prologue that cannot fit the trampoline buffer.
 Source-hash-checked patches also replace unaligned code-operand accesses in
 Funchook/diStorm with `memcpy` and make diStorm's high-bit instruction flag
 unsigned. Dependency C sources are included in the sanitizer build.
-The Linux backend now uses [verified executable-page padding for all 28
+The Linux backend now uses [verified executable-page padding for all 29
 trampolines](native-trampoline-storage.md). It validates the loaded segment
 boundaries, original zero bytes, bounded capacity and private RX permissions.
 Cleanup restores the original bytes and RX permissions without unmapping the
@@ -210,11 +210,14 @@ callers can reference them.
 
 Expose a versioned `ma_oni_*` C ABI with explicit sizes and buffer ownership.
 The observer surface is inspection, attachment, counters and detachment.
-Observer ABI 3 has 28 hook slots and a 512-byte status; older libraries reject
+Observer ABI 4 has 29 hook slots and a 528-byte status; older libraries reject
 before their different status layout is read. Two gas interaction slots are
-Linux-only; Windows has 24 concrete locations and Linux has 28. Windows's
+Linux-only; Windows has 25 concrete locations and Linux has 29. Windows's
 `Step`, gas interaction functions and Linux secondary-base emitter dispatch
 have no standalone profiled locations.
+The added [native body heat contact](native-body-heat.md) has separately
+inspected Windows and GCC signatures. It preserves original outside contacts
+and stages owned heat before custom fluid advancement and native publication.
 The separate development-domain ABI 2 has 40-byte configuration, 440-byte
 status and 96-byte five-species cell readings, with explicit start/copy/stop and material
 queries. Activation checks the exact profile and padded-grid dimensions on both

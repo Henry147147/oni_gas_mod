@@ -67,13 +67,17 @@ internal static unsafe partial class Program
         var pairVerified=false;
         var trace = new List<object>(); report["nativeDomainFrames"] = trace;
         Stage("advance-sealed-native-domain");
-        var inputControl=Environment.GetEnvironmentVariable("MA_VERIFY_FRAME_INPUTS")=="1" ? new FrameInputControl(config,status) : null;
+        var bodyHeatRequired=Environment.GetEnvironmentVariable("MA_VERIFY_CHUNK_HEAT")=="1";
+        Require(!bodyHeatRequired || (!heating && !gravity && !checkpoint),"Native body heat control requires a plain sealed gas/water domain.");
+        var inputControl=Environment.GetEnvironmentVariable("MA_VERIFY_FRAME_INPUTS")=="1" || bodyHeatRequired ? new FrameInputControl(config,status) : null;
+        NativeBodyHeatControl? bodyHeat=null;
         for (var frame = 0; frame < 75; ++frame)
         {
             sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
             status = OniNativeDomain.Status.Empty;
             Require(OniNativeDomain.Copy(ref status, values, 6) == 0 && status.State == 1, "Domain failed: " + status.Error);
             inputControl?.Observe(status);
+            bodyHeat?.Observe(snapshot,status);
             var source = Enumerable.Range(0, 6).Select(i => snapshot.CellData[DomainCell(i)]).ToArray();
             trace.Add(new { status.CompletedFrames, status.NativeTicket, status.TimeSeconds, status.SuppressedGas, status.SuppressedLiquid,
                 status.SuppressedTemperature, status.SuppressedPostProcess, status.SolverThread, status.StartThread,
@@ -87,6 +91,7 @@ internal static unsafe partial class Program
             for (var i = 0; i < 6; ++i) Require(source[i] == baseline[i], "Uncovered native writer changed cell " + DomainCell(i) +
                 " at physical frame " + status.CompletedFrames + ": " + baseline[i] + " -> " + source[i]);
             Require(status.MaximumRelativeMassError <= 1e-8 && status.MaximumRelativeEnergyError <= 1e-6, "Custom conservation failed.");
+            if(bodyHeatRequired && bodyHeat==null && status.CompletedFrames-primedAt>=4) bodyHeat=new NativeBodyHeatControl(sim,contract);
             if (paired && !pairVerified && status.CompletedFrames-primedAt>=4)
             {
                 VerifyPairedCheckpoint(sim,contract,observer,status,report); pairVerified=true;
@@ -132,7 +137,8 @@ internal static unsafe partial class Program
             }
             if (status.CompletedFrames - primedAt < 60) continue;
             Require(!checkpoint || checkpointVerified,"Physical checkpoint continuation was not observed.");
-            if(inputControl!=null) report["frameInputReplay"]=inputControl.Finish(heating);
+            if(inputControl!=null) report["frameInputReplay"]=bodyHeatRequired ? inputControl.FinishNativeBodyHeat() : inputControl.Finish(heating);
+            if(bodyHeatRequired) report["nativeBodyHeat"]=bodyHeat!.Finish(initialEnergy,initialEnergyScale,values);
             Require(status.SolverThread != status.StartThread && status.SuppressedTemperature > 0 && status.SuppressedPostProcess > 0,
                 "Native worker/filter controls did not execute.");
             Require(snapshot.ColdTemperature > initial.ColdTemperature && snapshot.HotTemperature < initial.HotTemperature,
@@ -203,7 +209,7 @@ internal static unsafe partial class Program
     }
     private static byte[] ReadPhysicalCheckpoint(ulong session,ulong frame)
     {
-        Require(OniNativeDomain.CopyCheckpoint(session,frame,null,0,out var size)==0 && size>32,"Physical checkpoint size query failed.");
+        Require(OniNativeDomain.CopyCheckpoint(session,frame,null,0,out var size)==0 && size>32,"Physical checkpoint size query failed: "+Marshal.PtrToStringAnsi(OniNativeDomain.LastError()));
         var image=new byte[checked((int)size)];
         Require(OniNativeDomain.CopyCheckpoint(session,frame,image,size,out var copied)==0 && copied==size,"Physical checkpoint copy failed.");
         return image;

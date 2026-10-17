@@ -549,6 +549,19 @@ def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool
             requested+=wanted;delivered+=mass;positive+=mass>0;last_sequence=receipt['Sequence']
         if not (value.get('RequestedMassKg')==requested and value.get('DeliveredMassKg')==value.get('CallbackMassKg')==delivered>0
                 and value['PositiveCallbacks']==positive):return False
+        native_heat=report['NativeBodyHeat'];body=native_heat['Status']
+        if (native_heat.get('AbiVersion')!=1 or native_heat.get('Source')!='native-element-chunk-contact'
+                or native_heat.get('CompleteMetabolicBodyModel') is not False
+                or body.get('Size')!=112 or body.get('Version')!=1 or body.get('State')!=1 or body.get('Reserved')!=0
+                or body.get('Session')!=physical['Session'] or body.get('CompletedFrame')!=physical['CompletedFrames']
+                or type(body.get('Contacts')) is not int or type(body.get('Transfers')) is not int
+                or not 0<body['Transfers']<=body['Contacts'] or type(body.get('Unresolved')) is not int
+                or not 0<=body['Unresolved']<=body['Contacts']):return False
+        for key in ('BodyHeatLossJoules','StoredFluidHeatJoules','MaximumBalanceResidualJoules','MaximumBalanceBoundJoules',
+                    'EntropyLowerBound','RequestedAbsoluteHeatJoules'):
+            if type(body.get(key)) not in (int,float) or not math.isfinite(body[key]):return False
+        if not (0<=body['MaximumBalanceResidualJoules']<=body['MaximumBalanceBoundJoules'] and
+                body['EntropyLowerBound']>=0 and body['RequestedAbsoluteHeatJoules']>0):return False
         account=report['GasTransfers'];changes=account['MassChangesKg']
         return (account['Session']==physical['Session'] and account['PendingBatches']==account['UnacknowledgedReceipts']==0
             and changes[1]==-delivered and changes[0]==changes[2]==changes[3]==0 and changes[4]>=0

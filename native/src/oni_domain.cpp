@@ -1,6 +1,7 @@
 #include "oni_domain.hpp"
 #include "oni_radial_consumption.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_native_heat.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "oni_actor_checkpoint.hpp"
 #include "oni_frame_inputs.hpp"
@@ -62,6 +63,12 @@ std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolve
 MacEnergySum thermal_redistribution,thermal_entropy;
 std::uint64_t viscous_stages{},viscous_modes{},unresolved_viscous_heat{},unresolved_viscous_momentum{};
 MacEnergySum viscous_dissipation,viscous_stored_heat,viscous_entropy,viscous_wall_x,viscous_wall_y;
+struct ChunkHeatProgress {
+    std::uint64_t contacts{},transfers{},unresolved{},iterations{};
+    MacEnergySum body_loss,fluid_heat,entropy,requested;
+    double maximum_residual{},maximum_bound{};
+};
+ChunkHeatProgress pending_chunk_heat,committed_chunk_heat;
 MacEnergySum committed_potential,pending_potential,body_impulse,gravity_internal_work;
 double initial_potential{},maximum_energy_residual{};
 std::vector<MAOniDomainCell> publication;
@@ -226,6 +233,14 @@ MAOniDomainHeatStatus heat_status() {
 MacEnergySum combined_heat(const MacEnergySum& first,const MacEnergySum& second) {
     auto result=first;
     for (std::size_t i=0;i<second.size();++i) result.add(second.component(i));
+    return result;
+}
+ChunkHeatProgress combined_chunk_heat(const ChunkHeatProgress& a,const ChunkHeatProgress& b) {
+    ChunkHeatProgress result{a.contacts+b.contacts,a.transfers+b.transfers,a.unresolved+b.unresolved,a.iterations+b.iterations,
+        combined_heat(a.body_loss,b.body_loss),combined_heat(a.fluid_heat,b.fluid_heat),combined_heat(a.entropy,b.entropy),combined_heat(a.requested,b.requested),
+        std::max(a.maximum_residual,b.maximum_residual),std::max(a.maximum_bound,b.maximum_bound)};
+    for (const auto* value:{&result.body_loss,&result.fluid_heat,&result.entropy,&result.requested})
+        (void)value->value().require_representable();
     return result;
 }
 // All callers hold the frame/state locks. This work owns every allocation and
@@ -540,6 +555,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     thermal_redistribution={}; thermal_entropy={};
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
+    pending_chunk_heat={};committed_chunk_heat={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
@@ -563,6 +579,7 @@ void shutdown_domain() noexcept {
     pending_transfer_batches=0; pending_receipts.clear(); pending_mass={}; pending_material={}; pending_kinetic={};
     pending_inputs.clear();completed_inputs.clear();pending_input_flags=0;
     actors.clear();
+    pending_chunk_heat={};committed_chunk_heat={};
     pending_actor_restore.clear();
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
@@ -661,7 +678,9 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         frame_inputs::Image journal{input_flags,status.session,status.completed_frames,next.completed_frames,
             world->time_s(),seconds,geometry,hash_memory(source_image.data(),source_image.size()),pending_inputs};
         auto next_inputs=frame_inputs::encode(journal);
+        auto next_chunk_heat=combined_chunk_heat(committed_chunk_heat,pending_chunk_heat);
         world=std::move(owner); publication=std::move(cells); status=next;
+        committed_chunk_heat=std::move(next_chunk_heat);pending_chunk_heat={};
         completed_inputs=std::move(next_inputs);pending_inputs.clear();pending_input_flags=0;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
         viscous_dissipation=std::move(next_viscous_dissipation);viscous_stored_heat=std::move(next_viscous_stored_heat);
@@ -707,6 +726,70 @@ void queue_domain_heat(const MAOniDomainHeat* requests,std::uint32_t count,MAOni
 }
 void copy_domain_heat(MAOniDomainHeatStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic; output=heat_status();
+}
+DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,
+    float transfer_scale,float contact_scale,float seconds) noexcept {
+    DomainChunkHeat output{false,temperature,0};
+    if (!suppress_domain_cell(MA_ONI_CHUNK_HEAT,native_cell)) return output;
+    output.handled=true;
+    std::lock_guard lock(state_mutex);
+    if (status.state!=1) return output;
+    try {
+        const ArithmeticScope arithmetic;
+        for (auto value:{conductivity,transfer_scale,contact_scale,seconds})
+            if (!std::isfinite(value) || value<0) throw std::invalid_argument("Invalid native chunk heat coefficient or interval");
+        if (seconds==0) return output;
+        const auto pitch=geometry.native_grid_width+2;
+        const auto public_cell=static_cast<std::uint32_t>(native_cell)%pitch-1+
+            (static_cast<std::uint32_t>(native_cell)/pitch-1)*geometry.native_grid_width;
+        const auto cell=domain_index(public_cell);
+        const auto& source=pending_world ? *pending_world : *world;
+        const auto& mixture=source.state().cells[cell].mixture;
+        const auto reading=source.thermodynamics().evaluate(mixture,source.state().grid.volume_m3());
+        const auto& materials=source.thermodynamics().reference().materials();double numerator=0,volume=0;
+        for (std::size_t k=0;k<materials.size();++k) {
+            const auto amount=reading.partial_volumes_m3[k];
+            const auto fluid_k=source.registry()[source.registry().index(materials[k].id)].conductivity;
+            if (!std::isfinite(fluid_k) || fluid_k<0) throw std::invalid_argument("Invalid owned fluid conductivity");
+            numerator+=amount*fluid_k;volume+=amount;
+        }
+        const double fluid_k=numerator/volume,body_k=conductivity;
+        const double small=std::min(fluid_k,body_k),large=std::max(fluid_k,body_k);
+        const double conductance=large>0 ? (2*small/(1+small/large))*transfer_scale*contact_scale : 0;
+        auto candidate=exchange_mac_native_heat(source,cell,{temperature,capacity_kj},conductance,seconds);
+        auto progress=pending_chunk_heat;const auto& report=candidate.report;
+        ++progress.contacts;progress.iterations+=report.iterations;
+        progress.requested.add(std::abs(report.requested_heat_j));
+        progress.maximum_residual=std::max(progress.maximum_residual,std::abs(report.energy_residual_j));
+        progress.maximum_bound=std::max(progress.maximum_bound,report.energy_bound_j);
+        if (report.unresolved) ++progress.unresolved;
+        if (report.body_heat_loss_j==0) {pending_chunk_heat=std::move(progress);return output;}
+        if (pending_heat_edits>=4096 || pending_heat_batches>=1024 || accepted_heat_batches==UINT64_MAX)
+            throw std::length_error("Native chunk heat exceeded its reserved frame input capacity");
+        progress.body_loss.add(report.body_heat_loss_j);progress.fluid_heat.add(report.stored_fluid_heat_j);
+        progress.entropy.add(report.entropy_lower_bound_j_per_k);++progress.transfers;
+        (void)combined_chunk_heat(committed_chunk_heat,progress);
+        auto next_heat=pending_heat;next_heat.add(report.body_heat_loss_j);
+        (void)combined_heat(committed_heat,next_heat).value().require_representable();
+        constexpr std::uint32_t source_id=0x4d414348U; // MAC native chunk heat
+        frame_inputs::Batch batch;batch.heat.push_back({48,1,status.session,status.completed_frames,public_cell,source_id,report.body_heat_loss_j,1e6});
+        auto next_inputs=frame_inputs::appended(pending_inputs,std::move(batch));
+        auto next_world=std::make_unique<MacClosedWorld>(std::move(candidate.world));
+        // No native endpoint has changed yet. The detour writes these two
+        // scalar outputs only after every allocation and reservation succeeds.
+        output.temperature=candidate.body_temperature_k;
+        output.delta_kj=static_cast<float>(-report.body_heat_loss_j/1000);
+        pending_world=std::move(next_world);pending_heat=std::move(next_heat);pending_inputs=std::move(next_inputs);
+        pending_chunk_heat=std::move(progress);++pending_heat_edits;++pending_heat_batches;++accepted_heat_batches;
+    } catch (const std::exception& error) {fault(error.what());}
+      catch (...) {fault("Unknown native body/fluid heat failure");}
+    return output;
+}
+void copy_domain_chunk_heat_status(MAOniDomainChunkHeatStatus& output) {
+    std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;const auto& p=committed_chunk_heat;
+    output={sizeof(output),1,status.state,0,status.session,status.completed_frames,p.contacts,p.transfers,p.unresolved,p.iterations,
+        p.body_loss.value().require_representable(),p.fluid_heat.value().require_representable(),p.maximum_residual,p.maximum_bound,
+        p.entropy.value().require_representable(),p.requested.value().require_representable()};
 }
 MAOniDomainTransferStatus transfer_status() {
     MAOniDomainTransferStatus value{}; value.struct_size=sizeof(value); value.abi_version=MA_ONI_DOMAIN_TRANSFER_ABI_VERSION; value.state=status.state;

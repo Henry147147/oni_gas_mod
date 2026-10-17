@@ -139,6 +139,8 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_mixture_conduction COMMAND ma_mac_mixture_thermal_tests)
     set_target_properties(ma_mac_viscosity_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME mac_physical_viscosity COMMAND ma_mac_viscosity_tests)
+    set_target_properties(ma_mac_native_heat_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME mac_native_body_heat COMMAND ma_mac_native_heat_tests)
     # Defined once in the root project and available without the backend too.
     # Preserve its inclusion in a backend test build's default ALL target.
     set_target_properties(ma_mac_checkpoint_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)

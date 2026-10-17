@@ -261,6 +261,7 @@ namespace MixedAtmospheres.Oni
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(RadialConsumptionVersion()==1,"Unsupported native radius-consumption capability.");
             Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
+            RequireChunkHeatCapability();
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
             var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);

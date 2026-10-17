@@ -295,6 +295,7 @@ namespace MixedAtmospheres.Oni
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(ViscosityVersion() == 1 && Marshal.SizeOf<ViscosityStatus>() == 120, "Unsupported native physical viscosity ABI.");
             Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
+            RequireChunkHeatCapability();
             Require(RadialConsumptionVersion() == 1,"Unsupported native radius-consumption capability.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
@@ -436,6 +437,7 @@ namespace MixedAtmospheres.Oni
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
+            CaptureChunkHeat();
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;
             var transfers = TransferStatus.Empty; Check(CopyTransferStatus(ref transfers)); transferStatus = transfers;
         }
@@ -700,6 +702,7 @@ namespace MixedAtmospheres.Oni
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             MixedPhase = MixedPhaseReport(),
             PhysicalViscosity = ViscosityReport(),
+            NativeBodyHeat = ChunkHeatReport(),
             RenderingInputs = RenderingInputs(),
             GpuGasTextures = GpuGasReport(),
             NativeSolidsAdvanced = nativeSolidsAdvanced, RetainedFrameVerified = retainedFrameVerified, Publications = publications,

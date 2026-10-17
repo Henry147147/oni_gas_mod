@@ -45,14 +45,14 @@ int main() {
             require(!ma::oni::verified_trampoline_segment(headers,invalid),"invalid trampoline bounds accepted");
         }
 #endif
-        require(ma_oni_abi_version()==3,"ABI version");
-        require(sizeof(MAOniObserverConfig)==24 && sizeof(MAOniObserverStatus)==512 && sizeof(MAOniTraceEvent)==32,"ABI layouts");
+        require(ma_oni_abi_version()==4,"ABI version");
+        require(sizeof(MAOniObserverConfig)==24 && sizeof(MAOniObserverStatus)==528 && sizeof(MAOniTraceEvent)==32,"ABI layouts");
         require(ma::oni::hash_memory("",0)=="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","empty SHA256");
         require(ma::oni::hash_memory("abc",3)=="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad","SHA256 abc");
         const std::string many(1000000,'a');
         require(ma::oni::hash_memory(many.data(),many.size())=="cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0","SHA256 multi-block");
         MAOniObserverStatus status{};
-        status.struct_size=sizeof(status); status.abi_version=3;
+        status.struct_size=sizeof(status); status.abi_version=4;
         require(ma_oni_observer_status(&status)==MA_ONI_OK && !status.attached && !status.authoritative_fluid_owner,"inactive observer status");
         const auto before=status;
         require(ma_oni_probe(nullptr,&status)==MA_ONI_INVALID_ARGUMENT && std::memcmp(&before,&status,sizeof(status))==0,"invalid config changed output");
@@ -69,7 +69,7 @@ int main() {
         std::filesystem::create_directories(fake_image.parent_path());
         { std::ofstream file(fake_image,std::ios::binary); file << "Not a licensed ONI native image"; }
         const auto path=temporary.u8string();
-        const MAOniObserverConfig invalid_image{24,3,MA_ONI_OBSERVER_ONLY,0,reinterpret_cast<const char*>(path.c_str())};
+        const MAOniObserverConfig invalid_image{24,4,MA_ONI_OBSERVER_ONLY,0,reinterpret_cast<const char*>(path.c_str())};
         require(ma_oni_probe(&invalid_image,&status)==MA_ONI_INCOMPATIBLE && std::memcmp(&before,&status,sizeof(status))==0,
                 "unknown image probe changed output or accepted native code");
         require(ma_oni_attach_observer(&invalid_image,&status)==MA_ONI_INCOMPATIBLE && std::memcmp(&before,&status,sizeof(status))==0,
@@ -110,6 +110,12 @@ int main() {
         require(ma_oni_domain_heat_abi_version()==1 && sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56,"heat extension ABI");
         MAOniDomainHeatStatus heat{56,1,0,0,0,0,0,0,0};
         require(ma_oni_domain_heat_status(&heat)==MA_ONI_OK && heat.state==0,"inactive heat status");
+        require(ma_oni_domain_chunk_heat_abi_version()==1 && sizeof(MAOniDomainChunkHeatStatus)==112,"Native body heat ABI");
+        MAOniDomainChunkHeatStatus chunk_heat{};chunk_heat.struct_size=112;chunk_heat.abi_version=1;
+        require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_OK && chunk_heat.state==0 && chunk_heat.contacts==0,"Inactive native body heat status");
+        chunk_heat.abi_version=2;const auto held_chunk=chunk_heat;
+        require(ma_oni_domain_chunk_heat_status(&chunk_heat)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&chunk_heat,&held_chunk,sizeof(chunk_heat))==0,"Invalid native body heat ABI changed output");
         const auto held_heat=heat;
         const MAOniDomainHeat request{48,1,0,0,0,0,100,1000};
         require(ma_oni_domain_queue_heat(&request,1,&heat)==MA_ONI_BUSY && std::memcmp(&heat,&held_heat,sizeof(heat))==0,

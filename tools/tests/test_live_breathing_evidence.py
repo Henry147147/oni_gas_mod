@@ -19,7 +19,11 @@ class LiveBreathingEvidenceTests(unittest.TestCase):
             ArtificialBreathingTicks=0,CompleteMetabolismVerified=False,Outstanding=0,Requests=4,Receipts=4,Callbacks=4,PositiveCallbacks=4,
             BreatherInstance=12,SourcePlacement=not restored,RestoredWithoutTeleport=restored,Evidence=rows,OxygenElementId=17,
             RequestedMassKg=.125,DeliveredMassKg=.125,CallbackMassKg=.125)
-        return dict(LiveBreathing=value,RadialConsumptionMessagesRouted=4,GasTransfers=dict(Session=2,PendingBatches=0,
+        body=dict(Size=112,Version=1,State=1,Reserved=0,Session=2,CompletedFrame=10,Contacts=120,Transfers=100,Unresolved=20,
+            BodyHeatLossJoules=20.,StoredFluidHeatJoules=20.,MaximumBalanceResidualJoules=1e-12,MaximumBalanceBoundJoules=1e-9,
+            EntropyLowerBound=.1,RequestedAbsoluteHeatJoules=21.)
+        return dict(NativeBodyHeat=dict(AbiVersion=1,Source='native-element-chunk-contact',CompleteMetabolicBodyModel=False,Status=body),
+            LiveBreathing=value,RadialConsumptionMessagesRouted=4,GasTransfers=dict(Session=2,PendingBatches=0,
             UnacknowledgedReceipts=0,MassChangesKg=[0,-.125,0,0,.3]),ColonyCheckpoint=dict(FrameInputReplay=dict(TransferBatches=4))),dict(Session=2,CompletedFrames=10)
 
     def test_complete_original_callback_chain_and_loaded_inputs_are_required(self):
@@ -56,3 +60,11 @@ class LiveBreathingEvidenceTests(unittest.TestCase):
             self.assertTrue(_live_breathing_passed(changed,physical,False))
         row=report['LiveBreathing']['Evidence'][0];row['Request']['Callback']=row['Receipt']['Callback']=-1
         self.assertFalse(_live_breathing_passed(report,physical,False))
+
+    def test_native_body_contacts_must_be_current_finite_and_conservative(self):
+        report,physical=self.fixture()
+        for key,value in [('Size',80),('Version',2),('Session',1),('CompletedFrame',9),('Transfers',0),('Contacts',0),
+                          ('Unresolved',121),('MaximumBalanceResidualJoules',1.),('MaximumBalanceBoundJoules',-1.),
+                          ('RequestedAbsoluteHeatJoules',0.),('BodyHeatLossJoules',float('nan')),('EntropyLowerBound',-1.)]:
+            changed=copy.deepcopy(report);changed['NativeBodyHeat']['Status'][key]=value
+            with self.subTest(key=key):self.assertFalse(_live_breathing_passed(changed,physical,False))

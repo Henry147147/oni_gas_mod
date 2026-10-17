@@ -185,6 +185,11 @@ internal static unsafe partial class Program
                     report["nonfluidComparison"] = migration == null ? "initial cells" : "unmodified native load";
                 }
                 Stage("advance-frames");
+                var forwardingBody=args[2]=="baseline" && Environment.GetEnvironmentVariable("MA_VERIFY_CHUNK_HEAT_FORWARDING")=="1";
+                if(forwardingBody) sim.Send(1445724082,WritePayload(writer=> {
+                    writer.Write(OxygenCell);writer.Write(103);writer.Write(10f);writer.Write(350f);
+                    writer.Write(10f);writer.Write(.01f);writer.Write(0f);writer.Write((ushort)contract.Granite);writer.Write((ushort)0);
+                }));
                 var trace = new List<Snapshot>();
                 report["frames"] = trace;
                 for (var i = 0; i < 12; ++i)
@@ -199,6 +204,11 @@ internal static unsafe partial class Program
                 report["solidHeatTransferObserved"] = trace[^1].ColdTemperature > initial.ColdTemperature
                     && trace[^1].HotTemperature < initial.HotTemperature;
                 Require((bool)report["solidHeatTransferObserved"]!, "Native solid heat transfer was not observed.");
+                if(forwardingBody) {
+                    Require(trace[^1].ChunkHeatSamples.Length==1 && trace[^1].ChunkHeatSamples[0].Temperature<350 &&
+                        trace[^1].ChunkHeatSamples[0].DeltaKilojoules<0,"Original native body heat did not execute.");
+                    report["nativeBodyHeatForwardingControlPassed"]=true;
+                }
                 if (args[2] == "multi-region")
                 {
                     Require(trace[^1].SecondaryColdTemperature > initial.SecondaryColdTemperature &&
@@ -450,6 +460,7 @@ internal static unsafe partial class Program
         public int FallingLiquidEvents { get; init; }
         public int OreEvents { get; init; }
         public ComponentEvent[] ComponentEvents { get; init; } = [];
+        public ChunkHeatSample[] ChunkHeatSamples { get; init; } = [];
         public RemovedMassEvent[] RemovedMass { get; init; } = [];
         public EmitterMassSlot[] EmitterMassSlots { get; init; } = [];
         [System.Text.Json.Serialization.JsonIgnore] public ushort[] Elements { get; init; } = [];
@@ -491,7 +502,8 @@ internal static unsafe partial class Program
                 SecondaryColdTemperature = temperatures[SecondaryColdCell], SecondaryHotTemperature = temperatures[SecondaryHotCell],
                 TransitionElement = indices[TransitionCell], SubstanceChangeEvents = Marshal.ReadInt32(pointer, 136),
                 FallingLiquidEvents = Marshal.ReadInt32(pointer, 160), OreEvents = Marshal.ReadInt32(pointer, 184),
-                ComponentEvents = ReadComponentEvents(pointer), RemovedMass = ReadRemovedMass(pointer), EmitterMassSlots = ReadEmitterMassSlots(pointer)
+                ComponentEvents = ReadComponentEvents(pointer), RemovedMass = ReadRemovedMass(pointer), EmitterMassSlots = ReadEmitterMassSlots(pointer),
+                ChunkHeatSamples = ReadEvents(pointer,316,8,data=>new ChunkHeatSample(ReadFloat(data,0),ReadFloat(data,4)))
             };
         }
     }

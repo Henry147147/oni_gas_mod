@@ -20,7 +20,7 @@ callbacks, rendering and saves use one completed physical frame. The mod loads
 its own library and changes verified code in memory; installed SimDLL files
 remain intact.
 Linux startup uses [verified executable-page padding](docs/native-trampoline-storage.md)
-for its 28 trampolines, with bounded capacity and exact byte/permission cleanup.
+for its 29 trampolines, with bounded capacity and exact byte/permission cleanup.
 
 This is the next implementation track, **not an already playable takeover**.
 It starts with an opt-in forwarding observer, followed by controlled takeover,
@@ -38,6 +38,12 @@ continuation for these paths. See [inventory admission](docs/native-initial-inve
 [breathing selection](docs/native-breathing-reader.md) and
 [pressure readers](docs/native-pressure-reader.md). Production whole-colony
 physics, reserved metabolism/devices and live-actor persistence remain open.
+
+[Native object heat](docs/native-body-heat.md) now routes element-chunk contacts
+into the same fluid owner and accepted-input journal. It conserves represented
+object heat and full-EOS fluid energy, keeps native compatibility temperatures
+unchanged and commits both endpoints on the native worker frame. Real saved
+duplicant reload verification is the next gate for this bridge.
 
 ## What currently works
 

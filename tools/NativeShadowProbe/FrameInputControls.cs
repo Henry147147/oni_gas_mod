@@ -49,5 +49,11 @@ internal static unsafe partial class Program
             return new {Verified=true,Frames=frames,HeatBatches=heatBatches,HeatCommands=heatCommands,Evidence=evidence,
                 ActualLicensedNativeWorker=true,UnityGameTest=false,ActualWindowsOsEstablishedByThisProbe=false};
         }
+        internal object FinishNativeBodyHeat()
+        {
+            Require(frames>=60 && heatBatches>0 && heatCommands==heatBatches,"Native body heat inputs were not captured in every worker replay.");
+            return new {Verified=true,Frames=frames,HeatBatches=heatBatches,HeatCommands=heatCommands,Evidence=evidence,
+                ActualLicensedNativeWorker=true,UnityGameTest=false,ActualWindowsOsEstablishedByThisProbe=false};
+        }
     }
 }

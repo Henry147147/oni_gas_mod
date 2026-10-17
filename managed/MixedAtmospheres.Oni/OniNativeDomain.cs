@@ -138,6 +138,17 @@ namespace MixedAtmospheres.Oni
         [DllImport(Library, EntryPoint = "ma_oni_domain_radial_consumption_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RadialConsumptionVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyViscosityStatus(ref ViscosityStatus status);
         [StructLayout(LayoutKind.Sequential)]
+        internal struct ChunkHeatStatus
+        {
+            public uint Size, Version, State, Reserved;
+            public ulong Session, CompletedFrame, Contacts, Transfers, Unresolved, Iterations;
+            public double BodyHeatLossJoules, StoredFluidHeatJoules, MaximumBalanceResidualJoules, MaximumBalanceBoundJoules;
+            public double EntropyLowerBound, RequestedAbsoluteHeatJoules;
+            internal static ChunkHeatStatus Empty => new ChunkHeatStatus { Size = 112, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ChunkHeatVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyChunkHeatStatus(ref ChunkHeatStatus status);
+        [StructLayout(LayoutKind.Sequential)]
         internal struct GravityStatus
         {
             public uint Size, Version, State, Enabled;

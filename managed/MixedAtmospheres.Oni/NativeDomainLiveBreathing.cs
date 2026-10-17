@@ -135,6 +135,8 @@ namespace MixedAtmospheres.Oni
                 Require(Math.Abs(current-initial-delta)<=128*2.2204460492503131e-16*(Math.Abs(current)+Math.Abs(initial)+Math.Abs(delta)),
                     "Live breathing lost an unconsumed constituent or positive trace.");
             }
+            Require(chunkHeatStatus.Contacts>0 && chunkHeatStatus.Transfers>0,
+                "The live duplicant did not exchange represented native body heat with its owned fluid.");
             liveBreathingVerified=true;
         }
         private static void ResetLiveBreathing()

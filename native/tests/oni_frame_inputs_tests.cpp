@@ -96,8 +96,42 @@ void framing() {
     image.batches.resize(frame_inputs::maximum_batches+1);rejects([&] {(void)frame_inputs::encode(image);});
     std::cout<<"PASS bounded little-endian journal framing, truncation, valid-checksum structural corruption and command limits\n";
 }
+void chunk_contacts() {
+    constexpr int owned=11+11*66,outside=14+11*66;
+    require(!exchange_domain_chunk_heat(owned,350,10,2,100,1,.2F).handled,"Inactive owner intercepted native body heat");
+    for(const auto scenario:{0U,1U,4U}) {
+        const MAOniDomainConfig config{40,2,1,64,10,10,3,2,scenario,0};start_domain(config,1);auto status=capture();
+        const auto source=snapshot_domain(status.session,0);
+        require(!exchange_domain_chunk_heat(outside,350,10,2,100,1,.2F).handled,"Outside native contact was intercepted");
+        auto body=350.0F;double expected_heat=0;
+        for(int contact=0;contact<3;++contact) {
+            const auto result=exchange_domain_chunk_heat(owned,body,10,2,100,1,.2F);
+            require(result.handled && result.temperature<body && result.delta_kj<0,"Owned native body did not cool into the full EOS");
+            expected_heat+=10000*(static_cast<double>(body)-result.temperature);body=result.temperature;
+        }
+        MAOniDomainChunkHeatStatus heat{};copy_domain_chunk_heat_status(heat);
+        require(heat.contacts==0 && heat.transfers==0 && heat.body_heat_loss_j==0 && heat.completed_frame==0,
+            "Pending native body heat was published before its physical frame");
+        MAOniDomainHeatStatus hs{};copy_domain_heat(hs);
+        require(hs.pending_batches==3 && hs.pending_heat_joules==expected_heat,"Native contact heat reservations differ from represented body energy");
+        advance_domain(1,.2F,2);status=capture();copy_domain_chunk_heat_status(heat);
+        require(heat.session==status.session && heat.completed_frame==1 && heat.contacts==3 && heat.transfers==3 &&
+            heat.body_heat_loss_j==expected_heat && heat.stored_fluid_heat_j>0 && heat.entropy_lower_bound_j_per_k>0 &&
+            heat.maximum_balance_residual_j<=heat.maximum_balance_bound_j,"Completed native body heat account failed");
+        const auto journal=copy_domain_frame_inputs(status.session,1),actual=snapshot_domain(status.session,1);
+        const auto parsed=frame_inputs::decode(journal);
+        require(parsed.batches.size()==3 && parsed.batches[0].heat[0].source==0x4d414348U &&
+            advance_domain_snapshot_with_inputs(source,journal)==actual,"Native body contact journal did not reproduce the complete worker state");
+        const auto unchanged=exchange_domain_chunk_heat(owned,body,10,2,1e-30F,1,.2F);
+        require(unchanged.handled && unchanged.temperature==body && unchanged.delta_kj==0,"Unrepresentable native body heat changed an endpoint");
+        advance_domain(2,.2F,2);copy_domain_chunk_heat_status(heat);
+        require(heat.contacts==4 && heat.transfers==3 && heat.unresolved==1,"Unresolved native body contact was not counted explicitly");
+        shutdown_domain();
+    }
+    std::cout<<"PASS native body heat ownership, atomic pending publication, represented body closure, gas/water/mixture EOS and exact input replay\n";
+}
 }
 int main() {
-    try {framing();live_inputs();durable_actors();return 0;}
+    try {framing();live_inputs();durable_actors();chunk_contacts();return 0;}
     catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

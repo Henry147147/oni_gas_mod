@@ -28,9 +28,10 @@
 namespace {
 static_assert(sizeof(void*) == 8, "ONI native observer requires x64");
 static_assert(sizeof(MAOniObserverConfig) == 24);
-static_assert(sizeof(MAOniObserverStatus) == 512);
+static_assert(sizeof(MAOniObserverStatus) == 528);
+static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
 static_assert(sizeof(MAOniTraceEvent) == 32);
-static_assert(MA_ONI_EMITTER_DISPATCH + 1 == MA_ONI_HOOK_COUNT);
+static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 #include "oni_profiles.hpp"
 
@@ -155,13 +156,14 @@ float on_next_frame(void* self,void* data) {
 }
 void on_update_data(void* self,void* data) {
     Call call(MA_ONI_UPDATE_DATA);
-    // Native publication can wake the managed reader inside UpdateData. Keep
-    // both owners behind the same fence until the original update completes.
+    // UpdateData performs native physics, including ElementChunk contacts.
+    // Commit their ordered boundary inputs before Step publishes GameData.
+    // Keep both owners behind the same fence for the entire native update.
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
-    if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
+    if (pending.ticket) ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
 }
 float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
     Call call(MA_ONI_PRESSURE);
@@ -232,6 +234,35 @@ FORWARD(on_emitter_dispatch, MA_ONI_EMITTER_DISPATCH, void, (void* self,float dt
 FORWARD(on_building_heat, MA_ONI_BUILDING_HEAT, void, (void* self,float dt,void* data,const void* region), (self,dt,data,region))
 #undef FORWARD
 
+ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float dt,float scale) {
+    ma::oni::DomainChunkHeat result{};
+    if (!ma::oni::domain_active()) return result;
+    std::int32_t cell{};float temperature{},capacity{},conductivity{},factor{};
+    // The pinned Windows PDB and Linux specialized call independently verify
+    // this 16-byte accessor and 44-byte record. Copy fields without aliasing
+    // the native compiler's C++ object type or retaining its addresses.
+    const auto* a=static_cast<const std::uint8_t*>(accessor);const auto* c=static_cast<const std::uint8_t*>(chunk);
+    std::memcpy(&cell,a+8,4);std::memcpy(&temperature,c+4,4);std::memcpy(&capacity,c+8,4);
+    std::memcpy(&conductivity,c+12,4);std::memcpy(&factor,c+16,4);
+    result=ma::oni::exchange_domain_chunk_heat(cell,temperature,capacity,conductivity,factor,scale,dt);
+    if (result.handled) std::memcpy(static_cast<std::uint8_t*>(chunk)+4,&result.temperature,4);
+    return result;
+}
+#if defined(_WIN32)
+float on_chunk_heat(float dt,const void* data,const void* handle,void* accessor,float scale,void* chunk) {
+    Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
+    if (result.handled) return result.delta_kj;
+    using Function=float (*)(float,const void*,const void*,void*,float,void*);
+    return original<Function>(MA_ONI_CHUNK_HEAT)(dt,data,handle,accessor,scale,chunk);
+}
+#else
+float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
+    Call call(MA_ONI_CHUNK_HEAT);const auto result=prepare_chunk_contact(accessor,chunk,dt,scale);
+    if (result.handled) return result.delta_kj;
+    return original<float (*)(void*,void*,float,float)>(MA_ONI_CHUNK_HEAT)(accessor,chunk,dt,scale);
+}
+#endif
+
 const std::array<void*,MA_ONI_HOOK_COUNT> replacements{
     reinterpret_cast<void*>(&on_initialize), reinterpret_cast<void*>(&on_shutdown),
     reinterpret_cast<void*>(&on_message), reinterpret_cast<void*>(&on_messages),
@@ -246,7 +277,8 @@ const std::array<void*,MA_ONI_HOOK_COUNT> replacements{
     reinterpret_cast<void*>(&on_consumer), reinterpret_cast<void*>(&on_emitter),
     reinterpret_cast<void*>(&on_building_heat), reinterpret_cast<void*>(&on_gas), reinterpret_cast<void*>(&on_gas_pair),
     reinterpret_cast<void*>(&on_displacement<MA_ONI_GAS_DISPLACEMENT>),
-    reinterpret_cast<void*>(&on_displacement<MA_ONI_LIQUID_DISPLACEMENT>), reinterpret_cast<void*>(&on_emitter_dispatch)};
+    reinterpret_cast<void*>(&on_displacement<MA_ONI_LIQUID_DISPLACEMENT>), reinterpret_cast<void*>(&on_emitter_dispatch),
+    reinterpret_cast<void*>(&on_chunk_heat)};
 
 void output_valid(const MAOniObserverStatus* output) {
     if (!output || output->struct_size != sizeof(MAOniObserverStatus) || output->abi_version != MA_ONI_ABI_VERSION)
@@ -615,6 +647,14 @@ MAOniResult ma_oni_domain_stop(MAOniDomainStatus* output) {
     });
 }
 std::uint32_t ma_oni_domain_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_chunk_heat_abi_version() { return 1; }
+MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native body heat status ABI");
+        ma::oni::copy_domain_chunk_heat_status(*output);
+    });
+}
 MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
