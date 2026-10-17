@@ -13,7 +13,7 @@ prototype, and shared mixture presentation. Actual Windows disposable colonies
 exercise snapshot copying, presentation fixtures and two explicitly owned
 native-empty reservoirs. Native ONI retains the surrounding world physics;
 no first-playable or release gate is marked complete.
-The 3,071-entry [ownership inventory](ownership-coverage.md) records known work
+The 3,072-entry [ownership inventory](ownership-coverage.md) records known work
 and remaining acceptance obligations across the supported packs and platforms.
 
 ## Implemented and exercised
