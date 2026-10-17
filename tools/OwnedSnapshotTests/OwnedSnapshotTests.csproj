@@ -18,6 +18,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeCellMassEditPlan.cs" Link="NativeCellMassEditPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeFluidTransferPlan.cs" Link="NativeFluidTransferPlan.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeFrameInputJournal.cs" Link="NativeFrameInputJournal.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureBreathingCellRead.cs" Link="MixtureBreathingCellRead.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativePressureReadPlan.cs" Link="NativePressureReadPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />

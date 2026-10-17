@@ -291,6 +291,7 @@ namespace MixedAtmospheres.Oni
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
             Require(ViscosityVersion() == 1 && Marshal.SizeOf<ViscosityStatus>() == 120, "Unsupported native physical viscosity ABI.");
+            Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
             Require(RadialConsumptionVersion() == 1,"Unsupported native radius-consumption capability.");
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");

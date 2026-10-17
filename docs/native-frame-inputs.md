@@ -1,0 +1,69 @@
+# Accepted game inputs and saved fluid continuation
+
+The native fluid owner records successful external heat and mass reservations
+in the order it accepts them. This is part of the game's simulation boundary:
+a saved fluid image alone cannot reproduce the next physical frame when a
+duplicant or device submits another command after loading.
+
+Each completed worker frame publishes one `MAFRIN01` journal alongside its
+physical state. It contains the source session/frame, completed frame, physical
+time, actual timestep, domain geometry, SHA-256 of the complete source snapshot,
+and ordered heat/transfer batches. Original callback identifiers and radius
+flags are retained. Batch boundaries matter because one heat batch makes one
+physical revision. Failed reservations add no entries. The journal is bounded
+to 1 MiB, 2,048 batches and the live limits of 4,096 heat and 4,096 transfer
+commands per frame.
+
+Journal staging shares the native frame/state locks with the actual
+reservation. Allocations and checks finish before publishing either candidate.
+The worker prepares its journal before committing its new physical state;
+failure publishes neither. A new session discards previous journals. Copying
+requires the exact last completed session/frame, even if commands for the next
+frame are already queued.
+
+The additive C ABI capability `ma_oni_domain_frame_inputs_abi_version()` is 1.
+`ma_oni_domain_frame_inputs_copy` obtains the immutable observation;
+`ma_oni_domain_snapshot_advance_with_inputs` validates its checksum, framing,
+source image, model/geometry and clock, applies the captured batches, then runs
+the ordinary actor and physical advance. It does not call game callbacks,
+replace the live owner, or change saved game identities. Callback routing is
+still performed once by the live publication path. Internal replay uses local
+epochs without modifying captured commands or save files. Failure leaves the
+output buffer and required-length field unchanged.
+
+The managed saved-colony verifier independently checks journal framing, both
+SHA-256 bindings, geometry and every command's source epoch. It compares every
+replayed complete snapshot with the actual next worker frame and retains the
+initial source image, each journal and a per-frame digest report. It uses
+actual game timesteps and commands; it does not predict AI decisions or replace
+the game clock. Empty journals produce the same bytes as the existing
+snapshot-only continuation.
+
+Durable registered actors can advance together with captured external inputs.
+Actor configuration changes are explicitly flagged; replaying those changes
+is not implemented. Existing actor fixtures that only refresh a binding with
+no external heat/mass commands retain their original exact snapshot comparison,
+reported separately as actor-refresh frames. External inputs combined with an
+actor refresh, and actors without durable identities, refuse this replay path.
+These restrictions prevent an omitted actor change from being reported as a
+successful replay.
+
+## Verification
+
+`native_oni_frame_inputs` passes on GNU Linux, Windows binaries under Wine and
+Linux ASan/UBSan, with empty native stderr on all three builds.
+It exercises gas, water, gravity, wet cells, nonlinear conduction and viscosity;
+interleaved heat/injection/radius consumption; multiple commands in one heat
+batch; failed late reservations; exact complete snapshots; empty-journal legacy
+identity; source/session/frame mismatch; durable actor timing; and explicit
+unsupported actor-change rejection. Order reversal changes the resulting
+physical state, establishing that the ordering control is meaningful. C ABI
+tests check actual replay and untouched output on bad checksums or insufficient
+capacity. Truncated prefixes and structurally altered journals are rejected.
+Both managed adapters build, and both declaration suites pass 159 groups.
+Full backend regressions, compatibility-build and actual Unity journal gates
+remain pending.
+
+This supplies a prerequisite for [live radius consumption](native-radial-consumption.md),
+not proof of a live duplicant, conserved metabolism or whole-colony ownership.
+Those remain explicit work in the [completion plan](completion-plan.md).

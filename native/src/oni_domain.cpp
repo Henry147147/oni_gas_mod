@@ -3,6 +3,7 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "oni_actor_checkpoint.hpp"
+#include "oni_frame_inputs.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -46,6 +47,9 @@ MacEnergySum committed_material, pending_material, committed_kinetic, pending_ki
 std::uint64_t accepted_transfer_batches{}, committed_transfer_batches{}, receipt_sequence{}, acknowledged_receipt{};
 std::uint32_t pending_transfer_batches{};
 std::vector<MAOniDomainReceipt> pending_receipts, receipts;
+std::vector<frame_inputs::Batch> pending_inputs;
+std::vector<std::uint8_t> completed_inputs;
+std::uint32_t pending_input_flags{};
 struct Actor {
     MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bool blocked{};
     actor_checkpoint::Identity identity{};
@@ -263,6 +267,18 @@ std::size_t domain_index(std::uint32_t public_cell,const MAOniDomainConfig& g) {
     return x-g.offset_x+(y-g.offset_y)*g.width;
 }
 std::size_t domain_index(std::uint32_t public_cell) { return domain_index(public_cell,geometry); }
+std::unique_ptr<MacClosedWorld> prepare_heat(const MacClosedWorld& source,const MAOniDomainConfig& g,
+    std::uint64_t session,std::uint64_t frame,std::span<const MAOniDomainHeat> inputs,MacEnergySum& delta) {
+    std::vector<MacCellHeat> edits;edits.reserve(inputs.size());
+    for (const auto& input:inputs) {
+        if (input.struct_size!=sizeof(input) || input.abi_version!=1)
+            throw std::invalid_argument("Native heat input ABI differs");
+        if (input.session!=session || input.expected_frame!=frame)
+            throw std::logic_error("Native heat source session/frame is stale");
+        edits.push_back({domain_index(input.public_cell,g),input.joules,input.maximum_temperature_k});delta.add(input.joules);
+    }
+    return std::make_unique<MacClosedWorld>(source.with_cell_heat(edits));
+}
 MAOniDomainReceipt prepare_point_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
     if (input.struct_size != sizeof(input) || input.abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved || input.flags > 1 ||
         (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
@@ -517,6 +533,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     committed_mass={}; pending_mass={}; committed_material={}; pending_material={}; committed_kinetic={}; pending_kinetic={};
     accepted_transfer_batches=committed_transfer_batches=receipt_sequence=acknowledged_receipt=0;
     pending_transfer_batches=0; pending_receipts.clear(); receipts.clear();
+    pending_inputs.clear();completed_inputs.clear();pending_input_flags=0;
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     pending_actor_restore=std::move(restored_actors);
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
@@ -544,6 +561,7 @@ void shutdown_domain() noexcept {
     world.reset();
     pending_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
     pending_transfer_batches=0; pending_receipts.clear(); pending_mass={}; pending_material={}; pending_kinetic={};
+    pending_inputs.clear();completed_inputs.clear();pending_input_flags=0;
     actors.clear();
     pending_actor_restore.clear();
 }
@@ -631,7 +649,20 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next_redistribution.add(result.report.conductive_redistribution_j); next_entropy.add(result.report.conductive_entropy_j_per_k);
         if (!std::isfinite(next_redistribution.value().project().value) || !std::isfinite(next_entropy.value().project().value))
             throw std::overflow_error("Native conduction diagnostic exceeds its scalar range");
+        auto source_image=world->checkpoint();auto input_flags=pending_input_flags;
+        if (!actors.empty()) {
+            if (std::any_of(actors.begin(),actors.end(),[](const auto& item) {return !item.second.identity.owner;})) input_flags|=2U;
+            else {
+                actor_checkpoint::Image image{geometry,{},std::move(source_image)};
+                for (const auto& [key,actor]:actors) { (void)key;image.actors.push_back(saved_actor(actor)); }
+                source_image=actor_checkpoint::encode(image);
+            }
+        }
+        frame_inputs::Image journal{input_flags,status.session,status.completed_frames,next.completed_frames,
+            world->time_s(),seconds,geometry,hash_memory(source_image.data(),source_image.size()),pending_inputs};
+        auto next_inputs=frame_inputs::encode(journal);
         world=std::move(owner); publication=std::move(cells); status=next;
+        completed_inputs=std::move(next_inputs);pending_inputs.clear();pending_input_flags=0;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
         viscous_dissipation=std::move(next_viscous_dissipation);viscous_stored_heat=std::move(next_viscous_stored_heat);
         viscous_entropy=std::move(next_viscous_entropy);viscous_wall_x=std::move(next_viscous_wall_x);viscous_wall_y=std::move(next_viscous_wall_y);
@@ -659,26 +690,18 @@ void queue_domain_heat(const MAOniDomainHeat* requests,std::uint32_t count,MAOni
     if (!requests || count == 0 || count > 256 || pending_heat_edits > 4096-count || pending_heat_batches >= 1024)
         throw std::invalid_argument("Native heat batch or pending capacity is invalid");
     const ArithmeticScope arithmetic;
-    std::vector<MacCellHeat> edits; edits.reserve(count); auto next_heat=pending_heat;
-    for (std::uint32_t i=0;i<count;++i) {
-        const auto& input=requests[i];
-        if (input.struct_size != sizeof(input) || input.abi_version != 1)
-            throw std::invalid_argument("Native heat input ABI differs");
-        if (input.session != status.session || input.expected_frame != status.completed_frames)
-            throw std::logic_error("Native heat source session/frame is stale");
-        const auto x=input.public_cell%geometry.native_grid_width, y=input.public_cell/geometry.native_grid_width;
-        if (x < geometry.offset_x || x-geometry.offset_x >= geometry.width || y < geometry.offset_y || y-geometry.offset_y >= geometry.height)
-            throw std::invalid_argument("Native heat target is outside the owned domain");
-        edits.push_back({x-geometry.offset_x+(y-geometry.offset_y)*geometry.width,input.joules,input.maximum_temperature_k});
-        next_heat.add(input.joules);
-    }
+    MacEnergySum delta;
+    auto candidate=prepare_heat(pending_world ? *pending_world : *world,geometry,status.session,status.completed_frames,std::span(requests,count),delta);
+    auto next_heat=combined_heat(pending_heat,delta);
     // Scalar status fields are read-only projections. The accumulated account
     // retains its full additive expansion, including cancellation remainders.
     (void)next_heat.value().require_representable();
     (void)combined_heat(committed_heat,next_heat).value().require_representable();
     if (accepted_heat_batches == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native heat account overflow");
-    auto candidate=std::make_unique<MacClosedWorld>((pending_world ? *pending_world : *world).with_cell_heat(edits));
+    frame_inputs::Batch batch;batch.heat.assign(requests,requests+count);
+    auto next_inputs=frame_inputs::appended(pending_inputs,std::move(batch));
     pending_world=std::move(candidate); pending_heat=std::move(next_heat);
+    pending_inputs=std::move(next_inputs);
     pending_heat_edits+=count; ++pending_heat_batches; ++accepted_heat_batches;
     output=heat_status();
 }
@@ -707,10 +730,13 @@ void queue_domain_transfers(const MAOniDomainTransfer* inputs,std::uint32_t coun
     for (std::uint32_t i=0;i<count;++i) prepare_transfer(work,inputs[i],inputs[i].kind);
     work.validate_accounts();
     if (accepted_transfer_batches == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native transfer batch sequence overflow");
+    frame_inputs::Batch batch;batch.transfers.assign(inputs,inputs+count);
+    auto next_inputs=frame_inputs::appended(pending_inputs,std::move(batch));
     pending_world=std::move(work.owner); pending_mass=std::move(work.mass);
     pending_potential=std::move(work.potential);
     pending_material=std::move(work.material); pending_kinetic=std::move(work.kinetic); pending_receipts=std::move(work.outbox);
     receipt_sequence=work.sequence; ++accepted_transfer_batches; ++pending_transfer_batches;
+    pending_inputs=std::move(next_inputs);
     output=transfer_status();
 }
 MAOniDomainStatus frame_status() {
@@ -813,7 +839,7 @@ void configure_actors_impl(const MAOniDomainActor* inputs,std::uint32_t count,MA
         }
     }
     if (accepted_actor_configurations > std::numeric_limits<std::uint64_t>::max()-count) throw std::overflow_error("Native actor configuration overflow");
-    actors=std::move(next);pending_actor_restore=std::move(pending);accepted_actor_configurations+=count; output=actor_status();
+    actors=std::move(next);pending_actor_restore=std::move(pending);accepted_actor_configurations+=count;pending_input_flags|=1U;output=actor_status();
 }
 void configure_domain_actors(const MAOniDomainActor* inputs,std::uint32_t count,MAOniDomainActorStatus& output) {
     configure_actors_impl(inputs,count,output,{});
@@ -927,6 +953,47 @@ std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t> 
     }
     saved.actors.clear();for (const auto& [key,actor] : restored) { (void)key;saved.actors.push_back(saved_actor(actor)); }
     saved.physical=owner->checkpoint();return actor_checkpoint::encode(saved);
+}
+
+std::vector<std::uint8_t> copy_domain_frame_inputs(std::uint64_t session,std::uint64_t frame) {
+    std::lock_guard frame_lock(frame_mutex);std::lock_guard lock(state_mutex);
+    if (!enabled.load(std::memory_order_acquire) || status.state!=1 || session!=status.session ||
+        frame!=status.completed_frames || completed_inputs.empty()) throw std::logic_error("Completed frame inputs are unavailable for this session/frame");
+    return completed_inputs;
+}
+std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const std::uint8_t> source,std::span<const std::uint8_t> inputs) {
+    const ArithmeticScope arithmetic;const auto journal=frame_inputs::decode(inputs);validate_domain_geometry(journal.geometry);
+    frame_inputs::require(journal.flags==0,"Frame input replay does not support actor reconfiguration or non-durable actors");
+    frame_inputs::require(hash_memory(source.data(),source.size())==journal.source_sha256,"Frame inputs belong to another source snapshot");
+    auto owner=restored_domain_owner(journal.geometry,source,journal.source_time);
+    std::map<std::pair<std::uint32_t,std::int32_t>,Actor> restored;
+    actor_checkpoint::Image saved;
+    const bool durable=actor_checkpoint::has_magic(source);
+    if (durable) {
+        saved=actor_checkpoint::decode(source);
+        for (std::size_t i=0;i<saved.actors.size();++i) {
+            const auto& a=saved.actors[i];const auto handle=static_cast<std::int32_t>(i+1);
+            restored.emplace(std::make_pair(a.kind,handle),restored_actor(a,handle,1,0));
+        }
+    }
+    GasWork work(*owner,journal.geometry);
+    for (const auto& batch:journal.batches) {
+        if (!batch.heat.empty()) {
+            auto heat=batch.heat;for (auto& h:heat) {h.session=work.session;h.expected_frame=work.frame;}
+            MacEnergySum delta;work.owner=prepare_heat(*work.owner,journal.geometry,work.session,work.frame,heat,delta);
+            (void)delta.value().require_representable();
+        } else {
+            for (auto input:batch.transfers) {
+                input.session=work.session;input.expected_frame=work.frame;prepare_transfer(work,input,input.kind);
+            }
+            work.validate_accounts();
+        }
+    }
+    std::uint64_t steps=0,consumed=0,emitted=0;prepare_actors(work,restored,journal.seconds,steps,consumed,emitted);
+    auto result=work.owner->advanced(journal.seconds,4096).world.checkpoint();
+    if (!durable) return result;
+    saved.actors.clear();for (const auto& [key,actor]:restored) {(void)key;saved.actors.push_back(saved_actor(actor));}
+    saved.physical=std::move(result);return actor_checkpoint::encode(saved);
 }
 
 }

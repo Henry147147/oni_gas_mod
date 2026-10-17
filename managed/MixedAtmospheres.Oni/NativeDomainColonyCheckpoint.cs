@@ -260,6 +260,7 @@ namespace MixedAtmospheres.Oni
             Require(ColonyRestoreMode && !active && pendingColonyRestore==null,"This paired colony requires the explicit native load development mode.");
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(RadialConsumptionVersion()==1,"Unsupported native radius-consumption capability.");
+            Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
             var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);
@@ -285,7 +286,7 @@ namespace MixedAtmospheres.Oni
             restoredActorImage=NativeActorCheckpointImage.HasMagic(physical) ? NativeActorCheckpointImage.Parse(physical) : null;
             arming=true;
             Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
-            prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;
+            prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;replayGeometry=payload.Geometry;
             savedSourceFrame=loadedSourceFrame=payload.CompletedFrame;savedSourceTime=loadedSourceTime=payload.PhysicalTime;
             savedPhysicalHash=loadedSourceHash=CheckpointHash(physical);
             // No Unity simulation objects have been deserialized yet. Restore
@@ -365,7 +366,7 @@ namespace MixedAtmospheres.Oni
         {
             if(!colonyLoaded || restoredExpected==null || latest.CompletedFrames==replayFrame) return;
             Require(latest.CompletedFrames==replayFrame+1 && latest.LastTimestepSeconds==(double).2f,"Restored worker observation skipped a physical frame or changed timestep.");
-            var expected=ResumePhysicalCheckpoint(restoredExpected,latest.LastTimestepSeconds);
+            var expected=ReplayCompletedFrameInputs(restoredExpected);
             Require(TryCapturePhysicalCheckpoint(out var actual) && actual.SequenceEqual(expected),"Restored colony worker differs from exact saved continuation.");
             replayTime+=latest.LastTimestepSeconds;Require(latest.TimeSeconds==replayTime,"Restored colony reset or changed its physical clock.");
             ObserveReloadPhysicalFrame(actual);
@@ -530,6 +531,7 @@ namespace MixedAtmospheres.Oni
             InitialPositiveTicksHeld=initialPositiveTicksHeld,
             DeferredSaveStartup=frameZeroResaveScheduled && !frameZeroResaveVerified ? DeferredSaveDiagnostics() : null,
             ExactContinuationFrames=exactReplayComparisons,ReplayedFrame=replayFrame,ReplayedTime=replayTime,NativeStartupBatchesDelivered=restoredNativeBatches,
+            FrameInputReplay=FrameInputReplayReport(),
             CurrentPhysicalSha256=CheckpointHash(restoredExpected),SavedFile=savedFilePath,SavedFileSha256=savedFileHash,
             NativeColonyId=SaveLoader.Instance?.GameInfo.colonyGuid.ToString("N"),WholeColonyFluidCheckpoint=false};
     }

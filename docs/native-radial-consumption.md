@@ -61,7 +61,8 @@ avoidance. Packaging and real source/save/reload acceptance remain pending.
 These checks establish the native transaction and packet boundary. An actual
 duplicant breathing inside owned cells, followed by real-game saves/reloads,
 still needs its own control. Exact continuation with live external requests
-also needs an explicit command replay account; a snapshot-only predictor cannot
+now has an [accepted-input journal and exact replay account](native-frame-inputs.md);
+its actual Unity acceptance remains pending. A snapshot-only predictor cannot
 invent the duplicant's future requests. Full conserved metabolism, body/food
 inventories, suit/tube providers, rectangular device reservations and
 whole-colony ownership remain open under the

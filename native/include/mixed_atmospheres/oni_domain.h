@@ -179,6 +179,20 @@ MA_ONI_API MAOniResult ma_oni_domain_snapshot_copy(uint64_t session, uint64_t co
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 
+/* Accepted frame inputs, additive ABI 1. Each checksummed journal is bound to
+ * the exact source snapshot, geometry, session/frame and physical timestep.
+ * It preserves successful heat/transfer batch order, including radius requests;
+ * failed reservations are absent. Copy observes only the last completed frame.
+ * Stateless replay invokes no game callbacks and changes no live owner. Actor
+ * configuration changes and actors without durable identities are marked and
+ * explicitly refuse input replay. Maximum journal size is 1 MiB. Output and
+ * required_bytes are unchanged on failure, including insufficient capacity. */
+MA_ONI_API uint32_t ma_oni_domain_frame_inputs_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_frame_inputs_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance_with_inputs(const uint8_t* source, uint32_t source_bytes,
+    const uint8_t* journal, uint32_t journal_bytes, uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+
 /* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
  * are read-only projections, never authority for a producer transaction.
  * Redistribution counts represented cell-U changes; requested sub-ULP heat

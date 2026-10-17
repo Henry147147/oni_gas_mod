@@ -315,6 +315,7 @@ internal static unsafe class Program
         ActorRegistrationTests();
         CellMassEditTests();
         NativeFluidTransferPlanTests.Run(Test,Check,Reject);
+        NativeFrameInputJournalTests.Run(Test,Check,Reject);
         BreathingCellReadTests.Run(Test, Check, Reject);
         PressureReadTests.Run(Test, Check, Reject);
         GpuPageReadbackTests.Run(Test, Check, Reject);

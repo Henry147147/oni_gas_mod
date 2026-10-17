@@ -753,6 +753,32 @@ MAOniResult ma_oni_domain_snapshot_advance(const std::uint8_t* input,std::uint32
         *required=static_cast<std::uint32_t>(image.size());
     });
 }
+std::uint32_t ma_oni_domain_frame_inputs_abi_version() { return 1; }
+MAOniResult ma_oni_domain_frame_inputs_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,
+    std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid frame input output");
+        std::vector<std::uint8_t> image;
+        try {image=ma::oni::copy_domain_frame_inputs(session,frame);}
+        catch (const std::logic_error& error) {throw Failure(MA_ONI_BUSY,error.what());}
+        if (output && capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Frame input output capacity is insufficient");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
+MAOniResult ma_oni_domain_snapshot_advance_with_inputs(const std::uint8_t* source,std::uint32_t source_bytes,
+    const std::uint8_t* inputs,std::uint32_t input_bytes,std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!source || !source_bytes || !inputs || !input_bytes || !required || (!output && capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid frame input replay buffers");
+        std::vector<std::uint8_t> image;
+        try {image=ma::oni::advance_domain_snapshot_with_inputs(std::span(source,source_bytes),std::span(inputs,input_bytes));}
+        catch (const std::logic_error& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
+        if (output && capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Frame input replay capacity is insufficient");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
 std::uint32_t ma_oni_domain_checkpoint_abi_version() { return 1; }
 MAOniResult ma_oni_domain_checkpoint_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
     return boundary([&] {

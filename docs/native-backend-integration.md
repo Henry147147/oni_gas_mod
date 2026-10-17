@@ -23,6 +23,9 @@ actual Linux gas/water sources, saves and two exact reload sessions each pass.
 The actual Linux day scheduler also saves three live actors, resumes through
 573 independently replayed intervals and passes both subsequent reload sessions.
 Production devices and pending-outbox crash recovery remain open.
+The [accepted frame-input journal](native-frame-inputs.md) adds ordered,
+source-bound replay of external heat and mass requests for saved continuation.
+Its native controls pass; actual Unity acceptance remains pending.
 The solver's [arithmetic scope](native-floating-point-environment.md) also
 isolates its precision, rounding and underflow settings from the native caller.
 The later WindowsPlayer/Proton OpenGL gas source and both reload sessions also
