@@ -163,6 +163,11 @@ class WindowsEvidenceTests(unittest.TestCase):
         options = runner.domain_options(args)
         self.assertEqual(options["expected_platform"], "WindowsPlayer")
         self.assertFalse(options["restored"])
+        args.mode="menu"
+        runner.validate_arguments(args)
+        args.save_colony=True
+        with self.assertRaisesRegex(ValueError,"initial domain"):
+            runner.validate_arguments(args)
 
 
 if __name__ == "__main__":

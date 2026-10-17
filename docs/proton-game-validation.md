@@ -48,6 +48,12 @@ native ownership, rendering and physical conservation checks. Failures remain
 in the evidence directory, including prefix initialization and cleanup failures.
 All first-playable and whole-colony completion fields remain false.
 
+`--mode menu` is a separate startup control, accepting a core-only probe or an
+observer package. It requires the scoped integration checks and successful
+main-menu contract export, then retires its own game process. Its success is
+`passed-scoped-main-menu`; it never passes native-domain ownership. This lets
+startup failures be compared with the optional native observer disabled.
+
 The initial licensed-player bootstrap reaches the U59-744825-S main menu and
 exits normally with Proton Experimental `experimental-11.0-20261014-x86_64`.
 That bootstrap did not load the mod; native feature verification follows
