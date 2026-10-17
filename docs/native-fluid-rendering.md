@@ -59,6 +59,23 @@ the panel/hover agree on 1100 kg, 300 K, 220 MPa fluid pressure, 100% liquid
 volume and no breathable gas. The screenshot in the main README is the original
 Unity capture from this run.
 
+`visible-status-Windows-water-v71` then loads that exact Linux water save with
+the same final display source. Its frame-zero autosave, 120 exact continuation
+frames, calibrated GPU/phase checks and ten Shift-key actions pass. The source
+save stays byte-identical and an independent saved-data decoder accepts its
+complete frame-input journal.
+
+`visible-status-Linux-native-observer-v73` verifies the ordinary-load state in
+a real colony: native physics continues through 120 forwarding controls, native
+snapshots remain byte-identical, and the display explicitly reports native ONI
+physics with zero custom world readings and no mixture renderer binding. It
+does not manufacture mixture data for unowned cells.
+
+Both final game-assembly builds have zero errors (the two existing reference
+warnings remain). All 174 Release snapshot/message scenarios, including the
+DAZ/FTZ control, pass. The Python suite completes 266 tests with four
+platform-specific skips on this Linux host.
+
 Earlier scripted shortcut attempts failed because the desktop tool inferred an
 extra Alt modifier for function keys. Direct XTEST physical key events receive
 the correct modifiers and pass; the earlier failure records remain retained.
@@ -74,6 +91,11 @@ Retained SHA-256 records:
 | Linux water result | `8afc01327f1ee19fef93566dff6f521b47647c4606696b3e5899d9b708c71d80` |
 | Linux water physical-key review | `f530466df2acaf1e72b86ac7377178d3837c4c9d4105e49b27471adf8e7a6502` |
 | Original water screenshot | `b7b65e004ae6b30ce7ec31e1678fcddc2122486790575656a3c056513493d619` |
+| Windows water result | `03f7a4432c6cfb2ac393e3d0c2319083966559fd05227cde423d2b31cefb58f1` |
+| Windows water physical-key review | `a84d9f93fb230ccad4b55f6a168d9ede2a6d77cb6e061f6a93d376ec1ac00352` |
+| Windows water independent journal review | `c8467a496050cdd9ac5562d9695bfbf6f475347292bad5f81b73f40238fac330` |
+| Normal Linux colony result | `3a05a622f1eab657017c5f6f0f4d15bab0b64fda2ee5309cee01611e418e736c` |
+| Normal Linux status review | `5c6767d76924471326786f1e4ba3350b1e24bd9ad8516a8c1d94dfc7f1212106` |
 
 The sealed native development domain keeps gas/liquid flow guards in the
 original ONI compatibility cells. Those guards prevent the original simulator
