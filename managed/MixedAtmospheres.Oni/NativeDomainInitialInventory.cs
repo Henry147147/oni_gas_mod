@@ -14,6 +14,7 @@ namespace MixedAtmospheres.Oni
         private static ushort[] initialInventoryElements = Array.Empty<ushort>();
         private static bool initialInventoryVerified;
         private static string initialInventoryHash = "";
+        private static int initialInventoryNativeFrames;
         private static bool InitialInventoryAdvanced => initialInventoryVerified && latest.CompletedFrames > 0 &&
             Enumerable.Range(0, cells.Length).Any(index => cells[index].Temperature != initialInventory[index].Temperature ||
                 Enumerable.Range(0, Ids.Length).Any(species => cells[index].Mass(species) != initialInventory[index].Mass(species)));
@@ -28,6 +29,17 @@ namespace MixedAtmospheres.Oni
         {
             Require(InitialInventoryVersion() == 1 && Marshal.SizeOf<InitialCell>() == 56,
                 "Unsupported native initial-inventory ABI.");
+            Require(source->numFramesProcessed > 0, "Native initial inventory requires a completed native frame.");
+            var sourceRows = new object[cells.Length];
+            for (var index = 0; index < sourceRows.Length; ++index)
+            {
+                var global = Grid.XYToCell(x + index % Width, y + index / Width);
+                sourceRows[index] = new { PublicCell = global, ElementIndex = source->elementIdx[global],
+                    MassKg = source->mass[global], TemperatureK = source->temperature[global],
+                    DiseaseCount = source->diseaseCount[global], Properties = source->properties[global] };
+            }
+            File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-initial-inventory-source.json"),
+                ReportJson.Serialize(new { NativeFrames = source->numFramesProcessed, Cells = sourceRows }));
             var inventory = new InitialCell[cells.Length];
             var elements = new ushort[cells.Length];
             for (var index = 0; index < inventory.Length; ++index)
@@ -38,7 +50,7 @@ namespace MixedAtmospheres.Oni
                 var mass = source->mass[global]; var temperature = source->temperature[global];
                 Require(!float.IsNaN(mass) && !float.IsInfinity(mass) && mass > 0 &&
                     !float.IsNaN(temperature) && !float.IsInfinity(temperature) && temperature > 0,
-                    "Native initial inventory has invalid mass or temperature.");
+                    $"Native initial inventory has invalid mass or temperature at cell {global}: element={source->elementIdx[global]}, mass={mass:R}, temperature={temperature:R}, completed native frames={source->numFramesProcessed}.");
                 elements[index] = source->elementIdx[global];
                 var species = InitialInventorySpecies(elements[index]);
                 inventory[index] = new InitialCell { Size = 56, Version = 1, Temperature = temperature,
@@ -60,7 +72,7 @@ namespace MixedAtmospheres.Oni
                     Math.Abs(admitted[index].Temperature - inventory[index].Temperature) <= 64 * 2.2204460492503131e-16 * inventory[index].Temperature &&
                     admitted[index].ResolvedKineticEnergy == 0 && admitted[index].MomentumX == 0 && admitted[index].MomentumY == 0);
             Require(initialInventoryVerified, "Native initial inventory changed constituents/temperature or invented motion before its first frame.");
-            initialInventory = inventory; initialInventoryElements = elements;
+            initialInventory = inventory; initialInventoryElements = elements; initialInventoryNativeFrames = source->numFramesProcessed;
             using var bytes = new MemoryStream();
             using (var writer = new BinaryWriter(bytes, System.Text.Encoding.UTF8, true))
                 foreach (var cell in inventory)
@@ -79,6 +91,7 @@ namespace MixedAtmospheres.Oni
             ? initialInventoryElements[index] : ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx;
         private static object InitialInventoryReport() => new {
             Required = InitialInventoryMode, Verified = initialInventoryVerified, AdvancedFromSource = InitialInventoryAdvanced, AbiVersion = 1,
+            NativeFramesInSource = initialInventoryNativeFrames,
             Source = "completed-native-GameDataUpdate", EnergyBasis = "declared-reference-EOS-at-native-temperature",
             InitialMomentum = "at-rest", SourceSha256 = initialInventoryHash,
             Cells = initialInventory.Select((cell, index) => new { PublicCell = Grid.XYToCell(x + index % Width, y + index / Width),

@@ -66,3 +66,10 @@ rejection, unchanged constituent inventories/temperature/zero motion, physical
 advancement and exact checkpoint continuation for gas, water and water with
 gravity. Real Unity import runs are in progress.
 No playable-colony or whole-colony acceptance follows from the helper tests.
+
+The first real Linux `native-inventory-unity-matrix-v1/import-save` rejects an
+invalid source mass/temperature before native activation. Its failure remains
+retained. Admission now waits for a positive completed-native-frame count and
+records all six original source tuples before validating them. No missing
+mass or temperature is synthesized. The exact rejected source values and the
+subsequent real-game result remain under investigation.

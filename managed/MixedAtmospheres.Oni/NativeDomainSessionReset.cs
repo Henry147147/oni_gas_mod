@@ -37,7 +37,7 @@ namespace MixedAtmospheres.Oni
             savedSourceTime=replayTime=loadedSourceTime=0;loadedSourceFrame=0;loadedSourceHash="";
             frameZeroResaveVerified=frameZeroResaveScheduled=initialPauseChallengeVerified=false;
             initialInventory=Array.Empty<InitialCell>();initialInventoryElements=Array.Empty<ushort>();
-            initialInventoryVerified=false;initialInventoryHash="";
+            initialInventoryVerified=false;initialInventoryHash="";initialInventoryNativeFrames=0;
             initialPauseTicksHeld=initialPositiveTicksHeld=0;resumePreparationFrame=-1;
             savedPhysicalHash=restoredInitialHash=savedFileHash=savedFilePath="";
             colonyFileSaved=colonyLoaded=zeroRestoreVerified=restoredSceneStarted=restoredRendererVerified=false;

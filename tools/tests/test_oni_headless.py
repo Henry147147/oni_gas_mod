@@ -49,7 +49,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             # exact promoted double. A direct JSON-number comparison is wrong.
             masses[3 if liquid else 4] = 1100.0 if liquid else struct.unpack('<f', struct.pack('<f', 1.01))[0]
             rows.append(dict(PublicCell=100+index, NativeElementIndex=10, MassesKg=masses, TemperatureK=300.0))
-        report['ImportedNativeInventory'] = dict(Required=True, Verified=True, AdvancedFromSource=True, AbiVersion=1,
+        report['ImportedNativeInventory'] = dict(Required=True, Verified=True, AdvancedFromSource=True, AbiVersion=1, NativeFramesInSource=1,
             Source='completed-native-GameDataUpdate', EnergyBasis='declared-reference-EOS-at-native-temperature',
             InitialMomentum='at-rest', Cells=rows)
         self.rehash_inventory(report)
@@ -74,7 +74,7 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,initial_inventory=True,liquid=liquid))
 
     def test_native_inventory_cannot_pass_with_forged_admission_or_scalar_changes(self):
-        changes = [('Verified',False),('Required',False),('AdvancedFromSource',False),('Source','fixture'),('InitialMomentum','inferred'),
+        changes = [('Verified',False),('Required',False),('AdvancedFromSource',False),('NativeFramesInSource',0),('NativeFramesInSource',True),('Source','fixture'),('InitialMomentum','inferred'),
                    ('EnergyBasis','native-energy-preserved'),('SourceSha256','0'*64),('Cells',[])]
         for key,value in changes:
             report = self.imported_inventory();report['ImportedNativeInventory'][key]=value

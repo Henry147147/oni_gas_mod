@@ -73,6 +73,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         if (restored or not isinstance(inventory, dict) or inventory.get("Required") is not True
                 or inventory.get("Verified") is not True or inventory.get("AdvancedFromSource") is not True
                 or type(inventory.get("AbiVersion")) is not int or inventory["AbiVersion"] != 1
+                or type(inventory.get("NativeFramesInSource")) is not int or inventory["NativeFramesInSource"] <= 0
                 or inventory.get("Source") != "completed-native-GameDataUpdate"
                 or inventory.get("EnergyBasis") != "declared-reference-EOS-at-native-temperature"
                 or inventory.get("InitialMomentum") != "at-rest" or not _sha256(inventory.get("SourceSha256"))):
