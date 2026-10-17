@@ -151,6 +151,20 @@ are in `local/linux-presentation/nitrogen-v15/result.json`. The unrelated old
 ambient `Player-final.log` retained by that runner version is explicitly
 excluded; the invocation's explicit `Player.log` records the matching save/load.
 
-Actual Linux Unity rendering, native phase-transition energy, starter-world
-nitrogen resources, mixture storage ownership and progression remain separate
-acceptance requirements.
+The retained actual Linux `20261016T001005Z-a5b1a6` presentation run also passes
+all three native items in a nine-world Spaced Out! colony. Its three original
+Unity images have now been individually reviewed: the selected gas, liquid and
+solid retain their names, 1000 g masses, descriptions and formatted temperatures
+of 20 C, -203.2 C and -223.2 C. The machine report verifies native spawning,
+template isolation, target selection and unchanged descriptions. The fluid
+items retain the explicit single-material reading; none is presented as an
+owned mixture.
+
+This is legacy evidence from `933f0d2` with the recorded pacing changes
+(`source_dirty: true`), on the same installed Linux game binary hashes; it is
+not a new current-adapter regression run. Private image review SHA-256:
+`29a362b717a66c3f4f6753bd2d0cc0082d990374e9af06c02232544a3ac9b263`.
+The items were disposed by the automatic fixture, so this does not prove a
+Linux native-item save/quit/resume. Conservative phase-transition energy,
+starter-world nitrogen resources, mixture storage ownership and progression
+also remain separate acceptance requirements.
