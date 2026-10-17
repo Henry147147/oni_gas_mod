@@ -42,8 +42,9 @@ restores pause depth 0. Its source physical hash is
 `bd4dd91454fa63884738c38eacd097e3624f5a6a43a6044992289e11030213b1`
 and colony-file hash is
 `6a46489554b21d2397b359d14181f17d8f6104a28483ba6183cd67dc35268e98`.
-Normal simulation continues for 572 further physical frames. Every one matches
-independent replay, ending at frame 3302 / 660.400009840727 s with physical hash
+Normal simulation continues for 572 further physical frames. Independent replay
+of all 572 intervals exactly matches the final live image at frame 3302 /
+660.400009840727 s, with physical hash
 `35eef92979c6e84b562f7076cf47bb1db5a979868385dddf49aa39f27f2e8cc0`.
 Maximum relative mass and energy drift are 4.24e-15 and 1.65e-13.
 

@@ -63,6 +63,11 @@ and final physical image is
 The original source stays unchanged. Windows Unity reader validation remains
 open.
 
+The later [Linux lifecycle-reader controls](native-reader-restore.md) pass the
+actual breathing helper and duplicant selection in both loaded sessions for
+mixed-air/CO2 and filled water, including shutdown and a return through the main
+menu. They retain the atmosphere-reader scope described here.
+
 This implements the atmosphere reader. Production duplicant consumption,
 radius/bulk reservations, coupling actual consumed oxygen to metabolic
 products, food/body inventories, suit/tube providers and persistent live

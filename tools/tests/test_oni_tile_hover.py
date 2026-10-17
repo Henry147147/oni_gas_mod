@@ -24,6 +24,7 @@ class PortableHoverReviewTests(unittest.TestCase):
                     Observation=dict(Case=case, Cell=100, Revision=case+1, PublicationGeneration=case+10,
                         ScreenWidth=1280, ScreenHeight=720, DistinctHoverFrames=3, NoSelection=True,
                         ShadowBarSelected=False, SourceId="fixture:cell:100", Contents=["one", "two", "three", "four"],
+                        SessionEpoch=1, Header="Fixture", State="Unsafe atmosphere", Warnings=["Chlorine warning"], TraceThreshold=.01,
                         NonTraceIds=["nitrogen", "oxygen", "carbon_dioxide"]+(["steam"] if case!=2 else []),
                         TraceIds=["hydrogen", "chlorine"]+(["steam"] if case==2 else [])))
 
@@ -84,6 +85,9 @@ class PortableHoverReviewTests(unittest.TestCase):
         changes=[lambda r:r["Evidence"].pop(),lambda r:r.update(FirstPlayableColonyPassed=True),
                  lambda r:r["Evidence"][0]["Observation"].update(NonTraceIds=["oxygen"]),
                  lambda r:r["Evidence"][1]["Observation"].update(Revision=999),
+                 lambda r:r["Evidence"][1]["Observation"].update(Contents=["changed"]*4),
+                 lambda r:r["Evidence"][1]["Observation"].update(Warnings=[]),
+                 lambda r:r["Evidence"][1]["Observation"].update(NonTraceIds=["nitrogen","oxygen","carbon_dioxide","steam","steam"]),
                  lambda r:r["Evidence"][2]["Observation"].update(ShadowBarSelected=True),
                  lambda r:r["Evidence"][3].update(Screenshot="another.png")]
         for change in changes:
@@ -97,6 +101,12 @@ class PortableHoverReviewTests(unittest.TestCase):
         self.assertTrue(hover.tile_hover_passed(report,self.directory))
         held=self.directory / "default-all-gases.reviewed-report.json";held.write_bytes(held.read_bytes()+b" ")
         self.assertFalse(hover.tile_hover_passed(report,self.directory))
+
+    def test_malformed_nested_reports_decline_without_promoting_incomplete_evidence(self):
+        report=self.fixture()
+        for evidence in (None, [None]*4, [42]*4, {}, "data"):
+            report["Evidence"]=evidence
+            self.assertFalse(hover.tile_hover_passed(report,self.directory))
 
 
 if __name__ == "__main__":
