@@ -95,3 +95,8 @@ have retired before saving; this does not accept live-actor persistence.
 This remains a drained six-cell development domain.
 Live actor/outbox persistence, the Load screen's file-selection UI, arbitrary
 colony ownership and first-playable acceptance remain open.
+
+The later [Linux reader lifecycle cohort](native-reader-restore.md) additionally
+verifies actual pressure, world breathing and duplicant oxygen-cell selection
+after both loaded sessions, for mixed air with CO2 and for filled water.
+All four sessions retain their matching 120-frame images and paused autosaves.
