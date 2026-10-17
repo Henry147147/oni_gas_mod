@@ -67,3 +67,20 @@ flags, exact nonuniform mass/temperature compatibility tuples for sixty native
 frames after priming, conserved custom physics and continuing native solid heat.
 They do not validate Unity presentation or save integration; run the actual
 headless colony controls for those checks.
+
+Observer ABI 4 adds native body contacts. Both platform binaries pass the six
+ordinary forwarding comparisons, plus `--mode baseline --native-body-heat`.
+The latter compares twelve original native body temperature publications and
+raw deltaKJ bits, with the private contact hook actually exercised. The
+unmodified Windows library's first deltaKJ publication is NaN; that exact
+original bit pattern is retained in both captures, and later publications
+must be finite. The owned body-heat controls require finite original object
+temperature and deltaKJ on every accepted contact.
+
+Use `MA_VERIFY_CHUNK_HEAT=1` with a plain sealed gas/water host case to check
+represented body heat, full fluid U+K and exact accepted-input replay.
+`MA_NATIVE_DOMAIN_SECOND_REGION=1` places that room in the second of two
+active regions. `MA_VERIFY_FRAME_INPUTS=1 MA_VERIFY_COMPLETED_SNAPSHOT=1`
+instead reserves a future zero-heat command and proves that a completed image
+stays identical while save snapshots refuse; stale epochs and short buffers
+must also reject without changing output.

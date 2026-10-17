@@ -24,7 +24,8 @@ class LiveBreathingEvidenceTests(unittest.TestCase):
             EntropyLowerBound=.1,RequestedAbsoluteHeatJoules=21.)
         return dict(NativeBodyHeat=dict(AbiVersion=1,Source='native-element-chunk-contact',CompleteMetabolicBodyModel=False,Status=body),
             LiveBreathing=value,RadialConsumptionMessagesRouted=4,GasTransfers=dict(Session=2,PendingBatches=0,
-            UnacknowledgedReceipts=0,MassChangesKg=[0,-.125,0,0,.3]),ColonyCheckpoint=dict(FrameInputReplay=dict(TransferBatches=4))),dict(Session=2,CompletedFrames=10)
+            UnacknowledgedReceipts=0,MassChangesKg=[0,-.125,0,0,.3]),ColonyCheckpoint=dict(FrameInputReplay=dict(TransferBatches=4,
+                CompletedSnapshotAbiVersion=1,HeatBatches=100))),dict(Session=2,CompletedFrames=10)
 
     def test_complete_original_callback_chain_and_loaded_inputs_are_required(self):
         for restored in (False,True):

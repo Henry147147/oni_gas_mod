@@ -21,6 +21,25 @@ failure publishes neither. A new session discards previous journals. Copying
 requires the exact last completed session/frame, even if commands for the next
 frame are already queued.
 
+Completed-frame image capability `ma_oni_domain_completed_snapshot_*`, ABI 1,
+publishes the full physical and durable-actor bytes atomically with the same
+journal. Readers copy this immutable image even if a duplicant has reserved
+its next request or callbacks await delivery. It requires the exact current
+session/frame and leaves outputs untouched on stale epochs or insufficient
+capacity. Pending inputs and actor changes cannot alter the retained image.
+Undurable actor images remain unsupported. This is a reader operation;
+`snapshot_copy`, paired capture and ordinary saves retain their drained-input
+and callback guards. The Unity continuation verifier uses the completed-frame
+copy, while saving continues to use the guarded checkpoint operation.
+
+This distinction was reproduced by the first Unity body-heat reload: frame 1
+compared exactly; frame 2 had matching captured fluid values and a pending next
+oxygen request. The old drained-image query refused that state. The failure
+remains retained as `native-body-heat-original-failed-live-Linux-load-v23`,
+result SHA-256
+`d9d70f18b15b8b0ec8ea2e991fb0044d7fca9ada68b4aec1efd535d11a12df7f`.
+The new reader does not relax byte-for-byte continuation or save admission.
+
 The additive C ABI capability `ma_oni_domain_frame_inputs_abi_version()` is 1.
 `ma_oni_domain_frame_inputs_copy` obtains the immutable observation;
 `ma_oni_domain_snapshot_advance_with_inputs` validates its checksum, framing,

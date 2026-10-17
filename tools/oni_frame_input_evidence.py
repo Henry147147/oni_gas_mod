@@ -72,7 +72,7 @@ def review(report: dict, directory: Path) -> dict:
     colony=report['ColonyCheckpoint'];physical=report['NativeDomain'];value=colony['FrameInputReplay'];rows=value['Journals']
     require(value['AbiVersion']==1 and value['PredictsFutureGameCommands'] is False and value['ActorReconfigurationReplayImplemented'] is False,'Unsupported replay scope')
     require(value['ActorRefreshFramesCompared']==0 and value['ReplayedFrames']==len(rows)==colony['ExactContinuationFrames'] and len(rows)>0,'Every frame must use supported input replay')
-    directory=directory.resolve();session=physical['Session'];time=colony['SourceTime'];heat=transfers=0
+    directory=directory.resolve();session=physical['Session'];time=colony['SourceTime'];heat=transfers=0;body_heat=[]
     first=directory/f'native-frame-inputs-source-{session}.bin'
     require(hashlib.sha256(first.read_bytes()).hexdigest()==colony['RestoredInitialSha256']==rows[0]['SourceSha256'],'Initial captured source differs')
     for i,row in enumerate(rows):
@@ -87,8 +87,18 @@ def review(report: dict, directory: Path) -> dict:
         for source_key,target_key in (('heat_batches','HeatBatches'),('transfer_batches','TransferBatches'),('heat_commands','HeatCommands'),('transfer_commands','TransferCommands')):
             require(decoded[source_key]==row[target_key],'Recorded batch/command count differs')
         heat+=decoded['heat_batches'];transfers+=decoded['transfer_batches'];time+=decoded['seconds']
+        for batch in decoded['batches']:
+            if batch['kind']==1:
+                body_heat.extend(command['joules'] for command in batch['commands'] if command['source']==0x4d414348)
     require(heat==value['HeatBatches'] and transfers==value['TransferBatches'] and time==colony['ReplayedTime']==physical['TimeSeconds'],'Completed replay totals or clock differ')
+    if 'NativeBodyHeat' in report:
+        body=report['NativeBodyHeat'];status=body['Status']
+        require(body['AbiVersion']==1 and body['Source']=='native-element-chunk-contact' and status['Size']==112 and
+            status['Version']==1 and status['Session']==session and status['CompletedFrame']==len(rows) and
+            status['Transfers']==len(body_heat) and status['BodyHeatLossJoules']==math.fsum(body_heat),
+            'Captured native body heat commands differ from their completed contact account')
     return dict(passed=True,frames=len(rows),heat_batches=heat,transfer_batches=transfers,
+        native_body_heat_commands=len(body_heat),
         native_code_loaded=False,independent_physics_solution=False,predicts_future_game_commands=False)
 
 def main() -> int:

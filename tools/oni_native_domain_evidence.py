@@ -563,6 +563,9 @@ def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool
         if not (0<=body['MaximumBalanceResidualJoules']<=body['MaximumBalanceBoundJoules'] and
                 body['EntropyLowerBound']>=0 and body['RequestedAbsoluteHeatJoules']>0):return False
         account=report['GasTransfers'];changes=account['MassChangesKg']
+        if restored:
+            inputs=report['ColonyCheckpoint']['FrameInputReplay']
+            if inputs.get('CompletedSnapshotAbiVersion')!=1 or inputs.get('HeatBatches',0)<body['Transfers']:return False
         return (account['Session']==physical['Session'] and account['PendingBatches']==account['UnacknowledgedReceipts']==0
             and changes[1]==-delivered and changes[0]==changes[2]==changes[3]==0 and changes[4]>=0
             and (not restored or report['ColonyCheckpoint']['FrameInputReplay']['TransferBatches']>=count))

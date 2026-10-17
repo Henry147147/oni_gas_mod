@@ -7,7 +7,7 @@ namespace MixedAtmospheres.Oni
     internal static unsafe partial class NativeSealedDomainValidation
     {
         private static ChunkHeatStatus chunkHeatStatus;
-        private static void RequireChunkHeatCapability() => Require(ChunkHeatVersion()==1 && Marshal.SizeOf<ChunkHeatStatus>()==112,
+        private static void RequireChunkHeatCapability() => Require(ChunkHeatVersion()==1 && CompletedSnapshotVersion()==1 && Marshal.SizeOf<ChunkHeatStatus>()==112,
             "Unsupported native body/fluid heat contact ABI.");
         private static void CaptureChunkHeat()
         {

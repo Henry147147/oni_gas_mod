@@ -781,6 +781,19 @@ MAOniResult ma_oni_domain_snapshot_copy(std::uint64_t session,std::uint64_t fram
         *required=static_cast<std::uint32_t>(image.size());
     });
 }
+std::uint32_t ma_oni_domain_completed_snapshot_abi_version() { return 1; }
+MAOniResult ma_oni_domain_completed_snapshot_copy(std::uint64_t session,std::uint64_t frame,std::uint8_t* output,
+    std::uint32_t capacity,std::uint32_t* required) {
+    return boundary([&] {
+        if (!required || (!output && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid completed frame snapshot output");
+        std::vector<std::uint8_t> image;
+        try {image=ma::oni::copy_completed_domain_snapshot(session,frame);}
+        catch (const std::logic_error& error) {throw Failure(MA_ONI_BUSY,error.what());}
+        if (output && capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Completed frame snapshot capacity is insufficient");
+        if (output) std::copy(image.begin(),image.end(),output);
+        *required=static_cast<std::uint32_t>(image.size());
+    });
+}
 MAOniResult ma_oni_domain_snapshot_advance(const std::uint8_t* input,std::uint32_t count,double seconds,
     std::uint8_t* output,std::uint32_t capacity,std::uint32_t* required) {
     return boundary([&] {

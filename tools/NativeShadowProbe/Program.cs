@@ -187,16 +187,39 @@ internal static unsafe partial class Program
                 Stage("advance-frames");
                 var forwardingBody=args[2]=="baseline" && Environment.GetEnvironmentVariable("MA_VERIFY_CHUNK_HEAT_FORWARDING")=="1";
                 if(forwardingBody) sim.Send(1445724082,WritePayload(writer=> {
-                    writer.Write(OxygenCell);writer.Write(103);writer.Write(10f);writer.Write(350f);
+                    writer.Write(ColdCell);writer.Write(103);writer.Write(10f);writer.Write(350f);
                     writer.Write(10f);writer.Write(.01f);writer.Write(0f);writer.Write((ushort)contract.Granite);writer.Write((ushort)0);
                 }));
                 var trace = new List<Snapshot>();
+                var forwardingBodyHandle=-1;
+                var forwardingBodyEvidence=new List<object>();
                 report["frames"] = trace;
                 for (var i = 0; i < 12; ++i)
                 {
                     sim.Send(-775326397, args[2] == "multi-region" ? RegionFrames(0.2f) : Frame(0.2f));
                     var snapshot = sim.PrepareAfterFrame(contract);
                     trace.Add(snapshot);
+                    if(forwardingBody) {
+                        foreach(var registered in snapshot.ComponentEvents.Where(item=>item.Callback==103)) {
+                            Require(forwardingBodyHandle==-1 && registered.Handle!=-1,"Native forwarding body registration is invalid.");
+                            forwardingBodyHandle=registered.Handle;
+                        }
+                        if(forwardingBodyHandle!=-1) {
+                            var index=forwardingBodyHandle & 0x00ffffff;
+                            Require(index<snapshot.ChunkHeatSamples.Length,"Native forwarding body publication is missing.");
+                            var body=snapshot.ChunkHeatSamples[index];
+                            // The unmodified Windows library publishes NaN in
+                            // its first deltaKJ slot. Retain its exact bits in
+                            // the forwarding comparison, then require finite
+                            // subsequent slots. Owned heat controls separately
+                            // require finite deltaKJ on every contact.
+                            Require(float.IsFinite(body.Temperature) && (float.IsFinite(body.DeltaKilojoules) ||
+                                (i==0 && OperatingSystem.IsWindows() && float.IsNaN(body.DeltaKilojoules))),
+                                "Registered forwarding body heat is nonfinite at frame "+(i+1)+": T="+body.Temperature+", deltaKJ="+body.DeltaKilojoules);
+                            forwardingBodyEvidence.Add(new {Frame=i+1,TemperatureBits=BitConverter.SingleToInt32Bits(body.Temperature),
+                                DeltaKilojoulesBits=BitConverter.SingleToInt32Bits(body.DeltaKilojoules)});
+                        }
+                    }
                     Require(snapshot.FramesProcessed == 1, "Expected one processed native frame; observed " + snapshot.FramesProcessed + ".");
                     if (args[2] is "sanitize" or "rebuild-shadow" or "load-shadow" or "filtered-transition")
                         Require(snapshot.FluidCells == 0, "Native fluid appeared in the vacuum shadow.");
@@ -208,6 +231,8 @@ internal static unsafe partial class Program
                     Require(trace[^1].ChunkHeatSamples.Length==1 && trace[^1].ChunkHeatSamples[0].Temperature<350 &&
                         trace[^1].ChunkHeatSamples[0].DeltaKilojoules<0,"Original native body heat did not execute.");
                     report["nativeBodyHeatForwardingControlPassed"]=true;
+                    Require(forwardingBodyEvidence.Count>0,"Native forwarding body had no registered publication.");
+                    report["nativeBodyHeatForwardingEvidence"]=forwardingBodyEvidence;
                 }
                 if (args[2] == "multi-region")
                 {
@@ -460,7 +485,9 @@ internal static unsafe partial class Program
         public int FallingLiquidEvents { get; init; }
         public int OreEvents { get; init; }
         public ComponentEvent[] ComponentEvents { get; init; } = [];
-        public ChunkHeatSample[] ChunkHeatSamples { get; init; } = [];
+        // Native handle slots can be uninitialized before registration. Export
+        // only the explicitly registered, validated body samples above.
+        [System.Text.Json.Serialization.JsonIgnore] public ChunkHeatSample[] ChunkHeatSamples { get; init; } = [];
         public RemovedMassEvent[] RemovedMass { get; init; } = [];
         public EmitterMassSlot[] EmitterMassSlots { get; init; } = [];
         [System.Text.Json.Serialization.JsonIgnore] public ushort[] Elements { get; init; } = [];

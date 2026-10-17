@@ -3,7 +3,10 @@ using MixedAtmospheres.Oni;
 
 internal static unsafe partial class Program
 {
-    private const int DomainX = 20, DomainY = 35, DomainWidth = 3, DomainHeight = 2;
+    private static readonly bool SecondRegionControl=Environment.GetEnvironmentVariable("MA_NATIVE_DOMAIN_SECOND_REGION")=="1";
+    private static readonly int DomainX=SecondRegionControl ? 40 : 20;
+    private const int DomainY = 35, DomainWidth = 3, DomainHeight = 2;
+    private static byte[] DomainFrame(float dt)=>SecondRegionControl ? RegionFrames(dt) : Frame(dt);
     private static bool IsSealedArenaCell(int x, int y) => x >= DomainX - 1 && x <= DomainX + DomainWidth &&
         y >= DomainY - 1 && y <= DomainY + DomainHeight;
     private static float DomainProjectionMass(int column, bool liquid) => liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
@@ -19,7 +22,7 @@ internal static unsafe partial class Program
         Stage("native-unbalanced-flow-control");
         for (var i = 0; i < 12; ++i)
         {
-            sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
+            sim.Send(-775326397, DomainFrame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
         }
         Require(Enumerable.Range(0, 6).Any(i => snapshot.CellData[DomainCell(i)].Mass != initialCells[i].Mass),
             "Unowned sealed projection did not exercise native flow.");
@@ -30,10 +33,10 @@ internal static unsafe partial class Program
             sim.Send(-469311643, WritePayload(writer =>
             { writer.Write(cell); writer.Write(-1); writer.Write((byte)3); writer.Write((byte)1); writer.Write((ushort)0); }));
         }
-        sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
+        sim.Send(-775326397, DomainFrame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
         Require(Enumerable.Range(0, 6).All(i => (snapshot.CellData[DomainCell(i)].Properties & 3) == 3), "Native flow flags were not installed.");
         var config = new OniNativeDomain.Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = Width,
-            X = DomainX, Y = DomainY, Width = DomainWidth, Height = DomainHeight, Scenario = liquid ? gravity ? 3U : 1U : gravity ? 2U : 0U };
+            X = checked((uint)DomainX), Y = DomainY, Width = DomainWidth, Height = DomainHeight, Scenario = liquid ? gravity ? 3U : 1U : gravity ? 2U : 0U };
         var status = OniNativeDomain.Status.Empty;
         var wrongPitch = config; wrongPitch.GridWidth -= 1;
         Require(OniNativeDomain.Begin(ref wrongPitch, ref status) == 2 && status.State == 0 && status.Session == 0,
@@ -73,7 +76,7 @@ internal static unsafe partial class Program
         NativeBodyHeatControl? bodyHeat=null;
         for (var frame = 0; frame < 75; ++frame)
         {
-            sim.Send(-775326397, Frame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
+            sim.Send(-775326397, DomainFrame(.2f)); snapshot = sim.PrepareAfterFrame(contract);
             status = OniNativeDomain.Status.Empty;
             Require(OniNativeDomain.Copy(ref status, values, 6) == 0 && status.State == 1, "Domain failed: " + status.Error);
             inputControl?.Observe(status);

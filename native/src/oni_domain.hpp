@@ -34,6 +34,7 @@ struct DomainChunkHeat { bool handled{};float temperature{},delta_kj{}; };
 DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,
     float transfer_scale,float contact_scale,float seconds) noexcept;
 void copy_domain_chunk_heat_status(MAOniDomainChunkHeatStatus&);
+std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t completed_frame);
 void copy_domain_gravity_status(MAOniDomainGravityStatus&);
 std::vector<std::uint8_t> checkpoint_domain(std::uint64_t session,std::uint64_t frame);
 // Caller must hold domain_frame_mutex; native and physical capture share it.

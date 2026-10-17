@@ -49,7 +49,7 @@ std::uint64_t accepted_transfer_batches{}, committed_transfer_batches{}, receipt
 std::uint32_t pending_transfer_batches{};
 std::vector<MAOniDomainReceipt> pending_receipts, receipts;
 std::vector<frame_inputs::Batch> pending_inputs;
-std::vector<std::uint8_t> completed_inputs;
+std::vector<std::uint8_t> completed_inputs,completed_snapshot;
 std::uint32_t pending_input_flags{};
 struct Actor {
     MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bool blocked{};
@@ -533,6 +533,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
         const auto saved=decoded_actor_image(config,image);
         for (const auto& actor : saved.actors) restored_actors.emplace(actor.key(),actor);
     }
+    auto initial_snapshot=image.empty() ? candidate->checkpoint() : std::vector<std::uint8_t>(image.begin(),image.end());
     auto cells=project(*candidate,config.scenario);
     const auto totals=masses(*candidate); const auto total_energy=energy(*candidate); const auto next_potential=potential(*candidate);
     MAOniDomainStatus next{}; next.struct_size=sizeof(next); next.abi_version=MA_ONI_DOMAIN_ABI_VERSION;
@@ -548,7 +549,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     committed_mass={}; pending_mass={}; committed_material={}; pending_material={}; committed_kinetic={}; pending_kinetic={};
     accepted_transfer_batches=committed_transfer_batches=receipt_sequence=acknowledged_receipt=0;
     pending_transfer_batches=0; pending_receipts.clear(); receipts.clear();
-    pending_inputs.clear();completed_inputs.clear();pending_input_flags=0;
+    pending_inputs.clear();completed_inputs.clear();completed_snapshot=std::move(initial_snapshot);pending_input_flags=0;
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     pending_actor_restore=std::move(restored_actors);
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
@@ -577,7 +578,7 @@ void shutdown_domain() noexcept {
     world.reset();
     pending_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
     pending_transfer_batches=0; pending_receipts.clear(); pending_mass={}; pending_material={}; pending_kinetic={};
-    pending_inputs.clear();completed_inputs.clear();pending_input_flags=0;
+    pending_inputs.clear();completed_inputs.clear();completed_snapshot.clear();pending_input_flags=0;
     actors.clear();
     pending_chunk_heat={};committed_chunk_heat={};
     pending_actor_restore.clear();
@@ -678,8 +679,18 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         frame_inputs::Image journal{input_flags,status.session,status.completed_frames,next.completed_frames,
             world->time_s(),seconds,geometry,hash_memory(source_image.data(),source_image.size()),pending_inputs};
         auto next_inputs=frame_inputs::encode(journal);
+        std::vector<std::uint8_t> next_snapshot;
+        if ((input_flags&2U)==0) {
+            next_snapshot=owner->checkpoint();
+            if (!next_actors.empty()) {
+                actor_checkpoint::Image image{geometry,{},std::move(next_snapshot)};
+                for (const auto& [key,actor]:next_actors) {(void)key;image.actors.push_back(saved_actor(actor));}
+                next_snapshot=actor_checkpoint::encode(image);
+            }
+        }
         auto next_chunk_heat=combined_chunk_heat(committed_chunk_heat,pending_chunk_heat);
         world=std::move(owner); publication=std::move(cells); status=next;
+        completed_snapshot=std::move(next_snapshot);
         committed_chunk_heat=std::move(next_chunk_heat);pending_chunk_heat={};
         completed_inputs=std::move(next_inputs);pending_inputs.clear();pending_input_flags=0;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
@@ -997,6 +1008,13 @@ std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t
         }
     }();
     return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096).world.checkpoint();
+}
+std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t frame) {
+    std::lock_guard lock(state_mutex);
+    if (!enabled.load(std::memory_order_acquire) || status.state!=1 || session!=status.session || frame!=status.completed_frames)
+        throw std::logic_error("Completed snapshot requires the current active session/frame");
+    if (completed_snapshot.empty()) throw std::logic_error("Complete frame image is unavailable for non-durable actors");
+    return completed_snapshot;
 }
 std::vector<std::uint8_t> snapshot_domain(std::uint64_t session,std::uint64_t frame) {
     std::lock_guard frame_lock(frame_mutex);MAOniDomainConfig configuration{};MAOniDomainStatus source{};

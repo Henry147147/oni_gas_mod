@@ -82,6 +82,11 @@ int main() {
         require(ma_oni_copy_trace(nullptr,0,&count)==MA_ONI_OK && count==0,"empty trace");
         require(ma_oni_copy_trace(nullptr,0,nullptr)==MA_ONI_INVALID_ARGUMENT,"null trace count");
         require(ma_oni_domain_abi_version()==2 && ma_oni_domain_active()==0,"sealed-domain extension ABI");
+        require(ma_oni_domain_completed_snapshot_abi_version()==1,"Completed frame snapshot capability ABI");
+        std::array<std::uint8_t,32> completed{};completed.fill(0x5a);const auto held_completed=completed;
+        std::uint32_t completed_bytes=123;
+        require(ma_oni_domain_completed_snapshot_copy(1,0,completed.data(),32,&completed_bytes)==MA_ONI_BUSY &&
+            completed_bytes==123 && completed==held_completed,"Inactive completed frame copy changed outputs");
         MAOniDomainStatus domain{}; domain.struct_size=sizeof(domain); domain.abi_version=2;
         require(ma_oni_domain_copy(&domain,nullptr,0)==MA_ONI_OK && domain.state==0,"inactive domain status");
         auto obsolete_domain=domain; obsolete_domain.abi_version=1; const auto held_obsolete=obsolete_domain;

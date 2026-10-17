@@ -176,6 +176,14 @@ MA_ONI_API uint32_t ma_oni_domain_pending_actor_restores(void);
  * absent from the image. Actor-free images keep the legacy physical format. */
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_copy(uint64_t session, uint64_t completed_frame,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
+/* Additive completed-frame image capability 1. Copies the immutable full
+ * physical/durable-actor image published with the frame journal, even when
+ * future inputs or completed callback receipts are pending. Never authorizes
+ * saving: snapshot_copy and paired saves retain their drained-state guards.
+ * Exact current session/frame required; all failure outputs are unchanged. */
+MA_ONI_API uint32_t ma_oni_domain_completed_snapshot_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_completed_snapshot_copy(uint64_t session, uint64_t completed_frame,
+    uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance(const uint8_t* input, uint32_t input_bytes, double seconds,
     uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 

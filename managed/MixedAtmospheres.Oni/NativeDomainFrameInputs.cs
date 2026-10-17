@@ -11,6 +11,14 @@ namespace MixedAtmospheres.Oni
         private static Configuration replayGeometry;
         private static readonly List<object> replayInputEvidence=new List<object>();
         private static int replayInputFrames,replayInputHeatBatches,replayInputTransferBatches,replayActorRefreshFrames;
+        private static byte[] ReadCompletedPhysicalFrame()
+        {
+            Check(CopyCompletedSnapshot(latest.Session,latest.CompletedFrames,null,0,out var size));
+            Require(size>32 && size<=1024U*1024*1024,"Completed physical frame length is invalid.");
+            var result=new byte[checked((int)size)];
+            Check(CopyCompletedSnapshot(latest.Session,latest.CompletedFrames,result,size,out var copied));
+            Require(copied==size,"Completed physical frame changed during its copy.");return result;
+        }
         private static byte[] ReplayCompletedFrameInputs(byte[] source)
         {
             Check(CopyFrameInputs(latest.Session,latest.CompletedFrames,null,0,out var size));
@@ -48,7 +56,7 @@ namespace MixedAtmospheres.Oni
         }
         private static object FrameInputReplayReport()=>new
         {
-            AbiVersion=1,ReplayedFrames=replayInputFrames,ActorRefreshFramesCompared=replayActorRefreshFrames,
+            AbiVersion=1,CompletedSnapshotAbiVersion=1,ReplayedFrames=replayInputFrames,ActorRefreshFramesCompared=replayActorRefreshFrames,
             HeatBatches=replayInputHeatBatches,TransferBatches=replayInputTransferBatches,Journals=replayInputEvidence.ToArray(),
             PredictsFutureGameCommands=false,ActorReconfigurationReplayImplemented=false
         };

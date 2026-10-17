@@ -45,9 +45,16 @@ void live_inputs() {
             transfer.kind=2;transfer.mass_kg=.03125;transfer.flags|=3U<<8;queue_domain_transfers(&transfer,1,ts);
             auto bad=pair;bad.back().joules=std::numeric_limits<double>::quiet_NaN();rejects([&] {queue_domain_heat(bad.data(),2,hs);});
             transfer.expected_frame++;rejects([&] {queue_domain_transfers(&transfer,1,ts);});
-            advance_domain(frame+1,.02F,2);drain();status=capture();
+            require(copy_completed_domain_snapshot(status.session,frame)==source,"Future heat/mass reservations changed the completed image");
+            rejects([&] {(void)snapshot_domain(status.session,frame);});
+            rejects([&] {(void)copy_completed_domain_snapshot(status.session+1,frame);});
+            advance_domain(frame+1,.02F,2);status=capture();
+            const auto with_receipts=copy_completed_domain_snapshot(status.session,frame+1);
+            rejects([&] {(void)snapshot_domain(status.session,frame+1);});drain();
             const auto journal=copy_domain_frame_inputs(status.session,frame+1),actual=snapshot_domain(status.session,frame+1);
+            require(with_receipts==actual,"Callback acknowledgement changed the completed physical image");
             const auto parsed=frame_inputs::decode(journal);
+            require(copy_completed_domain_snapshot(status.session,frame+1)==actual,"Completed frame image differs from a drained full checkpoint");
             require(parsed.flags==0 && parsed.source_frame==frame && parsed.completed_frame==frame+1 && parsed.source_time==time && parsed.seconds==(double).02F &&
                 parsed.batches.size()==4 && parsed.batches[0].heat.size()==1 && parsed.batches[1].transfers.size()==1 && parsed.batches[2].heat.size()==2 &&
                 parsed.batches[3].transfers.size()==1 && parsed.batches[3].transfers[0].flags==(1U|(3U<<8)),"Frame journal lost order, batch boundaries, radius or epoch");
@@ -74,6 +81,7 @@ void durable_actors() {
     configure_persistent_domain_actors(&actor,1,as);advance_domain(1,.02F,2);drain();status=capture();
     require((frame_inputs::decode(copy_domain_frame_inputs(status.session,1)).flags&1U)!=0,"Actor configuration was silently omitted from the journal");
     const auto source=snapshot_domain(status.session,1);MAOniDomainHeat heat{48,1,status.session,1,650,4,12,1e6};MAOniDomainHeatStatus hs{};queue_domain_heat(&heat,1,hs);
+    require(copy_completed_domain_snapshot(status.session,1)==source,"Pending external heat changed published durable actor state");
     advance_domain(2,.02F,2);drain();const auto inputs=copy_domain_frame_inputs(status.session,2);
     require(advance_domain_snapshot_with_inputs(source,inputs)==snapshot_domain(status.session,2),"External inputs and durable actor timing did not replay together");
     auto flagged=frame_inputs::decode(inputs);flagged.flags=1;rejects([&] {(void)advance_domain_snapshot_with_inputs(source,frame_inputs::encode(flagged));});
@@ -113,6 +121,7 @@ void chunk_contacts() {
         require(heat.contacts==0 && heat.transfers==0 && heat.body_heat_loss_j==0 && heat.completed_frame==0,
             "Pending native body heat was published before its physical frame");
         MAOniDomainHeatStatus hs{};copy_domain_heat(hs);
+        require(copy_completed_domain_snapshot(status.session,0)==source,"Pending body contacts changed the published source image");
         require(hs.pending_batches==3 && hs.pending_heat_joules==expected_heat,"Native contact heat reservations differ from represented body energy");
         advance_domain(1,.2F,2);status=capture();copy_domain_chunk_heat_status(heat);
         require(heat.session==status.session && heat.completed_frame==1 && heat.contacts==3 && heat.transfers==3 &&

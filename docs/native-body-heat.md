@@ -81,3 +81,18 @@ The saved live-duplicant Unity reload must be rerun with this bridge. Bulk
 solid-cell and building heat coupling, a complete material conductivity model,
 phase-changing objects and conserved food/body/oxygen/CO2 metabolism remain
 separate work. The bridge does not establish whole-colony authority.
+
+All 20 bridge groups also pass on Windows binaries under Wine, the clean Ubuntu
+22.04 build and Linux ASan/UBSan (581.03 s). A saved-only review of all four
+licensed worker captures reconstructs binary32 body temperatures and checks
+the closed accounts and 244 frame records. Its SHA-256 is
+`623e1c34764d7555d8b2d6ae13f4f96e153abda41fc69a2386c20db58386b787`.
+An owned room in the second of two active native regions also passes 61 exact
+Linux worker frames, proving the contact does not add a second fluid clock.
+
+The first Unity retry with the bridge commits two real body contacts totaling
+95.30639508739114 J and passes its first exact continuation frame. The next
+comparison exposes the [completed-frame reader requirement](native-frame-inputs.md):
+the duplicant has already reserved its next oxygen request, while the old save
+snapshot operation requires drained commands. A new completed-image reader and
+another real-game reload are required before claiming saved live breathing.

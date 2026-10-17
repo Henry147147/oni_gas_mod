@@ -368,7 +368,15 @@ namespace MixedAtmospheres.Oni
             if(!colonyLoaded || restoredExpected==null || latest.CompletedFrames==replayFrame) return;
             Require(latest.CompletedFrames==replayFrame+1 && latest.LastTimestepSeconds==(double).2f,"Restored worker observation skipped a physical frame or changed timestep.");
             var expected=ReplayCompletedFrameInputs(restoredExpected);
-            Require(TryCapturePhysicalCheckpoint(out var actual) && actual.SequenceEqual(expected),"Restored colony worker differs from exact saved continuation.");
+            // A live duplicant may already have reserved its next request.
+            // Observe the immutable completed image; save admission continues
+            // to require the separate drained checkpoint API.
+            var actual=ReadCompletedPhysicalFrame();
+            if(!actual.SequenceEqual(expected)) {
+                File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"failed-continuation-expected.bin"),expected);
+                File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,"failed-continuation-actual.bin"),actual);
+                throw new InvalidOperationException("Restored colony worker differs from exact saved continuation: expected "+CheckpointHash(expected)+", actual "+CheckpointHash(actual));
+            }
             replayTime+=latest.LastTimestepSeconds;Require(latest.TimeSeconds==replayTime,"Restored colony reset or changed its physical clock.");
             ObserveReloadPhysicalFrame(actual);
             restoredExpected=expected;replayFrame=latest.CompletedFrames;++exactReplayComparisons;
