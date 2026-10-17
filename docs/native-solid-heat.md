@@ -83,6 +83,13 @@ checkpoint format. The managed report also retains the native publication's
 processed-frame count. These observations distinguish publication timing from
 lost native heat without changing the conservation bound.
 
+A second 64-byte observation reads the native old and updated cell arrays
+after each worker sub-update, tagged with its completed fluid frame and native
+ticket. It retains material, mass and insulation facts separately from the
+prepared game buffer. Stale observations reject before changing completed
+evidence. This is diagnostic evidence; it does not repair or accept the
+currently failing Unity boundary.
+
 These controls do not establish
 actual Windows OS support, whole-colony heat, arbitrary moving/changing solids,
 building thermal components or phase-changing boundaries.

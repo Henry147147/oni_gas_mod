@@ -4,15 +4,22 @@ internal static unsafe partial class Program
 {
     private sealed class NativeSolidHeatControl
     {
-        private const float InitialTemperature=400,Mass=10;
+        private const float Mass=10;
+        private readonly float InitialTemperature;
         private readonly int cell=DomainX-1+DomainY*Width;
         private readonly double capacity;
-        private float temperature=InitialTemperature;
+        private float temperature;
         private double bodyLoss;
         private int samples;
         private readonly List<object> evidence=new();
         internal NativeSolidHeatControl(NativeSim sim,Contract contract,OniNativeDomain.Status status)
         {
+            var bits=Environment.GetEnvironmentVariable("MA_NATIVE_SOLID_TEMPERATURE_BITS");
+            InitialTemperature=bits==null ? 400 : BitConverter.Int32BitsToSingle(int.Parse(bits,
+                System.Globalization.NumberStyles.HexNumber,System.Globalization.CultureInfo.InvariantCulture));
+            Require(float.IsFinite(InitialTemperature) && InitialTemperature>300 && InitialTemperature<=1e6,
+                "Native solid control needs a finite initial temperature above its 300 K fluid.");
+            temperature=InitialTemperature;
             Require(OniNativeDomain.SolidHeatVersion()==1,"Native solid heat capability differs.");
             void Replace(int position,int element,float mass,float kelvin)=>sim.Send(-1252920804,WritePayload(writer=> {
                 writer.Write(position);writer.Write(-1);writer.Write(kelvin);writer.Write(mass);writer.Write(0);
@@ -42,9 +49,19 @@ internal static unsafe partial class Program
                 heat.CompletedFrame==status.CompletedFrames && heat.MaximumBalanceResidualJoules<=heat.MaximumBalanceBoundJoules,
                 "Native solid completed heat status differs from its fluid frame.");
             var bound=128*2.2204460492503131e-16*(capacity*(InitialTemperature+temperature)+Math.Abs(bodyLoss)+Math.Abs(heat.BodyHeatLossJoules));
-            Require(Math.Abs(bodyLoss-heat.BodyHeatLossJoules)<=bound,"Actual native solid temperature lost a native contribution or its represented fluid heat.");
+            var native=OniNativeDomain.SolidCellState.Empty;
+            Require(OniNativeDomain.CopySolidCellState(ref native)==0 && native.State==1 && native.Session==status.Session &&
+                native.CompletedFrame==status.CompletedFrames && native.NativeTicket==status.NativeTicket && native.SolidPublicCell==cell &&
+                native.NativeElementIndex==current.Element && native.MassKg==Mass && native.NativeInsulation==current.Insulation &&
+                float.IsFinite(native.OldTemperatureK) && float.IsFinite(native.UpdatedTemperatureK),
+                "Completed native solid array observation differs from its worker frame or material.");
+            Require(Math.Abs(bodyLoss-heat.BodyHeatLossJoules)<=bound,"Actual native solid temperature lost a native contribution or its represented fluid heat: published="+
+                (double)temperature+", nativeOld="+(double)native.OldTemperatureK+", nativeUpdated="+(double)native.UpdatedTemperatureK+
+                ", observedLoss="+bodyLoss+", journalLoss="+heat.BodyHeatLossJoules+", frame="+status.CompletedFrames+".");
             evidence.Add(new {status.CompletedFrames,NativeTemperature=temperature,NativeMass=current.Mass,NativeInsulation=current.Insulation,
                 ObservedBodyHeatLossJoules=bodyLoss,ObservedBalanceBoundJoules=bound,
+                CompletedNativeCell=new {native.CompletedFrame,native.NativeTicket,
+                    OldTemperatureK=(double)native.OldTemperatureK,UpdatedTemperatureK=(double)native.UpdatedTemperatureK},
                 Heat=new {heat.Size,heat.Version,heat.State,heat.Reserved,heat.Session,heat.CompletedFrame,heat.Contacts,heat.Transfers,
                     heat.Unresolved,heat.Iterations,heat.BodyHeatLossJoules,heat.StoredFluidHeatJoules,heat.MaximumBalanceResidualJoules,
                     heat.MaximumBalanceBoundJoules,heat.EntropyLowerBound,heat.RequestedAbsoluteHeatJoules}});

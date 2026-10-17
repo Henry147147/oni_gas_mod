@@ -271,6 +271,19 @@ typedef struct MAOniDomainSolidHeatEndpoint {
     float native_old_temperature_k, before_temperature_k, after_temperature_k, seconds;
 } MAOniDomainSolidHeatEndpoint;
 MA_ONI_API MAOniResult ma_oni_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint*);
+/* Actual native cell arrays after the completed worker update. This separate
+ * read-only observation distinguishes native storage from a prepared game
+ * publication; it does not alter the endpoint or checkpoint. */
+typedef struct MAOniDomainSolidCellState {
+    uint32_t struct_size, abi_version, state, solid_public_cell;
+    uint64_t session, completed_frame;
+    float old_temperature_k, updated_temperature_k;
+    uint32_t native_element_index;
+    float mass_kg;
+    uint32_t native_insulation, reserved;
+    uint64_t native_ticket;
+} MAOniDomainSolidCellState;
+MA_ONI_API MAOniResult ma_oni_domain_solid_cell_state(MAOniDomainSolidCellState*);
 MA_ONI_API uint32_t ma_oni_domain_solid_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell*, uint32_t count,
     MAOniDomainSolidHeatStatus*);

@@ -37,6 +37,8 @@ void copy_domain_chunk_heat_status(MAOniDomainChunkHeatStatus&);
 void configure_domain_solid_heat(const MAOniDomainSolidHeatCell*,std::uint32_t count,MAOniDomainSolidHeatStatus&);
 void copy_domain_solid_heat_status(MAOniDomainSolidHeatStatus&);
 void copy_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint&);
+void copy_domain_solid_cell_state(MAOniDomainSolidCellState&);
+void record_domain_solid_cell_state(const MAOniDomainSolidCellState&);
 bool domain_solid_heat_registered(int native_cell) noexcept;
 void fault_domain_solid_heat(const char*) noexcept;
 // The native detour supplies the current native cell facts. A changed material

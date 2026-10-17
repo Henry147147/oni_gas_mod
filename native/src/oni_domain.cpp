@@ -74,6 +74,7 @@ struct ChunkHeatProgress {
 ChunkHeatProgress pending_chunk_heat,committed_chunk_heat,pending_solid_heat,committed_solid_heat;
 std::map<int,MAOniDomainSolidHeatCell> solid_heat_cells;
 std::set<std::pair<int,int>> solid_heat_contacts;
+MAOniDomainSolidCellState completed_solid_cell{};
 MacEnergySum committed_potential,pending_potential,body_impulse,gravity_internal_work;
 double initial_potential{},maximum_energy_residual{};
 std::vector<MAOniDomainCell> publication;
@@ -563,7 +564,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
-    solid_heat_cells.clear();solid_heat_contacts.clear();
+    solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
@@ -588,7 +589,7 @@ void shutdown_domain() noexcept {
     pending_inputs.clear();completed_inputs.clear();completed_snapshot.clear();pending_input_flags=0;
     actors.clear();
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
-    solid_heat_cells.clear();solid_heat_contacts.clear();
+    solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
     pending_actor_restore.clear();
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
@@ -831,6 +832,19 @@ void copy_domain_solid_heat_endpoint(MAOniDomainSolidHeatEndpoint& output) {
     std::lock_guard lock(state_mutex);output=committed_solid_heat.endpoint;
     output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
     output.session=status.session;output.completed_frame=status.completed_frames;
+}
+void copy_domain_solid_cell_state(MAOniDomainSolidCellState& output) {
+    std::lock_guard lock(state_mutex);output=completed_solid_cell;
+    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.session=status.session;
+}
+void record_domain_solid_cell_state(const MAOniDomainSolidCellState& input) {
+    std::lock_guard lock(state_mutex);
+    if(input.struct_size!=sizeof(input) || input.abi_version!=1 || input.reserved || input.state!=1 ||
+        input.session!=status.session || input.completed_frame!=status.completed_frames || input.native_ticket!=status.native_ticket ||
+        input.solid_public_cell!=committed_solid_heat.endpoint.solid_public_cell)
+        throw std::logic_error("Native solid cell observation differs from its completed owner frame");
+    completed_solid_cell=input;
 }
 bool domain_solid_heat_registered(int cell) noexcept {
     std::lock_guard lock(state_mutex);return status.state==1 && solid_heat_cells.contains(cell);

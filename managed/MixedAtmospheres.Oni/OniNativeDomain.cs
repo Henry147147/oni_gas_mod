@@ -164,10 +164,23 @@ namespace MixedAtmospheres.Oni
             public float NativeOldTemperatureK,BeforeTemperatureK,AfterTemperatureK,Seconds;
             internal static SolidHeatEndpoint Empty=>new SolidHeatEndpoint {Size=64,Version=1};
         }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct SolidCellState
+        {
+            public uint Size,Version,State,SolidPublicCell;
+            public ulong Session,CompletedFrame;
+            public float OldTemperatureK,UpdatedTemperatureK;
+            public uint NativeElementIndex;
+            public float MassKg;
+            public uint NativeInsulation,Reserved;
+            public ulong NativeTicket;
+            internal static SolidCellState Empty=>new SolidCellState {Size=64,Version=1};
+        }
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_abi_version",CallingConvention=CallingConvention.Cdecl)] internal static extern uint SolidHeatVersion();
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_configure",CallingConvention=CallingConvention.Cdecl)] internal static extern int ConfigureSolidHeat([In] SolidHeatCell[] input,uint count,ref ChunkHeatStatus status);
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_status",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidHeat(ref ChunkHeatStatus status);
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_endpoint",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidHeatEndpoint(ref SolidHeatEndpoint endpoint);
+        [DllImport(Library,EntryPoint="ma_oni_domain_solid_cell_state",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidCellState(ref SolidCellState state);
         [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ChunkHeatVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_chunk_heat_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyChunkHeatStatus(ref ChunkHeatStatus status);
         [StructLayout(LayoutKind.Sequential)]

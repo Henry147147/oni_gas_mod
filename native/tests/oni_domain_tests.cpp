@@ -55,6 +55,15 @@ void solid_boundary_heat() {
             endpoint.solid_public_cell==649 && endpoint.fluid_public_cell==650 && endpoint.reserved==0 &&
             endpoint.native_old_temperature_k==349.5F && endpoint.before_temperature_k==350 &&
             endpoint.after_temperature_k==contact.temperature && endpoint.seconds==.2F,"Completed native solid contact operands changed or lost their frame");
+        const MAOniDomainSolidCellState native_cell{64,1,1,649,source.session,1,350,contact.temperature,
+            123,input.mass_kg,255,0,1};
+        MAOniDomainSolidCellState observation{};copy_domain_solid_cell_state(observation);const auto unobserved=observation;
+        auto stale=native_cell;stale.completed_frame=0;rejected=false;
+        try {record_domain_solid_cell_state(stale);} catch(const std::logic_error&) {rejected=true;}
+        copy_domain_solid_cell_state(observation);
+        require(rejected && std::memcmp(&unobserved,&observation,sizeof(observation))==0,"Stale native solid observation changed completed evidence");
+        record_domain_solid_cell_state(native_cell);copy_domain_solid_cell_state(observation);
+        require(std::memcmp(&native_cell,&observation,sizeof(observation))==0,"Completed native solid cell facts or source ticket changed");
         const auto journal=copy_domain_frame_inputs(source.session,1);
         require(advance_domain_snapshot_with_inputs(image,journal)==snapshot_domain(source.session,1),"Solid heat input did not replay the complete fluid image exactly");
         MAOniDomainChunkHeatStatus body{};copy_domain_chunk_heat_status(body);require(body.contacts==0,"Solid heat was counted as native body heat");
