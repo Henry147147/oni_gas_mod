@@ -174,3 +174,40 @@ The stronger readers are promoted with identical normalized source after all
 captures close. The fresh 217-group prerequisites and changed-method strong
 benchmark remain required. No default, production or playable-colony gate is
 promoted.
+
+## Fresh full suite and remaining separation failure
+
+The fresh rerun from `7f192b3` passes all 217 native groups and 36 saved
+reviews on Windows, Linux and Linux ASan/UBSan. Both normal backend ABI/detour
+checks pass, and all 67 composed sanitizer compile commands are instrumented.
+The new native streams match the focused repair captures; selected legacy
+streams remain byte identical. All processes and pipes close. Full evidence:
+`local/mac-bounded-energy-prerequisites-r3`, terminal SHA-256
+`4816e6baad131031c3420b0d8a7fe996682d486ff1de926e884826a00aba16af`.
+
+The next original Windows strong-flow attempt resolves the paired-work
+rejection and completes all nine profiles with zero timestep retries. Sod and
+collision pass their refinement gates. Separation N256 still fails: its
+density/pressure/velocity L1 errors are 0.0178341/0.0193070/0.0908767, with
+velocity above the unchanged 0.06 limit. Central density and pressure relative
+errors are 25.9256 and 56.9301, above the original 0.5 limits. The process exits
+1 in 110.355 seconds without timeout. The 1,217,507-byte stdout SHA-256 is
+`6c7261e2d4b36d569967806825e265bec4538565edcec273819a65949e3a4727`.
+Saved-only review performs 124,190 data checks and confirms the failed finest
+criteria. It does not certify the strong-flow gate. Terminal evidence:
+`local/mac-bounded-energy-strong-r2`, SHA-256
+`16d2d3def3afb8aab944fef026f623086af765922e7e0c900c6edcbdc1e72158`.
+
+Saved localization places most velocity error in the expansion fans. The two
+central N256 cells have density 0.008384/0.008782 kg/m3 and temperature
+30.551/29.368 K, versus exact density 0.00032616 kg/m3 and temperature 13.650 K.
+Their specific entropy changes relative to the uniform initial source are
+-364.88/-407.99 J/(kg K), although total domain entropy increases. This calls
+for inspecting actual parcel reconstruction, signed work and heat stages; the
+global entropy check alone does not explain those local readings. Saved-only
+localization SHA-256 is
+`cd6a63615392800b0fdb13006de39be89eaf292af704f2abc5fe7914d203d723`.
+No unchanged Linux strong attempt is launched. No initial energy, coefficient,
+grid, timestep, norm, scientific limit or default is changed. Strong flow,
+exact-vacuum interfaces, production coverage and playable-colony acceptance
+remain open.

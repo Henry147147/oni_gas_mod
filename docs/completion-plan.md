@@ -129,6 +129,12 @@ regression that fails with the original libraries. Fresh complete prerequisites
 and strong-flow accuracy remain open; see the linked investigation for retained
 failures and exact scope.
 
+The fresh 217-group/36-review rerun passes on all three configurations. Its
+next strong attempt completes all nine profiles without timestep retries,
+resolving the paired-work guard. Separation still fails the original finest
+velocity and central density/pressure limits. Saved-only review verifies the
+failed criteria; no unchanged Linux repeat or default promotion is made.
+
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
 - Preserve every constituent, including traces, through all transfers.
