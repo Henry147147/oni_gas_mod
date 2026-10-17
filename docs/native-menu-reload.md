@@ -66,6 +66,16 @@ missing KPrefabID reference (246809) during resaving; general managed-reference
 integrity is not proved. Actual liquid inspection is retained separately from
 liquid fill rendering, which remains unaccepted.
 
+The later Windows `windows-native-liquid-gravity-reload-r1` cohort also passes
+both loaded sessions with the distinct water-gravity energy profile. Each
+matches all 120 exact continued physical frames and both paused autosaves have
+complete header/body readback. Both retain physical SHA-256
+`5922bef797e809529d648cf3cb10a276870c3337d11aa164b1df89e312d4c65b`
+at 48.000000715 s. See [the liquid-gravity record](native-liquid-gravity.md#actual-windows-native-and-unity-controls)
+for the source save, original screenshot and terminal receipts. This adds a
+second physical profile to the Windows lifecycle control; the scope below
+remains unchanged.
+
 This remains a drained six-cell development domain.
 Live actor/outbox persistence, the Load screen's file-selection UI, arbitrary
 colony ownership and first-playable acceptance remain open.

@@ -68,7 +68,49 @@ checks with four platform-specific skips. The Windows-under-Wine 1,200-frame
 test also passes with -0.000190683 J residual. Its native suite passes all 13
 cases across a separate rerun of the final checkpoint case after a Wine server
 connection reset; the original infrastructure failure remains retained.
-Sanitizer and rendered Unity verification of this new scenario are still
-running or pending. This is a six-cell occupied liquid control;
-it does not implement free surfaces, phase change, arbitrary liquid materials,
-production devices, persistent live actors or whole-colony ownership.
+Linux sanitizer and rendered Unity verification of this new scenario remain
+separate obligations. This is a six-cell occupied liquid control; it does not
+implement free surfaces, phase change, arbitrary liquid materials, production
+devices, persistent live actors or whole-colony ownership.
+
+### Actual Windows native and Unity controls
+
+The clean `018c0df` merge is frozen in `windows-native-domain-liquid-gravity-r1`
+and rebuilt with native MSVC. All 13 native CTests, 91 Core groups, 41
+presentation groups and coupled/passive/mutation controls pass. The actual
+Windows 1,200-frame native test reports U+K+G residual
+`-0.0002220792849216835 J`, below the unchanged `0.0059458607686322575 J` bound,
+and a 6223.113030016 Pa pressure head. Exact checkpoint continuation also passes.
+
+Actual Windows ONI 744825 / Unity 6000.3.5f2 then completes 120 frames /
+2,520 substeps / 24.000000358 s, including both real water mass callbacks.
+The 12 rejected adaptive attempts remain reported. Relative mass/energy drift
+is 1.516e-15 / 1.167e-15. The transfer energy residual is -5.071591662075825e-6 J
+against the unchanged 0.005945860768673391 J bound; maximum gravity residual is
+0.0001220703125 J. Body impulse, potential and boundary-potential checks pass.
+The ordinary paired save retains physical SHA-256
+`9166cd6b0c966dc94c64f082be3c6acc42b8ffc848c16eaae5c55eed2dc4f451`
+and file SHA-256
+`3f39913d86243addb62ed8c85885234409da9bcfbaab87e7f3b50b3b7f510289`.
+Its complete 10,643,848-byte body and header match disk readback. Private source
+terminal review SHA-256:
+`9ce05bc67ea16e4763a2325b97f835736e02dab31f06a14f2197ff02db857f19`.
+
+`windows-native-liquid-gravity-reload-r1` loads that input in a fresh Windows
+Unity process, returns through the main menu and loads it again in the same
+process. Native sessions advance from 1 to 2. Each passes its positive paused
+tick challenge, frame-zero deferred autosave/header/body readback and all 120
+exact continuation frames. Both reach 48.000000715 s with physical SHA-256
+`5922bef797e809529d648cf3cb10a276870c3337d11aa164b1df89e312d4c65b`.
+The original GUID, three duplicants and source/staged input hashes are retained.
+Private reload terminal review SHA-256:
+`ce11b2e4b061ed2819588995d07632ad20ae772e7ff94cb171026c40a55c383e`.
+
+Actual mouse hover updates mass, temperature and supplied fluid pressure as
+water moves, and second-session selected details retain water mass/moles,
+100% liquid volume, no gas phase and explicit breathing status. Original Windows
+screenshots are retained. Both processes close successfully, remove temporary
+mods and restore all 13 profile files byte-for-byte. The missing KPrefabID
+246809 warning persists during resaving. Liquid fill rendering, exact visual
+cell/frame binding, general managed-reference integrity, scientific hydrostatic
+convergence and first-playable acceptance remain open.
