@@ -194,9 +194,53 @@ chunk, building-temperature and disease status tables remain owned and available
 while paused; they are read by game components independently of frame events.
 
 Current transfers support nitrogen, oxygen, helium and carbon dioxide in occupied gas cells.
-Liquid/empty-cell transitions, disease-bearing injection, spatial consumption,
+Filled-water transfers are described below. Empty-cell transitions, disease-bearing injection, spatial consumption,
 mixed-owner batches, spatial/bulk actors and producer reservations require
 additional adapters. Unsupported requests reject before dispatch.
+
+## Filled-liquid point sources
+
+The same transfer ABI and game message route admit water in an already filled,
+single-liquid cell. Injection declares a parcel at rest, at the supplied
+temperature and the receiving cell's pre-edit pressure. Its internal energy
+includes both the caloric reference and stored elastic compression energy.
+Extraction carries the local specific internal energy and its share of face
+momentum and kinetic energy. The fixed-volume EOS resolves the resulting
+pressure and temperature from conserved state. No implicit pump work or
+enthalpy flux is added; a production pump still needs its own work account.
+
+The immutable operator rejects gas/liquid mixing, another liquid material,
+passive metadata without an adapter, empty cells and removal that would leave
+a void. A later invalid request leaves every earlier candidate, physical
+publication, clock, account and receipt unpublished. Existing gas-only callers
+retain their phase restriction. Physical checkpoints preserve the resulting
+water inventory, elastic energy and canonical face momentum.
+
+`native-liquid-transfer-domain` / Windows `-NativeDomain water-transfer` injects
+0.05 kg through `SimMessages.EmitMass`, allows a positive native interval to
+create motion, then extracts 0.02 kg through single-cell `ConsumeMass`. It checks
+the original native cells, both game callbacks once, both acknowledged physical
+receipts, their ordered completed frames, constituent accounts and U+K. Add
+`--save-colony` / `-SaveColony` to write the ordinary paired checkpoint, then run
+the normal `native-load-domain --resave-before-resume` control on that file.
+Restored water need not equal the old 1,100 kg equilibrium fixture: complete
+physical-image replay must still match every resumed native frame exactly.
+
+Water's caloric reference makes these absolute internal energies negative.
+Parcel checks therefore compare the EOS value; positivity is not an energy
+invariant. The independent liquid U+K report uses an explicit binary64
+roundoff bound, `128 * epsilon * (sum(abs(U)+K) before + after)`, rather than a
+sub-ULP absolute tolerance. Existing gas tolerances and native expansion-based
+mass, momentum and energy accounts remain unchanged.
+
+Private `liquid-point-transfer-linux-native-v2` and
+`liquid-point-transfer-windows-native-v1` pass against the licensed current
+Linux and Windows simulation libraries (the Windows host runs under Wine).
+Each verifies the analytic parcel compression energy, atomic void rejection,
+two receipts and 12 exact continuation frames. Linux's U+K residual is
+-0.000236340461 J against a 0.005945860769 J roundoff bound. All 13 Linux native
+CTests and the Linux game adapter build pass. The new rendered Unity scene is
+not yet verified; neither library-only run supplies Windows Unity evidence.
 
 The current domain ABI 2 uses 96-byte cells: nitrogen, oxygen, helium, water and
 carbon dioxide masses followed by the physical readings. Domain configuration

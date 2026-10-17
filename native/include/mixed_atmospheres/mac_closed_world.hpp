@@ -95,19 +95,22 @@ struct MacClosedAdvanceReport {
     double absolute_shock_heat_transfer_j = 0;
 };
 struct MacClosedAdvance;
-struct MacGasTransferResult;
-struct MacGasTransfer {
+struct MacFluidTransferResult;
+struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
     double mass_kg, temperature_k;
 };
-struct MacGasParcel {
+struct MacFluidParcel {
     std::size_t cell_index, species_index;
     bool injected;
     double mass_kg, temperature_k, internal_energy_j;
     MacEnergy resolved_kinetic_energy, potential_energy;
     MacScaled momentum_x, momentum_y;
 };
+using MacGasTransfer = MacFluidTransfer;
+using MacGasParcel = MacFluidParcel;
+using MacGasTransferResult = MacFluidTransferResult;
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
@@ -132,6 +135,12 @@ public:
     // Filled gas cells without passive metadata only; unsupported void/liquid
     // topology rejects atomically. Packets account for all carried mechanics.
     [[nodiscard]] MacGasTransferResult with_gas_transfers(std::span<const MacGasTransfer>) const;
+    // Also admits a filled, single-liquid cell of the requested material.
+    // The declared parcel is at the receiving cell's pre-edit pressure;
+    // extraction carries local specific internal energy, including elastic U.
+    // This is a point source contract, with no implicit pump/enthalpy work.
+    // Gas/liquid mixing, void creation and passive metadata reject atomically.
+    [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring
     // requires the exact registry/EOS identity and validates the complete image.
     [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;
@@ -146,9 +155,9 @@ private:
     std::uint64_t revision_ = 1;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
-struct MacGasTransferResult {
+struct MacFluidTransferResult {
     MacClosedWorld world;
-    std::vector<MacGasParcel> parcels;
+    std::vector<MacFluidParcel> parcels;
     std::size_t unresolved_heat_updates = 0;
 };
 }

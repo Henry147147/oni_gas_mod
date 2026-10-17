@@ -189,22 +189,22 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
     if (input.struct_size != sizeof(input) || input.abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved || input.flags > 1 ||
         (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
         !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
-        throw std::invalid_argument("Native gas transfer input differs from its ABI/model");
+        throw std::invalid_argument("Native fluid transfer input differs from its ABI/model");
     if (input.session != status.session || input.expected_frame != status.completed_frames)
-        throw std::logic_error("Native gas transfer source session/frame is stale");
+        throw std::logic_error("Native fluid transfer source session/frame is stale");
     const auto cell=domain_index(input.public_cell),species=work.owner->registry().index(ids[input.species]);
     double amount=input.mass_kg;
     if (input.kind == 2) amount=std::min(amount,work.owner->state().cells[cell].mixture.masses[species]);
     if (input.flags) {
         float projected=static_cast<float>(amount);
-        if (!std::isfinite(projected)) throw std::invalid_argument("Gas callback mass exceeds binary32 range");
+        if (!std::isfinite(projected)) throw std::invalid_argument("Fluid callback mass exceeds binary32 range");
         if (projected > amount) projected=std::nextafter(projected,0.0F);
         if (input.kind == 1 && static_cast<double>(projected) != amount)
             throw std::invalid_argument("Injected game mass must be exactly binary32-compatible");
         amount=projected;
     }
-    const MacGasTransfer request{cell,species,input.kind == 1,amount,input.temperature_k};
-    auto prepared=work.owner->with_gas_transfers(std::span(&request,1));
+    const MacFluidTransfer request{cell,species,input.kind == 1,amount,input.temperature_k};
+    auto prepared=work.owner->with_fluid_transfers(std::span(&request,1));
     const auto& packet=prepared.parcels.front(); const bool inject=input.kind == 1;
     work.mass[input.species].add(inject ? packet.mass_kg : -packet.mass_kg);
     work.material.add(inject ? packet.internal_energy_j : -packet.internal_energy_j);

@@ -70,7 +70,10 @@ MA_ONI_API uint32_t ma_oni_domain_heat_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_queue_heat(const MAOniDomainHeat*, uint32_t count, MAOniDomainHeatStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus*);
 
-/* Gas point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
+/* Fluid point-source ABI 2. kind 1 injects at rest, kind 2 selectively removes.
+ * Gas-only or one matching liquid material in an occupied cell. Liquid parcels
+ * carry elastic internal energy at the cell's pre-edit pressure. Void creation
+ * and phase mixing reject the complete batch. No implicit enthalpy/pump work.
  * Receipts are retained until acknowledged after an owned snapshot publication.
  * Quantities are binary32-compatible when flags bit 0 is set; any remainder
  * stays in the physical source. These are not pump/aperture transactions. */

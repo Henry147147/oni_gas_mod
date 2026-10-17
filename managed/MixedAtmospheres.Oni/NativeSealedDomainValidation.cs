@@ -55,10 +55,14 @@ namespace MixedAtmospheres.Oni
         private static ulong deliveredReceipt;
         private static long transferPacketsRouted, receiptsPublished;
         private static bool transfersSubmitted, transfersVerified, transfersAvoidedNativeDispatch;
+        private static bool transferConsumptionSubmitted;
+        private static int transferConsumptionCallback;
         private static int emissionCallbacks, consumptionCallbacks;
         private static Sim.MassEmittedCallback emissionResult;
         private static Sim.MassConsumedCallback consumptionResult;
         private static double transfersBeforeEnergy, transferEnergyResidual, transferMassError;
+        private static double transferEnergyScale, transferEnergyBound = 1e-6;
+        private static Receipt? liquidInjectionReceipt, liquidExtractionReceipt;
         private static double[] transfersBeforeMasses = Array.Empty<double>();
         private static System.Action? releaseTransferCallbacks;
         private static ulong projectionPrimedAtFrame;
@@ -70,14 +74,15 @@ namespace MixedAtmospheres.Oni
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
         internal static bool IsMode => ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
-            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
+            ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain" || CheckpointMode || ColonyRuntimeValidation.Settings?.Mode == "native-save-domain" || ColonyRestoreMode;
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain";
+        private static bool LiquidTransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-transfer-domain";
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 : ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain";
-        private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || CarbonMode || GravityMode;
+        private static bool TransferMode => ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
         private static bool CarbonMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain";
         private static bool GravityMode => restoredScenarioSelected ? restoredScenario==2 : ColonyRuntimeValidation.Settings?.Mode == "native-gravity-domain";
         private static bool ActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain";
@@ -121,7 +126,9 @@ namespace MixedAtmospheres.Oni
                     heatSubmitted = true;
                 }
                 if (TransferMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4 && !transfersSubmitted)
-                    SubmitGameGasTransfers();
+                    SubmitGameFluidTransfers();
+                if (LiquidTransferMode && transfersSubmitted && !transferConsumptionSubmitted && transferStatus.CommittedBatches == 1)
+                    SubmitLiquidConsumption();
                 if (ActorMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickActorFixture();
                 if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
                 if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
@@ -158,7 +165,8 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(Liquid ? latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
+                Require(Liquid ? LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
+                    latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (HeatMode)
                 {
@@ -172,15 +180,20 @@ namespace MixedAtmospheres.Oni
                 {
                     transferEnergyResidual = PhysicalEnergy - transfersBeforeEnergy -
                         transferStatus.MaterialEnergyChange - transferStatus.KineticEnergyChange - gravityStatus.CommittedBoundaryPotential;
+                    if (LiquidTransferMode)
+                    {
+                        transferEnergyScale += cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
+                        transferEnergyBound = 128 * 2.2204460492503131e-16 * transferEnergyScale;
+                    }
                     transferMassError = 0;
                     for (var k = 0; k < Ids.Length; ++k)
                     {
                         var current = cells.Sum(cell => cell.Mass(k)); var change = transferStatus.MassChangesKg[k];
                         var scale = Math.Abs(transfersBeforeMasses[k]) + Math.Abs(change);
-                        if (scale == 0) Require(current == 0, "Gas command created an unaccounted constituent.");
+                        if (scale == 0) Require(current == 0, "Fluid command created an unaccounted constituent.");
                         else transferMassError = Math.Max(transferMassError, Math.Abs(current - transfersBeforeMasses[k] - change) / scale);
                     }
-                    var element = ElementLoader.FindElementByHash(CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen).idx;
+                    var element = ElementLoader.FindElementByHash(LiquidTransferMode ? SimHashes.Water : CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen).idx;
                     transfersVerified = transfersSubmitted && transfersAvoidedNativeDispatch && transferPacketsRouted == 2 &&
                         transferStatus.AcceptedBatches == 2 && transferStatus.CommittedBatches == 2 && transferStatus.PendingBatches == 0 &&
                         transferStatus.UnacknowledgedReceipts == 0 && receiptsPublished == 2 && emissionCallbacks == 1 && consumptionCallbacks == 1 &&
@@ -188,11 +201,21 @@ namespace MixedAtmospheres.Oni
                         emissionResult.elemIdx == element && consumptionResult.elemIdx == element &&
                         emissionResult.diseaseIdx == 255 && consumptionResult.diseaseIdx == 255 &&
                         emissionResult.diseaseCount == 0 && consumptionResult.diseaseCount == 0 && consumptionResult.temperature > 0 &&
-                        transferStatus.MassChangesKg[CarbonMode ? 4 : 1] == (double).05f - .02f && transferStatus.KineticEnergyChange < 0 &&
+                        transferStatus.MassChangesKg[LiquidTransferMode ? 3 : CarbonMode ? 4 : 1] == (double).05f - .02f && transferStatus.KineticEnergyChange < 0 &&
                         (!CarbonMode || cells.Any(cell => cell.CarbonDioxide > 0) && publishedReadings!.Values.Any(value =>
                             value.Constituents.Any(item => item.MaterialId == "carbon_dioxide" && item.MassKg > 0))) &&
-                        transferMassError <= 1e-10 && Math.Abs(transferEnergyResidual) <= 1e-6;
-                    Require(transfersVerified, "Actual gas messages, physical accounts or once-only game callbacks failed.");
+                        transferMassError <= 1e-10 && Math.Abs(transferEnergyResidual) <= transferEnergyBound;
+                    if (LiquidTransferMode)
+                    {
+                        Require(liquidInjectionReceipt.HasValue && liquidExtractionReceipt.HasValue, "Liquid point receipts were not both published.");
+                        var incoming = liquidInjectionReceipt!.Value; var outgoing = liquidExtractionReceipt!.Value;
+                        transfersVerified &= incoming.Species == 3 && outgoing.Species == 3 && incoming.CompletedFrame < outgoing.CompletedFrame &&
+                            incoming.MassKg == (double).05f && outgoing.MassKg == (double).02f && outgoing.KineticEnergy > 0 &&
+                            transferStatus.KineticEnergyChange == -outgoing.KineticEnergy &&
+                            Math.Abs(transferStatus.MaterialEnergyChange - (incoming.InternalEnergy - outgoing.InternalEnergy)) <=
+                                64 * 2.2204460492503131e-16 * (Math.Abs(incoming.InternalEnergy) + Math.Abs(outgoing.InternalEnergy));
+                    }
+                    Require(transfersVerified, "Actual fluid messages, physical accounts or once-only game callbacks failed.");
                     releaseTransferCallbacks?.Invoke(); releaseTransferCallbacks = null;
                 }
                 if (ConductionMode)
@@ -444,6 +467,8 @@ namespace MixedAtmospheres.Oni
                         receipt.Sequence == through + 1 && receipt.Species < Ids.Length,
                         "Native gas receipt disagrees with its completed physical frame or delivery order.");
                     through = receipt.Sequence;
+                    if (LiquidTransferMode && receipt.Kind == 1) liquidInjectionReceipt = receipt;
+                    if (LiquidTransferMode && receipt.Kind == 2) liquidExtractionReceipt = receipt;
                     if (receipt.Callback == -1) continue;
                     var element = (ushort)ElementLoader.FindElementByHash(SpeciesHash(receipt.Species)).idx;
                     var mass = (float)receipt.MassKg;
@@ -480,28 +505,40 @@ namespace MixedAtmospheres.Oni
         private static float ProjectionMass(int column) => Liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
             column == 0 ? .6f : column == 1 ? 1.2f : 2.4f;
         private static float ProjectionTemperature(int column) => 280 + 20 * column;
-        private static void SubmitGameGasTransfers()
+        private static void SubmitGameFluidTransfers()
         {
             transfersBeforeEnergy = PhysicalEnergy;
+            transferEnergyScale = cells.Sum(cell => Math.Abs(cell.InternalEnergy) + cell.ResolvedKineticEnergy);
             transfersBeforeMasses = Enumerable.Range(0, Ids.Length).Select(k => cells.Sum(cell => cell.Mass(k))).ToArray();
             var emissions = Game.Instance.massEmitCallbackManager;
             var consumptions = Game.Instance.massConsumedCallbackManager;
             var emitted = emissions.Add((data, _) => { ++emissionCallbacks; emissionResult = data; },
-                new object(), "Mixed Atmospheres native gas injection control");
+                new object(), "Mixed Atmospheres native fluid injection control");
             var consumed = consumptions.Add((data, _) => { ++consumptionCallbacks; consumptionResult = data; },
                 new object(), "Mixed Atmospheres native selective consumption control");
+            transferConsumptionCallback = consumed.index;
             releaseTransferCallbacks = () =>
             {
-                if (emissions.IsVersionValid(emitted)) emissions.Release(emitted, "native gas control complete");
-                if (consumptions.IsVersionValid(consumed)) consumptions.Release(consumed, "native gas control complete");
+                if (emissions.IsVersionValid(emitted)) emissions.Release(emitted, "native fluid control complete");
+                if (consumptions.IsVersionValid(consumed)) consumptions.Release(consumed, "native fluid control complete");
             };
             var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
-            var element = CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen;
+            var element = LiquidTransferMode ? SimHashes.Water : CarbonMode ? SimHashes.CarbonDioxide : SimHashes.Oxygen;
             SimMessages.EmitMass(target, (ushort)ElementLoader.FindElementByHash(element).idx, .05f, CarbonMode ? 310 : 300, 255, 0, emitted.index);
-            SimMessages.ConsumeMass(target, element, .02f, (byte)0, consumed.index);
+            // A resting liquid needs a positive physical interval after
+            // injection to exercise carried extraction momentum and K.
+            if (!LiquidTransferMode) SimMessages.ConsumeMass(target, element, .02f, (byte)0, consumed.index);
             transfersAvoidedNativeDispatch = before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
-            Require(transfersAvoidedNativeDispatch && transferPacketsRouted == 2, "Game gas messages bypassed custom native routing.");
+            Require(transfersAvoidedNativeDispatch && transferPacketsRouted == (LiquidTransferMode ? 1 : 2), "Game fluid messages bypassed custom native routing.");
             transfersSubmitted = true;
+        }
+        private static void SubmitLiquidConsumption()
+        {
+            var before = NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
+            SimMessages.ConsumeMass(target, SimHashes.Water, .02f, (byte)0, transferConsumptionCallback);
+            transfersAvoidedNativeDispatch &= before == NativeBackendObservation.Capture().Hooks.Single(hook => hook.Name == "message").Entries;
+            Require(transfersAvoidedNativeDispatch && transferPacketsRouted == 2, "Liquid consumption bypassed custom native routing.");
+            transferConsumptionSubmitted = true;
         }
         private static bool OwnsPublicCell(int cell) => cell >= 0 && cell % Grid.WidthInCells >= x && cell % Grid.WidthInCells < x + Width &&
             cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height;
@@ -513,11 +550,11 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var injection = message == 797274363;
-                if (length != (injection ? 24 : 16) || count < 0 || payload == null) throw new ArgumentException("Invalid native gas transfer batch.");
+                if (length != (injection ? 24 : 16) || count < 0 || payload == null) throw new ArgumentException("Invalid native fluid transfer batch.");
                 _ = checked(length * count); var owned = 0;
                 for (var i = 0; i < count; ++i) if (OwnsPublicCell(*(int*)(payload + i * length))) ++owned;
                 if (owned == 0) return false;
-                if (owned != count || count > 256) throw new NotSupportedException("Gas transfer batches need one reserved owner and at most 256 requests.");
+                if (owned != count || count > 256) throw new NotSupportedException("Fluid transfer batches need one reserved owner and at most 256 requests.");
                 var requests = new TransferCommand[count];
                 for (var attempt = 0; attempt < 8; ++attempt)
                 {
@@ -528,9 +565,9 @@ namespace MixedAtmospheres.Oni
                         var element = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(injection ? 20 : 12));
                         uint species = 0;
                         while (species < Ids.Length && ElementLoader.FindElementByHash(SpeciesHash(species)).idx != element) ++species;
-                        if (species >= Ids.Length || species == 3) throw new NotSupportedException("Native gas point source has an unimplemented material/phase.");
+                        if (species >= Ids.Length || (species == 3) != Liquid) throw new NotSupportedException("Native fluid point source has an unimplemented material/phase.");
                         if (injection ? BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != 0 : data[14] != 0 || data[15] != 0)
-                            throw new NotSupportedException("Gas point sources require disease-free injection and single-cell consumption.");
+                            throw new NotSupportedException("Fluid point sources require disease-free injection and single-cell consumption.");
                         requests[i] = new TransferCommand { Size = 64, Version = 2, Session = source.Session, ExpectedFrame = source.CompletedFrames,
                             PublicCell = checked((uint)BinaryPrimitives.ReadInt32LittleEndian(data)), Species = species,
                             Kind = injection ? 1U : 2U, Flags = 1, Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
@@ -638,6 +675,10 @@ namespace MixedAtmospheres.Oni
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),
             GasTransfersVerified = transfersVerified, TransfersAvoidedNativeDispatch = transfersAvoidedNativeDispatch,
+            LiquidTransfersVerified = LiquidTransferMode && transfersVerified,
+            FluidTransfers = transferStatus,
+            LiquidInjectionReceipt = liquidInjectionReceipt, LiquidExtractionReceipt = liquidExtractionReceipt,
+            TransferEnergyScaleJoules = transferEnergyScale, TransferEnergyBoundJoules = transferEnergyBound,
             CarbonDioxideTransfersVerified = CarbonMode && transfersVerified,
             EmissionCallbacks = emissionCallbacks, ConsumptionCallbacks = consumptionCallbacks,
             EmissionResult = emissionResult, ConsumptionResult = consumptionResult,

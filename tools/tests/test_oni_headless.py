@@ -274,6 +274,40 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         self.report["EmissionCallbacks"]=0
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, gravity=True))
 
+    def test_liquid_transfers_require_water_receipts_later_extraction_and_roundoff_account(self):
+        self.add_gas_transfers()
+        self.report.update(Scenario="compressed-liquid", LiquidTransfersVerified=True,
+            TransferEnergyScaleJoules=2e11, TransferEnergyBoundJoules=128*2.2204460492503131e-16*2e11,
+            TransferEnergyResidualJoules=-.0002,
+            LiquidInjectionReceipt={"Session":1,"CompletedFrame":5,"Species":3,"Kind":1,
+                "MassKg":.05000000074505806,"InternalEnergy":-792428,"KineticEnergy":0},
+            LiquidExtractionReceipt={"Session":1,"CompletedFrame":6,"Species":3,"Kind":2,
+                "MassKg":.019999999552965164,"InternalEnergy":-316971,"KineticEnergy":.001})
+        self.report["NativeDomain"].update(LiquidMassKg=1100.005,PressurePa=220010000,SuppressedLiquid=100)
+        self.report["FluidTransfers"]=copy.deepcopy(self.report["GasTransfers"])
+        self.report["FluidTransfers"]["MassChangesKg"]=[0,0,0,.030000001192092896,0]
+        self.report["FluidTransfers"]["MaterialEnergyChange"]=-475457
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,liquid=True,liquid_transfers=True))
+        for section,key,value in ((None,"LiquidTransfersVerified",False),(None,"TransferEnergyBoundJoules",1),
+                (None,"TransferEnergyScaleJoules",float("inf")),(None,"TransferEnergyResidualJoules",.01),
+                ("LiquidExtractionReceipt","CompletedFrame",5),("LiquidExtractionReceipt","Species",1),
+                ("LiquidExtractionReceipt","Session",2),("LiquidExtractionReceipt","KineticEnergy",0),
+                ("LiquidInjectionReceipt","InternalEnergy",float("nan")),("LiquidInjectionReceipt","MassKg",.05),
+                ("FluidTransfers","MassChangesKg",[0,.030000001192092896,0,0,0]),
+                ("FluidTransfers","UnacknowledgedReceipts",1),("ConsumptionResult","elemIdx",42)):
+            bad=copy.deepcopy(self.report)
+            (bad[section] if section else bad)[key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,liquid=True,liquid_transfers=True),(section,key))
+
+    def test_loaded_water_transfer_state_requires_exact_saved_continuation(self):
+        self.set_restored_colony()
+        self.report["Scenario"]="compressed-liquid"
+        self.report["NativeDomain"].update(LiquidMassKg=1100.005,PressurePa=220010000,SuppressedLiquid=100,
+            InitialOxygenKg=0,CurrentOxygenKg=0)
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.report["ColonyCheckpoint"]["ExactContinuationFrames"]-=1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+
     def test_registered_actors_require_actual_components_callbacks_and_removal(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, actors=True))
         self.report["RegisteredActors"] = {"Verified": True, "Stage": 8, "Native": {"LiveActors": 0,

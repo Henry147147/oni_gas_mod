@@ -39,6 +39,9 @@ for ownership, interfaces, failures and implementation gates.
   native tick; the real-game control verifies both energy and presentation.
   Gas point injection and selective consumption also commit on that clock,
   carrying energy and momentum and delivering actual game callbacks once.
+  [Filled-water point transfers](docs/sealed-native-domain.md#filled-liquid-point-sources)
+  now carry compression energy too. Licensed Linux and Windows simulation-library
+  controls pass; the new Unity save/load scene is awaiting verification.
   Selective point consumers and emitters now retain native registrations while
   transferring custom physical gas; a real Unity consumer, changed rates,
   blocked/unblocked callbacks and removal pass in the Linux colony. General

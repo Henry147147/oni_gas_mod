@@ -20,9 +20,9 @@ python3 tools/oni_native_matrix.py \
   --frames 120 --timeout 1800
 ```
 
-The output directory must be new. The default selects gas, compressed water,
+The output directory must be new. The default selects gas, compressed water, water point transfers,
 heat, transfers, carbon dioxide, conduction, gravity, registered actors,
-physical checkpoints, paired capture and source-save controls: 22 game
+physical checkpoints, paired capture and source-save controls: 24 game
 processes including reloads. Use `--scenes water gravity` to select cases.
 Actors need at least 80 frames; source-save controls need at least 16.
 `--timeout` applies separately to each game and accepts up to 7,200 seconds.
@@ -45,6 +45,12 @@ the colony file is
 The fresh-process load preserves that initial image, passes the paused positive
 interval challenge and header/body readback, and matches all 30 continued
 frames. This verifies the orchestration; the full 22-case matrix remains open.
+
+The frozen 22-case `full-native-feature-matrix-v2` cohort passes gas save/reload
+and water save/reload, including 120 exact continued frames on each reload.
+It stops before launching the heat scene when Steam exits; the missing-result
+failure is retained. Remaining scenes and the newly added water-transfer case
+require a live authenticated session and fresh evidence directories.
 
 The [Linux runner](sealed-native-domain.md#run-the-actual-linux-colony-controls)
 requires the licensed game and the private desktop/Steam setup. The separate

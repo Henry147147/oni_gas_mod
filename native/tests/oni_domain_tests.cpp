@@ -211,6 +211,43 @@ int main(int argc,char** argv) {
         final=capture(cells);
         require(final.state==1 && final.liquid_mass_kg==1100 && std::abs(final.pressure_pa-2.2e8)<1,"compressed liquid EOS was not used");
         require(std::abs(cells.front().temperature-300)<1e-8,"elastic energy was treated as heat");
+        const auto liquid_initial=cells;
+        MAOniDomainTransfer liquid_in{64,2,final.session,final.completed_frames,10+10*64,3,1,1,21,0,.05F,300};
+        auto liquid_out=liquid_in; liquid_out.kind=2; liquid_out.callback=22; liquid_out.mass_kg=.02F; liquid_out.temperature_k=0;
+        ma::oni::queue_domain_transfers(&liquid_in,1,transfer_status);
+        const auto liquid_pending=transfer_status;
+        std::array invalid_liquid{liquid_out,liquid_out}; invalid_liquid[1].mass_kg=200;
+        rejected=false;
+        try { ma::oni::queue_domain_transfers(invalid_liquid.data(),2,transfer_status); } catch (const std::exception&) { rejected=true; }
+        require(rejected && std::memcmp(&liquid_pending,&transfer_status,sizeof(transfer_status))==0,
+            "Later void-creating liquid request altered an earlier pending command or output");
+        ma::oni::advance_domain(12,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        if (final.state!=1) throw std::runtime_error(std::string("Native liquid injection advance: ")+final.error);
+        require(final.state==1 && receipt_count==1 && receipts[0].species==3 && receipts[0].kind==1 && receipts[0].callback==21 &&
+            receipts[0].mass_kg==static_cast<double>(.05F) && std::isfinite(receipts[0].internal_energy_j) && receipts[0].internal_energy_j!=0,
+            "Native liquid injection lost its publication receipt");
+        ma::oni::ack_domain_receipts(final.session,receipts[0].sequence);
+        liquid_out.expected_frame=final.completed_frames;
+        ma::oni::queue_domain_transfers(&liquid_out,1,transfer_status);
+        ma::oni::advance_domain(13,.2,2);
+        ma::oni::copy_domain_receipts(final,cells.data(),6,receipts.data(),4,receipt_count);
+        ma::oni::copy_domain_transfer_status(transfer_status);
+        require(final.state==1 && receipt_count==1 && receipts[0].species==3 && receipts[0].kind==2 && receipts[0].callback==22 &&
+            receipts[0].mass_kg==static_cast<double>(.02F) && receipts[0].kinetic_energy_j>0 &&
+            transfer_status.accepted_batches==2 && transfer_status.committed_batches==2 && transfer_status.pending_batches==0 &&
+            transfer_status.mass_changes_kg[3]==static_cast<double>(.05F)-static_cast<double>(.02F),
+            "Native liquid extraction lost carried mechanics or admitted a rejected command");
+        long double liquid_mass=0,liquid_energy=0,liquid_scale=0;
+        for (std::size_t i=0;i<cells.size();++i) {
+            liquid_mass+=static_cast<long double>(cells[i].masses[3])-liquid_initial[i].masses[3];
+            liquid_energy+=static_cast<long double>(cells[i].internal_energy)-liquid_initial[i].internal_energy+cells[i].resolved_kinetic_energy;
+            liquid_scale+=std::abs(cells[i].internal_energy)+std::abs(liquid_initial[i].internal_energy);
+        }
+        require(std::abs(liquid_mass-transfer_status.mass_changes_kg[3])<1e-9 &&
+            std::abs(liquid_energy-transfer_status.material_energy_change_j-transfer_status.kinetic_energy_change_j)<=
+                128*std::numeric_limits<double>::epsilon()*liquid_scale,"Native liquid transfer ledger disagrees with conserved physical state");
+        ma::oni::ack_domain_receipts(final.session,receipts[0].sequence);
         ma::oni::shutdown_domain();
         config.scenario=0; ma::oni::start_domain(config,1); final=capture(cells);
         consumer={80,1,final.session,0,1,1,10+10*64,1,0,0,.05F,0,0,0};

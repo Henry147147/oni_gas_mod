@@ -11,7 +11,11 @@ void require(bool condition,const char* message) { if (!condition) throw std::ru
 MacEnergySum total(const MacClosedWorld& world) {
     MacEnergySum value; const auto& state=world.state();
     const auto inertia=mac_face_inertias(world.registry(),state,world.thermodynamics());
-    for (const auto& cell : state.cells) value.add(cell.mixture.energy);
+    for (std::size_t i=0;i<state.cells.size();++i) {
+        value.add(state.cells[i].mixture.energy);
+        value.add(MacEnergy::from_double(state.cells[i].mixture.mass()).multiplied(world.settings().gravity_m_per_s2)
+            .multiplied((static_cast<double>(i/state.grid.width)+.5)*state.grid.spacing_m));
+    }
     const auto x=mac_field_values(state.momentum_x,state.full_momentum_x),y=mac_field_values(state.momentum_y,state.full_momentum_y);
     for (std::size_t i=0;i<x.size();++i) value.add(MacEnergy::kinetic(inertia.x[i],x[i]));
     for (std::size_t i=0;i<y.size();++i) value.add(MacEnergy::kinetic(inertia.y[i],y[i]));
@@ -23,10 +27,68 @@ void account(const MacClosedWorld& before,const MacGasTransferResult& after) {
     for (std::size_t i=0;i<old.size();++i) balance.add(old.component(i));
     for (const auto& packet : after.parcels) {
         balance.add(packet.injected ? packet.internal_energy_j : -packet.internal_energy_j);
+        balance.add(packet.injected ? packet.potential_energy : packet.potential_energy.negated());
         if (!packet.injected) balance.add(packet.resolved_kinetic_energy.negated());
     }
     for (std::size_t i=0;i<next.size();++i) balance.add(next.component(i).negated());
     require(balance.within_bound(),"Independent boundary U+K account failed");
+}
+void liquid_controls(const ma::testing::Setup& fixture) {
+    auto state=fixture.state(2,2,false);
+    const auto water=fixture.registry.index("water"),oxygen=fixture.registry.index("oxygen");
+    for (auto& cell : state.cells) {
+        cell.passive_quantities.clear(); cell.mixture=fixture.mixture(1,2.2e8,300,1);
+    }
+    state.momentum_x[state.grid.x_face(1,0)]=30; state.momentum_x[state.grid.x_face(1,1)]=-20;
+    state.momentum_y[state.grid.y_face(0,1)]=10; state.momentum_y[state.grid.y_face(1,1)]=-15;
+    MacClosedSettings settings; settings.gravity_m_per_s2=9.81;
+    const MacClosedWorld source(fixture.registry,fixture.eos,state,settings);
+    const auto held=source.checkpoint();
+    const MacFluidTransfer injection{0,water,true,4,310};
+    const auto injected=source.with_fluid_transfers(std::span(&injection,1)); account(source,injected);
+    // Independent analytic U of a parcel at the declared pre-edit pressure.
+    // e_elastic = K/rho0 * (log(rho/rho0) + rho0/rho - 1).
+    const double elastic=2.2e9/1000*(std::log(1.1)+1/1.1-1);
+    const double expected=4*(fixture.registry[water].internal_energy(310)+elastic);
+    require(std::abs(injected.parcels[0].internal_energy_j-expected)<=16*std::numeric_limits<double>::epsilon()*std::abs(expected),
+        "Liquid injection omitted or recomputed the declared parcel compression energy");
+    require(injected.world.state().momentum_x==state.momentum_x && injected.world.state().momentum_y==state.momentum_y,
+        "At-rest liquid injection added canonical momentum");
+    require(injected.world.state().cells[0].mixture.masses[water]==1104 && injected.world.time_s()==source.time_s(),
+        "Liquid injection changed the wrong mass or advanced time");
+    const auto& before=injected.world.state();
+    const auto old_u=before.cells[0].mixture.energy;
+    const MacFluidTransfer removal{0,water,false,2,0};
+    const auto removed=injected.world.with_fluid_transfers(std::span(&removal,1)); account(injected.world,removed);
+    const auto& parcel=removed.parcels[0];
+    require(std::abs(parcel.internal_energy_j-2*old_u/1104)<=16*std::numeric_limits<double>::epsilon()*std::abs(parcel.internal_energy_j),
+        "Liquid extraction did not carry local specific internal energy");
+    require(parcel.resolved_kinetic_energy.mantissa()>0 && !parcel.momentum_x.is_zero() && !parcel.momentum_y.is_zero() &&
+        parcel.potential_energy.require_representable()==2*9.81*.5,"Liquid extraction discarded carried mechanics or potential");
+    const auto old_i=mac_face_inertias(fixture.registry,before,*fixture.eos);
+    const auto next_i=mac_face_inertias(fixture.registry,removed.world.state(),*fixture.eos);
+    const auto face=state.grid.x_face(1,0);
+    const double expected_j=before.momentum_x[face]*next_i.x[face]/old_i.x[face];
+    require(std::abs(removed.world.state().momentum_x[face]-expected_j)<=16*std::numeric_limits<double>::epsilon()*std::abs(expected_j),
+        "Liquid extraction changed the remaining face velocity");
+    require(removed.world.revision()==source.revision()+2 && source.checkpoint()==held,"Liquid transfers changed the immutable source");
+    const auto restored=MacClosedWorld::from_checkpoint(fixture.registry,fixture.eos,removed.world.checkpoint());
+    require(restored.advanced(.0001).world.checkpoint()==removed.world.advanced(.0001).world.checkpoint(),
+        "Liquid transfer checkpoint lost an authoritative field");
+    for (const auto& invalid : {MacFluidTransfer{0,water,false,200,0},MacFluidTransfer{0,water,false,1100,0},
+            MacFluidTransfer{0,oxygen,true,.1,300}}) {
+        const std::array batch{injection,invalid}; bool rejected=false;
+        try { (void)source.with_fluid_transfers(batch); } catch (const std::exception&) { rejected=true; }
+        require(rejected && source.checkpoint()==held,"Later invalid liquid transfer escaped atomic topology rejection");
+    }
+    bool legacy_rejected=false;
+    try { (void)source.with_gas_transfers(std::span(&injection,1)); } catch (const std::invalid_argument&) { legacy_rejected=true; }
+    require(legacy_rejected,"Gas-only interface silently admitted liquid transfers");
+    auto gas=fixture.state(2,2,false); for (auto& cell : gas.cells) cell.passive_quantities.clear();
+    const MacClosedWorld gas_world(fixture.registry,fixture.eos,gas);
+    bool mixed_rejected=false;
+    try { (void)gas_world.with_fluid_transfers(std::span(&injection,1)); } catch (const std::invalid_argument&) { mixed_rejected=true; }
+    require(mixed_rejected,"Liquid injection silently created a gas/liquid topology");
 }
 }
 int main() {
@@ -62,7 +124,8 @@ int main() {
         const std::array<MacGasTransfer,2> batch{injection,invalid}; bool rejected=false;
         try { (void)source.with_gas_transfers(batch); } catch (const std::invalid_argument&) { rejected=true; }
         require(rejected && ma::testing::fingerprint(source.state())==held,"Invalid later transfer partially changed source");
-        std::cout << "PASS immutable gas injection, carried extraction mechanics, trace preservation, accounts and batch rejection\n";
+        liquid_controls(fixture);
+        std::cout << "PASS immutable gas/liquid point transfers, elastic parcel U, carried mechanics/potential, checkpoint continuation and atomic topology rejection\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

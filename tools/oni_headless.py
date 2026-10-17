@@ -493,7 +493,7 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
 def playtest(args, state: Path, session: dict) -> int:
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -607,13 +607,13 @@ def playtest(args, state: Path, session: dict) -> int:
         observer_ok = native_observer_passed(manifest, observer_report)
         domain_report = None
         domain_ok = False
-        if args.mode in ("native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
+        if args.mode in ("native-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
             try:
                 domain_report = read_json(colony_file.parent / "native-domain.json")
             except (OSError, json.JSONDecodeError):
                 pass
             domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
-                liquid=args.mode == "native-liquid-domain", heat=args.mode == "native-heat-domain",
+                liquid=args.mode in ("native-liquid-domain", "native-liquid-transfer-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain",
                 transfers=args.mode == "native-transfer-domain", actors=args.mode == "native-actor-domain",
                 carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
                 saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
@@ -666,7 +666,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-transfer-domain", "native-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)

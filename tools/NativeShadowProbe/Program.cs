@@ -20,7 +20,7 @@ internal static unsafe partial class Program
 
     private static int Main(string[] args)
     {
-        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
+        if (args.Length is not (4 or 6) || args[2] is not ("baseline" or "multi-region" or "fluid-actors" or "sealed-gas" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" or "zero-time-frame" or "native-disease-retention" or "sanitize" or "rebuild-shadow" or "load-shadow" or "transition" or "filtered-transition" or "reject-custom-envelope"))
         {
             Console.Error.WriteLine("Usage: dotnet NativeShadowProbe.dll <SimDLL.dll|libSimDLL.so> <game-contract-local> <mode> <report.json> [<observer library> <game root>]");
             return 2;
@@ -77,10 +77,11 @@ internal static unsafe partial class Program
                 if (args[2] == "native-disease-retention") VerifyNativeDiseaseRetention(sim,contract,initial,report);
                 else if (args[2] == "reject-custom-envelope") VerifyCustomEnvelopeRejection(sim, contract, initial, report);
                 else if (args[2] == "fluid-actors") VerifyFluidActors(sim, contract, initial, report);
-                else if (args[2] is "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity")
+                else if (args[2] is "sealed-gas" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity")
                 {
                     Require(observer != null, "Sealed domain controls require the native backend.");
-                    VerifySealedDomain(sim, contract, initial, report, args[2] is "sealed-water" or "sealed-restore-water", args[2] is "sealed-heat" or "sealed-conduction", args[2] is "sealed-gravity" or "sealed-restore-gravity", args[2] is "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity", args[2] is "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity", observer!);
+                    VerifySealedDomain(sim, contract, initial, report, args[2] is "sealed-water-transfer" or "sealed-water" or "sealed-restore-water", args[2] is "sealed-heat" or "sealed-conduction", args[2] is "sealed-gravity" or "sealed-restore-gravity", args[2] is "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity", args[2] is "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity", observer!);
+                    if (args[2]=="sealed-water-transfer") VerifyLiquidPointTransfers(sim,contract,report);
                     if (args[2].StartsWith("sealed-restore",StringComparison.Ordinal)) VerifyRestoredDomain(sim,contract,observer!,report,args[3]);
                 }
                 else if (args[2] == "zero-time-frame")
@@ -311,11 +312,11 @@ internal static unsafe partial class Program
             { element = contract.Granite; mass = 1000; temperature = cell == SecondaryColdCell ? 300 : 600; }
             if (mode == "fluid-actors" && IsActorChamberWall(cell))
             { element = contract.Unobtanium; mass = 20000; temperature = 293.15f; }
-            if (mode is "sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" && IsSealedArenaCell(x, y))
+            if (mode is "sealed-gas" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity" && IsSealedArenaCell(x, y))
             {
                 var wall = x == DomainX - 1 || x == DomainX + DomainWidth || y == DomainY - 1 || y == DomainY + DomainHeight;
-                element = wall ? contract.Unobtanium : mode is "sealed-water" or "sealed-restore-water" ? contract.Water : contract.Oxygen;
-                mass = wall ? 20000 : DomainProjectionMass(x - DomainX, mode is "sealed-water" or "sealed-restore-water");
+                element = wall ? contract.Unobtanium : mode is "sealed-water-transfer" or "sealed-water" or "sealed-restore-water" ? contract.Water : contract.Oxygen;
+                mass = wall ? 20000 : DomainProjectionMass(x - DomainX, mode is "sealed-water-transfer" or "sealed-water" or "sealed-restore-water");
                 temperature = wall ? 300 : DomainProjectionTemperature(x - DomainX);
             }
             if (ContainsFluidFixture(mode))
@@ -323,7 +324,7 @@ internal static unsafe partial class Program
                 if (cell == OxygenCell) { element = contract.Oxygen; mass = 2; temperature = 293.15f; }
                 if (cell == WaterCell) { element = contract.Water; mass = 100; temperature = 293.15f; }
             }
-            else if (cell == TransitionCell && mode is not ("sealed-gas" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity")) { element = contract.Ice; mass = 1000; temperature = 400; }
+            else if (cell == TransitionCell && mode is not ("sealed-gas" or "sealed-water-transfer" or "sealed-water" or "sealed-heat" or "sealed-conduction" or "sealed-gravity" or "sealed-checkpoint" or "sealed-pair" or "sealed-restore" or "sealed-restore-water" or "sealed-restore-gravity")) { element = contract.Ice; mass = 1000; temperature = 400; }
             writer.Write((ushort)element);
             writer.Write((byte)0); writer.Write((byte)255); // properties, full thermal conductance
             writer.Write(new byte[4]); // strength and padding

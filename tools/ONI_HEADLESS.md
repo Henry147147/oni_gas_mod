@@ -30,6 +30,13 @@ through the real game APIs. It requires both actual callbacks exactly once,
 acknowledged completed-frame receipts, carried kinetic energy, conserved mass
 and U+K, and no original native transfer-packet dispatch. Run
 `20261016T202909Z-bef415` passes all these checks over 120 post-priming frames.
+`native-liquid-transfer-domain` uses real water emission and consumption in
+filled cells. The extraction follows a positive native interval, so its receipt
+must carry kinetic energy. It requires both actual callbacks, acknowledged
+receipts and mass/U+K accounts, including stored compression energy. Use
+`--save-colony`, then reload that file with `native-load-domain
+--resave-before-resume` to check complete physical continuation. See the
+[liquid transfer contract](../docs/sealed-native-domain.md#filled-liquid-point-sources).
 `native-actor-domain` tests registered actors with a real Unity `ElementConsumer`,
 changed rates, emission intervals, actual blocked/unblocked callbacks, and
 disable/removal. Run `20261016T204654Z-021e13` passes 120 post-priming frames,
