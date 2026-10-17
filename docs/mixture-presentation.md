@@ -228,6 +228,14 @@ domain gate also requires shader-bound GPU readback, calibrated coordinates and
 matching publication revisions. Component tests pass; an actual game source
 and repeated reload remain required for this new appearance.
 
+The first actual WindowsPlayer/Proton source finds an opacity upload wiring
+error: all six GPU colour texels match, but the opacity texture still receives
+gas-only values (149–152 instead of the expected 171–177). Publication epochs,
+shader bindings and the independent saved-input reconstruction agree. Both
+normal and diagnostic opacity upload loops now call `WorldFluidOpacity`.
+The failed capture remains retained; new real-game source/load acceptance is
+required before this appearance is marked verified.
+
 The game adapter's appearance controls offer colour-only mode and contrasts
 0.02/0.04/0.08/0.12 in the composition overlay. They persist to
 `mods/config/MixedAtmospheres/appearance.json` under ONI's user root. Settings

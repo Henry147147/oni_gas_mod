@@ -230,7 +230,7 @@ namespace MixedAtmospheres.Oni
                     {
                         var cell = x + y * frame.Width;
                         if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                        var value = DensityOpacity(reading!, opacity);
+                        var value = WorldFluidOpacity(reading!, opacity);
                         __0.SetBytes(x, y, value); ++written;
                         probes.Record(1, __0, cell, x, y, frame, reading!, opacity, value, 0, 0, 0);
                     }
@@ -241,7 +241,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var cell = x + y * frame.Width;
                     if (!Grid.IsActiveWorld(cell) || !frame.TryGetCell(cell, out var reading)) continue;
-                    __0.SetBytes(x, y, DensityOpacity(reading!, opacity)); ++written;
+                    __0.SetBytes(x, y, WorldFluidOpacity(reading!, opacity)); ++written;
                 }
             Interlocked.Add(ref pressureCells, written);
         }
