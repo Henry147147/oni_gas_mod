@@ -186,6 +186,60 @@ def _restored_readers_passed(report: dict, physical: dict, liquid: bool) -> bool
     return (_same_native_float(selection.get("Mass"),best) and selection.get("IsBreathable") is (best>0)
         and selection.get("ElementID") == (oxygen if best else vacuum) and (not best or (selection.get("Cell"),best) in advertised))
 
+def _gpu_gas_passed(report: dict, physical: dict) -> bool:
+    try:
+        gpu, inputs = report['GpuGasTextures'], report['RenderingInputs']
+        count = physical['Cells']; rows = inputs['Rows']
+        if (type(count) is not int or not 1 <= count <= 256 or len(rows) != count
+                or any(gpu.get(key) is not True for key in ('Required','Verified','BindingsVerified'))
+                or gpu.get('Source') != 'shader-bound-GPU-readback'
+                or type(gpu.get('Session')) is not int or gpu['Session'] != physical['Session']
+                or type(gpu.get('CompletedFrame')) is not int or gpu['CompletedFrame'] != physical['CompletedFrames']
+                or inputs.get('RenderedRevision') != physical['CompletedFrames']
+                or type(gpu.get('PublicationGeneration')) is not int or gpu['PublicationGeneration'] <= 0
+                or any(gpu['PublicationGeneration'] != value for value in (gpu.get('TexturePublicationGeneration'),inputs.get('PublicationGeneration'),inputs.get('TexturePublicationGeneration')))
+                or not isinstance(gpu.get('GraphicsDevice'),str) or not gpu['GraphicsDevice']
+                or gpu.get('UploadPath') != 'native-texture-page-blit' or gpu.get('NativeUploadsUnchanged') is not True):
+            return False
+        orientation=gpu['Orientation'];expected_outline=orientation['Expected']
+        if (orientation.get('Verified') is not True or orientation.get('Source')!='native-phase-and-mass-sealed-outline'
+                or type(orientation.get('RowsReflected')) is not bool
+                or orientation.get('Width')!=report['Width']+2 or orientation.get('Height')!=report['Height']+2
+                or orientation.get('X')!=report['X']-1 or orientation.get('Y')!=report['Y']-1
+                or len(expected_outline)!=orientation['Width']*orientation['Height']
+                or any(len(pixel)!=4 or any(type(byte) is not int or not 0<=byte<=255 for byte in pixel) for pixel in expected_outline)
+                or orientation['Identity'].get('Available') is not True or orientation['Reflected'].get('Available') is not True):
+            return False
+        direct_matches=orientation['Identity']['Rgba']==expected_outline
+        reflected_matches=orientation['Reflected']['Rgba']==expected_outline
+        if direct_matches==reflected_matches or orientation['RowsReflected'] is not reflected_matches:
+            return False
+        if len({row['Cell'] for row in rows}) != count:
+            return False
+        for channel in ('Colour','Opacity','Danger'):
+            value = gpu[channel]
+            if (value.get('Available') is not True or value.get('Kind') != 'GPU ReadPixels' or len(value['Rgba']) != count
+                    or value.get('RowsReflected') is not orientation['RowsReflected']
+                    or any(len(pixel)!=4 or any(type(byte) is not int or not 0 <= byte <= 255 for byte in pixel) for pixel in value['Rgba'])):
+                return False
+        if any(len(gpu[key]) != count for key in ('ExpectedColours','ExpectedOpacity','ExpectedDanger')):
+            return False
+        for index,row in enumerate(rows):
+            expected, reading = row['ExpectedGas'],row['Reading']
+            if (type(reading.get('GasMassKg')) not in (int,float) or not 0 <= reading['GasMassKg'] < math.inf
+                    or type(reading.get('Revision')) is not int or reading['Revision'] != physical['CompletedFrames']
+                    or len(expected['Colour']) != 4 or any(type(byte) is not int or not 0 <= byte <= 255 for byte in expected['Colour'])
+                    or any(type(expected.get(key)) is not int or not 0 <= expected[key] <= 255 for key in ('Pressure','Danger'))
+                    or expected['Colour'][3] != (255 if reading['GasMassKg'] > 0 else 0)
+                    or gpu['ExpectedColours'][index] != expected['Colour'] or gpu['Colour']['Rgba'][index] != expected['Colour']
+                    or gpu['ExpectedOpacity'][index] != expected['Pressure'] or gpu['Opacity']['Rgba'][index][3] != expected['Pressure']
+                    or gpu['ExpectedDanger'][index] != expected['Danger'] or gpu['Danger']['Rgba'][index][3] != expected['Danger']):
+                return False
+        return True
+    except (KeyError,TypeError,ValueError,AttributeError,IndexError):
+        return False
+
+
 def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
@@ -235,6 +289,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if pressure_read and not _pressure_read_passed(report, physical, liquid):
         return False
     if restored and "RestoredNativeReaders" in report and not _restored_readers_passed(report,physical,liquid):
+        return False
+    if "GpuGasTextures" in report and not _gpu_gas_passed(report,physical):
         return False
     if carbon_particle:
         particle = report.get("CarbonParticle")

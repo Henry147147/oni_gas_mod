@@ -21,6 +21,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/FluidBatchCommand.cs" Link="FluidBatchCommand.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureWorldRendering.cs" Link="MixtureWorldRendering.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/GpuPageReadbackPlan.cs" Link="GpuPageReadbackPlan.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationLifecycle.cs" Link="MixturePresentationLifecycle.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureOverlays.cs" Link="MixtureOverlays.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureAppearanceSettings.cs" Link="MixtureAppearanceSettings.cs" />
