@@ -336,22 +336,23 @@ MAOniDomainReceipt prepare_point_transfer(GasWork& work,const MAOniDomainTransfe
     return receipt;
 }
 void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
-    constexpr std::uint32_t radius_mask=0xff00U;
-    const auto radius=(input.flags&radius_mask)>>8;
-    if (radius==0) { work.append(prepare_point_transfer(work,input,receipt_kind));return; }
+    constexpr std::uint32_t shape_mask=0xffff00U;
+    const auto radius=(input.flags>>8)&255U,box_height=(input.flags>>16)&255U;
+    if (radius==0 && box_height==0) { work.append(prepare_point_transfer(work,input,receipt_kind));return; }
     if (input.struct_size!=sizeof(input) || input.abi_version!=MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved ||
-        (input.flags&~(radius_mask|1U)) || !(input.flags&1U) || input.kind!=2 || receipt_kind!=2 || input.species>=ids.size() ||
+        (input.flags&~(shape_mask|1U)) || !(input.flags&1U) || input.kind!=2 || receipt_kind!=2 || input.species>=ids.size() ||
         !admitted_species(work.configuration.scenario,input.species) || !std::isfinite(input.mass_kg) || input.mass_kg<0 ||
         !std::isfinite(input.temperature_k) || static_cast<double>(static_cast<float>(input.mass_kg))!=input.mass_kg)
-        throw std::invalid_argument("Invalid binary32 radial consumption request");
+        throw std::invalid_argument("Invalid binary32 regional consumption request");
     if (input.session!=work.session || input.expected_frame!=work.frame)
-        throw std::logic_error("Radial consumption source session/frame is stale");
+        throw std::logic_error("Regional consumption source session/frame is stale");
     const auto centre=domain_index(input.public_cell,work.configuration);
     const auto grid=work.owner->state().grid;
     const auto species=work.owner->registry().index(ids[input.species]);
     std::vector<double> amounts;amounts.reserve(work.owner->state().cells.size());
     for (const auto& cell:work.owner->state().cells) amounts.push_back(cell.mixture.masses[species]);
-    const auto plan=radial::prepare(grid.width,grid.height,grid.walls,amounts,centre,radius,input.mass_kg);
+    const auto plan=box_height ? radial::prepare_rectangle(grid.width,grid.height,grid.walls,amounts,centre,radius,box_height,input.mass_kg) :
+        radial::prepare(grid.width,grid.height,grid.walls,amounts,centre,radius,input.mass_kg);
     MAOniDomainReceipt combined{0,0,0,input.public_cell,input.species,input.callback,2,plan.mass,0,0,0,0,0};
     MacEnergySum material,kinetic,px,py,temperature_mass;
     for (const auto& allocation:plan.allocations) {
@@ -360,7 +361,7 @@ void prepare_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32
             (allocation.cell/grid.width+work.configuration.offset_y)*work.configuration.native_grid_width);
         point.mass_kg=allocation.mass;
         const auto packet=prepare_point_transfer(work,point,2);
-        if (packet.mass_kg!=point.mass_kg) throw std::logic_error("Radial parcel changed its exact callback lattice allocation");
+        if (packet.mass_kg!=point.mass_kg) throw std::logic_error("Regional parcel changed its exact callback lattice allocation");
         material.add(packet.internal_energy_j);kinetic.add(packet.kinetic_energy_j);px.add(packet.momentum_x);py.add(packet.momentum_y);
         temperature_mass.add(MacEnergy::from_double(packet.mass_kg).multiplied(packet.temperature_k));
     }

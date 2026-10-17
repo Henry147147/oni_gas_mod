@@ -131,6 +131,14 @@ MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t thr
  * parcel U/K/momentum and the original callback; public_cell is its centre.
  * A complete batch is prepared atomically, including overlapping requests. */
 MA_ONI_API uint32_t ma_oni_domain_radial_consumption_abi_version(void);
+/* Additive rectangular consumption capability 1. Nonzero flags bits 16..23
+ * select rectangle height, with bits 8..15 then interpreted as width.
+ * public_cell is the lower-left anchor, rows are visited bottom-up and
+ * left-to-right, and solids are skipped. The entire footprint must be inside
+ * one owner. A zero width produces one zero-mass callback. The aggregate
+ * binary32 lattice, atomic batch and one-receipt rules above also apply.
+ * No reserved word, existing ABI size or point/radius encoding changes. */
+MA_ONI_API uint32_t ma_oni_domain_rectangular_consumption_abi_version(void);
 
 /* Registered point-boundary actors, ABI 1. Native handles are opaque 32-bit
  * values. Native registration remains intact, but its transfer stays inactive.

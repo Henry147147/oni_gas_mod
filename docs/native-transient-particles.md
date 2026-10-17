@@ -105,3 +105,13 @@ original active pool. Subsequent native factory reuse of its Unity component
 is recorded separately and cannot undo that original retirement. The combined
 smallest-float in-flight save control checks exact restore, one deposit and a
 positive transported CO2 inventory from an initially empty constituent.
+
+The combined smallest-float control now passes its actual Linux source and
+both Linux reload sessions at frozen `05cda0c`. Each restores the one parcel
+byte for byte, deposits exactly `2^-149` kg once at frame 10 and completes
+120 individually exact frames. The final CO2 inventory remains positive at
+`1.4012984643248147e-45` kg, within the unchanged 128-epsilon operand bound.
+Both sessions observe later native pool reuse without undoing the retirement
+witness. All 240 binary journals pass independent saved-only review. Review
+SHA-256: `20702088260063142b4dfc7f720dd3f8e57c9702b398db481e858bfffe024876`.
+WindowsPlayer and cross-player tiny in-flight controls remain queued.

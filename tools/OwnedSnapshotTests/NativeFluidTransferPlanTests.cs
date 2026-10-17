@@ -48,5 +48,28 @@ internal static class NativeFluidTransferPlanTests
             BinaryPrimitives.WriteInt32LittleEndian(input.AsSpan(24),BitConverter.SingleToInt32Bits(float.NaN));var copy=(byte[])input.Clone();
             reject(()=>NativeFluidTransferPlan.Decode(1727657959,16,2,input,Owned,Gas));check(input.AsSpan().SequenceEqual(copy));
         });
+        bool BoxOwned(int cell)=>cell>=0 && cell%64>=10 && cell%64<13 && cell/64>=10 && cell/64<12;
+        test("rectangular native overload retains exact width height callback and binary32 input",()=> {
+            var input=Consume(650,91,3,2);var held=(byte[])input.Clone();
+            var plan=NativeFluidTransferPlan.Decode(1727657959,16,1,input,BoxOwned,Gas,64);
+            check(plan.Length==1 && plan[0].Cell==650 && plan[0].Callback==91 && plan[0].Flags==(1U|(3U<<8)|(2U<<16)) &&
+                plan[0].MassKg==(double).02f && plan[0].Species==1 && !plan[0].Injection);
+            check(input.AsSpan().SequenceEqual(held));
+            var empty=NativeFluidTransferPlan.Decode(1727657959,16,1,Consume(716,92,0,255),BoxOwned,Gas,64);
+            check(empty.Length==1 && empty[0].Flags==(1U|(255U<<16)) && empty[0].Callback==92);
+        });
+        test("rectangular ownership inspects the entire footprint including outside anchors",()=> {
+            foreach(var input in new[]{Consume(652,1,2,1),Consume(649,2,2,1),Consume(650,3,3,3),Consume(63,4,2,1)})
+            {
+                var held=(byte[])input.Clone();
+                reject(()=>NativeFluidTransferPlan.Decode(1727657959,16,1,input,BoxOwned,_=>throw new Exception("Premature classification"),64));
+                check(input.AsSpan().SequenceEqual(held));
+            }
+            check(NativeFluidTransferPlan.Decode(1727657959,16,1,Consume(100,5,2,2),BoxOwned,
+                _=>throw new Exception("Outside classifier called"),64).Length==0);
+            var batch=new byte[32];Consume(650,1,3,2).CopyTo(batch,0);Consume(649,2,2,1).CopyTo(batch,16);
+            var copy=(byte[])batch.Clone();reject(()=>NativeFluidTransferPlan.Decode(1727657959,16,2,batch,BoxOwned,Gas,64));
+            check(batch.AsSpan().SequenceEqual(copy));
+        });
     }
 }

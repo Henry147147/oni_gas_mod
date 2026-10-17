@@ -136,6 +136,7 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ViscosityVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_radial_consumption_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RadialConsumptionVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_rectangular_consumption_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint RectangularConsumptionVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_viscosity_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyViscosityStatus(ref ViscosityStatus status);
         [StructLayout(LayoutKind.Sequential)]
         internal struct ChunkHeatStatus

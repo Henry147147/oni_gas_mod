@@ -41,6 +41,17 @@ class FrameInputEvidenceTests(unittest.TestCase):
         self.assertEqual((decoded['heat_commands'],decoded['transfer_commands']),(1,1))
         self.assertEqual([b['kind'] for b in decoded['batches']],[1,2])
         self.assertEqual(decoded['batches'][1]['commands'][0]['flags'],769)
+    def test_rectangular_journals_retain_both_dimensions_and_reject_cross_owner_footprints(self):
+        def rectangle(cell,width,height,action=2,flag=1):
+            body=bytearray(self.journal()[:-64]);struct.pack_into('<I',body,256,cell)
+            struct.pack_into('<II',body,264,action,flag|(width<<8)|(height<<16))
+            return bytes(body)+hashlib.sha256(body).hexdigest().encode()
+        data=rectangle(650,3,2);decoded=decode(data)
+        self.assertEqual(decoded['batches'][1]['commands'][0]['flags'],1|(3<<8)|(2<<16))
+        self.assertNotEqual(physical_inputs_digest(data),physical_inputs_digest(rectangle(650,2,2)))
+        self.assertEqual(decode(rectangle(716,0,255))['transfer_commands'],1)
+        for data in [rectangle(652,2,1),rectangle(714,1,2),rectangle(650,3,2,action=1),rectangle(650,3,2,flag=0)]:
+            with self.assertRaises(ValueError):decode(data)
     def test_rejects_truncation_and_structural_changes_even_with_recomputed_checksums(self):
         original=self.journal()
         for length in range(len(original)):

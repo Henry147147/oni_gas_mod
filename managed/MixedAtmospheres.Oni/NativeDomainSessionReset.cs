@@ -27,6 +27,7 @@ namespace MixedAtmospheres.Oni
             transferStatus=default;completedReceipts=Array.Empty<Receipt>();deliveredReceipt=0;transferPacketsRouted=receiptsPublished=0;
             radialConsumptionMessagesRouted=0;
             radialSourceCellOxygen=0;radialSourceFrame=0;radialReceipt=null;radialReceipts=0;
+            ResetRectangularConsumption();
             transfersSubmitted=transfersVerified=transfersAvoidedNativeDispatch=transferConsumptionSubmitted=false;
             transferConsumptionCallback=0;emissionCallbacks=consumptionCallbacks=0;emissionResult=default;consumptionResult=default;
             transfersBeforeEnergy=transferEnergyResidual=transferMassError=transferEnergyScale=0;transferEnergyBound=1e-6;

@@ -52,6 +52,10 @@ remain in progress.
 bridge, with licensed gas/water worker controls on both native libraries.
 Its actual Unity colony acceptance tests are in progress.
 
+[Rectangular consumption](docs/native-rectangular-consumption.md) now reserves
+device footprints and returns one conserved native callback. Its game controls
+are being verified alongside the existing point and radius boundaries.
+
 ## What currently works
 
 - A development [sealed native fluid domain](docs/sealed-native-domain.md)

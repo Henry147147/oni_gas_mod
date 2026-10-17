@@ -893,6 +893,28 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             bad=copy.deepcopy(self.report);change(bad)
             self.assertFalse(runner.native_domain_passed(bad,self.observation,30,radial_consumption=True))
 
+    def test_rectangular_consumption_requires_the_actual_footprint_callback_and_complete_transfer_account(self):
+        self.add_gas_transfers();self.report.update(TargetCell=100,Width=3,Height=2)
+        injected=struct.unpack('f',struct.pack('f',.05))[0];consumed=struct.unpack('f',struct.pack('f',.4))[0]
+        self.report['GasTransfers']['MassChangesKg']=[0,injected-consumed,0,0,0]
+        self.report['ConsumptionResult'].update(mass=.4,callbackIdx=71)
+        self.report['RectangularConsumption']=dict(Required=True,Verified=True,AbiVersion=1,
+            Source='actual-SimMessages.ConsumeMass-width-height',Order='bottom-to-top-left-to-right',Width=3,Height=2,
+            PublicCell=100,SourceFrame=4,SourceCellOxygenKg=.2,InjectedOxygenKg=injected,RequestedMassKg=consumed,
+            MessagesRouted=1,Receipts=1,SingleCallbackForMultipleSourceCells=True,WholeColonyDeviceConsumption=False,
+            Receipt=dict(Session=1,Kind=2,Species=1,PublicCell=100,MassKg=consumed,CompletedFrame=5,Callback=71))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,rectangular_consumption=True))
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30))
+        changes=[lambda r:r['RectangularConsumption'].update(SourceCellOxygenKg=.5),
+            lambda r:r['RectangularConsumption'].update(Receipts=2),lambda r:r['RectangularConsumption'].update(Width=2),
+            lambda r:r['RectangularConsumption'].update(Order='breadth-first'),lambda r:r.update(Width=2),
+            lambda r:r['RectangularConsumption']['Receipt'].update(Callback=72),lambda r:r['RectangularConsumption']['Receipt'].update(MassKg=.02),
+            lambda r:r['RectangularConsumption'].update(SourceFrame=5),lambda r:r['RectangularConsumption'].update(MessagesRouted=0),
+            lambda r:r['RectangularConsumption'].update(WholeColonyDeviceConsumption=True),lambda r:r.update(ConsumptionCallbacks=2)]
+        for change in changes:
+            bad=copy.deepcopy(self.report);change(bad)
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,rectangular_consumption=True))
+
     def test_gas_transfers_require_completed_receipts_and_actual_game_callbacks(self):
         self.assertFalse(runner.native_domain_passed(self.report, self.observation, 30, transfers=True))
         self.add_gas_transfers()

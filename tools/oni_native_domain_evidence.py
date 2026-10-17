@@ -513,6 +513,29 @@ def _radial_consumption_passed(report: dict, physical: dict) -> bool:
         return False
 
 
+def _rectangular_consumption_passed(report: dict, physical: dict) -> bool:
+    try:
+        value=report['RectangularConsumption'];receipt=value['Receipt'];source=value['SourceFrame']
+        injected=struct.unpack('<f',struct.pack('<f',.05))[0];requested=struct.unpack('<f',struct.pack('<f',.4))[0]
+        if (any(value.get(key) is not True for key in ('Required','Verified','SingleCallbackForMultipleSourceCells'))
+                or value.get('AbiVersion')!=1 or value.get('Source')!='actual-SimMessages.ConsumeMass-width-height'
+                or value.get('Order')!='bottom-to-top-left-to-right' or value.get('Width')!=3 or report['Width']!=3
+                or value.get('Height')!=2 or report['Height']!=2
+                or value.get('WholeColonyDeviceConsumption') is not False or value.get('Receipts')!=1
+                or value.get('MessagesRouted')!=1 or value.get('PublicCell')!=report['TargetCell']
+                or type(source) is not int or not 0<=source<physical['CompletedFrames']
+                or value.get('InjectedOxygenKg')!=injected or value.get('RequestedMassKg')!=requested
+                or type(value.get('SourceCellOxygenKg')) not in (int,float) or not 0<value['SourceCellOxygenKg']<math.inf):
+            return False
+        return (receipt.get('Session')==physical['Session'] and receipt.get('Kind')==2 and receipt.get('Species')==1
+            and receipt.get('PublicCell')==value['PublicCell'] and receipt.get('MassKg')==requested
+            and requested>value['SourceCellOxygenKg']+injected
+            and type(receipt.get('CompletedFrame')) is int and source<receipt['CompletedFrame']<=physical['CompletedFrames']
+            and type(receipt.get('Callback')) is int and receipt['Callback']==report['ConsumptionResult']['callbackIdx'])
+    except (KeyError,TypeError,ValueError,AttributeError):
+        return False
+
+
 def _live_breathing_passed(report: dict, physical: dict, restored: bool) -> bool:
     try:
         value=report['LiveBreathing'];rows=value['Evidence'];count=value['Requests']
@@ -668,7 +691,7 @@ def _native_solid_heat_passed(report: dict, restored: bool) -> bool:
     except (KeyError,TypeError,AttributeError,ValueError,OverflowError,struct.error):return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False, rectangular_consumption: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -708,6 +731,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     radial_consumption=radial_consumption or isinstance(report.get('RadialConsumption'),dict) and report['RadialConsumption'].get('Required') is True
     if radial_consumption:
         if not _radial_consumption_passed(report,physical):return False
+        transfers=True
+    rectangular_consumption=rectangular_consumption or isinstance(report.get('RectangularConsumption'),dict) and report['RectangularConsumption'].get('Required') is True
+    if rectangular_consumption:
+        if not _rectangular_consumption_passed(report,physical):return False
         transfers=True
     mixed_phase=mixed_phase or report.get('Scenario')=='gas-liquid-mixture'
     mixed_heat=mixed_phase and isinstance(report.get('MixedPhase'),dict) and report['MixedPhase'].get('NativeScenario')==5
@@ -881,7 +908,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         account = report.get("FluidTransfers" if liquid_transfers else "GasTransfers")
         emission, consumption = report.get("EmissionResult"), report.get("ConsumptionResult")
         injected = struct.unpack("f", struct.pack("f", .05))[0]
-        consumed = struct.unpack("f", struct.pack("f", .4 if radial_consumption else .02))[0]
+        consumed = struct.unpack("f", struct.pack("f", .4 if radial_consumption or rectangular_consumption else .02))[0]
         energy_bound = 1e-6
         if liquid_transfers:
             scale = report.get("TransferEnergyScaleJoules")
@@ -916,7 +943,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or type(account.get("KineticEnergyChange")) not in (int, float) or not math.isfinite(account["KineticEnergyChange"]) or account["KineticEnergyChange"] >= 0
                 or type(account.get("MaterialEnergyChange")) not in (int, float) or not math.isfinite(account["MaterialEnergyChange"])
                 or not isinstance(emission, dict) or not isinstance(consumption, dict)
-                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != (.4 if radial_consumption else .02)
+                or emission.get("suceeded") != 1 or emission.get("mass") != .05 or consumption.get("mass") != (.4 if radial_consumption or rectangular_consumption else .02)
                 or type(emission.get("elemIdx")) is not int or emission["elemIdx"] != consumption.get("elemIdx")
                 or emission.get("temperature") != (310 if carbon else 300)
                 or type(consumption.get("temperature")) not in (int, float) or not 0 < consumption["temperature"] < float("inf")
@@ -1136,7 +1163,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("solid-heat", "mixed", "mixed-heat", "viscous", "radius", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("solid-heat", "mixed", "mixed-heat", "viscous", "radius", "rectangular", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
@@ -1156,8 +1183,8 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
-            heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode in ("transfer", "radius"), actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
+        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", rectangular_consumption=args.mode=="rectangular", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+            heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode in ("transfer", "radius", "rectangular"), actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
             live_breathing=args.live_breathing,solid_heat=args.mode=="solid-heat",subnormal_carbon_particle=args.subnormal_carbon_particle,transient_particles=args.transient_particles,persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))

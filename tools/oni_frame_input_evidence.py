@@ -49,11 +49,15 @@ def decode(data: bytes) -> dict:
                 rows.append(dict(cell=cell,source=origin,joules=joules,maximum_temperature=maximum));heat+=1
             else:
                 cell,species,action,options,callback,reserved,mass,temperature=struct.unpack_from('<IIIIiIdd',body,offset+24)
-                require(species<5 and action in (1,2) and reserved==0 and options&~0xff01==0 and
+                require(species<5 and action in (1,2) and reserved==0 and options&~0xffff01==0 and
                     math.isfinite(mass) and mass>=0 and math.isfinite(temperature),'Invalid transfer command')
                 radius=(options>>8)&255
-                require(not radius or action==2 and options&1,'Invalid radial consumption flags')
-                if radius or action==1 and options&1:
+                box_height=(options>>16)&255
+                require(not (radius or box_height) or action==2 and options&1,'Invalid regional consumption flags')
+                if box_height and radius:
+                    require(cell%pitch+radius<=x+width and cell//pitch+box_height<=y+height,
+                            'Rectangular consumption extends outside its declared owner')
+                if radius or box_height or action==1 and options&1:
                     try:projected=struct.unpack('<f',struct.pack('<f',mass))[0]
                     except (OverflowError,struct.error):raise ValueError('Transfer exceeds callback range') from None
                     require(projected==mass,'Transfer is not an exact callback mass')
