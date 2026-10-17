@@ -327,9 +327,18 @@ separate; configuring a batch advances no time and emits no mass callbacks.
 The managed native-message bridge preflights ownership before admission.
 Supported batches containing only owned consumer/emitter configurations use
 the custom registry; batches of unowned actors retain native dispatch.
-Moving an owned handle outside, mixing owners, or batching owned native
-registration/removal still requires additional admission/retirement work and
-rejects before dispatch. Forwarding an inactive registration to a native
+Consumer/emitter registration batches now decode all owned callback bindings
+before publishing any of them, then forward the original inactive native
+registrations. Duplicate callbacks, unsupported materials/radii and malformed
+late entries reject the complete plan without adding earlier bindings. An
+outside consumer keeps its native admission rules. Emitter location/material
+admission still occurs at its later configuration message.
+
+Owned removal batches atomically retire their complete custom registry set,
+then forward the original batch to retire ONI's inactive registrations. A
+missing/stale/duplicate removal changes no earlier custom actor. Mixed-owner
+mutation batches and moving an owned handle outside still reject before
+dispatch; these need a cross-owner reservation. Forwarding an inactive registration to a native
 outside transfer retires its eligibility for later custom admission.
 
 `native-actor-domain` spawns an actual Unity `ElementConsumer`, registers an
@@ -342,6 +351,27 @@ The same control also sends two ordered rate changes for the actual owned
 consumer in one batch, verifies the batch avoids original native dispatch,
 and forwards a zero-rate batch for a second actual Unity consumer outside the
 domain. Subsequent physical callbacks must reflect the final owned rate.
+The extended fixture registers two real emitter handles in one native batch,
+configures both, disables the second after eight frames, and removes both in
+one owned/native retirement batch. Reports separately require both handle
+callbacks and both batch admissions, all physical receipts, and continued
+frames without transfers after retirement. Five declaration-level regression
+groups pass against each platform's licensed assemblies (106 total per
+platform); the extended real-player control is tracked separately from the
+historical one-emitter cohorts below.
+
+Frozen `d43f880` with compatibility build v9 passes the extended Linux gas
+source in `actor-batch-unity-matrix-v1/actor-save`: 121 frames / 24.200000361 s,
+both real emitter registration callbacks, one registration batch, one
+retirement batch, 32 actual consumer callbacks and 80 emitter status samples.
+Both density-edge callbacks occur once; removal at frame 47 is followed by
+74 frames without actor transfers. U+K residual is -1.77527e-9 J against the
+unchanged 1e-6 J bound; maximum relative mass error is 1.80e-15. The ordinary
+save passes full header/body readback with physical SHA-256
+`937e1e16012e214832759073a06b4188d6bc7731d8125bef58e36a795a866281`
+and colony-file SHA-256
+`8fe04815aea3c61497a37beb2462f7b60072ad83a10c2a672a725dcaecc05215`.
+The fresh-process gas reload and both water controls are still running.
 
 ### Filled-liquid registered actors
 

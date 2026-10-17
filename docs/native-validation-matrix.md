@@ -20,9 +20,10 @@ python3 tools/oni_native_matrix.py \
   --frames 120 --timeout 1800
 ```
 
-The output directory must be new. The default selects gas, compressed water, water point transfers, actors and heat,
-heat, transfers, carbon dioxide, conduction, gravity, registered actors,
-physical checkpoints, paired capture and source-save controls: 28 game
+The output directory must be new. The default selects gas, compressed water,
+water point transfers, gas/water heat, gas transfers, carbon dioxide,
+conduction, gas/water gravity, gas/water registered actors, physical
+checkpoints, paired capture and source-save controls: 30 game
 processes including reloads. Use `--scenes water gravity` to select cases.
 Gas and water actors need at least 80 frames; source-save controls need at least 16.
 `--timeout` applies separately to each game and accepts up to 7,200 seconds.
@@ -33,8 +34,18 @@ Changed frozen inputs, an unsuccessful exit, a missing/failed result, a save
 outside its disposable run, a mismatched source receipt or a changed source
 file abort the matrix. Completed reports and logs remain intact, and the
 matrix is marked successful only after every selected save and reload passes.
-Eight orchestration regressions exercise these failure paths without launching
+Eleven orchestration regressions exercise these failure paths without launching
 a game.
+
+For the Windows Unity player on a Linux host, add `--proton /path/to/proton`
+and `--game-dir /path/to/windows-game`, and supply a Windows probe package.
+The [Proton runner](proton-game-validation.md) creates one fresh prefix per
+game. Windows reports retain their C:/Z: paths; the matrix loads only the
+runner's authenticated host save inside the corresponding evidence directory.
+Both raw and host file hashes must match. The extra runner/imported scene map
+are frozen too. Reports identify WindowsPlayer on Linux and keep
+`actual_windows_os: false`; a successful Proton matrix cannot certify the
+Windows OS or the full overhaul.
 
 The initial private `public-matrix-save-workflow-v1` smoke cohort passes both
 actual Unity processes with 30 frames per case. Its source at frame 32 /

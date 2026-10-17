@@ -68,10 +68,33 @@ checks with four platform-specific skips. The Windows-under-Wine 1,200-frame
 test also passes with -0.000190683 J residual. Its native suite passes all 13
 cases across a separate rerun of the final checkpoint case after a Wine server
 connection reset; the original infrastructure failure remains retained.
-Linux sanitizer and rendered Unity verification of this new scenario remain
-separate obligations. This is a six-cell occupied liquid control; it does not
-implement free surfaces, phase change, arbitrary liquid materials, production
-devices, persistent live actors or whole-colony ownership.
+All 13 ASan/UBSan native tests also pass. The frozen `b4a6552` Ubuntu 22.04
+compatibility build v9 passes all 13 tests, including the 1,200-frame control;
+both shared libraries require at most glibc 2.34.
+
+The frozen `b4a6552` runner/package and compatibility build v9 now pass the
+actual Linux Unity water-gravity source scene and ordinary colony save in
+`liquid-gravity-unity-matrix-v1/water-gravity-save`. It reaches frame 121 /
+24.200000361 s, publishes both real water callbacks once, and passes gravity,
+native-cell, grid/rendering and save readback checks. Its independent U+K+G
+residual is +0.0000661246 J against 0.005945860769 J; maximum native energy
+residual is 0.000122070313 J. Source physical SHA-256 is
+`b7d6bda27871f5e040f19879e86b6415e56c4b7cb423b29520fae6d74a571bad`,
+and colony-file SHA-256 is
+`aa66e98078bbb825c23958e407176696c18da47766f91156b791ea814376c5ee`.
+The fresh-process load passes its frame-zero deferred autosave and all 120
+exact continued physical images through 48.200000718 s. Its final physical
+SHA-256 is
+`1553d8fadc0f65ce4e6759781f4e7e45a54c872a592c6c9745854b2bbf679285`;
+the initial autosave retains the exact source image and has file SHA-256
+`2dc8e3c7c8148ec19c41ddbe78cf6ae42608e90c125dfc9c31cd4d39fd11b5ee`.
+
+`liquid-gravity-in-process-reload-v1` also passes: one Unity process observes
+shutdown/main menu, advances native session 1 to 2, performs both paused initial
+autosaves and reproduces that same frame-120 physical image in both sessions.
+The staged input remains unchanged; the second autosave file hash is
+`a0e3223883502b1a461582109407f33cda03a4e62f634c83933f17b7b4cf6621`.
+The supervising workflow then resumes the larger frozen feature matrix.
 
 ### Actual Windows native and Unity controls
 
@@ -111,11 +134,16 @@ water moves, and second-session selected details retain water mass/moles,
 100% liquid volume, no gas phase and explicit breathing status. Original Windows
 screenshots are retained. Both processes close successfully, remove temporary
 mods and restore all 13 profile files byte-for-byte. The missing KPrefabID
-246809 warning persists during resaving. Liquid fill rendering, exact visual
-cell/frame binding, general managed-reference integrity, scientific hydrostatic
+246809 warning persists during resaving. This earlier inspection does not
+establish liquid fill rendering or exact visual cell/frame binding; general
+managed-reference integrity, scientific hydrostatic
 convergence and first-playable acceptance remain open.
 
 The later [matched fluid-rendering repair](native-fluid-rendering.md) identifies
 the hidden-water cause and verifies blue full-water appearance on Windows,
 with the same complete physical continuation image. Its scope does not accept
 Linux liquid rendering or general free-surface geometry.
+
+This is a six-cell occupied liquid control;
+it does not implement free surfaces, phase change, arbitrary liquid materials,
+production devices, persistent live actors or whole-colony ownership.

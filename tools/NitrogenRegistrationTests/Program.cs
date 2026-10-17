@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text.Json;
 using MixedAtmospheres.Oni;
+using HarmonyLib;
 
 internal static class Program
 {
@@ -25,12 +27,13 @@ internal static class Program
         var tests = new (string name, System.Action test)[]
         {
             ("custom identities have stable noncolliding SDBM hashes", StableIdentities),
-            ("all native enum identities and tag calls pass through unchanged", NativePassThrough),
+            ("all native enum identities and rewritten tag results remain unchanged", NativePassThrough),
             ("custom tag adapter resolves the original string rather than an enum integer", CustomTags),
             ("localization keys remain stable under Turkish casing", LocalizedNames),
             ("explicit YAML descriptions bypass the native culture-dependent default", DescriptionMapping),
             ("native tag bridge still exposes exactly the inspected signatures", BridgeContract),
-            ("YAML phases load only through the adapter's private content gate", ContentGate)
+            ("YAML phases load only through the adapter's private content gate", ContentGate),
+            ("tag IL rewrite rejects changed enum and branch shapes", InvalidBridge)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -63,19 +66,22 @@ internal static class Program
     {
         foreach (var value in Enum.GetValues<SimHashes>().Append((SimHashes)int.MaxValue))
         {
-            var marker = new Tag("unchanged-native-result"); var result = marker;
             Check(!OniNitrogenElements.TryIdentity(value, out var identity) && identity == "" &&
-                OniNitrogenElements.Identity(value) == value.ToString() && NitrogenElementTagPatch.Prefix(value, ref result) && result == marker,
-                "The native identity or tag bridge was intercepted: " + value);
+                OniNitrogenElements.Identity(value) == value.ToString(),"The native identity was changed: " + value);
         }
+        foreach(var bridge in RewrittenBridges()) foreach(var value in Enum.GetValues<SimHashes>().Append((SimHashes)int.MaxValue))
+            Check(bridge(value)==TagManager.Create(value.ToString()),"Rewritten native tag changed: "+value);
     }
     private static void CustomTags()
     {
         foreach (var (id, hash, _) in Identities())
         {
-            var result = Tag.Invalid;
-            Check(!NitrogenElementTagPatch.Prefix(hash, ref result) && result == new Tag(id) && result.ToString() == id &&
-                result != new Tag(((int)hash).ToString(CultureInfo.InvariantCulture)), "Custom enum tag resolved as an integer.");
+            foreach(var bridge in RewrittenBridges())
+            {
+                var result=bridge(hash);
+                Check(result == new Tag(id) && result.ToString() == id &&
+                    result != new Tag(((int)hash).ToString(CultureInfo.InvariantCulture)), "Custom enum tag resolved as an integer.");
+            }
         }
     }
     private static void LocalizedNames()
@@ -101,6 +107,47 @@ internal static class Program
             var method = typeof(GameTagExtensions).GetMethod(name, new[] { typeof(SimHashes) });
             Check(method != null && method.IsStatic && method.ReturnType == typeof(Tag), "Native tag helper signature changed.");
         }
+    }
+    private static CodeInstruction[] OriginalBridge(string name)
+    {
+        var method=typeof(GameTagExtensions).GetMethod(name,new[]{typeof(SimHashes)})!;
+        var il=method.GetMethodBody()!.GetILAsByteArray()!;
+        Check(il.Length==19 && il[0]==0x0f && il[1]==0 && il[2]==0xfe && il[3]==0x16 &&
+            il[8]==0x6f && il[13]==0x28 && il[18]==0x2a,"Pinned native tag IL changed.");
+        return new[]{new CodeInstruction(OpCodes.Ldarga_S,(byte)0),
+            new CodeInstruction(OpCodes.Constrained,method.Module.ResolveType(BitConverter.ToInt32(il,4))),
+            new CodeInstruction(OpCodes.Callvirt,method.Module.ResolveMethod(BitConverter.ToInt32(il,9))),
+            new CodeInstruction(OpCodes.Call,method.Module.ResolveMethod(BitConverter.ToInt32(il,14))),new CodeInstruction(OpCodes.Ret)};
+    }
+    private static IEnumerable<Func<SimHashes,Tag>> RewrittenBridges()
+    {
+        foreach(var name in new[]{"Create","CreateTag"})
+        {
+            var original=OriginalBridge(name);var code=NitrogenElementTagPatch.Transpiler(original).ToArray();
+            Check(code.Length==4 && ReferenceEquals(code[2],original[3]) && ReferenceEquals(code[3],original[4]),
+                "Native Tag construction/return instructions were changed.");
+            var method=new DynamicMethod("rewritten_"+name,typeof(Tag),new[]{typeof(SimHashes)},typeof(Program),true);
+            var generator=method.GetILGenerator();
+            foreach(var instruction in code)
+                if(instruction.operand is MethodInfo target)generator.Emit(instruction.opcode,target);
+                else if(instruction.operand==null)generator.Emit(instruction.opcode);
+                else throw new Exception("Unexpected rewritten operand");
+            yield return method.CreateDelegate<Func<SimHashes,Tag>>();
+        }
+    }
+    private static void InvalidBridge()
+    {
+        void Reject(CodeInstruction[] code)
+        {
+            try{_ = NitrogenElementTagPatch.Transpiler(code).ToArray();}
+            catch(InvalidDataException){return;}
+            throw new Exception("Changed native tag IL was accepted.");
+        }
+        Reject(Array.Empty<CodeInstruction>());
+        var code=OriginalBridge("Create");code[1].operand=typeof(int);Reject(code);
+        code=OriginalBridge("Create");var generator=new DynamicMethod("label",typeof(void),Type.EmptyTypes).GetILGenerator();
+        code[2].labels.Add(generator.DefineLabel());Reject(code);
+        code=OriginalBridge("Create");Reject(code.Concat(OriginalBridge("CreateTag")).ToArray());
     }
     private static void ContentGate()
     {
