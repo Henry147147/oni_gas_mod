@@ -105,9 +105,9 @@ Independent water review SHA-256:
 Raw water source/load results are
 `3d33fd6b4719b540cc5a9ff551390c8e3ae219353a3b2d88e76404f72d9fa0d3`
 and `5efe7a88e7044c8a5ad0204d049fa5bce28cdd87bf040524669ef46e2ccc3826`.
-Windows Unity actor execution and a natural day-rollover save with live actors
-remain under validation. These actor cohorts have no separate manual image
-review; their scoped appearance check uses actual calibrated GPU readback.
+Windows Unity actor execution remains under validation. These actor cohorts
+have no separate manual image review; their scoped appearance check uses actual
+calibrated GPU readback.
 
 Fresh native Windows execution of the merged source passes the ABI, detour and
 four domain groups, including durable actor identity remapping and exact
@@ -130,6 +130,46 @@ terminal SHA-256
 `6805173ff923a9b4a8217d7e5c11c60389a71baf2a5f34528aa456fcd1fc17d9`.
 This is declaration/build verification; Unity save/reload remains required.
 
+## Natural day autosaves with live actors
+
+Frozen `6c0f9a8` and native compatibility build v12 pass the actual Linux day
+scheduler and subsequent actor continuation. The source uses no manual save
+request: `GameClock.DoAutoSave` requests cycle one, and the ordinary autosave
+finishes at native game time 602.0255126953125 seconds. It captures all three
+live actors at physical frame 2,731/time 546.2000081390142 seconds. The complete
+5,151,577-byte body and current header pass readback, and pause depth returns
+from zero to zero. The unchanged autosave file SHA-256 is
+`929f2f49a3cc1c26f6567d045e3a27371f8f6e325f9fae3e2a780cd7d9fc935d`.
+
+The source continues to physical frame 3,304 with all three actors live and
+3,296 matching consumer callbacks carrying exactly 30.362300756853074 kg.
+Replaying all 573 intervals after the save independently produces the same
+final complete actor-and-fluid image:
+`87a2382d917a783d0a76c696088c989bb4138513c87c338377e8191510934e7b`.
+This compares the final source image after replaying those intervals; it does
+not claim an individual source comparison at every intermediate frame.
+
+A fresh Unity process then loads that actual autosave. Native sessions one and
+two, separated by shutdown and the main menu in the same process, each bind all
+three actors, flush two genuine zero-time emitter configurations, finish the
+paused frame-zero autosave/readback and compare all 120 resumed complete
+frames individually. Each receives 120 matching consumer callbacks. Both final
+images equal
+`6a3809d5bfc9e93fd997729ade7657c77a1027ef2341e4b96ae2872b5062251e`.
+Restored readers, calibrated GPU readback, input preservation and private
+desktop cleanup also pass. Both resaved bodies contain 5,151,764 bytes.
+
+Independent review SHA-256:
+`3df81c88b6a111796fe27fa9de678d62f0c0a522cff02bfc845831c2a0f1e24c`.
+Raw source/load result SHA-256 values are
+`77dd0e865266c9520439ad5b0a70d52d5e44adbe602fe59d986a581e2547de24`
+and `438e8ea6d019026d4117d85b5c795b03160f84f1299497acd89f500c0eb717eb`.
+This accepts the bounded Linux live-actor day autosave and reload; it does not
+establish Windows execution or whole-colony ownership. It has no separate
+manual pixel review.
+
+## Running the control
+
 The private `--verify-persistent-actors` source fixture uses three real,
 saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
@@ -140,7 +180,7 @@ replays every subsequent solver/actor interval before comparing the final
 complete image. Its current actor report identifies the final image separately
 from the earlier saved image; local oxygen exhaustion is a valid selective
 consumer result. The fixed short control retains its positive saved-remainder
-challenge. Natural-day execution with live actors is still under validation.
+challenge. The actual Linux natural-day execution and reload are accepted above.
 `native-load-domain --resave-before-resume --reload-in-process`
 then exercises paused autosave and two actual managed scene loads.
 On Windows, `tools/run_colony_validation.ps1 -VerifyPersistentActors` exposes

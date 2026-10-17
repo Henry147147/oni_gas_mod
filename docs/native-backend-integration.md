@@ -19,8 +19,10 @@ that caused earlier gas failures is fixed. Surrounding colony physics
 and production actors remain outside this experiment.
 The subsequent [durable point-actor extension](native-actor-persistence.md)
 adds stable saved-object binding and timing snapshots. Its native controls and
-actual Linux gas/water sources, saves and two exact reload sessions each pass. Production
-devices and pending-outbox crash recovery remain open.
+actual Linux gas/water sources, saves and two exact reload sessions each pass.
+The actual Linux day scheduler also saves three live actors, resumes through
+573 independently replayed intervals and passes both subsequent reload sessions.
+Production devices and pending-outbox crash recovery remain open.
 The new [filled-liquid gravity scenario](native-liquid-gravity.md) keeps
 material reference energy separate from small work/heat updates while
 retaining it in physical totals, messages and checkpoint identity.
