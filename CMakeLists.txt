@@ -269,7 +269,8 @@ if(MA_SANITIZERS AND NOT MSVC)
     add_link_options(-fsanitize=address,undefined)
     foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests ma_passive_transport_tests
             ma_mac_closed_world ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter
-            ma_mac_shock_heat ma_mac_shock_heat_tests ma_mac_shock_heat_owner_tests ma_mac_acoustic_compression_tests ma_mac_pressure_sensor_tests ma_mac_matched_heat_tests ma_mac_series_heat_tests)
+            ma_mac_shock_heat ma_mac_shock_heat_tests ma_mac_shock_heat_owner_tests ma_mac_acoustic_compression_tests ma_mac_pressure_sensor_tests ma_mac_matched_heat_tests ma_mac_series_heat_tests
+            ma_mac_swept_reconstruction_tests ma_mac_checkpoint_tests)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()

@@ -131,3 +131,35 @@ records after newline normalization.
 No strong-flow retry, exact-vacuum case, new Unity launch, production colony,
 phase/interface acceptance, performance acceptance or independent-agent review
 is claimed. The default game DLL and installed ONI SimDLL remain unchanged.
+
+## Merged backend build
+
+After merging the native-inventory admission work, the checkpoint test target
+is defined once in the root project. Backend test builds retain it in their
+default ALL target. Both new standalone targets also receive sanitizer compile
+and link flags through the normal `MA_SANITIZERS` option.
+
+A fresh Windows backend build passes the native domain/import, observer ABI,
+detour, new reconstruction and checkpoint controls. Managed checks pass nine
+nitrogen groups, 106 snapshot/message scenarios and 31 inspection groups.
+The adapter compiles with the same two pre-existing MSB3277 reference warnings
+for System.IO.Compression and System.Net.Http. Linux's sanitizer option alone,
+without injected global compiler/linker flags, builds and passes the new
+reconstruction and checkpoint targets; their bytes match the earlier reviewed
+sanitizer output. The three affected Linux runner suites pass 85 unit tests.
+
+The first runner-unit invocation used a source archive without its own Git
+metadata, so its checkout-identity test failed. The unchanged, hash-matched
+tests pass from the actual checkout. The unused first Python plan placed its
+stages outside the stage table and launched no unit tests; its corrected plans
+and all first outcomes remain retained. The initial closing reviewer also
+assumed zero adapter warnings; comparison with the preceding Windows capture
+confirms the same two reference warnings above. No native capture was repeated
+for these review corrections.
+
+Evidence is `local/windows-swept-import-merge-r1`, source-freeze SHA256
+`081948a9e9dade2a7abcfbe81b6bae8d47b0f31251522a21415e945dd7080ee5`,
+terminal-review SHA256
+`15b28fcf0175668bbaf4a25eb3f84a1155c71e0928a076f7cf967da570978080`.
+This checks the combined build and helpers; actual Unity inventory-import and
+full-colony acceptance remain separate requirements.
