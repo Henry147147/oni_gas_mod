@@ -20,6 +20,9 @@ namespace MixedAtmospheres.Oni
         private int shortcutsAccepted;
         private string lastShortcut = "";
         private string lastShortcutEvent = "";
+        private bool pendingOverlayCycle;
+        private bool overlayObserved;
+        private HashedString observedOverlay;
         private bool diagnosticWarning;
         private RuntimeMixturePresentationFrame? frame;
         private int sampleCell = -1;
@@ -140,15 +143,35 @@ namespace MixedAtmospheres.Oni
             CameraController.Instance.SnapTo(point, 4);
         }
 
-        private void CycleOverlay()
+        private void CycleOverlay(HashedString active)
         {
             if (!InColony || OverlayScreen.Instance == null || frame == null || !frame.HasWorld) return;
-            var active = OverlayScreen.Instance.GetMode();
             var kinds = (MixtureOverlayKind[])Enum.GetValues(typeof(MixtureOverlayKind));
             var next = 0;
             for (var index = 0; index < kinds.Length; ++index)
                 if (active == MixtureOverlays.Id(kinds[index])) { next = index + 1; break; }
             OverlayScreen.Instance.ToggleOverlay(next == kinds.Length ? OverlayModes.None.ID : MixtureOverlays.Id(kinds[next]), false);
+        }
+
+        private void LateUpdate()
+        {
+            if (!InColony || OverlayScreen.Instance == null)
+            { overlayObserved = pendingOverlayCycle = false; return; }
+            // ONI also handles F5 through its native input route. Apply our
+            // modified-key request after that route, using the mode observed
+            // before the F5 frame. Reading the current mode here would cycle
+            // from native Light every time. OnGUI may queue after LateUpdate.
+            if (pendingOverlayCycle)
+            {
+                pendingOverlayCycle = false;
+                CycleOverlay(overlayObserved ? observedOverlay : OverlayScreen.Instance.GetMode());
+                RecordValidationStatus();
+            }
+            if (!Input.GetKeyDown(KeyCode.F5) || !overlayObserved)
+            {
+                observedOverlay = OverlayScreen.Instance.GetMode();
+                overlayObserved = true;
+            }
         }
 
         private void OnGUI()
@@ -164,7 +187,7 @@ namespace MixedAtmospheres.Oni
                 var accepted = true;
                 switch (key.keyCode)
                 {
-                    case KeyCode.F5: CycleOverlay(); break;
+                    case KeyCode.F5: pendingOverlayCycle = true; break;
                     case KeyCode.F8: expanded = !expanded; break;
                     case KeyCode.F9: FocusReadings(); break;
                     case KeyCode.F10: showBoundary = !showBoundary; break;
