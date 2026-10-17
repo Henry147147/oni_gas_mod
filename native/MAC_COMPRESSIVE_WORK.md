@@ -225,3 +225,41 @@ terminal SHA-256:
 `d49529f5c92f40bbe8c1c759ae12d8f7a8664251ba300adc5054c45cc846fc73`.
 No independent-agent review is claimed. Complete prerequisites, the original
 strong-flow benchmark and game acceptance remain open.
+
+The complete prerequisite rerun from `b703031` now passes 207 native groups and
+34 saved reviews on Windows, Linux and Linux ASan/UBSan. This includes the
+additional durable-actor domain group and public physical-admission control.
+All 66 dependency/test compile commands in the sanitizer graph are instrumented.
+Windows/Linux ABI and detour controls also pass. All nine new component/owner
+streams and eight normal-OS legacy streams remain byte identical to the focused
+accepted captures. All processes and pipes are terminal. Private evidence is
+`local/mac-compressive-prerequisites-r1`; terminal SHA-256:
+`8aa95ec28425bb7608ad95b691713a8eb8347f457f143ddfd8b9d346ec2e923b`.
+
+## First owning strong-flow attempt
+
+With those prerequisites closed, one strict Windows attempt selects material 2,
+momentum 3, compression 3 and heat 2. Only those selectors differ in the original
+scientific source. Grids, initial states, norms, thresholds, coefficients and the
+180-second/2-MiB bounds are unchanged. The process exits 1 after 80.454 seconds;
+both raw pipes reach EOF and close normally. Its 808,774-byte stdout SHA-256 is
+`db99baa7adf8570c4c71df43163674611cfdc74763eb2819ea9636d4b15f3ef1`.
+
+All three Sod and all three collision profiles complete and pass their native
+refinement gates. Collision density/pressure/velocity error ratios are
+0.848334/0.819035/0.613088 from 64 to 128 cells, and
+0.414988/0.386744/0.481236 from 128 to 256. The original collision density
+failure is addressed in this attempt. Independent saved-only review passes
+82,824 checks over those six complete profiles, including their actual energy,
+momentum, EOS, trace/passive quantities and refinement. This partial review
+explicitly does not certify the whole strong-flow gate.
+
+The separation case stops on the unchanged actual stored-U entropy allowance:
+`Compressive actual stored-state entropy falls below the original stored-U allowance`.
+No separation profile completes. The full gate remains failed, no unchanged
+Linux strong attempt is launched, and no default is promoted. The failure must
+be diagnosed without weakening the entropy or other scientific bounds.
+Private evidence is `local/mac-compressive-strong-r1`; terminal SHA-256:
+`5f1ad7eb9acadedaac4e61f9165acbeb2ec8015c73350bfe1eff65a545496e8b`.
+Production ownership, exact vacuum interfaces and playable-colony acceptance
+remain open.
