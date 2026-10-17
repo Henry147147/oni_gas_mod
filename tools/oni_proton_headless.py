@@ -133,6 +133,7 @@ def domain_options(args) -> dict:
         persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
         live_breathing=getattr(args,"verify_live_breathing",False) is True,
         transient_particles=getattr(args,"verify_transient_particles",False) is True,
+        subnormal_carbon_particle=getattr(args,"subnormal_carbon_particle",False) is True,
         paired=mode == "native-paired-checkpoint-domain", natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True,
         restored=mode == "native-load-domain", save_io_recovery=args.verify_save_io_recovery,
         reload_in_process=args.reload_in_process)
@@ -146,6 +147,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if getattr(args,"subnormal_carbon_particle",False) is True and args.mode!="native-carbon-particle-domain":
+        raise ValueError("Subnormal carbon particle input requires native-carbon-particle-domain")
     if getattr(args,"verify_transient_particles",False) is True and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
         raise ValueError("Transient particle validation requires a gas source save or a reload with a frame-zero resave")
     if getattr(args,"verify_live_breathing",False) is True and (args.mode not in ("native-domain","native-load-domain") or
@@ -278,7 +281,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
                 **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
                 **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
-                **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {})})
+                **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
+                **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {})})
         graphics_api = getattr(args,"graphics_api","glcore")
         command = sandbox_command(home, state, output, game, proton,
             ["run", windows_path(game / "OxygenNotIncluded.exe"), "-force-" + graphics_api, "-screen-fullscreen", "0",
@@ -379,6 +383,7 @@ def main() -> int:
     parser.add_argument("--reload-in-process", action="store_true")
     parser.add_argument("--verify-natural-autosave",action="store_true",help="Wait for natural day rollover; native-domain and 3100..5000 frames")
     parser.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; gas/water source, source save or natural autosave, and at least eighty frames")
+    parser.add_argument("--subnormal-carbon-particle",action="store_true",help="Use the smallest positive binary32 parcel in the original CO2 particle scene")
     parser.add_argument("--verify-transient-particles",action="store_true",help="Save an in-flight original CO2 particle and verify exact restore and one native deposition")
     parser.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     parser.add_argument("--verify-save-io-recovery", action="store_true")

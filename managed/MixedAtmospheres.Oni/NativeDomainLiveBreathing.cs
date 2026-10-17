@@ -91,12 +91,13 @@ namespace MixedAtmospheres.Oni
                 Require(liveBreathingPending.TryGetValue(liveBreathingActiveCallback,out var pending) && pending!=null && pending.Receipt.HasValue,
                     "Actual breather callback has no active published owned receipt.");
                 var receipt=pending!.Receipt!.Value;var command=pending.Command;
-                Require((float)receipt.MassKg==mass && (mass==0 ? temperature==0 : (float)receipt.Temperature==temperature) &&
+                var delivered=NativeBinary32.ToDouble(mass);
+                Require(receipt.MassKg==delivered && (delivered==0 ? temperature==0 : (float)receipt.Temperature==temperature) &&
                     element==SimHashes.Oxygen && disease==255 && diseaseCount==0,
                     "Actual duplicant callback differs from its published physical receipt.");
                 liveBreathingPending.Remove(liveBreathingActiveCallback);liveBreathingActiveCallback=-1;
-                ++liveBreathingCallbacks;if(mass>0) ++liveBreathingPositiveCallbacks;
-                liveBreathingCallbackMass+=mass;
+                ++liveBreathingCallbacks;if(delivered>0) ++liveBreathingPositiveCallbacks;
+                liveBreathingCallbackMass+=delivered;
                 liveBreathingEvidence.Add(new {Request=command,Receipt=receipt,CallbackMassKg=mass,CallbackTemperature=temperature,
                     Element=(int)element,Disease=disease,DiseaseCount=diseaseCount});
             }

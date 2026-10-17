@@ -49,9 +49,31 @@ requires exact restore, the ordinary frame-zero autosave, one completed depositi
 receipt and removal from the original active pool. Full continuation uses the
 accepted input journals rather than an invented particle trajectory.
 
-The format and parser pass 165 declaration scenarios against both installed
-Linux and Windows assemblies. The full adapter compiles against both players;
-actual source/save/reload controls are pending. This remains the bounded sealed
-region adapter. It does not establish whole-colony particle persistence,
-conserved duplicant metabolism, bubble/exhaust persistence or complete material
-support.
+The frozen `70f9cb1` real Linux source passes at frame 22, with 17 original
+positive breathing callbacks and 17 native body-heat transfers totaling
+336.74926264211535 J. It saves two in-flight parcels, including one produced by
+the real breather. The ordinary save confirms the active particles have no
+native save root. Particle-image SHA-256:
+`d37c1ae7df99c43d7ca4f7c63f22ead9de0f5830ae0d7fcad8713bafa3841954`.
+Source colony-file SHA-256:
+`ae1f85a567ccfe9bfa79f750b1f94276ee2261396b98c212ada827e3d81ad487`.
+
+The subsequent Linux process loads that source twice through the normal menu
+lifecycle. Both sessions restore both parcels exactly and preserve the same
+image in their frame-zero autosaves. Each completes 120 individually exact
+input-replayed fluid frames, 120 represented native body-heat transfers and one
+original deposition of the 0.03125 kg test parcel. The two sessions deliver 14
+and 12 original breathing callbacks, respectively. Independent binary reviews
+pass all 240 accepted-input journals. The source file remains unchanged; visual
+inspection confirms the first completed PNG shows the actual duplicant in the
+mixture room. Complete load-result SHA-256:
+`a380a9334e4b552d4723a6e14c8205ec6383d414341f2b1a3864d34990c244dc`.
+
+The format/parser cohort passes 165 declaration scenarios on both installed
+players. WindowsPlayer and cross-player controls are running. This remains the
+bounded sealed-region adapter. Whole-colony particles, conserved metabolism,
+bubble/exhaust persistence and complete material support remain open.
+
+The later [binary32 wire conversion](native-float-wire.md) preserves tiny parcel
+inputs even when the managed caller enables DAZ/FTZ. The actual smallest-float
+deposition control is separate from this ordinary-mass persistence result.

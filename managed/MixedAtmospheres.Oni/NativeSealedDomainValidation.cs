@@ -521,11 +521,10 @@ namespace MixedAtmospheres.Oni
                     if (LiquidTransferMode && receipt.Kind == 2) liquidExtractionReceipt = receipt;
                     if (receipt.Callback == -1) continue;
                     var element = (ushort)ElementLoader.FindElementByHash(SpeciesHash(receipt.Species)).idx;
-                    var mass = (float)receipt.MassKg;
-                    Require(mass == receipt.MassKg, "Native gas receipt mass cannot be represented by the game's callback.");
+                    var mass = NativeBinary32.ToSingleExact(receipt.MassKg);
                     if (receipt.Kind >= 3) PublishActorReceipt(copy, receipt, element, mass);
                     else if (receipt.Kind == 2) consumed.Add(new Sim.MassConsumedCallback { callbackIdx = receipt.Callback, elemIdx = element,
-                        mass = mass, temperature = mass == 0 ? 0 : (float)receipt.Temperature, diseaseIdx = 255, diseaseCount = 0 });
+                        mass = mass, temperature = receipt.MassKg == 0 ? 0 : (float)receipt.Temperature, diseaseIdx = 255, diseaseCount = 0 });
                     else if (receipt.Kind == 1) emitted.Add(new Sim.MassEmittedCallback { callbackIdx = receipt.Callback, elemIdx = element,
                         suceeded = 1, mass = mass, temperature = (float)receipt.Temperature, diseaseIdx = 255, diseaseCount = 0 });
                     else throw new InvalidOperationException("Unknown native gas receipt kind.");

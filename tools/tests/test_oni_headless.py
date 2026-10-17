@@ -258,6 +258,26 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report=self.carbon_particle();report['CarbonParticle']['ParticleReusedAfterRetirement']=True
         self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
 
+    def subnormal_particle(self):
+        report=self.carbon_particle();mass=2.0**-149
+        report['CarbonParticle'].update(SubnormalInput=True,InputMassBits=1,MassKg=mass,
+            InitialCarbonDioxideMassKg=0,FinalCarbonDioxideMassKg=mass,MassErrorKg=0)
+        report['CarbonParticle']['Receipt']['MassKg']=mass
+        report['GasTransfers']['MassChangesKg'][4]=mass
+        return report
+
+    def test_subnormal_native_particle_needs_positive_full_transport_and_exact_input_bits(self):
+        report=self.subnormal_particle()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True,subnormal_carbon_particle=True))
+        self.assertFalse(runner.native_domain_passed(self.carbon_particle(),self.observation,30,carbon_particle=True,subnormal_carbon_particle=True))
+        for key,value in [('SubnormalInput',False),('InputMassBits',0),('InputMassBits',2),('FinalCarbonDioxideMassKg',0),
+                          ('FinalCarbonDioxideMassKg',float('nan')),('FinalCarbonDioxideMassKg',2.0**-148),
+                          ('InitialCarbonDioxideMassKg',1e-300),('MassKg',0)]:
+            bad=copy.deepcopy(report);bad['CarbonParticle'][key]=value
+            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,carbon_particle=True,subnormal_carbon_particle=True),key)
+        report['GasTransfers']['MassChangesKg'][4]=0
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True,subnormal_carbon_particle=True))
+
     def test_particle_cannot_pass_duplicate_native_effects_or_relaxed_energy_bounds(self):
         changes = [('Verified',False),('ParticleRetired',False),('NativeDispatchAvoided',False),('Receipts',2),
                    ('Source','manual-fixture'),('SourceFrame',0),('CompletedFrame',31),('EnergyBoundJoules',1),

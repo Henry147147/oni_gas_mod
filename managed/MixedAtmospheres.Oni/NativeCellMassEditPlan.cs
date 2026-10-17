@@ -7,8 +7,8 @@ namespace MixedAtmospheres.Oni
     {
         internal readonly int Cell;
         internal readonly uint Species;
-        internal readonly float MassKg, TemperatureK;
-        internal NativeCellMassEdit(int cell, uint species, float massKg, float temperatureK)
+        internal readonly double MassKg, TemperatureK;
+        internal NativeCellMassEdit(int cell, uint species, double massKg, double temperatureK)
         { Cell = cell; Species = species; MassKg = massKg; TemperatureK = temperatureK; }
     }
 
@@ -34,10 +34,10 @@ namespace MixedAtmospheres.Oni
                 if (BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)) != -1 || data[22] != 0 || data[24] != 1 ||
                     BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)) != 0)
                     throw new NotSupportedException("Owned cell mass additions require no callback, replacement, displacement or disease.");
-                var temperature = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8)));
-                var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12)));
-                if (float.IsNaN(mass) || float.IsInfinity(mass) || mass <= 0 ||
-                    float.IsNaN(temperature) || float.IsInfinity(temperature) || temperature <= 0)
+                var temperature = NativeBinary32.ToDouble(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8)));
+                var mass = NativeBinary32.ToDouble(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12)));
+                if (double.IsNaN(mass) || double.IsInfinity(mass) || mass <= 0 ||
+                    double.IsNaN(temperature) || double.IsInfinity(temperature) || temperature <= 0)
                     throw new NotSupportedException("Owned cell mass additions require positive finite mass and temperature.");
                 result[index] = new NativeCellMassEdit(BinaryPrimitives.ReadInt32LittleEndian(data),
                     species(BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(20))), mass, temperature);

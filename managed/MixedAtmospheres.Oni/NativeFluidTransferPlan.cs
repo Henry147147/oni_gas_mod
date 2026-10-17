@@ -32,8 +32,8 @@ namespace MixedAtmospheres.Oni
                 var data=bytes.Slice(index*length,length);
                 if (injection ? BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16))!=0 : data[15]!=0)
                     throw new NotSupportedException("Disease injection and rectangular consumption need separate ownership contracts.");
-                var mass=(double)BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8)));
-                var temperature=injection ? (double)BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))) : 0;
+                var mass=NativeBinary32.ToDouble(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8)));
+                var temperature=injection ? NativeBinary32.ToDouble(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))) : 0;
                 if (double.IsNaN(mass) || double.IsInfinity(mass) || mass<0 || injection &&
                     (double.IsNaN(temperature) || double.IsInfinity(temperature) || temperature<1))
                     throw new ArgumentException("Invalid native fluid mass or injection temperature.");

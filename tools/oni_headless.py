@@ -650,6 +650,7 @@ def playtest(args, state: Path, session: dict) -> int:
             **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
             **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
             **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
+            **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {}),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
             **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
@@ -744,6 +745,7 @@ def playtest(args, state: Path, session: dict) -> int:
                     persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
                     live_breathing=getattr(args,"verify_live_breathing",False) is True,
                     transient_particles=getattr(args,"verify_transient_particles",False) is True,
+                    subnormal_carbon_particle=getattr(args,"subnormal_carbon_particle",False) is True,
                     natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=args.mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True, restored=args.mode == "native-load-domain",
                     save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
@@ -816,6 +818,7 @@ def main() -> int:
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")
     play.add_argument("--verify-persistent-actors",action="store_true",help="Save three live point actors; requires a gas/water source, source save or natural autosave, and at least eighty frames")
+    play.add_argument("--subnormal-carbon-particle",action="store_true",help="Use the smallest positive binary32 parcel in the original CO2 particle scene")
     play.add_argument("--verify-transient-particles",action="store_true",help="Save an in-flight original CO2 particle and verify exact restore and one native deposition")
     play.add_argument("--verify-live-breathing",action="store_true",help="Place a real organic duplicant in the owned gas room, or observe its saved reload; source requires 20–25 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
@@ -823,6 +826,8 @@ def main() -> int:
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command=="run" and args.subnormal_carbon_particle and args.mode!="native-carbon-particle-domain":
+        parser.error("Subnormal carbon particle input requires native-carbon-particle-domain")
     if args.command=="run" and args.verify_transient_particles and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):
         parser.error("Transient particle validation requires a gas source save or a reload with a frame-zero resave")
     if args.command=="run" and args.verify_live_breathing and (args.mode not in ("native-domain","native-load-domain") or

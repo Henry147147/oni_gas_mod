@@ -10,7 +10,9 @@ namespace MixedAtmospheres.Oni
     internal static unsafe partial class NativeSealedDomainValidation
     {
         private static bool CarbonParticleMode => ColonyRuntimeValidation.Settings?.Mode == "native-carbon-particle-domain";
-        private const float CarbonParticleMass = .03125f, CarbonParticleTemperature = 310;
+        private static bool SubnormalCarbonParticle=>ColonyRuntimeValidation.Settings?.SubnormalCarbonParticle==true;
+        private static float CarbonParticleMass=>SubnormalCarbonParticle ? BitConverter.Int32BitsToSingle(1) : .03125f;
+        private const float CarbonParticleTemperature = 310;
         private static bool carbonParticleStarted, carbonParticleVerified, carbonParticleRetired;
         private static int carbonParticleRetiredAtUnityFrame = -1;
         private static CO2? carbonParticle;
@@ -33,7 +35,7 @@ namespace MixedAtmospheres.Oni
             manager.SpawnBreath(position, CarbonParticleMass, CarbonParticleTemperature, false);
             Require(particles.Count == before + 1, "Native breath did not create exactly one CO2 particle.");
             carbonParticle = particles[particles.Count - 1];
-            Require(carbonParticle.mass == CarbonParticleMass && carbonParticle.temperature == CarbonParticleTemperature,
+            Require(BitConverter.SingleToInt32Bits(carbonParticle.mass)==BitConverter.SingleToInt32Bits(CarbonParticleMass) && carbonParticle.temperature == CarbonParticleTemperature,
                 "Native CO2 particle changed its declared parcel.");
             carbonParticleStarted = true;
         }
@@ -59,23 +61,33 @@ namespace MixedAtmospheres.Oni
         {
             Require(carbonParticleStarted && carbonParticleReceipt.HasValue, "Native CO2 particle did not reach the physical owner.");
             var receipt = carbonParticleReceipt!.Value;
+            var mass=NativeBinary32.ToDouble(CarbonParticleMass);
             carbonParticleMassError = 0;
             for (var species = 0; species < Ids.Length; ++species)
                 carbonParticleMassError = Math.Max(carbonParticleMassError, Math.Abs(cells.Sum(cell => cell.Mass(species)) -
-                    carbonParticleBeforeMasses[species] - (species == 4 ? CarbonParticleMass : 0)));
+                    carbonParticleBeforeMasses[species] - (species == 4 ? mass : 0)));
             carbonParticleEnergyResidual = PhysicalEnergy - carbonParticleBeforeEnergy - transferStatus.MaterialEnergyChange - transferStatus.KineticEnergyChange;
             carbonParticleVerified = cellMassEditsRouted == 1 && cellMassEditsAvoidedNativeDispatch && carbonParticleReceipts == 1 &&
-                receipt.CompletedFrame > carbonParticleSourceFrame && receipt.MassKg == CarbonParticleMass && receipt.Temperature == CarbonParticleTemperature &&
+                receipt.CompletedFrame > carbonParticleSourceFrame && receipt.MassKg == mass && receipt.Temperature == CarbonParticleTemperature &&
                 receipt.InternalEnergy == transferStatus.MaterialEnergyChange && receipt.KineticEnergy == 0 && transferStatus.KineticEnergyChange == 0 &&
                 transferStatus.AcceptedBatches == 1 && transferStatus.CommittedBatches == 1 && transferStatus.PendingBatches == 0 &&
-                transferStatus.UnacknowledgedReceipts == 0 && transferStatus.MassChangesKg[4] == CarbonParticleMass &&
+                transferStatus.UnacknowledgedReceipts == 0 && transferStatus.MassChangesKg[4] == mass &&
                 carbonParticleRetired && carbonParticleRetiredAtUnityFrame > 0 &&
                 carbonParticleMassError <= 1e-10 && Math.Abs(carbonParticleEnergyResidual) <= 1e-6;
             Require(carbonParticleVerified, "Native CO2 particle deposition, retirement or physical mass/energy account failed.");
+            if(SubnormalCarbonParticle) {
+                var current=cells.Sum(cell=>cell.CarbonDioxide);
+                Require(carbonParticleBeforeMasses[4]==0 && current>0 &&
+                    Math.Abs(current-mass)<=128*2.2204460492503131e-16*(current+mass),
+                    "Native CO2 subnormal input did not remain positive under complete fluid transport.");
+            }
         }
         private static object CarbonParticleReport() => new {
             Required = CarbonParticleMode, Started = carbonParticleStarted, Verified = carbonParticleVerified,
-            Source = "CO2Manager.SpawnBreath", MassKg = CarbonParticleMass, TemperatureK = CarbonParticleTemperature,
+            Source = "CO2Manager.SpawnBreath", MassKg = NativeBinary32.ToDouble(CarbonParticleMass), TemperatureK = CarbonParticleTemperature,
+            SubnormalInput=SubnormalCarbonParticle,InputMassBits=unchecked((uint)BitConverter.SingleToInt32Bits(CarbonParticleMass)),
+            FinalCarbonDioxideMassKg=cells.Sum(cell=>cell.CarbonDioxide),
+            InitialCarbonDioxideMassKg=carbonParticleBeforeMasses.Length==Ids.Length ? carbonParticleBeforeMasses[4] : 0,
             SourceFrame = carbonParticleSourceFrame, CompletedFrame = carbonParticleReceipt?.CompletedFrame,
             Receipts = carbonParticleReceipts, Receipt = carbonParticleReceipt,
             NativeDispatchAvoided = cellMassEditsAvoidedNativeDispatch, MassErrorKg = carbonParticleMassError,

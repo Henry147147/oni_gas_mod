@@ -12,6 +12,7 @@ param(
     [switch]$VerifyPersistentActors,
     [switch]$VerifyLiveBreathing,
     [switch]$VerifyTransientParticles,
+    [switch]$SubnormalCarbonParticle,
     [switch]$VerifyNaturalAutosave,
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
@@ -31,6 +32,7 @@ $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
 if ($VerifyPersistentActors -and ($NativeDomain -notin @('gas','water') -or !($SaveColony -or $VerifyNaturalAutosave) -or $Frames -lt 80)) { throw 'VerifyPersistentActors requires a gas/water source, a source save or natural autosave, and at least eighty frames.' }
+if ($SubnormalCarbonParticle -and $NativeDomain -ne 'carbon-particle') { throw 'SubnormalCarbonParticle requires the carbon-particle scene.' }
 if ($VerifyTransientParticles -and ($NativeDomain -notin @('gas','load') -or ($NativeDomain -eq 'gas' -and -not $SaveColony) -or ($NativeDomain -eq 'load' -and -not $ResaveBeforeResume))) { throw 'VerifyTransientParticles requires a gas source save or a reload with a frame-zero resave.' }
 if ($VerifyLiveBreathing -and ($NativeDomain -notin @('gas','load') -or $VerifyPersistentActors -or ($NativeDomain -eq 'gas' -and ($Frames -lt 20 -or $Frames -gt 25)))) { throw 'VerifyLiveBreathing requires a 20–25-frame gas source or its saved load, without fixture actors.' }
 if ($VerifyNaturalAutosave -and ($NativeDomain -ne 'gas' -or $Frames -lt 3100 -or $Frames -gt 5000 -or $SaveColony)) { throw 'VerifyNaturalAutosave requires a gas source, 3100..5000 frames and no SaveColony.' }
@@ -149,6 +151,7 @@ try {
     if ($VerifyPersistentActors) { $oniValidationConfiguration.VerifyPersistentActors = $true }
     if ($VerifyLiveBreathing) { $oniValidationConfiguration.VerifyLiveBreathing = $true }
     if ($VerifyTransientParticles) { $oniValidationConfiguration.VerifyTransientParticles = $true }
+    if ($SubnormalCarbonParticle) { $oniValidationConfiguration.SubnormalCarbonParticle = $true }
     if ($VerifyNaturalAutosave) { $oniValidationConfiguration.VerifyNaturalAutosave = $true }
     if ($ReloadInProcess) { $oniValidationConfiguration.ReloadInProcess = $true }
     if ($IdleReservoirLease) { $oniValidationConfiguration.IdleReservoirLeaseOnly = $true }
@@ -216,6 +219,7 @@ try {
             if ($VerifyPersistentActors) { $oniCheckArguments += '--persistent-actors' }
             if ($VerifyLiveBreathing) { $oniCheckArguments += '--live-breathing' }
             if ($VerifyTransientParticles) { $oniCheckArguments += '--transient-particles' }
+            if ($SubnormalCarbonParticle) { $oniCheckArguments += '--subnormal-carbon-particle' }
             if ($VerifyNaturalAutosave) { $oniCheckArguments += '--natural-autosave' }
             if ($VerifySaveIoRecovery) { $oniCheckArguments += '--save-io-recovery' }
             if ($ReloadInProcess) { $oniCheckArguments += '--reload-in-process' }

@@ -34,6 +34,7 @@ namespace MixedAtmospheres.Oni
             public bool VerifyPersistentActors = false;
             public bool VerifyLiveBreathing = false;
             public bool VerifyTransientParticles = false;
+            public bool SubnormalCarbonParticle = false;
             public bool ReloadInProcess = false;
             public int CompletedFrames = 30;
             public int TimeoutSeconds = 600;
@@ -101,6 +102,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
             if ((configuration.Mode == "native-carbon-particle-domain" || configuration.Mode == "native-breathing-read-domain") && configuration.CompletedFrames < 30)
                 throw new InvalidDataException("Native CO2 particle and breathing-reader controls require at least 30 frames.");
+            if(configuration.SubnormalCarbonParticle && configuration.Mode!="native-carbon-particle-domain")
+                throw new InvalidDataException("Subnormal carbon particle input requires the native carbon-particle scene.");
             if(configuration.VerifyTransientParticles && ((configuration.Mode!="native-domain" && configuration.Mode!="native-load-domain") ||
                 (configuration.Mode=="native-domain" && !configuration.SaveOnComplete) ||
                 (configuration.Mode=="native-load-domain" && !configuration.SaveBeforeResume)))
