@@ -38,7 +38,7 @@ also repairs a separate adapter check that rejected water point messages in a
 gas/liquid cell even though the native occupied-mixture boundary admitted them.
 Gas-only and filled-liquid controls keep their original phase admission.
 
-## Verification and remaining game gate
+## Verification and remaining scope
 
 The new native group `native_oni_radial_consumption` passes on GNU Linux, GNU
 Windows binaries under Wine and Linux ASan/UBSan. It covers the binary32 range,
@@ -56,14 +56,23 @@ PowerShell runner) now submits a radius-three request for 0.4 kg after a
 oxygen plus that injection, proving that multiple physical source cells were
 used. It also requires exactly one actual game consumption callback, one
 radial request, complete physical accounts and original native dispatch
-avoidance. Packaging and real source/save/reload acceptance remain pending.
+avoidance. The frozen `9eb6769` Unity matrix passes this control in actual
+LinuxPlayer and WindowsPlayer. Both sources deliver exactly
+0.4000000059604645 kg in one callback, exceeding the centre's
+0.21340520724847442 kg plus the 0.05000000074505806 kg injection. Each saved
+source also passes two local and two cross-platform loaded sessions, with all
+120 complete physical frames exact per session. WindowsPlayer runs under
+official Proton on Linux. See [the complete matrix](native-menu-reload.md#fluid-regression-matrix).
 
 These checks establish the native transaction and packet boundary. An actual
 duplicant breathing inside owned cells now has its own
-[source and saved-reload control](native-live-breathing.md), with actual Unity
-acceptance pending. Exact continuation with live external requests
+[source and saved-reload control](native-live-breathing.md). Its actual Linux
+and WindowsPlayer sources and bidirectional two-session reloads pass the
+[particle persistence cohort](native-transient-particles.md).
+Exact continuation with live external requests
 now has an [accepted-input journal and exact replay account](native-frame-inputs.md);
-its actual Unity acceptance remains pending. A snapshot-only predictor cannot
+each continued session is checked from its actual captured inputs.
+A snapshot-only predictor cannot
 invent the duplicant's future requests. Full conserved metabolism, body/food
 inventories, suit/tube providers, rectangular device reservations and
 whole-colony ownership remain open under the

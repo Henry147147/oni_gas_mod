@@ -103,6 +103,18 @@ Python checks pass (four optional/platform skips). All 17 backend groups now
 pass on host Linux and GNU Windows under Wine. Pure-liquid heating, an interior
 solid and late EOS rejection also pass on all three component builds. The full
 sanitizer suite and clean Ubuntu compatibility build subsequently pass all 17
-groups as well. Actual Unity source/save/reload remains a separate gate.
+groups as well.
+
+The later frozen `9eb6769` Unity matrix passes actual LinuxPlayer and
+WindowsPlayer viscosity sources, ordinary paired saves, both local reloads and
+both directions of cross-platform loading. Each load process uses the normal
+menu lifecycle twice and verifies all 120 complete physical frames per session:
+eight continued sessions and 960 exact frames for this scene. Linux source
+frame 122 stores 2.263831615447998 J of viscous heat; WindowsPlayer source
+frame 121 stores 2.262866497039795 J. Their unresolved updates remain explicit.
+WindowsPlayer runs under official Proton on Linux, so this does not establish
+an actual Windows OS run. The complete matrix is recorded in
+[the reload evidence](native-menu-reload.md#fluid-regression-matrix).
+
 This does not mark viscosity gameplay, whole-colony ownership or the
 [complete overhaul](completion-plan.md) as accepted.
