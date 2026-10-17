@@ -73,6 +73,15 @@ The attempted Windows Unity launch was blocked by Steam reporting another
 computer already playing ONI. The runner restored the original profile and
 generated-world files byte for byte. No Unity actor result is claimed.
 
+After merging the zero-time emitter configuration repair, the Windows suite
+passes 132 groups and the adapter builds with the same two reference conflicts.
+All 246 tracked native inputs and the three previously verified Windows native
+libraries remain unchanged. The six PowerShell option checks pass again on the
+merged runner. Private evidence is `local/windows-actor-emitter-merge-r2`,
+terminal SHA-256
+`6805173ff923a9b4a8217d7e5c11c60389a71baf2a5f34528aa456fcd1fc17d9`.
+This is declaration/build verification; Unity save/reload remains required.
+
 The private `--verify-persistent-actors` source fixture uses three real,
 saveable prefab objects: a consumer, an emitter and a blocked emitter. It
 requires `native-domain` or `native-liquid-domain`, `--save-colony` and at least
