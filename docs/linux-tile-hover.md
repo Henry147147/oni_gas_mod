@@ -63,3 +63,11 @@ geometry, all four edges, stable translation, oversized bounds, invalid inputs
 and both installed native drawer contracts. The actual repaired Linux rerun
 is pending. Production fluid ownership and conserved metabolism remain
 separate requirements.
+
+The merged layout also passes 37 inspection and five native-description groups
+against the installed Windows game declarations. The Windows adapter builds
+with no C# errors or warnings and the two existing MSB3277 reference conflicts.
+These checks preserve the complete non-trace contents list and warning contract;
+they do not replace image review in the repaired game. Private evidence is
+`local/windows-hover-layout-r1`, terminal-review SHA256
+`97f88afa82c01fccf7815b5914f300e6a53ec4d2d3197c9aabe0c1279bd38525`.
