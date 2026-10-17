@@ -259,6 +259,7 @@ namespace MixedAtmospheres.Oni
                 if (CarbonParticleMode) VerifyCarbonParticleFixture();
                 if (BreathingReadMode) VerifyBreathingReadFixture();
                 if (PressureReadMode) VerifyPressureReadFixture();
+                if (NaturalAutosaveRequired) VerifyNaturalAutosaveControl();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
                 if (ColonySaveMode) SavePausedColony();
@@ -285,6 +286,7 @@ namespace MixedAtmospheres.Oni
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
             Require(PairVersion()==1 && Marshal.SizeOf<PairStatus>()==112,"Unsupported native paired checkpoint ABI.");
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
+            ConfigureNaturalAutosaveControl();
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
             Game.Instance.SandboxModeActive = true;
@@ -720,6 +722,8 @@ namespace MixedAtmospheres.Oni
             CarbonParticle = CarbonParticleReport(),
             BreathingCellReader = BreathingReadReport(),
             NativePressureReader = PressureReadReport(),
+            ColonyClock = ColonyClockReport(), NaturalAutosave = NaturalAutosaveReport(),
+            RestoredNativeReaders = RestoredReadersReport(),
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),

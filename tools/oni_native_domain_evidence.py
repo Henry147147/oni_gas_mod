@@ -98,7 +98,7 @@ def _breathing_read_passed(report: dict, physical: dict) -> bool:
         and account.get("AcceptedBatches") == account.get("CommittedBatches") == 1 and account.get("UnacknowledgedReceipts") == 0
         and account.get("MassChangesKg") == [0, 0, 0, 0, .125] and report.get("CellMassEditsRouted") == report.get("ReceiptsPublished") == 1)
 
-def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
+def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require_distinct: bool = True) -> bool:
     reader = report.get("NativePressureReader")
     if (not isinstance(reader, dict) or any(reader.get(key) is not True for key in ("Required", "Verified", "NativeOutsideVerified", "CallSitePatchesVerified"))
             or reader.get("Source") != "Grid.PressureIndexer.get_Item" or reader.get("Units") != "kPa-from-completed-mechanical-Pa"
@@ -122,7 +122,7 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
                     or row["GasPressurePa"] != (0 if liquid else row["PhysicalPressurePa"])
                     or not _same_native_float(row["NativeKilopascals"], f32(row["PhysicalPressurePa"] / 1000))
                     or not _same_native_float(row["LegacyScalarKilopascals"], f32(f32(row["ScalarMassKg"]) * f32(101.3)))
-                    or abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
+                    or require_distinct and abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
             positions.add(cell)
     except (OverflowError, struct.error):return False
     outside = reader.get("Outside")
@@ -142,7 +142,51 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
     except (OverflowError, struct.error):return False
     return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False) -> bool:
+def _restored_readers_passed(report: dict, physical: dict, liquid: bool) -> bool:
+    reader = report.get("RestoredNativeReaders")
+    if (not isinstance(reader,dict) or any(reader.get(key) is not True for key in ("Required","Verified","NativeBreathingOutsideVerified"))
+            or reader.get("Source") != "actual-native-pressure-and-world-breathing-readers"
+            or type(reader.get("BreathingReads")) is not int or reader["BreathingReads"] < 12
+            or reader.get("Policy") != dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,
+                MinimumOxygenPartialPressurePa=15000,MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500)
+            or not _pressure_read_passed(report,physical,liquid,require_distinct=False)):
+        return False
+    oxygen, water, vacuum = (reader.get(key) for key in ("OxygenElementId","WaterElementId","VacuumElementId"))
+    if any(type(value) is not int for value in (oxygen,water,vacuum)) or len({oxygen,water,vacuum}) != 3:return False
+    rows = reader.get("BreathingSamples")
+    if not isinstance(rows,list) or len(rows) != 6:return False
+    advertised, positions = [], set()
+    for row in rows:
+        if not isinstance(row,dict):return False
+        keys=("OxygenMassKg","ScalarGridMassKg","OxygenMoleFraction","OxygenPartialPressurePa","CarbonDioxideMoleFraction","CarbonDioxidePartialPressurePa","AdvertisedOxygenMassKg")
+        if any(type(row.get(key)) not in (int,float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):return False
+        cell=row.get("PublicCell")
+        if (type(cell) is not int or cell < 0 or cell in positions or row.get("CompletedPhysicalFrame") != physical["CompletedFrames"]
+                or row["ScalarGridMassKg"] <= 0 or row.get("ScalarElement") != (water if liquid else oxygen)
+                or row["OxygenMoleFraction"] > 1 or row["CarbonDioxideMoleFraction"] > 1):return False
+        failures=1 if liquid else ((2 if row["OxygenMoleFraction"] < .15 else 0) | (4 if row["OxygenMoleFraction"] > .35 else 0)
+            | (8 if row["OxygenPartialPressurePa"] < 15000 else 0) | (16 if row["CarbonDioxideMoleFraction"] > .005 else 0)
+            | (32 if row["CarbonDioxidePartialPressurePa"] > 500 else 0))
+        if type(row.get("Failures")) is not int or row["Failures"] != failures or row.get("Breathable") is not (failures==0):return False
+        if liquid and any(row[key] != 0 for key in ("OxygenMassKg","OxygenMoleFraction","OxygenPartialPressurePa","CarbonDioxideMoleFraction","CarbonDioxidePartialPressurePa")):return False
+        try:
+            encoded=struct.pack("<f",row["OxygenMassKg"]);available=struct.unpack("<f",encoded)[0]
+            if available > row["OxygenMassKg"]:available=struct.unpack("<f",struct.pack("<I",struct.unpack("<I",encoded)[0]-1))[0]
+        except (OverflowError,struct.error):return False
+        if failures:available=0.0
+        if not _same_native_float(row["AdvertisedOxygenMassKg"],available) or row.get("AdvertisedElement") != (oxygen if available else vacuum):return False
+        positions.add(cell);advertised.append((cell,available))
+    if positions != {row["PublicCell"] for row in report["NativePressureReader"]["Samples"]}:return False
+    selection=reader.get("BreathingSelection")
+    if (not isinstance(selection,dict) or type(selection.get("BreatherInstanceId")) is not int or selection["BreatherInstanceId"] == 0
+            or type(selection.get("NoOxygenThreshold")) not in (int,float) or not 0 < selection["NoOxygenThreshold"] < math.inf
+            or type(selection.get("TotalBreathableMass")) not in (int,float)
+            or not abs(selection["TotalBreathableMass"]-sum(value for _,value in advertised)) <= 1e-6):return False
+    best=max((value for _,value in advertised if value > selection["NoOxygenThreshold"]),default=0.0)
+    return (_same_native_float(selection.get("Mass"),best) and selection.get("IsBreathable") is (best>0)
+        and selection.get("ElementID") == (oxygen if best else vacuum) and (not best or (selection.get("Cell"),best) in advertised))
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -150,6 +194,9 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     if save_io_recovery and (not saved or restored):
         return False
+    if natural_autosave and (restored or save_io_recovery or not 3100 <= frames <= 5000):
+        return False
+    saved = saved or natural_autosave
     gravity = gravity or liquid_gravity
     liquid_transfers = liquid_transfers or liquid_gravity
     liquid = liquid or liquid_transfers or liquid_actors or liquid_heat
@@ -186,6 +233,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if breathing_read and not _breathing_read_passed(report, physical):
         return False
     if pressure_read and not _pressure_read_passed(report, physical, liquid):
+        return False
+    if restored and "RestoredNativeReaders" in report and not _restored_readers_passed(report,physical,liquid):
         return False
     if carbon_particle:
         particle = report.get("CarbonParticle")
@@ -473,8 +522,25 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                 or colony.get("AutomaticSaveAdmissions") != (2 if save_io_recovery else 1) or colony.get("SavePauseStateRestored") is not True
                 or (colony.get("PendingSaveRejectionRequired") is True and colony.get("PendingSaveRejectionVerified") is not True)
                 or not _sha256(colony.get("SavedFileSha256")) or not colony.get("SavedFile")
-                or colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]):
+                or (not natural_autosave and (colony["SourceFrame"] != physical["CompletedFrames"] or colony["SourceTime"] != physical["TimeSeconds"]))):
             return False
+        if natural_autosave:
+            auto, clock = report.get("NaturalAutosave"), report.get("ColonyClock")
+            if (not isinstance(auto,dict) or not isinstance(clock,dict)
+                    or any(auto.get(key) is not True for key in ("Required","Configured","Verified"))
+                    or auto.get("Source") != "GameClock.DoAutoSave" or auto.get("Requests") != 1
+                    or type(auto.get("RequestedCycle")) is not int or auto["RequestedCycle"] < 1
+                    or auto.get("SavedNativeCycle") != auto["RequestedCycle"]
+                    or type(auto.get("SavedNativeGameSeconds")) not in (int,float) or not 600 <= auto["SavedNativeGameSeconds"] < math.inf
+                    or type(clock.get("Cycle")) is not int or clock["Cycle"] < auto["SavedNativeCycle"]
+                    or type(clock.get("NativeGameSeconds")) not in (int,float) or not auto["SavedNativeGameSeconds"] <= clock["NativeGameSeconds"] < math.inf
+                    or clock.get("AutoSaveCycleInterval") != 1 or colony.get("SavedAsAutoSave") is not True
+                    or type(colony.get("SavedFrame")) is not int or not 0 < colony["SavedFrame"] == colony["SourceFrame"] < physical["CompletedFrames"]
+                    or colony.get("SavedTime") != colony["SourceTime"] or not colony["SourceTime"] < physical["TimeSeconds"]
+                    or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]
+                    or auto.get("ExactContinuationFrames") != physical["CompletedFrames"] - colony["SavedFrame"]
+                    or not _sha256(auto.get("ExpectedPhysicalSha256")) or auto.get("CurrentPhysicalSha256") != auto["ExpectedPhysicalSha256"]):
+                return False
         if restored and (colony.get("Loaded") is not True or type(colony.get("Saved")) is not bool
                 or any(colony.get(key) is not True for key in ("ZeroTimeRestoreVerified", "ManagedSceneRestored", "RendererVerified"))
                 or type(colony.get("NativeStartupBatchesDelivered")) is not int or colony["NativeStartupBatchesDelivered"] < 2
@@ -545,6 +611,7 @@ def main() -> int:
     parser.add_argument("--frames", type=int, required=True)
     parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
+    parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
     parser.add_argument("--platform", choices=("WindowsPlayer", "LinuxPlayer"), required=True)
@@ -560,7 +627,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

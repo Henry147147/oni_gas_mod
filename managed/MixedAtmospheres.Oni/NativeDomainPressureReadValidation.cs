@@ -12,8 +12,10 @@ namespace MixedAtmospheres.Oni
         private static bool pressureReadVerified, pressureOutsideVerified, pressureCallSitesVerified;
         private static object[] pressureReadSamples = Array.Empty<object>();
         private static object? pressureOutsideSample;
-        private static void VerifyPressureReadFixture()
+        private static bool pressureDistinctScalarRequired;
+        private static void VerifyPressureReadFixture(bool requireDistinctScalar = true)
         {
+            pressureDistinctScalarRequired = requireDistinctScalar;
             NativePressureCallSitePatch.RequireInstalled(); pressureCallSitesVerified = true;
             var getter = AccessTools.PropertyGetter(typeof(Grid.PressureIndexer), "Item");
             var view = MixturePresentationRuntime.AcquireFrame()
@@ -26,7 +28,7 @@ namespace MixedAtmospheres.Oni
                 var actual = (float)getter.Invoke(Grid.Pressure, new object[] { global });
                 var expected = (float)(source.MechanicalPressurePa / 1000);
                 var legacy = Grid.Mass[global] * 101.3f;
-                Require(actual == expected && actual > 0 && Math.Abs(actual - legacy) > 1,
+                Require(actual == expected && actual > 0 && (!requireDistinctScalar || Math.Abs(actual - legacy) > 1),
                     "Native pressure still uses the scalar mass approximation instead of completed physical pressure.");
                 return (object)new { PublicCell = global, CompletedPhysicalFrame = reading.Revision,
                     PhysicalPressurePa = source.MechanicalPressurePa, GasPressurePa = source.GasPressurePa,
@@ -46,7 +48,8 @@ namespace MixedAtmospheres.Oni
                 Interlocked.Read(ref pressureGetterReads) >= cells.Length && (Liquid || Interlocked.Read(ref pressureCallSiteReads) > 0);
             Require(pressureReadVerified, "Actual native pressure readers, worker call sites or outside ownership failed.");
         }
-        private static object PressureReadReport() => new { Required = PressureReadMode, Verified = pressureReadVerified,
+        private static object PressureReadReport() => new { Required = PressureReadMode || ColonyRestoreMode, Verified = pressureReadVerified,
+            DistinctFromLegacyScalarRequired = pressureDistinctScalarRequired,
             Source = "Grid.PressureIndexer.get_Item", Units = "kPa-from-completed-mechanical-Pa",
             GetterReads = Interlocked.Read(ref pressureGetterReads), GameCallSiteReads = Interlocked.Read(ref pressureCallSiteReads),
             PatchedGameCallSites = NativePressureCallSitePatch.TargetCount, NativeOutsideVerified = pressureOutsideVerified,

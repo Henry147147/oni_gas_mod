@@ -316,6 +316,11 @@ internal static unsafe class Program
         CellMassEditTests();
         BreathingCellReadTests.Run(Test, Check, Reject);
         PressureReadTests.Run(Test, Check, Reject);
+        Test("natural day autosave entry is the inspected game scheduler with a cycle argument", () => {
+            var method=typeof(GameClock).GetMethod("DoAutoSave",BindingFlags.Instance|BindingFlags.NonPublic);
+            Check(method!=null && method.ReturnType==typeof(void) && method.GetMethodBody()!=null &&
+                method.GetParameters().Length==1 && method.GetParameters()[0].ParameterType==typeof(int));
+        });
         if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");
         return 0;

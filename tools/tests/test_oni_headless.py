@@ -243,6 +243,34 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,saved=True),key)
 
+    def set_natural_autosave(self):
+        self.set_saved_colony()
+        self.report.update(RenderedRevision=3300,Publications=3305)
+        self.report['NativeDomain'].update(CompletedFrames=3300,NativeTicket=4000,Substeps=69300,TimeSeconds=660.0000098347664)
+        self.report['ColonyCheckpoint'].update(SourceFrame=2990,SourceTime=598.0000089108944,SavedFrame=2990,
+            SavedTime=598.0000089108944,SavedPhysicalSha256='a'*64,SavedAsAutoSave=True)
+        self.report['ColonyClock']=dict(Cycle=1,NativeGameSeconds=662,AutoSaveCycleInterval=1)
+        self.report['NaturalAutosave']=dict(Required=True,Configured=True,Verified=True,Source='GameClock.DoAutoSave',Requests=1,
+            RequestedCycle=1,SavedNativeCycle=1,SavedNativeGameSeconds=600.03,ExactContinuationFrames=310,
+            ExpectedPhysicalSha256='e'*64,CurrentPhysicalSha256='e'*64)
+
+    def test_natural_day_rollover_requires_actual_autosave_and_exact_later_continuation(self):
+        self.set_natural_autosave()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,saved=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,natural_autosave=True))
+        self.report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True,expected_platform='WindowsPlayer'))
+
+    def test_natural_autosave_rejects_manual_calls_missing_rollover_and_lost_intervals(self):
+        for key,value in [('Verified',False),('Source','manual-save'),('Requests',2),('RequestedCycle',0),
+                          ('SavedNativeGameSeconds',599),('ExactContinuationFrames',309),('CurrentPhysicalSha256','f'*64)]:
+            self.set_natural_autosave();self.report['NaturalAutosave'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True),key)
+        for key,value in [('SavedAsAutoSave',False),('SavedFrame',3300),('SavedPhysicalSha256','f'*64),('SavePauseStateRestored',False)]:
+            self.set_natural_autosave();self.report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,3300,natural_autosave=True),key)
+
     def test_declined_disk_write_requires_cleanup_resumed_frames_and_a_later_verified_save(self):
         self.set_saved_colony();colony=self.report['ColonyCheckpoint'];colony['AutomaticSaveAdmissions']=2
         colony['SaveProblems']={'IoControlRequired':True,'IoControlVerified':True,'AdvancedAfterIoControl':True,
@@ -299,6 +327,39 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             InitialPauseChallengeVerified=True,InitialPositiveTicksHeld=1,
             SerializedHeaderCaptures=1,SerializedHeaderSha256='f'*64,
             SerializedBodyCaptures=1,SerializedBodyBytes=160000,SerializedBodySha256='e'*64)
+
+    def set_restored_readers(self,liquid=False):
+        self.set_restored_autosave();pressure=self.pressure_reader(liquid)['NativePressureReader']
+        pressure['DistinctFromLegacyScalarRequired']=False;self.report['NativePressureReader']=pressure
+        source=self.breathing_reader()['BreathingCellReader'];samples=source['Before'];selection=source['SelectionBefore']
+        for row in samples:row['CompletedPhysicalFrame']=30
+        self.report['Scenario']='compressed-liquid' if liquid else 'mixed-air'
+        if liquid:
+            self.report['NativeDomain'].update(LiquidMassKg=1100,PressurePa=220000000,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+            for row in samples:row.update(OxygenMassKg=0,ScalarGridMassKg=1100,OxygenMoleFraction=0,OxygenPartialPressurePa=0,
+                AdvertisedOxygenMassKg=0,ScalarElement=2,AdvertisedElement=0,Failures=1,Breathable=False)
+            selection.update(ElementID=0,Mass=0,IsBreathable=False,TotalBreathableMass=0)
+        self.report['RestoredNativeReaders']=dict(Required=True,Verified=True,NativeBreathingOutsideVerified=True,
+            Source='actual-native-pressure-and-world-breathing-readers',BreathingReads=12,
+            OxygenElementId=1,WaterElementId=2,VacuumElementId=0,Policy=source['Policy'],BreathingSamples=samples,BreathingSelection=selection)
+
+    def test_restored_readers_require_current_session_pressure_and_native_breathing_selection(self):
+        for liquid in (False,True):
+            for platform in ('LinuxPlayer','WindowsPlayer'):
+                self.set_restored_readers(liquid);self.report['Platform']=platform
+                self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True,expected_platform=platform))
+
+    def test_restored_reader_failures_cannot_hide_behind_exact_physical_continuation(self):
+        for key,value in [('Verified',False),('BreathingReads',11),('NativeBreathingOutsideVerified',False),('Source','fixture')]:
+            self.set_restored_readers();self.report['RestoredNativeReaders'][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True),key)
+        for key,value in [('CompletedPhysicalFrame',29),('AdvertisedOxygenMassKg',1.125),('Failures',4),('PublicCell',999)]:
+            self.set_restored_readers();self.report['RestoredNativeReaders']['BreathingSamples'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True),key)
+        self.set_restored_readers(True);self.report['RestoredNativeReaders']['BreathingSamples'][-1]['OxygenMassKg']=.1
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
+        self.set_restored_readers();self.report['NativePressureReader']['CallSitePatchesVerified']=False
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,restored=True))
 
     def test_restored_frame_zero_resave_preserves_clock_state_and_nested_pause_depth(self):
         self.set_restored_autosave();colony=self.report['ColonyCheckpoint']

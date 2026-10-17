@@ -37,6 +37,14 @@ The [native pressure reader](native-pressure-reader.md) supplies completed
 mechanical pressure to the native accessor and its five inspected game callers.
 Actual Linux gas and filled-water source/save controls and both 120-frame
 exact fresh-process continuations pass.
+The [natural autosave control](native-day-autosave.md) now exercises the same
+paired boundary through actual day-rollover scheduling and checks subsequent
+physical continuation. The actual Linux source and fresh-process controls now
+pass, including one scheduled day-rollover save, 572 exact continued source
+frames and 120 exact reloaded frames.
+New [reader restore checks](native-reader-restore.md) also verify actual pressure,
+oxygen-policy and native cell-selection bindings after each reload and session
+reset. Their new Unity cohorts are queued separately.
 
 ## Supported build and installation
 

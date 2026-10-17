@@ -25,6 +25,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from oni_native_domain_evidence import native_domain_passed
+from oni_tile_hover import tile_hover_passed
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_STATE = Path.home() / ".local/share/oni-headless"
@@ -632,6 +633,7 @@ def playtest(args, state: Path, session: dict) -> int:
             "LoadSavePath": str(load_fixture) if load_fixture else "",
             "SaveOnComplete": bool(getattr(args, "save_colony", False)),
             "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
+            **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
             **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
             **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         })
@@ -697,6 +699,16 @@ def playtest(args, state: Path, session: dict) -> int:
             observer_ok = native_observer_passed(manifest, observer_report)
             domain_report = None
             domain_ok = False
+            hover_report = None
+            hover_ok = False
+            if args.mode == "tile-hover":
+                try:
+                    hover_report = read_json(colony_file.parent / "tile-hover-contents.json")
+                except (OSError, json.JSONDecodeError):
+                    pass
+                hover_ok = tile_hover_passed(hover_report, colony_file.parent)
+                if code == 0 and not hover_ok:
+                    status, code = "failed-tile-hover-evidence", 2
             if args.mode in ("native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
                 try:
                     domain_report = read_json(colony_file.parent / "native-domain.json")
@@ -706,7 +718,7 @@ def playtest(args, state: Path, session: dict) -> int:
                     initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain", liquid_heat=args.mode == "native-liquid-heat-domain",
                     transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
                     pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
-                    saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
+                    natural_autosave=getattr(args,"verify_natural_autosave",False) is True, saved=args.mode == "native-save-domain" or args.save_colony or getattr(args,"verify_natural_autosave",False) is True, restored=args.mode == "native-load-domain",
                     save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
                 if code == 0 and not domain_ok:
@@ -730,6 +742,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "native_backend_observation": observer_report,
                 "native_backend_observer_passed": observer_ok,
                 "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
+                "tile_hover": hover_report, "tile_hover_passed": hover_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
                     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
@@ -763,7 +776,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)
@@ -771,11 +784,14 @@ def main() -> int:
     play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
+    play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command == "run" and args.verify_natural_autosave and (args.mode != "native-domain" or not 3100 <= args.frames <= 5000 or args.save_colony):
+        parser.error("Natural autosave requires native-domain, 3100..5000 frames and no --save-colony")
     if args.command == "run" and args.mode in ("native-carbon-particle-domain", "native-breathing-read-domain") and args.frames < 30:
         parser.error("The CO2 particle and breathing-reader controls require at least 30 frames")
     if args.command == "run" and args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:

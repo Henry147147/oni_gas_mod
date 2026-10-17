@@ -27,7 +27,7 @@ def digest(path:Path)->str:
     return value.hexdigest()
 
 def fingerprint(runner:Path,package:Path,*,windows:bool=False)->dict:
-    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py","tools/oni_native_matrix.py")
+    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py","tools/oni_tile_hover.py","tools/oni_native_matrix.py")
     if windows:names+=("tools/oni_proton_headless.py",)
     source={name:digest(runner/name) for name in names}
     files={str(p.relative_to(package)):digest(p) for p in sorted(package.rglob("*")) if p.is_file()}
