@@ -57,9 +57,10 @@ earlier ref-result prefix while ordinary native tags were being created. The
 IL-only attempt still fails the direct runtime check. Both failed runs remain
 retained. Pre-invoking the original helpers before composition passes both
 original and patched checks, normal database initialization, and main-menu
-contract export in the next real WindowsPlayer run. This points to cold native
-entry preparation/composition; the precise Unity/Mono implementation cause is
-not established. Standalone licensed-Mono experiments under Wine and Proton
+contract export in one real WindowsPlayer cohort, but a later instrumented
+build still fails. Prewarming alone is not a reliable repair. The precise
+Unity/Mono implementation cause is not established; an alternative Harmony
+method-generation path is under test. Standalone licensed-Mono experiments under Wine and Proton
 pass both warmed and cold forms and do not reproduce Unity's failure.
 `NativeTagHelpersVerified` is written only after the direct patched checks
 complete, and probe completion requires that result. The subsequent physical

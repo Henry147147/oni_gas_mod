@@ -108,8 +108,12 @@ and colony file is
 `988207f97176d668fd138f9d7a44526bd87b9efe6598431db448c9a6abebbb04`.
 The frozen runner is `9f721b3`; the package records `9ceea79` plus the dirty
 prewarm changes, using the GNU cross-built Windows native DLLs. The
-[native tag startup repair](nitrogen.md) is required in this player. Fresh
-process and same-process reload are running. This is Windows Unity on a Linux
+[native tag startup investigation](nitrogen.md) remains open in this player.
+The first reload retains the exact source image at physical frame zero and
+delivers both startup batches, but stalls before the initial deferred autosave
+is admitted. It was stopped cleanly for diagnostics; no continued frames or
+same-process reload pass is claimed. Focus/window-manager interventions do not
+release that gate and are recorded separately. This is Windows Unity on a Linux
 host, not validation on the Windows OS or with an MSVC build of this feature.
 
 ### Actual Windows native and Unity controls
