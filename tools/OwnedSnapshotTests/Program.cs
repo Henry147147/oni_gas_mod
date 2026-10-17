@@ -104,6 +104,46 @@ internal static unsafe class Program
             Reject(() => OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2,
                 writer => writer.AppendEvents<int>(SnapshotEventChannel.MassConsumedCallbacks, new[] { 1 })));
         });
+        Test("startup native event replay preserves chronological events and current status tables", () =>
+        {
+            using var source=new NativeFixture();
+            using var earlier=OwnedGameDataSnapshot.Capture(source.Pointer,3,2);
+            using var later=OwnedGameDataSnapshot.Capture(source.Pointer,3,2);
+            earlier.Pointer->massConsumedCallbacks[0].callbackIdx=101;
+            later.Pointer->massConsumedCallbacks[0].callbackIdx=202;
+            var currentCount=later.Pointer->numMassConsumedCallbacks;var pastCount=earlier.Pointer->numMassConsumedCallbacks;
+            var frames=later.Pointer->numFramesProcessed+earlier.Pointer->numFramesProcessed;
+            var currentStatus=later.Pointer->numEmittedMassEntries;
+            var statusAddress=(IntPtr)later.Pointer->emittedMassEntries;
+            var mass=later.Pointer->mass[0];
+            var retained=new HashSet<string>{"emittedMassEntries","elementChunkInfos","buildingTemperatures","diseaseEmittedInfos","diseaseConsumedInfos"};
+            var expected=new List<(int pointerOffset,int countOffset,int count,byte[] bytes)>();
+            foreach(var field in typeof(Sim.GameDataUpdate).GetFields(BindingFlags.Public|BindingFlags.Instance))
+            {
+                var countName="num"+char.ToUpperInvariant(field.Name[0])+field.Name.Substring(1);
+                if(!field.FieldType.IsPointer || typeof(Sim.GameDataUpdate).GetField(countName)==null) continue;
+                var offset=(int)Marshal.OffsetOf<Sim.GameDataUpdate>(field.Name);var countOffset=(int)Marshal.OffsetOf<Sim.GameDataUpdate>(countName);
+                var stride=Marshal.SizeOf(field.FieldType.GetElementType()!);
+                var beforeCount=*(int*)((byte*)earlier.Pointer+countOffset);var afterCount=*(int*)((byte*)later.Pointer+countOffset);
+                var first=new ReadOnlySpan<byte>((void*)*(IntPtr*)((byte*)earlier.Pointer+offset),beforeCount*stride).ToArray();
+                var last=new ReadOnlySpan<byte>((void*)*(IntPtr*)((byte*)later.Pointer+offset),afterCount*stride).ToArray();
+                expected.Add((offset,countOffset,retained.Contains(field.Name) ? afterCount : beforeCount+afterCount,
+                    retained.Contains(field.Name) ? last : first.Concat(last).ToArray()));
+            }
+            Check(OwnedGameDataSnapshot.HasTransientEvents(earlier.Pointer));
+            later.PrependNativeEventsFrom(earlier);
+            Check(expected.Count==29);
+            foreach(var channel in expected) Check(*(int*)((byte*)later.Pointer+channel.countOffset)==channel.count &&
+                new ReadOnlySpan<byte>((void*)*(IntPtr*)((byte*)later.Pointer+channel.pointerOffset),channel.bytes.Length).SequenceEqual(channel.bytes));
+            Check(later.Pointer->numMassConsumedCallbacks==pastCount+currentCount && later.Pointer->massConsumedCallbacks[0].callbackIdx==101 &&
+                later.Pointer->massConsumedCallbacks[pastCount].callbackIdx==202 && later.Pointer->numFramesProcessed==frames &&
+                later.Pointer->numEmittedMassEntries==currentStatus && (IntPtr)later.Pointer->emittedMassEntries==statusAddress && later.Pointer->mass[0]==mass);
+            Check(earlier.Pointer->numMassConsumedCallbacks==pastCount && earlier.Pointer->massConsumedCallbacks[0].callbackIdx==101);
+            Reject(()=>later.PrependNativeEventsFrom(later));
+            using var wrongGrid=OwnedGameDataSnapshot.Capture(source.Pointer,6,1);
+            Reject(()=>later.PrependNativeEventsFrom(wrongGrid));
+            earlier.ClearEventsForFault();Check(!OwnedGameDataSnapshot.HasTransientEvents(earlier.Pointer));
+        });
         Test("late malformed native event leaves previous publication valid", () =>
         {
             using var source = new NativeFixture();

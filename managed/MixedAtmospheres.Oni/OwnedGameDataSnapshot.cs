@@ -173,6 +173,33 @@ namespace MixedAtmospheres.Oni
             fixed (T* pointer = combined) ReplaceBuffer(index, (IntPtr)pointer, newCount);
         }
 
+        internal static bool HasTransientEvents(Sim.GameDataUpdate* source)
+        {
+            if(source==null) throw new ArgumentNullException(nameof(source));
+            return Channels.Any(channel=>channel.CountOffset>=0 && !RetainedStatusTable(channel.PointerField) && channel.ReadCount(source,0)!=0);
+        }
+        // Use only on an unpublished candidate. If any allocation fails, the
+        // caller discards the entire candidate and retains both sources.
+        internal void PrependNativeEventsFrom(OwnedGameDataSnapshot earlier)
+        {
+            RequireOpen();earlier.RequireOpen();
+            if(ReferenceEquals(this,earlier) || Width!=earlier.Width || Height!=earlier.Height)
+                throw new ArgumentException("Native event replay requires distinct snapshots of the same grid.");
+            for(var index=0;index<Channels.Length;++index)
+            {
+                var channel=Channels[index];
+                if(channel.CountOffset<0 || RetainedStatusTable(channel.PointerField) || earlier.lengths[index]==0) continue;
+                var count=checked(earlier.lengths[index]+lengths[index]);
+                if(count>MaximumCells*8L) throw new InvalidDataException("Too many replayed native events.");
+                var bytes=checked(count*channel.Stride);var prefixBytes=checked(earlier.lengths[index]*channel.Stride);
+                var combined=new byte[bytes];
+                new ReadOnlySpan<byte>((void*)earlier.allocations[index],prefixBytes).CopyTo(combined);
+                new ReadOnlySpan<byte>((void*)allocations[index],checked(lengths[index]*channel.Stride)).CopyTo(combined.AsSpan(prefixBytes));
+                fixed(byte* pointer=combined) ReplaceBuffer(index,(IntPtr)pointer,count);
+            }
+            Pointer->numFramesProcessed=checked(Pointer->numFramesProcessed+earlier.Pointer->numFramesProcessed);
+        }
+
         // A frozen fault publication must not replay one-shot callbacks from
         // the last successful frame. Keep handle-indexed status tables: game
         // UI/components retain them even when no simulation frame is processed.
