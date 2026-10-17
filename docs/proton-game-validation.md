@@ -140,3 +140,23 @@ frozen Unity unscaled clock while realtime advances normally. Missing window
 focus/window-manager startup does not explain the failure. Both public raw
 results remain failed integration probes, and neither control loads the native
 mod libraries or advances custom physics.
+
+The read-only `ge10-clock-native-getters-control-v1` additionally resolves the
+actual Unity time getters without patching them. Its 21-sample independent
+diagnostic completes: unscaled time remains frozen, although scaled time,
+realtime and the OS counters advance. The fixed-unscaled cache also starts near
+the IntegerTime limit outside a fixed update. This further narrows observation;
+it does not establish the underlying initialization error.
+
+The subsequent `ge10-clock-fixed-step-control-v1` sets the existing nominal
+0.03-second fixed step once in the independent menu diagnostic. It completes
+22 samples across pause/resume, but unscaled time stays frozen. Reinitializing
+that setting does not repair the clock. Neither experiment installs mod Harmony
+patches or invokes custom physics; both public results remain failed integration
+probes. These diagnostic changes are excluded from the shipped mod.
+
+`ge10-clock-dxvk-control-v1` tests the explicit renderer override
+`PROTON_USE_WINED3D=0` with the host's software Vulkan ICD. It exits at graphics
+startup with a DXGI/D3D11 failure before reaching the menu or collecting clock
+samples. It is a failed renderer control, providing no clock comparison and no
+feature acceptance. The normal WineD3D default remains unchanged.
