@@ -220,6 +220,11 @@ For actual Windows Unity observation, build the ONI adapter against the Windows
 installation and package the Windows core DLL with the observer DLL above. Then
 run the disposable-colony wrapper with the explicit observer switch:
 
+For WindowsPlayer testing from a Linux host, the
+[isolated Proton runner](proton-game-validation.md) uses a fresh Windows
+profile and the same physical scene/save gates. It records Proton execution
+separately from testing on the Windows OS.
+
 ```powershell
 ./tools/run_colony_validation.ps1 -Package artifacts/native-observer-package `
   -Output local/colony-runs/native-observer-windows `

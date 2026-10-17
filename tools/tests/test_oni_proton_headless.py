@@ -1,0 +1,138 @@
+"""Isolation and evidence regressions for the licensed Windows Unity runner."""
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest import mock
+
+if not sys.platform.startswith("linux"):
+    raise unittest.SkipTest("The Proton runner requires a Linux host")
+
+SPEC = importlib.util.spec_from_file_location("oni_proton_headless", Path(__file__).parents[1] / "oni_proton_headless.py")
+runner = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(runner)
+common = runner.common
+
+
+class ProtonIsolationTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def test_windows_save_mapping_requires_own_real_file_and_rejects_escape(self):
+        output = self.root / "run"
+        save = output / "compatdata/pfx/drive_c/users/steamuser/Documents/colony.sav"
+        save.parent.mkdir(parents=True)
+        save.write_bytes(b"private fixture")
+        self.assertEqual(runner.host_save_path(r"C:\users\steamuser\Documents\colony.sav", output), save)
+        self.assertEqual(runner.host_save_path(runner.windows_path(save), output), save)
+        outside = self.root / "outside.sav"
+        outside.write_bytes(b"must not be read")
+        for value in (r"C:\users\..\outside.sav", r"colony.sav", r"D:\colony.sav",
+                      r"\\server\share\colony.sav", runner.windows_path(outside)):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                runner.host_save_path(value, output)
+        link = save.parent / "escape.sav"
+        link.symlink_to(outside)
+        with self.assertRaises(ValueError):
+            runner.host_save_path(r"C:\users\steamuser\Documents\escape.sav", output)
+
+    def test_output_cannot_overlap_persistent_or_source_paths_in_either_direction(self):
+        protected = self.root / "steam"
+        for output in (protected, protected / "run", self.root):
+            with self.assertRaises(ValueError):
+                runner.private_output(output, (protected,))
+        runner.private_output(self.root / "fresh", (protected,))
+
+    def test_sandbox_keeps_game_steam_and_root_read_only_and_masks_user_home(self):
+        home, state, output, game, proton = [self.root / name for name in ("home", "steam", "run", "game", "proton")]
+        command = runner.sandbox_command(home, state, output, game, proton, ["run", "wineboot", "-u"])
+        mounts = {command[index + 1]: (value, command[index + 2]) for index, value in enumerate(command)
+                  if value in ("--bind", "--ro-bind", "--dev-bind")}
+        for source in (state, game):
+            self.assertEqual(mounts[str(source)], ("--ro-bind", str(source)))
+        self.assertEqual(mounts["/"], ("--ro-bind", "/"))
+        self.assertEqual(mounts[str(home)], ("--bind", str(Path.home())))
+        self.assertEqual(mounts[str(output)], ("--bind", str(output)))
+        self.assertIn("--die-with-parent", command)
+
+    def test_proton_does_not_inherit_desktop_or_native_test_wine_paths(self):
+        with mock.patch.dict(os.environ, {"LD_LIBRARY_PATH": "/private/desktop", "WINEPREFIX": "/other/prefix",
+                                         "WINESERVER": "/other/server", "WAYLAND_DISPLAY": "wayland-0"}):
+            env = runner.game_env(self.root / "steam", self.root / "run", self.root / "game", ":123")
+        for key in ("LD_LIBRARY_PATH", "WINEPREFIX", "WINESERVER", "WAYLAND_DISPLAY"):
+            self.assertNotIn(key, env)
+        self.assertEqual(env["STEAM_COMPAT_DATA_PATH"], str(self.root / "run/compatdata"))
+        self.assertEqual(env["DISPLAY"], ":123")
+
+    def test_failed_wine_cleanup_still_stops_only_owned_game_and_display(self):
+        game, display = {"pid": 111}, {"pid": 222}
+        with mock.patch.object(common, "stop_process") as stop, mock.patch.object(
+                runner.subprocess, "run", side_effect=subprocess.TimeoutExpired("wineserver", 30)) as run:
+            with self.assertRaisesRegex(RuntimeError, "private Wine prefix"):
+                runner.cleanup_run(game, display, True, self.root / "proton", self.root / "run")
+        self.assertEqual(stop.call_args_list, [mock.call(game), mock.call(display)])
+        self.assertEqual(run.call_args.kwargs["env"]["WINEPREFIX"], str(self.root / "run/compatdata/pfx"))
+        self.assertEqual(run.call_args.args[0], [str(self.root / "proton/files/bin/wineserver"), "-k"])
+
+    def test_proton_and_native_linux_use_the_same_whole_run_lock(self):
+        with common.locked(self.root / common.LOCK_NAME), mock.patch.object(
+                sys, "argv", ["oni_proton_headless", "--state", str(self.root), "--proton", "/tool", "--package", "/package"]), \
+                mock.patch.object(runner, "playtest") as play:
+            with self.assertRaisesRegex(RuntimeError, "Another runner operation"):
+                runner.main()
+            play.assert_not_called()
+
+
+class WindowsEvidenceTests(unittest.TestCase):
+    def test_windows_probe_requires_explicit_target_and_keeps_failure_precedence(self):
+        probe = {"Platform": "WindowsPlayer", **{flag: True for flag in common.PROBE_FLAGS}}
+        log = common.MAIN_MENU_MARKER + "\n" + common.EXPORT_DONE_MARKER
+        report = {"Status": "passed", "GameStarted": True}
+        self.assertEqual(common.classify("native-domain", log, probe, report, False)[0], "failed-integration-probe")
+        self.assertEqual(common.classify("native-domain", log, probe, report, False, expected_platform=runner.PLATFORM),
+                         ("passed-native-domain", 0))
+        self.assertEqual(common.classify("native-domain", log + "\n[Mixed Atmospheres] fatal error", probe, report,
+                                        False, expected_platform=runner.PLATFORM)[0], "failed-mod-log-errors")
+
+    def test_platform_specific_package_cannot_satisfy_the_other_native_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory)
+            names = ["MixedAtmospheres.Core.dll", "MixedAtmospheres.Oni.dll", "native/win-x64/mixed_atmospheres.dll"]
+            for name in names:
+                file = package / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_bytes(b"fixture")
+            manifest = {"kind": "integration-probe", "release_ready": False, "source_dirty": False,
+                        "source_revision": "a" * 40, "files": {name: common.digest(package / name) for name in names}}
+            common.write_json(package / "package-manifest.json", manifest)
+            self.assertEqual(common.verify_package(package, "win-x64"), manifest)
+            with self.assertRaisesRegex(ValueError, "Linux native"):
+                common.verify_package(package)
+            (package / names[-1]).write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "hash or path mismatch"):
+                common.verify_package(package, "win-x64")
+
+    def test_load_controls_cannot_be_accepted_on_an_initial_scene(self):
+        args = SimpleNamespace(mode="native-domain", frames=120, load_save=None, save_colony=False,
+                               resave_before_resume=False, reload_in_process=False, verify_save_io_recovery=False)
+        runner.validate_arguments(args)
+        for key in ("resave_before_resume", "reload_in_process", "verify_save_io_recovery"):
+            invalid = copy.copy(args)
+            setattr(invalid, key, True)
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                runner.validate_arguments(invalid)
+        options = runner.domain_options(args)
+        self.assertEqual(options["expected_platform"], "WindowsPlayer")
+        self.assertFalse(options["restored"])
+
+
+if __name__ == "__main__":
+    unittest.main()

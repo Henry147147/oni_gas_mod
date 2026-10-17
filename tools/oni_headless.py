@@ -294,7 +294,11 @@ def start(state: Path) -> None:
     print("Sign in to Steam with the account that owns ONI. 'status' reports process health, not authentication.")
 
 
-def verify_package(package: Path) -> dict:
+def verify_package(package: Path, platform: str = "linux-x64") -> dict:
+    libraries={"linux-x64":"native/linux-x64/libmixed_atmospheres.so",
+               "win-x64":"native/win-x64/mixed_atmospheres.dll"}
+    if platform not in libraries:
+        raise ValueError("Expected a supported Linux or Windows x64 probe platform")
     package = package.resolve()
     manifest = read_json(package / "package-manifest.json")
     if manifest.get("kind") != "integration-probe" or manifest.get("release_ready") is not False:
@@ -308,9 +312,9 @@ def verify_package(package: Path) -> dict:
         file = (package / relative).resolve()
         if not file.is_relative_to(package) or not file.is_file() or digest(file) != expected:
             raise ValueError(f"Package hash or path mismatch: {relative}")
-    required = {"MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", "native/linux-x64/libmixed_atmospheres.so"}
+    required = {"MixedAtmospheres.Oni.dll", "MixedAtmospheres.Core.dll", libraries[platform]}
     if not required.issubset(manifest["files"]):
-        raise ValueError("The package must include pinned Linux native and managed libraries.")
+        raise ValueError("The package must include pinned " + ("Linux" if platform=="linux-x64" else "Windows") + " native and managed libraries.")
     actual = {p.relative_to(package).as_posix() for p in package.rglob("*") if p.is_file()
               and p != package / "package-manifest.json"}
     if actual != set(manifest["files"]) or any(p.is_symlink() for p in package.rglob("*")):
@@ -321,10 +325,10 @@ def verify_package(package: Path) -> dict:
     return manifest
 
 
-def stage_package(package: Path, mod: Path, manifest: dict) -> None:
+def stage_package(package: Path, mod: Path, manifest: dict, platform: str = "linux-x64") -> None:
     """Authenticate the launch copy against the already verified source manifest."""
     shutil.copytree(package, mod, symlinks=True)
-    copied_manifest = verify_package(mod)
+    copied_manifest = verify_package(mod,platform)
     if copied_manifest != manifest:
         raise ValueError("Copied package manifest differs from the verified source manifest.")
 
@@ -345,8 +349,8 @@ def steam_blocked(log: str) -> bool:
     return any(marker in log for marker in STEAM_BLOCK_MARKERS)
 
 
-def probe_passed(probe: dict | None) -> bool:
-    return bool(probe) and probe.get("Platform") == "LinuxPlayer" and all(probe.get(flag) is True for flag in PROBE_FLAGS)
+def probe_passed(probe: dict | None, expected_platform: str = "LinuxPlayer") -> bool:
+    return bool(probe) and probe.get("Platform") == expected_platform and all(probe.get(flag) is True for flag in PROBE_FLAGS)
 
 
 def contract_export(log: str) -> str | None:
@@ -389,14 +393,15 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
 
 
 def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed_out: bool,
-             player_exit: int | None = None, identifiers: tuple[str, ...] = ()) -> tuple[str, int]:
+             player_exit: int | None = None, identifiers: tuple[str, ...] = (),
+             expected_platform: str = "LinuxPlayer") -> tuple[str, int]:
     # Positive evidence of a mod failure outranks the Steam block so it is never
     # hidden; result.json records steam_blocked separately.
     if "[Mixed Atmospheres] Integration probe failed:" in log or "[Mixed Atmospheres] Colony validation failed:" in log:
         return "failed-runtime-validation", 2
     if mod_failure_lines(log, identifiers):
         return "failed-mod-log-errors", 2
-    if probe is not None and not probe_passed(probe):
+    if probe is not None and not probe_passed(probe, expected_platform):
         return "failed-integration-probe", 2
     if steam_blocked(log):
         return "blocked-steam-authentication", 3
@@ -404,7 +409,7 @@ def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed
         return "timeout", 2
     if player_exit not in (None, 0):
         return "failed-game-exit", 2
-    if not probe_passed(probe):
+    if not probe_passed(probe, expected_platform):
         return "failed-integration-probe", 2
     if MAIN_MENU_MARKER not in log:
         return "failed-before-main-menu", 2
