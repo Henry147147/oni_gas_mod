@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using MixedAtmospheres.Core;
 using UnityEngine;
@@ -15,6 +16,11 @@ namespace MixedAtmospheres.Oni
         private bool expanded = true;
         private bool showBoundary = true;
         private float nextRefresh;
+        private float nextDiagnostic;
+        private int shortcutsAccepted;
+        private string lastShortcut = "";
+        private string lastShortcutEvent = "";
+        private bool diagnosticWarning;
         private RuntimeMixturePresentationFrame? frame;
         private int sampleCell = -1;
         private string state = "Loaded", scope = "", measurement = "", composition = "", warning = "", failure = "";
@@ -39,17 +45,17 @@ namespace MixedAtmospheres.Oni
 
         private void Update()
         {
-            var control = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-            if (control)
-            {
-                if (Input.GetKeyDown(KeyCode.F5)) CycleOverlay();
-                if (Input.GetKeyDown(KeyCode.F8)) expanded = !expanded;
-                if (Input.GetKeyDown(KeyCode.F9)) FocusReadings();
-                if (Input.GetKeyDown(KeyCode.F10)) showBoundary = !showBoundary;
-            }
             if (Time.unscaledTime < nextRefresh) return;
             nextRefresh = Time.unscaledTime + .2f;
-            try { Refresh(); }
+            try
+            {
+                Refresh();
+                if (Time.unscaledTime >= nextDiagnostic)
+                {
+                    nextDiagnostic = Time.unscaledTime + 1;
+                    RecordValidationStatus();
+                }
+            }
             catch (Exception error)
             {
                 frame = null;
@@ -139,6 +145,29 @@ namespace MixedAtmospheres.Oni
 
         private void OnGUI()
         {
+            // Consume each shortcut's event and modifiers together, including
+            // paused inspection, without relying on legacy input poll order.
+            var key = Event.current;
+            if (key.type == EventType.KeyDown && (key.keyCode == KeyCode.F5 || key.keyCode == KeyCode.F8 ||
+                key.keyCode == KeyCode.F9 || key.keyCode == KeyCode.F10))
+                lastShortcutEvent = key.keyCode + " · " + key.modifiers;
+            if (key.type == EventType.KeyDown && key.control)
+            {
+                var accepted = true;
+                switch (key.keyCode)
+                {
+                    case KeyCode.F5: CycleOverlay(); break;
+                    case KeyCode.F8: expanded = !expanded; break;
+                    case KeyCode.F9: FocusReadings(); break;
+                    case KeyCode.F10: showBoundary = !showBoundary; break;
+                    default: accepted = false; break;
+                }
+                if (accepted)
+                {
+                    lastShortcut = "Ctrl+" + key.keyCode; ++shortcutsAccepted;
+                    key.Use(); RecordValidationStatus();
+                }
+            }
             var scale = Mathf.Max(1, Screen.height / 900f);
             if (titleStyle == null)
             {
@@ -185,6 +214,42 @@ namespace MixedAtmospheres.Oni
                 }
             }
             finally { GUI.matrix = previousMatrix; GUI.color = previousColor; }
+        }
+
+        private void RecordValidationStatus()
+        {
+            // Disposable scenes retain UI evidence alongside their existing
+            // reports. Ordinary mod loads perform no status-display file I/O.
+            if (ColonyRuntimeValidation.Settings == null) return;
+            try
+            {
+                MixturePresentation? reading = null;
+                if (frame != null && sampleCell >= 0) frame.TryGetCell(sampleCell, out reading);
+                File.WriteAllText(Path.Combine(ColonyRuntimeValidation.OutputDirectory, "status-display.json"), ReportJson.Serialize(new
+                {
+                    Kind = "actual-game-mixture-status-display", UnityFrame = Time.frameCount,
+                    Status = state, Scope = scope, Failure = failure, Expanded = expanded, BoundaryVisible = showBoundary,
+                    LastShortcut = lastShortcut, ShortcutsAccepted = shortcutsAccepted,
+                    LastShortcutEvent = lastShortcutEvent, ApplicationFocused = Application.isFocused,
+                    Overlay = OverlayScreen.Instance?.GetMode().ToString(),
+                    PresentationRevision = frame?.Revision, PublicationGeneration = frame?.PublicationGeneration,
+                    SuppliedCellCount = frame?.SuppliedCells.Count ?? 0, SampleCell = sampleCell,
+                    Sample = reading == null ? null : new
+                    {
+                        reading.TotalMassKg, reading.TemperatureKelvin, reading.TotalPressurePa,
+                        reading.MechanicalPressurePa, reading.OxygenPartialPressurePa, reading.LiquidVolumeFraction,
+                        reading.BreathingStatus
+                    },
+                    RendererReady = MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive,
+                    CameraSize = CameraController.Instance?.OrthographicSize
+                }));
+            }
+            catch (Exception error)
+            {
+                if (diagnosticWarning) return;
+                diagnosticWarning = true;
+                Debug.LogWarning("[Mixed Atmospheres] Could not record development status display: " + error.Message);
+            }
         }
 
         private static void DrawBoundary(RuntimeMixturePresentationFrame view, float scale)
