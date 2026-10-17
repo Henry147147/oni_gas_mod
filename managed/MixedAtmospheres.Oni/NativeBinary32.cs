@@ -7,9 +7,13 @@ namespace MixedAtmospheres.Oni
     internal static class NativeBinary32
     {
         private const ulong FractionMask=(1UL<<52)-1;
+        private static int subnormalProbeBits=1;
         internal static void RequireSubnormalRoundTrip()
         {
-            var scalar=ToDouble(BitConverter.Int32BitsToSingle(1));
+            // Read the probe bits at runtime. A JIT entered with DAZ enabled can
+            // fold Int32BitsToSingle(1) to zero before our conversion runs.
+            var bits=System.Threading.Volatile.Read(ref subnormalProbeBits);
+            var scalar=ToDouble(BitConverter.Int32BitsToSingle(bits));
             if(BitConverter.DoubleToInt64Bits(scalar)!=0x36a0000000000000L ||
                 BitConverter.SingleToInt32Bits(ToSingleExact(scalar))!=1)
                 throw new InvalidOperationException("Native binary32 wire conversion lost a positive trace in the current runtime.");

@@ -18,10 +18,32 @@ checks the smallest positive binary32 round trip in the actual managed runtime.
 The declaration suite samples every finite binary32 exponent class, both signs
 and 1024 significands per class against ordinary CLR conversion in its normal
 environment. It also tests malformed exact projections and actual transfer
-packet layouts. With the test-only caller fixture enabled, 170 scenarios pass
-against both installed sets of game declarations. The fixture enables DAZ/FTZ,
+packet layouts. The test-only caller fixture enables DAZ/FTZ,
 demonstrates ordinary casts losing the smallest parcel, then checks exact wire
 decoding and callback projection before restoring the complete original MXCSR.
+
+The startup probe reads its smallest-float input bits from memory through
+`Volatile.Read`. A fresh Windows host test exposed a false rejection when a cold
+JIT compiled `Int32BitsToSingle(1)` with DAZ enabled: its generated code supplied
+zero before entering the integer conversion. Dynamic inputs still retained the
+exact trace. The same cold-compilation failure reproduces on Linux. Reading the
+probe bits at runtime repairs that self-check while retaining both exact-bit
+assertions, the conversion algorithms and the caller's floating-point controls.
+
+The exact repaired candidate passes all 172 snapshot, persistence and message
+boundary scenarios against the installed Windows ONI declarations, with the
+MSVC-built DAZ/FTZ fixture enabled; the adapter also compiles. Fresh and optimized
+Windows JIT probes pass, as does the Linux runtime probe using the same captured
+managed assembly and a Linux caller fixture. The Linux probe loads no game
+declarations and runs no Unity player. Actual smallest-parcel game acceptance
+remains separate below.
+
+The original rejected Windows checkpoint remains retained at
+`local/windows-solid-particle-r1`, review SHA-256
+`28360588d78ef5147bdcaa0fa652adfc13bfed1b9c228ea91d8b09b73b891e8e`.
+The repaired declaration/build review is `local/windows-binary32-startup-r1`,
+SHA-256 `4a1c82877bbf28d38bfdbd429806bbd7a5348cafe574bfc9d3c779a69fb4f526`.
+Its adoption record binds the tracked helper to those exact tested bytes.
 
 For example, on a Linux x64 test host:
 
