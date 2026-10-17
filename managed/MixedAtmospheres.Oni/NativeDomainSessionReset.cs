@@ -46,6 +46,10 @@ namespace MixedAtmospheres.Oni
             carbonParticleReceipts=0;carbonParticleSourceFrame=0;
             carbonParticleBeforeEnergy=carbonParticleEnergyResidual=carbonParticleMassError=0;
             carbonParticleBeforeMasses=Array.Empty<double>();
+            breathingCellReads=0;
+            breathingReadStarted=breathingReadVerified=breathingNativeOutsideVerified=false;
+            breathingBefore=Array.Empty<BreathingReadSample>();breathingAfter=Array.Empty<BreathingReadSample>();
+            breathingSelectionBefore=breathingSelectionAfter=null;breathingBreatherInstance=0;
             initialPauseTicksHeld=initialPositiveTicksHeld=0;resumePreparationFrame=-1;
             savedPhysicalHash=restoredInitialHash=savedFileHash=savedFilePath="";
             colonyFileSaved=colonyLoaded=zeroRestoreVerified=restoredSceneStarted=restoredRendererVerified=false;

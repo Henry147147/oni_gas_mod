@@ -99,6 +99,47 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report=self.carbon_particle();report['CellMassEditsRouted']=2
         self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
 
+    def breathing_reader(self):
+        report=copy.deepcopy(self.report)
+        report.update(CellMassEditsRouted=1,ReceiptsPublished=1)
+        report['GasTransfers']=dict(Size=104,Version=2,State=1,Session=1,PendingBatches=0,AcceptedBatches=1,
+            CommittedBatches=1,UnacknowledgedReceipts=0,MassChangesKg=[0,0,0,0,.125])
+        def rows(frame,blocked):
+            return [dict(PublicCell=100+i,CompletedPhysicalFrame=frame,OxygenMassKg=.25,ScalarGridMassKg=1.125,
+                OxygenMoleFraction=.21,OxygenPartialPressurePa=21000,CarbonDioxideMoleFraction=.01 if blocked else 0,
+                CarbonDioxidePartialPressurePa=1000 if blocked else 0,AdvertisedOxygenMassKg=0 if blocked else .25,
+                ScalarElement=1,AdvertisedElement=0 if blocked else 1,Failures=48 if blocked else 0,Breathable=not blocked) for i in range(6)]
+        def selection(blocked):
+            return dict(Cell=105,ElementID=0 if blocked else 1,Mass=0 if blocked else .25,IsBreathable=not blocked,
+                TotalBreathableMass=0 if blocked else 1.5,BreatherInstanceId=-900,NoOxygenThreshold=.01)
+        report['BreathingCellReader']=dict(Required=True,Started=True,Verified=True,NativeOutsideVerified=True,NativeDispatchAvoided=True,
+            Source='GasBreatherFromWorldProvider.GetBestBreathableCellAroundSpecificCell',Reads=24,OxygenElementId=1,VacuumElementId=0,
+            Policy=dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,MinimumOxygenPartialPressurePa=15000,
+                MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500),Before=rows(4,False),After=rows(30,True),
+            SelectionBefore=selection(False),SelectionAfter=selection(True))
+        return report
+
+    def test_real_breathing_reader_requires_native_selection_and_completed_oxygen_policy(self):
+        report=self.breathing_reader()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+        report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,breathing_read=True,expected_platform='WindowsPlayer'))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,breathing_read=True))
+
+    def test_breathing_evidence_rejects_scalar_oxygen_fallback_stale_cells_and_false_selections(self):
+        for key,value in [('AdvertisedOxygenMassKg',1.125),('ScalarElement',9),('Failures',0),('Breathable',True),
+                          ('AdvertisedElement',1),('CompletedPhysicalFrame',29),('OxygenMassKg',0),('PublicCell',100),
+                          ('CarbonDioxideMoleFraction',0),('CarbonDioxidePartialPressurePa',float('nan'))]:
+            report=self.breathing_reader();report['BreathingCellReader']['After'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True),key)
+        for key,value in [('Cell',999),('Mass',.3),('TotalBreathableMass',6.75),('BreatherInstanceId',0),('IsBreathable',False)]:
+            report=self.breathing_reader();report['BreathingCellReader']['SelectionBefore'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True),key)
+        report=self.breathing_reader();report['BreathingCellReader']['Policy']['MaximumCo2Fraction']=1
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+        report=self.breathing_reader();report['BreathingCellReader']['NativeOutsideVerified']=False
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+
     @staticmethod
     def rehash_inventory(report):
         inventory = report['ImportedNativeInventory']

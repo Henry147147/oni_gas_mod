@@ -27,7 +27,78 @@ def _same_native_float(actual, supplied) -> bool:
     except (OverflowError, struct.error):
         return False
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False) -> bool:
+def _breathing_read_passed(report: dict, physical: dict) -> bool:
+    reader = report.get("BreathingCellReader")
+    if (not isinstance(reader, dict)
+            or any(reader.get(key) is not True for key in ("Required", "Started", "Verified", "NativeOutsideVerified", "NativeDispatchAvoided"))
+            or reader.get("Source") != "GasBreatherFromWorldProvider.GetBestBreathableCellAroundSpecificCell"
+            or type(reader.get("Reads")) is not int or reader["Reads"] < 24
+            or reader.get("Policy") != dict(HardMode=True, MinimumOxygenFraction=.15, MaximumOxygenFraction=.35,
+                MinimumOxygenPartialPressurePa=15000, MaximumCo2Fraction=.005, MaximumCo2PartialPressurePa=500)):
+        return False
+    oxygen, vacuum = reader.get("OxygenElementId"), reader.get("VacuumElementId")
+    if type(oxygen) is not int or type(vacuum) is not int or oxygen == vacuum:
+        return False
+    before, after = reader.get("Before"), reader.get("After")
+    if any(not isinstance(rows, list) or len(rows) != 6 for rows in (before, after)):
+        return False
+    frames, positions = [], []
+    for rows, selection, initial in ((before, reader.get("SelectionBefore"), True), (after, reader.get("SelectionAfter"), False)):
+        advertised = []
+        row_frames, row_positions = set(), set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return False
+            keys = ("OxygenMassKg", "ScalarGridMassKg", "OxygenMoleFraction", "OxygenPartialPressurePa", "CarbonDioxideMoleFraction", "CarbonDioxidePartialPressurePa", "AdvertisedOxygenMassKg")
+            if any(type(row.get(key)) not in (int, float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):
+                return False
+            cell, frame = row.get("PublicCell"), row.get("CompletedPhysicalFrame")
+            if (type(cell) is not int or cell < 0 or cell in row_positions or type(frame) is not int or frame <= 0
+                    or not 0 < row["OxygenMassKg"] < row["ScalarGridMassKg"] or row.get("ScalarElement") != oxygen
+                    or not 0 < row["OxygenMoleFraction"] <= 1 or not 0 <= row["CarbonDioxideMoleFraction"] <= 1):
+                return False
+            row_positions.add(cell); row_frames.add(frame)
+            failures = ((2 if row["OxygenMoleFraction"] < .15 else 0) | (4 if row["OxygenMoleFraction"] > .35 else 0)
+                | (8 if row["OxygenPartialPressurePa"] < 15000 else 0) | (16 if row["CarbonDioxideMoleFraction"] > .005 else 0)
+                | (32 if row["CarbonDioxidePartialPressurePa"] > 500 else 0))
+            if type(row.get("Failures")) is not int or row["Failures"] != failures or row.get("Breathable") is not (failures == 0):
+                return False
+            try:
+                packed = struct.pack("<f", row["OxygenMassKg"])
+                available = struct.unpack("<f", packed)[0]
+                if available > row["OxygenMassKg"]:
+                    available = struct.unpack("<f", struct.pack("<I", struct.unpack("<I", packed)[0] - 1))[0]
+            except (OverflowError, struct.error):
+                return False
+            if failures:
+                available = 0.0
+            if not _same_native_float(row["AdvertisedOxygenMassKg"], available) or row.get("AdvertisedElement") != (oxygen if available else vacuum):
+                return False
+            advertised.append((cell, available))
+        if len(row_frames) != 1 or initial and any(row["Failures"] != 0 for row in rows):
+            return False
+        frames.append(next(iter(row_frames))); positions.append(row_positions)
+        if (not isinstance(selection, dict) or type(selection.get("BreatherInstanceId")) is not int or selection["BreatherInstanceId"] == 0
+                or type(selection.get("NoOxygenThreshold")) not in (int, float) or not 0 < selection["NoOxygenThreshold"] < math.inf
+                or type(selection.get("TotalBreathableMass")) not in (int, float)
+                or not abs(selection["TotalBreathableMass"] - sum(value for _, value in advertised)) <= 1e-6):
+            return False
+        best = max((value for _, value in advertised if value > selection["NoOxygenThreshold"]), default=0.0)
+        if (not _same_native_float(selection.get("Mass"), best) or selection.get("IsBreathable") is not (best > 0)
+                or selection.get("ElementID") != (oxygen if best else vacuum)
+                or best and (selection.get("Cell"), best) not in advertised):
+            return False
+    if (not 0 < frames[0] < frames[1] == physical["CompletedFrames"] or positions[0] != positions[1]
+            or reader["SelectionBefore"]["BreatherInstanceId"] != reader["SelectionAfter"]["BreatherInstanceId"]
+            or not any(row["Failures"] & 48 for row in after)):
+        return False
+    account = report.get("GasTransfers")
+    return (isinstance(account, dict) and account.get("Size") == 104 and account.get("Version") == 2 and account.get("State") == 1
+        and account.get("Session") == physical["Session"] and account.get("PendingBatches") == 0
+        and account.get("AcceptedBatches") == account.get("CommittedBatches") == 1 and account.get("UnacknowledgedReceipts") == 0
+        and account.get("MassChangesKg") == [0, 0, 0, 0, .125] and report.get("CellMassEditsRouted") == report.get("ReceiptsPublished") == 1)
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -67,6 +138,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     primed = report.get("ProjectionPrimedAtNativeFrame")
     if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
+        return False
+    if breathing_read and not _breathing_read_passed(report, physical):
         return False
     if carbon_particle:
         particle = report.get("CarbonParticle")
@@ -424,7 +497,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
@@ -441,7 +514,7 @@ def main() -> int:
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
         passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1

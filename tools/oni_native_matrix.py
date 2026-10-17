@@ -15,7 +15,7 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 SCENES={"import":"native-import-domain","water-import":"native-liquid-import-domain","gas":"native-domain","water":"native-liquid-domain","water-transfer":"native-liquid-transfer-domain","heat":"native-heat-domain","water-heat":"native-liquid-heat-domain",
-    "transfer":"native-transfer-domain","carbon":"native-carbon-domain","carbon-particle":"native-carbon-particle-domain","conduction":"native-conduction-domain",
+    "transfer":"native-transfer-domain","carbon":"native-carbon-domain","carbon-particle":"native-carbon-particle-domain","breathing-read":"native-breathing-read-domain","conduction":"native-conduction-domain",
     "gravity":"native-gravity-domain","water-gravity":"native-liquid-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
     "pair":"native-paired-checkpoint-domain","save":"native-save-domain"}
 
@@ -44,7 +44,7 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
         raise ValueError("Select distinct implemented scenes")
     if not 1<=frames<=10000 or (any(name in scenes for name in ("actor","water-actor")) and frames<80) or ("save" in scenes and frames<16):
         raise ValueError("Expected 1..10000 frames, at least 80 for actors and 16 for source-save controls")
-    if "carbon-particle" in scenes and frames<30:raise ValueError("CO2 particles require at least 30 frames")
+    if any(name in scenes for name in ("carbon-particle", "breathing-read")) and frames<30:raise ValueError("CO2 particle and breathing-reader controls require at least 30 frames")
     if not 30<=timeout<=7200:raise ValueError("Expected a 30..7200 second per-game timeout")
     windows=proton is not None
     def snapshot():return fingerprint(runner,package,windows=windows)

@@ -74,7 +74,7 @@ namespace MixedAtmospheres.Oni
         private static string ReportPath => Path.Combine(ColonyRuntimeValidation.OutputDirectory, "native-domain.json");
         internal static bool Active => active;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -139,6 +139,7 @@ namespace MixedAtmospheres.Oni
                 if (CheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickCheckpointFixture();
                 if (PairedCheckpointMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) TickPairedCheckpointFixture();
                 if (CarbonParticleMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartCarbonParticleFixture();
+                if (BreathingReadMode && projectionPrimed && latest.CompletedFrames - projectionPrimedAtFrame >= 4) StartBreathingReadFixture();
                 if (!projectionPrimed || latest.CompletedFrames - projectionPrimedAtFrame < (ulong)ColonyRuntimeValidation.Settings!.CompletedFrames || publications < 2) return;
                 if (rendererWaitFrame < 0)
                 {
@@ -256,6 +257,7 @@ namespace MixedAtmospheres.Oni
                 VerifySaveGuard();
                 if (ActorMode) VerifyActorFixture();
                 if (CarbonParticleMode) VerifyCarbonParticleFixture();
+                if (BreathingReadMode) VerifyBreathingReadFixture();
                 if (CheckpointMode) Require(checkpointVerified, "Physical native checkpoint continuation was not verified against the live worker.");
                 if (PairedCheckpointMode) Require(pairedVerified,"Paired native/physical checkpoint capture was not verified in the game.");
                 if (ColonySaveMode) SavePausedColony();
@@ -715,6 +717,7 @@ namespace MixedAtmospheres.Oni
             GasTransfers = transferStatus, TransferPacketsRouted = transferPacketsRouted, ReceiptsPublished = receiptsPublished,
             CellMassEditsRouted = cellMassEditsRouted,
             CarbonParticle = CarbonParticleReport(),
+            BreathingCellReader = BreathingReadReport(),
             RegisteredActors = ActorReport(),
             PhysicalCheckpoint = CheckpointReport(),
             PairedCheckpoint = PairedCheckpointReport(), ColonyCheckpoint = ColonyCheckpointReport(),

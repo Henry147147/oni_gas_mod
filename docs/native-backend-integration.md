@@ -26,9 +26,13 @@ temperatures rather than a synthetic mixture. Its actual Linux gas and water sou
 and exact fresh-process continuation controls all pass.
 Complete world/geometry import remains open.
 The [additive cell-mass boundary](native-cell-mass-edits.md) also routes the
-game's explicit-material additions into the physical transfer queue. Its new
-real CO2 particle control is awaiting Unity validation; full breathing still
-needs oxygen selection and a coupled metabolism account.
+game's explicit-material additions into the physical transfer queue. Its actual
+Linux CO2 particle source/save and 120-frame exact fresh-process continuation
+pass; full breathing still needs a coupled metabolism account.
+The [owned breathing reader](native-breathing-reader.md) now supplies physical
+oxygen mass and the shared atmosphere policy to ONI's native cell selection.
+Its actual Unity control remains pending; reserved consumption and metabolism
+are separate outstanding work.
 
 ## Supported build and installation
 
