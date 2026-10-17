@@ -11,6 +11,7 @@ namespace MixedAtmospheres.Oni
         private static bool PressureReadMode => LiquidPressureReadMode || ColonyRuntimeValidation.Settings?.Mode == "native-pressure-read-domain";
         private static bool pressureReadVerified, pressureOutsideVerified, pressureCallSitesVerified;
         private static object[] pressureReadSamples = Array.Empty<object>();
+        private static object? pressureOutsideSample;
         private static void VerifyPressureReadFixture()
         {
             NativePressureCallSitePatch.RequireInstalled(); pressureCallSitesVerified = true;
@@ -33,7 +34,14 @@ namespace MixedAtmospheres.Oni
             }).ToArray();
             var before = Interlocked.Read(ref pressureGetterReads);
             var outside = (float)getter.Invoke(Grid.Pressure, new object[] { hotSolid });
-            pressureOutsideVerified = outside == Grid.Mass[hotSolid] * 101.3f && before == Interlocked.Read(ref pressureGetterReads);
+            var expectedOutside = Grid.Mass[hotSolid] * 101.3f;
+            var actualBits = BitConverter.SingleToInt32Bits(outside);
+            var expectedBits = BitConverter.SingleToInt32Bits(expectedOutside);
+            var after = Interlocked.Read(ref pressureGetterReads);
+            pressureOutsideVerified = actualBits == expectedBits && before == after;
+            pressureOutsideSample = new { PublicCell = hotSolid, ScalarMassKg = Grid.Mass[hotSolid],
+                NativeKilopascals = outside, ExpectedScalarKilopascals = expectedOutside,
+                NativeBits = actualBits, ExpectedBits = expectedBits, GetterReadsBefore = before, GetterReadsAfter = after };
             pressureReadVerified = pressureOutsideVerified && NativePressureCallSitePatch.TargetCount == 5 &&
                 Interlocked.Read(ref pressureGetterReads) >= cells.Length && (Liquid || Interlocked.Read(ref pressureCallSiteReads) > 0);
             Require(pressureReadVerified, "Actual native pressure readers, worker call sites or outside ownership failed.");
@@ -43,6 +51,6 @@ namespace MixedAtmospheres.Oni
             GetterReads = Interlocked.Read(ref pressureGetterReads), GameCallSiteReads = Interlocked.Read(ref pressureCallSiteReads),
             PatchedGameCallSites = NativePressureCallSitePatch.TargetCount, NativeOutsideVerified = pressureOutsideVerified,
             CallSitePatchesVerified = pressureCallSitesVerified,
-            Samples = pressureReadSamples };
+            Outside = pressureOutsideSample, Samples = pressureReadSamples };
     }
 }

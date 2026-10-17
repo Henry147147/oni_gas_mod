@@ -148,6 +148,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         if liquid:report['NativeDomain'].update(LiquidMassKg=1100,PressurePa=pressure,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
         report['NativePressureReader']=dict(Required=True,Verified=True,NativeOutsideVerified=True,CallSitePatchesVerified=True,
             Source='Grid.PressureIndexer.get_Item',Units='kPa-from-completed-mechanical-Pa',GetterReads=6,
+            Outside=dict(PublicCell=999,ScalarMassKg=1000,NativeKilopascals=101300,ExpectedScalarKilopascals=101300,
+                NativeBits=struct.unpack('<i',struct.pack('<f',101300))[0],ExpectedBits=struct.unpack('<i',struct.pack('<f',101300))[0],
+                GetterReadsBefore=6,GetterReadsAfter=6),
             GameCallSiteReads=0 if liquid else 60,PatchedGameCallSites=5,Samples=[dict(PublicCell=100+i,CompletedPhysicalFrame=30,
                 PhysicalPressurePa=pressure,GasPressurePa=0 if liquid else pressure,NativeKilopascals=f32(pressure/1000),
                 LegacyScalarKilopascals=f32(f32(mass)*f32(101.3)),ScalarMassKg=mass) for i in range(6)])
@@ -168,6 +171,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
         for key,value in [('GetterReads',0),('GameCallSiteReads',0),('PatchedGameCallSites',4),('Units','Pa'),('NativeOutsideVerified',False),('CallSitePatchesVerified',False)]:
             report=self.pressure_reader();report['NativePressureReader'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+        for key,value in [('NativeBits',0),('ExpectedBits',0),('NativeKilopascals',100),('GetterReadsAfter',7),('PublicCell',100)]:
+            report=self.pressure_reader();report['NativePressureReader']['Outside'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
 
     @staticmethod

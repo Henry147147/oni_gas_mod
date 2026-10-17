@@ -49,3 +49,15 @@ skips. Actual Unity source/save and fresh-process reload results remain pending.
 These bounded reader controls do not establish whole-colony ownership, general
 materials, free surfaces, mechanical fluid/solid coupling or production-device
 pressure semantics.
+
+
+The retained `pressure-reader-unity-matrix-v1/pressure-read-save` reaches
+physical frame 122. All six actual accessor readings match 100.465–100.535 kPa
+physical pressure instead of the 117.353–118.381 kPa scalar approximation;
+825 rewritten game-worker reads and all five installed caller patches are
+witnessed. It rejects before saving at the outside-native-cell comparison.
+The original comparison mixes a returned binary32 scalar with an intermediate
+Mono multiplication. The retry records both binary32 bit patterns and compares
+those exact patterns, retaining the unchanged outside-read counter requirement.
+No pressure or physical conservation tolerance is widened. The first failure
+and pending rerun remain explicit.

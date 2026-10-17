@@ -106,3 +106,16 @@ mod's normal contract evidence. It does not pass a native feature. These
 controls isolate an engine/runtime problem without bypassing save callbacks,
 forcing animation completion or inventing physical time. A supported runtime
 and successful fresh-process continuation remain required.
+
+
+`experimental11-independent-clock-api-control-v1` and
+`ge10-independent-clock-api-control-v1` extend that independent diagnostic with
+actual Win32 and NT timer calls. Both complete normally (19 and 18 samples),
+with custom physics and both native libraries absent. QueryPerformanceCounter
+and NtQueryPerformanceCounter advance at the reported 10,000,000 Hz; GetTickCount64,
+multimedia time, realtime and UTC advance normally. Unity unscaled time remains
+fixed near 65,358,361,937 s in both tools. The public raw runner results remain
+`failed-integration-probe`; timer diagnostics do not supply integration evidence.
+The normal API counters narrow the investigation to their use by the engine;
+they do not establish a root cause or a supported runtime repair. The retained
+comparison is `clock-api-after-pressure-workflow-v1.json`.

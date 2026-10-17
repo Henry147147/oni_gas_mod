@@ -125,6 +125,21 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
                     or abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
             positions.add(cell)
     except (OverflowError, struct.error):return False
+    outside = reader.get("Outside")
+    if not isinstance(outside, dict):return False
+    try:
+        mass = outside.get("ScalarMassKg")
+        if type(mass) not in (int, float) or not 0 < mass < math.inf:return False
+        expected = f32(f32(mass) * f32(101.3))
+        bits = struct.unpack("<i", struct.pack("<f", expected))[0]
+        if (type(outside.get("PublicCell")) is not int or outside["PublicCell"] < 0 or outside["PublicCell"] in positions
+                or not _same_native_float(outside.get("NativeKilopascals"), expected)
+                or not _same_native_float(outside.get("ExpectedScalarKilopascals"), expected)
+                or type(outside.get("NativeBits")) is not int or outside["NativeBits"] != bits
+                or type(outside.get("ExpectedBits")) is not int or outside["ExpectedBits"] != bits
+                or type(outside.get("GetterReadsBefore")) is not int or type(outside.get("GetterReadsAfter")) is not int
+                or not 6 <= outside["GetterReadsBefore"] == outside["GetterReadsAfter"] <= reader["GetterReads"]):return False
+    except (OverflowError, struct.error):return False
     return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
 
 def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False) -> bool:
