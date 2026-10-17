@@ -225,8 +225,16 @@ zero with positive restored time can be saved immediately; a new, unadvanced
 owner at time zero still rejects. `--resave-before-resume` exercises this
 boundary through `Game.StartDelayedSave` and its normal autosave coroutine
 while the loaded colony is paused. The test waits across Unity updates for
-the actual save, including ONI's pre/active/post save callbacks, before resuming.
+the actual deferred save before resuming.
 The resulting file can itself be loaded in a fresh process.
+
+Pausing also gates the private `Game.SimEveryTick` entry while that initial
+save is pending. Unity can have latched a positive `Time.deltaTime` before
+the pause changed its time scale; ONI would otherwise consume it despite the
+pause count. The gate publishes an ordinary zero-time native frame and leaves
+managed subtick accumulators untouched. Its adversarial control explicitly
+invokes a positive 0.2-second interval and requires the complete physical image,
+clock and managed accumulators to remain exact before saving and resuming.
 
 The loaded scene must retain its colony GUID and duplicants, consume both
 startup batches and continue on the actual worker clock. Every observed

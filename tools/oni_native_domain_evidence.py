@@ -199,6 +199,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if restored and colony.get("FrameZeroResaveRequired") is True:
         if (colony.get("Saved") is not True or colony.get("SavedAsAutoSave") is not True
                 or colony.get("FrameZeroResaveVerified") is not True or colony.get("FrameZeroResaveUsedGameDelayedSave") is not True
+                or colony.get("InitialPauseChallengeVerified") is not True
+                or type(colony.get("InitialPositiveTicksHeld")) is not int or colony["InitialPositiveTicksHeld"]<1
                 or colony.get("SavedFrame") != 0
                 or colony.get("SavedTime") != colony["SourceTime"] or colony.get("SavedPhysicalSha256") != colony["SourcePhysicalSha256"]):
             return False

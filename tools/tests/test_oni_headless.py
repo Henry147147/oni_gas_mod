@@ -99,11 +99,13 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             SavePauseDepthBefore=2,SavePauseDepthAfter=2,SavedFile='private/resaved-colony.sav',SavedFileSha256='c'*64,
             SavedFrame=0,SavedTime=colony['SourceTime'],SavedPhysicalSha256=colony['SourcePhysicalSha256'],
             FrameZeroResaveRequired=True,FrameZeroResaveVerified=True,FrameZeroResaveUsedGameDelayedSave=True,SavedAsAutoSave=True,SavedFileReadbackVerified=True,
+            InitialPauseChallengeVerified=True,InitialPositiveTicksHeld=1,
             SerializedBodyCaptures=1,SerializedBodyBytes=160000,SerializedBodySha256='e'*64)
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,restored=True))
         for key,value in [('SimSaveWrites',2),('AutomaticSaveAdmissions',2),('SavePauseDepthAfter',3),
                           ('SavePauseDepthAfter',1),('FrameZeroResaveVerified',False),('SavedAsAutoSave',False),('SavedFrame',1),
                           ('SavedFileReadbackVerified',False),('SerializedBodyCaptures',2),('FrameZeroResaveUsedGameDelayedSave',False),
+                          ('InitialPauseChallengeVerified',False),('InitialPositiveTicksHeld',0),
                           ('SavedTime',colony['SourceTime']+.2),('SavedPhysicalSha256','d'*64)]:
             report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),key)

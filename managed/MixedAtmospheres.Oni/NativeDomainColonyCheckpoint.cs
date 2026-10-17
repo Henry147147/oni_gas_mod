@@ -30,9 +30,21 @@ namespace MixedAtmospheres.Oni
         private static string loadedSourceHash="";
         private static bool frameZeroResaveVerified;
         private static bool frameZeroResaveScheduled;
+        private static bool initialPauseChallengeVerified;
+        private static int initialPauseTicksHeld,initialPositiveTicksHeld;
         private static int resumePreparationFrame=-1;
         internal static bool HoldInitialRestorePause=>ColonyRestoreMode && colonyLoaded &&
             ColonyRuntimeValidation.Settings?.SaveBeforeResume==true && !frameZeroResaveVerified;
+        internal static bool HoldValidationSimulationTick=>HoldInitialRestorePause;
+        internal static void PublishPausedValidationTick(Game game,float elapsed)
+        {
+            if(SpeedControlScreen.Instance!=null && !SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
+            // Time.deltaTime was latched before a pause set this frame's time
+            // scale to zero. Do not spend that positive interval or any saved
+            // managed subtick accumulator while the initial save is pending.
+            if(HoldInitialRestorePause) {++initialPauseTicksHeld;if(elapsed>0) ++initialPositiveTicksHeld;}
+            AccessTools.Method(typeof(Game),"UnsafeSim200ms").Invoke(game,new object[]{0f});
+        }
         private static string savedPhysicalHash="", restoredInitialHash="", savedFileHash="", savedFilePath="";
         private static bool colonyFileSaved, colonyLoaded, zeroRestoreVerified, restoredSceneStarted, restoredRendererVerified;
         private static int stagedSaveWrites, exactReplayComparisons;
@@ -350,7 +362,17 @@ namespace MixedAtmospheres.Oni
                 if(ColonyRuntimeValidation.Settings!.SaveBeforeResume && !frameZeroResaveVerified)
                 {
                     if(!SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Pause(false);
-                    if(resumePreparationFrame<0) {resumePreparationFrame=Time.frameCount;return;}
+                    if(resumePreparationFrame<0)
+                    {
+                        var accumulator=AccessTools.Field(typeof(Game),"simDt");var subtick=AccessTools.Field(typeof(Game),"simSubTick");
+                        var beforeAccumulator=(float)accumulator.GetValue(Game.Instance);var beforeSubtick=(int)subtick.GetValue(Game.Instance);
+                        AccessTools.Method(typeof(Game),"SimEveryTick").Invoke(Game.Instance,new object[]{.2f});Capture();
+                        initialPauseChallengeVerified=latest.CompletedFrames==0 && latest.TimeSeconds==loadedSourceTime &&
+                            (float)accumulator.GetValue(Game.Instance)==beforeAccumulator && (int)subtick.GetValue(Game.Instance)==beforeSubtick &&
+                            TryCapturePhysicalCheckpoint(out var held) && CheckpointHash(held)==loadedSourceHash && initialPositiveTicksHeld>0;
+                        Require(initialPauseChallengeVerified,"A positive latched timestep escaped the initial paused simulation gate.");
+                        resumePreparationFrame=Time.frameCount;return;
+                    }
                     if(Time.frameCount-resumePreparationFrame<3) return;
                     Require(latest.CompletedFrames==0 && latest.TimeSeconds==loadedSourceTime,"Initial resave advanced before its paused admission.");
                     var path=Path.Combine(ColonyRuntimeValidation.OutputDirectory,"resaved-colony.sav");
@@ -409,6 +431,8 @@ namespace MixedAtmospheres.Oni
             SavedFrame=savedSourceFrame,SavedTime=savedSourceTime,SavedPhysicalSha256=savedPhysicalHash,
             FrameZeroResaveRequired=ColonyRuntimeValidation.Settings?.SaveBeforeResume==true,FrameZeroResaveVerified=frameZeroResaveVerified,
             FrameZeroResaveUsedGameDelayedSave=frameZeroResaveScheduled,
+            InitialPauseChallengeVerified=initialPauseChallengeVerified,InitialPauseTicksHeld=initialPauseTicksHeld,
+            InitialPositiveTicksHeld=initialPositiveTicksHeld,
             ExactContinuationFrames=exactReplayComparisons,ReplayedFrame=replayFrame,ReplayedTime=replayTime,NativeStartupBatchesDelivered=restoredNativeBatches,
             CurrentPhysicalSha256=CheckpointHash(restoredExpected),SavedFile=savedFilePath,SavedFileSha256=savedFileHash,
             NativeColonyId=SaveLoader.Instance?.GameInfo.colonyGuid.ToString("N"),WholeColonyFluidCheckpoint=false};
@@ -429,6 +453,15 @@ namespace MixedAtmospheres.Oni
         {
             if(NativeSealedDomainValidation.HoldInitialRestorePause && !SpeedControlScreen.Instance.IsPaused)
                 SpeedControlScreen.Instance.Pause(false);
+        }
+    }
+    [HarmonyPatch(typeof(Game),"SimEveryTick")]
+    internal static class NativeDomainInitialRestoredTickPatch
+    {
+        private static bool Prefix(Game __instance,float __0)
+        {
+            if(!NativeSealedDomainValidation.HoldValidationSimulationTick) return true;
+            NativeSealedDomainValidation.PublishPausedValidationTick(__instance,__0);return false;
         }
     }
     [HarmonyPatch(typeof(SaveLoader),nameof(SaveLoader.Save),new[]{typeof(string),typeof(bool),typeof(bool)})]

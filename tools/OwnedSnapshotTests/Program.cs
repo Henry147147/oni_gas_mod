@@ -278,6 +278,28 @@ internal static unsafe class Program
             using var reader = new BinaryReader(stream);
             Reject(() => ColonySaveEnvelope.ReadLengthPrefixed(reader, 744825, 1, CatalogHash()));
         });
+        Test("actual colony save pause and coroutine declarations match their adapters", () =>
+        {
+            const BindingFlags flags=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            foreach(var field in new (Type Owner,string Name,Type Value)[]{
+                (typeof(Game),"simDt",typeof(float)),(typeof(Game),"simSubTick",typeof(int)),
+                (typeof(SpeedControlScreen),"pauseCount",typeof(int)),(typeof(PlayerController),"draggingAllowed",typeof(bool)),
+                (typeof(SaveLoader),"compressSaveData",typeof(bool)),
+                (typeof(Game),"activatePreCB",typeof(Game.SavingPreCB)),(typeof(Game),"activateActiveCB",typeof(Game.SavingActiveCB)),
+                (typeof(Game),"activatePostCB",typeof(Game.SavingPostCB))})
+                Check(field.Owner.GetField(field.Name,flags)?.FieldType==field.Value);
+            foreach(var entry in new (Type Owner,string Name,Type Result,Type[] Arguments)[]{
+                (typeof(SaveLoader),"Save",typeof(string),new[]{typeof(string),typeof(bool),typeof(bool)}),
+                (typeof(SaveLoader),"Save",typeof(void),new[]{typeof(BinaryWriter)}),
+                (typeof(Game),"StartDelayedSave",typeof(void),new[]{typeof(string),typeof(bool),typeof(bool)}),
+                (typeof(Game),"SimEveryTick",typeof(void),new[]{typeof(float)}),
+                (typeof(Game),"UnsafeSim200ms",typeof(void),new[]{typeof(float)})})
+                Check(entry.Owner.GetMethod(entry.Name,flags,null,entry.Arguments,null)?.ReturnType==entry.Result);
+            var headers=typeof(SaveGame).GetMethods(flags).Where(method=>method.Name=="GetSaveHeader").ToArray();
+            Check(headers.Length==1 && headers[0].ReturnType==typeof(byte[]) &&
+                headers[0].GetParameters().Select(parameter=>parameter.ParameterType).SequenceEqual(new[]{typeof(bool),typeof(bool),typeof(SaveGame.Header).MakeByRefType()}));
+            Check(typeof(ConfirmDialogScreen).GetField("popupMessage",flags)?.FieldType.FullName=="LocText");
+        });
         FluidRouterTests.Run(Test, Check, Reject);
         FluidFrameCoordinatorTests.Run(Test, Check, Reject);
         MixtureRuntimeTests.Run(Test, Check, Reject);
