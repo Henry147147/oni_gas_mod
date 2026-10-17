@@ -13,9 +13,55 @@ class NativeMatrixTests(unittest.TestCase):
         self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
         self.root=Path(self.folder.name);self.runner=self.root/"frozen";self.package=self.root/"package";self.output=self.root/"evidence"
         (self.runner/"tools").mkdir(parents=True);self.package.mkdir()
-        for file in ("oni_headless.py","oni_native_domain_evidence.py"):(self.runner/"tools"/file).write_text("frozen original")
+        for file in ("oni_headless.py","oni_native_domain_evidence.py","oni_proton_headless.py","oni_native_matrix.py"):
+            (self.runner/"tools"/file).write_text("frozen original")
         (self.package/"probe.dll").write_bytes(b"original native package")
         self.commands=[]
+
+    def windows_game(self,command,log,timeout):
+        self.game(command,log,timeout)
+        run=Path(command[command.index("--output")+1]);path=run/"result.json";data=json.loads(path.read_text())
+        data.update(target_platform="WindowsPlayer",host_platform="linux",actual_windows_os=False,real_unity_player=True)
+        checkpoint=data["native_domain"]["ColonyCheckpoint"]
+        if checkpoint:
+            data.update(host_saved_file=checkpoint["SavedFile"],host_saved_file_sha256=checkpoint["SavedFileSha256"])
+            checkpoint["SavedFile"]=r"C:\users\steamuser\Documents\colony.sav"
+        path.write_text(json.dumps(data));return 0
+
+    def test_proton_matrix_loads_only_the_authenticated_private_host_save_and_records_linux_host(self):
+        with mock.patch.object(matrix,"invoke",side_effect=self.windows_game):
+            report=matrix.run_matrix(self.runner,self.package,self.output,["water"],proton=self.root/"proton",game_dir=self.root/"windows-game")
+        self.assertTrue(report["passed"]);self.assertTrue(report["windows_unity_verified"])
+        self.assertFalse(report["actual_windows_os"]);self.assertFalse(report["first_playable_colony_passed"])
+        self.assertEqual(report["target_platform"],"WindowsPlayer")
+        self.assertIn("oni_proton_headless.py",Path(self.commands[0][1]).name)
+        self.assertNotIn("run",self.commands[0]);self.assertIn("--proton",self.commands[0])
+        self.assertEqual(Path(self.commands[1][self.commands[1].index("--load-save")+1]),self.output/"water-save/colony.sav")
+        self.assertIn("tools/oni_proton_headless.py",report["inputs"]["runner_files"])
+
+    def test_proton_cannot_promote_missing_host_metadata_or_windows_os_claim_to_success(self):
+        for key,value in (("actual_windows_os",True),("real_unity_player",False),("target_platform","LinuxPlayer"),("host_platform",None)):
+            output=self.root/key
+            def wrong(*args):
+                self.windows_game(*args);path=output/"water-save/result.json";data=json.loads(path.read_text());data[key]=value
+                path.write_text(json.dumps(data));return 0
+            with mock.patch.object(matrix,"invoke",side_effect=wrong),self.assertRaisesRegex(ValueError,"misidentifies"):
+                matrix.run_matrix(self.runner,self.package,output,["water"],proton=self.root/"proton")
+            self.assertFalse(json.loads((output/"matrix.json").read_text())["passed"])
+
+    def test_proton_exported_save_hash_and_frozen_runner_must_both_match(self):
+        for change in ("hash","runner"):
+            output=self.root/change
+            def wrong(*args):
+                self.windows_game(*args)
+                if change=="runner":(self.runner/"tools/oni_proton_headless.py").write_text("changed during game")
+                else:
+                    path=output/"water-save/result.json";data=json.loads(path.read_text());data["host_saved_file_sha256"]="0"*64
+                    path.write_text(json.dumps(data))
+                return 0
+            with mock.patch.object(matrix,"invoke",side_effect=wrong),self.assertRaisesRegex(ValueError,"receipt|Frozen"):
+                matrix.run_matrix(self.runner,self.package,output,["water"],proton=self.root/"proton")
+            self.assertFalse(json.loads((output/"matrix.json").read_text())["passed"])
 
     def game(self,command,log,timeout):
         self.commands.append(command);run=Path(command[command.index("--output")+1]);run.mkdir()
