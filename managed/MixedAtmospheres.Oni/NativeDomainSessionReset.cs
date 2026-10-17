@@ -50,6 +50,8 @@ namespace MixedAtmospheres.Oni
             breathingReadStarted=breathingReadVerified=breathingNativeOutsideVerified=false;
             breathingBefore=Array.Empty<BreathingReadSample>();breathingAfter=Array.Empty<BreathingReadSample>();
             breathingSelectionBefore=breathingSelectionAfter=null;breathingBreatherInstance=0;
+            pressureGetterReads=pressureCallSiteReads=0;
+            pressureReadVerified=pressureOutsideVerified=pressureCallSitesVerified=false;pressureReadSamples=Array.Empty<object>();
             initialPauseTicksHeld=initialPositiveTicksHeld=0;resumePreparationFrame=-1;
             savedPhysicalHash=restoredInitialHash=savedFileHash=savedFilePath="";
             colonyFileSaved=colonyLoaded=zeroRestoreVerified=restoredSceneStarted=restoredRendererVerified=false;

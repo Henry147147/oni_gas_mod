@@ -34,7 +34,7 @@ namespace MixedAtmospheres.Oni
                 }
         }
 
-        private static IEnumerable<CodeInstruction> ReadInstructions(MethodBase method)
+        internal static IEnumerable<CodeInstruction> ReadInstructions(MethodBase method)
         {
             // The shipped Harmony API types its optional ILGenerator through
             // Unity's mscorlib. Netstandard's facade cannot bind that signature

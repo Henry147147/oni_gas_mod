@@ -33,6 +33,9 @@ The [owned breathing reader](native-breathing-reader.md) now supplies physical
 oxygen mass and the shared atmosphere policy to ONI's native cell selection.
 Its Linux native selection/source-save and 120-frame exact fresh-process
 continuation pass; reserved consumption and metabolism remain open.
+The [native pressure reader](native-pressure-reader.md) supplies completed
+mechanical pressure to the native accessor and its five inspected game callers.
+Gas and filled-water Unity controls are prepared for validation.
 
 ## Supported build and installation
 

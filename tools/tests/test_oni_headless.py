@@ -140,6 +140,36 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report=self.breathing_reader();report['BreathingCellReader']['NativeOutsideVerified']=False
         self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
 
+    def pressure_reader(self,liquid=False):
+        report=copy.deepcopy(self.report)
+        def f32(value):return struct.unpack('<f',struct.pack('<f',value))[0]
+        pressure=220000000 if liquid else 100010
+        mass=1100 if liquid else 1.2
+        if liquid:report['NativeDomain'].update(LiquidMassKg=1100,PressurePa=pressure,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+        report['NativePressureReader']=dict(Required=True,Verified=True,NativeOutsideVerified=True,CallSitePatchesVerified=True,
+            Source='Grid.PressureIndexer.get_Item',Units='kPa-from-completed-mechanical-Pa',GetterReads=6,
+            GameCallSiteReads=0 if liquid else 60,PatchedGameCallSites=5,Samples=[dict(PublicCell=100+i,CompletedPhysicalFrame=30,
+                PhysicalPressurePa=pressure,GasPressurePa=0 if liquid else pressure,NativeKilopascals=f32(pressure/1000),
+                LegacyScalarKilopascals=f32(f32(mass)*f32(101.3)),ScalarMassKg=mass) for i in range(6)])
+        return report
+
+    def test_native_pressure_reader_uses_mechanical_pressure_and_retains_native_units(self):
+        for liquid in (False,True):
+            for platform in ('LinuxPlayer','WindowsPlayer'):
+                report=self.pressure_reader(liquid);report['Platform']=platform
+                self.assertTrue(runner.native_domain_passed(report,self.observation,30,liquid=liquid,pressure_read=True,expected_platform=platform))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,pressure_read=True))
+
+    def test_pressure_reader_rejects_scalar_fallback_wrong_units_stale_data_and_unpatched_callers(self):
+        for key,value in [('NativeKilopascals',100010),('PhysicalPressurePa',1),('GasPressurePa',0),
+                          ('LegacyScalarKilopascals',100),('ScalarMassKg',0),('CompletedPhysicalFrame',29),
+                          ('PublicCell',100),('PhysicalPressurePa',float('nan'))]:
+            report=self.pressure_reader();report['NativePressureReader']['Samples'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+        for key,value in [('GetterReads',0),('GameCallSiteReads',0),('PatchedGameCallSites',4),('Units','Pa'),('NativeOutsideVerified',False),('CallSitePatchesVerified',False)]:
+            report=self.pressure_reader();report['NativePressureReader'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+
     @staticmethod
     def rehash_inventory(report):
         inventory = report['ImportedNativeInventory']

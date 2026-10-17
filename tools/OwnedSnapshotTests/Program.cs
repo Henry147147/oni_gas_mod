@@ -315,6 +315,7 @@ internal static unsafe class Program
         ActorRegistrationTests();
         CellMassEditTests();
         BreathingCellReadTests.Run(Test, Check, Reject);
+        PressureReadTests.Run(Test, Check, Reject);
         if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");
         return 0;

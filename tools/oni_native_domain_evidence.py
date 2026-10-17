@@ -98,7 +98,36 @@ def _breathing_read_passed(report: dict, physical: dict) -> bool:
         and account.get("AcceptedBatches") == account.get("CommittedBatches") == 1 and account.get("UnacknowledgedReceipts") == 0
         and account.get("MassChangesKg") == [0, 0, 0, 0, .125] and report.get("CellMassEditsRouted") == report.get("ReceiptsPublished") == 1)
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False) -> bool:
+def _pressure_read_passed(report: dict, physical: dict, liquid: bool) -> bool:
+    reader = report.get("NativePressureReader")
+    if (not isinstance(reader, dict) or any(reader.get(key) is not True for key in ("Required", "Verified", "NativeOutsideVerified", "CallSitePatchesVerified"))
+            or reader.get("Source") != "Grid.PressureIndexer.get_Item" or reader.get("Units") != "kPa-from-completed-mechanical-Pa"
+            or reader.get("PatchedGameCallSites") != 5 or type(reader.get("GetterReads")) is not int or reader["GetterReads"] < 6
+            or type(reader.get("GameCallSiteReads")) is not int or reader["GameCallSiteReads"] < (0 if liquid else 1)):
+        return False
+    rows = reader.get("Samples")
+    if not isinstance(rows, list) or len(rows) != 6:
+        return False
+    positions = set()
+    try:
+        def f32(value):return struct.unpack("<f", struct.pack("<f", value))[0]
+        for row in rows:
+            if not isinstance(row, dict):return False
+            keys = ("PhysicalPressurePa", "GasPressurePa", "NativeKilopascals", "LegacyScalarKilopascals", "ScalarMassKg")
+            if any(type(row.get(key)) not in (int, float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):return False
+            cell = row.get("PublicCell")
+            if (type(cell) is not int or cell < 0 or cell in positions or type(row.get("CompletedPhysicalFrame")) is not int
+                    or row["CompletedPhysicalFrame"] != physical["CompletedFrames"] or row["PhysicalPressurePa"] <= 0
+                    or row["NativeKilopascals"] <= 0 or row["ScalarMassKg"] <= 0
+                    or row["GasPressurePa"] != (0 if liquid else row["PhysicalPressurePa"])
+                    or not _same_native_float(row["NativeKilopascals"], f32(row["PhysicalPressurePa"] / 1000))
+                    or not _same_native_float(row["LegacyScalarKilopascals"], f32(f32(row["ScalarMassKg"]) * f32(101.3)))
+                    or abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
+            positions.add(cell)
+    except (OverflowError, struct.error):return False
+    return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
+
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
@@ -140,6 +169,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if type(primed) is not int or primed < 0 or physical["CompletedFrames"] - primed < frames:
         return False
     if breathing_read and not _breathing_read_passed(report, physical):
+        return False
+    if pressure_read and not _pressure_read_passed(report, physical, liquid):
         return False
     if carbon_particle:
         particle = report.get("CarbonParticle")
@@ -497,7 +528,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--reload-in-process", action="store_true", help="Require a second load through the same process and main-menu lifecycle")
     parser.add_argument("--save-io-recovery", action="store_true", help="Require controlled write rejection and subsequent recovery")
@@ -512,9 +543,9 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+        passed = native_domain_passed(report, observation, args.frames, initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
             heat=args.mode == "heat", liquid_heat=args.mode == "water-heat", transfers=args.mode == "transfer", actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
-            breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
+            pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode == "conduction", gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(json.dumps({"passed": False, "error": str(error)}))
         return 1
