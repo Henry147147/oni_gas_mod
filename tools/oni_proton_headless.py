@@ -100,31 +100,7 @@ def compatibility_settings(env: dict) -> dict:
 
 
 def start_display(state: Path, output: Path) -> tuple[dict, str, dict]:
-    display = next((f":{number}" for number in range(123, 200)
-                    if not Path(f"/tmp/.X11-unix/X{number}").exists()
-                    and not Path(f"/tmp/.X{number}-lock").exists()), None)
-    if display is None:
-        raise RuntimeError("No private X display is available")
-    auth = output / "Xauthority"
-    auth.touch(mode=0o600)
-    subprocess.run(["xauth", "-f", str(auth), "add", display, "MIT-MAGIC-COOKIE-1", secrets.token_hex(16)],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    env = common.desktop_env(state, {"display": display})
-    env["XAUTHORITY"] = str(auth)
-    record = common.spawn([str(state / "tools/desktop/usr/bin/Xvfb"), display,
-        "-screen", "0", "1280x720x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
-        output / "Xvfb.log", env)
-    try:
-        for _ in range(100):
-            if not common.alive(record):
-                raise RuntimeError("Private Xvfb exited; inspect Xvfb.log")
-            if Path("/tmp/.X11-unix/X" + display[1:]).exists():
-                return record, display, env
-            time.sleep(.1)
-        raise TimeoutError("Private Xvfb did not become ready")
-    except BaseException:
-        common.stop_process(record)
-        raise
+    return common.start_private_display(state, output)
 
 
 def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
@@ -208,7 +184,7 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
     except BaseException as error:
         errors.append("private Wine prefix: " + repr(error))
     try:
-        common.stop_process(xvfb)
+            common.stop_private_display(xvfb)
     except BaseException as error:
         errors.append("private Xvfb: " + repr(error))
     if errors:

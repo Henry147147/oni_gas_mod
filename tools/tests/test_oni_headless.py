@@ -764,6 +764,51 @@ class EvidenceTests(unittest.TestCase):
                                  ("passed-scoped-main-menu", 0), log)
 
 
+class PrivateDisplayTests(unittest.TestCase):
+    def test_window_manager_cleanup_failure_still_retires_the_private_xserver(self):
+        wm={'pid':221};display={'pid':222,'window_manager':wm}
+        def stop(record):
+            if record is wm:raise OSError('window manager cleanup')
+        with mock.patch.object(runner,'stop_process',side_effect=stop) as cleanup:
+            with self.assertRaisesRegex(OSError,'window manager cleanup'):
+                runner.stop_private_display(display)
+        self.assertEqual(cleanup.call_args_list,[mock.call(wm),mock.call(display)])
+
+    def test_default_display_keeps_the_shared_steam_session_and_does_not_retire_it(self):
+        state=Path('/srv/oni-state');session={'display':':121','steam':{'pid':111},'xvfb':{'pid':112}}
+        with mock.patch.object(runner,'stop_process') as stop:
+            with runner.run_display(state,session,Path('/srv/run')) as (screen,env,record):
+                self.assertIs(screen,session);self.assertEqual(env['DISPLAY'],':121')
+                self.assertEqual(env['XAUTHORITY'],'/srv/oni-state/Xauthority');self.assertIsNone(record)
+        stop.assert_not_called()
+
+    def test_private_display_retires_only_its_own_process_when_game_launch_fails(self):
+        session={'display':':121','steam':{'pid':111},'xvfb':{'pid':112}};record={'pid':222}
+        with mock.patch.object(runner,'start_private_display',return_value=(record,':123',{'DISPLAY':':123'})), \
+             mock.patch.object(runner,'stop_process') as stop:
+            with self.assertRaisesRegex(RuntimeError,'game launch'):
+                with runner.run_display(Path('/srv/state'),session,Path('/srv/run'),True) as (screen,env,owned):
+                    self.assertEqual(screen['display'],':123');self.assertEqual(screen['xauthority'],'/srv/run/Xauthority')
+                    self.assertIs(owned,record);self.assertEqual(env['DISPLAY'],':123')
+                    raise RuntimeError('game launch failed')
+        stop.assert_called_once_with(record);self.assertEqual(session['display'],':121')
+        self.assertNotIn('xauthority',session)
+
+    def test_early_xserver_failure_cleans_up_only_the_new_display_and_uses_private_auth(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary);record={'pid':222}
+            with mock.patch.object(runner,'spawn',return_value=record) as spawn, \
+                 mock.patch.object(runner,'alive',return_value=False),mock.patch.object(runner,'stop_process') as stop, \
+                 mock.patch.object(runner.subprocess,'run'):
+                with self.assertRaisesRegex(RuntimeError,'Xvfb exited'):
+                    runner.start_private_display(Path('/srv/state'),output)
+            stop.assert_called_once_with(record)
+            command=spawn.call_args.args[0]
+            self.assertEqual(command[command.index('-auth')+1],str(output/'Xauthority'))
+            self.assertEqual((output/'Xauthority').stat().st_mode & 0o777,0o600)
+            self.assertEqual(spawn.call_args.args[2]['XAUTHORITY'],str(output/'Xauthority'))
+
+
 class SandboxTests(unittest.TestCase):
     def test_game_shares_host_pid_namespace_and_keeps_filesystem_sandbox(self):
         root = Path("/srv/state")
