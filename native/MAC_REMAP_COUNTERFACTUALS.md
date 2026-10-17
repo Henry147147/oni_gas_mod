@@ -255,3 +255,22 @@ SHA-256 `9c07f35a096ca46c801e7e62aec802cf14aea50c6895336bca1b903b3434c519`.
 The saved actual operands prove an absolute-entropy subtraction error in the
 heat check; see [the relative heat entropy repair](MAC_HEAT_ENTROPY.md). That
 repair alone does not validate the private method or its N256 accuracy.
+
+
+The actual relative heat measurement repair passes fresh complete prerequisites:
+220 native groups and 37 saved reviews on each normal OS and under sanitizers.
+The same private quadratic N256 method then completes all 182 steps with zero
+timestep retries. Density/pressure/velocity errors are
+0.0121233/0.0120709/0.0814362; velocity still exceeds 0.06. Central relative
+density/pressure errors are 32.6370/135.973, still above 0.5. Central density is
+about 0.0109709 kg/m3 at 55.584 K. No final cell falls below the uniform initial
+specific entropy in the saved endpoint comparison. This does not establish a
+whole-scheme pointwise entropy theorem or intermediate-stage certification.
+
+Full original initial state bytes match the earlier input. Original physical
+balances and saved identities pass, while the original profile accuracy gate
+fails explicitly. Evidence: `local/mac-quadratic-relative-heat-fine-r1`, terminal
+SHA-256 `d33823a15795f210a80d4c13ce55b75eba810a5ab3f20534441c63109b6e406c`. The capture exits 1 on
+`Finest strong-flow error exceeds .06`, without timeout or pipe truncation.
+No unchanged Linux strong repeat or private-method promotion is made. Spatial
+rarefaction transport and finest-grid accuracy remain unresolved.

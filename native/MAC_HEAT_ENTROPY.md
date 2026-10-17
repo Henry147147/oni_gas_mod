@@ -45,6 +45,17 @@ Evidence: `local/mac-heat-entropy-r1`, terminal SHA-256
 `6ef680f071305fe1d57961f3adf81794517856ef6508030f1b8b13336912e734`.
 Reproduce the focused native output with `ma_mac_shock_heat_tests
 --entropy-regression`; review it with `native/tests/review_mac_heat_entropy.py`.
-This scoped result does not complete fresh native prerequisites, the strong-flow
-accuracy gate, the first playable colony or actual Windows/Linux Unity testing.
-Private quadratic reconstruction and pooled remap remain unpromoted.
+A subsequent fresh suite passes 220 native groups and 37 independent saved
+reviews on Windows, Linux release and Linux ASan/UBSan. All 67 composed C++
+compile commands are instrumented; normal ABI and detour checks pass. Protected
+installed libraries remain byte identical. Evidence:
+`local/mac-heat-entropy-prerequisites-r1`, terminal SHA-256
+`f5480253c7ef3fd4324f52c9c2170baea647dc5b80e67748adde6be2cd9aa8a4`.
+
+The single private quadratic N256 case then completes 182 steps without retry,
+getting past the former heat rejection, but still fails the original finest
+velocity and central density/pressure criteria. Its full initial profile bytes
+match the retained original input, and its physical balances pass. The heat
+repair does not satisfy strong-flow accuracy, the first playable colony or
+actual Windows/Linux Unity testing. Private quadratic reconstruction and pooled
+remap remain unpromoted; see [the retained fine result](MAC_REMAP_COUNTERFACTUALS.md).

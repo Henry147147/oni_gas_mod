@@ -157,8 +157,11 @@ before a final profile. Actual stored operands prove an absolute-entropy
 subtraction error. The [relative heat entropy repair](../native/MAC_HEAT_ENTROPY.md)
 passes three focused Windows groups, 528 independent saved checks and an
 original-source negative regression. Its original bound and physical transfer
-remain unchanged. Fresh complete native prerequisites and fine-grid accuracy
-remain open; no private method, production default or game gate is promoted.
+remain unchanged. Fresh complete prerequisites then pass 220 groups and 37
+saved reviews on Windows, Linux and sanitizers. The private N256 rerun completes
+182 steps without retry, but still fails the original finest velocity and
+central density/pressure bounds. Fine-grid accuracy remains open; no private
+method, production default or game gate is promoted.
 
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
