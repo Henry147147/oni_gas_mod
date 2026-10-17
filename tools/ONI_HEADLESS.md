@@ -13,6 +13,15 @@ The four-case real mouse-hover scene is also available as `--mode tile-hover`.
 Its [Linux instructions](../docs/linux-tile-hover.md) require reviewing each
 actual PNG before publishing the bound continuation receipt.
 
+For a completed physical scene, `--inspection-seconds 120` keeps its paused
+colony visible for two minutes of actual mouse/visual inspection, then retires
+the game and private display. The host monotonic clock measures the hold from
+the final passing colony report; loading time does not consume it. A failed
+scene ends immediately. Use 1–300 seconds with a colony mode and automatic
+cleanup. The hold records its requested/observed duration; it does not itself
+attest any image or hover result. `--keep-open` remains a separate shared-desktop
+option for retaining a process indefinitely.
+
 Add `--private-display` to `oni_headless.py run` to put the native Linux game on
 a separate authenticated Xvfb/Openbox display. Steam and its login UI remain on
 the shared VNC desktop. Each test retains its own display process identity,

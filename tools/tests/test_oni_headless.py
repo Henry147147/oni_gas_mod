@@ -22,6 +22,26 @@ runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
 
 
+class CompletedInspectionTests(unittest.TestCase):
+    def test_starts_only_after_completion_and_uses_the_first_success_deadline(self):
+        self.assertEqual(runner.completed_inspection({'Status':'pending'},120,None,1000),(None,False))
+        started,done=runner.completed_inspection({'Status':'passed'},120,None,1100)
+        self.assertEqual((started,done),(1100,False))
+        self.assertEqual(runner.completed_inspection({'Status':'passed'},120,started,1219.9),(1100,False))
+        self.assertEqual(runner.completed_inspection({'Status':'passed'},120,started,1220),(1100,True))
+
+    def test_declines_failure_without_waiting_and_resets_an_incomplete_leg(self):
+        self.assertEqual(runner.completed_inspection({'Status':'failed'},120,None,100),(None,True))
+        self.assertEqual(runner.completed_inspection({'Status':'pending'},120,90,100),(None,False))
+
+    def test_invalid_hold_declines_before_package_or_game_mutation(self):
+        from types import SimpleNamespace
+        for seconds,mode,keep_open in [(-1,'native-domain',False),(301,'native-domain',False),
+                                       (True,'native-domain',False),(120,'menu',False),(120,'native-domain',True)]:
+            with self.subTest(seconds=seconds,mode=mode,keep_open=keep_open),self.assertRaises(ValueError):
+                runner.playtest(SimpleNamespace(inspection_seconds=seconds,mode=mode,keep_open=keep_open),Path('/unused'),{})
+
+
 class NativeDomainEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.report = {"Kind": "actual-game-sealed-native-fluid-domain", "Status": "passed", "Platform": "LinuxPlayer",
@@ -1010,7 +1030,7 @@ def _mock_playtest_case(failure=None, outcome=("passed-scoped-main-menu", 0)):
         state.mkdir()
         output = root / "evidence"
         args = mock.Mock(package=package, game_dir=game, output=output, mode="menu",
-                         frames=1, timeout=30, keep_open=True, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False)
+                         frames=1, timeout=30, keep_open=True, inspection_seconds=0, load_save=None, mod_id=None, save_colony=False, resave_before_resume=False)
         steam = {"unit_role": "steam"}
         xvfb = {"unit_role": "xvfb"}
         session = {"steam": steam, "xvfb": xvfb, "display": ":unit"}

@@ -574,9 +574,22 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
             and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
 
 
+def completed_inspection(report: dict, seconds: int, started: float | None, now: float) -> tuple[float | None, bool]:
+    """Hold only a completed scene, measured by the host's monotonic clock."""
+    if report.get("Status") == "failed":
+        return started, True
+    if report.get("Status") != "passed":
+        return None, False
+    started = now if started is None else started
+    return started, now - started >= seconds
+
+
 
 def playtest(args, state: Path, session: dict) -> int:
     private_display = getattr(args, "private_display", False) is True
+    inspection_seconds = getattr(args, "inspection_seconds", 0)
+    if type(inspection_seconds) is not int or not 0 <= inspection_seconds <= 300 or (inspection_seconds and (args.keep_open or args.mode == "menu")):
+        raise ValueError("Completed inspection requires 1..300 seconds, a colony mode and automatic cleanup.")
     if private_display and args.keep_open:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
     package = args.package.resolve()
@@ -628,7 +641,7 @@ def playtest(args, state: Path, session: dict) -> int:
         write_json(mod / "colony-validation.json", {
             "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
             "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout,
-            "QuitWhenComplete": not args.keep_open, "Seed": "147147", "ColonyName": name,
+            "QuitWhenComplete": not args.keep_open and not inspection_seconds, "Seed": "147147", "ColonyName": name,
             "PrivateOwnedLoadRejection": args.mode == "load-rejection",
             "LoadSavePath": str(load_fixture) if load_fixture else "",
             "SaveOnComplete": bool(getattr(args, "save_colony", False)),
@@ -660,11 +673,12 @@ def playtest(args, state: Path, session: dict) -> int:
             session.update(game=record, game_display=display_record, latest_run=str(output))
             write_json(state / "session.json", session)
             print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
-            deadline = time.monotonic() + args.timeout + 60
+            deadline = time.monotonic() + args.timeout + 60 + inspection_seconds
             probe_file = mod / "integration-probe.json"
             colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
             timed_out = False
             menu_seen = None
+            inspection_started = None
             while alive(record):
                 log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
                 if args.mode == "menu" and MAIN_MENU_MARKER in log:
@@ -675,10 +689,15 @@ def playtest(args, state: Path, session: dict) -> int:
                     if contract_export(log) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
                         time.sleep(MENU_SETTLE_SECONDS)
                         break
-                if args.keep_open and colony_file.exists():
+                if (args.keep_open or inspection_seconds) and colony_file.exists():
                     try:
-                        if read_json(colony_file).get("Status") in ("passed", "failed"):
+                        current_report = read_json(colony_file)
+                        if args.keep_open and current_report.get("Status") in ("passed", "failed"):
                             break
+                        if inspection_seconds:
+                            inspection_started, inspected = completed_inspection(current_report, inspection_seconds, inspection_started, time.monotonic())
+                            if inspected:
+                                break
                     except json.JSONDecodeError:
                         pass  # Unity may currently be writing the report.
                 if time.monotonic() >= deadline:
@@ -731,6 +750,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "observed_player_exit_code": player_exit, "timed_out": timed_out,
                 "platform": "native Linux", "display": screen["display"], "steam_display": session["display"],
                 "private_display": private_display, "private_display_process": display_record, "software_rendering": True,
+                "inspection_seconds_requested": inspection_seconds,
+                "inspection_seconds_held": time.monotonic() - inspection_started if inspection_started is not None else 0,
                 "steam_blocked": steam_blocked(log),
                 "integration_probe_failed": not probe_passed(probe),
                 "mod_failure_lines": mod_failure_lines(log, (mod_id,))[:50],
@@ -781,6 +802,8 @@ def main() -> int:
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)
     play.add_argument("--keep-open", action="store_true")
+    play.add_argument("--inspection-seconds", type=int, choices=range(0,301), default=0, metavar="0..300",
+                      help="Keep a completed colony visible for bounded mouse/visual inspection, then clean up normally")
     play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
