@@ -397,6 +397,28 @@ phase, then enables it, disables it again and retires both emitter handles.
 The report and validator require that zero-output interval explicitly; runtime
 verification of this extension is separate from the preceding batch cohort.
 
+Native Windows ONI now passes this extension in `windows-zero-emitter-r1`,
+using the clean merged `c346d93` package. All 9 nitrogen checks, 106
+snapshot/actor-boundary scenarios, 31 inspection checks and the adapter/package
+build pass. Original and patched tag-helper checks pass in the actual player,
+which records `NativeTagHelpersVerified=true`.
+
+At frame 121, the second water emitter has delivered seven zero-mass status
+samples before enablement, retains its water identity, and later emits
+0.109375 kg before disabling again. Both batch admissions, 32 actual consumer
+callbacks, 80 emitter status samples, density edges, retirement and the ordinary
+paired save pass. U+K residual is -0.00438798985 J against the unchanged
+0.00594629911 J bound. Complete header and 10,608,863-byte body readback match;
+the physical hash is
+`6405339d1df2962067597e88c9787aa3ef1c55c782f7f727689627dd1baf0a34`.
+Actual blue-water hover and all six sampled GPU cells match the completed
+physical publication. The process closes successfully, removes its temporary
+mod and restores all 13 original profile files exactly; default and installed
+native libraries remain unchanged. Private terminal review SHA-256:
+`62b9eda857ee686885c773065514d2a77e17dc4abb8b74609a3b0a691f9c80a1`.
+This remains a six-cell source/save control after actor retirement, with no
+live-actor persistence, production device or first-playable acceptance.
+
 ### Actual Windows actor batches
 
 The merged `9e57308` source with the explicit nitrogen reflection check passes
@@ -484,7 +506,10 @@ at 24.200000361 s, with colony file
 Fresh-process reload passes the initial autosave/pause challenge and all 120
 exact frames through 48.200000718 s, ending at
 `0792a60f84be1e754cfcf88f8a867cc52cf314942c7e2813409f379f1ed73c31`.
-Windows Unity remains open for these new water actors.
+That frozen cohort does not supply native Windows evidence; the later
+[Windows actor-batch controls](#actual-windows-actor-batches) and
+[initially disabled emitter control](#initially-disabled-emitters) cover the
+newer adapter in the actual Windows player.
 
 ## Run the actual Linux colony controls
 

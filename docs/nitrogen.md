@@ -76,6 +76,13 @@ Harmony's field contract is unavailable. All eight nitrogen groups then pass,
 alongside 106 snapshot/actor-boundary and 31 inspection groups. The failed
 compile attempt remains retained; it never packages or launches the game.
 
+The later clean `c346d93` Windows package also includes original-helper
+preparation and the explicit `NativeTagHelpersVerified` report field. All nine
+nitrogen groups pass, including the new pre-composition invocation check. The
+actual Windows water-emitter scene passes both original and patched helper
+checks and records the verification flag before completing its physical/save
+control; see [the bounded result](sealed-native-domain.md#initially-disabled-emitters).
+
 ## Property scope
 
 These are nominal native pure-phase definitions, version
