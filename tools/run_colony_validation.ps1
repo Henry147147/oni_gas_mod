@@ -12,7 +12,7 @@ param(
     [switch]$ResaveBeforeResume,
     [switch]$VerifySaveIoRecovery,
     [switch]$ReloadInProcess,
-    [ValidateSet('gas','water','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
+    [ValidateSet('gas','water','import','water-import','water-transfer','heat','water-heat','transfer','actor','water-actor','carbon','carbon-particle','breathing-read','pressure-read','water-pressure-read','conduction','gravity','water-gravity','checkpoint','pair','save','load')][string]$NativeDomain,
     [string]$LoadSave,
     [string]$ModId = 'MixedAtmospheres.IntegrationProbe',
     [string]$Python = 'python',
@@ -26,7 +26,8 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($NativeDomain -and ($NativeObserver -or $Presentation -or $TileHover -or $CoupledPresentation -or $IdleReservoirLease -or $PrivateFileProtocol -or $LoadRejection)) { throw 'A native domain uses its own disposable colony scene.' }
 if ($NativeDomain -in @('actor','water-actor') -and $Frames -lt 80) { throw 'The actor registration/change/removal scene requires at least 80 frames.' }
-$oniDomainModes = @{ import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
+if ($NativeDomain -in @('carbon-particle','breathing-read') -and $Frames -lt 30) { throw 'The CO2 particle and breathing-reader controls require at least 30 frames.' }
+$oniDomainModes = @{ import='native-import-domain'; 'water-import'='native-liquid-import-domain'; gas='native-domain'; water='native-liquid-domain'; 'water-transfer'='native-liquid-transfer-domain'; heat='native-heat-domain'; 'water-heat'='native-liquid-heat-domain'; transfer='native-transfer-domain'; actor='native-actor-domain'; 'water-actor'='native-liquid-actor-domain'; carbon='native-carbon-domain'; 'carbon-particle'='native-carbon-particle-domain'; 'breathing-read'='native-breathing-read-domain'; 'pressure-read'='native-pressure-read-domain'; 'water-pressure-read'='native-liquid-pressure-read-domain'; conduction='native-conduction-domain'; gravity='native-gravity-domain'; 'water-gravity'='native-liquid-gravity-domain'; checkpoint='native-checkpoint-domain'; pair='native-paired-checkpoint-domain'; save='native-save-domain'; load='native-load-domain' }
 if ([bool]$LoadSave -ne ($NativeDomain -eq 'load')) { throw 'NativeDomain load requires -LoadSave; other modes cannot use it.' }
 if ($LoadSave) {
     $LoadSave = (Resolve-Path -LiteralPath $LoadSave).Path

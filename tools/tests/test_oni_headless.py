@@ -60,6 +60,122 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         if liquid: report['NativeDomain'].update(LiquidMassKg=1100, SuppressedLiquid=100)
         return report
 
+    def carbon_particle(self):
+        report = copy.deepcopy(self.report)
+        report.update(CellMassEditsRouted=1, ReceiptsPublished=1)
+        report['GasTransfers'] = dict(Size=104, Version=2, State=1, Session=1, PendingBatches=0,
+            AcceptedBatches=1, CommittedBatches=1, UnacknowledgedReceipts=0, MassChangesKg=[0,0,0,0,.03125],
+            MaterialEnergyChange=-270000.0, KineticEnergyChange=0)
+        receipt = dict(Session=1,CompletedFrame=5,Sequence=1,Kind=1,Callback=-1,Species=4,
+                       MassKg=.03125,Temperature=310,InternalEnergy=-270000.0,KineticEnergy=0)
+        report['CarbonParticle'] = dict(Required=True,Started=True,Verified=True,ParticleRetired=True,NativeDispatchAvoided=True,
+            Source='CO2Manager.SpawnBreath',MassKg=.03125,TemperatureK=310,SourceFrame=4,CompletedFrame=5,
+            Receipts=1,Receipt=receipt,MassErrorKg=1e-15,EnergyResidualJoules=1e-9,EnergyBoundJoules=1e-6,
+            RetirementObservedBy='CO2Manager.Sim33ms-postfix',ParticleRetirementUnityFrame=100,ParticleReusedAfterRetirement=False)
+        return report
+
+    def test_native_co2_particle_requires_actual_retirement_and_conserved_single_deposition(self):
+        report = self.carbon_particle()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+        report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True,expected_platform='WindowsPlayer'))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,carbon_particle=True))
+
+    def test_completed_particle_retirement_survives_native_pool_reuse(self):
+        report=self.carbon_particle();report['CarbonParticle']['ParticleReusedAfterRetirement']=True
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+
+    def test_particle_cannot_pass_duplicate_native_effects_or_relaxed_energy_bounds(self):
+        changes = [('Verified',False),('ParticleRetired',False),('NativeDispatchAvoided',False),('Receipts',2),
+                   ('Source','manual-fixture'),('SourceFrame',0),('CompletedFrame',31),('EnergyBoundJoules',1),
+                   ('EnergyResidualJoules',1e-5),('MassErrorKg',1e-9),('RetirementObservedBy','object-identity-at-save'),
+                   ('ParticleRetirementUnityFrame',-1)]
+        for key,value in changes:
+            report=self.carbon_particle();report['CarbonParticle'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True),key)
+        for key,value in [('Callback',0),('Kind',2),('Sequence',2),('Species',1),('InternalEnergy',0),('MassKg',.0625)]:
+            report=self.carbon_particle();report['CarbonParticle']['Receipt'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True),key)
+        report=self.carbon_particle();report['CellMassEditsRouted']=2
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,carbon_particle=True))
+
+    def breathing_reader(self):
+        report=copy.deepcopy(self.report)
+        report.update(CellMassEditsRouted=1,ReceiptsPublished=1)
+        report['GasTransfers']=dict(Size=104,Version=2,State=1,Session=1,PendingBatches=0,AcceptedBatches=1,
+            CommittedBatches=1,UnacknowledgedReceipts=0,MassChangesKg=[0,0,0,0,.125])
+        def rows(frame,blocked):
+            return [dict(PublicCell=100+i,CompletedPhysicalFrame=frame,OxygenMassKg=.25,ScalarGridMassKg=1.125,
+                OxygenMoleFraction=.21,OxygenPartialPressurePa=21000,CarbonDioxideMoleFraction=.01 if blocked else 0,
+                CarbonDioxidePartialPressurePa=1000 if blocked else 0,AdvertisedOxygenMassKg=0 if blocked else .25,
+                ScalarElement=1,AdvertisedElement=0 if blocked else 1,Failures=48 if blocked else 0,Breathable=not blocked) for i in range(6)]
+        def selection(blocked):
+            return dict(Cell=105,ElementID=0 if blocked else 1,Mass=0 if blocked else .25,IsBreathable=not blocked,
+                TotalBreathableMass=0 if blocked else 1.5,BreatherInstanceId=-900,NoOxygenThreshold=.01)
+        report['BreathingCellReader']=dict(Required=True,Started=True,Verified=True,NativeOutsideVerified=True,NativeDispatchAvoided=True,
+            Source='GasBreatherFromWorldProvider.GetBestBreathableCellAroundSpecificCell',Reads=24,OxygenElementId=1,VacuumElementId=0,
+            Policy=dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,MinimumOxygenPartialPressurePa=15000,
+                MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500),Before=rows(4,False),After=rows(30,True),
+            SelectionBefore=selection(False),SelectionAfter=selection(True))
+        return report
+
+    def test_real_breathing_reader_requires_native_selection_and_completed_oxygen_policy(self):
+        report=self.breathing_reader()
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+        report['Platform']='WindowsPlayer'
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,breathing_read=True,expected_platform='WindowsPlayer'))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,breathing_read=True))
+
+    def test_breathing_evidence_rejects_scalar_oxygen_fallback_stale_cells_and_false_selections(self):
+        for key,value in [('AdvertisedOxygenMassKg',1.125),('ScalarElement',9),('Failures',0),('Breathable',True),
+                          ('AdvertisedElement',1),('CompletedPhysicalFrame',29),('OxygenMassKg',0),('PublicCell',100),
+                          ('CarbonDioxideMoleFraction',0),('CarbonDioxidePartialPressurePa',float('nan'))]:
+            report=self.breathing_reader();report['BreathingCellReader']['After'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True),key)
+        for key,value in [('Cell',999),('Mass',.3),('TotalBreathableMass',6.75),('BreatherInstanceId',0),('IsBreathable',False)]:
+            report=self.breathing_reader();report['BreathingCellReader']['SelectionBefore'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True),key)
+        report=self.breathing_reader();report['BreathingCellReader']['Policy']['MaximumCo2Fraction']=1
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+        report=self.breathing_reader();report['BreathingCellReader']['NativeOutsideVerified']=False
+        self.assertFalse(runner.native_domain_passed(report,self.observation,30,breathing_read=True))
+
+    def pressure_reader(self,liquid=False):
+        report=copy.deepcopy(self.report)
+        def f32(value):return struct.unpack('<f',struct.pack('<f',value))[0]
+        pressure=220000000 if liquid else 100010
+        mass=1100 if liquid else 1.2
+        if liquid:report['NativeDomain'].update(LiquidMassKg=1100,PressurePa=pressure,SuppressedLiquid=100,InitialOxygenKg=0,CurrentOxygenKg=0)
+        report['NativePressureReader']=dict(Required=True,Verified=True,NativeOutsideVerified=True,CallSitePatchesVerified=True,
+            Source='Grid.PressureIndexer.get_Item',Units='kPa-from-completed-mechanical-Pa',GetterReads=6,
+            Outside=dict(PublicCell=999,ScalarMassKg=1000,NativeKilopascals=101300,ExpectedScalarKilopascals=101300,
+                NativeBits=struct.unpack('<i',struct.pack('<f',101300))[0],ExpectedBits=struct.unpack('<i',struct.pack('<f',101300))[0],
+                GetterReadsBefore=6,GetterReadsAfter=6),
+            GameCallSiteReads=0 if liquid else 60,PatchedGameCallSites=5,Samples=[dict(PublicCell=100+i,CompletedPhysicalFrame=30,
+                PhysicalPressurePa=pressure,GasPressurePa=0 if liquid else pressure,NativeKilopascals=f32(pressure/1000),
+                LegacyScalarKilopascals=f32(f32(mass)*f32(101.3)),ScalarMassKg=mass) for i in range(6)])
+        return report
+
+    def test_native_pressure_reader_uses_mechanical_pressure_and_retains_native_units(self):
+        for liquid in (False,True):
+            for platform in ('LinuxPlayer','WindowsPlayer'):
+                report=self.pressure_reader(liquid);report['Platform']=platform
+                self.assertTrue(runner.native_domain_passed(report,self.observation,30,liquid=liquid,pressure_read=True,expected_platform=platform))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,pressure_read=True))
+
+    def test_pressure_reader_rejects_scalar_fallback_wrong_units_stale_data_and_unpatched_callers(self):
+        for key,value in [('NativeKilopascals',100010),('PhysicalPressurePa',1),('GasPressurePa',0),
+                          ('LegacyScalarKilopascals',100),('ScalarMassKg',0),('CompletedPhysicalFrame',29),
+                          ('PublicCell',100),('PhysicalPressurePa',float('nan'))]:
+            report=self.pressure_reader();report['NativePressureReader']['Samples'][-1][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+        for key,value in [('GetterReads',0),('GameCallSiteReads',0),('PatchedGameCallSites',4),('Units','Pa'),('NativeOutsideVerified',False),('CallSitePatchesVerified',False)]:
+            report=self.pressure_reader();report['NativePressureReader'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+        for key,value in [('NativeBits',0),('ExpectedBits',0),('NativeKilopascals',100),('GetterReadsAfter',7),('PublicCell',100)]:
+            report=self.pressure_reader();report['NativePressureReader']['Outside'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,pressure_read=True),key)
+
     @staticmethod
     def rehash_inventory(report):
         inventory = report['ImportedNativeInventory']
@@ -646,6 +762,51 @@ class EvidenceTests(unittest.TestCase):
                 self.assertEqual(runner.mod_failure_lines(log), [], log)
                 self.assertEqual(runner.classify("menu", log, self.probe, None, False, 0),
                                  ("passed-scoped-main-menu", 0), log)
+
+
+class PrivateDisplayTests(unittest.TestCase):
+    def test_window_manager_cleanup_failure_still_retires_the_private_xserver(self):
+        wm={'pid':221};display={'pid':222,'window_manager':wm}
+        def stop(record):
+            if record is wm:raise OSError('window manager cleanup')
+        with mock.patch.object(runner,'stop_process',side_effect=stop) as cleanup:
+            with self.assertRaisesRegex(OSError,'window manager cleanup'):
+                runner.stop_private_display(display)
+        self.assertEqual(cleanup.call_args_list,[mock.call(wm),mock.call(display)])
+
+    def test_default_display_keeps_the_shared_steam_session_and_does_not_retire_it(self):
+        state=Path('/srv/oni-state');session={'display':':121','steam':{'pid':111},'xvfb':{'pid':112}}
+        with mock.patch.object(runner,'stop_process') as stop:
+            with runner.run_display(state,session,Path('/srv/run')) as (screen,env,record):
+                self.assertIs(screen,session);self.assertEqual(env['DISPLAY'],':121')
+                self.assertEqual(env['XAUTHORITY'],'/srv/oni-state/Xauthority');self.assertIsNone(record)
+        stop.assert_not_called()
+
+    def test_private_display_retires_only_its_own_process_when_game_launch_fails(self):
+        session={'display':':121','steam':{'pid':111},'xvfb':{'pid':112}};record={'pid':222}
+        with mock.patch.object(runner,'start_private_display',return_value=(record,':123',{'DISPLAY':':123'})), \
+             mock.patch.object(runner,'stop_process') as stop:
+            with self.assertRaisesRegex(RuntimeError,'game launch'):
+                with runner.run_display(Path('/srv/state'),session,Path('/srv/run'),True) as (screen,env,owned):
+                    self.assertEqual(screen['display'],':123');self.assertEqual(screen['xauthority'],'/srv/run/Xauthority')
+                    self.assertIs(owned,record);self.assertEqual(env['DISPLAY'],':123')
+                    raise RuntimeError('game launch failed')
+        stop.assert_called_once_with(record);self.assertEqual(session['display'],':121')
+        self.assertNotIn('xauthority',session)
+
+    def test_early_xserver_failure_cleans_up_only_the_new_display_and_uses_private_auth(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output=Path(temporary);record={'pid':222}
+            with mock.patch.object(runner,'spawn',return_value=record) as spawn, \
+                 mock.patch.object(runner,'alive',return_value=False),mock.patch.object(runner,'stop_process') as stop, \
+                 mock.patch.object(runner.subprocess,'run'):
+                with self.assertRaisesRegex(RuntimeError,'Xvfb exited'):
+                    runner.start_private_display(Path('/srv/state'),output)
+            stop.assert_called_once_with(record)
+            command=spawn.call_args.args[0]
+            self.assertEqual(command[command.index('-auth')+1],str(output/'Xauthority'))
+            self.assertEqual((output/'Xauthority').stat().st_mode & 0o777,0o600)
+            self.assertEqual(spawn.call_args.args[2]['XAUTHORITY'],str(output/'Xauthority'))
 
 
 class SandboxTests(unittest.TestCase):

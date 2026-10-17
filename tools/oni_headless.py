@@ -189,13 +189,75 @@ def read_session(state: Path) -> dict:
 
 def desktop_env(state: Path, session: dict) -> dict:
     desktop = state / "tools/desktop/usr"
-    env = dict(os.environ, DISPLAY=session["display"], XAUTHORITY=str(state / "Xauthority"),
+    env = dict(os.environ, DISPLAY=session["display"], XAUTHORITY=str(session.get("xauthority") or state / "Xauthority"),
                LIBGL_ALWAYS_SOFTWARE="1",
                LD_LIBRARY_PATH=f"{desktop}/lib/x86_64-linux-gnu:{desktop}/lib/i386-linux-gnu",
                IMLIB2_LOADER_PATH=f"{desktop}/lib/x86_64-linux-gnu/imlib2/loaders",
                XDG_DATA_DIRS=f"{desktop}/share:/usr/share")
     env.pop("WAYLAND_DISPLAY", None)
     return env
+
+
+def start_private_display(state: Path, output: Path, *, window_manager: bool = False) -> tuple[dict, str, dict]:
+    display = next((f":{number}" for number in range(123, 200)
+                    if not Path(f"/tmp/.X11-unix/X{number}").exists()
+                    and not Path(f"/tmp/.X{number}-lock").exists()), None)
+    if display is None:
+        raise RuntimeError("No private X display is available")
+    auth = output / "Xauthority"
+    auth.touch(mode=0o600)
+    subprocess.run(["xauth", "-f", str(auth), "add", display, "MIT-MAGIC-COOKIE-1", secrets.token_hex(16)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    env = desktop_env(state, {"display": display})
+    env["XAUTHORITY"] = str(auth)
+    record = spawn([str(state / "tools/desktop/usr/bin/Xvfb"), display,
+        "-screen", "0", "1280x720x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
+        output / "Xvfb.log", env)
+    try:
+        for _ in range(100):
+            if not alive(record):
+                raise RuntimeError("Private Xvfb exited; inspect Xvfb.log")
+            if Path("/tmp/.X11-unix/X" + display[1:]).exists():
+                if window_manager:
+                    wm_home = output / "window-manager-home"
+                    wm_home.mkdir(mode=0o700)
+                    wm_env = dict(env, HOME=str(wm_home), XDG_CONFIG_HOME=str(wm_home / ".config"),
+                                  XDG_CACHE_HOME=str(wm_home / ".cache"))
+                    record["window_manager"] = spawn([str(state / "tools/desktop/usr/bin/openbox")], output / "openbox.log", wm_env)
+                    time.sleep(.2)
+                    if not alive(record["window_manager"]):
+                        raise RuntimeError("Private Openbox exited; inspect openbox.log")
+                return record, display, env
+            time.sleep(.1)
+        raise TimeoutError("Private Xvfb did not become ready")
+    except BaseException:
+        stop_private_display(record)
+        raise
+
+
+def stop_private_display(record: dict | None) -> None:
+    if record is None:
+        return
+    try:
+        if record.get("window_manager") is not None:
+            stop_process(record["window_manager"])
+    finally:
+        stop_process(record)
+
+
+@contextmanager
+def run_display(state: Path, session: dict, output: Path, private: bool = False):
+    record = None
+    screen = session
+    env = desktop_env(state, session)
+    try:
+        if private:
+            record, display, env = start_private_display(state, output, window_manager=True)
+            screen = dict(session, display=display, xauthority=str(output / "Xauthority"))
+        yield screen, env, record
+    finally:
+        if record is not None:
+            stop_private_display(record)
 
 
 def steam_env(state: Path, session: dict) -> dict:
@@ -513,9 +575,12 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
 
 
 def playtest(args, state: Path, session: dict) -> int:
+    private_display = getattr(args, "private_display", False) is True
+    if private_display and args.keep_open:
+        raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -524,6 +589,8 @@ def playtest(args, state: Path, session: dict) -> int:
         raise RuntimeError("Run 'start' and sign in to Steam first.")
     if alive(session.get("game")):
         raise RuntimeError("A previous retained game is running; use 'stop-game' first.")
+    if alive(session.get("game_display")):
+        stop_private_display(session["game_display"])
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
     output = (args.output or state / "runs" / run_id).resolve()
     if output.exists():
@@ -579,102 +646,108 @@ def playtest(args, state: Path, session: dict) -> int:
     # Standard Steamworks development launch identifier. Steam still checks
     # the running client's account/license; this is not an authentication bypass.
     (thin / "steam_appid.txt").write_text("457140\n")
-    env = desktop_env(state, session)
-    env.update(SteamAppId="457140", SteamGameId="457140")
-    # ONI's Linux root is Unity persistentDataPath. Bind a fresh home and set
-    # all XDG roots; the actual user's saves and mods are never writable.
-    arguments = sandbox_command(home, state, output, game, thin, args.keep_open)
-    (output / "runtime").mkdir(mode=0o700)
-    record = spawn(arguments, output / "console.log", env)
-    retain = False
-    try:
-        session.update(game=record, latest_run=str(output))
-        write_json(state / "session.json", session)
-        print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
-        deadline = time.monotonic() + args.timeout + 60
-        probe_file = mod / "integration-probe.json"
-        colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
-        timed_out = False
-        menu_seen = None
-        while alive(record):
-            log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
-            if args.mode == "menu" and MAIN_MENU_MARKER in log:
-                # The mod's contract export runs after the marker. Wait for its
-                # own completion/failure line (bounded), then let trailing
-                # exception and stack lines reach Player.log.
-                menu_seen = time.monotonic() if menu_seen is None else menu_seen
-                if contract_export(log) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
-                    time.sleep(MENU_SETTLE_SECONDS)
-                    break
-            if args.keep_open and colony_file.exists():
-                try:
-                    if read_json(colony_file).get("Status") in ("passed", "failed"):
-                        break
-                except json.JSONDecodeError:
-                    pass  # Unity may currently be writing the report.
-            if time.monotonic() >= deadline:
-                timed_out = True
-                break
-            time.sleep(1)
-        screenshot(state, session, output / "desktop-final.png")
-        probe = read_json(probe_file) if probe_file.exists() else None
-        report = read_json(colony_file) if colony_file.exists() else None
-        log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
-        player_exit = CHILDREN[record["pid"]].poll()
-        status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,))
-        observer_file = mod / "native-backend-observation-report.json"
+    with run_display(state, session, output, private_display) as (screen, env, display_record):
+        env.update(SteamAppId="457140", SteamGameId="457140")
+        # ONI's Linux root is Unity persistentDataPath. Bind a fresh home and set
+        # all XDG roots; the actual user's saves and mods are never writable.
+        arguments = sandbox_command(home, state, output, game, thin, args.keep_open)
+        (output / "runtime").mkdir(mode=0o700)
+        record = spawn(arguments, output / "console.log", env)
+        retain = False
         try:
-            observer_report = read_json(observer_file) if observer_file.exists() else None
-        except (OSError, json.JSONDecodeError):
-            observer_report = None
-        observer_ok = native_observer_passed(manifest, observer_report)
-        domain_report = None
-        domain_ok = False
-        if args.mode in ("native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
+            session.update(game=record, game_display=display_record, latest_run=str(output))
+            write_json(state / "session.json", session)
+            print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
+            deadline = time.monotonic() + args.timeout + 60
+            probe_file = mod / "integration-probe.json"
+            colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
+            timed_out = False
+            menu_seen = None
+            while alive(record):
+                log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
+                if args.mode == "menu" and MAIN_MENU_MARKER in log:
+                    # The mod's contract export runs after the marker. Wait for its
+                    # own completion/failure line (bounded), then let trailing
+                    # exception and stack lines reach Player.log.
+                    menu_seen = time.monotonic() if menu_seen is None else menu_seen
+                    if contract_export(log) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
+                        time.sleep(MENU_SETTLE_SECONDS)
+                        break
+                if args.keep_open and colony_file.exists():
+                    try:
+                        if read_json(colony_file).get("Status") in ("passed", "failed"):
+                            break
+                    except json.JSONDecodeError:
+                        pass  # Unity may currently be writing the report.
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                time.sleep(1)
+            screenshot(state, screen, output / "desktop-final.png")
+            probe = read_json(probe_file) if probe_file.exists() else None
+            report = read_json(colony_file) if colony_file.exists() else None
+            log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
+            player_exit = CHILDREN[record["pid"]].poll()
+            status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,))
+            observer_file = mod / "native-backend-observation-report.json"
             try:
-                domain_report = read_json(colony_file.parent / "native-domain.json")
+                observer_report = read_json(observer_file) if observer_file.exists() else None
             except (OSError, json.JSONDecodeError):
-                pass
-            domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
-                initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain", liquid_heat=args.mode == "native-liquid-heat-domain",
-                transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
-                carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
-                saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
-                save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
-                reload_in_process=bool(getattr(args,"reload_in_process",False)))
-            if code == 0 and not domain_ok:
-                status, code = "failed-native-domain", 2
-        elif code == 0 and not observer_ok:
-            status, code = "failed-native-observer", 2
-        retain_on_success = args.keep_open and code == 0
-        result = {
-            "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
-            "observed_player_exit_code": player_exit, "timed_out": timed_out,
-            "platform": "native Linux", "display": session["display"], "software_rendering": True,
-            "steam_blocked": steam_blocked(log),
-            "integration_probe_failed": not probe_passed(probe),
-            "mod_failure_lines": mod_failure_lines(log, (mod_id,))[:50],
-            "main_menu_reached": MAIN_MENU_MARKER in log,
-            "main_menu_contract_export": contract_export(log),
-            "colony_started": bool(report and report.get("GameStarted")),
-            "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
-            "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
-            "native_backend_observation": observer_report,
-            "native_backend_observer_passed": observer_ok,
-            "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
-            "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
-            "game_hashes": {p: digest(game / p) for p in (
-                "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
-            **revision_fields(manifest),
-            "command": arguments, "retained_game": retain_on_success,
-        }
+                observer_report = None
+            observer_ok = native_observer_passed(manifest, observer_report)
+            domain_report = None
+            domain_ok = False
+            if args.mode in ("native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
+                try:
+                    domain_report = read_json(colony_file.parent / "native-domain.json")
+                except (OSError, json.JSONDecodeError):
+                    pass
+                domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
+                    initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", heat=args.mode == "native-heat-domain", liquid_heat=args.mode == "native-liquid-heat-domain",
+                    transfers=args.mode == "native-transfer-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
+                    pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode == "native-conduction-domain", gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
+                    saved=args.mode == "native-save-domain" or args.save_colony, restored=args.mode == "native-load-domain",
+                    save_io_recovery=bool(getattr(args,"verify_save_io_recovery",False)),
+                    reload_in_process=bool(getattr(args,"reload_in_process",False)))
+                if code == 0 and not domain_ok:
+                    status, code = "failed-native-domain", 2
+            elif code == 0 and not observer_ok:
+                status, code = "failed-native-observer", 2
+            retain_on_success = args.keep_open and code == 0
+            result = {
+                "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
+                "observed_player_exit_code": player_exit, "timed_out": timed_out,
+                "platform": "native Linux", "display": screen["display"], "steam_display": session["display"],
+                "private_display": private_display, "private_display_process": display_record, "software_rendering": True,
+                "steam_blocked": steam_blocked(log),
+                "integration_probe_failed": not probe_passed(probe),
+                "mod_failure_lines": mod_failure_lines(log, (mod_id,))[:50],
+                "main_menu_reached": MAIN_MENU_MARKER in log,
+                "main_menu_contract_export": contract_export(log),
+                "colony_started": bool(report and report.get("GameStarted")),
+                "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
+                "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
+                "native_backend_observation": observer_report,
+                "native_backend_observer_passed": observer_ok,
+                "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
+                "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
+                "game_hashes": {p: digest(game / p) for p in (
+                    "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
+                **revision_fields(manifest),
+                "command": arguments, "retained_game": retain_on_success,
+            }
+            write_json(output / "result.json", result)
+            retain = retain_on_success
+            print(f"{status}: {output / 'result.json'}")
+            return_code = code
+        finally:
+            if not retain:
+                stop_process(record)
+
+    if private_display:
+        result["private_display_cleanup_verified"] = not alive(display_record) and not alive(display_record.get("window_manager"))
         write_json(output / "result.json", result)
-        retain = retain_on_success
-        print(f"{status}: {output / 'result.json'}")
-        return code
-    finally:
-        if not retain:
-            stop_process(record)
+    return return_code
 
 
 def main() -> int:
@@ -690,11 +763,12 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "snapshot-copy", "native-observer", "native-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
     play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
     play.add_argument("--output", type=Path)
     play.add_argument("--keep-open", action="store_true")
+    play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-save-io-recovery", action="store_true", help="Exercise a declined real disk write before the source colony save")
@@ -702,6 +776,8 @@ def main() -> int:
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command == "run" and args.mode in ("native-carbon-particle-domain", "native-breathing-read-domain") and args.frames < 30:
+        parser.error("The CO2 particle and breathing-reader controls require at least 30 frames")
     if args.command == "run" and args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:
         parser.error("The registered actor scene requires at least 80 native frames")
     if args.command == "run" and (reason := unsupported_mode(args.mode)):
@@ -744,8 +820,9 @@ def locked_command(args, state: Path, session: dict) -> int:
     elif args.command == "start":
         start(state)
     elif args.command in ("stop", "stop-game"):
-        for name in (("game",) if args.command == "stop-game" else ("game", "steam", "web", "vnc", "wm", "xvfb")):
-            stop_process(session.get(name))
+        for name in (("game", "game_display") if args.command == "stop-game" else ("game", "game_display", "steam", "web", "vnc", "wm", "xvfb")):
+            if name == "game_display": stop_private_display(session.get(name))
+            else: stop_process(session.get(name))
         print("Stopped owned processes; profiles and evidence retained.")
     elif args.command == "run":
         with cleanup_on_termination():

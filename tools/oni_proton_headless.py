@@ -100,31 +100,7 @@ def compatibility_settings(env: dict) -> dict:
 
 
 def start_display(state: Path, output: Path) -> tuple[dict, str, dict]:
-    display = next((f":{number}" for number in range(123, 200)
-                    if not Path(f"/tmp/.X11-unix/X{number}").exists()
-                    and not Path(f"/tmp/.X{number}-lock").exists()), None)
-    if display is None:
-        raise RuntimeError("No private X display is available")
-    auth = output / "Xauthority"
-    auth.touch(mode=0o600)
-    subprocess.run(["xauth", "-f", str(auth), "add", display, "MIT-MAGIC-COOKIE-1", secrets.token_hex(16)],
-                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    env = common.desktop_env(state, {"display": display})
-    env["XAUTHORITY"] = str(auth)
-    record = common.spawn([str(state / "tools/desktop/usr/bin/Xvfb"), display,
-        "-screen", "0", "1280x720x24", "-nolisten", "tcp", "-auth", str(auth), "-noreset"],
-        output / "Xvfb.log", env)
-    try:
-        for _ in range(100):
-            if not common.alive(record):
-                raise RuntimeError("Private Xvfb exited; inspect Xvfb.log")
-            if Path("/tmp/.X11-unix/X" + display[1:]).exists():
-                return record, display, env
-            time.sleep(.1)
-        raise TimeoutError("Private Xvfb did not become ready")
-    except BaseException:
-        common.stop_process(record)
-        raise
+    return common.start_private_display(state, output)
 
 
 def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
@@ -147,10 +123,10 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
 def domain_options(args) -> dict:
     mode = args.mode
     return dict(expected_platform=PLATFORM,
-        initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
+        initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         heat=mode == "native-heat-domain", liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode == "native-transfer-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
-        liquid_actors=mode == "native-liquid-actor-domain", carbon=mode == "native-carbon-domain",
+        liquid_actors=mode == "native-liquid-actor-domain", pressure_read=mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=mode == "native-breathing-read-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",
         conduction=mode == "native-conduction-domain", gravity=mode == "native-gravity-domain",
         liquid_gravity=mode == "native-liquid-gravity-domain",
         checkpoint=mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"),
@@ -167,6 +143,8 @@ def optional_json(path: Path) -> dict | None:
 
 
 def validate_arguments(args) -> None:
+    if args.mode in ("native-carbon-particle-domain", "native-breathing-read-domain") and args.frames < 30:
+        raise ValueError("The CO2 particle and breathing-reader controls require at least 30 frames")
     if args.mode in ("native-actor-domain", "native-liquid-actor-domain") and args.frames < 80:
         raise ValueError("Registered actor scenes require at least 80 frames")
     if bool(args.load_save) != (args.mode == "native-load-domain"):
@@ -206,7 +184,7 @@ def cleanup_run(record, xvfb, prefix_started: bool, proton: Path, output: Path) 
     except BaseException as error:
         errors.append("private Wine prefix: " + repr(error))
     try:
-        common.stop_process(xvfb)
+            common.stop_private_display(xvfb)
     except BaseException as error:
         errors.append("private Xvfb: " + repr(error))
     if errors:

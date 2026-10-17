@@ -7,6 +7,23 @@ mouse input. A physical monitor is unnecessary. Keep rendering enabled:
 batch mode does not accept interactive input. This runner uses a normal
 windowed player on the virtual desktop.
 
+## Separate test display
+
+Add `--private-display` to `oni_headless.py run` to put the native Linux game on
+a separate authenticated Xvfb/Openbox display. Steam and its login UI remain on
+the shared VNC desktop. Each test retains its own display process identity,
+authority-file path, screenshot and cleanup receipt. The game stops before its
+window manager and X server; setup or game-launch failures retire only those
+owned resources. The normal shared-desktop mode remains available for manual
+`--keep-open` sessions.
+
+`oni_native_matrix.py --private-display` applies this to both processes in every
+selected source/save and fresh-process reload pair. It rejects missing display
+isolation or retirement receipts. The matrix now hashes its own orchestration
+script alongside the runner, reviewer and package. All 200 Python checks pass
+with four optional/platform skips. Actual private-display Unity validation is
+pending. Proton continues to use its existing private display by default.
+
 ## Current machine: 2026-10-16
 
 `native-domain` and `native-liquid-domain` test a sealed custom physical owner

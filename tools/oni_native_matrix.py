@@ -9,13 +9,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 SCENES={"import":"native-import-domain","water-import":"native-liquid-import-domain","gas":"native-domain","water":"native-liquid-domain","water-transfer":"native-liquid-transfer-domain","heat":"native-heat-domain","water-heat":"native-liquid-heat-domain",
-    "transfer":"native-transfer-domain","carbon":"native-carbon-domain","conduction":"native-conduction-domain",
+    "transfer":"native-transfer-domain","carbon":"native-carbon-domain","carbon-particle":"native-carbon-particle-domain","breathing-read":"native-breathing-read-domain","pressure-read":"native-pressure-read-domain","water-pressure-read":"native-liquid-pressure-read-domain","conduction":"native-conduction-domain",
     "gravity":"native-gravity-domain","water-gravity":"native-liquid-gravity-domain","actor":"native-actor-domain","water-actor":"native-liquid-actor-domain","checkpoint":"native-checkpoint-domain",
     "pair":"native-paired-checkpoint-domain","save":"native-save-domain"}
 
@@ -26,8 +27,8 @@ def digest(path:Path)->str:
     return value.hexdigest()
 
 def fingerprint(runner:Path,package:Path,*,windows:bool=False)->dict:
-    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py")
-    if windows:names+=("tools/oni_proton_headless.py","tools/oni_native_matrix.py")
+    names=("tools/oni_headless.py","tools/oni_native_domain_evidence.py","tools/oni_native_matrix.py")
+    if windows:names+=("tools/oni_proton_headless.py",)
     source={name:digest(runner/name) for name in names}
     files={str(p.relative_to(package)):digest(p) for p in sorted(package.rglob("*")) if p.is_file()}
     if not files:raise ValueError("The package is empty")
@@ -38,12 +39,13 @@ def invoke(command:list[str],log:Path,timeout:int)->int:
         return subprocess.run(command,stdout=stream,stderr=subprocess.STDOUT,timeout=timeout).returncode
 
 def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=120,timeout:int=1800,
-               *,proton:Path|None=None,game_dir:Path|None=None)->dict:
+               *,proton:Path|None=None,game_dir:Path|None=None,private_display:bool=False)->dict:
     runner,package,output=runner.resolve(),package.resolve(),output.resolve()
     if not scenes or len(set(scenes))!=len(scenes) or any(name not in SCENES for name in scenes):
         raise ValueError("Select distinct implemented scenes")
     if not 1<=frames<=10000 or (any(name in scenes for name in ("actor","water-actor")) and frames<80) or ("save" in scenes and frames<16):
         raise ValueError("Expected 1..10000 frames, at least 80 for actors and 16 for source-save controls")
+    if any(name in scenes for name in ("carbon-particle", "breathing-read")) and frames<30:raise ValueError("CO2 particle and breathing-reader controls require at least 30 frames")
     if not 30<=timeout<=7200:raise ValueError("Expected a 30..7200 second per-game timeout")
     windows=proton is not None
     def snapshot():return fingerprint(runner,package,windows=windows)
@@ -53,7 +55,7 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
         "package":str(package),"inputs":frozen,"scenes":scenes,"frames":frames,"cases":[],
         "first_playable_colony_passed":False,"whole_colony_fluid_authority":False,"windows_unity_verified":False,
         "host_platform":"linux","target_platform":"WindowsPlayer" if windows else "LinuxPlayer","actual_windows_os":False,
-        "proton":str(proton.resolve()) if proton else None}
+        "proton":str(proton.resolve()) if proton else None,"private_display":windows or private_display}
     destination=output/"matrix.json"
     def write():destination.write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
     def case(name:str,mode:str,extra:list[str])->dict:
@@ -63,6 +65,7 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
         command=[sys.executable,*executable,"--package",str(package),"--mode",mode,
             "--frames",str(frames),"--timeout",str(timeout),"--output",str(run),*extra]
         if game_dir:command.extend(["--game-dir",str(game_dir.resolve())])
+        if private_display and not windows:command.append("--private-display")
         print("START",name,flush=True)
         code=invoke(command,output/(name+".log"),timeout+(360 if windows else 120))
         result=run/"result.json"
@@ -81,6 +84,10 @@ def run_matrix(runner:Path,package:Path,output:Path,scenes:list[str],frames:int=
         if windows and (data.get("target_platform")!="WindowsPlayer" or data.get("host_platform")!="linux"
                         or data.get("actual_windows_os") is not False or data.get("real_unity_player") is not True):
             raise ValueError("WindowsPlayer evidence is missing or misidentifies the host: "+name)
+        if private_display and not windows and (data.get("private_display") is not True
+                or data.get("private_display_cleanup_verified") is not True or not isinstance(data.get("display"),str)
+                or not re.fullmatch(r":\d+",data["display"]) or data["display"]==data.get("steam_display")):
+            raise ValueError("Native game did not verify a separate retired private display: "+name)
         print("PASS",name,flush=True)
         return data
     write()
@@ -119,10 +126,11 @@ def main()->int:
     parser.add_argument("--timeout",type=int,default=1800)
     parser.add_argument("--proton",type=Path,help="Test the Windows Unity player under this installed Proton tool on Linux")
     parser.add_argument("--game-dir",type=Path,help="Licensed game installation for the selected player target")
+    parser.add_argument("--private-display",action="store_true",help="Give native Linux games a disposable display; Proton already uses one")
     args=parser.parse_args()
     try:
         report=run_matrix(args.runner_source,args.package,args.output,args.scenes,args.frames,args.timeout,
-                          proton=args.proton,game_dir=args.game_dir)
+                          proton=args.proton,game_dir=args.game_dir,private_display=args.private_display)
     except (OSError,ValueError,subprocess.SubprocessError) as problem:
         print("oni_native_matrix:",problem,file=sys.stderr);return 2
     print("Passed",len(report["cases"]),"bounded Unity save/load cases:",args.output/"matrix.json")

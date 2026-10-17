@@ -70,7 +70,9 @@ class NativeMatrixTests(unittest.TestCase):
         if mode!="native-load-domain":
             save=run/"colony.sav";save.write_bytes(b"complete source")
             checkpoint={"Saved":True,"SavedFile":str(save),"SavedFileSha256":matrix.digest(save)}
-        (run/"result.json").write_text(json.dumps({"status":"passed-"+mode,"native_domain":{"ColonyCheckpoint":checkpoint}}))
+        report={"status":"passed-"+mode,"native_domain":{"ColonyCheckpoint":checkpoint}}
+        if '--private-display' in command:report.update(private_display=True,private_display_cleanup_verified=True,display=':123',steam_display=':121')
+        (run/"result.json").write_text(json.dumps(report))
         return 0
 
     def test_each_scene_uses_a_fresh_source_and_reload_with_exact_source_receipt(self):
@@ -80,6 +82,26 @@ class NativeMatrixTests(unittest.TestCase):
         self.assertIn("--save-colony",self.commands[0]);self.assertIn("--resave-before-resume",self.commands[1])
         self.assertNotEqual(self.commands[1][self.commands[1].index("--load-save")+1],self.commands[3][self.commands[3].index("--load-save")+1])
         self.assertFalse(report["first_playable_colony_passed"]);self.assertFalse(report["whole_colony_fluid_authority"])
+
+    def test_private_native_display_is_requested_and_verified_in_both_processes(self):
+        with mock.patch.object(matrix,'invoke',side_effect=self.game):
+            report=matrix.run_matrix(self.runner,self.package,self.output,['water'],private_display=True)
+        self.assertTrue(report['passed']);self.assertTrue(report['private_display'])
+        self.assertTrue(all('--private-display' in command for command in self.commands))
+        for key,value in [('private_display',False),('private_display_cleanup_verified',False),('display',':121')]:
+            output=self.root/key
+            def wrong(command,*args):
+                self.game(command,*args);path=output/'water-save/result.json';data=json.loads(path.read_text());data[key]=value
+                path.write_text(json.dumps(data));return 0
+            with mock.patch.object(matrix,'invoke',side_effect=wrong),self.assertRaisesRegex(ValueError,'private display'):
+                matrix.run_matrix(self.runner,self.package,output,['water'],private_display=True)
+
+    def test_native_orchestrator_mutation_is_detected_before_the_reload(self):
+        def changed(*args):
+            self.game(*args);(self.runner/'tools/oni_native_matrix.py').write_text('changed orchestration');return 0
+        with mock.patch.object(matrix,'invoke',side_effect=changed),self.assertRaisesRegex(ValueError,'Frozen'):
+            matrix.run_matrix(self.runner,self.package,self.output,['water'])
+        self.assertEqual(len(self.commands),1)
 
     def test_nonzero_exit_with_passing_text_stops_without_loading_or_starting_the_next_scene(self):
         def rejected(*args):self.game(*args);return 2

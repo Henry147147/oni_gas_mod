@@ -107,7 +107,29 @@ final physical image at 48.200000718 s is
 `2a94ca738ef95637f44a4b70d4112fa82c3b85feb9aebb6798651c4e87d1e097`;
 the frame-zero autosave file hash is
 `d23f17dac85574c4636771250e664d6402b615e1e1e171d8a1612be77ea17beb`.
-The source file remains unchanged. The water import control remains pending.
+The source file remains unchanged.
+
+All four cases in `native-inventory-unity-matrix-v3/matrix.json` now pass.
+The water source captures six genuinely occupied native water cells, totaling
+6599.9996337890625 kg. Their individual masses (about 1094.49–1105.50 kg)
+and temperatures (288.56–312.73 K) are admitted unchanged before the flow flags.
+The ordered input SHA-256 is
+`0f619b3108764ee235d5d1547e95d864db7854e5084263708cda887b12642663`.
+After 122 physical frames / 24.400000364 s, maximum relative mass/energy errors
+are 8.268e-16 / 3.939e-14. The complete 5,124,084-byte save body passes readback;
+its physical image is
+`67f8e3bbb796ae5e519a2cb6954d9a08e197d6538f4673ff6d6d045b1a4f84a6`
+and colony-file hash is
+`2e7eb7f01536d2f19a5a9b7383a66ef6a6018f185c1abae6531d0dc8453a1c63`.
+The water fresh-process load passes its paused frame-zero autosave, both native
+startup batches and 120 exact continued frames, reaching 48.400000721 s.
+The final physical image is
+`7c44748c5ecd8a07b1a81cbedeb50ffe8606bbfe00a282c752665b715b7552fb`
+and frame-zero autosave file hash is
+`ed1a03c88cfa4354e1d1a5a8b0791f00b030fe4224cd939a88a8a33efa8b35e7`.
+The source file remains unchanged. Grid/render publication, unchanged native
+compatibility cells and outside native-solid heat pass in both source/load
+pairs. These results retain the bounded admission and EOS limits above.
 
 The prepared Windows `windows-native-inventory-import-r1` attempt does not
 reach Unity: Steam reports ONI active on another computer and warns that

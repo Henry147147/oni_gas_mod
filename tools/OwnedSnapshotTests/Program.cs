@@ -313,12 +313,89 @@ internal static unsafe class Program
         FluidFrameCoordinatorTests.Run(Test, Check, Reject);
         MixtureRuntimeTests.Run(Test, Check, Reject);
         ActorRegistrationTests();
+        CellMassEditTests();
+        BreathingCellReadTests.Run(Test, Check, Reject);
+        PressureReadTests.Run(Test, Check, Reject);
         if (benchmark) FluidFrameCoordinatorTests.Benchmark();
         Console.WriteLine($"{passed}/{passed} snapshot, persistence and message boundary scenarios passed against actual ONI declarations.");
         return 0;
     }
 
     private static void Test(string name, System.Action action) { action(); ++passed; Console.WriteLine("PASS " + name); }
+    private static void CellMassEditTests()
+    {
+        byte[] Packets(int count = 2)
+        {
+            var data = new byte[28 * count];
+            for (var index = 0; index < count; ++index)
+            {
+                var row = data.AsSpan(28 * index, 28);
+                BinaryPrimitives.WriteInt32LittleEndian(row, 10 + index);
+                BinaryPrimitives.WriteInt32LittleEndian(row.Slice(4), -1);
+                BinaryPrimitives.WriteInt32LittleEndian(row.Slice(8), BitConverter.SingleToInt32Bits(310));
+                BinaryPrimitives.WriteInt32LittleEndian(row.Slice(12), BitConverter.SingleToInt32Bits(.03125f));
+                BinaryPrimitives.WriteUInt16LittleEndian(row.Slice(20), 200);
+                row[23] = 255; row[24] = 1;
+                row[25] = 91; row[26] = 183; row[27] = 247; // Native padding is not a protocol flag.
+            }
+            return data;
+        }
+        uint Species(ushort element) => element == 200 ? 4U : throw new NotSupportedException("Unmodeled material");
+        NativeCellMassEdit[] Decode(byte[] data) => NativeCellMassEditPlan.Decode(28, data.Length / 28, data,
+            cell => cell == 10 || cell == 11, Species);
+        Test("owned callback-less mass edits preserve complete native parcels and ignore padding", () =>
+        {
+            var plan = Decode(Packets());
+            Check(plan.Length == 2 && plan[0].Cell == 10 && plan[1].Cell == 11 &&
+                plan.All(edit => edit.Species == 4 && edit.MassKg == .03125f && edit.TemperatureK == 310));
+        });
+        Test("outside native cell modifications retain native replacement and callback semantics", () =>
+        {
+            var data = Packets();
+            for (var index = 0; index < 2; ++index)
+            {
+                var row = data.AsSpan(28 * index, 28);
+                BinaryPrimitives.WriteInt32LittleEndian(row, 100 + index);
+                BinaryPrimitives.WriteInt32LittleEndian(row.Slice(4), 45);
+                BinaryPrimitives.WriteInt32LittleEndian(row.Slice(16), 87);
+                row[22] = 2; row[24] = 0;
+            }
+            var before = (byte[])data.Clone();
+            Check(NativeCellMassEditPlan.Decode(28, 2, data, _ => false,
+                _ => throw new Exception("Outside material must stay native")).Length == 0 && data.SequenceEqual(before));
+        });
+        Test("late unsupported cell edit rejects the whole packet without rewriting source bytes", () =>
+        {
+            foreach (var fault in new[] { "callback", "replace", "displace", "disease", "material", "negative", "zero", "nan", "temperature" })
+            {
+                var data = Packets();
+                if (fault == "callback") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(32), 42);
+                if (fault == "replace") data[50] = 1;
+                if (fault == "displace") data[52] = 0;
+                if (fault == "disease") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(44), 1);
+                if (fault == "material") BinaryPrimitives.WriteUInt16LittleEndian(data.AsSpan(48), 199);
+                if (fault == "negative") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(40), BitConverter.SingleToInt32Bits(-1));
+                if (fault == "zero") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(40), 0);
+                if (fault == "nan") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(40), BitConverter.SingleToInt32Bits(float.NaN));
+                if (fault == "temperature") BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(36), BitConverter.SingleToInt32Bits(float.PositiveInfinity));
+                var before = (byte[])data.Clone(); Reject(() => Decode(data)); Check(data.SequenceEqual(before));
+            }
+        });
+        Test("mixed-owner mass-edit batches reject before either owner dispatches", () =>
+        {
+            var data = Packets(); BinaryPrimitives.WriteInt32LittleEndian(data.AsSpan(28), 99);
+            Reject(() => Decode(data));
+        });
+        Test("mass-edit shape and whole-owner capacity limits are explicit", () =>
+        {
+            Reject(() => NativeCellMassEditPlan.Decode(16, 2, Packets(), _ => true, Species));
+            Reject(() => NativeCellMassEditPlan.Decode(28, -1, Array.Empty<byte>(), _ => true, Species));
+            Reject(() => NativeCellMassEditPlan.Decode(28, int.MaxValue, Array.Empty<byte>(), _ => true, Species));
+            Reject(() => NativeCellMassEditPlan.Decode(28, 2, new byte[55], _ => true, Species));
+            Reject(() => NativeCellMassEditPlan.Decode(28, 257, Packets(257), _ => true, Species));
+            Check(NativeCellMassEditPlan.Decode(28, 256, Packets(256), _ => true, Species).Length == 256);
+        });
+    }
     private static void ActorRegistrationTests()
     {
         byte[] Consumers(int firstCallback=41,int secondCallback=42)

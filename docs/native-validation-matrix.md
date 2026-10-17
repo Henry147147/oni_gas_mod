@@ -28,21 +28,28 @@ python3 tools/oni_native_matrix.py \
 ```
 
 The output directory must be new. The default selects gas, compressed water,
-water point transfers, gas/water heat, gas transfers, carbon dioxide,
-conduction, gas/water gravity, gas/water registered actors, physical
-checkpoints, paired capture and source-save controls: 30 game
-processes including reloads. Use `--scenes water gravity` to select cases.
+water point transfers, gas/water heat, gas transfers, carbon dioxide, real CO2
+particles, native inventory admission, breathing selection, physical pressure,
+conduction, gas/water gravity, gas/water registered actors, physical checkpoints,
+paired capture and source-save controls. Each selected scene uses two game
+processes including its reload. Use `--scenes water gravity` to select cases.
 Gas and water actors need at least 80 frames; source-save controls need at least 16.
 `--timeout` applies separately to each game and accepts up to 7,200 seconds.
 
-`matrix.json` records hashes for both Python runner files and every packaged
+`matrix.json` records hashes for the runner, reviewer, matrix script and every packaged
 file, each child result's hash, physical counters and checkpoint receipts.
 Changed frozen inputs, an unsuccessful exit, a missing/failed result, a save
 outside its disposable run, a mismatched source receipt or a changed source
 file abort the matrix. Completed reports and logs remain intact, and the
 matrix is marked successful only after every selected save and reload passes.
-Eleven orchestration regressions exercise these failure paths without launching
-a game.
+Orchestration regressions exercise these failure paths without launching a
+game, including mutation of the native matrix script itself.
+
+Add `--private-display` for native Linux games to leave the shared Steam/VNC
+desktop available for login. Each child must report a different display and
+verified retirement of its X server/window manager. Setup and launch failures
+retain their evidence and clean up only that run's resources. Manual retained
+games use the normal shared desktop. See [display lifecycle](../tools/ONI_HEADLESS.md#separate-test-display).
 
 For the Windows Unity player on a Linux host, add `--proton /path/to/proton`
 and `--game-dir /path/to/windows-game`, and supply a Windows probe package.
