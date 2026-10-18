@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <stdexcept>
 
@@ -14,10 +15,42 @@ namespace {
 void require(bool condition,const char* why) { if(!condition) throw std::invalid_argument(why); }
 using Wide=MacScaled;
 Wide difference(Wide a,Wide b) { MacScaledSum s;s.add(a);s.add(b.negated());return s.value(); }
+int compare(const Wide& a,const Wide& b) { MacScaledSum s;s.add(a);s.add(b.negated());return s.sign(); }
+// Natural logarithm of a positive range value without projecting it.
+double logarithm(const Wide& value) {
+    int power=0;const double fraction=std::frexp(std::abs(value.mantissa()),&power);
+    return std::log(fraction)+(static_cast<double>(power)+static_cast<double>(value.exponent().to_int64_exact()))*std::numbers::ln2;
+}
+// Logarithmic mean (a-b)/ln(a/b) of positive a,b. Its product with the exact
+// force ln(a/b) is the difference a-b, so one-sided limits stay finite.
+Wide log_mean(const Wide& a,const Wide& b) {
+    const int order=compare(a,b);if(order==0)return a;
+    const Wide& high=order>0 ? a : b;const Wide& low=order>0 ? b : a;const auto delta=difference(high,low);
+    if(compare(delta,low)<=0) {
+        // t=(high-low)/low in (0,1]; log1p keeps the near-equal force accurate.
+        const double t=delta.shared(Wide::from_double(1),low).project().value;
+        return t>1e-300 ? low.multiplied(t/std::log1p(t)) : low;
+    }
+    const double ratio_log=logarithm(high)-logarithm(low);
+    require(std::isfinite(ratio_log) && ratio_log>0,"Unrepresentable diffusion log-mean");
+    return delta.multiplied(1/ratio_log);
+}
+// T_f(1/T_R-1/T_L)+ln(T_R/T_L) for T_f the arithmetic face temperature:
+// the exact enthalpy-flux correction of the discrete chemical-potential force
+// (third order in the temperature difference).
+double thermal_force(double left,double right) {
+    if(left==right)return 0;
+    const double u=(right-left)/(right+left);
+    return 2*std::atanh(u)-2*u/((1-u)*(1+u));
+}
 struct Face { std::size_t left,right; };
-std::vector<Face> faces(const MacGrid& g) {
-    std::vector<Face> result;result.reserve(2*g.width*g.height);
-    const auto add=[&](std::size_t a,std::size_t b) { if(a!=b && !g.walls[a] && !g.walls[b])result.push_back({a,b}); };
+// Faces touching an exact empty cell carry no diffusive flux. Diffusion moves
+// zero net mass across every face, so emptiness is invariant during an advance.
+std::vector<Face> faces(const MacTransportState& state) {
+    const auto& g=state.grid;std::vector<Face> result;result.reserve(2*g.width*g.height);
+    const auto add=[&](std::size_t a,std::size_t b) {
+        if(a!=b && !g.walls[a] && !g.walls[b] && state.cells[a].mixture.mass()>0 && state.cells[b].mixture.mass()>0)result.push_back({a,b});
+    };
     for(std::size_t y=0;y<g.height;++y)for(std::size_t x=0;x<g.width;++x) {
         const auto i=x+y*g.width;
         if(x+1<g.width)add(i,i+1);else if(g.periodic_x)add(i,y*g.width);
@@ -30,10 +63,10 @@ struct Cell {
     std::vector<std::size_t> present;
 };
 struct Flux { std::vector<Wide> mass;Wide heat; };
-struct Rates { std::vector<Flux> flux;double maximum_diffusivity=0; };
+struct Rates { std::vector<Flux> flux;double maximum_diffusivity=0;MacDiffusionReport range; };
 void check_trial_entropy(const FluidThermodynamics& eos,const MacTransportState& before,const MacTransportState& after) {
     MacEnergySum change,allowance;
-    for(std::size_t i=0;i<before.cells.size();++i)if(!before.grid.walls[i]) {
+    for(std::size_t i=0;i<before.cells.size();++i)if(!before.grid.walls[i] && before.cells[i].mixture.mass()>0) {
         const auto& a=before.cells[i].mixture;const auto& b=after.cells[i].mixture;
         const auto ta=eos.evaluate(a,before.grid.volume_m3());const auto tb=eos.evaluate(b,before.grid.volume_m3());
         change.add(tb.entropy_j_per_k);change.add(-ta.entropy_j_per_k);
@@ -45,7 +78,7 @@ void check_trial_entropy(const FluidThermodynamics& eos,const MacTransportState&
 Rates rates(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const MacTransportState& state,
     const std::vector<Face>& links,const std::vector<std::size_t>& gases,const MacDiffusionSettings& settings,
     const GasTransportProfile& profile) {
-    const auto ng=gases.size();std::vector<Cell> cells(state.cells.size());
+    const auto ng=gases.size();std::vector<Cell> cells(state.cells.size());const double volume=state.grid.volume_m3();
     for(std::size_t i=0;i<cells.size();++i)if(!state.grid.walls[i]) {
         auto& c=cells[i];const auto& mixture=state.cells[i].mixture;
         for(std::size_t s=0;s<registry.size();++s) {
@@ -55,20 +88,22 @@ Rates rates(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const
         for(std::size_t k=0;k<ng;++k)if(mixture.masses[gases[k]]>0) {
             c.gas_mass+=mixture.masses[gases[k]];c.moles+=mixture.masses[gases[k]]/registry[gases[k]].molar_mass;c.present.push_back(k);
         }
-        require(c.gas_mass>0 && c.moles>0,"Gas diffusion does not admit vacuum");
-        const auto reading=eos.evaluate(mixture,state.grid.volume_m3());c.temperature=reading.temperature_k;c.pressure=reading.mechanical_pressure_pa;
+        if(c.present.empty()) { require(mixture.energy==0,"Empty diffusion cell holds energy");continue; }
+        require(c.gas_mass>0 && c.moles>0,"Unrepresentable diffusion cell inventory");
+        const auto reading=eos.evaluate(mixture,volume);c.temperature=reading.temperature_k;c.pressure=reading.mechanical_pressure_pa;
     }
     Rates result;result.flux.resize(links.size());
-    const double area=state.grid.spacing_m*state.grid.depth_m;
+    const double area=state.grid.spacing_m*state.grid.depth_m,geometry=area/state.grid.spacing_m;
+    std::vector<double> binary;
     for(std::size_t f=0;f<links.size();++f) {
         const auto [l,r]=links[f];const auto& a=cells[l];const auto& b=cells[r];auto& out=result.flux[f];out.mass.resize(ng);
         std::vector<std::size_t> active;active.reserve(a.present.size()+b.present.size());
         std::set_union(a.present.begin(),a.present.end(),b.present.begin(),b.present.end(),std::back_inserter(active));
         if(active.size()<2)continue;
+        const auto na=active.size();
         const double temperature=.5*(a.temperature+b.temperature),pressure=.5*(a.pressure+b.pressure);
-        const double density=.5*(a.gas_mass+b.gas_mass)/state.grid.volume_m3();
-        std::vector<Wide> x(active.size()),y(active.size());MacScaledSum raw_total;
-        for(std::size_t k=0;k<active.size();++k) {
+        std::vector<Wide> x(na),y(na);
+        for(std::size_t k=0;k<na;++k) {
             const auto s=gases[active[k]];MacScaledSum xs,ys;
             xs.add(Wide::from_double(state.cells[l].mixture.masses[s]).shared(1,a.moles).shared(1,registry[s].molar_mass).multiplied(.5));
             xs.add(Wide::from_double(state.cells[r].mixture.masses[s]).shared(1,b.moles).shared(1,registry[s].molar_mass).multiplied(.5));
@@ -76,32 +111,88 @@ Rates rates(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const
             ys.add(Wide::from_double(state.cells[r].mixture.masses[s]).shared(1,b.gas_mass).multiplied(.5));
             x[k]=xs.value();y[k]=ys.value();
         }
-        for(std::size_t k=0;k<active.size();++k) {
-            const auto s=gases[active[k]];MacScaledSum denominator;
-            for(std::size_t j=0;j<active.size();++j)if(j!=k) {
-                const double d=profile.diffusivity(registry[s].id,registry[gases[active[j]]].id,temperature,pressure)*settings.multiplier;
-                require(std::isfinite(d) && d>0,"Diffusivity multiplier overflows");
-                result.maximum_diffusivity=std::max(result.maximum_diffusivity,d);
-                denominator.add(x[j].shared(1,d));
-            }
-            // mole-gradient D'_km = (1-Y_k) / sum_j(X_j/D_kj).
-            // Sum other Y directly: subtraction from 1 would erase trace gases.
-            MacScaledSum other_y;for(std::size_t j=0;j<active.size();++j)if(j!=k)other_y.add(y[j]);
-            const auto d=other_y.value().shared(Wide::from_double(1),denominator.value());
-            const auto xl=Wide::from_double(state.cells[l].mixture.masses[s]).shared(1,a.moles).shared(1,registry[s].molar_mass);
-            const auto xr=Wide::from_double(state.cells[r].mixture.masses[s]).shared(1,b.moles).shared(1,registry[s].molar_mass);
-            const double mean_molar_mass=.5*(a.gas_mass/a.moles+b.gas_mass/b.moles);
-            out.mass[active[k]]=difference(xl,xr).multiplied(density*registry[s].molar_mass/mean_molar_mass*area/state.grid.spacing_m).shared(d,Wide::from_double(1));
-            raw_total.add(out.mass[active[k]]);
+        // Symmetric binary table: each unordered pair is evaluated once per face.
+        binary.assign(na*na,0);
+        for(std::size_t k=0;k<na;++k)for(std::size_t j=k+1;j<na;++j) {
+            const auto& first=registry[gases[active[k]]];const auto& second=registry[gases[active[j]]];
+            const auto value=evaluate_gas_diffusivity(profile.pair(first.id,second.id),temperature,pressure,
+                first.molar_mass,second.molar_mass,state.grid.spacing_m,settings.multiplier);
+            require(std::isfinite(value.effective_m2_per_s) && value.effective_m2_per_s>0,"Diffusivity multiplier overflows");
+            if(!value.validated)result.range.record_out_of_range(temperature,pressure);
+            binary[k*na+j]=binary[j*na+k]=value.effective_m2_per_s;
+            result.maximum_diffusivity=std::max(result.maximum_diffusivity,value.effective_m2_per_s);
         }
-        MacScaledSum corrected;std::size_t pivot=0;
-        for(std::size_t k=1;k<active.size();++k)if(y[k].project().value>y[pivot].project().value)pivot=k;
-        for(std::size_t k=0;k<active.size();++k)if(k!=pivot) {
-            auto& value=out.mass[active[k]];value=difference(value,raw_total.value().shared(y[k],Wide::from_double(1)));corrected.add(value);
+        // Mixture-averaged D'_k = (1-Y_k) / sum_j(X_j/D_kj). Sum other Y
+        // directly: subtraction from 1 would erase trace gases.
+        std::vector<Wide> mobility(na);
+        for(std::size_t k=0;k<na;++k) {
+            MacScaledSum denominator,other_y;
+            for(std::size_t j=0;j<na;++j)if(j!=k) { denominator.add(x[j].shared(1,binary[k*na+j]));other_y.add(y[j]); }
+            const auto s=gases[active[k]];
+            // Mass flux per unit partial-pressure difference: W_k D'_k (A/dx) / (R T_f).
+            mobility[k]=other_y.value().shared(Wide::from_double(1),denominator.value()).multiplied(registry[s].molar_mass*geometry/(gas_constant*temperature));
+        }
+        // Partial pressures, their log-means and the exact discrete force.
+        // F_k = Lambda_k * (ln(p_k^L/p_k^R) + G_k) = (p_k^L - p_k^R) + Lambda_k G_k.
+        const double thermal=thermal_force(a.temperature,b.temperature);
+        std::vector<Wide> force(na),lambda(na);std::vector<bool> both(na),from_left(na);
+        MacScaledSum weight_total,force_total;bool any_both=false;
+        for(std::size_t k=0;k<na;++k) {
+            const auto s=gases[active[k]];
+            const auto left=Wide::from_double(state.cells[l].mixture.masses[s]).shared(1,registry[s].molar_mass).multiplied(gas_constant*a.temperature/volume);
+            const auto right=Wide::from_double(state.cells[r].mixture.masses[s]).shared(1,registry[s].molar_mass).multiplied(gas_constant*b.temperature/volume);
+            both[k]=!left.is_zero() && !right.is_zero();from_left[k]=!left.is_zero();
+            MacScaledSum value;value.add(left);value.add(right.negated());
+            if(both[k]) {
+                lambda[k]=log_mean(left,right);any_both=true;
+                if(thermal!=0)value.add(lambda[k].multiplied(registry[s].molar_mass*registry[s].cp/gas_constant*thermal));
+                weight_total.add(lambda[k].multiplied(registry[s].molar_mass));force_total.add(value.value());
+            }
+            force[k]=value.value();
+        }
+        std::vector<Wide> flux(na);std::size_t pivot=0;
+        if(any_both) {
+            // J = P_w A P_w^T psi, P_w = I - w 1^T, w_k = W_k Lambda_k / sum(W_j Lambda_j)
+            // over two-sided species (-> Y_k in the continuum). Symmetric
+            // positive semidefinite in the exact force psi, zero net mass. Its
+            // continuum limit is the corrected mixture-averaged flux driven by
+            // d_k = grad x_k + (x_k - w_k) grad ln p. One-sided species have
+            // zero weight and log-mean, leaving their finite downhill Fick flux.
+            const auto weights=weight_total.value();MacScaledSum raw_total;
+            for(std::size_t k=0;k<na;++k) {
+                auto projected=force[k];
+                if(both[k])projected=difference(force[k],force_total.value().shared(lambda[k].multiplied(registry[gases[active[k]]].molar_mass),weights));
+                flux[k]=projected.shared(mobility[k],Wide::from_double(1));raw_total.add(flux[k]);
+            }
+            for(std::size_t k=0;k<na;++k)if(both[k]) {
+                const auto w=lambda[k].multiplied(registry[gases[active[k]]].molar_mass);
+                if(!both[pivot] || compare(w,lambda[pivot].multiplied(registry[gases[active[pivot]]].molar_mass))>0)pivot=k;
+                flux[k]=difference(flux[k],raw_total.value().shared(w,weights));
+            }
+        } else {
+            // Disjoint inventories: every species is absent on one side and its
+            // exact force is infinite. Downhill Fick fluxes are balanced to zero
+            // net mass with the corrected group totals sum_L J = Y_R S_L + Y_L S_R
+            // (Y_L, Y_R face mass fractions of each side's species), scaling each
+            // group so that no constituent leaves a cell where it is absent.
+            MacScaledSum left_sum,right_sum,left_y,right_y;
+            for(std::size_t k=0;k<na;++k) {
+                flux[k]=force[k].shared(mobility[k],Wide::from_double(1));
+                if(from_left[k]) { left_sum.add(flux[k]);left_y.add(y[k]); }
+                else { right_sum.add(flux[k].negated());right_y.add(y[k]); }
+            }
+            MacScaledSum transfer;transfer.add(left_sum.value().shared(right_y.value(),Wide::from_double(1)));
+            transfer.add(right_sum.value().shared(left_y.value(),Wide::from_double(1)));
+            require(left_sum.sign()>0 && right_sum.sign()>0,"Disjoint diffusion face lacks a downhill flux");
+            for(std::size_t k=0;k<na;++k) {
+                flux[k]=flux[k].shared(transfer.value(),from_left[k] ? left_sum.value() : right_sum.value());
+                if(compare(flux[k].magnitude(),flux[pivot].magnitude())>0)pivot=k;
+            }
         }
         // Algebraic zero-net-mass constraint, not an inventory repair.
-        out.mass[active[pivot]]=corrected.value().negated();MacScaledSum heat;
-        for(const auto k:active)heat.add(out.mass[k].multiplied(registry[gases[k]].enthalpy(temperature)));
+        MacScaledSum corrected;for(std::size_t k=0;k<na;++k)if(k!=pivot)corrected.add(flux[k]);
+        flux[pivot]=corrected.value().negated();MacScaledSum heat;
+        for(std::size_t k=0;k<na;++k) { out.mass[active[k]]=flux[k];heat.add(flux[k].multiplied(registry[gases[active[k]]].enthalpy(temperature))); }
         out.heat=heat.value();
     }
     return result;
@@ -139,9 +230,49 @@ MacTransportState apply(const SpeciesRegistry& registry,const FluidThermodynamic
     (void)registry;return target;
 }
 }
+void MacDiffusionReport::record_out_of_range(double temperature,double pressure) {
+    if(out_of_range_evaluations==0) {
+        out_of_range_minimum_temperature_k=out_of_range_maximum_temperature_k=temperature;
+        out_of_range_minimum_pressure_pa=out_of_range_maximum_pressure_pa=pressure;
+    } else {
+        out_of_range_minimum_temperature_k=std::min(out_of_range_minimum_temperature_k,temperature);
+        out_of_range_maximum_temperature_k=std::max(out_of_range_maximum_temperature_k,temperature);
+        out_of_range_minimum_pressure_pa=std::min(out_of_range_minimum_pressure_pa,pressure);
+        out_of_range_maximum_pressure_pa=std::max(out_of_range_maximum_pressure_pa,pressure);
+    }
+    ++out_of_range_evaluations;
+}
+void MacDiffusionReport::merge_out_of_range(const MacDiffusionReport& other) {
+    if(other.out_of_range_evaluations==0)return;
+    const auto count=out_of_range_evaluations;
+    record_out_of_range(other.out_of_range_minimum_temperature_k,other.out_of_range_minimum_pressure_pa);
+    record_out_of_range(other.out_of_range_maximum_temperature_k,other.out_of_range_maximum_pressure_pa);
+    out_of_range_evaluations=count+other.out_of_range_evaluations;
+}
 void MacDiffusionSettings::validate() const {
     require(mode==MacDiffusionMode::disabled || mode==MacDiffusionMode::physical || mode==MacDiffusionMode::accelerated,"Unknown diffusion mode");
     require(std::isfinite(multiplier) && multiplier>=1 && (mode==MacDiffusionMode::accelerated || multiplier==1),"Invalid diffusion multiplier");
+}
+GasDiffusivity evaluate_gas_diffusivity(const GasDiffusionPair& pair,double t,double p,double first_mass,double second_mass,double spacing,double multiplier) {
+    require(std::isfinite(t) && t>0 && std::isfinite(p) && p>0 && std::isfinite(first_mass) && first_mass>0 &&
+        std::isfinite(second_mass) && second_mass>0 && std::isfinite(spacing) && spacing>0 && std::isfinite(multiplier) && multiplier>=1,
+        "Invalid gas diffusivity state");
+    GasDiffusivity result;
+    result.validated=t>=pair.minimum_temperature_k && t<=pair.maximum_temperature_k && p>=pair.minimum_pressure_pa && p<=pair.maximum_pressure_pa;
+    // The correlation's own form, extrapolated outside its validated range.
+    const double atmospheric=1e-4*std::exp(pair.a+pair.b/t+pair.c*std::log(t))*101325;
+    require(std::isfinite(atmospheric) && atmospheric>0,"Invalid evaluated binary diffusivity");
+    // Free-molecular limit across one cell, with the pair's mean relative speed.
+    const double reduced=first_mass*second_mass/(first_mass+second_mass);
+    result.knudsen_m2_per_s=spacing/3*std::sqrt(8*gas_constant*t/(std::numbers::pi*reduced));
+    // Resistances, so a vanishing pressure approaches the Knudsen limit
+    // without forming an overflowing molecular coefficient.
+    const double molecular_resistance=p/(atmospheric*multiplier);
+    result.molecular_m2_per_s=1/molecular_resistance;
+    result.effective_m2_per_s=1/(molecular_resistance+1/result.knudsen_m2_per_s);
+    require(std::isfinite(result.knudsen_m2_per_s) && result.knudsen_m2_per_s>0 && std::isfinite(result.effective_m2_per_s) &&
+        result.effective_m2_per_s>0,"Invalid evaluated binary diffusivity");
+    return result;
 }
 GasTransportProfile::GasTransportProfile(std::string id,std::vector<GasDiffusionPair> pairs):identity_(std::move(id)),pairs_(std::move(pairs)) {
     require(!identity_.empty() && identity_.size()<=256,"Invalid transport profile identity");
@@ -152,14 +283,15 @@ GasTransportProfile::GasTransportProfile(std::string id,std::vector<GasDiffusion
         for(std::size_t j=0;j<i;++j)require(!((p.first==pairs_[j].first && p.second==pairs_[j].second)||(p.first==pairs_[j].second && p.second==pairs_[j].first)),"Duplicate gas diffusion pair");
     }
 }
-double GasTransportProfile::diffusivity(std::string_view a,std::string_view b,double t,double p) const {
-    for(const auto& pair:pairs_)if((a==pair.first && b==pair.second)||(b==pair.first && a==pair.second)) {
-        if(!(t>=pair.minimum_temperature_k && t<=pair.maximum_temperature_k && p>=pair.minimum_pressure_pa && p<=pair.maximum_pressure_pa))
-            throw std::domain_error("Gas diffusion is outside its transport profile validity range");
-        const double result=1e-4*std::exp(pair.a+pair.b/t+pair.c*std::log(t))*101325/p;
-        require(std::isfinite(result) && result>0,"Invalid evaluated binary diffusivity");return result;
-    }
+const GasDiffusionPair& GasTransportProfile::pair(std::string_view a,std::string_view b) const {
+    for(const auto& pair:pairs_)if((a==pair.first && b==pair.second)||(b==pair.first && a==pair.second))return pair;
     throw std::invalid_argument("Gas pair is absent from transport profile: "+std::string(a)+"/"+std::string(b));
+}
+double GasTransportProfile::diffusivity(std::string_view a,std::string_view b,double t,double p) const {
+    const auto& pair=this->pair(a,b);
+    require(std::isfinite(t) && t>0 && std::isfinite(p) && p>0,"Invalid gas diffusivity state");
+    const double result=1e-4*std::exp(pair.a+pair.b/t+pair.c*std::log(t))*101325/p;
+    require(std::isfinite(result) && result>0,"Invalid evaluated binary diffusivity");return result;
 }
 std::shared_ptr<const GasTransportProfile> GasTransportProfile::standard() {
     static const auto value=[] {
@@ -190,8 +322,11 @@ bool mac_diffusion_stationary(const SpeciesRegistry& registry,const MacTransport
         if(l==r || g.walls[l] || g.walls[r])return true;
         const auto& a=state.cells[l].mixture;const auto& b=state.cells[r].mixture;
         // Sufficient exact certificate. No tolerance may erase a small gradient.
+        // Equal inventories and U give equal T, p and partial pressures; a face
+        // touching an empty cell carries no flux.
+        if(a.mass()==0 || b.mass()==0)return true;
         for(std::size_t s=0;s<registry.size();++s)if(a.masses[s]!=b.masses[s])return false;
-        return true;
+        return a.energy==b.energy;
     };
     for(std::size_t y=0;y<g.height;++y)for(std::size_t x=0;x<g.width;++x) {
         const auto i=x+y*g.width;
@@ -218,12 +353,15 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
         return std::move(*normal);
     }
     MacDiffusionAdvance result{source,{}};
-    const auto links=faces(source.grid);std::vector<std::size_t> gases;
+    const auto links=faces(source);std::vector<std::size_t> gases;
     for(std::size_t s=0;s<registry.size();++s)if(registry[s].phase==Phase::gas)gases.push_back(s);
     double elapsed=0,next=seconds;std::size_t attempts=0;
     while(elapsed<seconds) {
         const auto first=rates(registry,eos,result.state,links,gases,settings,profile);
-        const double stable=first.maximum_diffusivity>0 ? .2*source.grid.spacing_m*source.grid.spacing_m/first.maximum_diffusivity : seconds;
+        // Select 10% inside the 0.2 acceptance bound: the predictor's coefficients
+        // can be marginally larger (e.g. near the Knudsen limit), and a trial
+        // exactly at the bound would then always be rejected once.
+        const double stable=first.maximum_diffusivity>0 ? .18*source.grid.spacing_m*source.grid.spacing_m/first.maximum_diffusivity : seconds;
         double dt=std::min({next,seconds-elapsed,stable});
         while(true) {
             if(++attempts>budget)throw std::runtime_error("Diffusion exhausted its attempt budget");
@@ -236,6 +374,7 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
                 auto corrected=apply(registry,eos,result.state,links,gases,first,&second,dt,attempt);
                 check_trial_entropy(eos,result.state,corrected);
                 result.state=std::move(corrected);result.report.exchanged_mass_kg+=attempt.exchanged_mass_kg;
+                result.report.merge_out_of_range(first.range);result.report.merge_out_of_range(second.range);
                 result.report.unresolved_updates+=attempt.unresolved_updates;++result.report.substeps;result.report.faces+=links.size();break;
             }catch(const std::domain_error&) { dt*=.5;++result.report.rejected_attempts; }
             catch(const ReferenceError& error) {
@@ -255,6 +394,11 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
         }
         if(!total.within_bound())throw std::runtime_error("Diffusion changed a cell's total mass");
         energy.add(result.state.cells[i].mixture.energy);energy.add(-source.cells[i].mixture.energy);
+        // Empty cells have no faces and no defined temperature; they are unchanged.
+        if(source.cells[i].mixture.mass()==0) {
+            if(result.state.cells[i].mixture.mass()!=0 || result.state.cells[i].mixture.energy!=0)throw std::runtime_error("Diffusion changed an empty cell");
+            continue;
+        }
         const auto a=eos.evaluate(source.cells[i].mixture,source.grid.volume_m3());
         const auto b=eos.evaluate(result.state.cells[i].mixture,source.grid.volume_m3());
         entropy_change.add(b.entropy_j_per_k);entropy_change.add(-a.entropy_j_per_k);

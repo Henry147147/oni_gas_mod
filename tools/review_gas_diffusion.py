@@ -3,7 +3,10 @@
 
 Uses the exported transport data and caloric model so closure/model error is
 separate from property differences. Ordinary-air envelope: 300 K, about 1 bar,
-N2/O2 with up to 0.1% CO2 by mass. No Soret/barodiffusion, like production.
+N2/O2 with up to 0.1% CO2 by mass. Like production, the driving force includes
+pressure diffusion, d_k = grad x_k + (x_k - w_k) grad ln p; no Soret effect.
+The reference cases are not exactly isobaric (equal cell masses, different
+compositions), so the term is exercised; it vanishes at uniform pressure.
 """
 import argparse
 import json
@@ -38,17 +41,20 @@ def flux(state, species, pairs):
         moles = [m / s["weight"] for m, s in zip(masses, species)]
         total = math.fsum(moles)
         temperature = (energy - math.fsum(m * s["offset"] for m, s in zip(masses, species))) / math.fsum(m * s["cv"] for m, s in zip(masses, species))
-        readings.append(([v / total for v in moles], temperature, total))
-    x0, t0, n0 = readings[0]
-    x1, t1, n1 = readings[1]
+        mass = math.fsum(masses)
+        readings.append(([v / total for v in moles], temperature, total, [m / mass for m in masses]))
+    x0, t0, n0, y0 = readings[0]
+    x1, t1, n1, y1 = readings[1]
     temperature, concentration = (t0 + t1) / 2, (n0 + n1) / 2
     pressure = (n0 * R * t0 + n1 * R * t1) / 2
+    log_pressure_step = math.log((n1 * t1) / (n0 * t0))
     active = [i for i in range(len(species)) if state[0][i] or state[1][i]]
     x = [(x0[i] + x1[i]) / 2 for i in active]
     matrix = [[0.0] * len(active) for _ in active]
     rhs = []
     for k, i in enumerate(active):
-        rhs.append(-concentration * (x1[i] - x0[i]))
+        drive = (x1[i] - x0[i]) + ((x0[i] + x1[i]) / 2 - (y0[i] + y1[i]) / 2) * log_pressure_step
+        rhs.append(-concentration * drive)
         for j, other in enumerate(active):
             if k == j:
                 continue

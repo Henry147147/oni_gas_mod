@@ -6,6 +6,7 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <thread>
 #include <type_traits>
@@ -32,8 +33,9 @@ template<class Function> void parallel(std::size_t count,Function f) {
 }
 struct Link { std::size_t l,r; };
 struct Adjacent { std::array<std::size_t,4> face{absent,absent,absent,absent};std::array<double,4> sign{};std::size_t count=0; };
-struct Reading { Row x{},y{};double mass=0,moles=0,temperature=0,pressure=0; };
-struct Flux { Row mass{};double heat=0,maximum_d=0; };
+struct Reading { Row x{},y{},partial{};double mass=0,moles=0,temperature=0,pressure=0; };
+// range: pair evaluations outside their validated range at this face state.
+struct Flux { Row mass{};double heat=0,maximum_d=0,temperature=0,pressure=0;std::uint32_t range=0; };
 struct Workspace {
     std::vector<Row> masses,predictor,next;
     std::vector<double> energy,predictor_energy,next_energy;
@@ -80,8 +82,10 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
     }
     w.masses.resize(n);w.predictor.resize(n);w.next.resize(n);w.energy.resize(n);w.predictor_energy.resize(n);w.next_energy.resize(n);w.reading.resize(n);
     w.links.clear();w.links.reserve(2*n);w.adjacent.assign(n,{});
+    // Faces touching an exact empty cell carry no diffusive flux; zero net
+    // face mass keeps every cell's emptiness fixed during the advance.
     const auto add=[&](std::size_t l,std::size_t r) {
-        if(l==r || g.walls[l] || g.walls[r])return;
+        if(l==r || g.walls[l] || g.walls[r] || !(source.cells[l].mixture.mass()>0) || !(source.cells[r].mixture.mass()>0))return;
         const auto f=w.links.size();w.links.push_back({l,r});
         auto& a=w.adjacent[l];a.face[a.count]=f;a.sign[a.count++]=-1;
         auto& b=w.adjacent[r];b.face[b.count]=f;b.sign[b.count++]=1;
@@ -101,25 +105,34 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         parallel(n,[&](std::size_t i) {
             if(g.walls[i])return;
             Reading c;Sum moles,total,capacity,thermal;
-            thermal.add(energy[i]);
+            thermal.add(energy[i]);bool empty=true;
             for(std::size_t k=0;k<ng;++k) {
                 const double m=mass[i][k];if(!std::isfinite(m) || m<0 || (m>0 && (m<1e-150 || m>1e150))) { ordinary=false;return; }
+                empty=empty && m==0;
                 total.add(m);moles.add(m/molecular[k]);capacity.add(m*cv[k]);thermal.add(-m*offset[k]);
             }
+            // Empty cells have no faces and no defined temperature.
+            if(empty) { if(energy[i]!=0)ordinary=false;w.reading[i]=c;return; }
             c.mass=total.value();c.moles=moles.value();c.temperature=thermal.value()/capacity.value();
             c.pressure=c.moles*gas_constant*c.temperature/g.volume_m3();
             if(!std::isfinite(c.temperature) || !std::isfinite(c.pressure) || c.mass<=0 || c.moles<=0) { ordinary=false;return; }
             for(std::size_t k=0;k<ng;++k) {
                 if(mass[i][k]>0 && (c.temperature<minimum_t[k] || c.temperature>maximum_t[k])) { ordinary=false;return; }
                 c.x[k]=mass[i][k]/molecular[k]/c.moles;c.y[k]=mass[i][k]/c.mass;
+                c.partial[k]=mass[i][k]/molecular[k]*gas_constant*c.temperature/g.volume_m3();
             }
             w.reading[i]=c;
         });
     };
+    std::array<double,6> reduced{}; // pair reduced molar masses, index k(k-1)/2+j for j<k
+    for(std::size_t k=0;k<ng;++k)for(std::size_t j=0;j<k;++j)
+        reduced[k*(k-1)/2+j]=molecular[k]*molecular[j]/(molecular[k]+molecular[j]);
+    std::atomic<bool> out_of_range=false;
     const auto rates=[&](const std::vector<Row>& mass,const std::vector<double>& energy,std::vector<Flux>& flux) {
         read(mass,energy);if(!ordinary)return 0.;
         struct CoefficientCache {
-            struct Entry { double temperature=0;std::array<Row,4> value{};std::array<std::array<bool,4>,4> valid{}; };
+            // Pressure-free atmospheric coefficient and Knudsen limit per pair.
+            struct Entry { double temperature=0;std::array<Row,4> atmospheric{},knudsen{};std::array<std::array<bool,4>,4> valid{}; };
             std::array<Entry,8> entries{};std::size_t replacement=0;
             Entry& at(double temperature) {
                 for(auto& entry:entries)if(entry.temperature==temperature)return entry;
@@ -131,40 +144,96 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         std::array<CoefficientCache,8> caches;
         parallel(w.links.size(),[&](std::size_t f,std::size_t worker) {
             const auto [l,r]=w.links[f];const auto& a=w.reading[l];const auto& b=w.reading[r];Flux out;
-            Row x{},y{},raw{};bool different=false;
-            for(std::size_t k=0;k<ng;++k) { x[k]=.5*(a.x[k]+b.x[k]);y[k]=.5*(a.y[k]+b.y[k]);different=different || a.x[k]!=b.x[k]; }
+            Row x{},y{};bool different=a.temperature!=b.temperature;
+            for(std::size_t k=0;k<ng;++k) { x[k]=.5*(a.x[k]+b.x[k]);y[k]=.5*(a.y[k]+b.y[k]);different=different || a.partial[k]!=b.partial[k]; }
             if(!different) { flux[f]=out;return; }
             const double temperature=.5*(a.temperature+b.temperature),pressure=.5*(a.pressure+b.pressure);
-            const double rho=.5*(a.mass+b.mass)/g.volume_m3(),mw=.5*(a.mass/a.moles+b.mass/b.moles);
+            out.temperature=temperature;out.pressure=pressure;
             auto& cached=caches[worker].at(temperature);
-            std::array<Row,4> binary{};
+            std::array<Row,4> binary{};std::size_t present=0;
+            for(std::size_t k=0;k<ng;++k)if(x[k]>0)++present;
+            if(present<2) { flux[f]=out;return; }
             for(std::size_t k=0;k<ng;++k)for(std::size_t j=0;j<k;++j)if(x[k]>0 && x[j]>0) {
                 const auto& p=*properties[k][j];
-                if(temperature<p.minimum_temperature_k || temperature>p.maximum_temperature_k || pressure<p.minimum_pressure_pa || pressure>p.maximum_pressure_pa) { ordinary=false;return; }
+                // Correlations are extrapolated in their own form outside the
+                // validated range; such evaluations are counted, not rejected.
+                if(!(temperature>=p.minimum_temperature_k && temperature<=p.maximum_temperature_k && pressure>=p.minimum_pressure_pa && pressure<=p.maximum_pressure_pa))++out.range;
                 if(!cached.valid[k][j]) {
-                    cached.value[k][j]=1e-4*std::exp(p.a+p.b/temperature+p.c*std::log(temperature))*101325;
+                    cached.atmospheric[k][j]=1e-4*std::exp(p.a+p.b/temperature+p.c*std::log(temperature))*101325;
+                    cached.knudsen[k][j]=g.spacing_m/3*std::sqrt(8*gas_constant*temperature/(std::numbers::pi*reduced[k*(k-1)/2+j]));
                     cached.valid[k][j]=true;
                 }
-                const double d=cached.value[k][j]/pressure*settings.multiplier;
+                // Bosanquet: 1/D = 1/(multiplier D_molecular) + 1/D_Knudsen.
+                const double d=1/(pressure/(cached.atmospheric[k][j]*settings.multiplier)+1/cached.knudsen[k][j]);
                 if(!std::isfinite(d) || d<=0) { ordinary=false;return; }
                 binary[k][j]=binary[j][k]=d;out.maximum_d=std::max(out.maximum_d,d);
             }
-            Sum raw_total;std::size_t pivot=0;
+            if(out.range)out_of_range=true;
+            // Exact discrete force per species in partial-pressure form:
+            // F_k = Lambda_k (ln(p_k^L/p_k^R) + G_k) = (p_k^L - p_k^R) + Lambda_k G_k,
+            // Lambda_k the log-mean partial pressure (zero for a one-sided species).
+            const double thermal=a.temperature==b.temperature ? 0 : [&] {
+                const double u=(b.temperature-a.temperature)/(b.temperature+a.temperature);return 2*std::atanh(u)-2*u/((1-u)*(1+u)); }();
+            Row force{},lambda{},mobility{},raw{};std::array<bool,4> both{};Sum weight_total,force_total;bool any_both=false;
             for(std::size_t k=0;k<ng;++k)if(x[k]>0) {
                 Sum denominator,other_y;
                 for(std::size_t j=0;j<ng;++j)if(j!=k && x[j]>0) { denominator.add(x[j]/binary[k][j]);other_y.add(y[j]); }
-                if(denominator.value()==0)continue;
-                raw[k]=(a.x[k]-b.x[k])*(rho*molecular[k]/mw*g.depth_m)*(other_y.value()/denominator.value());
-                if(!std::isfinite(raw[k]) || (raw[k]!=0 && !std::isnormal(raw[k]))) { ordinary=false;return; }
-                raw_total.add(raw[k]);if(y[k]>y[pivot])pivot=k;
+                // Mixture-averaged D'_k times W_k (A/dx) / (R T_f).
+                mobility[k]=other_y.value()/denominator.value()*(molecular[k]*g.depth_m/(gas_constant*temperature));
+                const double left=a.partial[k],right=b.partial[k];
+                both[k]=left>0 && right>0;force[k]=left-right;
+                if(both[k]) {
+                    if(left==right)lambda[k]=left;
+                    else {
+                        const double high=std::max(left,right),low=std::min(left,right),t=(high-low)/low;
+                        lambda[k]=t<=1 ? low*(t/std::log1p(t)) : (high-low)/(std::log(high)-std::log(low));
+                    }
+                    if(thermal!=0)force[k]+=lambda[k]*(molecular[k]*cp[k]/gas_constant*thermal);
+                    weight_total.add(molecular[k]*lambda[k]);force_total.add(force[k]);any_both=true;
+                }
+                if(!std::isfinite(mobility[k]) || !std::isfinite(force[k]) || !std::isfinite(lambda[k])) { ordinary=false;return; }
             }
+            std::size_t pivot=ng;
+            if(any_both) {
+                // J = P_w A P_w^T psi with w_k = W_k Lambda_k / sum(W_j Lambda_j):
+                // symmetric positive semidefinite in the exact force, zero net mass,
+                // continuum limit driven by d_k = grad x_k + (x_k - w_k) grad ln p.
+                Sum raw_total;const double weights=weight_total.value(),mean=force_total.value();
+                for(std::size_t k=0;k<ng;++k)if(x[k]>0) {
+                    raw[k]=(both[k] ? force[k]-molecular[k]*lambda[k]/weights*mean : force[k])*mobility[k];raw_total.add(raw[k]);
+                }
+                for(std::size_t k=0;k<ng;++k)if(both[k]) {
+                    raw[k]-=molecular[k]*lambda[k]/weights*raw_total.value();
+                    if(pivot==ng || molecular[k]*lambda[k]>molecular[pivot]*lambda[pivot])pivot=k;
+                }
+            } else {
+                // Disjoint inventories: downhill Fick fluxes scaled per side to the
+                // corrected group totals Y_R S_L + Y_L S_R.
+                Sum left_sum,right_sum,left_y,right_y;
+                for(std::size_t k=0;k<ng;++k)if(x[k]>0) {
+                    raw[k]=force[k]*mobility[k];
+                    if(a.partial[k]>0) { left_sum.add(raw[k]);left_y.add(y[k]); } else { right_sum.add(-raw[k]);right_y.add(y[k]); }
+                }
+                const double transfer=left_sum.value()*right_y.value()+right_sum.value()*left_y.value();
+                if(!(left_sum.value()>0 && right_sum.value()>0)) { ordinary=false;return; }
+                for(std::size_t k=0;k<ng;++k)if(x[k]>0) {
+                    raw[k]*=transfer/(a.partial[k]>0 ? left_sum.value() : right_sum.value());
+                    if(pivot==ng || std::abs(raw[k])>std::abs(raw[pivot]))pivot=k;
+                }
+            }
+            for(std::size_t k=0;k<ng;++k)if(!std::isfinite(raw[k]) || (raw[k]!=0 && !std::isnormal(raw[k]))) { ordinary=false;return; }
+            // Algebraic zero-net-mass constraint, not an inventory repair.
             Sum corrected,heat;
-            for(std::size_t k=0;k<ng;++k)if(k!=pivot) { out.mass[k]=raw[k]-y[k]*raw_total.value();corrected.add(out.mass[k]); }
+            for(std::size_t k=0;k<ng;++k)if(k!=pivot) { out.mass[k]=raw[k];corrected.add(out.mass[k]); }
             out.mass[pivot]=-corrected.value();
             for(std::size_t k=0;k<ng;++k)heat.add(out.mass[k]*(formation[k]+cp[k]*(temperature-reference_temperature)));
             out.heat=heat.value();flux[f]=out;
         });
         double maximum=0;for(const auto& f:flux)maximum=std::max(maximum,f.maximum_d);return maximum;
+    };
+    const auto record_range=[&](const std::vector<Flux>& flux,MacDiffusionReport& report) {
+        if(!out_of_range)return;
+        for(const auto& f:flux)for(std::uint32_t k=0;k<f.range;++k)report.record_out_of_range(f.temperature,f.pressure);
     };
     std::size_t trial_unresolved=0;
     const auto apply=[&](double dt,bool corrected,std::vector<Row>& target,std::vector<double>& energy) {
@@ -193,7 +262,8 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
     MacDiffusionReport report;double elapsed=0,next=seconds;std::size_t attempts=0;
     while(elapsed<seconds) {
         const auto maximum=rates(w.masses,w.energy,w.first);if(!ordinary)return {};
-        double dt=std::min({next,seconds-elapsed,maximum>0 ? .2*g.spacing_m*g.spacing_m/maximum:seconds});
+        // 10% inside the 0.2 acceptance bound (see the general path).
+        double dt=std::min({next,seconds-elapsed,maximum>0 ? .18*g.spacing_m*g.spacing_m/maximum:seconds});
         while(true) {
             if(++attempts>budget)throw std::runtime_error("Diffusion exhausted its attempt budget");
             if(!(dt>0) || elapsed+dt<=elapsed)throw std::runtime_error("Diffusion clock cannot advance");
@@ -205,6 +275,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
             dt*=.5;++report.rejected_attempts;
         }
         if(!ordinary)return {};
+        record_range(w.first,report);record_range(w.second,report);out_of_range=false;
         for(std::size_t f=0;f<w.first.size();++f)for(std::size_t k=0;k<ng;++k)report.exchanged_mass_kg+=.5*dt*std::abs(.5*w.first[f].mass[k]+.5*w.second[f].mass[k]);
         report.unresolved_updates+=trial_unresolved;
         w.masses.swap(w.next);w.energy.swap(w.next_energy);elapsed+=dt;next=std::min(2*dt,seconds-elapsed);++report.substeps;report.faces+=w.links.size();
@@ -212,6 +283,12 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
     read(w.masses,w.energy);if(!ordinary)return {};
     std::array<Sum,4> balances;Sum energy,entropy,entropy_allowance;
     for(std::size_t i=0;i<n;++i)if(!g.walls[i]) {
+        if(!(source.cells[i].mixture.mass()>0)) {
+            // Empty cells have no faces; they must be unchanged.
+            for(std::size_t k=0;k<ng;++k)if(w.masses[i][k]!=0)return {};
+            if(w.energy[i]!=0)return {};
+            continue;
+        }
         Sum total,old_capacity,old_thermal;old_thermal.add(source.cells[i].mixture.energy);
         for(std::size_t k=0;k<ng;++k) {
             const auto a=source.cells[i].mixture.masses[gases[k]],b=w.masses[i][k];

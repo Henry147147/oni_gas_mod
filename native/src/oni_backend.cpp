@@ -887,7 +887,7 @@ MAOniResult ma_oni_domain_diffusion_configure(std::uint64_t session,std::uint64_
 }
 MAOniResult ma_oni_domain_diffusion_status(MAOniDomainDiffusionStatus* output) {
     return boundary([&] {
-        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)
+        if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=2)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid gas diffusion status ABI");
         ma::oni::copy_domain_diffusion_status(*output);
     });

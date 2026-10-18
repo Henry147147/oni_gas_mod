@@ -527,9 +527,12 @@ void combine(double& a,double b) { a+=b; }
 void combine(std::size_t& a,std::size_t b) { a+=b; }
 void combine(MacEnergy& a,MacEnergy b) { MacEnergySum sum;sum.add(a);sum.add(b);a=sum.value(); }
 void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
+    // Every MacClosedAdvanceReport field is accumulated here; a field added to
+    // the report must be added to this list (main's pressure-root restarts were
+    // initially missed when the diffusion composition was merged).
 #define MA_ADD(field) combine(a.field,b.field)
     MA_ADD(substeps);MA_ADD(attempts);MA_ADD(rejected_attempts);MA_ADD(exact_equilibrium_intervals);
-    MA_ADD(pressure_iterations);MA_ADD(nonlinear_iterations);MA_ADD(unresolved_heat_updates);MA_ADD(unresolved_momentum_updates);
+    MA_ADD(pressure_iterations);MA_ADD(nonlinear_iterations);MA_ADD(pressure_increment_restarts);MA_ADD(unresolved_heat_updates);MA_ADD(unresolved_momentum_updates);
     MA_ADD(unresolved_gravity_internal_updates);MA_ADD(compression_events);MA_ADD(unresolved_compression_heat_updates);MA_ADD(unresolved_compression_momentum_updates);
     MA_ADD(unresolved_compressive_work_updates);
     MA_ADD(momentum_correction_events);MA_ADD(limited_momentum_corrections);MA_ADD(unresolved_momentum_corrections);MA_ADD(unresolved_remainder_corrections);
@@ -550,6 +553,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
 void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
     a.substeps+=b.substeps;a.rejected_attempts+=b.rejected_attempts;a.faces+=b.faces;a.unresolved_updates+=b.unresolved_updates;
     a.exchanged_mass_kg+=b.exchanged_mass_kg;a.elapsed_ms+=b.elapsed_ms;combine(a.energy_residual,b.energy_residual);combine(a.energy_bound,b.energy_bound);
+    a.merge_out_of_range(b);
     a.entropy_change_j_per_k+=b.entropy_change_j_per_k;a.entropy_roundoff_j_per_k+=b.entropy_roundoff_j_per_k;
     a.species_mass_residual.resize(b.species_mass_residual.size());a.species_mass_bound.resize(b.species_mass_bound.size());
     for(std::size_t i=0;i<b.species_mass_residual.size();++i) { a.species_mass_residual[i]+=b.species_mass_residual[i];a.species_mass_bound[i]+=b.species_mass_bound[i]; }

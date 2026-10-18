@@ -104,6 +104,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     if (viscous || diffusive) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
     if(diffusive) {
         out.u32(static_cast<std::uint32_t>(settings_.diffusion.mode));out.number(settings_.diffusion.multiplier);
+        // Discrete flux formulation. Version-4 images were never released; the
+        // first (formulation-1) layout lacked this field and is rejected.
+        out.u32(mac_diffusion_formulation);
         out.string(transport_->identity());out.count(transport_->pairs().size());
         for(const auto& p:transport_->pairs()) {
             out.string(p.first);out.string(p.second);
@@ -148,6 +151,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     if(version==diffusion_format_version) {
         settings.diffusion.mode=static_cast<MacDiffusionMode>(in.u32());settings.diffusion.multiplier=in.number();
         check(settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
+        check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");
         check(transport!=nullptr && in.string(256)==transport->identity(),"Saved transport profile identity differs");
         check(in.u32()==transport->pairs().size(),"Saved transport pair count differs");
         for(const auto& p:transport->pairs()) {

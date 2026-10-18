@@ -933,6 +933,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next_diffusion.substeps+=d.substeps;next_diffusion.rejected_attempts+=d.rejected_attempts;
         next_diffusion.faces+=d.faces;next_diffusion.unresolved_updates+=d.unresolved_updates;
         next_diffusion.exchanged_mass_kg+=d.exchanged_mass_kg;next_diffusion.elapsed_ms+=d.elapsed_ms;
+        next_diffusion.merge_out_of_range(d);
         next_diffusion.species_mass_residual=d.species_mass_residual;next_diffusion.species_mass_bound=d.species_mass_bound;
         next_diffusion.energy_residual=d.energy_residual;next_diffusion.energy_bound=d.energy_bound;
         world=std::move(owner); publication=std::move(cells); status=next;
@@ -1316,7 +1317,7 @@ void configure_domain_diffusion(std::uint64_t session,std::uint64_t frame,std::u
 }
 void copy_domain_diffusion_status(MAOniDomainDiffusionStatus& output) {
     std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;output={};
-    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.struct_size=sizeof(output);output.abi_version=2;output.state=status.state;
     output.session=status.session;output.completed_frame=status.completed_frames;
     if(world) {
         output.mode=static_cast<std::uint32_t>(world->settings().diffusion.mode);output.multiplier=world->settings().diffusion.multiplier;
@@ -1328,6 +1329,11 @@ void copy_domain_diffusion_status(MAOniDomainDiffusionStatus& output) {
     for(double v:diffusion_progress.species_mass_residual)output.maximum_mass_residual_kg=std::max(output.maximum_mass_residual_kg,std::abs(v));
     for(double v:diffusion_progress.species_mass_bound)output.maximum_mass_bound_kg=std::max(output.maximum_mass_bound_kg,v);
     output.energy_residual_j=diffusion_progress.energy_residual.project().value;output.energy_bound_j=diffusion_progress.energy_bound.project().value;
+    output.out_of_range_evaluations=diffusion_progress.out_of_range_evaluations;
+    output.out_of_range_minimum_temperature_k=diffusion_progress.out_of_range_minimum_temperature_k;
+    output.out_of_range_maximum_temperature_k=diffusion_progress.out_of_range_maximum_temperature_k;
+    output.out_of_range_minimum_pressure_pa=diffusion_progress.out_of_range_minimum_pressure_pa;
+    output.out_of_range_maximum_pressure_pa=diffusion_progress.out_of_range_maximum_pressure_pa;
 }
 void copy_domain_thermal_status(MAOniDomainThermalStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;

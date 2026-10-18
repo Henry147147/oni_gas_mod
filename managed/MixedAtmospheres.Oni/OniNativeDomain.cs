@@ -55,7 +55,12 @@ namespace MixedAtmospheres.Oni
             public double Multiplier, ExchangedMassKg, ElapsedMilliseconds;
             public double MaximumMassResidualKg, MaximumMassBoundKg, EnergyResidualJoules, EnergyBoundJoules;
             [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string Profile;
-            internal static DiffusionStatus Empty => new DiffusionStatus { Size = 184, Version = 1, Profile = "" };
+            // Extrapolated pair evaluations outside the validated ranges and
+            // their extreme face states (zero when there are none).
+            public ulong OutOfRangeEvaluations;
+            public double OutOfRangeMinimumTemperatureK, OutOfRangeMaximumTemperatureK;
+            public double OutOfRangeMinimumPressurePa, OutOfRangeMaximumPressurePa;
+            internal static DiffusionStatus Empty => new DiffusionStatus { Size = 224, Version = 2, Profile = "" };
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_diffusion_configure", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int ConfigureDiffusion(ulong session, ulong completedFrame, uint mode, double multiplier);
