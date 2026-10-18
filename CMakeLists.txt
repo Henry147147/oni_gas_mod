@@ -12,7 +12,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Preserve the strict floating-point flags below: IPO only removes call and
 # abstraction overhead. Keep instrumented builds independent of LTO toolchains.
-if(MA_ENABLE_IPO AND NOT MA_SANITIZERS)
+get_property(ma_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(MA_ENABLE_IPO AND NOT MA_SANITIZERS AND (ma_multi_config OR CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo)$"))
     include(CheckIPOSupported)
     check_ipo_supported(RESULT ma_ipo_supported OUTPUT ma_ipo_error LANGUAGES CXX)
     if(NOT ma_ipo_supported)
@@ -27,6 +28,12 @@ if(MA_SANITIZERS AND NOT MSVC)
     # controls. Every instrumented static-library consumer needs the runtime.
     add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
+endif()
+if(NOT MSVC)
+    # GCC's C++ default contracts a*b+c into FMA wherever the target has it.
+    # Keep every target, including the game libraries and the reference EOS,
+    # on uncontracted binary64 so results stay reproducible across builds.
+    add_compile_options(-ffp-contract=off -fno-fast-math)
 endif()
 
 # Reference EOS used through FluidThermodynamics by MacClosedWorld (the
