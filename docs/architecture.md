@@ -46,10 +46,13 @@ remain mixed; ordinary room air must not rapidly sort into pure oxygen and
 nitrogen layers. Hydrostatic equilibrium must remain stationary numerically.
 The closed owner now supports conservative, species-specific
 [mixture-averaged gas diffusion](../native/MAC_DIFFUSION.md), with enthalpy
-transport and zero net diffusive mass flux. New gas development regions select
+transport and zero net diffusive mass flux. Its Maxwell–Stefan driving force
+includes pressure diffusion in an entropy-producing discrete form. Faces
+touching empty cells carry no diffusive flux. New gas development regions select
 physical rates; accelerated mode uses the same equations and checks. Old
-checkpoints retain disabled diffusion until explicitly upgraded. Barodiffusion,
-thermal diffusion and liquid diffusion remain outside its validated scope.
+checkpoints retain disabled diffusion until explicitly upgraded. Thermal
+(Soret) diffusion and liquid diffusion remain outside its scope. Property
+correlations are extrapolated, and counted, outside their validated ranges.
 
 ## Production fluid solver
 

@@ -32,7 +32,9 @@ endpoints retain their conservative upwind result; corrections continue elsewher
 Empty-volume parcels validate geometry and carry exactly zero bulk mass, energy
 and metadata. They are needed when empty space moves into a material cell.
 
-Conduction and shock heat have no contact through vacuum. Compression and viscous
+Conduction and shock heat have no contact through vacuum, and
+[gas diffusion](MAC_DIFFUSION.md#discrete-face-flux) carries no flux across a
+face touching an empty cell. Compression and viscous
 stencils have material only in occupied cells; shear stencils spanning empty cells
 are omitted. Native body heat contact with empty fluid transfers zero energy.
 Entropy bounds exclude only the zero-inventory side's undefined temperature.

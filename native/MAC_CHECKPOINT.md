@@ -37,8 +37,9 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    material/compression/momentum reconstruction settings, conduction flag and
    compression-activated heat enum. Version 3 then adds the shear and bulk viscosity
    coefficients (binary64). Version 4 includes those coefficients, then diffusion
-   mode/multiplier and the complete immutable transport profile (identity,
-   pair coefficients, validity bounds, estimated flags and sources).
+   mode/multiplier, the unsigned 32-bit discrete diffusion formulation (2) and
+   the complete immutable transport profile (identity, pair coefficients,
+   validated ranges, estimated flags and sources).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -54,9 +55,18 @@ setting, rejects explicitly: no missing setting is filled from whatever default 
 current binary has.
 
 Versions 2 and 3 explicitly restore with diffusion disabled. Version 4 requires
-enabled diffusion and an exact matching transport profile, including properties
-and provenance under the same identity. Mode changes require explicit opt-in at
-a completed simulation boundary; loading a save cannot enable diffusion.
+enabled diffusion, the current diffusion formulation and an exact matching
+transport profile, including properties and provenance under the same identity.
+Mode changes require explicit opt-in at a completed simulation boundary; loading
+a save cannot enable diffusion.
+
+The formulation field was added to the version-4 layout when the diffusion
+flux became pressure-diffusion and entropy consistent
+([formulation 2](MAC_DIFFUSION.md#discrete-face-flux)). Version-4 images were
+never released. An image of the earlier layout reads its profile-identity
+length where the formulation is expected and rejects with "Unsupported saved gas
+diffusion formulation"; it never restores under different physics. Versions 2
+and 3 are unchanged byte for byte.
 
 The managed paired-colony wrapper admits the version 4 metadata prefix for
 ordinary, actor and configured-domain images. Full native admission still

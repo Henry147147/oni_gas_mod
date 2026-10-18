@@ -73,7 +73,8 @@ component tests; it excludes the regularization, conduction and viscosity stages
 When gas diffusion is enabled, the owner wraps each interval of at most 0.1 s
 with half a diffusion advance before flow and half after. The following flow
 substeps retain their maximum 0.01 s timestep. Exact-equilibrium execution must
-also certify zero diffusion flux. See [gas diffusion](MAC_DIFFUSION.md).
+also certify zero diffusion flux (identical inventories and U across every open
+face, or a face touching an empty cell). See [gas diffusion](MAC_DIFFUSION.md).
 
 Each attempted substep of length dt applies these stages to a local candidate, in
 this order (`MacClosedWorld::advanced` in `mac_closed_world.cpp`):
