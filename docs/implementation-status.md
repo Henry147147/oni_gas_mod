@@ -40,6 +40,21 @@ but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
+Conservative [gas diffusion](../native/MAC_DIFFUSION.md) now supplies
+species-specific exchange with carried enthalpy, physical/accelerated modes,
+completed-frame configuration and versioned checkpoint properties. Binary
+analytical/refinement controls and independent Maxwellâ€“Stefan ordinary-air
+comparisons pass; Linux sanitizer checks pass. On a Ryzen 9950X, a 250,000-cell
+two-half-stage benchmark measures 5.06 ms p95 for certified uniform inventories
+and 188.32 ms for active mixing per 0.1 simulated seconds. Active diffusion
+misses its proposed 6.25 ms allocation; this is not the required Ryzen 5900X
+colony/adapter benchmark, and actual Linux ONI validation remains open.
+Windows six-cell physical/100× runs, diffusion-enabled paired save/readback,
+exact zero-time restore and 120-frame continuation replay pass. The mode
+shortcut preserves the selected composition overlay, and play continues after
+the bounded restore audit. See the [validation record](gas-diffusion-validation.json)
+for the measured scope and remaining gates.
+
 An opt-in [1-D nodal momentum/kinetic conversion](../native/MAC_NODAL_CONVERSION.md)
 now passes the original curved-deformation point oracle with independently checked
 work and inventories. It preserves full-range momentum, carries conversion work
@@ -56,7 +71,7 @@ acceptance or supplied the general 2-D conversion; production defaults are uncha
 | Native harness | The licensed SimDLL in an isolated console process ([NativeShadowProbe](../tools/NativeShadowProbe/README.md)), natively or under Wine; no Unity |
 | Standalone | CTest, managed and Python suites; no game process |
 
-"Bounded" means the six-cell (3×2) sealed development room of the
+"Bounded" means the six-cell (3Ã—2) sealed development room of the
 [sealed native domain](sealed-native-domain.md) unless stated otherwise. Unit
 tests never count as in-game acceptance.
 
@@ -66,10 +81,10 @@ tests never count as in-game acceptance.
 | --- | --- | --- |
 | [Native hook backend](native-backend-integration.md) | Exact-build ONI 744825 profiles for Windows x64 and Linux x86-64 with code fingerprints and assembly/SimDLL hashes checked at load. The opt-in forwarding observer preserves native physics; actual Unity colony forwarding passes on Windows and Linux, plus isolated native comparisons on both | Complete native reader/writer coverage; production takeover |
 | [Linux trampoline storage](native-platform-numerics.md#linux-trampoline-storage) | Hooks use verified zero padding in the game's executable page, with bounded capacity and exact byte/permission restoration on teardown | New profiles for any other game build |
-| [Sealed native domain](sealed-native-domain.md) | `MacClosedWorld` behind `ma_oni_domain_*` advances once per positive native worker frame inside ONI's schedule. One rectangle of 2–16 cells per side, five species (N2, O2, He, H2O, CO2), seven fixed scenarios (0–6). Mixed-air and compressed-water scenes pass in Linux Unity, Windows and WindowsPlayer/Proton with calibrated GPU checks; gas/liquid coexistence passes in Linux Unity and WindowsPlayer/Proton | Starts only from a development `colony-validation.json`; one owner; no vacuum or free surfaces |
-| [Configured domain](native-configured-domain.md) | Scenario 7: explicit physics settings, static insulating interior solids with per-cell hook suppression, rectangles up to 256 per side within 4,096 cells. Native groups pass on Linux, sanitizers and Windows binaries under Wine. A managed adapter and 7×5 gas/water rooms with interior solids pass in Linux Unity (2026-10-18), including [paired saves](native-configured-domain.md#saves-and-reloads), fresh-process loads, natural autosaves and an 8,401-frame long run; the gas save and load also pass under Proton | Actual Windows runs, occupied rooms, fluid/solid heat at interior faces, changing solids; a 64×64 frame takes about 48 s |
+| [Sealed native domain](sealed-native-domain.md) | `MacClosedWorld` behind `ma_oni_domain_*` advances once per positive native worker frame inside ONI's schedule. One rectangle of 2â€“16 cells per side, five species (N2, O2, He, H2O, CO2), seven fixed scenarios (0â€“6). Mixed-air and compressed-water scenes pass in Linux Unity, Windows and WindowsPlayer/Proton with calibrated GPU checks; gas/liquid coexistence passes in Linux Unity and WindowsPlayer/Proton | Starts only from a development `colony-validation.json`; one owner; no vacuum or free surfaces |
+| [Configured domain](native-configured-domain.md) | Scenario 7: explicit physics settings, static insulating interior solids with per-cell hook suppression, rectangles up to 256 per side within 4,096 cells. Native groups pass on Linux, sanitizers and Windows binaries under Wine. A managed adapter and 7Ã—5 gas/water rooms with interior solids pass in Linux Unity (2026-10-18), including [paired saves](native-configured-domain.md#saves-and-reloads), fresh-process loads, natural autosaves and an 8,401-frame long run; the gas save and load also pass under Proton | Actual Windows runs, occupied rooms, fluid/solid heat at interior faces, changing solids; a 64Ã—64 frame takes about 48 s |
 | [Initial inventory admission](native-domain-physics.md#initial-inventory-admission) | The room starts from a completed native `GameDataUpdate`, admitting every native gas/water tuple before flow fencing. Linux Unity and WindowsPlayer/Proton pass source, save and exact reload | General world/geometry import, declared reference EOS only |
-| Whole-world import | The v15 importer stages all generated worlds read-only. The Windows run staged nine worlds and 50,368 fluid cells, then **rejected** compressed-liquid placement: 28 pore components cannot fit the declared reference volume (minimum deficit 11.87 m³) | Conservative placement without deleting mass or inventing headspace ([interop contract](interop-contract.md)) |
+| Whole-world import | The v15 importer stages all generated worlds read-only. The Windows run staged nine worlds and 50,368 fluid cells, then **rejected** compressed-liquid placement: 28 pore components cannot fit the declared reference volume (minimum deficit 11.87 mÂ³) | Conservative placement without deleting mass or inventing headspace ([interop contract](interop-contract.md)) |
 | [Coverage inventory](ownership-coverage.md) | 3,072 entries (materials, native messages/imports/hooks, channels, call sites, systems, prefabs, converters, recipes), each with owner, adapter and acceptance test; validated by the normal build | All entries are `unimplemented`; `gate` exits nonzero until acceptance is complete |
 | [Inspected native boundary](interop-contract.md) | Message IDs, unmanaged layouts, phase order and static callers of build 744825; earlier vacuum-shadow experiments are historical controls | Independent reader/writer proof on both OSes |
 
@@ -89,7 +104,7 @@ atomically with receipts and deliver original game callbacks once.
 | [Pressure reader](native-domain-readers.md#physical-pressure) | `Grid.Pressure` and its five game callers read physical pressure for owned cells. Linux Unity and WindowsPlayer/Proton pass | Mechanical forces and device pressure semantics |
 | Heat edits and [body heat](native-domain-physics.md#native-object-heat) | Game heating messages commit conserved external heat (Linux Unity, Windows). Element-chunk contacts couple duplicants and items to full-EOS cells; Linux Unity and WindowsPlayer/Proton sources and local/cross-player reloads pass | Building heat |
 | [Solid-cell heat](native-domain-physics.md#native-solid-cell-heat) | Registered solid faces exchange represented heat through the exact-build temperature hook. Native harness passes on Linux, Wine and the Windows host | **Unity fails**: a published solid endpoint accounts for one temperature step while the fluid journal accounts for two |
-| [Binary32 wire values](native-platform-numerics.md#binary32-wire-values) and [arithmetic scope](native-platform-numerics.md#solver-arithmetic-scope) | Integer-built binary32 decoding preserves subnormal parcels under the game's DAZ/FTZ; `ArithmeticScope` sets the solver's floating-point environment on each executing thread and restores the caller's afterwards | — |
+| [Binary32 wire values](native-platform-numerics.md#binary32-wire-values) and [arithmetic scope](native-platform-numerics.md#solver-arithmetic-scope) | Integer-built binary32 decoding preserves subnormal parcels under the game's DAZ/FTZ; `ArithmeticScope` sets the solver's floating-point environment on each executing thread and restores the caller's afterwards | â€” |
 
 ## Physics in the in-game owner
 
@@ -167,9 +182,9 @@ reactions, closed-vessel phase helpers and pump/separator process models
 
 No active-colony performance gate passes. The release target is **25 ms per
 0.1 simulated seconds for 100,000 active cells on a Ryzen 5900X**, with sustained
-1× play, bounded memory and no growing publication backlog. Current
+1Ã— play, bounded memory and no growing publication backlog. Current
 `MacClosedWorld` measurements, including the 100,000-cell whole-owner
-equilibrium shortcut and the 16×16 pressure-wave cost, are in
+equilibrium shortcut and the 16Ã—16 pressure-wave cost, are in
 [playtesting readiness](playtesting-readiness.md#reproduce-measurements). The
 `GasWorld` reference takes about 425 ms for 0.001 s on 100,000 cells and the
 [`FluidWorld` prototype](../native/FLUID_WORLD.md) still fails its 25 ms

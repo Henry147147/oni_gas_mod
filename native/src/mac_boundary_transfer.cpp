@@ -156,7 +156,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             "Fluid removal would create an unsupported liquid free surface");
         parcels.push_back(std::move(packet));
     }
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_);
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return {std::move(candidate),std::move(parcels),unresolved};
 }

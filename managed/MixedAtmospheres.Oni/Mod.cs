@@ -30,6 +30,7 @@ namespace MixedAtmospheres.Oni
                 NativeLibraryBootstrap.Load(path);
                 NativeBackendObservation.Initialize(path);
                 MixtureAppearanceSettings.Initialize();
+                GasDiffusionOptions.Initialize();
                 MixtureOverlays.InitializeStrings();
                 OniNitrogenElements.InitializeStrings();
                 ColonyRuntimeValidation.Initialize();

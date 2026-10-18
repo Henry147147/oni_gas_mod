@@ -38,6 +38,7 @@ identify water. Blank areas do not indicate vacuum.
 | Control | Effect |
 | --- | --- |
 | Shift+F5 | Cycle composition, pressure, oxygen partial pressure, breathability and normal view |
+| Shift+F6 | Cycle gas diffusion: physical, accelerated (default 100×), off |
 | Shift+F8 | Expand/collapse the status panel |
 | Shift+F9 | Centre and zoom the camera on the supplied fluid region |
 | Shift+F10 | Show/hide the cyan region outline |
@@ -66,6 +67,12 @@ selecting the starting duplicants, allow preparation and 120 custom worker
 frames to complete. The game pauses for inspection; press **Shift+F9** to find
 the chamber. Surrounding colony physics still belongs to ONI. These scenes are
 bounded implementation controls, not a playable overhaul.
+
+New gas regions use physical gas diffusion. The panel shows the active rate;
+**Shift+F6** selects the accelerated 100× mode or turns diffusion off. Older
+checkpoints keep diffusion disabled until explicitly changed. See
+[gas diffusion](native/MAC_DIFFUSION.md) for configuration, transport-property
+ranges, validation and the outstanding active-mixing performance limit.
 
 Use a fresh package or move aside `colony-validation.json` before selecting a
 different scene. To return to ordinary observation, remove that configuration

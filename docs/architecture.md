@@ -44,8 +44,12 @@ swap rule. At equal temperature and pressure a hydrogen-rich parcel has lower
 density than surrounding air, and a warm air parcel can rise. Gases diffuse and
 remain mixed; ordinary room air must not rapidly sort into pure oxygen and
 nitrogen layers. Hydrostatic equilibrium must remain stationary numerically.
-The reference diffusion model is mixture-averaged Fick diffusion, without
-barodiffusion or thermal diffusion.
+The closed owner now supports conservative, species-specific
+[mixture-averaged gas diffusion](../native/MAC_DIFFUSION.md), with enthalpy
+transport and zero net diffusive mass flux. New gas development regions select
+physical rates; accelerated mode uses the same equations and checks. Old
+checkpoints retain disabled diffusion until explicitly upgraded. Barodiffusion,
+thermal diffusion and liquid diffusion remain outside its validated scope.
 
 ## Production fluid solver
 

@@ -12,6 +12,7 @@ namespace MixedAtmospheres.Oni
             public double PhysicalTimeSeconds, LastTimestepSeconds, MaximumRelativeMassError, MaximumRelativeEnergyError;
             public int Publications;
             public string NativeError = "";
+            public OniNativeDomain.DiffusionStatus GasDiffusion;
         }
         internal static TelemetryReading? CaptureTelemetry() => !IsMode ? null : new TelemetryReading
         {
@@ -21,7 +22,7 @@ namespace MixedAtmospheres.Oni
             Substeps = latest.Substeps, RejectedAttempts = latest.RejectedAttempts,
             PhysicalTimeSeconds = latest.TimeSeconds, LastTimestepSeconds = latest.LastTimestepSeconds,
             MaximumRelativeMassError = latest.MaximumRelativeMassError, MaximumRelativeEnergyError = latest.MaximumRelativeEnergyError,
-            Publications = publications, NativeError = latest.Error
+            Publications = publications, NativeError = latest.Error, GasDiffusion = GasDiffusionOptions.Current
         };
     }
 }

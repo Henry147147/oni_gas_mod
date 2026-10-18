@@ -29,14 +29,16 @@ All integers are little-endian; floating values are finite IEEE binary64 values
 stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1 GiB and consists of:
 
-1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2, or 3 when
-   viscosity is enabled), and a length-prefixed binary model identity.
+1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (4 with
+   diffusion, otherwise 3 with viscosity or 2), and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
    material/compression/momentum reconstruction settings, conduction flag and
    compression-activated heat enum. Version 3 then adds the shear and bulk viscosity
-   coefficients (binary64).
+   coefficients (binary64). Version 4 includes those coefficients, then diffusion
+   mode/multiplier and the complete immutable transport profile (identity,
+   pair coefficients, validity bounds, estimated flags and sources).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -45,11 +47,29 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    and a length-prefixed canonical decimal exponent.
 8. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
-Version 2 is written whenever both viscosity coefficients are zero, so images without
-viscosity keep their exact pre-viscosity bytes; a version 3 image with both
+With diffusion disabled, version 2 is written when both viscosity coefficients
+are zero, so legacy owners keep their exact bytes; a version 3 image with both
 coefficients zero is noncanonical and rejects. Version 1, which lacked the heat
 setting, rejects explicitly: no missing setting is filled from whatever default the
 current binary has.
+
+Versions 2 and 3 explicitly restore with diffusion disabled. Version 4 requires
+enabled diffusion and an exact matching transport profile, including properties
+and provenance under the same identity. Mode changes require explicit opt-in at
+a completed simulation boundary; loading a save cannot enable diffusion.
+
+The managed paired-colony wrapper admits the version 4 metadata prefix for
+ordinary, actor and configured-domain images. Full native admission still
+validates the viscosity values, diffusion settings and exact transport profile
+against the saved domain before activation. The enclosing paired-payload
+versions and legacy bytes are unchanged; unknown solver versions reject.
+
+An explicit diffusion change during the bounded managed continuation audit
+starts a new reference segment at the same clock and frame, retaining the exact
+configured source image and its hash. The next native input journal binds that
+new source. Actor-change flags retain their separate meaning. The continuation
+audit ends with its submission fence after acceptance, so subsequent normal
+play does not replay an obsolete reference configuration.
 
 Setting enum values (unsigned 32-bit; existing values never change meaning, and an
 older reader rejects a value it does not know):

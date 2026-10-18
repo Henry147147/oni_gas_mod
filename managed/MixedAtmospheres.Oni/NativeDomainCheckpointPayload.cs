@@ -66,9 +66,14 @@ namespace MixedAtmospheres.Oni
                 physical=image.SolverImage;
             }
             else Require(!NativeConfiguredDomainImage.HasMagic(physical),"A configured physical image requires the configured scenario.");
-            Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")) &&
-                BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8))==(configured ? (image!.Physics.Flags&PhysicsViscosity)!=0 ? 3U : 2U :
-                    geometry.Scenario==6 ? 3U : 2U),"Unsupported physical checkpoint format for this scenario.");
+            Require(physical.Length>=32 && physical.Slice(0,8).SequenceEqual(System.Text.Encoding.ASCII.GetBytes("MACCLS01")),
+                "Unsupported physical checkpoint format for this scenario.");
+            var solverVersion=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8));
+            var legacyVersion=configured ? (image!.Physics.Flags&PhysicsViscosity)!=0 ? 3U : 2U : geometry.Scenario==6 ? 3U : 2U;
+            // Version 4 retains this metadata prefix and stores both viscosity
+            // values plus diffusion mode and transport identity. Native admission
+            // checks those complete settings against the saved scenario/wrapper.
+            Require(solverVersion==legacyVersion || solverVersion==4U,"Unsupported physical checkpoint format for this scenario.");
             var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
             Require(clock+42<=physical.Length-8,"Physical checkpoint metadata is truncated.");
             var offset=checked((int)clock);
