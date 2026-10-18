@@ -91,7 +91,7 @@ namespace MixedAtmospheres.Oni
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
         private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
         private static double FixtureHeatJoules => LiquidHeatMode || MixedHeatMode ? 1500000 : 1500;
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : ConfiguredLiquidMode || LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==ConfiguredScenario ? ConfiguredLiquidMode : restoredScenario==1 || restoredScenario==3 : ConfiguredLiquidMode || LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode || MixedHeatMode;
         private static bool TransferMode => RectangularConsumptionMode || RadialConsumptionMode || ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
@@ -327,8 +327,17 @@ namespace MixedAtmospheres.Oni
             // fluid (actual runs: a Hatch, then a buried Muckroot). The larger
             // configured room keeps every positioned prefab out of its arena
             // margin, and live creatures and duplicants further away.
+            // Entombed items and burrowed critters can also still be unspawned
+            // world-gen records, in no object list, that WorldGenSpawner spawns
+            // in their own cell once it stops being solid or is revealed (a
+            // third attempt: a Muckroot). Only a record inside the cells this
+            // fixture rewrites can spawn into the room, so it has no margin.
+            var unspawned = ConfiguredMode && SaveGame.Instance.worldGenSpawner != null ?
+                SaveGame.Instance.worldGenSpawner.GetSpawnables().Where(item => !item.isSpawned).Select(item => (Cell: item.cell, Margin: 0)).ToArray()
+                : Array.Empty<(int Cell, int Margin)>();
             var occupants = ConfiguredMode ? UnityEngine.Object.FindObjectsByType<KPrefabID>(FindObjectsSortMode.None)
                 .Where(item => item != null && item.gameObject.activeInHierarchy).Select(item => (Cell: Grid.PosToCell(item), Margin: item.GetComponent<Brain>() != null ? 8 : 4))
+                .Concat(unspawned)
                 .Where(item => Grid.IsValidCell(item.Cell)).Select(item => (X: item.Cell % Grid.WidthInCells, Y: item.Cell / Grid.WidthInCells, item.Margin)).ToArray()
                 : Array.Empty<(int X, int Y, int Margin)>();
             for (var yy = start.y + 16; yy <= start.y + top && !chosen; ++yy)

@@ -20,7 +20,8 @@ namespace MixedAtmospheres.Oni
             var getter = AccessTools.PropertyGetter(typeof(Grid.PressureIndexer), "Item");
             var view = MixturePresentationRuntime.AcquireFrame()
                 ?? throw new InvalidOperationException("The pressure control has no completed presentation.");
-            pressureReadSamples = Enumerable.Range(0, cells.Length).Select(index => {
+            // A configured interior solid is native data and keeps the native reader.
+            pressureReadSamples = Enumerable.Range(0, cells.Length).Where(index => !IsDomainSolid(index)).Select(index => {
                 var global = Grid.XYToCell(x + index % Width, y + index / Width);
                 Require(view.TryGetCell(global, out var reading) && reading!.ThermodynamicReading != null,
                     "A native pressure control cell has no physical reading.");
@@ -45,7 +46,7 @@ namespace MixedAtmospheres.Oni
                 NativeKilopascals = outside, ExpectedScalarKilopascals = expectedOutside,
                 NativeBits = actualBits, ExpectedBits = expectedBits, GetterReadsBefore = before, GetterReadsAfter = after };
             pressureReadVerified = pressureOutsideVerified && NativePressureCallSitePatch.TargetCount == 5 &&
-                Interlocked.Read(ref pressureGetterReads) >= cells.Length && (Liquid || Interlocked.Read(ref pressureCallSiteReads) > 0);
+                Interlocked.Read(ref pressureGetterReads) >= OwnedCellCount && (Liquid || Interlocked.Read(ref pressureCallSiteReads) > 0);
             Require(pressureReadVerified, "Actual native pressure readers, worker call sites or outside ownership failed.");
         }
         private static object PressureReadReport() => new { Required = PressureReadMode || ColonyRestoreMode, Verified = pressureReadVerified,

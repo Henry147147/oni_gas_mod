@@ -64,7 +64,8 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain")
+LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
+                  "native-configured-domain", "native-configured-water-domain")
 TELEMETRY_FILE = "development-telemetry.jsonl"
 TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
 # The game writes a telemetry heartbeat at least every 60 s of wall time.
@@ -1069,8 +1070,6 @@ def main() -> int:
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not args.mode.startswith("native-") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
-    if args.command == "run" and args.save_colony and args.mode.startswith("native-configured-"):
-        parser.error("Configured rooms have no paired colony save adapter yet; --save-colony is unavailable")
     if args.command == "run" and (bool(args.load_save) != (args.mode == "native-load-domain") or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)

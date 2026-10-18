@@ -96,7 +96,8 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             InteriorSolids=[dict(Index=i,Element='Unobtanium',Solid=True,MassKg=20000.0,TemperatureK=300.0,thermalConductivity=0.0,
                                  specificHeatCapacity=0.0,highTemp=10000.0,HighTempTransition=None,IsUnstable=False,FluidFaces=2,
                                  Occupied=False,Insulating=True) for i,bit in enumerate(mask) if bit],
-            InterfaceModel='impermeable-adiabatic-interior-faces',SolidsAreNativeData=True,CompatibilityProjectionInSolids=False)
+            InterfaceModel='impermeable-adiabatic-interior-faces',SolidsAreNativeData=True,CompatibilityProjectionInSolids=False,
+            Restored=False,SavedPayloadFormatVersion=0,RestoredGridVerified=False,RestoredMaskFromLoadedGrid=[],RestoredInteriorSolids=[])
         report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Stages=1260,Contacts=40,
             Iterations=80,UnresolvedUpdates=0,RedistributedEnergy=12.5,EntropyChange=.01)
         report['Gravity']=dict(Size=96,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Gravity=9.81,InitialPotential=100.0,
@@ -109,10 +110,89 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             self.assertTrue(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid))
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,liquid=liquid))
             self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=not liquid))
-            for extra in ('heat','transfers','gravity','conduction','saved','restored','mixed_phase'):
+            for extra in ('heat','transfers','gravity','conduction','mixed_phase','natural_autosave','persistent_actors','live_breathing'):
                 self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid,**{extra:True}),extra)
+            # A live room is not a restored one, and a save needs its paired section.
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid,restored=True))
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid,saved=True))
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,configured=True))
         self.assertFalse(runner.native_domain_passed(self.configured_report(),self.observation,31,configured=True))
+
+    def configured_restored_report(self, liquid=False):
+        """A fresh-process load of a saved configured room with its frame-zero resave and readers over 31 fluid cells."""
+        self.report=self.configured_report(liquid);mask=self.CONFIGURED_MASK;value=self.report['ConfiguredDomain']
+        value.update(Restored=True,SavedPayloadFormatVersion=4,RestoredGridVerified=True,RestoredMaskFromLoadedGrid=list(mask),
+            RestoredInteriorSolids=copy.deepcopy(value['InteriorSolids']),InventoryVerified=False,Inventory=[],InventorySha256='')
+        self.set_restored_autosave()
+        def f32(number):return struct.unpack('<f',struct.pack('<f',number))[0]
+        cells=[207*256+119+i%7+256*(i//7) for i,bit in enumerate(mask) if not bit]
+        pressure=220000000 if liquid else 100010.0;mass=1100 if liquid else 1.2
+        self.report['NativeDomain'].update(PressurePa=pressure)
+        self.report['NativePressureReader']=dict(Required=True,Verified=True,NativeOutsideVerified=True,CallSitePatchesVerified=True,
+            DistinctFromLegacyScalarRequired=False,Source='Grid.PressureIndexer.get_Item',Units='kPa-from-completed-mechanical-Pa',GetterReads=31,
+            Outside=dict(PublicCell=999,ScalarMassKg=1000,NativeKilopascals=101300,ExpectedScalarKilopascals=101300,
+                NativeBits=struct.unpack('<i',struct.pack('<f',101300))[0],ExpectedBits=struct.unpack('<i',struct.pack('<f',101300))[0],
+                GetterReadsBefore=31,GetterReadsAfter=31),
+            GameCallSiteReads=0 if liquid else 60,PatchedGameCallSites=5,Samples=[dict(PublicCell=cell,CompletedPhysicalFrame=30,
+                PhysicalPressurePa=pressure,GasPressurePa=0 if liquid else pressure,NativeKilopascals=f32(pressure/1000),
+                LegacyScalarKilopascals=f32(f32(mass)*f32(101.3)),ScalarMassKg=mass) for cell in cells])
+        oxygen=0 if liquid else .25
+        samples=[dict(PublicCell=cell,CompletedPhysicalFrame=30,OxygenMassKg=oxygen,ScalarGridMassKg=mass,OxygenMoleFraction=0 if liquid else .21,
+            OxygenPartialPressurePa=0 if liquid else 21000,CarbonDioxideMoleFraction=0,CarbonDioxidePartialPressurePa=0,AdvertisedOxygenMassKg=oxygen,
+            ScalarElement=2 if liquid else 1,AdvertisedElement=0 if liquid else 1,Failures=1 if liquid else 0,Breathable=not liquid) for cell in cells]
+        searched=[cells[i] for i in (1,7,8,6,2,0)]
+        self.report['RestoredNativeReaders']=dict(Required=True,Verified=True,NativeBreathingOutsideVerified=True,
+            Source='actual-native-pressure-and-world-breathing-readers',BreathingReads=40,OxygenElementId=1,WaterElementId=2,VacuumElementId=0,
+            Policy=dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,MinimumOxygenPartialPressurePa=15000,
+                MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500),BreathingSamples=samples,
+            BreathingSelection=dict(Cell=searched[0],ElementID=0 if liquid else 1,Mass=oxygen,IsBreathable=not liquid,
+                TotalBreathableMass=6*oxygen,BreatherInstanceId=-900,NoOxygenThreshold=.01,SearchedCells=searched))
+        return self.report
+
+    def test_configured_source_save_requires_one_paused_paired_section(self):
+        self.report=self.configured_report();self.set_saved_colony()
+        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,configured=True,saved=True))
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,saved=True))
+        for key,value in [('SavedFileReadbackVerified',False),('SimSaveWrites',2),('SourceFrame',29),('AutomaticSaveAdmissions',0)]:
+            report=copy.deepcopy(self.report);report['ColonyCheckpoint'][key]=value
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,saved=True),key)
+
+    def test_restored_configured_room_requires_its_saved_configuration_loaded_grid_mask_and_readers(self):
+        for liquid in (False,True):
+            report=self.configured_restored_report(liquid)
+            self.assertTrue(runner.native_domain_passed(report,self.observation,30,restored=True),liquid)
+            self.assertTrue(runner.native_domain_passed(report,self.observation,30,restored=True,configured=True),liquid)
+        value=lambda report:report['ConfiguredDomain']
+        edits={
+            'live room':lambda r:value(r).update(Restored=False),
+            'grid unverified':lambda r:value(r).update(RestoredGridVerified=False),
+            'loaded mask':lambda r:value(r)['RestoredMaskFromLoadedGrid'].__setitem__(26,0),
+            'missing loaded mask':lambda r:value(r).update(RestoredMaskFromLoadedGrid=[]),
+            'legacy payload':lambda r:value(r).update(SavedPayloadFormatVersion=3),
+            'no payload':lambda r:value(r).update(SavedPayloadFormatVersion=0),
+            'new inventory':lambda r:value(r).update(InventoryVerified=True),
+            'inventory rows':lambda r:value(r).update(Inventory=[dict(Index=0)]),
+            'occupied restored solid':lambda r:value(r)['RestoredInteriorSolids'][0].update(Occupied=True),
+            'conductive restored solid':lambda r:value(r)['RestoredInteriorSolids'][1].update(thermalConductivity=1.0),
+            'missing restored solid':lambda r:value(r)['RestoredInteriorSolids'].pop(),
+            'copied mask':lambda r:value(r)['CopiedMask'].__setitem__(3,0),
+            'copied physics':lambda r:value(r)['CopiedPhysics'].update(Flags=19),
+            'solids after resume':lambda r:value(r).update(InteriorSolidsVerified=False),
+            'legacy scenario':lambda r:r.update(Scenario='mixed-air'),
+            'missing block':lambda r:r.pop('ConfiguredDomain'),
+            'pressure rows':lambda r:r['NativePressureReader']['Samples'].pop(),
+            'breathing rows':lambda r:r['RestoredNativeReaders']['BreathingSamples'].pop(),
+            'searched solid':lambda r:r['RestoredNativeReaders']['BreathingSelection']['SearchedCells'].__setitem__(5,207*256+119+3),
+            'searched count':lambda r:r['RestoredNativeReaders']['BreathingSelection']['SearchedCells'].pop(),
+            'unsearched total':lambda r:r['RestoredNativeReaders']['BreathingSelection'].update(TotalBreathableMass=31*.25),
+            'frame-zero resave':lambda r:r['ColonyCheckpoint'].update(FrameZeroResaveVerified=False),
+            'replay':lambda r:r['ColonyCheckpoint'].update(ExactContinuationFrames=29),
+        }
+        for name,edit in edits.items():
+            report=copy.deepcopy(self.configured_restored_report());edit(report)
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,restored=True),name)
+        water=self.configured_restored_report(True);water['Scenario']='configured-pillared-gas'
+        self.assertFalse(runner.native_domain_passed(water,self.observation,30,restored=True))
 
     def test_configured_room_rejects_fluid_solids_unverified_copies_and_inert_physics(self):
         def changed(edit):
@@ -149,6 +229,9 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             'scenario':lambda r:r.update(Scenario='mixed-air'),
             'variant':lambda r:value(r).update(Variant='water'),
             'inventory hash':lambda r:value(r).update(InventorySha256='x'),
+            'restored flag':lambda r:value(r).update(Restored=True),
+            'loaded mask in a live room':lambda r:value(r).update(RestoredMaskFromLoadedGrid=list(self.CONFIGURED_MASK)),
+            'saved format in a live room':lambda r:value(r).update(SavedPayloadFormatVersion=4),
         }
         for name,edit in edits.items():
             self.assertFalse(changed(edit),name)
@@ -1914,7 +1997,19 @@ class ConfiguredDomainMirrorTests(unittest.TestCase):
         offered=set(re.findall(r"[a-z][a-z-]+",error.getvalue().split("choose from",1)[1]))
         self.assertEqual(offered-{"menu"},managed-{"coupled-presentation"})
         self.assertIn("native-configured-domain",managed);self.assertIn("native-configured-water-domain",managed)
-        self.assertNotIn("native-configured-domain",runner.LONG_RUN_MODES)
+        self.assertIn("native-configured-domain",runner.LONG_RUN_MODES);self.assertIn("native-configured-water-domain",runner.LONG_RUN_MODES)
+
+    def test_configured_rooms_admit_source_saves_and_long_runs_but_not_long_run_saves(self):
+        for mode in ("native-configured-domain","native-configured-water-domain"):
+            self.assertIsNone(runner.run_limits_error(_run_args(mode=mode,frames=9000,timeout=172800,long_run=True)))
+            self.assertIsNotNone(runner.run_limits_error(_run_args(mode=mode,frames=9000,timeout=172800,long_run=True,save_colony=True)))
+            seen=[]
+            with tempfile.TemporaryDirectory() as state, mock.patch.object(sys,"argv",["oni_headless","--state",state,"run","--package",state,
+                    "--mode",mode,"--save-colony","--frames","120"]), \
+                    mock.patch.object(runner,"locked_command",side_effect=lambda args,state,session:seen.append(args.save_colony) or 0):
+                self.assertEqual(runner.main(),0)
+            self.assertEqual(seen,[True])
+            self.assertTrue(runner.colony_configuration(_run_args(mode=mode,save_colony=True),"MA-unit",None,0)["SaveOnComplete"])
 
 
 class LongRunTelemetryTests(unittest.TestCase):

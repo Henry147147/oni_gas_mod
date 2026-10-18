@@ -203,6 +203,12 @@ class WindowsEvidenceTests(unittest.TestCase):
         options = runner.domain_options(args)
         self.assertEqual(options["expected_platform"], "WindowsPlayer")
         self.assertFalse(options["restored"])
+        self.assertFalse(options["configured"])
+        for mode,liquid in (("native-configured-domain",False),("native-configured-water-domain",True)):
+            configured=copy.copy(args);configured.mode=mode;configured.save_colony=True
+            runner.validate_arguments(configured);options=runner.domain_options(configured)
+            self.assertIn(mode,runner.MODES)
+            self.assertTrue(options["configured"] and options["saved"]);self.assertIs(options["liquid"],liquid)
         args.mode="menu"
         runner.validate_arguments(args)
         args.save_colony=True

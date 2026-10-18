@@ -59,10 +59,11 @@ namespace MixedAtmospheres.Oni
         // Scenes whose retained evidence was audited as bounded per frame.
         // Fixture variants keep their short, exact windows; saved-colony replay
         // keeps one journal per frame and single-save evidence, so it is not
-        // admitted until those are streamed. Configured rooms have no paired
-        // save adapter yet, so a cycle's natural autosave would be declined.
+        // admitted until those are streamed. Configured rooms keep per-cell
+        // state only and their natural autosaves use the paired configured save.
         internal static readonly string[] LongRunModes =
-            { "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain" };
+            { "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
+              "native-configured-domain", "native-configured-water-domain" };
 
         internal static ColonyValidationConfiguration Parse(string text)
         {

@@ -13,18 +13,29 @@ namespace MixedAtmospheres.Oni
     // and is verified exactly like the border: static, stable, non-transitioning,
     // insulating and empty. Interior fluid/solid faces are impermeable and
     // adiabatic. This is development evidence, not whole-colony ownership.
+    // A paired save carries the session's exact geometry, physics and mask in
+    // its MADCFG01 wrapper; a load restores exactly that configuration.
     internal static unsafe partial class NativeSealedDomainValidation
     {
-        private static bool ConfiguredMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-domain" || ConfiguredLiquidMode;
-        private static bool ConfiguredLiquidMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-water-domain";
+        private static bool ConfiguredMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-domain" || ConfiguredLiquidMode || RestoredConfigured;
+        private static bool ConfiguredLiquidMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-water-domain" ||
+            RestoredConfigured && (restoredConfiguredPhysics.Flags & PhysicsLiquid) != 0;
+        private static bool RestoredConfigured => restoredScenarioSelected && restoredScenario == ConfiguredScenario;
         private static ConfiguredDomainLayout? configuredRoom;
         private static ConfiguredDomainLayout ConfiguredRoom => configuredRoom ??= ConfiguredDomainLayout.PillaredRoom();
         private static bool IsDomainSolid(int index) => ConfiguredMode && ConfiguredRoom.IsSolid(index);
         private static bool IsDomainSolidAt(int dx, int dy) => ConfiguredMode && ConfiguredRoom.IsSolid(dx, dy);
         private static int FirstDomainFluid => ConfiguredMode ? ConfiguredRoom.FirstFluid : 0;
-        private static Physics ConfiguredPhysics => Physics.Create(PhysicsGravity | PhysicsConduction | (ConfiguredLiquidMode ? PhysicsLiquid : 0U), 9.81);
-        private static float ConfiguredProjectionMass(int column) => ConfiguredLiquidMode ? 1000 + 20 * column : .6f + .3f * column;
-        private static float ConfiguredProjectionTemperature(int column) => 280 + 5 * column;
+        // Cells the custom owner holds: every fluid cell of a configured room.
+        private static int OwnedCellCount => ConfiguredMode ? ConfiguredRoom.FluidCount : cells.Length;
+        private static Physics ConfiguredPhysics => RestoredConfigured ? restoredConfiguredPhysics : ConfiguredDomainLayout.ScenePhysics(ConfiguredLiquidMode);
+        private static Physics restoredConfiguredPhysics;
+        private static bool configuredRestoredGridVerified;
+        private static byte[] configuredRestoredMask = Array.Empty<byte>();
+        private static object[] configuredRestoredSolidEvidence = Array.Empty<object>();
+        private static int configuredSavedFormatVersion;
+        private static float ConfiguredProjectionMass(int column) => ConfiguredDomainLayout.ProjectionMass(ConfiguredLiquidMode, column);
+        private static float ConfiguredProjectionTemperature(int column) => ConfiguredDomainLayout.ProjectionTemperature(column);
 
         private static bool configuredInventoryVerified, configuredConfigurationVerified, configuredSolidsVerified;
         private static bool configuredThermalVerified, configuredGravityVerified, configuredCopiesVerified, configuredMotionObserved;
@@ -56,6 +67,73 @@ namespace MixedAtmospheres.Oni
                 element.specificHeatCapacity == 0 && !element.IsUnstable &&
                 (element.highTempTransition == null || element.highTempTransition.id == element.id) &&
                 Grid.Temperature[cell] < element.highTemp && Grid.Mass[cell] > 0;
+        }
+
+        // A loaded configured save: only the rooms this adapter itself builds
+        // have a compatibility and validation adapter, so the saved wrapper must
+        // name the pillared room with the gas or water scene physics exactly.
+        private static void AdmitSavedConfiguredRoom(NativeDomainCheckpointPayload payload)
+        {
+            var saved = payload.Configured ?? throw new InvalidDataException("A configured colony save has no configuration wrapper.");
+            RequireConfiguredCapability();
+            if (!ConfiguredDomainLayout.IsSavedScene(saved))
+                throw new InvalidDataException("Saved configured room has no managed restore adapter; only the pillared 7x5 gas or water scene is admitted.");
+        }
+
+        // Native admission of a saved image against its own saved configuration.
+        private static void ValidateSavedCheckpoint(NativeDomainCheckpointPayload payload, byte[] physical)
+        {
+            var config = payload.Geometry;
+            if (payload.Configured == null) { Check(ValidateCheckpoint(ref config, physical, (uint)physical.Length, payload.PhysicalTime)); return; }
+            var physics = payload.Configured.Physics; var mask = payload.Configured.Mask;
+            Check(ValidateConfiguredCheckpoint(ref config, ref physics, mask, (uint)mask.Length, physical, (uint)physical.Length, payload.PhysicalTime));
+        }
+
+        // A paired save of a configured session must carry exactly the live
+        // session's geometry, physics and mask, read back from the native owner.
+        private static void RequireLiveConfiguredSave(NativeDomainCheckpointPayload payload)
+        {
+            Require(ConfiguredMode == (payload.Configured != null), "Paired save configuration differs from the live domain kind.");
+            if (payload.Configured == null) return;
+            VerifyConfigurationCopy(latest.Session, configuredGeometry, ConfiguredPhysics);
+            Require(NativeConfiguredDomainImage.SameGeometry(payload.Configured.Geometry, configuredGeometry) &&
+                NativeConfiguredDomainImage.SamePhysics(payload.Configured.Physics, ConfiguredPhysics) && ConfiguredRoom.SameMask(payload.Configured.Mask),
+                "Paired configured save differs from the live session's geometry, physics or solid mask.");
+        }
+
+        // Before restored activation. The saved owner is selected only from the
+        // admitted payload; the loaded grid must then reproduce it.
+        private static void SelectRestoredConfiguredRoom(NativeDomainCheckpointPayload payload)
+        {
+            var saved = payload.Configured!;
+            configuredRoom = new ConfiguredDomainLayout((int)saved.Geometry.Width, (int)saved.Geometry.Height, saved.Mask);
+            restoredConfiguredPhysics = saved.Physics; configuredGeometry = payload.Geometry; configuredSavedFormatVersion = payload.FormatVersion;
+        }
+
+        // The actual loaded game grid (Sim.Start has set its native pointers and
+        // element table) must reproduce the saved solid mask exactly, and every
+        // interior solid must again be native, static, insulating Unobtanium
+        // with cleared metadata, as at activation, before restore_configured.
+        private static void VerifyRestoredConfiguredGrid()
+        {
+            var room = ConfiguredRoom; var loaded = new byte[room.Count];
+            for (var index = 0; index < room.Count; ++index)
+            {
+                var element = Grid.Element[Grid.XYToCell(x + index % Width, y + index / Width)];
+                loaded[index] = element != null && element.IsSolid ? (byte)1 : (byte)0;
+            }
+            configuredRestoredMask = loaded;
+            Require(room.SameMask(loaded), "The loaded game grid's solids differ from the saved configured solid mask.");
+            foreach (var index in room.SolidIndices)
+            {
+                var global = Grid.XYToCell(x + index % Width, y + index / Width);
+                Require(Grid.Element[global].id == SimHashes.Unobtanium && InsulatingStaticSolid(global) && Grid.Solid[global] &&
+                    Grid.DiseaseCount[global] == 0 && Grid.Radiation[global] == 0,
+                    "A loaded configured interior solid is not native, static, insulating Unobtanium at cell " + global + ".");
+            }
+            configuredRestoredSolidEvidence = room.SolidIndices.Select(SolidEvidence).ToArray();
+            Require(BoundaryReady(false), "The loaded configured boundary or interior solids differ from the admitted room.");
+            configuredRestoredGridVerified = true;
         }
 
         private static object SolidEvidence(int index)
@@ -195,6 +273,10 @@ namespace MixedAtmospheres.Oni
             return new
             {
                 Required = true, AbiVersion = ConfiguredAbiVersion, NativeScenario = ConfiguredScenario,
+                Restored = RestoredConfigured, SavedPayloadFormatVersion = configuredSavedFormatVersion,
+                RestoredGridVerified = configuredRestoredGridVerified,
+                RestoredMaskFromLoadedGrid = configuredRestoredMask.Select(value => (int)value).ToArray(),
+                RestoredInteriorSolids = configuredRestoredSolidEvidence,
                 Variant = ConfiguredLiquidMode ? "water" : "gas", Width = room.Width, Height = room.Height,
                 Mask = room.Mask.Select(value => (int)value).ToArray(), FluidCells = room.FluidCount, SolidCells = room.SolidCount,
                 FirstFluidCell = room.FirstFluid,

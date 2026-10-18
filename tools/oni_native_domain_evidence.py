@@ -99,15 +99,16 @@ def _breathing_read_passed(report: dict, physical: dict) -> bool:
         and account.get("AcceptedBatches") == account.get("CommittedBatches") == 1 and account.get("UnacknowledgedReceipts") == 0
         and account.get("MassChangesKg") == [0, 0, 0, 0, .125] and report.get("CellMassEditsRouted") == report.get("ReceiptsPublished") == 1)
 
-def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require_distinct: bool = True) -> bool:
+def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require_distinct: bool = True, cells: int = 6) -> bool:
+    """Every owned cell's pressure reader; cells counts a configured room's fluid cells."""
     reader = report.get("NativePressureReader")
     if (not isinstance(reader, dict) or any(reader.get(key) is not True for key in ("Required", "Verified", "NativeOutsideVerified", "CallSitePatchesVerified"))
             or reader.get("Source") != "Grid.PressureIndexer.get_Item" or reader.get("Units") != "kPa-from-completed-mechanical-Pa"
-            or reader.get("PatchedGameCallSites") != 5 or type(reader.get("GetterReads")) is not int or reader["GetterReads"] < 6
+            or reader.get("PatchedGameCallSites") != 5 or type(reader.get("GetterReads")) is not int or reader["GetterReads"] < cells
             or type(reader.get("GameCallSiteReads")) is not int or reader["GameCallSiteReads"] < (0 if liquid else 1)):
         return False
     rows = reader.get("Samples")
-    if not isinstance(rows, list) or len(rows) != 6:
+    if not isinstance(rows, list) or len(rows) != cells:
         return False
     positions = set()
     try:
@@ -139,23 +140,24 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require
                 or type(outside.get("NativeBits")) is not int or outside["NativeBits"] != bits
                 or type(outside.get("ExpectedBits")) is not int or outside["ExpectedBits"] != bits
                 or type(outside.get("GetterReadsBefore")) is not int or type(outside.get("GetterReadsAfter")) is not int
-                or not 6 <= outside["GetterReadsBefore"] == outside["GetterReadsAfter"] <= reader["GetterReads"]):return False
+                or not cells <= outside["GetterReadsBefore"] == outside["GetterReadsAfter"] <= reader["GetterReads"]):return False
     except (OverflowError, struct.error):return False
     return rows[0]["PhysicalPressurePa"] == physical["PressurePa"]
 
-def _restored_readers_passed(report: dict, physical: dict, liquid: bool) -> bool:
+def _restored_readers_passed(report: dict, physical: dict, liquid: bool, cells: int = 6) -> bool:
+    """Restored pressure and breathing readers over every owned cell (a configured room's fluid cells)."""
     reader = report.get("RestoredNativeReaders")
     if (not isinstance(reader,dict) or any(reader.get(key) is not True for key in ("Required","Verified","NativeBreathingOutsideVerified"))
             or reader.get("Source") != "actual-native-pressure-and-world-breathing-readers"
             or type(reader.get("BreathingReads")) is not int or reader["BreathingReads"] < 12
             or reader.get("Policy") != dict(HardMode=True,MinimumOxygenFraction=.15,MaximumOxygenFraction=.35,
                 MinimumOxygenPartialPressurePa=15000,MaximumCo2Fraction=.005,MaximumCo2PartialPressurePa=500)
-            or not _pressure_read_passed(report,physical,liquid,require_distinct=False)):
+            or not _pressure_read_passed(report,physical,liquid,require_distinct=False,cells=cells)):
         return False
     oxygen, water, vacuum = (reader.get(key) for key in ("OxygenElementId","WaterElementId","VacuumElementId"))
     if any(type(value) is not int for value in (oxygen,water,vacuum)) or len({oxygen,water,vacuum}) != 3:return False
     rows = reader.get("BreathingSamples")
-    if not isinstance(rows,list) or len(rows) != 6:return False
+    if not isinstance(rows,list) or len(rows) != cells:return False
     advertised, positions = [], set()
     for row in rows:
         if not isinstance(row,dict):return False
@@ -179,7 +181,14 @@ def _restored_readers_passed(report: dict, physical: dict, liquid: bool) -> bool
         positions.add(cell);advertised.append((cell,available))
     if positions != {row["PublicCell"] for row in report["NativePressureReader"]["Samples"]}:return False
     selection=reader.get("BreathingSelection")
-    if (not isinstance(selection,dict) or type(selection.get("BreatherInstanceId")) is not int or selection["BreatherInstanceId"] == 0
+    if not isinstance(selection,dict):return False
+    # The native search reads six offsets around its centre: every cell of the
+    # six-cell room, a corner of a larger configured room.
+    searched=selection.get("SearchedCells",sorted(positions) if cells == 6 else None)
+    if (not isinstance(searched,list) or len(searched) != 6 or any(type(cell) is not int for cell in searched)
+            or len(set(searched)) != 6 or not set(searched) <= positions):return False
+    advertised=[(cell,value) for cell,value in advertised if cell in searched]
+    if (type(selection.get("BreatherInstanceId")) is not int or selection["BreatherInstanceId"] == 0
             or type(selection.get("NoOxygenThreshold")) not in (int,float) or not 0 < selection["NoOxygenThreshold"] < math.inf
             or type(selection.get("TotalBreathableMass")) not in (int,float)
             or not abs(selection["TotalBreathableMass"]-sum(value for _,value in advertised)) <= 1e-6):return False
@@ -252,8 +261,27 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
         return False
 
 
-def _configured_domain_passed(report: dict, physical: dict, liquid: bool) -> bool:
-    """A configured scenario-7 room: exact copied geometry/physics/mask, native interior solids and acting physics."""
+def _configured_solids_passed(solids, mask: list[int]) -> bool:
+    """Every interior solid: native, static, insulating and unoccupied Unobtanium, in mask order."""
+    if not isinstance(solids, list) or [item.get('Index') for item in solids] != [index for index, bit in enumerate(mask) if bit]:
+        return False
+    for item in solids:
+        if (item.get('Element') != 'Unobtanium' or item.get('Solid') is not True or item.get('Insulating') is not True
+                or item.get('Occupied') is not False or item.get('IsUnstable') is not False
+                or item.get('thermalConductivity') != 0 or item.get('specificHeatCapacity') != 0
+                or type(item.get('FluidFaces')) is not int or not 1 <= item['FluidFaces'] <= 4
+                or type(item.get('TemperatureK')) not in (int, float) or not item['TemperatureK'] < item['highTemp']):
+            return False
+    return True
+
+
+def _configured_domain_passed(report: dict, physical: dict, liquid: bool, restored: bool = False) -> bool:
+    """A configured scenario-7 room: exact copied geometry/physics/mask, native interior solids and acting physics.
+
+    A restored room additionally needs the saved configuration's format, the
+    loaded game grid's recomputed mask and its interior solids verified before
+    restore; it admits no new inventory.
+    """
     try:
         value = report['ConfiguredDomain']; width, height = value['Width'], value['Height']
         mask = configured_solid_mask(report)
@@ -273,14 +301,25 @@ def _configured_domain_passed(report: dict, physical: dict, liquid: bool) -> boo
                 or copied != dict(Size=40, Version=2, Flags=1, GridWidth=copied.get('GridWidth'), X=report['X'], Y=report['Y'],
                                   Width=width, Height=height, Scenario=7, Reserved=0)
                 or type(copied.get('GridWidth')) is not int or copied['GridWidth'] <= report['X'] + width
-                or any(value.get(key) is not True for key in ('InventoryVerified', 'ConfigurationCopyVerified', 'CopiesAndReadingsVerified',
+                or any(value.get(key) is not True for key in ('ConfigurationCopyVerified', 'CopiesAndReadingsVerified',
                                                                'InteriorSolidsVerified', 'ThermalVerified', 'GravityVerified',
                                                                'MotionObserved', 'SolidsAreNativeData'))
                 or value.get('CompatibilityProjectionInSolids') is not False
-                or value.get('InterfaceModel') != 'impermeable-adiabatic-interior-faces' or not _sha256(value.get('InventorySha256'))):
+                or value.get('InterfaceModel') != 'impermeable-adiabatic-interior-faces'
+                or value.get('Restored') is not restored):
+            return False
+        if restored:
+            if (value.get('RestoredGridVerified') is not True or value.get('RestoredMaskFromLoadedGrid') != mask
+                    or value.get('SavedPayloadFormatVersion') not in (4, 5) or value.get('InventoryVerified') is not False
+                    or value.get('Inventory') != [] or value.get('InventorySha256') != ''
+                    or not _configured_solids_passed(value.get('RestoredInteriorSolids'), mask)):
+                return False
+        elif (value.get('RestoredGridVerified') is not False or value.get('RestoredMaskFromLoadedGrid') != []
+                or value.get('SavedPayloadFormatVersion') != 0 or value.get('InventoryVerified') is not True
+                or not _sha256(value.get('InventorySha256'))):
             return False
         inventory = value['Inventory']
-        if len(inventory) != len(mask):
+        if len(inventory) != (0 if restored else len(mask)):
             return False
         for index, row in enumerate(inventory):
             masses = row['MassesKg']
@@ -294,16 +333,8 @@ def _configured_domain_passed(report: dict, physical: dict, liquid: bool) -> boo
                     or any(item != 0 for species, item in enumerate(masses) if species != (3 if liquid else 1))
                     or not masses[3 if liquid else 1] > 0):
                 return False
-        solids = value['InteriorSolids']
-        if [item.get('Index') for item in solids] != [index for index, bit in enumerate(mask) if bit]:
+        if not _configured_solids_passed(value['InteriorSolids'], mask):
             return False
-        for item in solids:
-            if (item.get('Element') != 'Unobtanium' or item.get('Solid') is not True or item.get('Insulating') is not True
-                    or item.get('Occupied') is not False or item.get('IsUnstable') is not False
-                    or item.get('thermalConductivity') != 0 or item.get('specificHeatCapacity') != 0
-                    or type(item.get('FluidFaces')) is not int or not 1 <= item['FluidFaces'] <= 4
-                    or type(item.get('TemperatureK')) not in (int, float) or not item['TemperatureK'] < item['highTemp']):
-                return False
         rows = report.get('RenderingInputs', {}).get('Rows')
         if rows is not None and [row.get('Solid') for row in rows] != [bool(bit) for bit in mask]:
             return False
@@ -774,9 +805,12 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
     # A configured room is never accepted as, or hidden behind, a legacy scene.
+    # A load names its saved room only in the restored report.
+    if restored:
+        configured = configured or report.get('Scenario') in ('configured-pillared-gas', 'configured-pillared-water')
     if configured != (report.get('ConfiguredDomain') is not None):
         return False
-    if configured and (restored or saved or heat or transfers or actors or carbon or conduction or gravity or checkpoint or paired
+    if configured and (heat or transfers or actors or carbon or conduction or gravity or checkpoint or paired
                        or mixed_phase or initial_inventory or live_breathing or natural_autosave or persistent_actors):
         return False
     solid=report.get('NativeSolidHeat',{})
@@ -804,7 +838,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     liquid_transfers = liquid_transfers or liquid_gravity
     liquid = liquid or liquid_transfers or liquid_actors or liquid_heat
     if restored:
-        liquid = report.get("Scenario") in ("compressed-liquid", "compressed-liquid-gravity")
+        liquid = report.get("Scenario") in ("compressed-liquid", "compressed-liquid-gravity", "configured-pillared-water")
         if (report.get("Scenario") == "compressed-liquid-gravity" and
                 report.get("EnergyRepresentation") != "water-anomaly-about-300K-plus-original-reference-from-mass"):
             return False
@@ -856,8 +890,13 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
         return False
     if pressure_read and not _pressure_read_passed(report, physical, liquid):
         return False
-    if restored and "RestoredNativeReaders" in report and not _restored_readers_passed(report,physical,liquid):
-        return False
+    if restored and "RestoredNativeReaders" in report:
+        try:
+            owned = configured_solid_mask(report).count(0) if configured else 6
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return False
+        if not _restored_readers_passed(report, physical, liquid, owned):
+            return False
     if "GpuGasTextures" in report and not _gpu_gas_passed(report,physical):
         return False
     if carbon_particle:
@@ -1216,11 +1255,12 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
     if configured:
-        physics_exercised = _configured_domain_passed(report, physical, liquid)
+        physics_exercised = _configured_domain_passed(report, physical, liquid, restored)
     if restored:
         # Exact complete-state replay and the saved-clock checks above cover
         # valid equilibrium restarts as well as moving mixtures.
-        physics_exercised = physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
+        physics_exercised = (physical["TimeSeconds"] > report["ColonyCheckpoint"]["SourceTime"] and physical["PressurePa"] > 0
+                             and (not configured or physics_exercised))
     if initial_inventory:
         physics_exercised = physical["PressurePa"] > 0
     if persistent_actors:

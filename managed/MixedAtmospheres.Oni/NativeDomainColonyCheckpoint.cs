@@ -74,6 +74,21 @@ namespace MixedAtmospheres.Oni
         }
         private static int automaticSaveAdmissions;
         private static bool savedAsAutoSave;
+        private static int savedPayloadFormatVersion;
+        // Every completed paired save of this session, including natural
+        // autosaves in long runs. Bounded; the count keeps every save.
+        internal const int MaximumRecordedColonySaves=64;
+        private static readonly List<object> completedColonySaves=new List<object>();
+        private static int completedColonySaveCount;
+        private static void RecordCompletedColonySave()
+        {
+            ++completedColonySaveCount;
+            if(completedColonySaves.Count>=MaximumRecordedColonySaves) return;
+            completedColonySaves.Add(new {Sequence=completedColonySaveCount,AutoSave=savedAsAutoSave,SourceFrame=savedSourceFrame,SourceTime=savedSourceTime,
+                NativeCycle=savedNativeCycle,NativeGameSeconds=savedNativeGameSeconds,PayloadFormatVersion=savedPayloadFormatVersion,
+                Configured=ConfiguredMode,PhysicalSha256=savedPhysicalHash,File=Path.GetFileName(savedFilePath),FileSha256=savedFileHash,
+                ReadbackVerified=savedFileReadbackVerified,PauseStateRestored=savePauseStateRestored});
+        }
         private static int serializedBodyCaptures,serializedBodyBytes;
         private static int serializedHeaderCaptures;
         private static byte[] serializedHeaderJson=Array.Empty<byte>();
@@ -111,7 +126,7 @@ namespace MixedAtmospheres.Oni
             internal readonly string PreviousSavePath;
             internal readonly HashSet<int> PreviousDialogs;
             internal bool FileAccepted {get;private set;}
-            private bool finished;
+            private bool finished,RecordPendingColonySave;
             internal ColonySaveLease(ulong token,byte[] physical,bool paused,int depth)
             {Token=token;Physical=physical;WasPaused=paused;InitialPauseDepth=depth;PreviousSavePath=SaveLoader.GetActiveSaveFilePath();PreviousDialogs=ActiveSaveDialogs();}
             internal void CompleteFile(string requested,string actual)
@@ -143,6 +158,7 @@ namespace MixedAtmospheres.Oni
                             "Normal colony serialization reused its sim section or changed physical state.");
                         colonyFileSaved=true;
                         ObserveNaturalAutosaveCompleted(Physical);
+                        RecordPendingColonySave=true;
                     }
                 }
                 finally
@@ -157,6 +173,7 @@ namespace MixedAtmospheres.Oni
                         if(WasPaused || (active && latest.State==1 && !failed)) SpeedControlScreen.Instance.Unpause(false);
                         savePauseDepthBefore=InitialPauseDepth;savePauseDepthAfter=PauseDepth();
                         savePauseStateRestored=savePauseDepthAfter==savePauseDepthBefore;
+                        if(RecordPendingColonySave) {RecordPendingColonySave=false;RecordCompletedColonySave();}
                     }
                 }
             }
@@ -194,9 +211,9 @@ namespace MixedAtmospheres.Oni
                 Check(CopyPair(token,native,ready.NativeBytes,physical,ready.PhysicalBytes));
                 RecordSavedPersistentActors(physical);
                 var particles=CaptureTransientParticles(ready.Configuration);
-                var payload=NativeDomainCheckpointPayload.Create(ready,physical,particles);AdmitNativeInventory(payload,native);
+                var payload=NativeDomainCheckpointPayload.Create(ready,physical,particles);RequireLiveConfiguredSave(payload);AdmitNativeInventory(payload,native);
                 lastSavedTransientParticles=particles;
-                var config=payload.Geometry;Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
+                ValidateSavedCheckpoint(payload,physical);savedPayloadFormatVersion=payload.FormatVersion;
                 stagedColonySave=ColonySaveEnvelope.Create(744825,2,ready.CompletedFrame,CatalogHash(),native,payload.CopyEncodedData());stagedSaveWrites=0;
                 savedSourceFrame=ready.CompletedFrame;savedSourceTime=ready.PhysicalTime;savedPhysicalHash=CheckpointHash(physical);
                 savedNativeCycle=GameClock.Instance.GetCycle();savedNativeGameSeconds=GameClock.Instance.GetTime();
@@ -263,16 +280,34 @@ namespace MixedAtmospheres.Oni
             var length=BinaryPrimitives.ReadInt32LittleEndian(data.AsSpan(position));
             if(length<8 || length>data.Length-position-4 || !ColonySaveEnvelope.HasMagic(data.AsSpan(position+4,length))) return false;
             Require(ColonyRestoreMode && !active && pendingColonyRestore==null,"This paired colony requires the explicit native load development mode.");
+            try {return AdmitPairedColony(reader,data,position,length,ref result);}
+            catch(Exception caught) {RecordRestoreRejection(caught);throw;}
+        }
+        // A rejected paired load fails the explicit validation visibly. ONI's
+        // loader then shuts the native simulator down and returns to the menu;
+        // no saved fluid is ever handed back to native ONI.
+        private static void RecordRestoreRejection(Exception caught)
+        {
+            if(failed) return;
+            failed=true;error=caught.ToString();
+            // Diagnostic only: the original rejection must not be masked.
+            try {WriteReport();} catch(Exception) { }
+            ColonyRuntimeValidation.Fail(caught);
+        }
+        private static bool AdmitPairedColony(IReader reader,byte[] data,int position,int length,ref int result)
+        {
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
             Require(RadialConsumptionVersion()==1,"Unsupported native radius-consumption capability.");
             Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
             RequireChunkHeatCapability();
             ConfigureDomainPresentation();
             var envelope=ColonySaveEnvelope.Parse(data.AsSpan(position+4,length),744825,2,CatalogHash());
-            var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);AdmitNativeInventory(payload,envelope.NativeData);
+            var payload=NativeDomainCheckpointPayload.Parse(envelope.CustomData);
+            if(payload.Configured!=null) AdmitSavedConfiguredRoom(payload);
+            AdmitNativeInventory(payload,envelope.NativeData);
             Require(payload.CompletedFrame==envelope.CompletedFrame,"Saved colony physical source differs.");
-            var physical=payload.PhysicalImage.ToArray();var config=payload.Geometry;
-            Check(ValidateCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime));
+            var physical=payload.PhysicalImage.ToArray();
+            ValidateSavedCheckpoint(payload,physical);
             // Consume original framing only after full admission. The normal
             // SaveLoader continues with the same reader and managed objects.
             Require(reader.ReadInt32()==length && reader.ReadBytes(length).AsSpan().SequenceEqual(envelope.CopyEncodedData()),"Selected paired section changed during loading.");
@@ -285,13 +320,27 @@ namespace MixedAtmospheres.Oni
         {
             var payload=pendingColonyRestore;if(payload==null) return;
             Require(ColonyRestoreMode && !active,"Native start attempted to replace a live physical owner.");
+            try {ActivateRestoredOwner(payload);}
+            catch(Exception caught) {RecordRestoreRejection(caught);throw;}
+        }
+        private static void ActivateRestoredOwner(NativeDomainCheckpointPayload payload)
+        {
             restoredScenario=payload.Geometry.Scenario;restoredScenarioSelected=true;domainManagedThread=Thread.CurrentThread.ManagedThreadId;
-            x=checked((int)payload.Geometry.X);y=checked((int)payload.Geometry.Y);target=Grid.XYToCell(x,y);
+            if(payload.Configured!=null) SelectRestoredConfiguredRoom(payload);
+            cells=new Cell[Width*Height];
+            x=checked((int)payload.Geometry.X);y=checked((int)payload.Geometry.Y);target=Grid.XYToCell(x+FirstDomainFluid%Width,y+FirstDomainFluid/Width);
             hotSolid=Grid.XYToCell(x+Width+2,y);coldSolid=hotSolid+1;
             var config=payload.Geometry;var physical=payload.PhysicalImage.ToArray();latest=Status.Empty;
             restoredActorImage=NativeActorCheckpointImage.HasMagic(physical) ? NativeActorCheckpointImage.Parse(physical) : null;
             arming=true;
-            Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
+            if(payload.Configured!=null)
+            {
+                VerifyRestoredConfiguredGrid();
+                var physics=payload.Configured.Physics;var mask=payload.Configured.Mask;
+                Check(RestoreConfigured(ref config,ref physics,mask,(uint)mask.Length,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
+                VerifyConfigurationCopy(latest.Session,payload.Geometry,payload.Configured.Physics);
+            }
+            else Check(RestoreCheckpoint(ref config,physical,(uint)physical.Length,payload.PhysicalTime,ref latest));
             prepared=true;started=Time.realtimeSinceStartup;restoredExpected=physical;replayTime=payload.PhysicalTime;replayGeometry=payload.Geometry;
             pendingTransientParticles=payload.TransientParticles;
             savedSourceFrame=loadedSourceFrame=payload.CompletedFrame;savedSourceTime=loadedSourceTime=payload.PhysicalTime;
@@ -300,6 +349,8 @@ namespace MixedAtmospheres.Oni
             // omitted native flags through lifecycle-only worker passes.
             for(var index=0;index<cells.Length;++index)
             {
+                // Interior solids stay native data: no flow fence or projection.
+                if(IsDomainSolid(index)) continue;
                 var global=Grid.XYToCell(x+index%Width,y+index/Width);
                 var packet=Packet(writer=>{writer.Write(global);writer.Write(-1);writer.Write(NativeFlowMask);writer.Write((byte)1);writer.Write((ushort)0);});
                 SendRaw(-469311643,packet);
@@ -310,6 +361,7 @@ namespace MixedAtmospheres.Oni
             {
                 for(var index=0;index<cells.Length;++index)
                 {
+                    if(IsDomainSolid(index)) continue;
                     var column=index%Width;var global=Grid.XYToCell(x+column,y+index/Width);
                     var packet=Packet(writer=>
                     {
@@ -324,7 +376,7 @@ namespace MixedAtmospheres.Oni
                 for(var global=0;global<Grid.CellCount;++global)
                 {
                     var xx=global%Grid.WidthInCells;var yy=global/Grid.WidthInCells;
-                    if(xx>=x && xx<x+Width && yy>=y && yy<y+Height)
+                    if(xx>=x && xx<x+Width && yy>=y && yy<y+Height && !IsDomainSolidAt(xx-x,yy-y))
                         Require((restored->properties[global]&NativeFlowMask)==NativeFlowMask && restored->mass[global]==ProjectionMass(xx-x) &&
                             restored->temperature[global]==ProjectionTemperature(xx-x),"Restored compatibility cells/flags differ.");
                     else Require(source->elementIdx[global]==restored->elementIdx[global] && source->mass[global]==restored->mass[global] &&
@@ -477,7 +529,8 @@ namespace MixedAtmospheres.Oni
                     Require(frameZeroResaveVerified,"Ordinary save before resume changed the saved image/clock, reused a pair or unpaused the game.");
                 }
                 restoredSceneStarted=true;initialHot=Grid.Temperature[hotSolid];initialCold=Grid.Temperature[coldSolid];
-                var center=Grid.CellToPosCCC(target,Grid.SceneLayer.Background);CameraController.Instance.SnapTo(center,4);
+                var center=Grid.CellToPosCCC(ConfiguredMode ? Grid.XYToCell(x+Width/2,y+Height/2) : target,Grid.SceneLayer.Background);
+                CameraController.Instance.SnapTo(center,ConfiguredMode ? 6 : 4);
                 SpeedControlScreen.Instance.Unpause(false);ColonyRuntimeValidation.SetStage("running-restored-native-colony");
             }
             nativeSolidsAdvanced=Grid.Temperature[hotSolid]<initialHot && Grid.Temperature[coldSolid]>initialCold;
@@ -491,7 +544,9 @@ namespace MixedAtmospheres.Oni
                 MixtureWorldRendering.LastTexturePublicationGeneration==frame.PublicationGeneration && string.IsNullOrEmpty(MixtureWorldRendering.LastError);
             gameGridProjectionVerified=Enumerable.Range(0,cells.Length).All(index=>
             {
-                var global=Grid.XYToCell(x+index%Width,y+index/Width);return Grid.Mass[global]==(float)cells[index].TotalMass &&
+                var global=Grid.XYToCell(x+index%Width,y+index/Width);
+                if(IsDomainSolid(index)) return Grid.Solid[global] && Grid.Element[global].id==SimHashes.Unobtanium;
+                return Grid.Mass[global]==(float)cells[index].TotalMass &&
                     Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==(Liquid ? SimHashes.Water : SimHashes.Oxygen);
             });
             nativeRendererAdvanced=restoredRendererVerified;
@@ -505,6 +560,7 @@ namespace MixedAtmospheres.Oni
                 "Restored actual colony failed its continuation, publication, rendering or physical accounts.");
             VerifySaveGuard();VerifyRestoredReaderBindings();VerifyNativeGpuGasTextures();VerifyRestoredPersistentActorCompletion();
             if(ViscousMode) Require(ViscosityVerified,"Restored native worker did not continue physical viscosity and represented heating.");
+            if(ConfiguredMode) {Require(configuredRestoredGridVerified,"Restored configured room skipped its loaded-grid verification.");VerifyConfiguredCompletion();}
             completed=true;NativeBackendObservation.Flush();WriteReport();
             ColonyRuntimeValidation.CaptureScreenshot("native-domain.png");
             ColonyRuntimeValidation.CompletePresentation("actual-game-restored-native-domain-validation");
@@ -538,6 +594,7 @@ namespace MixedAtmospheres.Oni
         private static object ColonyCheckpointReport()=>new {Saved=colonyFileSaved,Loaded=colonyLoaded,ZeroTimeRestoreVerified=zeroRestoreVerified,
             ManagedSceneRestored=restoredSceneStarted,RendererVerified=restoredRendererVerified,SimSaveWrites=stagedSaveWrites,
             AutomaticSaveAdmissions=automaticSaveAdmissions,SavePauseStateRestored=savePauseStateRestored,
+            SavedPayloadFormatVersion=savedPayloadFormatVersion,CompletedSaves=completedColonySaveCount,SaveHistory=completedColonySaves.ToArray(),
             SavedAsAutoSave=savedAsAutoSave,
             SavedFileReadbackVerified=savedFileReadbackVerified,SerializedBodyCaptures=serializedBodyCaptures,
             SerializedBodyBytes=serializedBodyBytes,SerializedBodySha256=serializedBodyHash,

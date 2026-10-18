@@ -30,12 +30,12 @@ class VisualDemoConfigurationTests(unittest.TestCase):
             with self.subTest(long_run=long_run, frames=frames), self.assertRaises(ValueError):
                 demo.configuration("air", long_run=long_run, frames=frames)
 
-    def test_configured_pillared_rooms_are_short_scenes_only(self):
+    def test_configured_pillared_rooms_admit_long_runs(self):
         self.assertEqual(demo.configuration("pillared")["Mode"], "native-configured-domain")
         self.assertEqual(demo.configuration("pillared-water", frames=600)["Mode"], "native-configured-water-domain")
-        for scene in ("pillared", "pillared-water"):
-            with self.subTest(scene=scene), self.assertRaises(ValueError):
-                demo.configuration(scene, long_run=True)
+        for scene, mode in (("pillared", "native-configured-domain"), ("pillared-water", "native-configured-water-domain")):
+            value = demo.configuration(scene, long_run=True, frames=9000)
+            self.assertEqual((value["Mode"], value["CompletedFrames"], value["LongRun"], value["SaveOnComplete"]), (mode, 9000, True, False))
 
     def _main(self, package: Path, *extra: str) -> tuple[int, str, str]:
         output, error = io.StringIO(), io.StringIO()

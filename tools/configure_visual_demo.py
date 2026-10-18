@@ -11,12 +11,12 @@ SCENES = {
     "air": "native-domain",
     "water": "native-liquid-domain",
     "mixed": "native-mixed-domain",
-    # Configured 7x5 rooms with an interior Neutronium pillar and ledge. They
-    # have no paired save adapter yet, so they are short scenes only.
+    # Configured 7x5 rooms with an interior Neutronium pillar and ledge. Their
+    # natural autosaves use the paired configured save, so long runs admit them.
     "pillared": "native-configured-domain",
     "pillared-water": "native-configured-water-domain",
 }
-LONG_RUN_SCENES = ("air", "water", "mixed")
+LONG_RUN_SCENES = ("air", "water", "mixed", "pillared", "pillared-water")
 # Mirrors ColonyValidationLimits; ten ONI cycles are about 30,000 native frames.
 FRAMES, LONG_RUN_FRAMES = (120, 10000), (30000, 100000)
 TIMEOUT_SECONDS, LONG_RUN_TIMEOUT_SECONDS = 7200, 48 * 3600

@@ -55,6 +55,27 @@ namespace MixedAtmospheres.Oni
             return new ConfiguredDomainLayout(width, height, values);
         }
 
+        // Physics of the in-game configured scenes: gravity 9.81 m/s2 and
+        // conduction, oxygen gas or filled water (no mixture or viscosity).
+        internal static Physics ScenePhysics(bool liquid) =>
+            Physics.Create(PhysicsGravity | PhysicsConduction | (liquid ? PhysicsLiquid : 0U), 9.81);
+
+        // A saved configuration has a restore adapter only when it is exactly a
+        // scene this adapter builds: the pillared room with the gas or water
+        // physics, compared bitwise. Anything else is rejected, never adapted.
+        internal static bool IsSavedScene(NativeConfiguredDomainImage saved)
+        {
+            var room = PillaredRoom(); var liquid = (saved.Physics.Flags & PhysicsLiquid) != 0;
+            return saved.Geometry.Width == room.Width && saved.Geometry.Height == room.Height && saved.SameMask(room.Mask) &&
+                NativeConfiguredDomainImage.SamePhysics(saved.Physics, ScenePhysics(liquid));
+        }
+
+        // Native compatibility projection of the in-game configured scenes for a
+        // fluid cell in column dx (never written into a solid). Saved native
+        // worlds are admitted only with exactly these binary32 values.
+        internal static float ProjectionMass(bool liquid, int column) => liquid ? 1000 + 20 * column : .6f + .3f * column;
+        internal static float ProjectionTemperature(int column) => 280 + 5 * column;
+
         // A defensive copy for native calls and reports.
         internal byte[] Mask => (byte[])mask.Clone();
         internal bool IsSolid(int index) => mask[index] != 0;

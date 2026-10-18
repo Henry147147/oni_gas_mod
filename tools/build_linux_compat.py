@@ -37,10 +37,14 @@ def main():
     source=output/'source';source.mkdir()
     entries=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=ROOT).decode().split('\0')
     exact={'CMakeLists.txt','docs/native-hook-profiles.json','tools/oni_hook_profiles.py','tools/patch_funchook.py','tools/patch_funchook_unix.py','tools/patch_distorm.py'}
-    frozen={}
+    # A tracked file deleted in the working tree is not part of the snapshot
+    # being built; it is listed in the manifest rather than silently copied.
+    deleted=set(subprocess.check_output(['git','ls-files','-z','--deleted'],cwd=ROOT).decode().split('\0'))-{''}
+    frozen={};skipped=[]
     for name in sorted(set(entries)):
         if name not in exact and not name.startswith(('native/','cmake/')):continue
         original=ROOT/name
+        if name in deleted and not original.exists() and not original.is_symlink():skipped.append(name);continue
         if not original.is_file() or original.is_symlink():raise ValueError('Expected an ordinary native source: '+name)
         target=source/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,target)
         frozen[name]=hashlib.sha256(target.read_bytes()).hexdigest()
@@ -48,7 +52,7 @@ def main():
     manifest={'kind':'linux-native-compatibility-build','base_image':BASE_IMAGE,'glibc_maximum':'2.35',
         'source_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         'source_status':subprocess.check_output(['git','status','--short'],cwd=ROOT,text=True),
-        'started_utc':datetime.now(timezone.utc).isoformat(),'source_files':frozen,'passed':False}
+        'started_utc':datetime.now(timezone.utc).isoformat(),'source_files':frozen,'deleted_in_working_tree':skipped,'passed':False}
     report=output/'compatibility-build.json';report.write_text(json.dumps(manifest,indent=2)+'\n')
     if not args.skip_image_build:
         run(['docker','build','--platform','linux/amd64','--network','host','--tag',args.image,ROOT/'tools/linux_native_build'])

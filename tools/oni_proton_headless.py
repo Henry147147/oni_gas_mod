@@ -25,7 +25,8 @@ from oni_native_matrix import SCENES
 
 PLATFORM = "WindowsPlayer"
 MOD_ID = "MixedAtmospheres.IntegrationProbe"
-MODES = tuple(SCENES.values()) + ("native-load-domain", "menu")
+CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain")
+MODES = tuple(SCENES.values()) + CONFIGURED_MODES + ("native-load-domain", "menu")
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
         "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -123,7 +124,8 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
 def domain_options(args) -> dict:
     mode = args.mode
     return dict(expected_platform=PLATFORM,mixed_phase=mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
-        initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
+        configured=mode in CONFIGURED_MODES,
+        initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain", "native-configured-water-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         solid_heat=mode=="native-solid-heat-domain", heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode in ("native-transfer-domain", "native-radius-domain", "native-rectangular-domain"), radial_consumption=mode == "native-radius-domain", rectangular_consumption=mode == "native-rectangular-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),
         liquid_actors=mode == "native-liquid-actor-domain", pressure_read=mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=mode == "native-breathing-read-domain", carbon_particle=mode == "native-carbon-particle-domain", carbon=mode == "native-carbon-domain",

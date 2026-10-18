@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
             ResetLiveBreathing();
             ResetTransientParticles();
             ResetNativeSolidHeat();
-            chunkHeatStatus=default;
+            chunkHeatStatus=default;chunkHeatAdvancedObservations=0;
             prepared=arming=completed=failed=active=false;
             x=y=target=hotSolid=coldSolid=preparedFrame=publications=0;
             started=nextReport=initialHot=initialCold=0;rendererWaitFrame=-1;textureWriteBaseline=0;
@@ -79,6 +79,14 @@ namespace MixedAtmospheres.Oni
             stagedSaveWrites=exactReplayComparisons=restoredNativeBatches=0;
             restoredScenarioSelected=false;restoredScenario=0;domainManagedThread=0;
             automaticSaveAdmissions=serializedBodyCaptures=serializedBodyBytes=serializedHeaderCaptures=0;
+            savedPayloadFormatVersion=completedColonySaveCount=0;completedColonySaves.Clear();
+            configuredRoom=null;restoredConfiguredPhysics=default;configuredRestoredGridVerified=false;configuredSavedFormatVersion=0;
+            configuredRestoredMask=Array.Empty<byte>();configuredRestoredSolidEvidence=Array.Empty<object>();
+            configuredInventoryVerified=configuredConfigurationVerified=configuredSolidsVerified=false;
+            configuredThermalVerified=configuredGravityVerified=configuredCopiesVerified=configuredMotionObserved=false;
+            configuredInventoryHash="";configuredInventory=Array.Empty<InitialCell>();configuredInventoryElements=Array.Empty<ushort>();
+            configuredSolidEvidence=Array.Empty<object>();configuredGeometry=configuredCopiedGeometry=default;configuredCopiedPhysics=default;
+            configuredCopiedMask=Array.Empty<byte>();
             savedAsAutoSave=savedFileReadbackVerified=savePauseStateRestored=rejectedSaveVerified=false;
             serializedHeaderJson=Array.Empty<byte>();serializedBodyHash="";savePauseDepthBefore=savePauseDepthAfter=0;
 

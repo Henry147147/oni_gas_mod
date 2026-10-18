@@ -52,17 +52,22 @@ namespace MixedAtmospheres.Oni
             var breather = UnityEngine.Object.FindFirstObjectByType<OxygenBreather>()
                 ?? throw new InvalidOperationException("No actual duplicant oxygen breather is present.");
             breathingBreatherInstance = breather.GetInstanceID();
-            var result = GasBreatherFromWorldProvider.GetBestBreathableCellAroundSpecificCell(
-                Grid.XYToCell(x + 1, y), null, breather, out var total);
-            var expected = samples.Where(item => item.AdvertisedOxygenMassKg > breather.noOxygenThreshold)
+            var centre = Grid.XYToCell(x + 1, y);
+            var result = GasBreatherFromWorldProvider.GetBestBreathableCellAroundSpecificCell(centre, null, breather, out var total);
+            // The native search reads only its default offsets around the centre:
+            // every owned cell of the six-cell room, a corner of a larger one.
+            var scope = GasBreatherFromWorldProvider.DEFAULT_BREATHABLE_OFFSETS.Select(offset => Grid.OffsetCell(centre, offset)).ToArray();
+            var searched = samples.Where(item => scope.Contains(item.PublicCell)).ToArray();
+            Require(searched.Length == scope.Length, "The breathing search region left the owned fluid cells.");
+            var expected = searched.Where(item => item.AdvertisedOxygenMassKg > breather.noOxygenThreshold)
                 .OrderByDescending(item => item.AdvertisedOxygenMassKg).FirstOrDefault();
             Require(result.IsBreathable == (expected != null) && result.Mass == (expected?.AdvertisedOxygenMassKg ?? 0) &&
                 (expected == null ? result.ElementID == SimHashes.Vacuum : result.ElementID == SimHashes.Oxygen &&
-                    samples.Any(item => item.PublicCell == result.Cell && item.AdvertisedOxygenMassKg == expected.AdvertisedOxygenMassKg)) &&
-                Math.Abs(total - samples.Sum(item => (double)item.AdvertisedOxygenMassKg)) <= 1e-6,
-                "Native six-cell breathing selection did not use physical available oxygen.");
+                    searched.Any(item => item.PublicCell == result.Cell && item.AdvertisedOxygenMassKg == expected.AdvertisedOxygenMassKg)) &&
+                Math.Abs(total - searched.Sum(item => (double)item.AdvertisedOxygenMassKg)) <= 1e-6,
+                "Native breathing selection did not use physical available oxygen.");
             return new { result.Cell, result.ElementID, result.Mass, result.IsBreathable, TotalBreathableMass = total,
-                BreatherInstanceId = breathingBreatherInstance, NoOxygenThreshold = breather.noOxygenThreshold };
+                BreatherInstanceId = breathingBreatherInstance, NoOxygenThreshold = breather.noOxygenThreshold, SearchedCells = scope };
         }
         private static void StartBreathingReadFixture()
         {

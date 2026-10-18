@@ -7,6 +7,7 @@ namespace MixedAtmospheres.Oni
     internal static unsafe partial class NativeSealedDomainValidation
     {
         private static ChunkHeatStatus chunkHeatStatus;
+        private static long chunkHeatAdvancedObservations;
         private static void RequireChunkHeatCapability()
         {
             NativeBinary32.RequireSubnormalRoundTrip();
@@ -16,7 +17,14 @@ namespace MixedAtmospheres.Oni
         private static void CaptureChunkHeat()
         {
             var next=ChunkHeatStatus.Empty;Check(CopyChunkHeatStatus(ref next));
-            Require(next.Session==latest.Session && next.CompletedFrame==latest.CompletedFrames && next.State==latest.State &&
+            // The game thread does not wait for the native worker, which can
+            // publish the next frame between Capture's receipt copy and this
+            // separately locked read (a configured long run hit this at frame
+            // 6,386). That newer account is checked in full below and recorded
+            // by the next coherent capture; any other frame, session or state
+            // still rejects.
+            var advanced=next.Session==latest.Session && latest.State==1 && next.CompletedFrame==latest.CompletedFrames+1;
+            Require(next.Session==latest.Session && (next.CompletedFrame==latest.CompletedFrames && next.State==latest.State || advanced) &&
                 next.Transfers<=next.Contacts && next.Unresolved<=next.Contacts && next.Reserved==0,
                 "Native body heat diagnostics differ from the completed physical frame.");
             foreach(var value in new[]{next.BodyHeatLossJoules,next.StoredFluidHeatJoules,next.MaximumBalanceResidualJoules,
@@ -24,10 +32,12 @@ namespace MixedAtmospheres.Oni
                 Require(!double.IsNaN(value) && !double.IsInfinity(value),"Native body heat diagnostic is nonfinite.");
             Require(next.MaximumBalanceResidualJoules>=0 && next.MaximumBalanceResidualJoules<=next.MaximumBalanceBoundJoules &&
                 next.EntropyLowerBound>=0 && next.RequestedAbsoluteHeatJoules>=0,"Native body heat account failed.");
+            if(advanced) {++chunkHeatAdvancedObservations;return;}
             chunkHeatStatus=next;
         }
         private static object ChunkHeatReport()=>new {
             AbiVersion=1, Source="native-element-chunk-contact", Status=chunkHeatStatus,
+            AdvancedWorkerObservations=chunkHeatAdvancedObservations,
             Model="implicit-passive-native-binary32-body-to-full-EOS-cell",
             Conductivity="harmonic-body-and-phase-volume-weighted-fluid-times-native-contact-scales",
             UnresolvedContactsLeaveBothEndpointsUnchanged=true, CompleteMetabolicBodyModel=false

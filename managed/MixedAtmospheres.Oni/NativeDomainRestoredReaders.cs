@@ -25,7 +25,7 @@ namespace MixedAtmospheres.Oni
             restoredBreathingOutsideVerified = outside == 0 && (SimHashes)outsideArgs[1] == SimHashes.Vacuum && before == breathingCellReads;
             VerifyPressureReadFixture(false);
             restoredReadersVerified = restoredBreathingReads >= 12 && restoredBreathingOutsideVerified && pressureReadVerified &&
-                restoredBreathingSamples.Length == cells.Length && restoredBreathingSamples.All(item => item.CompletedPhysicalFrame == (long)latest.CompletedFrames);
+                restoredBreathingSamples.Length == OwnedCellCount && restoredBreathingSamples.All(item => item.CompletedPhysicalFrame == (long)latest.CompletedFrames);
             Require(restoredReadersVerified, "Restored physical pressure, oxygen policy or native cell selection was not rebound to the current session.");
         }
         private static object RestoredReadersReport() => new { Required = ColonyRestoreMode, Verified = restoredReadersVerified,
