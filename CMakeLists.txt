@@ -353,7 +353,8 @@ if(MA_SANITIZERS AND NOT MSVC)
     foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests ma_passive_transport_tests
             ma_mac_closed_world ma_mac_mixed_transfer_tests ma_mac_mixture_thermal_tests ma_mac_viscosity_tests ma_mac_native_heat_tests ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter ma_mac_compressive_work ma_mac_compressive_work_tests ma_mac_compressive_pressure_tests ma_mac_compressive_owner_tests
             ma_mac_shock_heat ma_mac_shock_heat_tests ma_mac_shock_heat_owner_tests ma_mac_acoustic_compression_tests ma_mac_pressure_sensor_tests ma_mac_matched_heat_tests ma_mac_series_heat_tests
-            ma_mac_swept_reconstruction_tests ma_mac_checkpoint_tests ma_mac_quadratic_limiter_tests ma_mac_dual_affine_diagnostic ma_mac_swept_momentum_tests ma_mac_bounded_energy_tests ma_mac_physical_admission_tests)
+            ma_mac_swept_reconstruction_tests ma_mac_checkpoint_tests ma_mac_quadratic_limiter_tests ma_mac_dual_affine_diagnostic ma_mac_swept_momentum_tests ma_mac_bounded_energy_tests ma_mac_physical_admission_tests
+            ma_mac_equilibrium_tests ma_mac_playtest_benchmark)
         target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
         target_link_options(${target} PRIVATE -fsanitize=address,undefined)
     endforeach()
