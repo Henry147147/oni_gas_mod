@@ -19,7 +19,8 @@ Topic documents:
 | --- | --- |
 | [Transport and material reconstruction](MAC_TRANSPORT.md) | Primal/dual MAC transport, parcel plans, material selectors 0–2 |
 | [Pressure, gravity and compression](MAC_PRESSURE.md) | Implicit EOS pressure work, gravity, compression regularization modes 0–3 |
-| [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–4 |
+| [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–5 |
+| [One-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) | Opt-in point-to-dual momentum/kinetic conversion and its remaining limits |
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
@@ -101,7 +102,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `preconditioner` | `automatic` | `jacobi`, `incomplete_cholesky` |
 | `gravity_m_per_s2` | 0 | ≥ 0, constant and downward; requires nonperiodic y |
 | `reconstruction` (material) | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `swept_first_moment` |
-| `momentum_reconstruction` | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux` |
+| `momentum_reconstruction` | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux`, 5 `swept_nodal_1d` (1-D only) |
 | `compression_viscosity` | 2 `acoustic_quadratic` (pressure-sensed) | 0 `none`, 1 `quadratic`, 3 `coupled_pressure` |
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
@@ -232,6 +233,7 @@ With `-DMA_BUILD_ONI_NATIVE_BACKEND=ON`, CTest also runs `mac_gas_boundary_trans
 | `ma_mac_swept_momentum_tests` | `--owner`, checkpoint flags | `review_mac_swept_momentum.py` | [Momentum](MAC_MOMENTUM.md) |
 | `ma_mac_bounded_energy_tests` | `--owner`, checkpoint flags | `review_mac_bounded_energy.py` | [Momentum](MAC_MOMENTUM.md) |
 | `ma_mac_physical_admission_tests` | `--bounded-energy` | `review_mac_physical_admission.py` | [Momentum](MAC_MOMENTUM.md) |
+| `ma_mac_nodal_conversion_tests` | | `review_mac_nodal_conversion.py` | [Nodal conversion](MAC_NODAL_CONVERSION.md) |
 | `ma_mac_shock_heat_tests` | `--bracket-regression`, `--source-regression`, `--entropy-regression` | `review_mac_shock_heat.py`, `review_mac_heat_entropy.py` | [Heat](MAC_HEAT.md) |
 | `ma_mac_matched_heat_tests` | | `review_mac_matched_heat.py` | [Heat](MAC_HEAT.md) |
 | `ma_mac_series_heat_tests` | | `review_mac_series_heat.py` | [Heat](MAC_HEAT.md) |

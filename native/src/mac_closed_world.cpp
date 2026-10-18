@@ -168,7 +168,8 @@ void MacClosedSettings::validate() const {
         (momentum_reconstruction == MacMomentumReconstruction::donor_cell || momentum_reconstruction == MacMomentumReconstruction::limited_linear ||
             momentum_reconstruction == MacMomentumReconstruction::quadratic_limited_linear ||
             momentum_reconstruction == MacMomentumReconstruction::swept_physical ||
-            momentum_reconstruction == MacMomentumReconstruction::swept_energy_flux) &&
+            momentum_reconstruction == MacMomentumReconstruction::swept_energy_flux ||
+            momentum_reconstruction == MacMomentumReconstruction::swept_nodal_1d) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic ||
          compression_viscosity == MacCompressionViscosity::coupled_pressure) &&
@@ -595,7 +596,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
                 result.report.unresolved_momentum_updates += candidate.unresolved_momentum_updates;
                 for (const auto* component : {&candidate.transport.x, &candidate.transport.y}) {
-                    result.report.momentum_correction_events += component->corrections.size() + component->remap_corrections.size();
+                    result.report.momentum_correction_events += component->corrections.size() + component->remap_corrections.size() + component->nodal_conversions.size();
                     result.report.limited_momentum_corrections += component->limited_corrections;
                     result.report.unresolved_momentum_corrections += component->unresolved_momentum_corrections;
                     result.report.unresolved_remainder_corrections += component->unresolved_remainder_corrections;

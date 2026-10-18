@@ -19,6 +19,7 @@ Code: `mac_momentum_limiter.hpp`/`.cpp`, the momentum paths in `mac_transport.cp
 | 2 | `quadratic_limited_linear` | Opt-in | Same predictor with exact quadratic heat admission |
 | 3 | `swept_physical` | Opt-in | Swept dual geometry, signed remap work, completed-state admission |
 | 4 | `swept_energy_flux` | Opt-in | Selector 3 with the carried kinetic-energy flux bounded separately |
+| 5 | `swept_nodal_1d` | Opt-in, 1-D only | Conservative point-to-dual conversion with compatible kinetic work carried by the material |
 
 Selectors 3 and 4 fix the two defects found by the
 [affine remap diagnosis](#affine-remap-diagnosis). Selector 4 with material selector 2
@@ -26,6 +27,12 @@ and compression mode 3 is the most accurate tracked combination; it still fails 
 [strong-flow gate](MAC_STRONG_FLOW.md), and an open pressure/remap
 [convention mismatch](MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention)
 affects selectors 3 and 4.
+
+The [one-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) repairs the
+interior curved point-velocity oracle with the original momentum/energy source.
+It is selector 5 and retains the original completed-state admission. General 2-D
+conversion and the strong-flow gate remain open; its bounded separation probe
+improves velocity error but worsens density/pressure error. It is not promoted.
 
 ## Compatible pair correction
 

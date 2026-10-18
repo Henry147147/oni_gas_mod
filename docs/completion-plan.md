@@ -145,8 +145,9 @@ collision refinement pass, but the original
 finest-grid velocity bound and the central density/pressure bounds. The
 [curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) localizes a
 pressure/remap source-velocity convention mismatch, reproduced on Windows and
-Linux; the conservative momentum/kinetic-energy conversion that would resolve
-it is unwritten. The separate [gas/vacuum front gate](../native/GAS_VACUUM.md)
+Linux. A [conservative one-dimensional conversion](../native/MAC_NODAL_CONVERSION.md)
+now passes the interior curved-point oracle; general 2-D conversion and strong-flow
+accuracy remain open. The separate [gas/vacuum front gate](../native/GAS_VACUUM.md)
 also fails, and the owner rejects empty cells. Optional modes that did not pass
 remain opt-in experiments; original inputs and acceptance bounds are unchanged.
 The exit above is open.

@@ -8,7 +8,7 @@ namespace {
 using namespace ma;
 using namespace ma::experimental;
 void check(bool value,const char* message){if(!value)throw std::runtime_error(message);}
-std::size_t run(int id,int axis,int curved,int convention,int direction) {
+std::size_t run(int id,int axis,int curved,int convention,int direction,MacMomentumReconstruction momentum) {
     const auto& set=ma::testing::setup();constexpr std::size_t n=10,transverse=2;
     constexpr double a=.25,b=.125;
     auto source=set.state(axis==0?n:transverse,axis==0?transverse:n,false);auto& g=source.grid;
@@ -36,7 +36,7 @@ std::size_t run(int id,int axis,int curved,int convention,int direction) {
     store_mac_field(source.momentum_x,source.full_momentum_x,jx);store_mac_field(source.momentum_y,source.full_momentum_y,jy);
     const auto held=ma::testing::fingerprint(source);
     const auto plan=reconstruct_mac_swept_parcels(set.registry,*set.eos,source,volumes,sweeps);
-    const auto next=advance_mac_parcel_transport(set.registry,source,*set.eos,plan,MacMomentumReconstruction::swept_energy_flux);
+    const auto next=advance_mac_parcel_transport(set.registry,source,*set.eos,plan,momentum);
     check(ma::testing::fingerprint(source)==held,"Curved diagnostic changed its source");
     for(const auto& cell:next.state.cells)
         check(cell.mixture.masses[set.registry.index("helium")]>0 && cell.passive_quantities.back().quantity>0,
@@ -62,9 +62,12 @@ std::size_t run(int id,int axis,int curved,int convention,int direction) {
     return mismatches;
 }
 }
-int main(){try{std::cout<<std::setprecision(17);int id=0;std::size_t mismatches=0;
+int main(int argc,char** argv){try{
+    check(argc==1 || (argc==2 && std::string_view(argv[1])=="--nodal-conversion"),"Invalid curved-nodal diagnostic arguments");
+    const auto momentum=argc==1 ? MacMomentumReconstruction::swept_energy_flux : MacMomentumReconstruction::swept_nodal_1d;
+    std::cout<<std::setprecision(17);int id=0;std::size_t mismatches=0;
     for(int axis=0;axis<2;++axis)for(int curved=0;curved<2;++curved)for(int convention=0;convention<2;++convention)
-        for(int direction:{-1,1})mismatches+=run(id++,axis,curved,convention,direction);
+        for(int direction:{-1,1})mismatches+=run(id++,axis,curved,convention,direction,momentum);
     std::cout<<"CCOMPLETE "<<id<<' '<<mismatches<<'\n';
     if(mismatches){std::cerr<<"FAIL point-velocity affine remap under curved deformation\n";return 1;}
     return 0;

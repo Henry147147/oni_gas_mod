@@ -25,6 +25,12 @@ Its 256-cell wave is about 1.7× faster with exact baseline continuation, but a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
+An opt-in [1-D nodal momentum/kinetic conversion](../native/MAC_NODAL_CONVERSION.md)
+now passes the original curved-deformation point oracle with independently checked
+work and inventories. It preserves full-range momentum, carries conversion work
+with material, and restores exactly from checkpoints. It has not passed strong-flow
+acceptance or supplied the general 2-D conversion; production defaults are unchanged.
+
 ## Verification scopes
 
 | Term | Meaning |
@@ -112,7 +118,7 @@ and the linked `native/MAC_*.md` notes.
 | Gate | Status |
 | --- | --- |
 | [Strong-flow Riemann gate](../native/MAC_STRONG_FLOW.md) | Sod and collision pass with [compressive work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3). **Separation fails** the finest-grid velocity bound and the central density/pressure bounds |
-| [Curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) | Localizes a pressure/remap source-velocity convention mismatch, reproduced on Windows and Linux and present on the original N64 first pressure step. The conservative momentum/kinetic-energy conversion is unwritten |
+| [Curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) | Localizes a pressure/remap source-velocity convention mismatch. Opt-in selector 5 passes the interior 1-D oracle with original J/K; general 2-D conversion and strong-flow acceptance remain open |
 | [Gas/vacuum front](../native/GAS_VACUUM.md) | **Fails** in the separate `FluidWorld` experiment; the MAC owner and in-game domain reject empty cells |
 | Shocks, free surfaces, phase interfaces, phase transitions | Not implemented in the owner |
 

@@ -193,3 +193,23 @@ python3 native/tests/review_mac_gravity_range.py gravity-range.stdout
 separate failed/unverified gates. `asan/` and `wine/` retain executable hashes,
 exit codes, raw diagnostics and saved reviews. `final-wave-continuation/`
 contains the final solver build's byte-identical baseline continuation capture.
+
+## Follow-up: conservative 1-D nodal conversion
+
+[Selector 5](../native/MAC_NODAL_CONVERSION.md) supplies a conservative point-to-dual
+source conversion and its kinetic work. The original curved point oracle passes on
+both axes/signs and at scale 2^-1200; a saved-operand reader verifies pair gathering,
+material work transfer, U+K, constituent/passive conservation and EOS entropy, and
+rejects six corruptions. Zero stretch matches selector 4 exactly. The selector and
+complete canonical continuation survive save/reload.
+
+Linux Release CTest: 24/24 pass. The new controls and saved reviews pass under
+ASan/UBSan and as Windows-target MinGW binaries under Wine. Existing swept/bounded
+energy controls also pass. No new actual Windows OS or Unity run is claimed.
+
+The conversion is deliberately limited to 1-D single-component motion and leaves
+production defaults unchanged. A bounded original N64 separation probe improves
+velocity L1 from 0.18507 to 0.13251 but worsens density/pressure to 0.08597/0.07989.
+The full sequence stops on the existing range restriction in coupled compression.
+This repairs a component defect, not the strong-flow gate or the full overhaul.
+Captures are under `local/nodal-conversion/`.

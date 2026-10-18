@@ -12,7 +12,7 @@ namespace ma { class FluidThermodynamics; }
 
 namespace ma::experimental {
 enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadratic_limited_linear = 2,
-    swept_physical = 3, swept_energy_flux = 4 };
+    swept_physical = 3, swept_energy_flux = 4, swept_nodal_1d = 5 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
 // selection is performed here. Every fluid cell must remain occupied.
@@ -101,6 +101,10 @@ struct MacMomentumReconstructionEvent {
     MacScaled predictor_delta_velocity, bounded_delta_velocity;
     MacMomentumLimitedPair pair;
 };
+struct MacNodalConversionEvent {
+    std::size_t cell = 0, left = 0, right = 0;
+    MacScaled volume_change, coefficient, requested_impulse, impulse;
+};
 struct MacFaceTransportReport {
     std::vector<double> old_inertia, new_inertia, old_kinetic, new_kinetic;
     std::vector<double> transported_kinetic, mixing_heat, wall_heat, wall_impulse, dual_mass_residual;
@@ -115,6 +119,12 @@ struct MacFaceTransportReport {
     std::vector<MacMomentumReconstructionEvent> corrections;
     std::vector<MacMomentumRemapEvent> remap_corrections;
     std::vector<std::array<double, 2>> source_centroid_offsets;
+    // Selector 5 converts point velocities to transported dual means by
+    // conservative cell-pair impulses. Compatible source work is gathered
+    // to material cells; original canonical J/K remain the account source.
+    std::vector<MacNodalConversionEvent> nodal_conversions;
+    std::vector<MacScaled> nodal_source_momentum;
+    std::vector<MacEnergy> nodal_source_work;
     std::size_t limited_corrections = 0, unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
 };
 struct MacTransportReport {
@@ -133,6 +143,7 @@ struct MacTransportReport {
     double physical_correction_fraction = 1;
     std::size_t physical_admission_backtracks = 0;
     MacEnergy remap_work_wide_j, entropy_change_j_per_k, entropy_allowance_j_per_k;
+    std::vector<MacEnergy> nodal_source_cell_work, nodal_advected_work;
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };

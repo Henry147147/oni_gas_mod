@@ -111,7 +111,9 @@ also pass collision.
 - Accuracy. Strong-flow separation fails the finest-grid velocity bound and
   the central density/pressure bounds ([gate](../native/MAC_STRONG_FLOW.md)). The
   [curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) localizes a
-  pressure/remap convention mismatch; the conservative conversion is unwritten.
+  pressure/remap convention mismatch. The opt-in 1-D conversion now passes its
+  interior point-velocity oracle; general 2-D conversion and strong-flow acceptance
+  remain open ([component evidence](../native/MAC_NODAL_CONVERSION.md)).
 - Persistent primary-U rounding remainders. Full-range gravity work and potential
   flux now pass standalone controls, including a 10,000-step continuation, but
   unresolved U updates are reported rather than saved.

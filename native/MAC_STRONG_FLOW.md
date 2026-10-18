@@ -179,8 +179,10 @@ Saved-profile analysis, without native reruns, located the collision errors:
 The pressure step moves material face boundaries with the face velocity `J/I`. The
 swept momentum remapper (selectors 3 and 4) reconstructs velocities at dual-volume
 centroids. Affine-exact controls make these positions coincide; curved deformation
-separates them. No conservative conversion between the two representations exists
-yet; this is the open defect.
+separates them. [Selector 5's one-dimensional conversion](MAC_NODAL_CONVERSION.md)
+now repairs the interior point-velocity oracle while retaining the original J/K
+account. It does not supply the general 2-D conversion or pass strong separation;
+the production defect remains open.
 
 `ma_mac_curved_nodal_diagnostic` reproduces it in one dimension. For unit density,
 moved faces are at `x_f = f + q_f`, source cell widths are `1 + q_(f+1) − q_f`, the

@@ -33,6 +33,65 @@ bool resolved(MacScaled before, MacScaled after, MacScaled change) {
 }
 }
 
+MacNodalConversion convert_mac_nodal_momentum_1d(const MacGrid& g, bool x_component,
+    std::span<const double> cell_mass, std::span<const double> volumes,
+    const MacMassFluxes& sweeps, std::span<const double> inertia,
+    std::span<const MacScaled> original, double theta) {
+    if (cell_mass.size()!=g.walls.size() || volumes.size()!=cell_mass.size() || inertia.size()!=original.size() ||
+        !std::isfinite(theta) || theta<0 || theta>1)
+        throw std::invalid_argument("Invalid one-dimensional nodal conversion input");
+    const auto q=mac_field_values(x_component ? sweeps.x : sweeps.y,x_component ? sweeps.full_x : sweeps.full_y);
+    if (q.size()!=original.size()) throw std::invalid_argument("Nodal conversion sweep/face coverage differs");
+    const auto width=x_component ? g.x_width() : g.width;
+    const auto free=[&](std::size_t f) {
+        const auto x=f%width,y=f/width;
+        if (x_component) return (x>0 || g.periodic_x) && x<g.width &&
+            !g.walls[(x+g.width-1)%g.width+y*g.width] && !g.walls[x+y*g.width];
+        return (y>0 || g.periodic_y) && y<g.height &&
+            !g.walls[x+((y+g.height-1)%g.height)*g.width] && !g.walls[x+y*g.width];
+    };
+    MacNodalConversion result;result.momentum.assign(original.begin(),original.end());result.work.resize(original.size());
+    std::vector<MacScaledSum> corrections(original.size());
+    for (std::size_t i=0;i<cell_mass.size();++i) if (!g.walls[i]) {
+        const auto x=i%g.width,y=i/g.width;
+        const auto left=x_component ? g.x_face(x,y) : g.y_face(x,y);
+        const auto right=x_component ? g.x_face((x+1)%g.x_width(),y) : g.y_face(x,(y+1)%g.y_height());
+        MacScaledSum delta;delta.add(q[right]);delta.add(q[left].negated());
+        MacScaledAccount closure;closure.add(volumes[i]);closure.add(-g.volume_m3());
+        for (std::size_t k=0;k<delta.size();++k) closure.add(delta.component(k).negated());
+        if (!closure.within_bound()) throw std::invalid_argument("Nodal conversion requires one-dimensional material-volume closure");
+        // Fixed half dual cells retain the existing wall treatment. No
+        // representation impulse crosses a rigid boundary or a solid.
+        if (!free(left) || !free(right) || delta.sign()==0) continue;
+        const double ratio=g.volume_m3()/volumes[i];
+        if (!std::isfinite(ratio) || ratio<=0) precision("Nodal conversion volume ratio is unrepresentable");
+        const auto coefficient=delta.value().shared(1,volumes[i]).multiplied(1+ratio).shifted(-3);
+        const auto difference=mac_scaled_difference(original[right].shared(1,inertia[right]),original[left].shared(1,inertia[left]));
+        const auto request=product(coefficient.multiplied(cell_mass[i]),difference);
+        const auto impulse=request.multiplied(theta);
+        corrections[left].add(impulse);corrections[right].add(impulse.negated());
+        result.events.push_back({i,left,right,delta.value(),coefficient,request,impulse});
+    }
+    MacScaledAccount momentum;
+    for (std::size_t f=0;f<original.size();++f) {
+        const auto change=represented(corrections[f]);
+        MacScaledSum updated;updated.add(original[f]);updated.add(change);result.momentum[f]=represented(updated);
+        momentum.add(result.momentum[f]);momentum.add(original[f].negated());
+        if (change.is_zero()) continue;
+        if (!resolved(original[f],result.momentum[f],change)) ++result.unresolved_updates;
+        MacEnergySum work;
+        work.add(product(original[f].shared(1,inertia[f]),change).negated());
+        work.add(MacEnergy::kinetic(inertia[f],change).negated());
+        result.work[f]=represented(work);
+        MacEnergyAccount energy;
+        energy.add(MacEnergy::kinetic(inertia[f],result.momentum[f]));
+        energy.add(MacEnergy::kinetic(inertia[f],original[f]).negated());energy.add(result.work[f]);
+        if (!energy.within_bound()) precision("Nodal source conversion kinetic/work account failed");
+    }
+    if (!momentum.within_bound()) precision("Nodal source conversion changed total momentum");
+    return result;
+}
+
 void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
     std::span<const double> volumes, const std::vector<MacDualFlux>& volume_edges,
     const std::vector<MacScaled>& velocity, std::vector<MacScaled>& momentum,
@@ -42,7 +101,8 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
     const auto count = width * height;
     if (volumes.size() != count || volume_edges.size() != report.fluxes.size() ||
         velocity.size() != count || momentum.size() != count || !std::isfinite(theta) || theta < 0 || theta > 1 ||
-        (reconstruction!=MacMomentumReconstruction::swept_physical && reconstruction!=MacMomentumReconstruction::swept_energy_flux))
+        (reconstruction!=MacMomentumReconstruction::swept_physical && reconstruction!=MacMomentumReconstruction::swept_energy_flux &&
+         reconstruction!=MacMomentumReconstruction::swept_nodal_1d))
         throw std::invalid_argument("Invalid swept MAC momentum geometry or correction fraction");
     const auto free = [&](std::size_t i) {
         if (i == none) return false;
@@ -112,6 +172,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
         report.upwind_mixing_heat[i] = report.energies[i].mixing_heat;
         report.upwind_transported_kinetic[i] = report.energies[i].transported_kinetic;
         transported[i].add(report.energies[i].transported_kinetic);
+        work[i].add(report.energies[i].remap_work_energy);
         bounds[i].add(report.energies[i].composed_energy_bound);
         if (!free(i) || unresolved[i]) continue;
         std::vector<std::pair<std::size_t, Point>> stencil;
@@ -194,7 +255,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
         }
         bool work_admitted=false;
         for (std::size_t attempt=0;attempt<=64;++attempt) {
-            if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux) {
+            if (report.reconstruction!=MacMomentumReconstruction::swept_physical) {
                 // Keep the kinematic correction at a stationary donor. Only
                 // the carried energy is restricted by its nonnegative budget;
                 // signed compatible internal work supplies the difference.
@@ -213,7 +274,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
                 MacScaled::from_parts(reduced,event.transported_work_limiter.exponent());
         }
         if (!work_admitted) precision("Swept MAC transported work limiter cannot resolve its original budget");
-        if (report.reconstruction==MacMomentumReconstruction::swept_energy_flux &&
+        if (report.reconstruction!=MacMomentumReconstruction::swept_physical &&
             exceeds(MacScaled::from_double(1),event.transported_work_limiter)) {
             // The same compatible law, evaluated per side. Forming rounded
             // (ul-ur)*dJ/2 first and then adding the opposite carried-energy
