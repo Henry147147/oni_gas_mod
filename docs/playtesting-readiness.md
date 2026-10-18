@@ -69,12 +69,14 @@ suppression, and rectangles up to 256 cells per side within 4,096 cells.
 Interior solids are impermeable and adiabatic, and must be static and
 insulating. Its native groups pass on Linux, under sanitizers and as MinGW
 binaries under Wine. A managed adapter and 7×5 gas and water rooms with an
-interior pillar and ledge pass in Linux Unity (2026-10-18). One 64×64 frame
-takes about 48 s of wall time.
+interior pillar and ledge pass in Linux Unity (2026-10-18), including colony
+saves, fresh-process loads and natural autosaves
+([saves and reloads](native-configured-domain.md#saves-and-reloads)). One
+64×64 frame takes about 48 s of wall time.
 
 **Missing.**
-- Configured rooms in saves, on Windows and with occupants (actors, breathing,
-  transfers).
+- Configured rooms on actual Windows and with occupants (actors, breathing,
+  transfers). Their saves pass on Linux and under Proton.
 - Fluid/solid heat exchange at interior faces, and solids that melt, fall or
   are dug inside the owner.
 - More than one owner, and Spaced Out! worlds.
@@ -160,7 +162,10 @@ autosave, natural-day autosave and same-process menu reload
 ([actors](native-domain-persistence.md#durable-point-actors),
 [day autosave](native-domain-persistence.md#natural-day-autosaves), [menu reload](native-domain-persistence.md#same-process-main-menu-reload)).
 Cross-platform gas checkpoints agree within 6.74e-12; water still fails the
-1e-8 bound.
+1e-8 bound. Configured 7×5 rooms with interior solids save and reload with
+exact continuation on Linux (gas and water) and under Proton (gas). Saves use
+payload version 4, and the loaded grid must reproduce the saved solid mask
+([configured saves](native-configured-domain.md#saves-and-reloads)).
 
 **Missing.**
 - Loading outside the development restore mode, including from the load
@@ -169,7 +174,8 @@ Cross-platform gas checkpoints agree within 6.74e-12; water still fails the
   exercises it.
 - Rejection of mixture saves loaded without the mod.
 - Durability of interrupted saves.
-- Actor saves on an actual Windows installation, not only Proton.
+- Actor saves and configured-room saves on an actual Windows installation,
+  not only Proton; an in-game load of a tampered configured save.
 - Persistence for the gate 3 owners that do not exist yet.
 
 **Closes when** every playtest owner and live object survives manual saves,
@@ -195,6 +201,9 @@ a six-cell Linux long run, reached 8,552 domain frames before every
 duplicant died in cycle 3–4; the harness now fails a long run when the
 colony is lost. In that room the native frame wait was below 0.1 ms, while
 the harness's own checks and snapshot copy cost about 74 ms p95 per frame.
+A configured 7×5 gas room passed 8,401 frames, stopping just before the
+duplicants died. ONI's natural autosaves in cycles 2 and 3 were admitted and
+paired, and a load of the cycle-2 autosave continued exactly.
 
 **Missing.**
 - Gates 1–4.
@@ -203,8 +212,8 @@ the harness's own checks and snapshot copy cost about 74 ms p95 per frame.
   scripted build order or a prepared save.
 - The game runs at 1× speed, so ten cycles take at least about 1.7 hours of
   wall time.
-- Natural autosaves happen about once per cycle and have never run at this
-  scale.
+- Natural autosaves happen about once per cycle. Two have been paired within
+  one run; ten cycles of them have not.
 - Milestone D's 100,000-cell presentation performance and frame-time
   evidence.
 
@@ -239,8 +248,8 @@ licensed game to verify.
 | # | Gate | Item | Size | Game |
 | --- | --- | --- | --- | --- |
 | 1 | 1 | Configured sealed domain: explicit physics settings, interior solid cells, per-cell ownership and a larger bound (native done) | L | Later |
-| 2 | 5 | Long-run harness opt-in with bounded telemetry (done; not in game) | M | Later |
-| 3 | 1 | Managed adoption of item 1 and in-game rooms with interior solids (Linux Unity passes; saves, Windows and occupied rooms in progress) | M | Yes |
+| 2 | 5 | Long-run harness opt-in with bounded telemetry (done; runs in the Linux game) | M | Later |
+| 3 | 1 | Managed adoption of item 1 and in-game rooms with interior solids (done on Linux Unity, with saves, reloads and long runs; saves also pass under Proton. Actual Windows and occupied rooms remain) | M | Yes |
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended vertical gravity (work/flux accounts done); persistent primary-field rounding remainders remain | M–L | Later |
