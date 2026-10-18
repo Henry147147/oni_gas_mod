@@ -59,10 +59,19 @@ struct MacClosedSubstep {
     double pressure_wall_impulse_x = 0, pressure_wall_impulse_y = 0;
     MacScaled full_pressure_wall_impulse_x{}, full_pressure_wall_impulse_y{};
     double body_impulse_y = 0;
+    MacScaled full_body_impulse_y{};
     std::vector<double> gravity_body_work_y, gravity_potential_flux_y, gravity_internal_work_y;
+    // Gravity doubles are diagnostic projections. Accounts use these full
+    // operands, including work and mass flux below binary64 range.
+    std::vector<MacEnergy> full_gravity_body_work_y, full_gravity_potential_flux_y, full_gravity_internal_work_y;
     std::vector<double> pre_gravity_internal_energy_j, gravity_internal_changes_j;
+    std::vector<MacEnergy> full_gravity_internal_changes_j;
     double gravity_internal_residual_j = 0, gravity_internal_bound_j = 0;
     double potential_transport_residual_j = 0, potential_transport_bound_j = 0;
+    MacEnergy gravity_internal_residual_wide_j, gravity_internal_bound_wide_j;
+    MacEnergy potential_transport_residual_wide_j, potential_transport_bound_wide_j;
+    MacEnergy gravity_internal_change_wide_j;
+    std::size_t rounded_gravity_projections = 0;
     double gravity_internal_change_j = 0, entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t unresolved_momentum_updates = 0;
     std::size_t rounded_pressure_velocity_inputs = 0;
@@ -100,6 +109,9 @@ struct MacClosedAdvanceReport {
     MacScaled full_wall_impulse_x{}, full_wall_impulse_y{};
     double maximum_geometric_residual_m3 = 0;
     double gravity_internal_change_j = 0, body_impulse_y = 0;
+    MacEnergy gravity_internal_change_wide_j;
+    MacScaled full_body_impulse_y{};
+    std::size_t rounded_gravity_projections = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
     MacEnergy remap_work_wide_j;

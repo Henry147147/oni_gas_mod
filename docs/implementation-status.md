@@ -14,6 +14,17 @@ simulation is what the mod replaces; it is never used as the solver. Today
 `MacClosedWorld` runs only in a bounded development room, and the surrounding
 colony keeps native ONI physics.
 
+The [real-time timestep implementation](production-timestep-progress.md) adds
+checked IPO, exact arithmetic fast paths, fused pressure thermodynamics,
+deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
+The next slice retains full-range vertical gravity work and potential flux, with
+10,000-step and checkpoint controls. Primary-U rounding remainders still need
+persistent storage; these standalone controls do not close the physics gate.
+Its 256-cell wave is about 1.7× faster with exact baseline continuation, but a
+4,096-cell wave still takes about 11.9 seconds per 0.1 simulated seconds and a
+250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
+real-time target and every first-playable gate remain open.
+
 ## Verification scopes
 
 | Term | Meaning |
@@ -65,7 +76,7 @@ atomically with receipts and deliver original game callbacks once.
 | --- | --- | --- |
 | [Gas/liquid coexistence](native-domain-physics.md#occupied-gasliquid-cells) | Gas and liquid constituents share a cell with actual EOS partial volumes, one mechanical pressure and one stored U. Linux Unity and WindowsPlayer/Proton pass source and reload | Liquid interface rendering, free surfaces, phase change |
 | [Internal conduction](sealed-native-domain.md#internal-fluid-conduction), [mixed-cell conduction](native-domain-physics.md#mixed-cell-conduction), [stored-energy rounding](../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding) | Backward-Euler thermal network with closed energy and entropy checks; mixed cells use the full EOS. Linux Unity, Windows and WindowsPlayer/Proton pass | Variable properties, fluid/solid exchange inside owner, strict cross-player agreement |
-| Gravity: [gas](sealed-native-domain.md#gravity-and-carried-potential-energy), [filled water](native-domain-physics.md#filled-liquid-gravity) | Body work and carried potential in the U+K+G account. Linux Unity and Windows pass, including main-menu reloads | Range-extended vertical gravity work faults the step; hydrostatic convergence, free surfaces |
+| Gravity: [gas](sealed-native-domain.md#gravity-and-carried-potential-energy), [filled water](native-domain-physics.md#filled-liquid-gravity) | Body work and carried potential in the U+K+G account. Linux Unity and Windows pass, including main-menu reloads. Standalone full-range gravity, hydrostatic and stratified refinement controls pass | Persistent primary-U rounding remainders, general hydrostatic certification, free surfaces; native adapter scalar projection limits and new full-range game evidence |
 | [Viscosity](native-domain-physics.md#physical-viscosity) | Constant Newtonian shear/bulk surrogates, free-slip walls. Linux Unity and WindowsPlayer/Proton pass source and local/cross-player reloads | Material laws, no-slip and interface geometry |
 | [Exact equilibrium](playtesting-readiness.md#implemented-exact-equilibrium) | Certified whole-owner shortcut with no tolerance; MSVC and GNU pass | Sleeping regions inside an active colony |
 

@@ -141,6 +141,11 @@ struct ReferenceIsentropicDerivatives {
     double work_pressure_volume_derivative_pa_per_m3 = 0;
 };
 
+struct ReferenceIsentropicWork {
+    ReferenceIsentropicResponse response;
+    double work_pressure_volume_derivative_pa_per_m3 = 0;
+};
+
 class LiquidThermodynamicReference {
 public:
     LiquidThermodynamicReference(std::string profile_version, std::vector<ReferenceMaterial> materials);
@@ -178,6 +183,10 @@ public:
     // This derivative still exists when a nonzero step ends at the fill kink.
     // At a zero-length step starting at that kink it is two-sided undefined.
     [[nodiscard]] double isentropic_work_pressure_derivative(const ReferenceIsentrope& entropy_reference,
+        double volume_change_m3, ReferenceRootOptions options = {}) const;
+    // The same response and tangent, evaluated from one root. This retains
+    // the standalone queries' domains, rounding and liquid-fill kink errors.
+    [[nodiscard]] ReferenceIsentropicWork isentropic_work(const ReferenceIsentrope& entropy_reference,
         double volume_change_m3, ReferenceRootOptions options = {}) const;
 private:
     std::string profile_version_;

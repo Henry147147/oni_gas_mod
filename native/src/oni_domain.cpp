@@ -18,6 +18,7 @@
 #include <set>
 #include <bit>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 #include <xmmintrin.h>
@@ -61,7 +62,7 @@ std::array<std::atomic<std::uint8_t>,MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_CELLS> sol
 std::array<std::atomic<std::uint64_t>,MA_ONI_HOOK_COUNT> suppressed{};
 std::uint64_t session_sequence{};
 MAOniDomainStatus status=[] { MAOniDomainStatus value{}; value.struct_size=sizeof(value); value.abi_version=MA_ONI_DOMAIN_ABI_VERSION; return value; }();
-std::unique_ptr<MacClosedWorld> world;
+std::shared_ptr<const MacClosedWorld> world;
 std::unique_ptr<MacClosedWorld> pending_world;
 std::uint64_t accepted_heat_batches{}, committed_heat_batches{};
 std::uint32_t pending_heat_batches{}, pending_heat_edits{};
@@ -73,6 +74,14 @@ std::uint32_t pending_transfer_batches{};
 std::vector<MAOniDomainReceipt> pending_receipts, receipts;
 std::vector<frame_inputs::Batch> pending_inputs;
 std::vector<std::uint8_t> completed_inputs,completed_snapshot;
+struct DeferredFrameAudit {
+    std::shared_ptr<const MacClosedWorld> source, completed;
+    MAOniDomainPhysics physics{};
+    frame_inputs::Image journal;
+    std::vector<actor_checkpoint::State> source_actors, completed_actors;
+};
+std::optional<DeferredFrameAudit> completed_audit;
+std::uint64_t audit_full_serializations{},audit_journal_serializations{};
 std::uint32_t pending_input_flags{};
 struct Actor {
     MAOniDomainActor config{}; double elapsed{}, rate_remainder{}; bool blocked{};
@@ -264,6 +273,12 @@ std::size_t reported_cell(const MacClosedWorld& owner) {
 std::vector<std::uint8_t> physical_image(const MacClosedWorld& owner,const MAOniDomainConfig& g,const MAOniDomainPhysics& p) {
     if (!configured_scenario(g.scenario)) return owner.checkpoint();
     return configured_domain::encode({g,p,owner.state().grid.walls,owner.checkpoint()});
+}
+std::vector<std::uint8_t> audit_image(const MacClosedWorld& owner,const MAOniDomainConfig& g,const MAOniDomainPhysics& p,
+    const std::vector<actor_checkpoint::State>& saved_actors) {
+    auto image=physical_image(owner,g,p);
+    if (saved_actors.empty()) return image;
+    return actor_checkpoint::encode({g,saved_actors,std::move(image)});
 }
 MacClosedSettings configured_settings(const MAOniDomainPhysics& physics) {
     // Same construction as the legacy scenarios: disabled values stay +0.
@@ -665,6 +680,7 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     accepted_transfer_batches=committed_transfer_batches=receipt_sequence=acknowledged_receipt=0;
     pending_transfer_batches=0; pending_receipts.clear(); receipts.clear();
     pending_inputs.clear();completed_inputs.clear();completed_snapshot=std::move(initial_snapshot);pending_input_flags=0;
+    completed_audit.reset();audit_full_serializations=audit_journal_serializations=0;
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     pending_actor_restore=std::move(restored_actors);
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
@@ -789,6 +805,7 @@ void shutdown_domain() noexcept {
     pending_world.reset(); pending_heat_batches=pending_heat_edits=0; pending_heat={};
     pending_transfer_batches=0; pending_receipts.clear(); pending_mass={}; pending_material={}; pending_kinetic={};
     pending_inputs.clear();completed_inputs.clear();completed_snapshot.clear();pending_input_flags=0;
+    completed_audit.reset();audit_full_serializations=audit_journal_serializations=0;
     actors.clear();
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
     solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
@@ -874,7 +891,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         for (auto receipt : work.outbox) { receipt.completed_frame=next.completed_frames; next_receipts.push_back(receipt); }
         auto next_mass=committed_mass;
         for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
-        auto owner=std::make_unique<MacClosedWorld>(std::move(result.world));
+        auto owner=std::make_shared<const MacClosedWorld>(std::move(result.world));
         auto next_redistribution=thermal_redistribution,next_entropy=thermal_entropy;
         auto next_viscous_dissipation=viscous_dissipation,next_viscous_stored_heat=viscous_stored_heat,next_viscous_entropy=viscous_entropy;
         auto next_viscous_wall_x=viscous_wall_x,next_viscous_wall_y=viscous_wall_y;
@@ -889,34 +906,30 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next_redistribution.add(result.report.conductive_redistribution_j); next_entropy.add(result.report.conductive_entropy_j_per_k);
         if (!std::isfinite(next_redistribution.value().project().value) || !std::isfinite(next_entropy.value().project().value))
             throw std::overflow_error("Native conduction diagnostic exceeds its scalar range");
-        auto source_image=physical_image(*world,geometry,physics_settings);auto input_flags=pending_input_flags;
+        // Pin the two immutable endpoints and the accepted inputs. Ordinary
+        // frames do not serialize/hash either world. Capture readers build
+        // the exact legacy images on demand under the publication lock.
+        DeferredFrameAudit next_audit;next_audit.source=world;next_audit.physics=physics_settings;
+        auto input_flags=pending_input_flags;
         if (!actors.empty()) {
             if (std::any_of(actors.begin(),actors.end(),[](const auto& item) {return !item.second.identity.owner;})) input_flags|=2U;
             else {
-                actor_checkpoint::Image image{geometry,{},std::move(source_image)};
-                for (const auto& [key,actor]:actors) { (void)key;image.actors.push_back(saved_actor(actor)); }
-                source_image=actor_checkpoint::encode(image);
+                for (const auto& [key,actor]:actors) { (void)key;next_audit.source_actors.push_back(saved_actor(actor)); }
             }
         }
-        frame_inputs::Image journal{input_flags,status.session,status.completed_frames,next.completed_frames,
-            world->time_s(),seconds,geometry,hash_memory(source_image.data(),source_image.size()),pending_inputs};
-        auto next_inputs=frame_inputs::encode(journal);
-        std::vector<std::uint8_t> next_snapshot;
+        next_audit.journal={input_flags,status.session,status.completed_frames,next.completed_frames,
+            world->time_s(),seconds,geometry,{},pending_inputs};
         if ((input_flags&2U)==0) {
-            next_snapshot=physical_image(*owner,geometry,physics_settings);
-            if (!next_actors.empty()) {
-                actor_checkpoint::Image image{geometry,{},std::move(next_snapshot)};
-                for (const auto& [key,actor]:next_actors) {(void)key;image.actors.push_back(saved_actor(actor));}
-                next_snapshot=actor_checkpoint::encode(image);
-            }
+            next_audit.completed=owner;
+            for (const auto& [key,actor]:next_actors) {(void)key;next_audit.completed_actors.push_back(saved_actor(actor));}
         }
         auto next_chunk_heat=combined_chunk_heat(committed_chunk_heat,pending_chunk_heat);
         auto next_solid_heat=combined_chunk_heat(committed_solid_heat,pending_solid_heat);
         world=std::move(owner); publication=std::move(cells); status=next;
-        completed_snapshot=std::move(next_snapshot);
+        completed_audit=std::move(next_audit);completed_snapshot.clear();
         committed_chunk_heat=std::move(next_chunk_heat);pending_chunk_heat={};
         committed_solid_heat=std::move(next_solid_heat);pending_solid_heat={};solid_heat_contacts.clear();
-        completed_inputs=std::move(next_inputs);pending_inputs.clear();pending_input_flags=0;
+        completed_inputs.clear();pending_inputs.clear();pending_input_flags=0;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
         viscous_dissipation=std::move(next_viscous_dissipation);viscous_stored_heat=std::move(next_viscous_stored_heat);
         viscous_entropy=std::move(next_viscous_entropy);viscous_wall_x=std::move(next_viscous_wall_x);viscous_wall_y=std::move(next_viscous_wall_y);
@@ -1349,7 +1362,13 @@ std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,s
     std::lock_guard lock(state_mutex);
     if (!enabled.load(std::memory_order_acquire) || status.state!=1 || session!=status.session || frame!=status.completed_frames)
         throw std::logic_error("Completed snapshot requires the current active session/frame");
-    if (completed_snapshot.empty()) throw std::logic_error("Complete frame image is unavailable for non-durable actors");
+    if (completed_snapshot.empty()) {
+        if (!completed_audit || !completed_audit->completed) throw std::logic_error("Complete frame image is unavailable for non-durable actors");
+        const ArithmeticScope arithmetic;
+        completed_snapshot=audit_image(*completed_audit->completed,completed_audit->journal.geometry,completed_audit->physics,
+            completed_audit->completed_actors);
+        if (audit_full_serializations<std::numeric_limits<std::uint64_t>::max()) ++audit_full_serializations;
+    }
     return completed_snapshot;
 }
 std::vector<std::uint8_t> snapshot_domain(std::uint64_t session,std::uint64_t frame) {
@@ -1407,8 +1426,22 @@ std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t> 
 std::vector<std::uint8_t> copy_domain_frame_inputs(std::uint64_t session,std::uint64_t frame) {
     std::lock_guard frame_lock(frame_mutex);std::lock_guard lock(state_mutex);
     if (!enabled.load(std::memory_order_acquire) || status.state!=1 || session!=status.session ||
-        frame!=status.completed_frames || completed_inputs.empty()) throw std::logic_error("Completed frame inputs are unavailable for this session/frame");
+        frame!=status.completed_frames || !completed_audit) throw std::logic_error("Completed frame inputs are unavailable for this session/frame");
+    if (completed_inputs.empty()) {
+        const ArithmeticScope arithmetic;
+        const auto& audit=*completed_audit;
+        const auto source=audit_image(*audit.source,audit.journal.geometry,audit.physics,audit.source_actors);
+        auto journal=audit.journal;journal.source_sha256=hash_memory(source.data(),source.size());
+        completed_inputs=frame_inputs::encode(journal);
+        if (audit_full_serializations<std::numeric_limits<std::uint64_t>::max()) ++audit_full_serializations;
+        if (audit_journal_serializations<std::numeric_limits<std::uint64_t>::max()) ++audit_journal_serializations;
+    }
     return completed_inputs;
+}
+DomainAuditStatistics domain_audit_statistics() {
+    std::lock_guard lock(state_mutex);
+    return {completed_audit ? (completed_audit->completed ? 2U : 1U) : 0U,completed_snapshot.size(),completed_inputs.size(),
+        audit_full_serializations,audit_journal_serializations};
 }
 std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const std::uint8_t> source,std::span<const std::uint8_t> inputs) {
     const ArithmeticScope arithmetic;const auto journal=frame_inputs::decode(inputs);

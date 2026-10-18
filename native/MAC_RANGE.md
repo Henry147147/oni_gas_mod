@@ -61,6 +61,15 @@ parsing rejects leading zeros, negative zero and invalid characters; integer nar
 must be exact. Capacity and narrowing failures leave inputs unchanged. Checkpoints
 store exponents as canonical decimal text.
 
+Optimized builds use compiler/linker-checked IPO by default (`MA_ENABLE_IPO`,
+disabled for sanitizers); strict floating-point flags remain in force. Inline
+64-bit exponent arithmetic falls back to the same limb operations on overflow.
+Normal binary64 normalization, projection and aligned two-sum operands use exact
+exponent-bit changes. Subnormal normalization/projection keeps the checked math
+path. No trace, low additive component or rounding flag is removed. Native
+controls compare all finite exponent bins and both signs with `frexp`, alongside
+the existing exact-fraction energy and large-exponent reviews.
+
 ## Where full-range values are used
 
 ### Derived energy
@@ -105,9 +114,21 @@ correction to the returned velocity, so full J, midpoint sweeps and K are accoun
 the original bounds. Material volume and U rounding stay explicit, and the EOS and
 its root tolerances are unchanged.
 
-Limits: range-extended vertical gravity work is not implemented and faults; coupled
-compression mode 3 rejects inputs that need projection; full range does not make
-arbitrarily small velocities change stored U or volume.
+Vertical gravity retains full-range body impulse, midpoint body work, actual-mass
+potential flux and signed internal work through the stage accounts. Their binary64
+report fields are projections; full operands and a separate gravity projection count
+remain available. A full vertical momentum, volume sweep or mass flux no longer
+rejects solely because gravity is enabled. Ordinary represented force cancellation
+still precedes multiplication by the timestep, preserving hydrostatic balance.
+The equilibrium certificate checks these same full forces: equality of rounded
+subnormal products alone cannot certify rest. A rigid equilibrium can also retain
+a below-range body/wall impulse without falling back to ordinary stepping.
+
+Limits: coupled compression mode 3 rejects inputs that need projection; full range
+does not make arbitrarily small velocities change stored U or volume. Unresolved
+gravity U changes are counted and retained in the substep report, but their
+remainders are not persisted in the physical checkpoint. Completing primary-field
+rounding remainder storage remains necessary for production acceptance.
 
 ## Verification and reproduction
 
@@ -117,19 +138,20 @@ arbitrarily small velocities change stored U or volume.
 | `ma_mac_energy_transport_tests` | 4 | Gas transport with momenta near 1e-200 and below-range K and heat; the original kinetic-parcel scale; a warm thin-gas (1e-200 kg) pressure reversal through constructor, candidate and atomic owner; a denormal passive parcel that must still reject |
 | `ma_mac_primary_parcel_tests` | 5 | The 8.59e-325 kg helium contribution surviving on a uniform grid; a 1e-350 passive per parcel; four quarter-denormal helium contributions forming 2^-1074 kg; unresolved destination rejection; invalid reference volumes |
 | `ma_mac_momentum_parcel_tests` | 4 | The 3.6e-585 kg m/s incoming share joining an existing J; minimum-denormal retained/incoming recombination; signed cancellation; the remaining atomic rejection |
-| `ma_mac_canonical_range_tests` | 5 | A uniform atmosphere at the rejected J scale through one step and one owner interval; warm thin gas with J below range; a new positive J on a previously zero face; below-range wall reaction and heat; stale projections and range-extended vertical gravity rejecting |
+| `ma_mac_canonical_range_tests` | 5 | A uniform atmosphere at the rejected J scale through one step and one owner interval; warm thin gas with J below range; a new positive J on a previously zero face; below-range wall reaction and heat; stale projections and invalid full-field shapes |
+| `ma_mac_gravity_range_tests` | 5 | Full incoming vertical J with ordinary gravity; below-range body impulse, body work and potential mass flux; minimum-subnormal gravity with a below-range vertical sweep; checkpoint continuation and atomic rollback; 10,000 closed steps retaining all primary masses/passives and the accumulated full impulse |
 | `ma_mac_exponent_tests` | 6 | Signed 32/64-bit boundaries and large integers; shared immutable ownership under three threads; the −3049816383 exponent and cancelling huge exponents; expansions and accounts; 256 successive scaled products; decimal, narrowing and capacity limits |
 
 ```sh
 cmake --build build --config Release --target ma_mac_energy_tests ma_mac_energy_transport_tests \
-  ma_mac_primary_parcel_tests ma_mac_momentum_parcel_tests ma_mac_canonical_range_tests ma_mac_exponent_tests
+  ma_mac_primary_parcel_tests ma_mac_momentum_parcel_tests ma_mac_canonical_range_tests ma_mac_gravity_range_tests ma_mac_exponent_tests
 build/ma_mac_exponent_tests > exponent.stdout
 python3 native/tests/review_mac_exponent.py exponent.stdout
 ```
 
 The matching reviewers are `review_mac_energy.py`, `review_mac_energy_transport.py`,
 `review_mac_primary_parcel.py`, `review_mac_momentum_parcel.py`,
-`review_mac_canonical_range.py` and `review_mac_exponent.py`. They check products,
+`review_mac_canonical_range.py`, `review_mac_gravity_range.py` and `review_mac_exponent.py`. They check products,
 shares and full additive expansions with exact fractions, reconstruct the transport and
 pressure accounts (ideal-gas pressure and temperature at 80 digits), and, for
 exponents, use Python integers and symbolic significand/exponent clusters rather than

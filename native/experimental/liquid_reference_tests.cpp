@@ -646,6 +646,33 @@ void ideal_gas_entropy_extreme_ratios_and_denormal_trace() {
         "Stable entropy query changed the denormal trace");
     near(response.state.entropy_j_per_k, initial.state.entropy_j_per_k, 1e-12);
 }
+void fused_isentropic_work() {
+    const auto model=mixed();
+    for(const auto& masses:std::vector<std::vector<double>>{{0,0,1,1e-28},{1000,0,0,0},
+            {500,100,1,.1},{500,0,0,0},{0,0,0,0}}) {
+        const double volume=masses[0]==1000 ? .9 : 1;
+        const auto anchor=model.make_isentrope(model.initialize_at_temperature(masses,300,volume).cell);
+        for(double delta:{-.01,-1e-20,0.,1e-20,.01}) {
+            const auto response=model.isentropic_response(anchor,delta);
+            const double derivative=model.isentropic_work_pressure_derivative(anchor,delta);
+            const auto fused=model.isentropic_work(anchor,delta);
+            require(fused.work_pressure_volume_derivative_pa_per_m3==derivative &&
+                fused.response.work_pressure_pa==response.work_pressure_pa &&
+                fused.response.endpoint.masses_kg==response.endpoint.masses_kg &&
+                fused.response.endpoint.internal_energy_j==response.endpoint.internal_energy_j &&
+                fused.response.endpoint.volume_m3==response.endpoint.volume_m3 &&
+                fused.response.state.temperature_k==response.state.temperature_k &&
+                fused.response.state.entropy_j_per_k==response.state.entropy_j_per_k &&
+                fused.response.endpoint_energy_resolves_change==response.endpoint_energy_resolves_change,
+                "Fused thermodynamic work differs from separate state/tangent queries");
+        }
+    }
+    const auto filled=model.make_isentrope(model.initialize_at_temperature(std::vector<double>{1000,0,0,0},300,1).cell);
+    rejects([&]{(void)model.isentropic_work(filled,0);},ReferenceErrorCode::unsupported_derivative);
+    auto changed=mixed().materials();changed[0].provenance+=" different model";
+    const LiquidThermodynamicReference other("test-surrogates-v1",changed);
+    rejects([&]{(void)other.isentropic_work(filled,.01);},ReferenceErrorCode::incompatible_entropy_reference);
+}
 }
 
 int main() {
@@ -676,7 +703,8 @@ int main() {
         {"typed liquid-fill kinks, empty reference and immutable model identity", isentropic_kinks_empty_and_profiles},
         {"finite-volume gas expansion toward vacuum without deleting matter", isentropic_vacuum_limits},
         {"isentropic domain/root failures preserve reference and prior output", isentropic_domains_and_rollback},
-        {"ideal-gas entropy scale extremes and positive denormal trace", ideal_gas_entropy_extreme_ratios_and_denormal_trace}
+        {"ideal-gas entropy scale extremes and positive denormal trace", ideal_gas_entropy_extreme_ratios_and_denormal_trace},
+        {"fused isentropic work preserves state, tangent, traces and typed failures", fused_isentropic_work}
     };
     int failed = 0;
     for (const auto& [name, test] : tests) {

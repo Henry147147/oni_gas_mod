@@ -23,19 +23,10 @@ struct MacExponent::Large {
     std::vector<std::uint32_t> words;
     Large(bool negative_value, std::vector<std::uint32_t> value) : negative(negative_value), words(std::move(value)) {}
 };
-MacExponent::MacExponent(std::int64_t value) noexcept { storage_.small = value; }
 void MacExponent::retain() const noexcept { if (large_) static_cast<void>(storage_.large->references.fetch_add(1, std::memory_order_relaxed)); }
 void MacExponent::release() noexcept {
     if (large_ && storage_.large->references.fetch_sub(1, std::memory_order_acq_rel) == 1) delete storage_.large;
 }
-MacExponent::MacExponent(const MacExponent& other) noexcept : storage_(other.storage_), large_(other.large_) { retain(); }
-MacExponent::MacExponent(MacExponent&& other) noexcept : storage_(other.storage_), large_(other.large_) { other.storage_.small = 0; other.large_ = false; }
-MacExponent& MacExponent::operator=(const MacExponent& other) noexcept { if (this != &other) { MacExponent copy(other); swap(copy); } return *this; }
-MacExponent& MacExponent::operator=(MacExponent&& other) noexcept {
-    if (this != &other) { release(); storage_ = other.storage_; large_ = other.large_; other.storage_.small = 0; other.large_ = false; } return *this;
-}
-MacExponent::~MacExponent() { release(); }
-void MacExponent::swap(MacExponent& other) noexcept { std::swap(storage_, other.storage_); std::swap(large_, other.large_); }
 int MacExponent::sign() const noexcept { return large_ ? (storage_.large->negative ? -1 : 1) : (storage_.small < 0 ? -1 : storage_.small > 0 ? 1 : 0); }
 std::vector<std::uint32_t> MacExponent::magnitude_words() const {
     if (large_) return storage_.large->words;
@@ -75,17 +66,11 @@ MacExponent MacExponent::from_decimal(std::string_view text) {
     }
     return from_words(negative, std::move(words));
 }
-std::int64_t MacExponent::to_int64_exact() const { if (large_) precision("MAC exponent exceeds int64 projection"); return storage_.small; }
-int MacExponent::to_int_exact() const {
-    const auto value = to_int64_exact();
-    if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) precision("MAC exponent exceeds int projection");
-    return static_cast<int>(value);
-}
-MacExponent MacExponent::negated() const {
-    if (!large_ && storage_.small != std::numeric_limits<std::int64_t>::min()) return -storage_.small;
+std::int64_t MacExponent::int64_projection_error() { precision("MAC exponent exceeds int64 projection"); }
+int MacExponent::int_projection_error() { precision("MAC exponent exceeds int projection"); }
+MacExponent MacExponent::negated_large() const {
     return from_words(sign() >= 0, magnitude_words());
 }
-MacExponent MacExponent::doubled() const { return *this + *this; }
 bool MacExponent::is_odd() const noexcept {
     return large_ ? (storage_.large->words.front() & 1U) != 0 : storage_.small % 2 != 0;
 }
@@ -109,11 +94,7 @@ MacExponent MacExponent::halved_floor() const {
     }
     return from_words(storage_.large->negative, std::move(words));
 }
-MacExponent operator+(const MacExponent& a, const MacExponent& b) {
-    if (!a.large_ && !b.large_) {
-        const auto x = a.storage_.small, y = b.storage_.small;
-        if (!((y > 0 && x > std::numeric_limits<std::int64_t>::max() - y) || (y < 0 && x < std::numeric_limits<std::int64_t>::min() - y))) return x + y;
-    }
+MacExponent MacExponent::add_large(const MacExponent& a, const MacExponent& b) {
     if (a.sign() == 0) return b;
     if (b.sign() == 0) return a;
     auto x = a.magnitude_words(), y = b.magnitude_words();
@@ -136,8 +117,7 @@ MacExponent operator+(const MacExponent& a, const MacExponent& b) {
     }
     return MacExponent::from_words(negative, std::move(x));
 }
-std::strong_ordering operator<=>(const MacExponent& a, const MacExponent& b) noexcept {
-    if (!a.large_ && !b.large_) return a.storage_.small <=> b.storage_.small;
+std::strong_ordering MacExponent::compare_large(const MacExponent& a, const MacExponent& b) noexcept {
     const int sa = a.sign(), sb = b.sign(); if (sa != sb) return sa <=> sb;
     if (a.large_ != b.large_) return (a.large_ ? sa : -sa) <=> 0;
     const int order = compare_words(a.storage_.large->words, b.storage_.large->words); return (sa * order) <=> 0;

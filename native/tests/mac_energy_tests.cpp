@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/mac_energy.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <cmath>
+#include <bit>
 #include <cfenv>
 #include <cstdint>
 #include <iomanip>
@@ -25,6 +26,19 @@ void roundtrips() {
         const auto e=MacEnergy::from_double(v);const auto p=e.project();
         check(p.value==v&&!p.rounded&&e.require_representable()==v,"MAC energy roundtrip changed a finite binary64 value");
         std::cout<<"ROUND "<<id++<<' '<<v<<' ';encoded(e);std::cout<<' '<<p.value<<' '<<p.rounded<<'\n';
+    }
+    // Compare the optimized normalization/projection with the C math oracle
+    // over every exponent bin and both signs, including random subnormals.
+    std::uint64_t seed=UINT64_C(0xb3f47519ad72860e);
+    for(std::uint64_t power=0;power<2047;++power)for(int sample=0;sample<8;++sample) {
+        seed=seed*UINT64_C(6364136223846793005)+UINT64_C(1442695040888963407);
+        const auto bits=(seed&UINT64_C(0x800fffffffffffff))|(power<<52);
+        const double value=std::bit_cast<double>(bits); int expected_power=0;
+        const double expected_mantissa=std::frexp(value,&expected_power);
+        const auto actual=MacEnergy::from_double(value); const auto projected=actual.project();
+        check(actual.mantissa()==expected_mantissa && actual.exponent()==expected_power &&
+            std::bit_cast<std::uint64_t>(projected.value)==bits && !projected.rounded,
+            "Common-case energy arithmetic differs from frexp or loses projection bits");
     }
 }
 void products() {

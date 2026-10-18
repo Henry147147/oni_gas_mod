@@ -3,11 +3,31 @@ project(MixedAtmospheres VERSION 0.1.0 LANGUAGES CXX)
 
 option(MA_BUILD_TESTS "Build standalone physics and ABI tests" ON)
 option(MA_SANITIZERS "Enable address and undefined-behavior sanitizers" OFF)
+option(MA_ENABLE_IPO "Enable checked interprocedural optimization in optimized builds" ON)
 option(MA_BUILD_STAGGERED_EXPERIMENTS "Build unfinished standalone Cartesian/hybrid remap experiments" OFF)
 option(MA_BUILD_ONI_NATIVE_BACKEND "Build opt-in forwarding native SimDLL observer" OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Preserve the strict floating-point flags below: IPO only removes call and
+# abstraction overhead. Keep instrumented builds independent of LTO toolchains.
+if(MA_ENABLE_IPO AND NOT MA_SANITIZERS)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT ma_ipo_supported OUTPUT ma_ipo_error LANGUAGES CXX)
+    if(NOT ma_ipo_supported)
+        message(FATAL_ERROR "IPO was requested but failed its compiler/linker check: ${ma_ipo_error}. Use -DMA_ENABLE_IPO=OFF for this toolchain.")
+    endif()
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE)
+endif()
+
+if(MA_SANITIZERS AND NOT MSVC)
+    # Set these before creating any target, including EXCLUDE_FROM_ALL MAC
+    # controls. Every instrumented static-library consumer needs the runtime.
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+endif()
 
 # Reference EOS used through FluidThermodynamics by MacClosedWorld (the
 # production solver) and the experimental FluidWorld geometry mode. GasWorld
@@ -176,6 +196,8 @@ else()
 endif()
 add_executable(ma_mac_gravity_tests EXCLUDE_FROM_ALL native/tests/mac_gravity_tests.cpp)
 target_link_libraries(ma_mac_gravity_tests PRIVATE ma_mac_closed_world)
+add_executable(ma_mac_gravity_range_tests EXCLUDE_FROM_ALL native/tests/mac_gravity_range_tests.cpp)
+target_link_libraries(ma_mac_gravity_range_tests PRIVATE ma_mac_closed_world)
 add_executable(ma_mac_riemann_tests EXCLUDE_FROM_ALL native/tests/mac_riemann_tests.cpp)
 target_link_libraries(ma_mac_riemann_tests PRIVATE ma_mac_closed_world)
 add_library(ma_mac_energy STATIC EXCLUDE_FROM_ALL native/src/mac_energy.cpp native/src/mac_exponent.cpp)
@@ -276,6 +298,7 @@ if(MSVC)
     target_compile_options(ma_mac_closed_world PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_mac_closed_world_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_mac_gravity_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+    target_compile_options(ma_mac_gravity_range_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_mac_riemann_tests PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_mac_energy PRIVATE /W4 /WX /permissive- /fp:strict)
     target_compile_options(ma_mac_energy_tests PRIVATE /W4 /WX /permissive- /fp:strict)
@@ -295,6 +318,7 @@ else()
     target_compile_options(ma_mac_closed_world PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
     target_compile_options(ma_mac_closed_world_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
     target_compile_options(ma_mac_gravity_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+    target_compile_options(ma_mac_gravity_range_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
     target_compile_options(ma_mac_riemann_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
     target_compile_options(ma_mac_energy PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
     target_compile_options(ma_mac_energy_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
@@ -346,20 +370,6 @@ foreach(target ma_core ma_fluid_reference mixed_atmospheres)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     endif()
 endforeach()
-if(MA_SANITIZERS AND NOT MSVC)
-    # UBSan otherwise reports and continues with exit 0, so CTest could pass
-    # with undefined behavior diagnostics. Make every sanitizer finding fatal.
-    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
-    add_link_options(-fsanitize=address,undefined)
-    foreach(target ma_core ma_fluid_reference mixed_atmospheres mixed_atmospheres_coupled ma_coupled_api_tests ma_passive_transport_tests
-            ma_mac_closed_world ma_mac_mixed_transfer_tests ma_mac_mixture_thermal_tests ma_mac_viscosity_tests ma_mac_native_heat_tests ma_mac_reconstruction ma_mac_transport ma_mac_energy ma_mac_compression ma_mac_momentum_limiter ma_mac_compressive_work ma_mac_compressive_work_tests ma_mac_compressive_pressure_tests ma_mac_compressive_owner_tests
-            ma_mac_shock_heat ma_mac_shock_heat_tests ma_mac_shock_heat_owner_tests ma_mac_acoustic_compression_tests ma_mac_pressure_sensor_tests ma_mac_matched_heat_tests ma_mac_series_heat_tests
-            ma_mac_swept_reconstruction_tests ma_mac_checkpoint_tests ma_mac_quadratic_limiter_tests ma_mac_dual_affine_diagnostic ma_mac_swept_momentum_tests ma_mac_bounded_energy_tests ma_mac_physical_admission_tests
-            ma_mac_equilibrium_tests ma_mac_playtest_benchmark)
-        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
-        target_link_options(${target} PRIVATE -fsanitize=address,undefined)
-    endforeach()
-endif()
 
 add_executable(ma_demo native/apps/demo.cpp)
 target_link_libraries(ma_demo PRIVATE ma_core)

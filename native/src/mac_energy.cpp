@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/mac_energy.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <cmath>
+#include <bit>
 #include <cfenv>
 #include <cstdint>
 #include <limits>
@@ -14,10 +15,19 @@ namespace ma::experimental {
 namespace {
 [[noreturn]] void precision(const char* why) { throw FluidFatalError(FluidFatalCode::numerical_precision, why); }
 void finite(double value) { if (!std::isfinite(value)) throw std::invalid_argument("Nonfinite MAC energy operand"); }
+double split(double value, int& power) {
+    const auto bits = std::bit_cast<std::uint64_t>(value);
+    const auto biased = static_cast<int>((bits >> 52) & UINT64_C(0x7ff));
+    if (biased != 0) {
+        power = biased - 1022;
+        return std::bit_cast<double>((bits & UINT64_C(0x800fffffffffffff)) | UINT64_C(0x3fe0000000000000));
+    }
+    return std::frexp(value, &power);
+}
 MacEnergy normalized(double mantissa, MacExponent power) {
-    finite(mantissa); if (mantissa == 0) return {};
-    int change = 0; const double value = std::frexp(mantissa, &change);
-    return MacEnergy::from_parts(value, power + change);
+    const auto value = MacEnergy::from_double(mantissa);
+    if (value.is_zero()) return {};
+    return MacEnergy::from_parts(value.mantissa(), power + value.exponent());
 }
 }
 void require_mac_energy_environment() {
@@ -38,25 +48,31 @@ MacEnergy MacEnergy::from_parts(double mantissa, MacExponent power) {
     if (std::abs(mantissa) < .5 || std::abs(mantissa) >= 1) throw std::invalid_argument("MAC energy significand is not normalized");
     return {mantissa, std::move(power)};
 }
-MacEnergy MacEnergy::from_double(double value) { return normalized(value, 0); }
+MacEnergy MacEnergy::from_double(double value) {
+    finite(value); if (value == 0) return {};
+    // Scaling a normal binary64 by an exact power of two changes only its
+    // exponent bits. Keep frexp for subnormals; it normalizes them exactly.
+    int power = 0; const double mantissa = split(value, power);
+    return {mantissa, power};
+}
 MacEnergy MacEnergy::kinetic(double inertia, double momentum) {
     finite(inertia); finite(momentum);
     if (inertia < 0 || (inertia == 0 && momentum != 0)) throw std::invalid_argument("MAC kinetic energy has no positive inertia");
     if (momentum == 0) return {};
-    int ei = 0, ej = 0; const double mi = std::frexp(inertia, &ei), mj = std::frexp(momentum, &ej);
+    int ei = 0, ej = 0; const double mi = split(inertia, ei), mj = split(momentum, ej);
     return normalized(.5 * mj * (mj / mi), 2 * static_cast<std::int64_t>(ej) - ei);
 }
 MacEnergy MacEnergy::variance(double mass, double difference) {
     finite(mass); finite(difference); if (mass < 0) throw std::invalid_argument("Negative MAC variance mass");
     if (mass == 0 || difference == 0) return {};
-    int em = 0, eu = 0; const double m = std::frexp(mass, &em), u = std::frexp(difference, &eu);
+    int em = 0, eu = 0; const double m = split(mass, em), u = split(difference, eu);
     return normalized(.5 * m * u * u, static_cast<std::int64_t>(em) + 2 * static_cast<std::int64_t>(eu));
 }
 MacEnergy MacEnergy::kinetic(double inertia, MacEnergy momentum) {
     finite(inertia);
     if (inertia < 0 || (inertia == 0 && !momentum.is_zero())) throw std::invalid_argument("MAC kinetic energy has no positive inertia");
     if (momentum.is_zero()) return {};
-    int ei = 0; const double mi = std::frexp(inertia, &ei), mj = momentum.mantissa();
+    int ei = 0; const double mi = split(inertia, ei), mj = momentum.mantissa();
     return normalized(.5 * mj * (mj / mi), momentum.exponent().doubled() - ei);
 }
 MacEnergy MacEnergy::variance(MacEnergy mass, MacEnergy difference) {
@@ -69,7 +85,7 @@ MacEnergy MacEnergy::shared(double part, double total) const {
     finite(part); finite(total); if (part < 0 || total <= 0) throw std::invalid_argument("Invalid MAC derived energy share");
     if (part == 0 || is_zero()) return {};
     if (part == total) return *this;
-    int ep = 0, et = 0; const double p = std::frexp(part, &ep), t = std::frexp(total, &et);
+    int ep = 0, et = 0; const double p = split(part, ep), t = split(total, et);
     return normalized(mantissa_ * p / t, exponent_ + ep - et);
 }
 MacEnergy MacEnergy::shared(MacEnergy part, MacEnergy total) const {
@@ -81,7 +97,7 @@ MacEnergy MacEnergy::shared(MacEnergy part, MacEnergy total) const {
 }
 MacEnergy MacEnergy::multiplied(double factor) const {
     finite(factor); if (factor == 0 || is_zero()) return {};
-    int power = 0; const double value = std::frexp(factor, &power);
+    int power = 0; const double value = split(factor, power);
     return normalized(mantissa_ * value, exponent_ + power);
 }
 MacEnergy MacEnergy::shifted(int power) const {
@@ -97,6 +113,13 @@ MacEnergy MacEnergy::square_root() const {
 MacEnergyProjection MacEnergy::project() const {
     if (is_zero()) return {};
     if (exponent_ > 1024) precision("MAC derived energy exceeds binary64 upper range");
+    if (exponent_ >= -1021) {
+        // Every significand bit survives a normal projection. This path
+        // cannot underflow, overflow or round, including DBL_MIN/DBL_MAX.
+        const auto bits = std::bit_cast<std::uint64_t>(mantissa_);
+        return {std::bit_cast<double>((bits & UINT64_C(0x800fffffffffffff)) |
+            (static_cast<std::uint64_t>(exponent_.to_int_exact() + 1022) << 52)), false};
+    }
     const double result = exponent_ < -1074 ? std::copysign(0., mantissa_) : std::ldexp(mantissa_, exponent_.to_int_exact());
     if (!std::isfinite(result)) precision("MAC derived energy exceeds binary64 upper range");
     const auto represented = from_double(result);
@@ -113,7 +136,10 @@ MacEnergyPair add_mac_energy(MacEnergy a, MacEnergy b) {
     if (a.exponent() < b.exponent() || (a.exponent() == b.exponent() && std::abs(a.mantissa()) < std::abs(b.mantissa()))) std::swap(a, b);
     const auto gap = a.exponent() - b.exponent();
     if (gap > 54) return {a, b};
-    const double x = a.mantissa(), y = std::ldexp(b.mantissa(), -gap.to_int_exact());
+    // The gap is at most 54; the aligned significand is always normal.
+    const auto bits = std::bit_cast<std::uint64_t>(b.mantissa());
+    const double x = a.mantissa(), y = std::bit_cast<double>((bits & UINT64_C(0x800fffffffffffff)) |
+        (static_cast<std::uint64_t>(1022 - gap.to_int_exact()) << 52));
     const double sum = x + y, z = sum - x, error = (x - (sum - z)) + (y - z);
     return {normalized(sum, a.exponent()), normalized(error, a.exponent())};
 }

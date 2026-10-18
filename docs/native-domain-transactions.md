@@ -9,6 +9,16 @@ uses them together. Object and solid heat exchange is in
 [domain physics](native-domain-physics.md). Declarations are in
 `native/include/mixed_atmospheres/oni_domain.h`.
 
+Completed-frame audits serialize on demand. Publication pins the immutable
+source and completed physical owners with their durable actor records and
+accepted inputs; the next publication replaces those pins. Ordinary frames do
+not serialize or hash full checkpoints. Snapshot and journal readers materialize
+and cache the exact existing formats, including source hashes, under the
+publication lock. Pending edits and actor configuration cannot change a pinned
+image. Save requests retain their drained-state checks and perform full
+serialization. Native controls check exact replay, repeated reads and bounded
+retention; this does not establish colony-scale publication performance.
+
 ## Rules shared by every transaction
 
 - A batch is prepared as one candidate and reserved atomically. Overlapping

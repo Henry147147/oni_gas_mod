@@ -64,13 +64,6 @@ void invalid_full_fields() {
         const auto held=ma::testing::fingerprint(bad);bool rejected=false;
         try{static_cast<void>(MacClosedWorld(set.registry,set.eos,bad));}catch(const std::invalid_argument&){rejected=true;}
         check(rejected && ma::testing::fingerprint(bad)==held,"Stale/invalid full canonical projection was accepted or mutated");}
-    source.grid.periodic_y=false;source.momentum_y.assign(source.grid.width*source.grid.y_height(),0);
-    j.assign(source.momentum_y.size(),{});j[source.grid.y_face(0,1)]=MacScaled::from_parts(.75,-1941);
-    store_mac_field(source.momentum_y,source.full_momentum_y,j);const auto held=ma::testing::fingerprint(source);bool rejected=false;
-    MacClosedSettings settings;settings.gravity_m_per_s2=9.81;
-    try{static_cast<void>(advance_mac_closed_substep(set.registry,*set.eos,source,1e-4,settings));}
-    catch(const FluidFatalError& error){rejected=error.code()==FluidFatalCode::unsupported_topology;}
-    check(rejected && ma::testing::fingerprint(source)==held,"Unsupported full vertical-gravity work was accepted or mutated source");
 }
 }
 int main(){try{
@@ -80,5 +73,5 @@ int main(){try{
     closed_range(1,1e-200,1,MacScaled::from_parts(.75,-1200));std::cout<<"PASS subrange J with representable velocity and full bulk flux\n";
     open_destination();std::cout<<"PASS original new open-face J persists\n";
     wall_reaction();std::cout<<"PASS full wall reaction and positive wall heat\n";
-    invalid_full_fields();std::cout<<"PASS stale full fields and unsupported gravity reject atomically\n";return 0;
+    invalid_full_fields();std::cout<<"PASS stale full field projections and invalid shapes reject atomically\n";return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

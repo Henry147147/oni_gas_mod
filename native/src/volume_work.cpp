@@ -322,17 +322,22 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         double norm = 0;
         std::vector<VolumeSum> sums(count);
         for (std::size_t i = 0; i < count; ++i) {
-            const auto response = model.reference().isentropic_response(anchors[i], delta[i], isentropic_root_options);
+            experimental::ReferenceIsentropicResponse response;
+            double derivative = 0;
+            if (delta[i] == 0) response = model.reference().isentropic_response(anchors[i], delta[i], isentropic_root_options);
+            else {
+                auto evaluated = model.reference().isentropic_work(anchors[i], delta[i], isentropic_root_options);
+                derivative = evaluated.work_pressure_volume_derivative_pa_per_m3;
+                response = std::move(evaluated.response);
+            }
             endpoint_volumes[i] = response.endpoint.volume_m3;
             const double void_budget = 32 * std::numeric_limits<double>::epsilon() * response.endpoint.volume_m3;
             if (response.state.vacuum_volume_m3 > void_budget) { saw_void = true; throw TrialVoid(); }
             const bool roundoff_fill = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
             roundoff_trial[i] = roundoff_fill;
             pressures[i] = roundoff_fill ? 0 : response.work_pressure_pa;
-            double derivative;
             if (delta[i] == 0 || (!response.state.has_gas && response.work_pressure_pa == 0))
                 derivative = -0.5 / model.compression_compliance(anchors[i]);
-            else derivative = model.reference().isentropic_work_pressure_derivative(anchors[i], delta[i], isentropic_root_options);
             if (custom_work) {
                 if (roundoff_fill) throw std::invalid_argument("A constitutive work override requires the strict occupied EOS branch");
                 const auto local=custom_work(i,delta[i]);
@@ -372,6 +377,9 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
     };
     OccupiedMaterialPressureStep result;
     double norm = evaluate(changes, work, compliance, residual);
+    // Reuse the line-search candidate arrays across iterations and rejected
+    // trials. Accepted buffers swap roles; none alias the caller's cells.
+    std::vector<double> next_changes(count), next_work(count), next_compliance(count), next_residual(count);
     while (norm > tolerance) {
         if (result.nonlinear_iterations == 80) {
             if (saw_void) throw FluidFatalError(FluidFatalCode::unsupported_topology, void_message());
@@ -393,14 +401,13 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         bool accepted = false;
         double fraction = 1;
         for (int attempt = 0; attempt < 48; ++attempt) {
-            auto next_changes = changes;
-            std::vector<double> next_work(count), next_compliance(count), next_residual(count);
+            std::copy(changes.begin(), changes.end(), next_changes.begin());
             for (std::size_t i = 0; i < count; ++i) next_changes[i] -= fraction * compliance[i] * solved.pressure[i];
             try {
                 const double next_norm = evaluate(next_changes, next_work, next_compliance, next_residual);
                 if (next_norm <= tolerance || next_norm < norm * (1 - 1e-4 * fraction)) {
-                    changes = std::move(next_changes); work = std::move(next_work);
-                    compliance = std::move(next_compliance); residual = std::move(next_residual);
+                    changes.swap(next_changes); work.swap(next_work);
+                    compliance.swap(next_compliance); residual.swap(next_residual);
                     norm = next_norm; accepted = true; break;
                 }
             } catch (const TrialVoid&) {

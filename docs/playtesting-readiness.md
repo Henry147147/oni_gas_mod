@@ -21,6 +21,13 @@ As of 2026-10-18 all five gates are **open**. The [gate status](#gate-status)
 records what exists, what is missing and what closes each one; the
 [work plan](#work-plan) orders the remaining items.
 
+The accepted 2026-10-18 [real-time completion amendment](completion-plan.md)
+requires functional and real-time acceptance together: 250,000 active fluid
+cells across all asteroids, 32 duplicants and sustained 1× on the Ryzen 5900X.
+Its timestep/scaling work precedes broad activation. The earlier slow-playtest
+proposal below remains historical. Current implementation and measurements are
+in [production timestep progress](production-timestep-progress.md).
+
 ## Playtest definition (proposed)
 
 Proposed 2026-10-17 to make gate 5 reproducible; not yet accepted. It narrows
@@ -105,8 +112,9 @@ also pass collision.
   the central density/pressure bounds ([gate](../native/MAC_STRONG_FLOW.md)). The
   [curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) localizes a
   pressure/remap convention mismatch; the conservative conversion is unwritten.
-- Range-extended vertical gravity work is not implemented in `MacClosedWorld`;
-  a step that requires it faults.
+- Persistent primary-U rounding remainders. Full-range gravity work and potential
+  flux now pass standalone controls, including a 10,000-step continuation, but
+  unresolved U updates are reported rather than saved.
 - Active-cell performance; see [measurements](#reproduce-measurements).
 
 **Closes when** the strong-flow and vacuum gates pass with production
@@ -207,10 +215,9 @@ The completion plan gives every fluid to the custom engine and keeps solids
 and buildings with native ONI. Today's in-game owner is `MacClosedWorld`
 behind `ma_oni_domain_*`.
 
-1. **Open:** grow ownership from sealed rooms, or move to whole-world ownership
-   at once. Rooms need permeable owner boundaries, which the sealed contract
-   forbids. Whole-world ownership needs vacuum, free surfaces and the full
-   catalogue first.
+1. **Decided 2026-10-18:** complete whole-world ownership through the native
+   hooks after vacuum, free surfaces and active-cell scaling. Computational
+   blocks must share physical fluxes and must not become sealed room walls.
 2. **Decided 2026-10-18 by the user:** `MacClosedWorld` (`native/src/mac_*.cpp`)
    is the production colony solver. ONI's native fluid solver is what the mod
    replaces and is not used. The managed `FluidWorld`/coupled path
@@ -234,7 +241,7 @@ licensed game to verify.
 | 3 | 1 | Managed adoption of item 1 and in-game rooms with interior solids (Linux Unity passes; saves, Windows and occupied rooms in progress) | M | Yes |
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
-| 6 | 2 | Range-extended vertical gravity | M–L | No |
+| 6 | 2 | Range-extended vertical gravity (work/flux accounts done); persistent primary-field rounding remainders remain | M–L | Later |
 | 7 | 1, 2 | Vacuum, free surfaces and multiple liquids in the MAC owner | XL | Later |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |
@@ -261,7 +268,7 @@ requirements. Original reference and release tests stay available.
 
 | Change | Benefit | Accuracy cost and admission |
 | --- | --- | --- |
-| Certified exact equilibrium | Avoid repeated pressure, reconstruction and heat solves | No physical approximation. Implemented for identical occupied inventories, exactly zero canonical momentum and zero gravity. |
+| Certified exact equilibrium | Avoid repeated pressure, reconstruction and heat solves | No physical approximation. Connected inventories must be identical at zero gravity; disconnected regions may differ. Exact discrete hydrostatic force balance is also admitted, with no enabled thermal flux. |
 | Lower-order conservative transport | Less reconstruction | More numerical mixing and smeared fronts. Benchmark-only `balanced` uses donor mass/momentum transport and a 0.1 s maximum step; it is not enabled in the game. |
 | Reused topology, EOS identity and workspaces | Less allocation and assembly | Exact invalidation for construction, phase/material changes and load. Further work. |
 | Better timestep prediction and growth | Fewer rejected attempts | Persist or deterministically derive history affecting continuation. Keep admission and conservation guards. Further work. |
@@ -280,12 +287,15 @@ retains the original path. Native worker, checkpoint advance and input-journal
 replay consistently select `exact_equilibrium`. It compares every constituent
 and internal-energy value and the entire authoritative momentum fields,
 including values below binary64 range. Comparisons have no tolerance.
-Identical inventories at equal volume imply identical EOS pressure/temperature;
-zero momentum and gravity make the current mechanical/thermal fluxes zero.
+Identical connected inventories at equal volume imply identical EOS
+pressure/temperature; zero momentum and gravity make the current
+mechanical/thermal fluxes zero. Disconnected sealed regions may differ.
+Hydrostatic certification instead requires exact discrete pressure/body-force
+cancellation at every interior face and equal neighbouring temperature where
+conduction is enabled; the body and wall impulse ledgers still advance.
 Different passive amounts remain unchanged: this owner has no passive diffusion.
-The certificate covers the entire owner. One differing occupied cell or
-nonzero gravity disables it, so it does not yet provide sleeping regions
-inside an active colony.
+The certificate covers the entire owner. An evolving connected region disables
+it, so static regions beside evolving regions are not yet skipped individually.
 
 Only time and revision advance. The report records one certified interval,
 `exact_equilibrium_intervals=1`, and zero pressure/thermal stages; no work counts
@@ -296,8 +306,9 @@ extending this certificate first.
 `ma_mac_equilibrium_tests` compares complete checkpoint bytes with full solves
 for gas/water, walls, conduction, viscosity and reload. It checks wake-up for
 heat edits, one-ULP energy/trace changes, normal and below-range momentum, and
-gravity; invalid arguments reject before shortcuts. MSVC Windows and GNU Linux
-pass.
+gravity; invalid arguments reject before shortcuts. The original controls pass
+on MSVC Windows and GNU Linux. New disconnected and hydrostatic controls pass
+on GNU Linux; actual Windows evidence for these additions remains open.
 
 ## Reproduce measurements
 
@@ -307,13 +318,20 @@ cmake --build build-playtest --config Release --target ma_mac_playtest_benchmark
 python tools/run_mac_playtest_benchmark.py --executable build-playtest/ma_mac_playtest_benchmark --output local/wave-reference --profile reference --scene wave
 python tools/run_mac_playtest_benchmark.py --executable build-playtest/ma_mac_playtest_benchmark --output local/wave-balanced --profile balanced --scene wave
 python tools/run_mac_playtest_benchmark.py --executable build-playtest/ma_mac_playtest_benchmark --output local/still-100k --profile equilibrium --scene uniform --width 400 --height 250 --samples 7 --no-reference
+python tools/run_mac_playtest_benchmark.py --executable build-playtest/ma_mac_playtest_benchmark --output local/evolving-250k --profile equilibrium --scene wave --width 1000 --height 250 --samples 7 --continuation --no-reference --timeout 120
 ```
 
 For Visual Studio, use the executable under `Release/`. Each output directory
 must be new. The runner preserves commands, binary/native-source hashes, raw
 stdout/stderr, exit/timeout outcomes and metrics. World construction and
-reference review are outside advance timing. Samples use identical initial
-states, not a sustained colony. The declared test EOS has constant heat capacity
+reference review and explicit checkpoint capture are outside advance timing.
+Samples use identical initial states by default; `--continuation` advances the
+previous completed sample. Neither mode is a sustained colony. Schema 2 records
+actual changed-cell counts, physical selectors, disturbance-normalized pressure
+error, O2 partial pressure and every positive constituent including traces.
+Uniform scenes cannot claim active-cell performance. Every successful runner
+capture includes `endpoint.mac`; `--compare-checkpoint` checks exact continuation
+against a prior endpoint. The declared test EOS has constant heat capacity
 and elastic water. `--no-reference` explicitly omits the expensive full solve;
 comparison fields are null. Conservation still includes positive helium trace.
 A passing capture does not mean its performance target passed.
@@ -334,6 +352,9 @@ perturbation, which normalization by the 100 kPa background would hide. Both
 modes reject 95 attempts over five samples. Larger steps and lower order alone
 do not meet the target.
 
-The active-cell target remains **25 ms per 0.1 simulated seconds for 100,000
-cells on a Ryzen 5900X**, plus actual Windows/Linux game frame times, bounded
-memory and no growing publication backlog. It remains open.
+Those measurements precede the latest arithmetic and execution changes; see
+[current measurements](production-timestep-progress.md). The active-cell targets
+remain **25 ms per 0.1 simulated seconds for 100,000 cells** and **p95 62.5 ms
+solver-plus-adapter time for 250,000 active cells and 32 duplicants on a Ryzen
+5900X**, plus sustained 1×, 30 FPS, bounded memory and no growing publication
+backlog. Both remain open.

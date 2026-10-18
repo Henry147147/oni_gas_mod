@@ -83,7 +83,11 @@ void durable_actors() {
     const auto source=snapshot_domain(status.session,1);MAOniDomainHeat heat{48,1,status.session,1,650,4,12,1e6};MAOniDomainHeatStatus hs{};queue_domain_heat(&heat,1,hs);
     require(copy_completed_domain_snapshot(status.session,1)==source,"Pending external heat changed published durable actor state");
     advance_domain(2,.02F,2);drain();const auto inputs=copy_domain_frame_inputs(status.session,2);
-    require(advance_domain_snapshot_with_inputs(source,inputs)==snapshot_domain(status.session,2),"External inputs and durable actor timing did not replay together");
+    const auto completed=snapshot_domain(status.session,2);
+    require(advance_domain_snapshot_with_inputs(source,inputs)==completed,"External inputs and durable actor timing did not replay together");
+    actor.actor.expected_frame=2;actor.actor.mass_kg=.02F;configure_persistent_domain_actors(&actor,1,as);
+    require(copy_completed_domain_snapshot(status.session,2)==completed && copy_domain_frame_inputs(status.session,2)==inputs,
+        "Future actor configuration changed the pinned completed capture");
     auto flagged=frame_inputs::decode(inputs);flagged.flags=1;rejects([&] {(void)advance_domain_snapshot_with_inputs(source,frame_inputs::encode(flagged));});
     flagged.flags=2;rejects([&] {(void)advance_domain_snapshot_with_inputs(source,frame_inputs::encode(flagged));});
     shutdown_domain();std::cout<<"PASS durable actors with external inputs; explicit rejection of actor reconfiguration and non-durable actor replay\n";
@@ -103,6 +107,38 @@ void framing() {
     batch.heat.resize(1);batch.transfers.resize(1);rejects([&] {(void)frame_inputs::batch_size(batch);});
     image.batches.resize(frame_inputs::maximum_batches+1);rejects([&] {(void)frame_inputs::encode(image);});
     std::cout<<"PASS bounded little-endian journal framing, truncation, valid-checksum structural corruption and command limits\n";
+}
+void deferred_capture() {
+    const MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};start_domain(config,1);auto status=capture();
+    for(std::uint64_t frame=1;frame<=9;++frame) {advance_domain(frame,.002F,2);status=capture();}
+    const auto source=snapshot_domain(status.session,9);
+    advance_domain(10,.002F,2);status=capture();
+    auto diagnostics=domain_audit_statistics();
+    require(diagnostics.retained_owners==2 && diagnostics.cached_snapshot_bytes==0 && diagnostics.cached_journal_bytes==0 &&
+        diagnostics.full_serializations==0 && diagnostics.journal_serializations==0,
+        "Ordinary native frames serialized audits or retained an owner backlog");
+    const auto image=copy_completed_domain_snapshot(status.session,10);
+    const auto journal=copy_domain_frame_inputs(status.session,10);
+    require(image==snapshot_domain(status.session,10) && advance_domain_snapshot_with_inputs(source,journal)==image,
+        "Deferred capture/replay differs from the completed physical frame");
+    require(copy_completed_domain_snapshot(status.session,10)==image && copy_domain_frame_inputs(status.session,10)==journal,
+        "Repeated capture changed immutable audit bytes");
+    diagnostics=domain_audit_statistics();
+    require(diagnostics.full_serializations==2 && diagnostics.journal_serializations==1 &&
+        diagnostics.cached_snapshot_bytes==image.size() && diagnostics.cached_journal_bytes==journal.size(),
+        "Repeated readers serialized the same frame again");
+    MAOniDomainHeat heat{48,1,status.session,10,650,4,12,1e6};MAOniDomainHeatStatus hs{};queue_domain_heat(&heat,1,hs);
+    require(copy_completed_domain_snapshot(status.session,10)==image && copy_domain_frame_inputs(status.session,10)==journal,
+        "Future inputs changed a lazily captured frame");
+    advance_domain(11,.002F,2);status=capture();diagnostics=domain_audit_statistics();
+    require(diagnostics.retained_owners==2 && diagnostics.cached_snapshot_bytes==0 && diagnostics.cached_journal_bytes==0 &&
+        diagnostics.full_serializations==2 && diagnostics.journal_serializations==1,
+        "Publication retained old serialized frames or performed unsolicited captures");
+    rejects([&]{(void)copy_completed_domain_snapshot(status.session,10);});
+    shutdown_domain();diagnostics=domain_audit_statistics();
+    require(diagnostics.retained_owners==0 && diagnostics.cached_snapshot_bytes==0 && diagnostics.cached_journal_bytes==0,
+        "Shutdown retained audit owners or serialized frames");
+    std::cout<<"PASS ordinary frames defer serialization; exact on-demand replay, cached repeated readers and bounded owner retention\n";
 }
 void chunk_contacts() {
     constexpr int owned=11+11*66,outside=14+11*66;
@@ -141,6 +177,6 @@ void chunk_contacts() {
 }
 }
 int main() {
-    try {framing();live_inputs();durable_actors();chunk_contacts();return 0;}
+    try {framing();live_inputs();durable_actors();chunk_contacts();deferred_capture();return 0;}
     catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -48,8 +48,11 @@ Declared in `mac_closed_world.hpp`:
   `FluidFatalError` (topology or precision) propagates unchanged.
 - `MacExecutionPolicy::exact_equilibrium` (used by the native worker, checkpoint
   advance and journal replay) returns one certified interval with no stages when
-  every occupied cell has identical inventories, all canonical momentum is exactly
-  zero and gravity is zero.
+  all canonical momentum is exactly zero and connected inventories are identical
+  at zero gravity. Disconnected regions may have different inventories. With
+  gravity, every discrete interior pressure/body force must cancel exactly and
+  enabled conduction must have no temperature difference; gravity and wall
+  impulse are still accounted. Nonzero force residuals take the full solver path.
 - `with_cell_heat`, `with_gas_transfers` and `with_fluid_transfers` are immutable,
   atomically checked edits (heat batches of 1–4096 edits; point sources and sinks
   with complete parcel accounting). Mixed gas/liquid transfers need the explicit
@@ -153,8 +156,9 @@ These rules hold in every stage:
   cells, internal liquid voids, vacuum and free surfaces reject.
 - Walls and exterior faces are impermeable. Periodicity is explicit and needs at
   least two cells along the axis. Nonzero gravity rejects vertical periodicity.
-- Range-extended vertical gravity work is not implemented: a gravity step whose
-  vertical momentum needs the full-range field faults.
+- Gravity work and potential flux retain full-range operands. Primary U and
+  material volume still round; unresolved U changes are counted, and persistent
+  rounding remainders remain unfinished.
 - Coupled compression (mode 3) rejects incoming face velocities or midpoint sweeps
   that need range projection.
 - There are no phase transitions, no passive diffusion and no topology-change
@@ -212,6 +216,7 @@ With `-DMA_BUILD_ONI_NATIVE_BACKEND=ON`, CTest also runs `mac_gas_boundary_trans
 | `ma_mac_swept_reconstruction_tests` | `--write-checkpoint`/`--read-checkpoint <file>` | `review_mac_swept_reconstruction.py` | [Transport](MAC_TRANSPORT.md) |
 | `ma_mac_closed_world_tests` | | `review_mac_closed_world.py` | [Pressure](MAC_PRESSURE.md) |
 | `ma_mac_gravity_tests` | | `review_mac_gravity.py`, `analyze_mac_gravity_linearization.py` | [Pressure](MAC_PRESSURE.md) |
+| `ma_mac_gravity_range_tests` | | `review_mac_gravity_range.py` | [Range](MAC_RANGE.md) |
 | `ma_mac_compression_tests` | | `review_mac_compression.py` | [Pressure](MAC_PRESSURE.md) |
 | `ma_mac_compression_owner_tests` | | `review_mac_compression_owner.py` | [Pressure](MAC_PRESSURE.md) |
 | `ma_mac_acoustic_compression_tests` | | `review_mac_acoustic_compression.py` | [Pressure](MAC_PRESSURE.md) |

@@ -27,6 +27,22 @@ Amendments:
 - **Solver, 2026-10-18 (user decision):** `MacClosedWorld` (`native/src/mac_*.cpp`)
   is the production colony fluid solver. ONI's native SimDLL fluid simulation is
   what the mod replaces and must not be used as the solver.
+- **Real-time completion, 2026-10-18 (user decision):** complete the physical
+  timestep and optimize the existing model before broad gameplay activation.
+  The acceptance colony has 250,000 active fluid cells across all asteroids,
+  32 duplicants and sustained 1× speed on the Ryzen 5900X. Brief disturbance
+  slowdowns are acceptable. Functional and real-time gates must pass together;
+  this supersedes the earlier permission to accept slow first-playable colonies.
+  Keep the reference defaults; the repeatedly rejected benchmark `balanced`
+  configuration must not become the production default. The first implementation
+  slice and its remaining blockers are recorded in
+  [production timestep progress](production-timestep-progress.md).
+
+The current execution order is: production physics and active-cell scaling;
+materials, generation and whole-world ownership; transactional life support;
+remaining gameplay adapters; progression and presentation; durable colony saves
+and Windows/Linux distribution. The milestone labels below retain their earlier
+cross-references and feature scope.
 
 ## Target
 
@@ -103,9 +119,22 @@ for evidence of a complete solver.
 Reference: <https://arxiv.org/abs/1612.08866>. All-Mach pressure methods do not
 provide multiphase behavior without additional implementation and validation.
 
-Exit: integrated gas/liquid numerical benchmarks pass before broad gameplay
-integration. Measure runtime, but defer performance tuning until the feature set
-works in real games.
+Exit: strong-flow, vacuum, gravity and multiphase numerical gates pass before
+broad gameplay integration, with measured active-cell scaling and a credible
+path to the real-time budget. Optimize arithmetic, layout, repeated EOS work,
+workspaces, diagnostics and parallel independent work before reducing fidelity.
+Use pressure-implicit compressible stepping. If approximation remains necessary,
+evaluate less frequent conservative slow processes, locally simpler conservative
+reconstruction, larger calm-region steps with local subcycling, and only then
+calm-region low-Mach treatment. Preserve shared fluxes, tile inventories and
+liquid geometry; persist physical settings and continuation history. Never adapt
+physics to momentary wall-clock load.
+
+Additional error against resolved references must stay within 0.1 K and 1% for
+pressure, oxygen partial pressure and transported constituents. Pressure-wave
+error uses disturbance amplitude. Refine when uncertainty could alter a
+breathing, contamination, phase or damage decision. Select the least approximate
+configuration that passes performance acceptance.
 
 Status: `MacClosedWorld` is the production solver and already runs in game in
 the bounded domain. Its prerequisite native groups and saved reviews pass on
@@ -272,8 +301,14 @@ Rendering projections are never authoritative for composition or pressure.
 - Persistence: same-platform deterministic continuation, bounded cross-platform
   numerical differences, corruption rejection, safe behavior without the mod.
 - Performance: <= 25 ms per 0.1 simulated seconds for 100,000 active cells on
-  Ryzen 5900X; sustained 1x in representative colonies, bounded memory, no
-  growing backlog.
+  Ryzen 5900X; at 250,000 active cells and 32 duplicants, p95 solver-plus-adapter
+  cost <= 62.5 ms per 0.1 simulated seconds, sustained 1× and at least 30 FPS in
+  normal play. Include evolving gas, mixed phases, machines and entirely changed
+  presentation frames; uniform equilibrium cannot certify active-cell acceptance.
+  Target <= 2 GiB additional mod memory, bounded snapshot retention and no growing
+  publication backlog. Worker sampling and colour lookup allocate zero after
+  publication. Fault-free 10,000-cell decompression and 1,000-cell flooding/phase
+  events must recover to sustained 1× within 30 wall-clock seconds.
 - Long runs: 100-cycle regression colonies for each pack and both modes;
   1,000-cycle all-content colonies on both OSes with autosaves and
   inter-asteroid transfers.

@@ -658,4 +658,10 @@ double LiquidThermodynamicReference::isentropic_work_pressure_derivative(const R
     const auto solution = solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options);
     return checked(work_derivative(IsentropicCurve(materials_, anchor), solution));
 }
+ReferenceIsentropicWork LiquidThermodynamicReference::isentropic_work(const ReferenceIsentrope& anchor, double delta, ReferenceRootOptions options) const {
+    check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
+    auto solution = solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options);
+    const double derivative = checked(work_derivative(IsentropicCurve(materials_, anchor), solution));
+    return {std::move(solution.response), derivative};
+}
 }

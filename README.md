@@ -175,6 +175,11 @@ build, runtime and game DLL. CI is configured for Windows/Linux standalone
 builds and Linux sanitizers; an authored workflow is not evidence of a hosted
 CI pass.
 
+Release builds enable compiler/linker-checked interprocedural optimization;
+`-DMA_ENABLE_IPO=OFF` selects a comparison build. Sanitizer builds disable it.
+Current active-cell measurements and outstanding solver blockers are in
+[production timestep progress](docs/production-timestep-progress.md).
+
 To inspect your licensed game installation:
 
 ```sh

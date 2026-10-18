@@ -51,8 +51,12 @@ boundary, mixing and wall heat. U and J stay primary.
 Pressure U+K minus body work, transport U+K, the stored internal adjustment and the
 potential transport each have their own 128-epsilon account; their bounds sum to the
 final U+K+PE allowance. Unstored signed U changes are counted. Entropy change is
-reported, not clamped. Nonzero gravity rejects vertical periodicity, and
-range-extended vertical gravity work is not implemented (it faults). The relation
+reported, not clamped. Body impulse, body work, potential flux, signed internal work
+and stage bounds retain their full significand/exponent operands, including when
+their diagnostic projections are zero. Adjacent-cell work is accumulated in full
+range before one primary-U projection; unresolved U updates are counted. These
+rounding remainders are not yet persisted. Nonzero gravity rejects vertical
+periodicity. The relation
 between gravity work and face mass flux follows
 [Springel (2010), sections 5.2–5.4](https://academic.oup.com/mnras/article/401/2/791/1147356);
 the split and face distribution here are this implementation's choices.
@@ -225,6 +229,16 @@ the tridiagonal linearized-column calculation used for that diagnosis. It reads 
 capture that stopped after N32/N64, like the original failed run, and runs no native
 code.
 
+**Range-extended gravity (`ma_mac_gravity_range_tests`, five groups).** Full incoming
+vertical momentum with ordinary gravity; body impulse, work and actual-mass potential
+flux below binary64 range; minimum-subnormal gravity with below-range velocity and
+volume sweeps; source/endpoint checkpoint continuation and late-budget rollback;
+10,000 closed steps with unchanged primary inventories and retained accumulated
+canonical impulse. The saved reader reconstructs each face's body work and potential
+flux and every target-cell work share using exact fractions. Removing a tiny work,
+flux, cell update or owner impulse, or hiding the unresolved-U count, fails review.
+This is a range/accounting control, not a strong-flow or general endurance gate.
+
 **Compression.** `ma_mac_compression_tests` (six groups) covers analytic free/free and
 fixed/free pairs, stiff relaxation and semigroup checks, below-binary64 J and heat,
 constant velocity/expansion/shear/Galilean shift, rigid-wall and periodic gas/liquid
@@ -254,7 +268,7 @@ mode 3 is the only mode that passes the collision refinement gate.
 ## Reproduce
 
 ```sh
-cmake --build build --config Release --target ma_mac_closed_world_tests ma_mac_gravity_tests \
+cmake --build build --config Release --target ma_mac_closed_world_tests ma_mac_gravity_tests ma_mac_gravity_range_tests \
   ma_mac_compression_tests ma_mac_compression_owner_tests ma_mac_acoustic_compression_tests \
   ma_mac_pressure_sensor_tests ma_mac_compressive_work_tests ma_mac_compressive_pressure_tests \
   ma_mac_compressive_owner_tests

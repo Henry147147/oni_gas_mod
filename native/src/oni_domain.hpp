@@ -65,6 +65,13 @@ std::vector<std::uint8_t> snapshot_domain(std::uint64_t session,std::uint64_t fr
 std::vector<std::uint8_t> snapshot_domain_under_fence(std::uint64_t session,std::uint64_t frame,MAOniDomainConfig&,MAOniDomainStatus&);
 std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t>,double seconds);
 std::vector<std::uint8_t> copy_domain_frame_inputs(std::uint64_t session,std::uint64_t completed_frame);
+// Execution diagnostics for deferred captures. At most the completed owner
+// and its immediate source are pinned, independently of reader activity.
+struct DomainAuditStatistics {
+    std::size_t retained_owners{}, cached_snapshot_bytes{}, cached_journal_bytes{};
+    std::uint64_t full_serializations{}, journal_serializations{};
+};
+DomainAuditStatistics domain_audit_statistics();
 std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const std::uint8_t> source,std::span<const std::uint8_t> journal);
 std::mutex& domain_frame_mutex() noexcept;
 }
