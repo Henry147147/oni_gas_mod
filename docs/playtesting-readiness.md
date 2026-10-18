@@ -119,7 +119,10 @@ also pass collision.
 - Persistent primary-U rounding remainders. Full-range gravity work and potential
   flux now pass standalone controls, including a 10,000-step continuation, but
   unresolved U updates are reported rather than saved.
-- Active-cell performance; see [measurements](#reproduce-measurements).
+- Active-cell performance; see [measurements](#reproduce-measurements). The
+  [scaling analysis](solver-scaling-analysis.md) measures the current substep
+  at about 6,500–8,900× over the 250,000-cell budget. Grids of about 9,000
+  cells or more also fail on exact-sum capacity.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without
