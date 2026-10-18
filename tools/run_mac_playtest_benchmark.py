@@ -19,7 +19,8 @@ def write(path:Path,data:dict)->None:
     with path.open('x',encoding='utf-8',newline='\n') as stream:
         json.dump(data,stream,indent=2,allow_nan=False); stream.write('\n')
 
-def validate_metrics(data:dict,width:int,height:int,samples:int,profile:str,scene:str,no_reference:bool,continuation:bool=False)->None:
+def validate_metrics(data:dict,width:int,height:int,samples:int,profile:str,scene:str,no_reference:bool,continuation:bool=False,
+        kernel:str='reference',threads:int=1)->None:
     if (data['schema']!=2 or data['cells']!=width*height or data['samples']!=samples or
             data['profile']!=profile or data['scene']!=scene or data['whole_colony_verified'] is not False or
             data['simulated_seconds_per_sample']!=.1): raise ValueError('Benchmark identity differs')
@@ -55,7 +56,9 @@ def validate_metrics(data:dict,width:int,height:int,samples:int,profile:str,scen
     if data['substeps']<samples or data['exact_equilibrium_intervals']>data['substeps']: raise ValueError('Stage counts differ')
     if (number(data['relative_mass_drift_including_trace'])>1e-8 or number(data['relative_energy_drift'])>1e-6):
         raise ValueError('Conservation gate failed')
-    compare=profile!='reference' and not no_reference
+    if data.get('kernel','reference')!=kernel or data.get('threads',1)!=threads:
+        raise ValueError('Kernel or thread count differs')
+    compare=(profile!='reference' or kernel=='production') and not no_reference
     if data['reference_comparison_performed'] is not compare: raise ValueError('Reference scope differs')
     differences=('maximum_relative_density_difference','maximum_relative_pressure_difference','maximum_temperature_difference_k',
         'maximum_relative_oxygen_partial_pressure_difference','maximum_relative_constituent_difference_including_trace')
@@ -86,13 +89,20 @@ def main()->int:
     parser.add_argument('--no-reference',action='store_true')
     parser.add_argument('--continuation',action='store_true',help='Advance the previous completed sample instead of restarting the same source')
     parser.add_argument('--compare-checkpoint',type=Path,help='Require byte-identical continuation to a prior captured endpoint')
+    parser.add_argument('--kernel',choices=('reference','production'),default='reference',help='Substep kernel (production: native/MAC_KERNEL.md)')
+    parser.add_argument('--threads',type=int,default=1,help='Production kernel threads (results are independent of this)')
     args=parser.parse_args()
+    if args.kernel=='reference' and args.threads!=1:
+        parser.error('--threads applies to the production kernel')
+    if not 1<=args.threads<=256: parser.error('Invalid thread count')
     if not (2<=args.width<=250000 and 1<=args.height<=250000 and args.width*args.height<=250000 and
             1<=args.samples<=101 and 1<=args.timeout<=3600): parser.error('Invalid dimensions, samples or timeout')
     executable=args.executable.resolve(strict=True); output=args.output.resolve()
     command=[str(executable),str(args.width),str(args.height),str(args.samples),args.profile,args.scene]
     if args.no_reference: command.append('--no-reference')
     if args.continuation: command.append('--continuation')
+    if args.kernel=='production':
+        command.extend(['--kernel','production','--threads',str(args.threads)])
     command.extend(['--checkpoint-output',str(output/'endpoint.mac')])
     comparison=args.compare_checkpoint.resolve(strict=True) if args.compare_checkpoint else None
     comparison_hash=digest(comparison) if comparison else None
@@ -132,7 +142,8 @@ def main()->int:
     try:
         def invalid_constant(value): raise ValueError('Nonfinite JSON constant: '+value)
         metrics=json.loads((output/'stdout.raw').read_text(),parse_constant=invalid_constant)
-        validate_metrics(metrics,args.width,args.height,args.samples,args.profile,args.scene,args.no_reference,args.continuation)
+        validate_metrics(metrics,args.width,args.height,args.samples,args.profile,args.scene,args.no_reference,args.continuation,
+            args.kernel,args.threads)
     except (ValueError,KeyError,TypeError) as error: errors.append('Invalid benchmark output: '+str(error))
     checkpoint=output/'endpoint.mac';checkpoint_hash=digest(checkpoint) if checkpoint.is_file() else None
     if not timed_out and code==0 and checkpoint_hash is None: errors.append('Completed checkpoint capture is missing')

@@ -144,7 +144,9 @@ struct MacClosedAdvanceReport {
 struct MacClosedAdvance;
 // Execution-only choice. No physical settings, tolerances or checkpoint bytes
 // change. Reference execution remains available for comparisons and diagnostics.
-enum class MacExecutionPolicy { reference, exact_equilibrium };
+// production: exact_equilibrium's certificate, then the production substep
+// kernel (mac_kernel.hpp, native/MAC_KERNEL.md) under the interval contract.
+enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
@@ -203,6 +205,7 @@ public:
     [[nodiscard]] static MacClosedWorld from_checkpoint(SpeciesRegistry,
         std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>);
 private:
+    friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;
     MacTransportState state_;

@@ -2,7 +2,11 @@
 // not whole-colony/game evidence. Construction and accuracy review are timed
 // separately from advancement; every advance retains the original guards.
 #include "../tests/mac_fixture.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include <chrono>
+#if defined(__linux__)
+#include <ctime>
+#endif
 #include <fstream>
 #include <iomanip>
 #include <numeric>
@@ -14,6 +18,14 @@ using namespace ma;
 using namespace ma::experimental;
 using Clock=std::chrono::steady_clock;
 double elapsed(Clock::time_point start) { return std::chrono::duration<double,std::milli>(Clock::now()-start).count(); }
+// Process CPU time (all threads), where the platform exposes it.
+double process_cpu_ms() {
+#if defined(__linux__)
+    timespec t{}; clock_gettime(CLOCK_PROCESS_CPUTIME_ID,&t); return static_cast<double>(t.tv_sec)*1e3+static_cast<double>(t.tv_nsec)*1e-6;
+#else
+    return -1;
+#endif
+}
 struct Totals { std::vector<MacEnergySum> mass; MacEnergySum energy; };
 double relative_difference(const MacEnergySum& after,const MacEnergySum& before) {
     MacEnergySum difference;
@@ -58,18 +70,27 @@ std::size_t active_cells(const MacTransportState& before,const MacTransportState
 }
 int main(int argc,char** argv) {
     try {
-        if (argc<6) throw std::invalid_argument("Usage: mac_playtest_benchmark width height samples reference|equilibrium|balanced uniform|wave [--no-reference] [--continuation] [--checkpoint-output path]");
+        if (argc<6) throw std::invalid_argument("Usage: mac_playtest_benchmark width height samples reference|equilibrium|balanced uniform|wave [--no-reference] [--continuation] [--checkpoint-output path] [--kernel reference|production] [--threads N]");
         const auto width=std::stoull(argv[1]),height=std::stoull(argv[2]),samples=std::stoull(argv[3]);
         const std::string profile=argv[4],scene=argv[5];
-        bool no_reference=false,continuation=false;std::string checkpoint_path;
+        bool no_reference=false,continuation=false;std::string checkpoint_path,kernel="reference";
+        MacKernelOptions kernel_options;bool kernel_given=false,threads_given=false;
         for(int i=6;i<argc;++i) {
             const std::string option=argv[i];
             if(option=="--no-reference" && !no_reference) no_reference=true;
             else if(option=="--continuation" && !continuation) continuation=true;
             else if(option=="--checkpoint-output" && checkpoint_path.empty() && i+1<argc) checkpoint_path=argv[++i];
+            else if(option=="--kernel" && !kernel_given && i+1<argc) { kernel=argv[++i]; kernel_given=true; }
+            else if(option=="--threads" && !threads_given && i+1<argc) { kernel_options.threads=static_cast<unsigned>(std::stoul(argv[++i])); threads_given=true; }
             else throw std::invalid_argument("Unknown, duplicate or incomplete benchmark option");
         }
-        const bool compare=profile!="reference" && !no_reference;
+        if ((kernel!="reference" && kernel!="production") || (kernel=="reference" && threads_given))
+            throw std::invalid_argument("Invalid kernel/threads options (threads apply to the production kernel)");
+        const bool production=kernel=="production";
+        kernel_options.validate();
+        // The production kernel is always compared with the reference oracle
+        // unless explicitly skipped.
+        const bool compare=(profile!="reference" || production) && !no_reference;
         if (width<2 || !height || width>250000 || height>250000 || width>250000/height || !samples || samples>101 ||
             (profile!="reference" && profile!="equilibrium" && profile!="balanced") || (scene!="uniform" && scene!="wave"))
             throw std::invalid_argument("Invalid benchmark inputs (at most 250000 cells and 101 samples)");
@@ -89,13 +110,24 @@ int main(int argc,char** argv) {
         const MacClosedWorld source(setup.registry,setup.eos,state,settings);
         const auto initial=totals(source); const double setup_ms=elapsed(construction);
         const auto policy=profile=="reference"?MacExecutionPolicy::reference:MacExecutionPolicy::exact_equilibrium;
-        std::vector<double> times; double mass_drift=0,energy_drift=0;
+        if (production) set_mac_kernel_default_options(kernel_options);
+        // Reference profile with the production kernel: every interval runs the
+        // kernel (no equilibrium certificate); other profiles use the
+        // production policy (certificate first, then the kernel).
+        const auto advance=[&](const MacClosedWorld& world) {
+            if (!production) return world.advanced(.1,4096,policy);
+            if (profile=="reference") return advance_mac_production(world,.1,4096,kernel_options);
+            return world.advanced(.1,4096,MacExecutionPolicy::production);
+        };
+        std::vector<double> times,cpu; double mass_drift=0,energy_drift=0;
         std::size_t substeps=0,retries=0,iterations=0,skipped=0;
         std::optional<MacClosedWorld> endpoint;
         std::size_t minimum_active=static_cast<std::size_t>(width*height);
         for (std::size_t n=0;n<samples;++n) {
             const auto& input=continuation && endpoint ? *endpoint : source;
-            const auto start=Clock::now(); auto result=input.advanced(.1,4096,policy); times.push_back(elapsed(start));
+            const double cpu_start=process_cpu_ms();
+            const auto start=Clock::now(); auto result=advance(input); times.push_back(elapsed(start));
+            cpu.push_back(cpu_start<0 ? -1 : process_cpu_ms()-cpu_start);
             minimum_active=std::min(minimum_active,active_cells(input.state(),result.world.state()));
             const auto final=totals(result.world);
             for (std::size_t k=0;k<initial.mass.size();++k)
@@ -164,9 +196,19 @@ int main(int argc,char** argv) {
         }
         else std::cout<<",\"maximum_relative_density_difference\":null,\"maximum_relative_pressure_difference\":null,\"maximum_temperature_difference_k\":null,\"maximum_pressure_difference_over_disturbance\":null,\"maximum_relative_oxygen_partial_pressure_difference\":null,\"maximum_relative_constituent_difference_including_trace\":null";
         std::cout<<",\"whole_colony_verified\":false,\"100k_25ms_this_case_this_host\":"<<((active_case && width*height==100000 && sorted.back()<=25)?"true":"false")
-            <<",\"250k_62_5ms_solver_only_this_host\":"<<((active_case && continuation && width*height==250000 && percentile(.95)<=62.5)?"true":"false")<<",\"wall_ms\":[";
+            <<",\"250k_62_5ms_solver_only_this_host\":"<<((active_case && continuation && width*height==250000 && percentile(.95)<=62.5)?"true":"false")
+            <<",\"wall_ms\":[";
         for (std::size_t i=0;i<times.size();++i) std::cout<<(i?",":"")<<times[i];
-        std::cout<<"]}\n";
+        std::cout<<"]";
+        // Production-only fields; the reference output keeps its schema.
+        if (production) {
+            std::cout<<",\"kernel\":\"production\",\"threads\":"<<kernel_options.threads
+                <<",\"ns_per_cell_substep_p50\":"<<(percentile(.5)*1e6/(static_cast<double>(width*height)*static_cast<double>(substeps)/static_cast<double>(samples)))
+                <<",\"process_cpu_ms\":[";
+            for (std::size_t i=0;i<cpu.size();++i) { if(i) std::cout<<","; if(cpu[i]<0) std::cout<<"null"; else std::cout<<cpu[i]; }
+            std::cout<<"]";
+        }
+        std::cout<<"}\n";
         if (mass_drift>1e-8 || energy_drift>1e-6) throw std::runtime_error("Benchmark conservation gate failed");
         return 0;
     } catch(const std::exception& error) { std::cerr<<"FAIL "<<error.what()<<'\n'; return 1; }

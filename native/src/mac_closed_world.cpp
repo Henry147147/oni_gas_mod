@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
 #include "mac_interval_kernel.hpp"
 #include <algorithm>
@@ -513,12 +514,12 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
 MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, MacExecutionPolicy policy) const {
     require_mac_energy_environment();
     require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 && budget > 0 && budget <= 65536, "Invalid MAC interval or attempt budget");
-    require(policy == MacExecutionPolicy::reference || policy == MacExecutionPolicy::exact_equilibrium,
-        "Invalid MAC execution policy");
+    require(policy == MacExecutionPolicy::reference || policy == MacExecutionPolicy::exact_equilibrium ||
+        policy == MacExecutionPolicy::production, "Invalid MAC execution policy");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    auto equilibrium=policy==MacExecutionPolicy::exact_equilibrium ?
+    auto equilibrium=policy!=MacExecutionPolicy::reference ?
         exact_static_equilibrium(state_,settings_,*thermodynamics_) : std::nullopt;
     MacScaled equilibrium_body;
     if (equilibrium) equilibrium_body=equilibrium->body_force_y.multiplied(seconds);
@@ -532,12 +533,24 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
         result.report.full_wall_impulse_y=equilibrium_body.negated();result.report.wall_impulse_y=-result.report.body_impulse_y;
         return result;
     }
+    // An explicit production execution request takes the production kernel;
+    // otherwise the persisted numerical-kernel setting applies.
+    if (policy == MacExecutionPolicy::production) return advance_mac_production(*this, seconds, budget, mac_kernel_default_options());
     std::size_t discarded_interval_attempts = 0;
     if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
         auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts);
         if (candidate) {
             MacClosedAdvance result{*this, candidate->report}; result.world.state_ = std::move(candidate->state);
             result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1; return result;
+        }
+        // Production-default selectors beyond the first port: the production
+        // substep kernel under the same interval contract (mac_kernel.cpp).
+        if (discarded_interval_attempts == 0 && mac_kernel_default_options().extend_interval_admission &&
+            mac_kernel_supports(settings_) && mac_kernel_normal_range(state_)) {
+            auto production = advance_mac_production(*this, seconds, budget, mac_kernel_default_options());
+            if (!last_mac_production_report().reference_fallback) production.report.interval_kernel_intervals = 1;
+            else production.report.interval_reference_fallbacks = 1;
+            return production;
         }
     }
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;

@@ -185,6 +185,10 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_vacuum_inventory COMMAND ma_mac_vacuum_tests)
     set_target_properties(ma_mac_vacuum_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     set_target_properties(ma_mac_compressive_eos_reuse_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    # Production substep kernel (native/MAC_KERNEL.md).
+    add_test(NAME mac_production_kernel_oracle COMMAND ma_mac_kernel_validation_tests)
+    add_test(NAME mac_production_kernel_contract COMMAND ma_mac_kernel_unit_tests)
+    set_target_properties(ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
 endif()
 if(MA_SANITIZERS AND NOT MSVC)
     foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests ma_oni_domain_tests ma_oni_arithmetic_precision_tests ma_oni_mixed_domain_tests ma_oni_radial_consumption_tests ma_oni_frame_inputs_tests ma_oni_configured_domain_tests ma_mac_boundary_transfer_tests ma_mac_thermal_tests ma_mac_checkpoint_tests
