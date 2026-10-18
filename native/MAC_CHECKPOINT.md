@@ -29,14 +29,16 @@ All integers are little-endian; floating values are finite IEEE binary64 values
 stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1 GiB and consists of:
 
-1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2, or 3 when
-   viscosity is enabled), and a length-prefixed binary model identity.
+1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2, 3 when
+   reference-kernel viscosity is enabled, or 4 for the interval kernel), and a
+   length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
    material/compression/momentum reconstruction settings, conduction flag and
    compression-activated heat enum. Version 3 then adds the shear and bulk viscosity
-   coefficients (binary64).
+   coefficients (binary64). Version 4 also includes both viscosity coefficients
+   and the numerical-kernel enum (unsigned 32-bit).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -45,11 +47,16 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    and a length-prefixed canonical decimal exponent.
 8. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
-Version 2 is written whenever both viscosity coefficients are zero, so images without
-viscosity keep their exact pre-viscosity bytes; a version 3 image with both
+Version 2 is written for the reference kernel whenever both viscosity coefficients
+are zero, so existing reference images retain their bytes. A version 3 image with both
 coefficients zero is noncanonical and rejects. Version 1, which lacked the heat
 setting, rejects explicitly: no missing setting is filled from whatever default the
 current binary has.
+
+Version 4 requires numerical kernel 1 (`interval_audited`). It restores that
+selection before advancing, including when an unsupported state takes the retained
+reference path. Kernel 0 continues to write versions 2/3; a version 4 image with
+kernel 0 or an unknown selector rejects as noncanonical/unsupported.
 
 Setting enum values (unsigned 32-bit; existing values never change meaning, and an
 older reader rejects a value it does not know):
@@ -60,6 +67,7 @@ older reader rejects a value it does not know):
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic/quadratic, 3 coupled compressive pressure |
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
+| Numerical kernel (version 4) | 1 interval audited; the reference remains implicit in versions 2/3 |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must

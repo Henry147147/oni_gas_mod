@@ -25,6 +25,7 @@ Topic documents:
 | [One-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) | Opt-in point-to-dual momentum/kinetic conversion and its remaining limits |
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
+| [Interval kernel](MAC_INTERVAL_KERNEL.md) | First normal-range pressure/transport port, interval audits and retained-reference fallback |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
@@ -110,6 +111,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
+| `numerical_kernel` | 0 `reference` | 1 `interval_audited` (first gas port; unsupported selections use the retained reference) |
 
 The native domain builds its settings from these defaults, keeping the selectors.
 Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the gravity
@@ -162,8 +164,10 @@ kernel is checked once per completed interval instead of in every stage:
   below, stays buildable and tested. The production kernel is validated
   against it on shared scenes within the completion plan's accuracy tolerances.
 
-Until the production kernel exists, the code still enforces the reference
-rules. **Reference rules,** held in every stage of the current implementation:
+The [first interval kernel](MAC_INTERVAL_KERNEL.md) implements a bounded set of
+existing physical selectors. The default and retained fallback still enforce
+the reference stage rules; opting into the interval kernel also requires its
+interval audits on a fallback result. **Reference rules:**
 
 - **Accounts.** Each stage checks its species, passive, momentum and energy
   balances against 128 binary64 epsilons of the actual operands: the residual is
@@ -191,8 +195,10 @@ rules. **Reference rules,** held in every stage of the current implementation:
 
 ## Scope and unsupported cases
 
-- Every fluid cell must be occupied: gas with positive headspace, or liquid. Empty
-  cells, internal liquid voids, vacuum and free surfaces reject.
+- Exact empty inventory and conservative gas arrival/depletion are supported in
+  the reference. Resolved occupied-volume interfaces, internal liquid voids and
+  free-surface dynamics remain open. The native game adapter still rejects empty
+  cells; the interval kernel uses the reference for this topology.
 - Walls and exterior faces are impermeable. Periodicity is explicit and needs at
   least two cells along the axis. Nonzero gravity rejects vertical periodicity.
 - Gravity work and potential flux retain full-range operands. Primary U and

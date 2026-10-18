@@ -190,5 +190,9 @@ The two decisions this path needed:
   audits;
 - accepting the completion plan's larger calm-region step approximation.
 
-Until those decisions are made, the 15–50× tuning above is the only work
-that stays within the current contracts.
+Both decisions are now recorded in the production contract. The first
+[interval-kernel port](../native/MAC_INTERVAL_KERNEL.md) implements the existing
+donor-cell gas pressure/transport laws, reusable fields and interval audits. Its
+initial 250,000-cell result is about 10.2 s per 0.1 simulated seconds on one core.
+The projected multigrid, parallel and larger-step combination remains unvalidated;
+no active-colony performance gate passes.
