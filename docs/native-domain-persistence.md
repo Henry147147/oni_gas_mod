@@ -26,8 +26,11 @@ follows its content, and older versions stay readable:
 | 1 | Physical image only (no actors, no particles) |
 | 2 | `MAACTR01` wrapper: physical image plus durable actor records |
 | 3 | A separately length-delimited physical image (version 1 or 2 content) followed by a nonempty `MACO2P01` particle image |
+| 4 | [Configured](native-configured-domain.md#saves-and-reloads) (scenario 7) image: `MADCFG01`, or `MAACTR01` enclosing it |
+| 5 | A version 4 image followed by a nonempty `MACO2P01` particle image |
 
-Empty particle data keeps the exact version 1 or 2 framing. Native physical
+Versions 1–3 are limited to scenarios 0–6 and versions 4–5 to configured
+sessions. Empty particle data keeps the exact version 1, 2 or 4 framing. Native physical
 admission and the outer paired-save checksum apply before the original native
 loader runs.
 

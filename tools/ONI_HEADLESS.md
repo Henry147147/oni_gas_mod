@@ -183,9 +183,9 @@ runs many scenes and their reloads from one frozen runner and package
 `native-configured-domain` (gas) and `native-configured-water-domain` (water)
 run the configured sealed ABI in a 7×5 room with an interior Neutronium pillar
 and ledge; the solids stay native data. They need an observer-enabled package
-whose native libraries come from the Ubuntu 22.04 compatibility build, and they
-reject `--save-colony` and `--long-run`. Both pass in the Linux game; scope,
-commands and numbers are in the
+whose native libraries come from the Ubuntu 22.04 compatibility build. They
+accept `--save-colony`, `--load-save` and `--long-run`. Both pass in the Linux
+game, with saves and fresh-process loads; scope, commands and numbers are in the
 [configured domain](../docs/native-configured-domain.md#linux-game-evidence).
 
 ## Separate test display
@@ -219,13 +219,13 @@ Ten ONI cycles are about 30,000 native frames of 0.2 s. `--long-run` is a
 separate, explicit request for such a run; it never widens the short fixture
 controls. It accepts 1–100,000 frames (default 30,000) and 30–172,800 s
 (default 48 h), and only the `snapshot-copy`, `native-observer`,
-`native-domain`, `native-liquid-domain` and `native-mixed-domain` scenes.
+`native-domain`, `native-liquid-domain`, `native-mixed-domain`,
+`native-configured-domain` and `native-configured-water-domain` scenes.
 Fixture flags with exact short windows (`--save-colony`,
 `--resave-before-resume`, `--load-save`, autosave, actor, breathing, particle,
 I/O and reload controls) are rejected. Saved-colony replay keeps one input
 journal per frame and single-save evidence, so it stays a short control for
-now. Natural autosaves still occur and use the ordinary paired save path.
-Configured rooms are excluded because their autosaves would be declined. The
+now. Natural autosaves still occur and use the ordinary paired save path. The
 mod enforces the same limits (`ColonyValidationLimits` in
 `ColonyValidationConfiguration.cs`); the Python suite checks that both agree.
 
@@ -293,6 +293,15 @@ Unity frame p50 153 ms (llvmpipe). RSS rose from 6.80 to 7.02 GiB in
 stayed at 3.5e-15 and 1.1e-12 with no rejected attempts. An earlier run left on
 the Colony Lost pause showed that file growth alone misses the pause, which
 led to the clock rule and the duplicant check.
+
+A configured gas long run (`--mode native-configured-domain --long-run --frames
+8400 --timeout 14400`) passes: 8,401 frames, mass and energy error 2.3e-15 and
+2.0e-13, natural autosaves in cycles 2 and 3 admitted and paired, and one
+telemetry session of 73 lines ending in `final`. It took 0.365 s of wall time
+per frame; per-line medians of the p95 values were native wait 0.083 ms,
+managed publication 327 ms and presentation lag 221 ms. RSS went from 6.79 to
+6.65 GiB. An earlier attempt failed at frame 6,386 on a body-heat read race,
+since fixed ([object heat](../docs/native-domain-physics.md#native-object-heat)).
 
 `tools/configure_visual_demo.py --long-run` prepares the same request for a
 manually started scene: 30,000 frames by default, a 48-hour limit and telemetry.

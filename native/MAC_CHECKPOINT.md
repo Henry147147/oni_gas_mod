@@ -131,9 +131,12 @@ game thread waits for a frame. Raw scalar-save entry points stay guarded.
 
 `NativeDomainCheckpointPayload` reads and writes the inner `MAONID01` section. Its
 source session/frame/epoch, physical clock and geometry must agree with the contained
-`MACCLS01` metadata. Before native loading, the restore adapter also checks the
-complete native world inventory and backwalls, guard border, world placement, the
-six-cell compatibility tuples and their impermeable border. Full C++ validation is
+`MACCLS01` metadata; for a configured session it also parses the `MADCFG01` wrapper.
+Before native loading, the restore adapter also checks the complete native world
+inventory and backwalls, guard border, world placement, the compatibility tuples
+and their impermeable border: the six-cell room's, or the configured room's with
+its mask recomputed from the saved cells
+([configured saves](../docs/native-configured-domain.md#saves-and-reloads)). Full C++ validation is
 still mandatory before dispatch. The whole pair travels in the SHA-256 `MACOLONY`
 envelope.
 

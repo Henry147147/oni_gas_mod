@@ -168,6 +168,10 @@ twelve-control [import and reader matrix](native-validation-matrix.md#windowspla
 gas/liquid coexistence, conduction, viscosity, radius consumption, body heat
 and in-flight CO2 particles, with local and cross-player reloads against native
 Linux ([actor persistence](native-domain-persistence.md#durable-point-actors)).
+The runner accepts both configured modes; the configured gas room's save and
+fresh-process load pass with MinGW-built DLLs
+([configured saves](native-configured-domain.md#saves-and-reloads)). That is
+neither Windows OS nor MSVC evidence.
 
 ## Isolated native worker harness
 

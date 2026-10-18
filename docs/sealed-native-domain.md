@@ -511,7 +511,8 @@ claim of whole-colony or playable readiness. Windows reports must come from
 gate, and a passing offline native test is never enough.
 
 `ColonyValidationConfiguration.LongRun` is the separate request for ten-cycle
-runs of `native-domain`, `native-liquid-domain` and `native-mixed-domain`; it
+runs of `native-domain`, `native-liquid-domain`, `native-mixed-domain` and the
+two [configured rooms](native-configured-domain.md#saves-and-reloads); it
 rejects the fixed-window fixtures and produces development telemetry, not
 evidence of a playable colony ([long runs](../tools/ONI_HEADLESS.md#long-development-runs)).
 The older `snapshot-copy` mode still rejects its unsupported incompressible

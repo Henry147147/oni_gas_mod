@@ -26,7 +26,8 @@ directory for every native build. The image can be reused with
 `--skip-image-build` after its first build.
 
 `compatibility-build.json` records every frozen source hash, the source revision
-and working-tree status, the exact container image ID, native binary hashes,
+and working-tree status (tracked files deleted in the working tree are skipped
+and listed as `deleted_in_working_tree`), the exact container image ID, native binary hashes,
 required glibc versions and test completion. The package builder verifies the
 supplied native binaries against that report and includes it as
 `native-build-provenance.json`. This native build record is separate from the

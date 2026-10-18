@@ -69,7 +69,8 @@ a temperature of at least 1 K and an exactly binary32-representable parcel
 mass. Native admission also checks cell ownership, phase, complete geometry,
 clock, solver checksum and material/EOS identity. The whole wrapper is bounded
 to 256 MiB. The enclosing `MAONID01` section uses payload version 2 for this
-extension; its actor-free variant stays version 1.
+extension; its actor-free variant stays version 1. A configured owner's image
+uses payload version 4 (5 with particles), with or without actors.
 
 ## Restore
 

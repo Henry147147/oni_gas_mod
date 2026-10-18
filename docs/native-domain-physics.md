@@ -367,7 +367,11 @@ update before the first positive contact. A Linux control with the owned room
 in the second of two active native regions also passes, showing the contact
 adds no second fluid clock. In Unity, both players' live-breathing sources and
 every local and cross-player two-session reload pass with 120 contact-bearing
-exact frames per session.
+exact frames per session. ONI's game thread does not wait for the native
+worker, so the worker can publish frame N+1 between two status reads in one
+managed capture. The per-frame check verifies that next-frame read in full and
+leaves it for the next capture (`AdvancedWorkerObservations`); any other
+mismatch still fails.
 Actual Windows OS, building heat, a complete conductivity model,
 phase-changing objects and conserved metabolism remain open.
 

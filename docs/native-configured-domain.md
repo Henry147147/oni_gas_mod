@@ -6,8 +6,10 @@ the [sealed native owner](sealed-native-domain.md) take explicit physics,
 interior solids and larger rectangles. Scenarios 0–6, their checkpoint bytes
 and every existing entry point are unchanged. A managed adapter and two 7×5
 Unity rooms with interior solids (gas and water) use it and pass in the native
-Linux game ([managed adapter](#managed-adapter-and-unity-scenes)). They are
-bounded development rooms, not colony ownership.
+Linux game ([managed adapter](#managed-adapter-and-unity-scenes)), including
+colony saves, fresh-process loads and an 8,401-frame long run
+([saves and reloads](#saves-and-reloads)). They are bounded development rooms,
+not colony ownership.
 
 ## ABI
 
@@ -231,7 +233,9 @@ floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
 - **Placement.** The arena keeps every active positioned prefab at least four
   cells, and every `Brain` (critter, duplicant) eight cells, away. Burrowed
   critters and entombed items are not always in `Grid.Objects` and otherwise
-  fall in when their rock is replaced.
+  fall in when their rock is replaced. Entombed items can also be unspawned
+  world-generation records in no object list, so the arena also avoids every
+  unspawned record inside the cells the fixture rewrites.
 - **Solids.** Interior solids are built and verified exactly like the border,
   before activation and on every frame: solid Unobtanium with zero
   conductivity and heat capacity, no unstable tag, its own high-temperature
@@ -258,10 +262,10 @@ The runner and `oni_native_domain_evidence.py --mode configured` /
 `configured-water` require the `ConfiguredDomain` block, copied configuration,
 inventory, interior-solid evidence and thermal and gravity statuses. A
 configured report never passes as a legacy scene, nor the reverse. Configured
-rooms reject `--save-colony`/`SaveOnComplete` and `--long-run`: the paired save
-payload and restore adapter admit only scenarios 0–6 and the 3×2 room, so an
-autosave would be declined. `tools/configure_visual_demo.py --scene pillared`
-(or `pillared-water`) prepares the same room for manual viewing.
+rooms accept `--save-colony`/`SaveOnComplete`, `--load-save` and `--long-run`
+([saves and reloads](#saves-and-reloads)). `tools/configure_visual_demo.py
+--scene pillared` (or `pillared-water`) prepares the same room for manual
+viewing.
 
 ### Linux game evidence
 
@@ -299,14 +303,77 @@ pressure and gas counters stay zero, as in the legacy fenced scenes. Wall
 times include software Unity rendering; they are not a production timestep or
 performance result.
 
+## Saves and reloads
+
+A configured session travels in the ordinary paired colony save. The inner
+`MAONID01` section uses payload version 4 for a configured image (`MADCFG01`,
+or `MAACTR01` enclosing it) and version 5 when a nonempty `MACO2P01` particle
+image follows; an empty particle image keeps version 4. Versions 1–3 are
+byte-identical to before and stay limited to scenarios 0–6
+([saved domain section](native-domain-persistence.md#saved-domain-section)).
+
+**Save.** The live session's `ma_oni_domain_configuration_copy` must equal the
+payload's geometry, bitwise physics and mask, and the image is checked with
+`ma_oni_domain_configured_checkpoint_validate` before the pair is written.
+`NativeConfiguredDomainImage.cs` reads the wrapper back: SHA-256, geometry and
+physics against the native admission rules (disabled values exactly +0), a
+binary mask with at least one fluid cell, and an enclosed `MACCLS01` that is
+version 3 exactly when viscosity is on. The `MAONID01` header geometry must
+equal the wrapper's, and saved actors and CO2 origins must be on fluid cells.
+
+**Native-world admission.** Before ONI's loader runs, the mask is recomputed
+from the saved cells' phases and must equal the saved mask exactly. Walls and
+interior solids must be filled Unobtanium with cleared metadata, and fluid
+cells must hold exactly the scene's projection values.
+
+**Load.** Only the pillared 7×5 gas or water scene is admitted, with physics
+compared bitwise. At `Sim.Start` the mask is recomputed from the loaded `Grid`
+and must equal the saved one; interior solids are re-verified exactly as at
+activation, plus the boundary check, before `ma_oni_domain_restore_configured`.
+The restored configuration copy must then match. Flags and projections go to
+fluid cells only. Any rejection fails the validation report visibly, and ONI's
+loader shuts the native simulator down. The report adds `Restored`,
+`SavedPayloadFormatVersion`, `RestoredGridVerified`,
+`RestoredMaskFromLoadedGrid`, `RestoredInteriorSolids` and a bounded
+`SaveHistory` (64 entries). Restored pressure and breathing readers cover the
+31 fluid cells; the breathing check compares only the six cells ONI actually
+searches (`SearchedCells`).
+
+`OwnedSnapshotTests` pins the SHA-256 of four legacy payloads produced by the
+unmodified codec and rejects 13 resealed and 7 framing wrapper faults, a header
+that differs from the wrapper, actors on solids, and 15 native-world mask and
+tuple faults for each of gas and water.
+
+| Run | Result |
+| --- | --- |
+| Gas save | 121 frames, 2,552 substeps, mass/energy error 6.3e-16 / 3.0e-15; payload v4, readback verified |
+| Gas fresh-process load (`--resave-before-resume --reload-in-process`) | Both sessions 120/120 exact frames with frame-zero resaves and the same final image; loaded mask equals saved mask |
+| Water save | 122 frames, 0 rejected attempts, error 1.0e-15 / 3.0e-15; payload v4 |
+| Water fresh-process load (resave and in-process reload) | 120/120 exact frames each session, identical final images |
+| Gas long run (`--long-run --frames 8400 --timeout 14400`) | 8,401 frames, error 2.3e-15 / 2.0e-13; natural autosaves in cycles 2 and 3 admitted and paired, none declined; one telemetry session of 73 lines ending in `final`; 0.365 s wall per frame |
+| Load of the long run's cycle-2 autosave | Source image matches the run's save record; 120 exact frames and a frame-zero resave |
+| WindowsPlayer under Proton 10.0-4b (OpenGL Core, MinGW DLLs): gas save, then load | 121 frames, error 2.8e-16 / 9.8e-16, payload v4; then 120 exact frames and a frame-zero resave |
+
+All Linux runs have zero mod failure lines. The long run stopped at 8,400 frames
+to finish before the [colony dies](../tools/ONI_HEADLESS.md#long-development-runs);
+at its end all three duplicants were alive but suffocating. A load of the
+cycle-3 autosave restored, resaved and ran 120 exact frames, but failed the
+scene's `NativeSolidsAdvanced` check: by cycle 3 the hot/cold granite pair
+outside the room is within 1.3 K and warms with its surroundings, so that
+convergence check cannot hold on late saves. Proton is not Windows OS or MSVC
+evidence.
+
 ## Open work
 
-- Colony saves, autosaves and reloads for configured rooms: the paired save
-  payload and the restore adapter admit only scenarios 0–6 and the 3×2 room.
-  Long runs of configured rooms wait for this.
-- Windows runs of the configured scenes (`run_colony_validation.ps1` and the
-  Proton runner have no configured mode yet), and occupied rooms (actors,
-  breathing, transfers) with interior solids.
+- Windows OS runs of the configured scenes (`run_colony_validation.ps1` and
+  `--verify-natural-autosave` have no configured mode), and occupied rooms
+  (actors, breathing, transfers, particles) with interior solids; the payload
+  format carries actors and particles, but no game run has exercised them.
+- An in-game load of a deliberately tampered configured save; fail-closed
+  rejection is covered by unit tests only. Mixture and viscous configured
+  restores are rejected.
+- `NativeSolidsAdvanced` cannot pass on late saves; it needs a rule that holds
+  once the granite pair has nearly equilibrated.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
 - Vacuum, free surfaces, passive data and disease; vacuum is separate solver work.

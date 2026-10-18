@@ -28,7 +28,9 @@ The scenarios cover:
 - **Persistence and messages.** The save envelope, fluid-message router, frame
   coordinator, batch commands and frame-input journal. Also actor registration
   and checkpoint images, cell-mass edits, transfer plans, transient particles
-  and binary32 wire values.
+  and binary32 wire values. Configured payloads (versions 4 and 5) check the
+  `MADCFG01` framing, header/wrapper agreement and native-world mask faults;
+  four legacy payload SHA-256 values pin versions 1–3 to the unmodified codec.
 - **Domain helpers.** Readings, configured-domain layout, orbital references,
   breathing and pressure reads, and validation limits.
 - **Presentation.** The adapter runtime, GPU readback plans, tile-hover receipts
