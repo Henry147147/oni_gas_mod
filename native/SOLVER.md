@@ -1,265 +1,145 @@
-# Integrated fluid prototype
+# Native solver code
 
-`FluidWorld` is a separate C++ integration benchmark. `GasWorld`, the C ABI,
-managed wrappers, native-save schema and the game probe continue to use the
-existing gas reference solver. Milestone B is **not complete**.
+This page is the entry point for the C++20 code under `native/`. It says which
+solver is in production, what the other solver paths are for, where the code
+lives, and how to build and test it.
 
-A newer, separately excluded [closed MAC owner](MAC_CLOSED_WORLD.md) retains
-canonical face momentum and composes EOS pressure work with compatible primal/
-dual transport. Its eight Windows/Linux groups and independent saved-data
-review pass, including smooth implicit acoustic refinement and compressed
-liquid. It does not supply gravity, free surfaces, full multiphase physics or
-game dispatch. The older prototype and its unresolved gates below are retained.
+## Production solver: `MacClosedWorld`
 
-## Implemented path
+**Decision (2026-10-18):** `MacClosedWorld` is the project's production colony
+fluid solver. Its owner is `native/src/mac_closed_world.cpp` and its components
+are the other `native/src/mac_*.cpp` files (headers
+`native/include/mixed_atmospheres/mac_*.hpp`). ONI's native SimDLL fluid
+simulation is what the mod replaces. It must not be used as the solver. New
+colony fluid physics belongs in `MacClosedWorld`; the other paths below are
+references or experiments.
 
-Each accepted substep runs the following operations on a candidate state:
+`MacClosedWorld` is a closed, occupied regular-grid owner. It keeps canonical
+MAC face momentum, solves EOS pressure work, and uses compatible primal/dual
+transport, compression, shock heating, conduction, viscosity, gravity and a
+physical checkpoint. Its equation of state is `FluidThermodynamics`
+(`native/src/fluid_thermodynamics.cpp`), which wraps the
+[liquid thermodynamic reference](experimental/README.md): ideal gases and a
+zero-expansion elastic liquid. Its design, component contracts and open gates
+start at [MAC_SOLVER.md](MAC_SOLVER.md), which indexes the `native/MAC_*.md`
+notes.
 
-1. Reconstruct interior staggered velocities from conservative cell momentum.
-   Face inertia is the arithmetic mean of adjacent cell masses. Exterior and
-   solid faces are impermeable.
-2. Call `advance_material_pressure` to solve nonlinear pressure work on moving
-   material cells. Ideal gases use their actual headspace, heat capacity and
-   adiabatic energy response. A full incompressible liquid contributes zero
-   pressure compliance. A midpoint projection admits reconstructed velocities
-   that have nonzero initial liquid divergence.
-3. Allocate each shared face impulse and kinetic-energy change to its two
-   adjacent cells. Cell internal energy accounts for the difference between
-   staggered mechanical energy and reconstructed cell kinetic energy. Gravity
-   work from the material solve is replaced by actual transported potential
-   energy in the next operation.
-4. Remap material volumes onto the original mesh with the **same** weights for
-   every species, both momentum components, and total energy including gravity.
-   The remap verifies target volume = material volume - outgoing + incoming
-   swept volume. This geometric conservation law bounds liquid volume fractions
-   without removing excess fluid. Positive retained mass plus positive incoming
-   mass avoids subtractive cancellation of trace constituents.
-5. Apply symmetric bounded gas diffusion and viscous momentum exchange.
-   Viscous kinetic-energy loss becomes heat. Implicit pairwise conduction
-   exchanges equal and opposite energies and checks its maximum principle.
-6. Validate temperatures, inventories and occupied volumes, then publish the
-   candidate. Numerical or CFL failures retry a smaller timestep. Exhausting
-   the caller's budget rolls back **the whole requested interval**, including
-   previously accepted substeps. Invalid initial states fail before solving.
+The in-game owner is `native/src/oni_domain.cpp`. It runs `MacClosedWorld`
+behind the `ma_oni_domain_*` C ABI (`native/include/mixed_atmospheres/oni_domain.h`)
+inside the SimDLL hook library `mixed_atmospheres_oni` (`oni_backend.cpp` plus
+`oni_domain.cpp`), which is built only with `MA_BUILD_ONI_NATIVE_BACKEND=ON`.
+Managed code reaches it through `managed/MixedAtmospheres.Oni/OniNativeDomain.cs`.
+Today it owns bounded sealed and configured development domains, not a whole
+colony. See [the sealed native domain](../docs/sealed-native-domain.md),
+[the configured domain](../docs/native-configured-domain.md),
+[native backend integration](../docs/native-backend-integration.md) and the
+open gates in [playtesting readiness](../docs/playtesting-readiness.md).
 
-Mass reductions use compensated summation, including on MSVC where
-`long double` has the same precision as `double`. Pressure-work and long-run
-energy checks use sensible-energy scales, so large chemical formation energies
-cannot conceal thermodynamic errors.
+## Other solver paths
 
-`FluidWorld` selects automatic pressure preconditioning: systems of at least
-256 cells attempt a natural-order, no-fill incomplete Cholesky factorization
-(`IC(0)`, represented as unit-lower `L D L^T`). A finite positive diagonal `D`
-makes the preconditioner SPD. Unsafe pivots or rows with more than 64 original
-lower entries select the existing Jacobi preconditioner instead. No matrix
-shift, pressure gauge change, artificial liquid compliance, residual tolerance
-change or nonlinear phase-closure change is involved. The original face
-operator verifies the final true residual before any solution is accepted.
-Explicit Jacobi and IC(0) settings remain available for comparisons. Existing
-`PressureSystem` callers retain the Jacobi default, including the thermal path
-used by the separate gas reference solver and C ABI.
-The factor/application follows the incomplete-factorization approach in
-[Templates for the Solution of Linear Systems](https://www.netlib.org/templates/templates.html);
-the positive-pivot check preserves the SPD preconditioner requirement for CG,
-also documented by [PETSc](https://petsc.org/release/manualpages/KSP/KSP_DIVERGED_INDEFINITE_PC/).
+| Path | Code and build target | Used by | Role |
+| --- | --- | --- | --- |
+| `GasWorld` gas reference | `grid.cpp`, `atmosphere.cpp` and shared physics in `ma_core`; C ABI `api.h`/`api.cpp` in the default shared library `mixed_atmospheres` | Managed `MixedAtmospheres.Core.FluidWorld` (`NativeMethods.cs`). `Mod.cs` loads the library when the mod loads; `IntegrationProbe` runs a private 2x1 world. Managed test hosts | Reference and integration probe. It never owns colony physics. Tested by `physics_and_abi`; see [architecture](../docs/architecture.md) |
+| `ma::FluidWorld` closed mode | `fluid_world.cpp`, `pressure.cpp` in `ma_core`; C ABI `coupled_api.cpp` in `mixed_atmospheres_coupled` (built on request) | Managed `CoupledSimulationWorld` and `CoupledColonySimulation`; in game, only the `coupled-presentation` validation mode loads it | Closed 2-D gas/liquid validation reference. [FLUID_WORLD.md](FLUID_WORLD.md), [COUPLED_ABI.md](COUPLED_ABI.md) |
+| `ma::FluidWorld` occupied 1-D mode | `FluidGeometry1D` overload in `fluid_world.cpp` | Tests only | Dormant experiment. Its gas/vacuum front gate is false. [FLUID_WORLD.md](FLUID_WORLD.md#occupied-1-d-mode), [GAS_VACUUM.md](GAS_VACUUM.md) |
+| Retained material-node 1-D state | `occupied_staggered.cpp`; library `ma_occupied_staggered` | Tests only | Dormant experiment. [OCCUPIED_STAGGERED.md](OCCUPIED_STAGGERED.md) |
+| Cartesian/hybrid remap | `occupied_staggered_remap.cpp`, `occupied_staggered_hybrid*.cpp` | Tests only, with `MA_BUILD_STAGGERED_EXPERIMENTS=ON` | Dormant experiment with two failing gates. [STAGGERED_EXPERIMENTS.md](STAGGERED_EXPERIMENTS.md), [HYBRID_NONLINEAR_PASSIVE.md](HYBRID_NONLINEAR_PASSIVE.md) |
+| Canonical material owner | `canonical_material*.cpp`, `retained_scalar*.cpp`, headers in `include/mixed_atmospheres/experimental/`; libraries `ma_canonical_material`, `ma_retained_scalar`, `ma_canonical_diagnostics` | Nothing outside its own tests | Dormant 1-D experiment. [CANONICAL_MATERIAL.md](CANONICAL_MATERIAL.md) |
+| Liquid thermodynamic reference | `native/experimental/liquid_reference.cpp`; library `ma_fluid_reference`, linked into `ma_core` | `FluidThermodynamics`, hence the production `MacClosedWorld` and the 1-D experiments | Production EOS, despite the directory name. [experimental/README.md](experimental/README.md) |
 
-Candidate construction now moves pressure-result inventories into remap and
-builds final active cells from their complete remapped inventories. It only
-copies untouched wall metadata. Whole-call rollback retains the original cell
-vector by a noexcept ownership move at the first validated commit; failures
-before that commit leave the original vector in place, and any later exception
-restores it. These changes remove redundant deep copies, rather than moving
-their allocation cost outside the measured `step()` interval.
+None of the experiments is linked into `mixed_atmospheres`, `mixed_atmospheres_oni`
+or a managed assembly.
 
-## Deliberate limits
+## Directory map
 
-- Every non-wall cell must contain gas with positive headspace or be completely
-  filled with liquid. Vacuum and partially filled pure-liquid free surfaces are
-  rejected. No seed gas, removed constituent, or artificial liquid compliance
-  stands in for these missing models.
-- The common-velocity, common-temperature phase model numerically mixes a gas
-  and liquid interface during first-order remap. Species identities and liquid
-  volume fractions are retained; reconstructed interface geometry, immiscible
-  separation and capillary physics are absent.
-- Cell momentum is reconstructed onto staggered faces each substep. This is an
-  integrated energy-conserving prototype, not a finished staggered dual-mesh
-  momentum discretization. Shock entropy and high-Mach accuracy are unverified.
-- There are no coupled phase transitions, dissolved gases, open boundaries,
-  persistence, game ownership adapters, or production material catalog here.
-- Midpoint pressure dynamics can oscillate at under-resolved acoustic scales.
-  Taking an implicit step larger than acoustic CFL proves neither acoustic
-  time accuracy nor suitability for gameplay.
-- Candidate construction still allocates per-cell species inventories and
-  temporary arrays. IC(0) is a conservative improvement to this connected
-  experimental path, not a finished production memory layout or a demonstrated
-  solution to the release performance gate.
+- `native/include/mixed_atmospheres/`: public headers. C ABIs are `api.h`
+  (`GasWorld`), `coupled_api.h` (`FluidWorld`), `oni_backend.h` and `oni_domain.h`
+  (in-game hook library). `experimental/` holds the canonical-material headers.
+- `native/src/`: implementation. Shared mixture, pressure, transport and thermal
+  building blocks form `ma_core`; `mac_*.cpp` form the MAC libraries;
+  `oni_*.cpp`/`oni_*.hpp` form the in-game library.
+- `native/experimental/`: the liquid thermodynamic reference and its standalone
+  CMake project.
+- `native/tests/`: C++ test drivers, fixtures and diagnostics, plus data-only
+  Python reviewers (`review_*.py`). A reviewer checks saved stdout or snapshots
+  with exact or high-precision arithmetic and never runs native code.
+- `native/apps/`: `ma_demo` (`GasWorld` CSV demo), `ma_fluid_benchmark`
+  (`FluidWorld`), and `ma_mac_playtest_benchmark` (`MacClosedWorld`; driven by
+  `tools/run_mac_playtest_benchmark.py`).
+- `cmake/OniNativeBackend.cmake`: the in-game library, pinned funchook 1.1.3 and
+  diStorm sources with local patches, and its CTest tests.
 
-## Validation
+## Build options
 
-`ctest` includes `integrated_fluid_world`, with ten cases covering geometric
-remap of full liquids, common-weight mass/momentum/energy transport, pressure
-driven mixed-fluid transport, gas displacement of a full liquid slug, implicit
-pure-gas response, equilibrium contacts, gas/liquid hydrostatics, 10,000-step
-closed multiphase conservation, viscous shear heating, successful smaller-step
-retry, and atomic rollback/unsupported-state rejection. Some of these checks
-share a test case.
+| Option | Default | Effect |
+| --- | --- | --- |
+| `MA_BUILD_TESTS` | ON | Registers the CTest tests below. |
+| `MA_SANITIZERS` | OFF | GCC/Clang only: ASan and UBSan, with every finding fatal (`-fno-sanitize-recover=all`). Runtimes stay dynamic. |
+| `MA_BUILD_ONI_NATIVE_BACKEND` | OFF | Builds `mixed_atmospheres_oni` and adds 15 tests. Windows/Linux x64 only; fetches pinned sources. |
+| `MA_BUILD_STAGGERED_EXPERIMENTS` | OFF | Builds the Cartesian/hybrid remap experiments and adds 6 tests, one a known failure. |
 
-`pressure_preconditioning_and_rollback` adds seven groups: variable-coefficient
-grid convergence with unchanged true-residual limits and fewer iterations;
-irregular triangular/parallel-face graphs with disconnected referenced
-components and barriers; unsafe-pivot and high-degree Jacobi fallback; liquid
-pressure gauges and gravity; coupled `FluidWorld` agreement with Jacobi and
-constituent/energy conservation; allocation exceptions before and after the
-first commit; and exact wall-metadata/budget rollback. Windows MSVC Release,
-Linux GCC 15 Release, and Linux ASan/UBSan with libstdc++ assertions pass these
-groups alongside the original 57 physics/ABI and ten integrated-fluid cases.
+## Tests
 
-Windows checks on 2026-10-14:
+CTest groups:
 
-- MSVC 19.51 Release: existing physics/ABI tests and integrated tests pass.
-- GCC 13.1 Debug with `_GLIBCXX_ASSERTIONS`: both suites pass.
-- The 10,000-step 3x3 mixed-fluid run enables gravity, gas diffusion, viscosity
-  and conduction. Maximum relative constituent drift is `3.78e-13`, including
-  an initial `1e-28 kg` helium trace; energy drift relative to initial sensible
-  energy is `4.78e-12`. This is a small regression case, not the complete release
-  conservation/physics matrix.
+- **Default (7):** `physics_and_abi` (`GasWorld` and its C ABI),
+  `integrated_fluid_world`, `integrated_fluid_free_surfaces`,
+  `gas_vacuum_consistency`, `pressure_preconditioning_and_rollback`,
+  `mixture_property_compatibility`, `retained_occupied_staggered`.
+- **`MA_BUILD_ONI_NATIVE_BACKEND=ON` (+15):** `native_oni_observer_abi`,
+  `native_oni_detour_relocation`, `native_oni_sealed_domain`,
+  `native_oni_arithmetic_environment`, `native_oni_mixed_domain`,
+  `native_oni_radial_consumption`, `native_oni_frame_inputs`,
+  `native_oni_configured_domain`, and the `MacClosedWorld` tests
+  `mac_gas_boundary_transfers`, `mac_occupied_conduction`,
+  `mac_mixture_conduction`, `mac_physical_viscosity`, `mac_native_body_heat`,
+  `mac_physical_checkpoint`, `mac_exact_equilibrium`. The sealed and configured
+  domain tests take about two minutes each in Release and about nine under ASan.
+- **`MA_BUILD_STAGGERED_EXPERIMENTS=ON` (+6):** labelled `staggered-experimental`.
+  `positive_staggered_rezone` is also labelled `staggered-known-unresolved` and
+  fails by design, so an unfiltered `ctest` returns 8. See
+  [the evidence contract](STAGGERED_EXPERIMENTS.md#reproduce).
+- **Standalone reference project** (`native/experimental`):
+  `liquid_reference_thermodynamics`.
 
-Run the benchmark after a Release build:
+Many targets are excluded from the default build and from CTest: most
+`ma_mac_*` component tests and diagnostics, the coupled-ABI tests, the
+canonical-material and retained-scalar tests, and the retained gas/vacuum
+drivers. Build one with `cmake --build <dir> --target <name>`, run the
+executable directly, and check its saved output with the matching
+`native/tests/review_*.py`. The owning document gives the commands.
 
-```powershell
-.\build-solver\ma_fluid_benchmark.exe
-# Optional width and height, for example:
-.\build-solver\ma_fluid_benchmark.exe 80 50
-# Seven identical-state samples: first timed step and steady median.
-.\build-solver\ma_fluid_benchmark.exe 400 250 7 auto
-.\build-solver\ma_fluid_benchmark.exe 400 250 7 jacobi
+On 2026-10-18 all 22 tests of the default plus backend configuration passed on
+Linux (GCC 15, Release and ASan/UBSan). The MinGW-w64 GCC 13 Windows build of
+the same 22 test executables passed under Wine.
+
+## Build commands
+
+`tools/build.py` first runs `tools/coverage_inventory.py validate` and the
+Python unit tests. It then configures with Ninja in Release, forces
+`MA_BUILD_STAGGERED_EXPERIMENTS=OFF`, builds, and runs CTest. Without
+`--native-only` it also runs the managed test hosts, which need `dotnet`.
+
+```sh
+python3 tools/build.py --native-only                          # build/, default tests
+python3 tools/build.py --native-only --oni-native-observer    # adds the in-game owner
+python3 tools/build.py --native-only --sanitizers --oni-native-observer --build-dir build-sanitized
 ```
 
-The default is a 400x250 closed wet-air grid with a 20 Pa smooth pressure
-perturbation, 10% liquid volume, and a helium trace in every cell. Initialization
-and totals reduction are outside the timed interval; candidate backup, pressure
-work and remap are inside it. Diffusion, viscosity and conduction are disabled
-in this benchmark. Its JSON reports actual steps, pressure/nonlinear iterations,
-conservation and timing; an exit code of zero means the benchmark completed,
-**not** that the performance gate passed.
+The equivalent manual configuration, with a filter for only the
+`MacClosedWorld` and in-game owner tests:
 
-Optional repetitions rebuild the identical initial world before each timed
-step. The first timed solve in the process is labelled cold; the steady median
-uses subsequent solves. World initialization and totals remain outside the
-timer, while initial validation, all candidate/preconditioner construction,
-pressure work, remap, final validation and rollback storage stay inside it.
-The per-sample JSON also reports verified linear residuals as a fraction of the
-unchanged convergence threshold, nonlinear volume residuals, selected
-preconditioners and fallback counts.
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_ONI_NATIVE_BACKEND=ON
+cmake --build build --parallel 8
+ctest --test-dir build --output-on-failure
+ctest --test-dir build --output-on-failure -R '^(mac_|native_oni_)'
+```
 
-Before the pressure/copy optimization, this Windows Ryzen 9 9950X ran the
-100,000-cell, 0.1-second case in about
-**428 ms**, one substep, two nonlinear iterations and 106 pressure iterations.
-Compensated global reductions report zero drift to the printed precision for
-that one step. The release goal is 25 ms on Ryzen 5900X, so this result **fails**
-the gate even on the faster test host. It does not justify integrating this
-prototype as the authoritative game runtime. Sparse active-domain storage,
-reusable workspace and a true staggered momentum remap
-must be addressed together with the missing phase/interface physics.
-
-## Pressure/copy performance checkpoint, 2026-10-15
-
-An isolated before/after comparison used the same 400x250 initial condition,
-compiler configurations, host, and timed work. The before operator/integrator
-came from commit `2e270d8`; only its benchmark driver was adapted to repeat the
-unchanged case. The after code includes the ownership moves above and IC(0).
-All executables ran sequentially while ONI was closed and other agent work was
-held. Windows used MSVC 19.51 Release; Linux used GCC 15 Release in Ubuntu 26.04
-under WSL on the same Ryzen 9 9950X. This is not a Ryzen 5900X measurement.
-
-Each process measured seven independently initialized identical worlds: the
-first timed step and the median of the remaining six. These are short,
-order-dependent samples, with visible host/runtime variation; the first step
-does not mean cold operating-system or disk caches.
-
-| Timed complete 100k-cell step | Windows first / steady median | Linux first / steady median |
-| --- | ---: | ---: |
-| Before, Jacobi | 404.93 / 373.07 ms | 372.00 / 309.50 ms |
-| Ownership moves, explicit Jacobi | 315.31 / 335.60 ms | 341.13 / 301.61 ms |
-| Ownership moves, automatic IC(0) | 322.84 / 321.01 ms | 355.54 / 267.69 ms |
-
-The final steady medians improved about 14% in this window, with substantially
-different first-step effects. Every sample took one accepted substep, two
-nonlinear iterations and no rejected substeps. CG iterations fell from 106 to
-34. The final linear residual divided by the **unchanged** acceptance threshold
-was approximately `0.8501` before and `0.7049` after; nonlinear volume residuals
-were about `1.15e-14` and `1.16e-14 m³`. Compensated constituent and total-energy
-drift were zero to the printed precision for this single-step case. This does
-not extend the supported physics or replace the long conservation tests.
-
-Separate allocator/timer-instrumented copies measured all allocations inside
-`step()`, including those outside named phase scopes:
-
-| Private one-step profile | Windows before → after | Linux before → after |
-| --- | ---: | ---: |
-| Allocation count | 600,152 → 300,159 | 600,116 → 300,123 |
-| Total bytes allocated | 194.79 → 161.17 MB | 193.16 → 159.54 MB |
-| CG solve including reductions, matvec and preconditioner | 51.46 → 47.04 ms | 71.35 → 58.54 ms |
-| IC(0) setup, two nonlinear solves | 3.96 ms | 6.52 ms |
-| IC(0) application, 34 calls | 22.43 ms | 21.83 ms |
-
-The triangular preconditioner applications consume much of the time saved by
-fewer CG iterations. Unchanged closure setup still costs roughly 37–39 ms;
-material-output checks, initial/remap/final validation, transport and remaining
-per-cell allocations dominate much of the complete step. Profile counters are
-exclusive nested scopes with some unlabelled destruction/setup work; their
-instrumented totals are not substitutes for the uninstrumented timing table.
-Bytes are cumulative allocations, not peak resident memory.
-
-The 25 ms performance gate **still fails** on every measured sample. IC(0) is a
-bounded improvement in the existing experimental integrator, not a production
-multigrid solution or permission to take over the game simulation. Additional
-work must address thermodynamic evaluation, reusable storage and conservative
-transport alongside the unresolved vacuum, phase and interface physics.
-
-Ignored local evidence is in `local/native-pressure/`: `result.json`, exact
-before/after source manifests, executable/library SHA-256 values, compiler and
-test logs, the six uninstrumented JSON runs, and four independent profile JSON
-runs. `quiet-measurement-window.json` records the serial measurement interval.
-Private profile/driver adaptation scripts are kept there; no profiling hooks
-or allocator overrides are compiled into the production library.
-
-## Property-only follow-on checkpoint, 2026-10-15
-
-The approved `mixture.cpp` change uses a read-only registry view after the
-existing size checks and skips property arithmetic only for exactly zero mass.
-Every positive trace retains its term in the original species order. Public
-APIs, storage, species formulas, reduction order, every-entry inventory
-validation and pressure tolerances remain unchanged.
-
-`mixture_property_compatibility` checks **120,340 bit-exact scalar results and
-exception outcomes**, including dense/sparse mixtures, phase reference energies,
-signed zeros, minimum positive traces, invalid inputs and direct public-field
-mutations. Windows MSVC Release, Linux GCC 15 Release, and Linux ASan/UBSan with
-libstdc++ assertions pass this and the existing physics/ABI, fluid and pressure
-suites against the frozen integrator.
-
-The comparison freezes the world/pressure/remap code at `0f938f9` and changes
-only property calculations. It uses the same 400x250 wet-air, 0.1-second case
-with four occupied species out of sixteen. Five independently initialized
-identical states run per process: first timed step / median of the remaining
-four. Executables run serially with ONI closed, using MSVC 19.51 and GCC 15
-under Ubuntu 26.04 WSL on the same Ryzen 9 9950X.
-
-| Complete 100k-cell step | Windows first / steady median | Linux first / steady median |
-| --- | ---: | ---: |
-| Frozen baseline | 303.94 / 322.15 ms | 343.58 / 253.93 ms |
-| Baseline repeated after candidates | 294.56 / 295.78 ms | 299.99 / 252.71 ms |
-| Approved property-only change | 209.93 / 224.20 ms | 226.90 / 184.85 ms |
-
-The repeat guard shows visible host/order variation, particularly on Windows;
-these short samples are not a Ryzen 5900X or sustained Unity measurement. Every
-sample retains 34 CG iterations, two nonlinear iterations, unchanged printed
-residuals and zero printed constituent/energy drift. Allocations remain
-**300,159 / 161.17 MB** on Windows and **300,123 / 159.54 MB** on Linux per
-instrumented step; bytes are cumulative, not peak memory. The **25 ms gate
-still fails**. These results do not validate newer interface/phase models.
-
-Ignored evidence, exact source/binary hashes, counter profiles, repeat guards
-and test logs are in `local/native-properties/result.json` and its accompanying
-manifests.
+On Windows, run inside an x64 Visual Studio developer environment;
+`tools/build.py` then defaults to `build-windows`. Linux release binaries for
+packaging need the older-glibc build in `tools/build_linux_compat.py`; see
+[the Linux native build](../docs/linux-native-build.md). The CI workflow
+`.github/workflows/build.yml` is configured to run `tools/build.py
+--oni-native-observer` on Windows and Linux, a Linux sanitizer build, and the
+standalone reference project in both configurations.

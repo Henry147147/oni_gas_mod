@@ -1,21 +1,43 @@
 # ONI native boundary audit
 
-This original .NET 10 tool reads a licensed managed PE assembly using `System.Reflection.Metadata`. It does not load the assembly into a runtime, resolve game dependencies, or execute game code.
+This .NET 10 tool reads a licensed managed PE assembly with
+`System.Reflection.Metadata`. It never loads the assembly into a runtime,
+resolves game dependencies or runs game code.
 
 ```sh
 dotnet run --project tools/InteropAudit -- /absolute/path/Assembly-CSharp.dll > /tmp/oni-native-audit.json
+dotnet run --project tools/InteropAudit -- /absolute/path/Assembly-CSharp.dll \
+  --calls-to Sim.Load,Sim.LoadWorld,Sim.Start,SimMessages.CreateSimElementsTable
 ```
 
-Run separately on `Assembly-CSharp-firstpass.dll` and relevant installed mod assemblies. JSON includes the assembly SHA256, P/Invoke declarations, direct call and function-pointer acquisition sites, assignments to Grid fields, possible indirect pointer writers, and unresolved/indirect dispatch facts. Overloads share a readable method label; the IL offset identifies the instruction within the originating method. The first 100 unresolved token references are sampled with an exact total count. Generic `TypeSpec` parent names remain unresolved.
+Run it separately on `Assembly-CSharp.dll`, `Assembly-CSharp-firstpass.dll` and
+any relevant mod assemblies. The output is game-derived, so keep it out of the
+repository. The JSON records:
 
-Pointer candidates indicate a method both reads a raw Grid pointer and performs an indirect store. Review the target of the store before calling it a Grid writer: out parameters and unrelated arrays produce false positives. Aliases passed through other methods can produce false negatives. Reflection/delegate summaries and unresolved names are explicitly reported; absence of direct calls is not proof of total interception. Native writes and other assemblies require separate audits.
+- the assembly's SHA256 and its P/Invoke declarations;
+- direct call sites and function-pointer acquisitions;
+- assignments to `Grid` fields and possible indirect pointer writers;
+- unresolved and indirect dispatch, with the first 100 unresolved tokens sampled
+  and an exact total.
 
-Validated against licensed ONI build 744825: 68,387 method bodies, 16 native imports, 70 direct native call sites, no `calli`, one raw-pointer/store candidate (`Grid.InitializeCells`, confirmed to write build masks instead of native cell arrays). The main-game physics pointers are assigned by `Sim.Start`, `Game.StepTheSim`, shutdown, and world-generation publication. These observations are specific to the inspected binary hash, not a compatibility guarantee after game updates.
+Overloads share a readable label, and an IL offset locates each instruction.
+Generic `TypeSpec` parents stay unresolved. `--calls-to` adds `selectedCalls`
+for the named methods. Labels are not full signatures, so check the
+declarations where overloads matter.
 
-To inspect additional direct managed call sites, supply exact qualified method labels:
+A pointer candidate is a method that reads a raw `Grid` pointer and also stores
+indirectly. Review the store target before calling it a writer: out parameters
+and unrelated arrays give false positives, and aliases passed through other
+methods give false negatives. Missing direct calls do not prove complete
+interception. Native writes and other assemblies need separate audits.
 
-```sh
-dotnet run --project tools/InteropAudit -- /absolute/path/Assembly-CSharp.dll --calls-to Sim.Load,Sim.LoadWorld,Sim.Start,SimMessages.CreateSimElementsTable
-```
+For build 744825, the audit finds:
 
-`selectedCalls` includes direct calls and function-pointer acquisitions. This keeps the same unresolved/indirect-dispatch limitations as the native-import audit. Names are labels rather than full overload signatures; inspect method declarations where overload distinction matters.
+- 68,387 method bodies, 16 native imports and 70 direct native call sites;
+- no `calli`;
+- one candidate, `Grid.InitializeCells`, which writes build masks rather than
+  native cell arrays.
+
+`Sim.Start`, `Game.StepTheSim`, shutdown and world-generation publication assign
+the physics pointers. These findings hold only for the inspected binary hash, so
+re-audit after a game update. See [the interop contract](../../docs/interop-contract.md).

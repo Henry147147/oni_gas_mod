@@ -1,13 +1,13 @@
 # Configured sealed native domain
 
-This is the first native slice of [gate 1](playtesting-readiness.md), colony
-fluid ownership. An additive ABI lets the sealed native owner take explicit
-physics, interior solids and larger rectangles. Scenarios 0–6, their
-checkpoint bytes and every existing entry point are unchanged. A managed
-adapter and two small Unity scenes (a 7x5 room with interior solids, gas or
-water) now use it and pass on native Linux; see
-[the managed adapter](#managed-adapter-and-unity-scenes). They remain bounded
-development rooms, not colony ownership.
+The configured domain is the first native slice of
+[gate 1](playtesting-readiness.md), colony fluid ownership. An additive ABI lets
+the [sealed native owner](sealed-native-domain.md) take explicit physics,
+interior solids and larger rectangles. Scenarios 0–6, their checkpoint bytes
+and every existing entry point are unchanged. A managed adapter and two 7×5
+Unity rooms with interior solids (gas and water) use it and pass in the native
+Linux game ([managed adapter](#managed-adapter-and-unity-scenes)). They are
+bounded development rooms, not colony ownership.
 
 ## ABI
 
@@ -16,12 +16,12 @@ development rooms, not colony ownership.
 existing sealed opt-in flag 1. It also supplies a 40-byte `MAOniDomainPhysics`
 record and a row-major solid mask. Only `ma_oni_domain_start_configured`,
 `ma_oni_domain_restore_configured` and
-`ma_oni_domain_configured_checkpoint_validate` admit scenario 7. The legacy
-start, restore and validation entry points still reject it.
+`ma_oni_domain_configured_checkpoint_validate` admit scenario 7; the legacy
+start, restore and validation entry points reject it.
 `ma_oni_domain_configuration_copy` returns the active session's exact geometry,
 physics and mask; a null mask with zero capacity queries the count. Copies,
 heat, transfers, actors, snapshots, frame inputs, paired capture and
-diagnostics are the existing shared calls.
+diagnostics use the existing shared calls.
 
 | Flag | Value | Effect |
 | --- | ---: | --- |
@@ -42,7 +42,8 @@ Each pair below is byte-identical when started from the same cells: 0 is
 `CONDUCTION`; 1 is `CONDUCTION|LIQUID`; 2 is `GRAVITY` 9.81 with
 `CONDUCTION`; 4 is `MIXTURE`; 5 is `MIXTURE|CONDUCTION`; 6 is
 `MIXTURE|CONDUCTION|VISCOSITY` with 0.5 / 0.25 Pa s. Scenario 3 has no
-equivalent: it shifts water's reference energy into a separate EOS profile.
+equivalent: it shifts water's reference energy into a separate EOS profile
+([filled-liquid gravity](native-domain-physics.md#filled-liquid-gravity)).
 Configured liquid gravity uses the unshifted v2 reference.
 
 ## Solids, targets and copies
@@ -56,10 +57,10 @@ quantities and disease remain rejected. Disconnected fluid pockets are admitted.
 Point heat, point transfers, radius centres, point actors and durable actors
 that target a solid reject the complete batch; nothing is queued. A rectangle
 names a footprint. Its solids, including a solid anchor, are skipped exactly as
-the [inspected native loop](native-rectangular-consumption.md) and the existing
-planner skip them. A footprint with no fluid returns one zero-mass callback.
-The regional planner's bound is now the configured 256-side, 4096-cell budget;
-legacy rooms never exceed 256 cells.
+the [inspected native loop](native-domain-transactions.md#rectangular-consumption)
+and the existing planner skip them. A footprint with no fluid returns one
+zero-mass callback. The regional planner's bound is the configured 256-side,
+4096-cell budget; legacy rooms never exceed 256 cells.
 
 Copies publish each solid as an all-zero `MAOniDomainCell`. A fluid cell always
 has positive mass and EOS temperature, so that record never denotes fluid; the
@@ -89,7 +90,7 @@ separately disassembled for this slice.
 | Chunk heat | An item exchanges heat with its native cell. | Per cell; an item in a solid keeps native exchange. |
 | Post-process | `PostProcessCell` (`0x721f0`) branches on element state (`0x7223d`). A solid returns at once (`0x72580`–`0x72586`) unless its unstable flag is set; then `DoUnstableCheck*` moves falling solids (`0x725a1`, `0x72b80`). Sublimation (`0x7256c`) is reached only from the gas and vacuum branches. | Whole rectangle: an exact no-op for stable solids, and an unstable solid cannot fall into owned fluid. |
 | State transition | The temperature task calls `DoStateTransition` for every cell (`0x6b698`–`0x6b6bf`); energy messages (`0x4ae82`) and building heat (`0x5c116`) also call it. It applies its own thresholds, and an unfiltered 400 K native ice control melted ([interop contract](interop-contract.md)). | Whole rectangle: a native melt would create fluid that the owner cannot account. |
-| Load transition, sublimation | Load-time transitions; gas/vacuum post-processing. | Whole rectangle, as before. |
+| Load transition, sublimation | Load-time transitions; gas/vacuum post-processing. | Whole rectangle, as for legacy scenarios. |
 
 Interior solids therefore never melt, sublimate or fall in this slice, even if
 their native temperature would require it. The caller must admit only static,
@@ -102,8 +103,8 @@ edge still needs the verified impermeable, adiabatic native border outside it.
 
 The interface is impermeable and adiabatic. MAC walls carry no mass flux, and
 conduction and viscosity treat them as insulated free-slip boundaries. The
-[solid-heat bridge](native-solid-heat.md) does not generalize cleanly to every
-interior face:
+[solid-heat bridge](native-domain-physics.md#native-solid-cell-heat) does not
+generalize cleanly to every interior face:
 
 1. Registration replaces one set of at most 128 records, and the completed
    endpoint and cell-state observations each describe one solid.
@@ -111,19 +112,19 @@ interior face:
    Their bridged contacts read and write the same accumulated `updatedCells`
    temperature from row-partitioned native temperature tasks. Their ordering
    across tasks has not been established.
-3. The actual Unity border-heat gate is still failing.
+3. The actual Unity border-heat gate still fails.
 
-Registration therefore still admits only outside faces, and now also requires
-an owned fluid cell inside each face. The managed caller must verify interior
-solids as insulating, or accept their faces as adiabatic, exactly as it does
-for an unregistered border solid today.
+Registration therefore admits only outside faces, and also requires an owned
+fluid cell inside each face. The managed caller must verify interior solids as
+insulating, or accept their faces as adiabatic, exactly as it does for an
+unregistered border solid.
 
 ## Size bound
 
 Configured rectangles are 2–256 cells per side with at most 4096 cells.
 Legacy scenarios keep 2–16. One 0.2 s frame of a 64×64 room with gravity,
 conduction and viscosity raised peak RSS from 8.9 to 94.3 MiB, about 21 KiB
-per cell. A 1024-cell frame without viscosity measured 13 KiB per cell. The
+per cell; a 1024-cell frame without viscosity measured 13 KiB per cell. The
 retained owner, pending candidate, 96-byte publication and roughly 159-byte
 snapshot add a few hundred bytes per cell. The 64×64 checkpoint is 650,893
 bytes, far below the 256 MiB wrapper and 1 GiB solver limits.
@@ -136,7 +137,7 @@ an internal legacy start admits that geometry, while the exported start rejects
 the pitch separately. Legacy behaviour is left unchanged.
 
 The bound limits memory and indices; it is not a performance claim. The same
-64×64 frame took 48.3 s in a Linux Release build (20 substeps). The production
+64×64 frame takes 48.3 s in a Linux Release build (20 substeps). The production
 timestep gate remains open.
 
 ## Checkpoints
@@ -199,20 +200,15 @@ cmake --build build-agent-asan && ctest --test-dir build-agent-asan
 - The 64×64 room starts, advances one frame, copies, checkpoints, validates and
   restores; a 256×16 corridor is admitted. Timing is printed, not gated.
 
-Linux Release (GCC 15.2): all 22 CTest groups pass in 136.7 s; the new group
-takes 108.9 s. Standalone timings for the largest room on an idle host: start
-39.7 ms, frame 48,308 ms, copy 0.04 ms, checkpoint 3.7 ms, validation 27.0 ms,
-restore 75.6 ms. Linux ASan/UBSan with fatal diagnostics: all 22 groups pass in
-538.4 s (the new group 538.2 s). A MinGW-w64 13 cross build of the native
-backend and tests compiles without warnings, using the locally extracted
-`build-oni-cross-tools` toolchain and a scratch toolchain file; the repository
-has no committed Windows toolchain file. All 22 Windows test executables pass
-under the extracted Wine 10 with a scratch prefix (new group 117.3 s). This is
-not Windows OS or Unity evidence.
-
-The sanitizer build did not link `ma_mac_equilibrium_tests` on unmodified
-`HEAD`: that target was missing from the instrumented list. `CMakeLists.txt`
-now instruments it and `ma_mac_playtest_benchmark`.
+**Status.** All CTest groups pass in Linux Release (GCC 15.2) and Linux
+ASan/UBSan with fatal diagnostics; the configured group dominates the run time
+(about 109 s in Release, 538 s under sanitizers). Standalone timings for the
+64×64 room on an idle host: start 39.7 ms, frame 48,308 ms, copy 0.04 ms,
+checkpoint 3.7 ms, validation 27.0 ms, restore 75.6 ms. A MinGW-w64 13 cross
+build of the native backend and tests compiles without warnings and every test
+executable passes under Wine 10; the repository has no committed Windows
+toolchain file, so that build used a local toolchain and scratch toolchain
+file. Wine is not Windows OS or Unity evidence.
 
 ## Managed adapter and Unity scenes
 
@@ -220,10 +216,10 @@ now instruments it and `ma_mac_playtest_benchmark`.
 limits and the five configured entry points. `ConfiguredDomainLayout.cs` is the
 engine-free room: mask admission, the complete inventory with all-zero solid
 records and the all-zero copy check. Managed tests check the layout; a Python
-test compares the constants and entry points with this header.
+test compares the constants and entry points with the native header.
 
 Two development scenes reuse the sealed-scene builder
-(`NativeSealedDomainValidation.cs`) in one 7x5 room
+(`NativeSealedDomainValidation.cs`) in one 7×5 room
 (`ConfiguredDomainLayout.PillaredRoom`): a three-cell Unobtanium pillar on the
 floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
 
@@ -263,27 +259,28 @@ The runner and `oni_native_domain_evidence.py --mode configured` /
 inventory, interior-solid evidence and thermal and gravity statuses. A
 configured report never passes as a legacy scene, nor the reverse. Configured
 rooms reject `--save-colony`/`SaveOnComplete` and `--long-run`: the paired save
-payload and restore adapter admit only scenarios 0–6 and the 3x2 room, so an
+payload and restore adapter admit only scenarios 0–6 and the 3×2 room, so an
 autosave would be declined. `tools/configure_visual_demo.py --scene pillared`
 (or `pillared-water`) prepares the same room for manual viewing.
 
 ### Linux game evidence
 
-Both scenes pass on native Linux (Steam build 744825, Mesa llvmpipe, private
-display) with native libraries from the Ubuntu 22.04 compatibility build of
-`21c8a7c` (22/22 native tests, glibc at most 2.34) and the managed adapter
-packaged as `artifacts/configured-probe-linux-v3`:
+Both scenes pass in the native Linux game (ONI 744825, Mesa llvmpipe, private
+display). The native libraries come from the Ubuntu 22.04 compatibility build
+(glibc at most 2.34):
 
 ```sh
 python3 tools/build_linux_compat.py --output build-agent-linux-compat --jobs 8
 python3 tools/package_probe.py --native build-agent-linux-compat/native/libmixed_atmospheres.so \
   --native-observer build-agent-linux-compat/native/libmixed_atmospheres_oni.so \
-  --native-build-info build-agent-linux-compat/compatibility-build.json --output artifacts/configured-probe-linux-v3
-python3 tools/oni_headless.py run --game-dir <Steam ONI> --package artifacts/configured-probe-linux-v3 \
+  --native-build-info build-agent-linux-compat/compatibility-build.json --output artifacts/configured-probe-linux
+python3 tools/oni_headless.py run --game-dir <Steam ONI> --package artifacts/configured-probe-linux \
   --mode native-configured-domain --frames 120 --timeout 3600 --private-display
 ```
 
-| | Gas (`configured-gas-linux-v3`) | Water (`configured-water-linux-v1`) |
+Use `--mode native-configured-water-domain` for water.
+
+| | Gas | Water |
 | --- | --- | --- |
 | Frames after priming | 120 (24.4 s physical) | 120 (24.4 s) |
 | Substeps / rejected attempts | 2,573 / 18 | 2,562 / 0 |
@@ -292,22 +289,23 @@ python3 tools/oni_headless.py run --game-dir <Steam ONI> --package artifacts/con
 | Gravity potential | 1,138.7 → 1,152.0 J | 818,494 → 825,640 J |
 | Wall time per 0.2 s frame | about 0.34 s | about 0.66 s |
 
-Run directories are under `<state>/runs/`. Every `ConfiguredDomain` check is
-true, all 35 rectangle cells keep their native tuples where native, no mod
-failure lines appear, and the standalone checker accepts both reports (the gas
-report fails as a legacy `gas` scene). The captures show the Neutronium pillar
-and ledge inside the sealed walls, 31 fluid readings in the status panel and
-the stock Neutronium tooltip over the pillar. The four solids' stock gas texels
-are transparent zero. Suppressed pressure and gas counters stay zero, as in the
-legacy fenced scenes. Wall times include software Unity rendering; they are not
-a production timestep or performance result.
+Every `ConfiguredDomain` check is true, all 35 rectangle cells keep their
+native tuples where native, no mod failure lines appear, and the standalone
+checker accepts both reports (the gas report fails as a legacy `gas` scene).
+The captures show the Neutronium pillar and ledge inside the sealed walls, 31
+fluid readings in the status panel and the stock Neutronium tooltip over the
+pillar. The four solids' stock gas texels are transparent zero. Suppressed
+pressure and gas counters stay zero, as in the legacy fenced scenes. Wall
+times include software Unity rendering; they are not a production timestep or
+performance result.
 
 ## Open work
 
 - Colony saves, autosaves and reloads for configured rooms: the paired save
-  payload and the restore adapter still admit only scenarios 0–6 and the 3x2
-  room. Long runs of configured rooms wait for this.
-- Windows Unity runs of the configured scenes, and occupied rooms (actors,
+  payload and the restore adapter admit only scenarios 0–6 and the 3×2 room.
+  Long runs of configured rooms wait for this.
+- Windows runs of the configured scenes (`run_colony_validation.ps1` and the
+  Proton runner have no configured mode yet), and occupied rooms (actors,
   breathing, transfers) with interior solids.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.

@@ -1,18 +1,18 @@
 # Durable ONI point-actor checkpoint extension
 
-This supplements the physical `MACCLS01` image for the bounded native ONI
-owner. Capability `ma_oni_domain_actor_checkpoint_abi_version()` returns 1.
-The [game integration and actual acceptance](../docs/native-actor-persistence.md)
-describe its supported scope.
+This extends the physical `MACCLS01` image for the bounded native ONI owner
+with durable point actors. Capability `ma_oni_domain_actor_checkpoint_abi_version()`
+returns 1. Supported scope, game binding and verification are in
+[durable point actors](../docs/native-domain-persistence.md#durable-point-actors).
 
-Actor-free snapshots retain the existing physical bytes. With persistent
-actors, `ma_oni_domain_snapshot_copy` returns a `MAACTR01` wrapper containing
-the same solver image and the actors' complete operational state. The paired
-worker capture uses `ma_oni_domain_pair_snapshot_request` and the existing
-poll/copy/release token lifecycle. The original physical-only export continues
-to reject live actors.
+Actor-free snapshots keep the existing physical bytes. With persistent actors,
+`ma_oni_domain_snapshot_copy` returns a `MAACTR01` wrapper containing the same
+solver image and the actors' complete operational state. The paired worker
+capture uses `ma_oni_domain_pair_snapshot_request` and the existing
+poll/copy/release token lifecycle. The physical-only export still rejects live
+actors.
 
-All integers are little-endian. Doubles retain their binary64 bits. No native
+All integers are little-endian. Doubles keep their binary64 bits. No native
 structure padding is serialized.
 
 | Header offset | Bytes | Value |
@@ -54,33 +54,39 @@ Each actor record is:
 | 80 | 4 | Blocked flag, 0 or 1 |
 | 84 | 4 | Reserved zero |
 
+## Validation
+
 Records have a unique, strictly increasing `(kind, owner, prefab, component)`
 key. The native codec permits positive uint64 owner IDs; the ONI adapter uses
-`KPrefabID.InstanceID + 1`, bounded to `1 .. 2^31`, a nonzero prefab-tag hash and
-component indices `0 .. 65535`. The hash is not a native allocation handle.
+`KPrefabID.InstanceID + 1`, bounded to `1 .. 2^31`, a nonzero prefab-tag hash
+and component indices `0 .. 65535`. The hash is not a native allocation handle.
 No callback index, handle, session ID, frame ID or thread ID enters a record.
 
-All numbers must be finite; mass, elapsed and remainder are nonnegative.
+All numbers must be finite; mass, elapsed time and remainder are nonnegative.
 Consumers have zero elapsed time and no emitter blocked state. Emitters have
-zero consumer remainder. Enabled emitters require positive interval/density,
-temperature at least 1 K and exactly binary32-representable parcel mass. Native
-admission also checks cell ownership, phase, complete geometry, clock, solver
-checksum and material/EOS identity. The total wrapper is bounded to 256 MiB.
-The enclosing `MAONID01` section uses payload version 2 for this extension;
-its actor-free variant remains version 1.
+zero consumer remainder. Enabled emitters need positive interval and density,
+a temperature of at least 1 K and an exactly binary32-representable parcel
+mass. Native admission also checks cell ownership, phase, complete geometry,
+clock, solver checksum and material/EOS identity. The whole wrapper is bounded
+to 256 MiB. The enclosing `MAONID01` section uses payload version 2 for this
+extension; its actor-free variant stays version 1.
 
-Restoration retains records pending by stable identity. The real game's newly
-allocated registrations supply current native handles through atomic
-`ma_oni_domain_configure_persistent_actors` batches of 96-byte commands. A
-matching configuration restores cadence, remainder and blocked state without
-transferring material. A zero-rate spawn bootstrap cannot overwrite a pending
-record. Identity/configuration mismatches and duplicate bindings reject the
-whole batch. Positive worker advancement with pending records faults while
-retaining native fluid exclusion.
+## Restore
 
-`ma_oni_domain_snapshot_advance` independently restores and advances solver and
-actor state. Its transfer ordering uses stable keys, so allocator changes
-cannot change the result. Native controls reverse registration and handle
-order and match ten complete resumed images for gas, water and water with
-gravity. This extension admits drained point boundaries; it does not serialize
-undelivered callback outboxes or implement complete machine reservations.
+Restored records stay pending by stable identity. The game's newly allocated
+registrations supply current native handles through atomic
+`ma_oni_domain_configure_persistent_actors` batches of 96-byte
+`MAOniDomainPersistentActor` commands. A matching configuration restores
+cadence, remainder and blocked state without transferring material. A
+zero-rate spawn bootstrap cannot overwrite a pending record. Identity or
+configuration mismatches and duplicate bindings reject the whole batch.
+Positive worker advancement with pending records faults while keeping native
+fluid exclusion.
+
+`ma_oni_domain_snapshot_advance` independently restores and advances solver
+and actor state. Its transfer ordering uses the stable keys, so allocator
+changes cannot change the result; native controls reverse registration and
+handle order and match ten complete resumed images for gas, water and water
+with gravity. The extension admits drained point boundaries only. It does not
+serialize undelivered callback outboxes or implement complete machine
+reservations.

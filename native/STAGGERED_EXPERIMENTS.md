@@ -1,224 +1,111 @@
-# Unfinished Cartesian/hybrid remap experiments
+# Cartesian/hybrid remap experiments (opt-in)
 
-The committed retained material-state library and its 17-group
-`retained_occupied_staggered` test remain in the default seven-test native
-build. `MA_BUILD_STAGGERED_EXPERIMENTS` defaults to **OFF** and controls only
-three additional standalone libraries and six additional tests. The normal
-`tools/build.py` explicitly sets OFF, including when reusing an opted-in
-build cache. None of these libraries is linked into ma_core or the game DLL.
-There is no C ABI, FluidWorld mode, save format or gameplay activation for
-this state.
+These dormant 1-D experiments add a conservative remap to the
+[retained material-node state](OCCUPIED_STAGGERED.md), so that a material mesh
+can be rezoned onto a fixed grid. They are built only with
+`MA_BUILD_STAGGERED_EXPERIMENTS=ON` (default OFF; `tools/build.py` always passes
+OFF, even into an opted-in cache). None of them is linked into `ma_core` or a
+game library, and there is no C ABI, `FluidWorld` mode, save format or game use.
+There is no composed pressure-plus-remap timestep, so the
+[gas/vacuum front gate](GAS_VACUUM.md) is not addressed by them.
 
-The opt-in dependencies are `ma_occupied_staggered_remap` (Cartesian transport,
-linked to the retained library), `ma_occupied_staggered_hybrid_geometry` (A0,
-linked to the Cartesian grid helpers), and
-`ma_occupied_staggered_hybrid_remap` (A1, linked to A0). Their explicit build
-aggregate `ma_staggered_experiment_tests` builds all six additional test
-executables. It does not assert that their numerical gates pass.
+| Library | Source | Builds on | Content |
+| --- | --- | --- | --- |
+| `ma_occupied_staggered_remap` | `occupied_staggered_remap.cpp` | `ma_occupied_staggered` | Cartesian rezone |
+| `ma_occupied_staggered_hybrid_geometry` (A0) | `occupied_staggered_hybrid.cpp` | the Cartesian grid helpers | Hybrid geometry |
+| `ma_occupied_staggered_hybrid_remap` (A1) | `occupied_staggered_hybrid_remap.cpp` | A0 | Instantaneous hybrid transport |
 
-## Scoped evidence and preserved failure
+## Remap method
 
-The original Cartesian test `positive_staggered_rezone` still fails its
-strict nonuniform free-boundary jump/dt assertion: six of seven groups pass.
-Its executable returns 1; its real CTest run returns 8. The test algorithm,
-criterion and failure are unchanged. An unfiltered CTest run with the option
-ON has thirteen registered tests and is expected to return 8. There is no WILL_FAIL,
-skip, result-regex override, threshold change or automatic retry.
+The remap is instantaneous and first order. It is applied to a retained state
+whose cells keep constituents and U and whose nodes keep J and inertia:
 
-The four previously validated additional gates have limited meanings:
+1. Split each moving cell at its midpoint into two corners of bulk mass M/2.
+   A corner moves with its attached node: momentum m*u, kinetic energy m*u*u/2.
+   Constituents and U use conservative primal overlaps; no constituent is
+   dropped or given a floor.
+2. Intersect old corners with the target half-intervals, using the same
+   piecewise-constant density as the primal remap, and carry mass, momentum and
+   kinetic energy by positive intersections. Corner masses must match primal
+   target masses to a derived local arithmetic bound. A zero-length move
+   reproduces the old corners exactly.
+3. Rebalance each cell's corners back to M/2 by moving the excess mass, with the
+   same positive fraction of its momentum and kinetic energy, from the larger
+   corner to the smaller. Constituents and U are unchanged. This local
+   relocation is this project's choice, not a published method; it is zero on an
+   unchanged mesh and preserves uniform velocity.
+4. Gather corners at nodes and set u = J/I. Transported minus nodal kinetic
+   energy is nonnegative by convexity in exact arithmetic; it goes to adjacent
+   cell U by corner mass. A negative material discrepancy is reported, never
+   clipped.
+5. Preserve gravitational first moments in the primal remap and add the
+   (either-sign) difference between transported and occupied-centroid potential
+   energy.
 
-- A0: authenticated immutable hybrid geometry, protected finite cap
-  identities, capacity and positive fixed-grid coverage; no transport.
-- A1: instantaneous positive primal/species/U and virtual-corner J/K
-  transport, exact physical outer packets, compatible heat and atomic
-  rejection; no composed physical timestep.
-- First boundary event: actual preferred-planner 7-to-7-to-8-to-7 history,
-  independent packet/heat oracle and capacity rollback. Inner shared-cap
-  nodes still project.
-- Bounded passive diagnostic: 128 uniform-density, affine-velocity,
-  sinusoidal-tag histories over fixed carrier time 1/8. Both directions,
-  four phases, reversed cycles, N16/32/64 and separate fixed-N timestep
-  comparisons preserve physical outer packets. Predeclared <0.8 grid checks
-  and decreasing timestep-difference checks pass in the frozen evidence.
-  Point-nodal and geometric-dual errors are distinct. Inner-cap jump/dt is
-  not bounded at fixed grid spacing; its maximum measured rate was about
-  10.8265. Passing this bounded diagnostic does not establish whole A2.
+A remap that pushes momentum into a rigid wall node records the opposing wall
+impulse and moves the removed kinetic energy to adjacent U; the wall does no
+work. External mass injection or extraction is not supported. The approach is
+motivated by compatible staggered work
+([Caramana et al.](https://cnls.lanl.gov/~shashkov/papers/comp.pdf)), subcell
+remapping ([Loubere and Shashkov](https://www.math.ntnu.no/conservation/2004/058.pdf))
+and consistent corner masses in rezoning
+([Owen and Shashkov 2014](https://laro.lanl.gov/esploro/outputs/journalArticle/Arbitrary-Lagrangian-Eulerian-remap-treatments-consistent/9916370004303761),
+DOI 10.1016/j.jcp.2014.05.023). Those sources do not verify this algorithm.
 
-A separate test-only nonlinear passive gate is now registered; its native
-completion is insufficient without its fresh exact-rational/analytic Python
-oracle. The predeclared288 nonlinear plus16 uniform-control histories, actual
-variable-density half-mass rebalance, physical balances, four sample times,
-packet oracles and strict refinement/settling criteria are specified in
-[HYBRID_NONLINEAR_PASSIVE.md](HYBRID_NONLINEAR_PASSIVE.md). The first strict
-MSVC native 304-case physical/export run passed, and the separately calibrated
-oracle completed all 304 per-history state/packet/balance checks. The full
-nonlinear refinement gate **FAILED** at the first N32-to-N64 velocity
-supremum comparison: ratio 0.964869095141856 against the unchanged strict 0.8
-criterion, C=1/4 and tau=1/32, phase 0/carrier -1/linear/unreflected family.
-Both maxima are at the right inner cap node; physical outer packets stay
-exact. That oracle exited1 and its procedure failed. GNU/sanitizer and any
-numerical rerun of this new gate have not been executed after the failure.
-The full states, first failure and original source/data archives remain
-preserved. All-node temporal rate and whole A2 remain false.
+The **hybrid** variant keeps protected finite material caps at both ends of the
+material interval, a fixed Cartesian grid in the interior, and transition cells
+between them. A0 authenticates that immutable geometry and its coverage. A1
+transports primal species/U and virtual-corner J/K through it, with exact
+physical outer packets and compatible heat. A preferred-grid planner inserts and
+retires cells as the interval moves. "A2" denotes the repeated-remap stage:
+bounded jump and rate at every node, including inner caps, and convergence over
+many calls. Whole A2 is not established.
 
-These are supported experimental foundations, not proof of general remap
-convergence. The new smooth nonlinear passive transport fails its predeclared
-supremum-refinement criterion; pressure/remap composition, a gas-to-vacuum
-fan and physical front convergence remain unvalidated. Reported actual mass,
-momentum and U+K+PE errors remain separate
-from signed arithmetic ledgers; no exact-conservation claim follows from
-the finite-tolerance checks. The full-front gate in `GAS_VACUUM.md` remains
-false. There are no performance or gameplay claims here.
+## Tests and current results
 
-Follow-on private exact-rational work tests a different consistent corner-mass
-representation. Six constant/affine/hat and reflected cases retain four
-mechanical corners and two homogeneous material-energy owners each. A
-simultaneous three-face solve gives common traces, preserves momentum,
-translated first momentum and total energy, and assigns each corner its own
-nonnegative unresolved kinetic-energy increment. Constant and affine states
-stay unchanged. Both hat controls reject a once-through scalar sweep as a
-continuity solution. A separate fixed virtual midpoint displacement satisfies
-the proposed `A=Z*D` potential's exact secant-work identities; omitting that
-stress leaves a nonzero local defect in both hats.
+All six tests carry the CTest label `staggered-experimental`; the custom target
+`ma_staggered_experiment_tests` builds their executables.
 
-The first finite run and an independent serialized-record review pass, covering
-24 corners at each stage, 12 actual material-energy owners and 18 faces.
-The independent checker completes 28,788 exact checks without
-rerunning the original solve, EOS, entropy or density routines. The hats change
-the fragment's outer traces, so full-cap and omitted-neighbor compatibility
-remain unresolved. This is a representation/constitutive hypothesis and a
-virtual-work control, not a time step or a selected production model. Moving
-primal-volume work, actual entropy guards, nonlinear accuracy and performance
-remain unproved; no native gate or earlier counterexample changes. Frozen
-original sources/results and the independent review remain under
-`local/occupied-staggered-validation/canonical-moment-face-exact-v1` and
-`canonical-moment-face-exact-v1-managed-independent-review-r2`.
+| CTest | Executable | Result |
+| --- | --- | --- |
+| `positive_staggered_rezone` | `ma_occupied_staggered_remap_tests` | **Fails** 6 of 7 groups (also labelled `staggered-known-unresolved`) |
+| `retained_hybrid_geometry` | `ma_occupied_staggered_hybrid_tests` | 9/9 A0 groups pass |
+| `protected_hybrid_material_rezone` | `ma_occupied_staggered_hybrid_remap_tests` | 12/12 A1 groups pass |
+| `protected_hybrid_first_boundary_event` | `ma_occupied_staggered_hybrid_event_tests` | 4/4 pass |
+| `protected_hybrid_passive_diagnostic` | `ma_occupied_staggered_hybrid_passive_tests` | 128 cases pass their bounded trends |
+| `protected_hybrid_nonlinear_passive` | `ma_occupied_staggered_hybrid_nonlinear_tests` | Native 304 cases pass; the independent oracle **fails** |
 
-A subsequent full-domain diagnostic closes that cap question negatively for
-the unchanged representation. It retains all fourteen mechanical corners,
-seven actual material-energy owners and thirteen internal joins in each of
-the six cases. Exact substitution verifies the supplied simultaneous solves,
-all ninety assembled momentum equations, local signed work and nonnegative
-mechanical-Z increments, global P/R/H, separate material U+H, species/traces
-and reflection. Constant and affine states remain unchanged. Both localized
-hat cases nevertheless change both complete required cap supports and all
-four required cap traces. The recorded verdict is
-`FINITE_IDENTITIES_WITH_INTERNAL_JOIN_CAP_INCOMPATIBILITY`; initializer and
-mechanics acceptance remain false.
+- **Strict Cartesian gate (open).** The seventh group of
+  `positive_staggered_rezone`, manufactured carrier and free-boundary
+  refinement, fails with "Nonuniform free boundary has an unbounded per-call
+  smoothing defect as dt tends to zero". The executable returns 1 and CTest
+  returns 8. The six passing groups cover an independent dyadic primal/corner/node
+  oracle, identity/vacuum/uniform translation, the planner and positive free
+  cuts, fixed-wall impulse and K-to-U, gravitational first moment and entropy,
+  and denormal shares with atomic failures. There is no `WILL_FAIL`, skip,
+  threshold change or retry; the gate closes when that group passes unchanged.
+- **First boundary event.** The real planner history 7 to 7 to 8 to 7 cells
+  matches an independent packet/heat oracle and capacity rollback. Inner
+  shared-cap nodes still project.
+- **Passive diagnostic.** 128 uniform-density, affine-velocity, sinusoidal-tag
+  histories over carrier time 1/8 (both directions, four phases, reversed
+  cycles, N16/32/64 and fixed-N timestep comparisons) keep physical outer
+  packets exact and pass the predeclared `<0.8` grid-ratio and decreasing
+  timestep-difference checks. Inner-cap jump/dt is not bounded at fixed grid
+  spacing; its largest measured rate is about 10.8265.
+- **Nonlinear passive gate (open).** Fails its first N32-to-N64 velocity
+  supremum comparison with ratio 0.964869 against the strict 0.8 bound, at the
+  right inner cap node. Criteria and the measured cause are in
+  [HYBRID_NONLINEAR_PASSIVE.md](HYBRID_NONLINEAR_PASSIVE.md).
 
-This obstruction cannot be repaired by choosing another internal impulse or
-retained Z while keeping the same constraints. At fixed positive-definite
-local mass matrices, full continuity and every assembled nodal momentum fix
-one continuous velocity through the assembled positive-definite system. That
-unique hat velocity changes the caps. A richer source-compatible velocity
-field or a separately justified change to remap momentum constraints would
-require a new representation and new work/thermodynamic obligations.
+Reported mass, momentum and U+K+PE errors are kept separate from the signed
+arithmetic ledgers; finite-tolerance checks are not exact-conservation claims.
+Pressure/remap composition, the gas-to-vacuum fan and front convergence remain
+unvalidated.
 
-The one finite attempt uses 83,800 of 100,000 arithmetic work units and at most
-1,714 of 12,288 Fraction bits, without a physical timestep, EOS call, native
-execution or benchmark. Its report is
-`866848d8237527aa59e7c15aa7d9294083a2b7984896375f5e030552d5d9902c`.
-Independent serialized-arithmetic and closed-evidence review is
-`2ca356141d8769f6c329e69244a0931bd301b1f8c6f2c099001059fe346045f1`
-under `local/occupied-staggered-validation/` in
-`canonical-moment-face-full-domain-v1-managed-independent-review-final-r2`.
-Reviewer-only metadata failures remain preserved; their corrections did not
-repeat the original diagnostic or its arithmetic. No earlier numerical,
-entropy, performance or native gate is promoted by this result.
+## Reproduce
 
-### Retaining source kinks: finite nesting and material work
-
-A separate six-case exact-rational control retains the original piecewise
-linear velocity field, adding only its missing source kinks to the target
-partition. It passes with 88 base pieces and 176 harmlessly subdivided pieces,
-at most 32 per state. Both versions recover all 84 coarse moment records,
-90 assembled momenta, 42 actual material owners and both complete boundary
-caps in every case. The hat fields retain four nonzero differences between
-physical traces and the coarse projected endpoint values. Derived coarse Z
-is a projection diagnostic; it is not added to the already resolved fine
-kinetic energy.
-
-The same control authenticates a seven-owner volume incidence against actual
-material geometry. Symbolic pressure forces and material work cancel with
-explicit exterior terms. Omitted and duplicate owner controls reject even
-when their incorrect force/work formulas remain mutually adjoint. Canonical
-roundtrips, input/parent retirement, positive trace retention, reflection and
-atomic rejection of unsupported piece growth also pass.
-
-The single attempt uses 98,911 of 100,000 arithmetic units and at most 268 of
-12,288 Fraction bits. Its report is 1,236,710 bytes, within the unchanged
-2 MB limit; SHA256 is
-`e24b8d13c7af3d59dd2d017f6bb07338c153eb382986b864d33bda8b3100da93`.
-Independent completed review is
-`8c514c7f6e53ec54d7714bc5a150b5988a412998752417d2b5a4a1588df1b1b2`
-under the private `canonical-source-kink-nesting-v1-independent-result-review`.
-Its earlier static work estimate understated the actual count by 440; the
-review corrects that estimate without changing a limit or repeating the run.
-This is a finite nesting/work identity result. Representation selection,
-thermodynamic closure, a physical update, moving geometry, native integration
-and performance remain open. The prior cap-incompatibility result is unchanged.
-
-### Moving reference measure: finite pressure-work certificate
-
-A subsequent six-case exact-rational certificate owns reference profiles,
-reference endpoints, one assembled consistent mass matrix and nodal momentum.
-It pushes all 88 pieces into moving geometry with positive fine Jacobians,
-retaining 264 constituent measures and exactly 42 primal thermodynamic owners.
-Compatible pressure/material work, explicit exterior work, canonical energy
-and moment balances, reflection, roundtrips and parent retirement all pass.
-Five typed negative controls reject stale physical density, incorrect owner
-incidence, omitted exterior work, fine-node crossing despite positive owner
-volumes, and duplicate coarse kinetic variance. Each immediately preserves
-both retained state and preexisting output bytes.
-
-This is an algebraic certificate with the artificial potential
-`U=Uref+Theta*V0/V` and manufactured nodal loads. It supplies no actual-EOS
-pressure solve, physical trajectory, entropy gate or production integration.
-The one R2 attempt uses 56,753 of 100,000 work units and at most 256 of 12,288
-Fraction bits. Report SHA256 is
-`396e475f29171418bcc32ceafb9fbd1d4d195089adeefe4a3bd95701b1c4846c`.
-Independent completed review is
-`481621f0dca2f451094fd7ab2fd8102e18d78d1dffa735979674b71a0ea6e403`
-under `canonical-reference-pushforward-work-r2-independent-result-review-r2`
-in the private validation directory. The original unexecuted source lifecycle
-rejection and a reviewer-only name-shadowing failure remain preserved. No
-target rerun or change to earlier remap, vacuum or performance gates follows.
-
-### Actual-EOS consistent-mass step: first native result rejected
-
-A subsequent private prototype uses the unchanged `FluidThermodynamics` and
-`LiquidThermodynamicReference`, fourteen reference pieces, fifteen fine nodes,
-seven thermodynamic owners and a full consistent mass matrix. Its R2 Windows
-build completes with no C++ warning or error diagnostics. The earlier V1
-configure failed on its explicit MSVC version selector; R2 changes only that
-selector and the build paths, preserving the C++ and physical criteria.
-
-The first native invocation rejects the prescribed-boundary case C7 with
-`Unrepresented canonical impulse`. It completes seven cases C0–C6, attempts
-eight pressure calls, and reaches none of the twelve failure controls or
-remaining cases. The failure label covers an absent, wrong-sign or nonfinite
-update; the rejected candidate's node and operands were not recorded. A
-source-level cancellation mechanism is not an observed numerical cause.
-The eight partial diagnostic files total 323,405 bytes within the fixed caps;
-complete raw streams and unchanged source/predecessor records are retained.
-
-The private source freeze is
-`a6d7c325b99752274fc8d544b814e6dd8fcc2864c6fe621cda385a8bc0bb480f`.
-The negative native receipt is
-`314453e13770ea1005f580a5086922b67789d893cb694bfb7b6ac5c42b5aac22`
-under `canonical-actual-eos-consistent-mass-native-r2/run-first` in the private
-validation directory. The complete gate is rejected. No threshold change,
-target retry, production integration or earlier-gate reclassification follows.
-Independent negative-capture review is
-`2db9fd890e4d97a4b9b130888b449161e7e5f86e43893b5397cc98fd9019aeb3`
-under `canonical-actual-eos-consistent-mass-native-r2-independent-native-negative-review`.
-It authenticates the failure archive, without independently accepting the
-seven partial cases' physical arithmetic.
-
-## Reproducing standalone evidence
-
-Use separate fresh build and output directories. A default build contains
-seven tests, including the retained material-state17 gate:
+Use fresh build and output directories. The default scope has seven tests:
 
 ```sh
 cmake -S . -B build-default -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=OFF -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -226,8 +113,8 @@ cmake --build build-default --parallel 4
 ctest --test-dir build-default --output-on-failure
 ```
 
-Explicitly opting in registers all thirteen tests. A plain `ctest` is expected
-to fail the unresolved strict Cartesian gate:
+Opting in registers thirteen. A plain `ctest` is expected to return 8 because of
+the strict Cartesian gate; `ctest -LE staggered-known-unresolved` skips it:
 
 ```sh
 cmake -S . -B build-experiments -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON -DMA_BUILD_STAGGERED_EXPERIMENTS=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
@@ -236,44 +123,42 @@ cmake --build build-experiments --target ma_staggered_experiment_tests
 ctest --test-dir build-experiments --output-on-failure
 ```
 
-Build the independent 26-group thermodynamic reference separately:
+Build the standalone thermodynamic reference separately:
 
 ```sh
 cmake -S native/experimental -B build-reference -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 cmake --build build-reference --parallel 4
 ```
 
-The evidence runner requires Python 3.11 or newer and checks the requested registration/compile graph and
-executes fresh subprocesses. Its output directory must not already exist:
+The evidence runner (Python 3.11+) checks the registered tests and compile
+graph, then runs fresh subprocesses into an output directory that must not yet
+exist:
 
 ```sh
 python tools/validate_staggered_experiments.py --mode default --build-dir build-default --reference-build-dir build-reference --output-dir evidence-default
 python tools/validate_staggered_experiments.py --mode experimental --build-dir build-experiments --reference-build-dir build-reference --output-dir evidence-experiments
 ```
 
-In experimental mode, the runner requires twelve applicable native passes plus the independent nonlinear oracle, direct
-legacy exit1 with the exact six PASS/one preserved FAIL, single-test CTest
-exit8, and unfiltered CTest exit8 with only that failure. It also executes
-all 26 reference groups. The nonlinear oracle runs as an explicit fresh
-subprocess after each applicable/unfiltered native run; a native exit0 alone
-cannot pass it. Missing/modified registrations, result overrides,
-unexpected success, different failures, timeouts, sanitizer diagnostics and
-stale output are evidence failures. No old log is accepted as a fresh run.
-Raw subprocess bytes, commands/statuses, source snapshots, binary hashes,
-compile commands and passive profiles are frozen in the output directory.
+In experimental mode it requires: twelve applicable native passes; the legacy
+test's direct exit 1 with exactly six PASS and one FAIL; exit 8 from the
+single-test and unfiltered CTest runs with only that failure; and the nonlinear
+oracle run as a separate subprocess after each native run (a native exit 0 alone
+cannot pass it). Both modes then run the reference project. Missing or changed
+registrations, result overrides, unexpected success, different failures,
+timeouts (300 s native, 1800 s oracle by default), sanitizer diagnostics and
+stale output are evidence failures. Raw output, commands, source snapshots,
+binary hashes, compile commands and profiles are kept in the output directory.
 
-`procedure_succeeded=true` means that evidence contract was satisfied.
-The current frozen nonlinear run has `procedure_succeeded=false`; the
-runner does not convert its numerical failure into an expected pass.
-`strict_cartesian_gate=FAILED` remains a numerical failure in the same
-summary. A successful dedicated workflow verifies that the declared failure
-was reproduced; it does not report all native physics green. The separate
-`.github/workflows/staggered-experiments.yml` runs Windows/MSVC, GNU and
-ASan/UBSan configurations and preserves evidence even when the procedure
-fails. The ordinary workflow uses the default seven-test scope.
+`procedure_succeeded=true` in its summary means the evidence contract held, not
+that physics passed; `strict_cartesian_gate=FAILED` is reported alongside. With
+the current nonlinear oracle failure, experimental mode reports
+`procedure_succeeded=false`. The runner requires every one of the
+`REFERENCE_GROUPS` (27) distinct liquid-reference groups to pass.
 
-For GNU/Clang sanitizer builds, use Debug with `MA_SANITIZERS=ON`,
-`-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all`, and separately
-`MA_REFERENCE_SANITIZERS=ON` for the reference. The workflow records these
-flags and uses halt-on-error sanitizer options. No installed game or game
-assembly is needed for these checks.
+`.github/workflows/staggered-experiments.yml` is configured to run both modes
+with Windows/MSVC, GNU and ASan/UBSan and to keep the evidence when the
+procedure fails; the ordinary workflow uses the default scope. For GCC/Clang sanitizer builds use
+Debug with `MA_SANITIZERS=ON` and
+`-DCMAKE_CXX_FLAGS_DEBUG="-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all"`,
+and `MA_REFERENCE_SANITIZERS=ON` for the reference project. No game files are
+needed.

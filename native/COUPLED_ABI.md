@@ -1,442 +1,168 @@
-# Coupled-world native/managed boundary
+# Coupled `FluidWorld` C ABI and managed owner
 
-The coupled gas/liquid `FluidWorld` now has a versioned C ABI and managed owner.
-It is an explicit boundary to the **existing closed-domain reference**, not the
-finished production timestep. The default ONI DLL and gas ABI do not select it.
-Vacuum/free surfaces, immiscible geometry, phase transitions, dissolved gases,
-disease growth/decay, radiation-dose physics, persistence, performance and authoritative
-colony publication remain required.
+The coupled ABI exposes the closed mode of [`ma::FluidWorld`](FLUID_WORLD.md) to
+managed code. It is a **validation reference**; the production solver is
+`MacClosedWorld` (2026-10-18 decision, [SOLVER.md](SOLVER.md)). It has no ONI
+frame hook: in game only the `coupled-presentation` validation mode loads it, for
+a six-cell synthetic scene in an otherwise native colony. Vacuum, free surfaces,
+immiscible geometry, phase change, dissolved gases, disease growth, radiation
+dose, persistence and production performance are unsupported.
 
-The excluded `mixed_atmospheres_coupled` shared target exports only the
-`ma_coupled_*` interface in [coupled_api.h](include/mixed_atmospheres/coupled_api.h).
-The excluded `ma_coupled_api_tests` target exercises that binary. Neither is
-added to default CTest or enabled by the game probe.
+`mixed_atmospheres_coupled` (`native/src/coupled_api.cpp`, excluded from the
+default build) exports only the `ma_coupled_*` functions of
+[coupled_api.h](include/mixed_atmospheres/coupled_api.h). The managed binding is
+`MixedAtmospheres.Core.CoupledSimulationWorld` (`CoupledNativeMethods.cs`).
 
 ## Ownership and conserved initialization
 
-ABI version 1 explicitly selects `MA_COUPLED_CLOSED_REFERENCE_MODEL`. Its
-96-byte configuration includes dimensions, cell size/depth, gravity, diffusion,
-viscosity, conduction, timestep/outgoing-fraction limits and preconditioner.
-Unknown models, flags, structure sizes and versions reject. The backend uses
-the existing standard constant-property registry; definitions expose IDs,
-phase, molar mass, Cv, energy offset and condensed density. These are reference
-properties, not a complete calibrated production catalogue.
+- **Versioning.** `ma_coupled_abi_version()` = 1, model
+  `MA_COUPLED_CLOSED_REFERENCE_MODEL`. The 96-byte configuration holds
+  dimensions, cell size and depth, gravity, diffusion, viscosity, conduction,
+  timestep and outgoing-fraction limits and the preconditioner. Unknown models,
+  flags, sizes and versions reject. Materials come from the standard
+  constant-property registry (ID, phase, molar mass, Cv, energy offset,
+  condensed density), not a calibrated catalogue.
+- **Create** stages every row-major cell and the flat mass array before
+  returning an owner. U and x/y momentum are imported directly
+  (`FluidWorld::set_conserved_cell`), never via temperature or `(P/M)*M`: with
+  water at 997 kg/m3 that round trip changes the momentum's last bit. Walls must
+  be empty; other cells must hold gas or be full of liquid.
+- **Advance** (`ma_coupled_advance`) clones the source, completes every substep,
+  captures readings and diagnostics, then returns a new owning handle. On failure
+  the source is unchanged, the handle is null and the result buffer untouched.
+  Old handles stay readable after forks or child destruction.
+- **Snapshot** (`ma_coupled_copy_snapshot`) copies masses, U, momentum,
+  pressure, temperature, liquid fraction, walls and energy components of one
+  revision, checks every capacity before writing and makes no EOS calls.
+  Revisions are per branch, not global frame tickets.
+- **Threads and errors.** Concurrent reads are allowed with distinct buffers;
+  callers must not race destruction. Per-thread error text is at most 2,048
+  bytes; exceptions never cross the boundary.
 
-Creation stages all row-major cells and their flat constituent mass array
-before returning an owner. It imports supplied internal U and x/y momentum
-directly. It neither initializes temperature nor converts through `P/M*M`.
-The added `FluidWorld::set_conserved_cell` keeps those momentum bits; the
-velocity-based setter remains available for its existing callers. Inputs remain
-caller-owned and are copied. Walls must be empty; every other cell must contain
-gas or completely filled liquid. Unsupported vacuum and partial pure-liquid
-fills reject rather than receiving seed gas or a fitted density.
-
-`ma_coupled_advance` returns a new owning handle. It clones the source, completes
-every substep, captures derived data and prepares diagnostics before publication.
-Failure destroys the candidate, leaves the source unchanged, returns a null
-candidate and preserves the result buffer. Old handles remain independently
-readable after successful forks or destruction of a child.
-
-`ma_coupled_copy_snapshot` copies all masses, U, momentum, pressure, temperature,
-liquid fraction, wall flags and aggregate energy components from one completed
-revision. It checks every capacity before writing any output. Its prepared
-native snapshot makes no EOS calls during copy-out. Revision counts are local
-to a branch, not globally unique colony frame tickets; a coordinator must bind
-world identity/session and its completed frame separately.
-
-Handles permit concurrent reads; callers must keep buffers distinct and valid
-and must not race destruction. The independent per-thread error buffer is
-bounded to 2,048 bytes. C++ exceptions remain inside the C boundary.
-
-## Managed binding
-
-`MixedAtmospheres.Core.CoupledSimulationWorld` owns handles through `SafeHandle`,
-checks ABI layouts, and serializes each owner's calls/disposal. It copies
-initialization dictionaries and configuration, and returns immutable material
-definitions and managed snapshot objects. Snapshots retain their data after
-native owners are disposed. U stays separate from momentum and kinetic energy;
-there is no conversion through a rounded total-energy scalar.
-
-`Create` admits a complete world. `Advance` returns `CoupledAdvance`, containing
-an independently disposable `World` and its matching diagnostics. It never
-changes the source. `CaptureSnapshot` returns one completed state. Cell size,
-volume and material definitions belong to the immutable world configuration;
-do not combine these readings with a different material catalogue or geometry.
-No runtime mutation, save or game takeover API is implied by this binding.
-
-Build and exercise the explicit boundary:
-
-```text
-cmake --build build --config Release --target ma_coupled_api_tests
-build/Release/ma_coupled_api_tests.exe
-dotnet run --project tools/CoupledWorldTests -c Release -- <absolute coupled library path>
-```
-
-The sparse metadata controls additionally use the explicit
-`ma_passive_transport_tests` target. On Linux the executable/library normally reside directly in the build directory.
-Use the actual target paths for the selected generator. The managed test host
-loads the supplied absolute library path, pins its import resolver and prints
-the library SHA256 before tests. The game probe's resolver is unchanged.
-
-## Verification and preserved failures
-
-The initial boundary's six native groups pass Windows/MSVC and WSL Linux/GNU. Its original six managed groups pass
-both platforms under .NET 10.0.402, building the Core binding for .NET Standard
-2.1. The controls cover:
-
-- ABI layouts and every standard registry definition.
-- Exact m/U/P import, caller-input isolation and retained snapshot ownership.
-- A four-cell 2D wet-air advance, constituent/energy conservation and positive
-  helium traces at `1e-30 kg` per initial cell.
-- Independent ideal-gas headspace pressure and liquid-volume readings.
-- A whole-call budget failure after a separately confirmed valid first substep,
-  unchanged sources/results and preflight rejection of undersized output.
-- Empty walls, unsupported inputs, independent disposal and concurrent managed
-  inspection.
-
-The import control uses actual registry water density **997 kg/m3**. Initial
-mass bits `40592fde816581af` and momentum bits `3fd999999999999c` give old
-`(P/M)*M` bits `3fd999999999999b`; direct conserved import preserves the supplied
-momentum. The native driver prints all three operands before its assertions.
-
-Earlier outcomes remain recorded. R1 Windows native compilation passed; Linux
-linking lacked the pinned shared-library sysroot flag. Both managed test-host
-builds failed on two C++-style numeric literals; both Core assemblies compiled.
-R2 corrected those build issues. Its first native drivers passed metadata then
-rejected an invalid rounding-loss control; later native groups were unreached.
-R3 rejected a replacement operand calculation that mistakenly assumed water
-density 1000. R4 corrects only the test operands and records them before checks;
-the ABI implementation, physics, managed code and acceptance bounds are
-unchanged. The native driver repeats are labelled explicitly.
-
-The six managed groups passed against pinned R2 libraries. The six native groups
-pass R4. Source comparison proves the only intervening implementation/test
-difference is the native driver; the ABI and all managed sources match those
-passing managed runs. There is no repeated managed run or claim of replacement
-first outcomes. Linux's shared binary hash is unchanged between R2/R4; Windows
-builds retain their separate binary identities.
-
-Private source copies, build/compiler audits, executable/library/assembly hashes,
-raw EOF/close records and completed reviews are under
-`local/occupied-staggered-validation/coupled-abi-{windows,linux}-r1` through `r4`.
-Limits are 180 seconds per build, 30 seconds per runtime invocation and 128 KiB
-per raw pipe. All passing captures have exit zero without timeout/cap/capture
-errors. The new wrapper/driver use warnings as errors; upstream solver FP
-settings are unchanged. Linux's ten dynamic exports are all `ma_coupled_*`.
-There is no independent agent implementation review or new game run.
+`CoupledSimulationWorld` owns handles via `SafeHandle`, checks layouts,
+serializes each owner's calls, copies inputs and returns immutable definitions
+and snapshots that outlive the owner. `Advance` returns a `CoupledAdvance` with
+an independently disposable `World`; `CaptureSnapshot` returns one completed
+state. Readings belong to the world's own configuration and catalogue.
 
 ## Sparse disease and radiation metadata
 
-The closed reference now carries sparse passive quantities through actual
-remap and gas exchange. Disease identities retain the uint32 bits of their
-nonzero signed native hashes. Radiation uses the separate identity
-`0x100000000`; this is the existing passive native quantity, not energy or dose.
-It contributes no mass, pressure, heat capacity or force. Growth, decay,
-sterilization and radiation absorption/dose remain unimplemented.
+Disease identities are the uint32 bits of ONI's nonzero signed disease hashes;
+radiation is identity `0x100000000`, ONI's passive per-cell quantity (not energy
+or dose) with no mass, pressure or heat capacity. Advection uses the material
+face weights; gas exchange carries `exchanged_gas_mass / total_cell_mass` of the
+metadata; viscosity and conduction carry none. Metadata never changes the
+physical result. Totals are checked per identity within 256 epsilon (no absolute
+floor). Malformed, negative, nonfinite, unknown or underflowing quantities and
+metadata on solid, vacuum or 1-D cells reject; rollback includes metadata.
 
-Advection uses the same retained donor and incoming face weights as material.
-Gas exchange carries `exchanged_gas_mass / total_cell_mass` of the cell's
-metadata, matching Core's well-mixed bulk-parcel policy. This is not a
-phase-specific biological model. Viscosity and heat conduction transfer no
-metadata. An independent paired-world check confirms that adding metadata
-changes none of the resulting constituent masses, U or x/y momentum.
-
-Closed whole-call totals are checked separately for every identity using
-compensated sums and a 256-binary64-epsilon relative bound, without an absolute
-or unit floor. Malformed/negative/nonfinite quantities, unknown tags, positive
-underflow and metadata on solid/vacuum/occupied-1D cells reject. The existing
-whole-call rollback includes these quantities. No quantity is discarded to
-make a failed step pass.
-
-The optional passive ABI extension has its own version 1 check. The base ABI
-and structure layouts remain version 1. `ma_coupled_create_full` consumes sorted
-per-cell sparse rows; `ma_coupled_passive_count` and
-`ma_coupled_copy_full_snapshot` export the matching completed rows. All output
-capacities are checked before any write. The base copy function refuses a
-metadata-bearing handle rather than silently returning an incomplete state.
+The passive extension (`ma_coupled_passive_abi_version()` = 1) adds
+`ma_coupled_create_full`, `ma_coupled_passive_count` and
+`ma_coupled_copy_full_snapshot`; the base copy refuses a metadata-bearing handle.
 Limits are 65,536 disease identities plus radiation per cell and 8,000,000
-sparse records per ABI import/export. These bounds do not establish production
-memory or speed acceptance.
-
-Managed initialization uses `WithPassiveMetadata`; dictionaries are copied.
-Managed cell snapshots expose immutable `DiseaseCounts` and `RadiationQuantity`
-from the same native revision as masses and physical readings. Signed hashes,
-independent forks and snapshots retained after disposal are preserved. Missing
-extension support rejects metadata initialization explicitly.
-
-The current first Windows/MSVC and WSL Linux/GNU runs each pass six new native
-passive groups, the six previously passing base ABI groups, and eight managed
-groups (the original six plus two metadata groups). New checks include analytic
-quarter-donor and split/reversed-face transfers, quantities at `1e-60`, a
-two-compartment gas-exchange solution, physical noninterference, whole-call
-rollback, complete sparse export, output-buffer atomicity, signed hashes and
-actual four-cell 2D metadata arrival. The earlier failed driver revisions and
-historical failed physics/performance gates are not replayed.
-
-Private evidence is under
-`local/occupied-staggered-validation/coupled-passives-{windows,linux}-r1`.
-Both first builds and all six runtime invocations pass with frozen source,
-pre-invocation compiler/library/assembly audits, exit zero and clean raw EOFs.
-The helper, wrapper and control sources use warnings as errors; upstream FP
-settings remain unchanged. Linux exports fourteen `ma_coupled_*` functions.
-The same 180-second build, 30-second runtime and 128-KiB pipe limits apply.
-There is no new game, independent agent or performance acceptance.
+records per import or export. Managed: `WithPassiveMetadata`, `DiseaseCounts`,
+`RadiationQuantity`. Growth, decay and dose are not modelled.
 
 ## Closed-reference colony frame coordination
 
-Core's `CoupledColonySimulation` stages an imported colony against the explicit
-closed-reference catalogue and geometry before creating native owners. Each
-admitted world has a persistent immutable native owner. Unsupported species,
-vacuum/metadata-only fluid cells and unrelated pressure-map entries reject.
-Pure-liquid initial cells require an explicit mechanical pressure; gas pressure
-is never substituted for liquid mechanical pressure. Native disease hashes and
-passive radiation survive admission and subsequent frames.
+`CoupledColonySimulation` (Core) stages an imported colony against the closed
+catalogue and geometry, then keeps one persistent native owner per world.
+Unsupported species, vacuum or metadata-only cells and unrelated pressure
+entries reject; pure-liquid cells need an explicit mechanical pressure.
 
-`AdvanceFrame` accepts exactly the next global frame number and advances every
-world in sorted ID order. One attempt budget covers the whole colony, including
-rejected native substeps. All world candidates, captures and the managed
-projection are prepared before Core's writer reservation and paired commit.
-Any preparation failure disposes candidates and preserves the identical current
-frame. A failure reports how many world candidates had completed. Old native
-owners retire before staging the following advance; at most one retired
-generation is retained. Managed frames contain no native handles and remain
-readable after owner retirement or disposal.
+`AdvanceFrame` accepts exactly the next frame number, advances every world in
+sorted ID order under one colony-wide attempt budget, and prepares all
+candidates, captures and the projection before one writer reservation and
+commit. Any failure keeps the current frame and reports how many worlds had
+completed. At most one retired owner generation is kept; frames hold no native
+handles.
 
-`CoupledColonyFrame` binds native snapshots, diagnostics and its read-only Core
-projection to one completed frame/time. Global sampling resolves the correct
-world footprint and exposes actual native U, momentum, mechanical pressure and
-temperature. The private Core authority is never exposed for mutation.
+`CoupledColonyFrame` binds native snapshots, diagnostics and a read-only Core
+projection to one frame. The projection stores scalar total energy, so U derived
+from it can round differently; each difference is in
+`InternalEnergyProjectionErrorsJoules`, bounded by 64 epsilon times the larger of
+|U| and |K|. The projection never reinitializes physics and cannot restart it.
 
-The projection stores scalar total energy, so deriving U by subtracting kinetic
-energy can round differently from native U. Every nonzero difference is exposed
-in `InternalEnergyProjectionErrorsJoules` and bounded by 64 binary64 epsilons
-times the larger of native |U| and projected |K|, without a unit floor. This is
-an arithmetic diagnostic, not heat. The coordinator never uses that projection
-to reinitialize physical state. Consumers needing physical readings must use
-the bound native snapshot. The projection alone cannot preserve this owner's
-physical state for restart.
-
-The first new Windows and WSL Linux runs each pass all thirteen managed groups,
-including five colony groups. Original synthetic import blobs cover two
-separated world placements, same-frame advancement, later-world failure after
-one completed candidate, shared-budget accounting, retained reads, catalogue
-rejection and pure-liquid pressure admission. Native sources are unchanged:
-the runs pin the previously validated passive-extension libraries rather than
-rebuilding/replaying native C++ controls. Frozen source, managed builds,
-library/assembly hashes, raw output and completed root reviews are under
-`local/occupied-staggered-validation/coupled-colony-{windows,linux}-r1`.
-Both first builds/runs exit zero with clean EOFs, no capture errors or retries;
-limits remain 180 seconds per build, 30 seconds per runtime and 128 KiB per pipe.
-
-## Physical presentation companion
-
-`ReadMaterialCatalog()` provides the closed reference's explicit fluid catalogue.
-Pass a matching `presentationModel` to `CoupledColonySimulation.Create` to build
-`CoupledColonyFrame.Presentation` before the all-world commit. Construction of
-the entire presentation is fallible preparation: it cannot publish separately
-from the physical candidate. `PhysicalSource` retains that exact completed
-frame. A rejected frame preserves both prior references.
-
-`ReadThermodynamicCell` uses native U, momentum, total mass, T and mechanical p.
-The closed reference uses constant liquid densities, so liquid partial volumes
-are m/rho and gas headspace is the remaining cell volume. Gas thermodynamic
-partial volumes use native molar masses and exponent-scaled mole shares. No
-constituent is discarded or volume rescaled. This is an adapter for the named
-closed model, not an elastic-liquid EOS inversion or a phase-change model.
-
-`WithVisualOptions` rebuilds presentation from the retained physical source.
-The ONI completed-source adapter uses it for both current appearance changes
-and later completed frames, preserving actual readings when textures are
-disabled or contrast changes. It never reconstructs U/T/p from the scalar
-total-energy projection.
-
-All seventeen coupled managed groups pass Windows and WSL Linux. The original
-thirteen are repeated after shared Core changes; four added groups check
-physical facts, transported traces, liquid pressure, appearance and paired
-rollback. The six-cell scene source is shared with the game validator. Its
-four bulk gases and benign helium/hazardous chlorine traces must survive
-transport, and the next frame must change composition. The earlier sixteen
-groups passed first; adding the scene control makes seventeen. Evidence is in
-`local/occupied-staggered-validation/coupled-presentation-{windows,linux}-r1`
-and `r2`; native sources/libraries remain unchanged, with no C++ controls replayed.
-
-All forty-one existing presentation groups also pass on Windows and Linux after
-these shared changes. The null-source negative control explicitly selects the
-legacy overload, and the physical overload has its own null rejection in that
-same group. Linux's first regression capture imported the Windows helper and
-failed before launching a build; the matching Linux helper repairs that
-infrastructure error. First runtime outcomes pass without test changes or
-retries. Both the failed capture and successful records are retained under
-`local/occupied-staggered-validation/coupled-legacy-presentation-*`.
-
-Windows ONI V57 passes three actual native-hover/Unity-PNG cases: completed
-physical mixture, changed mixture and colour-only recapture. Every bulk gas
-appears directly on hover, traces stay in the full reading, and chlorine's
-warning remains visible. The scene is six synthetic cells backed by the closed
-reference; native ONI retains the surrounding colony. See
-[game evidence and startup failures](../docs/mixture-presentation.md#completed-coupled-reference-scene-on-windows).
+**Presentation.** `ReadMaterialCatalog()` gives the catalogue; a matching
+`presentationModel` passed to `CoupledColonySimulation.Create` builds
+`CoupledColonyFrame.Presentation` before the commit, so it cannot publish
+separately. `ReadThermodynamicCell` uses native U, momentum, mass, T and p
+(liquid volume m/rho, gas headspace the remainder). `WithVisualOptions`
+rebuilds from the retained `PhysicalSource`. See
+[mixture presentation](../docs/mixture-presentation.md).
 
 ## Conserved physical mutation preparation
 
-The additive mutation extension has its own version query,
-`ma_coupled_mutation_abi_version()` (version 1). Base ABI/configuration layouts
-remain unchanged. `ma_coupled_prepare_mutation` prepares an immutable child
-from an exact native source revision and 1–4096 complete, sorted, unique cell
-edits. Each edit supplies actual constituent masses, **stored U**, momentum and
-complete sparse metadata. No temperature conversion or total-energy round trip
-reconstructs the physical state. Time, settings, walls and every unedited cell
-are retained; the native revision increments once. Geometry changes, vacuum and
-other unsupported closed-reference states reject.
+The mutation extension (`ma_coupled_mutation_abi_version()` = 1) adds
+`ma_coupled_prepare_mutation`: an immutable child from an exact source revision
+and 1-4096 sorted, unique cell edits, each with actual masses, **stored U**,
+momentum and metadata. Unedited cells, time, settings and walls are kept; the
+revision increments once. Geometry changes and unsupported states reject.
 
-The caller declares signed external mass changes for every registry species,
-sorted disease/radiation changes, transported material energy (U+K+PE), shaft
-work, heat and momentum/impulse. The native boundary checks changes of the
-edited cells against those accounts before returning a candidate. Each
-constituent and metadata identity has its own 128-binary64-epsilon bound from
-its actual old/new/declared operands. Energy and momentum use the same local
-rule; there is no unit-sized absolute floor or unrelated-world total in the
-comparison. A nonzero declared change must also have a nonzero actual change
-of the same sign. Rounding tolerance cannot certify an entirely erased transfer.
-Returned diagnostics retain separate changes of U, K and PE and actual signed
-energy/momentum residuals and bounds. These are finite arithmetic accounts,
-not exact conservation claims.
+The caller declares signed external changes for every species, disease and
+radiation identity, transported material energy (U+K+PE), shaft work, heat and
+impulse. Each actual change of the edited cells must match within 128 epsilon of
+its own operands (no unit floor), and a nonzero declared change needs a nonzero
+actual change of the same sign, so tolerance cannot certify an erased transfer.
+Diagnostics keep U, K and PE changes, residuals and bounds.
 
-This is raw transaction preparation. It does **not** validate entropy, a pump
-or reaction model, reserve power, change another owner, or publish to ONI. The
-caller must prepare and reserve its device/container/power state and validate
-the physical process before committing all owners. In particular, a declared
-budget is not evidence that power or material exists elsewhere. A display
-snapshot cannot replace those owners' physical accounts and reservations. The
-all-world coordinator can now submit these edits as described below; the ONI
-callback router and machine owners remain unconnected.
-
-Core exposes `CoupledCellEdit`, an owning `CoupledMutationBudget`, and
-`CoupledSimulationWorld.PrepareMutation(expectedRevision, edits, budget)`.
-The returned `CoupledMutation` owns a child world and immutable diagnostics;
-the caller disposes its `World`. Inputs and budgets copy caller collections,
-signed disease hashes retain their identity, and metadata-bearing candidates
-use complete snapshot export. A stale revision or any later validation failure
-leaves the source unchanged; native failure returns a null candidate and leaves
-the result buffer unchanged. Child worlds can continue through the actual
-pressure/transport step and survive retirement of their source.
-
-First Windows/MSVC and WSL Linux/GNU runs pass all seven new native groups and
-all 22 current managed groups (five new and seventeen prior groups). The six
-base ABI and six passive native groups also pass after the shared ABI change.
-Controls cover the known P/M*M counterexample, exact supplied U/P, heat and work,
-a balanced wet bulk transfer with kinetic mixing heat, oxygen supply including
-elevation/material energy, positive constituent/disease traces, signed metadata
-removal, native advancement from an edited owner, concurrent forks, and late
-whole-call rollback. Seven undeclared/erased accounts and nine malformed native
-requests reject. These raw inputs are boundary controls, not pump calibration.
-
-The separate saved-data reviewer performs 304 exact-rational balance and
-independent ideal-gas/caloric checks over four exported cases per platform.
-Altered trace and heat records reject without another native invocation:
-
-```text
-python native/tests/review_coupled_mutations.py capture.stdout
-```
-
-The explicit `ma_coupled_mutation_tests` target is excluded from default builds
-and CTest, alongside the existing coupled ABI controls. Source-frozen evidence
-and completed reviews are private under
-`local/occupied-staggered-validation/coupled-mutations-{windows,linux}-r1`.
-Native builds have a combined 180-second limit, managed builds 180 seconds,
-and each runtime/review 30 seconds with 128-KiB raw pipes. All first captures
-exit zero with verified source closure and clean EOFs, without timeout, cap or
-capture errors. Windows prelaunch audit initially expected literal compiler
-switches in project XML; the retained erratum checks CMake's translated Release
-properties and actual compiler commands instead. No compiled source or runtime
-was replayed for that audit correction. The default game DLL is unchanged.
-No old failed physical/performance gate, game or independent-agent review runs.
+This is raw preparation: it does **not** validate entropy, pumps or reactions,
+or reserve power or material held elsewhere. Core exposes `CoupledCellEdit`,
+`CoupledMutationBudget` and
+`CoupledSimulationWorld.PrepareMutation(expectedRevision, edits, budget)`,
+returning a `CoupledMutation` that owns the child. Stale revisions and later
+failures leave the source unchanged.
 
 ## All-world frame transactions and boundary accounts
 
 `CoupledColonySimulation.AdvanceFrame(expectedSource, nextFrame, seconds,
-mutations, attemptBudget)` requires the identical currently published physical
-frame. Each owning `CoupledWorldMutation` names one admitted world, complete
-local cell edits and its declared external budget. Unknown or duplicate worlds,
-foreign/stale source frames and invalid input collections reject. Normal
-`AdvanceFrame(nextFrame, seconds, attemptBudget)` retains its existing behavior.
+mutations, attemptBudget)` requires the current frame. Each
+`CoupledWorldMutation` names one world, its edits and budget; unknown or
+duplicate worlds and stale frames reject. Each world prepares its mutation,
+advances and captures (a mutated world's revision rises by two, others by one);
+everything is prepared before one commit, and any failure leaves the previous
+publication and accounts. A rejected edit is never counted later.
 
-For each world, the coordinator prepares an optional native mutation, advances
-that candidate through the actual solver and captures the result. One attempt
-budget still covers all worlds. A mutated world's native revision increments
-twice; an unedited world's increments once. Both complete the same global
-frame/time. Temporary mutation owners retire after their advances. All native
-candidates, current boundary receipts, cumulative accounts and the presentation
-are prepared before one writer reservation and commit. Any later-world failure
-or exhausted budget leaves the identical previous publication and accounts.
-No rejected edit is counted by a later successful frame.
+`CoupledColonyFrame.BoundaryChanges` holds only this frame's
+`CoupledBoundaryReceipt`s. `BoundaryLedger` accumulates declared mass, material
+energy, shaft work, heat, impulse, disease and radiation, dropping zero-net
+identities (65,536 disease identities). `CoupledAccountQuantity.Binary64Units`
+is the exact integer sum of declared binary64 operands in units of 2^-1074;
+`TryGetRoundedValue` rounds nearest-even and returns false on overflow. These
+accounts are bookkeeping only. The companion is marked
+`IsReadOnlyPhysicalProjection`, so inventory transactions, legacy ledgers and
+Core checkpoints reject for it. There is no native restart.
 
-`CoupledColonyFrame.BoundaryChanges` contains only this frame's accepted
-`CoupledBoundaryReceipt` values: world/source/prepared revisions, immutable
-budget and native diagnostics. These receipts contain no native handles.
-`BoundaryLedger` accumulates declared external mass, material energy, shaft
-work, heat, impulse, disease and passive radiation separately. It retains no
-past frames or receipts. Zero net identity accounts are removed; cumulative
-disease identity capacity is 65,536.
-
-Each `CoupledAccountQuantity.Binary64Units` is the exact integer sum of the
-declared binary64 operands in units of `2^-1074`. This is boundary bookkeeping,
-not a new physical state, EOS or precision fallback. `TryGetRoundedValue`
-explicitly rounds to nearest binary64 with ties to even; it returns false when
-the rounded result would overflow. The exact integer remains available. Tiny
-operands survive later cancellation. These exact declared accounts do not
-erase native physical residuals, prove entropy/process correctness or reserve
-another owner's resources.
-
-The Core companion now marks `IsReadOnlyPhysicalProjection`. Display sampling
-and the measured U projection errors remain available. Standalone inventory
-transactions, legacy initial/supplied/removed/heat ledger access and Core
-checkpoints reject for that role. They cannot preserve the native physical
-state or describe its gravity/work accounts. Existing ordinary Core inventory
-authorities and checkpoint format remain unchanged. Native restart support is
-still required.
-
-First Windows and WSL Linux runs each pass all 29 coupled groups, all 89 Core
-groups and all 41 presentation groups. Seven new coupled groups exercise
-two-world inlet/heat publication, native/presentation agreement, later-world
-metadata failure after one completed world, shared-budget rollback, exact source
-identity, owning inputs, the shared four-gas game scenario, account rounding and
-retired reads. The added Core group checks the projection writer/ledger/save
-guard. A separate rational reviewer checks ten saved exact-account records,
-including subnormals, ties, cancellation and overflow; altered unit and rounded
-bits reject without another native invocation:
+## Build and verify
 
 ```text
+cmake --build build --config Release --target ma_coupled_api_tests ma_passive_transport_tests ma_coupled_mutation_tests
+build/Release/ma_coupled_api_tests.exe
+dotnet run --project tools/CoupledWorldTests -c Release -- <absolute coupled library path>
+python native/tests/review_coupled_mutations.py capture.stdout
 python native/tests/review_coupled_boundary_ledger.py coupled.stdout
 ```
 
-Evidence is private under
-`local/occupied-staggered-validation/colony-boundary-{windows,linux}-r1`.
-Three managed builds share a 180-second bound per platform; the Windows ONI
-assembly build has a separate 180 seconds. Each runtime/review has 30 seconds
-and 128-KiB raw pipes. Every first capture exits zero with clean EOFs, verified
-source closure and no timeout/cap/capture error. Native compiled sources and
-the prior approved mutation libraries are pinned and unchanged; no C++ control
-or historical failed physics/performance gate was replayed. There is no
-independent agent review.
+With Ninja on Linux the executables and `libmixed_atmospheres_coupled.so` are in
+the build directory itself. None of these targets is in CTest. The managed host
+pins the given library and prints its SHA-256. The reviewers read saved output
+only: exact-rational balances and ideal-gas/caloric checks for mutations, and
+exact accounts (subnormals, ties, cancellation, overflow) for the ledger; both
+reject altered data.
 
-Windows ONI V58 passes four native hover/Unity-PNG cases: original mixture,
-changed mixture, a physical oxygen inlet plus heat account, and colour-only
-recapture. The actual heading changes from nitrogen–steam to nitrogen–oxygen;
-all four non-trace gases remain visible and chlorine still warns. The physical
-edit's 0.125 kg oxygen and 4,096 J heat accounts appear with its accepted native
-receipt. Colour-only retains identical physical facts and accounts. Original
-settings are restored byte-for-byte and the default game DLL is unchanged.
-This remains a six-cell synthetic closed-reference scene in a surrounding
-native colony; see [game evidence and limits](../docs/mixture-presentation.md#completed-colony-transactions-on-windows).
+## Status
 
-## Remaining integration work
+- Native: 6 base, 6 passive and 7 mutation groups pass on Windows/MSVC and WSL
+  Linux/GNU; Linux exports only `ma_coupled_*`.
+- Managed (.NET 10, Core on .NET Standard 2.1): 29 coupled, 89 Core and 41
+  presentation groups pass on Windows and WSL Linux.
+- Game: one Windows ONI run passes four hover/screenshot cases on the six-cell
+  scene (original and changed mixture, a 0.125 kg oxygen inlet with a 4,096 J
+  heat account, colour-only recapture); see
+  [mixture presentation](../docs/mixture-presentation.md#completed-colony-transactions-on-windows).
+  No Linux game run exists.
 
-The ONI `ExperimentalFluidFrameCoordinator` callback/message router is still
-unconnected to this separate Core coordinator. Device/container/power
-reservations around conserved physical edits, native
-dispatch/acknowledgement, supported material/phase coverage, production world/
-container presentation and actual save/reload need integration. Fork/capture allocation and
-complete-frame copying also require production performance work. These controls
-repair none of the older remap, vacuum-front or performance failures, which
-were not replayed. V57 is a scoped Windows game check; Linux Unity, independent
-agent review, production performance and first-playable/release gates remain open.
+Missing for any game use: a connection from `ExperimentalFluidFrameCoordinator`,
+device/container/power reservations, native dispatch, material and phase
+coverage, save/reload, and fork/capture performance. The `FluidWorld` remap,
+vacuum and performance gates apply too.

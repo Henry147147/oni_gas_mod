@@ -1,27 +1,23 @@
 # Playtesting readiness and simulation cost
 
 The full overhaul is **not ready for an ordinary colony playtest**. The default
-installation remains a development probe. A visible six-cell chamber does not
-establish whole-colony mixture ownership.
+installation remains a development probe. A visible development chamber does
+not establish whole-colony mixture ownership.
 
 The next playable gate needs:
 
 1. Colony fluid ownership across walls, vacuum, liquids and every supported
-   constituent. The current sealed native owner accepts only 2–16 cells per
-   dimension and a small material catalogue.
-2. A reliable production timestep. The original strong-flow separation test
-   still fails velocity and central density/pressure bounds. Its reproducer
-   and limits remain intact; see [the diagnostic](../native/MAC_CURVED_NODAL.md).
+   constituent.
+2. A reliable production timestep.
 3. Complete transactions for breathing, machines, pipes, storage, construction,
    heat and callbacks, using actual inventory and energy reservations.
 4. Complete saving of these owners and live objects: manual saves, autosaves,
-   reload and asteroid switching on both OSes. Current small-domain tests cover
-   only implemented paths.
+   reload and asteroid switching on both OSes.
 5. Ten actual colony cycles with life support, coherent rendering, every
    non-trace gas on hover, harmful-trace warnings and bounded simulation and
    publication latency. See [milestone D](completion-plan.md#d-first-playable-development-colony).
 
-As of 2026-10-17 all five gates are **open**. The [gate status](#gate-status)
+As of 2026-10-18 all five gates are **open**. The [gate status](#gate-status)
 records what exists, what is missing and what closes each one; the
 [work plan](#work-plan) orders the remaining items.
 
@@ -55,21 +51,23 @@ relaxing its exit:
 rectangle of 2–16 cells per side. It holds five species: nitrogen, oxygen,
 helium, water and carbon dioxide. Seven fixed scenario numbers select gravity,
 conduction, viscosity and phase admission. The managed driver uses a fixed
-3×2 room inside an insulating Unobtanium/Granite border. Six-cell gas, water
-and mixed scenes pass on Linux Unity and on Windows. The domain starts only
+3×2 room inside an insulating Unobtanium/Granite border. Six-cell gas and
+water scenes pass on Linux Unity and Windows; the gas/liquid mixed scene passes
+on Linux Unity and WindowsPlayer under Proton. The domain starts only
 from a development `colony-validation.json`.
 
 The additive [configured domain](native-configured-domain.md) (scenario 7)
 adds explicit physics settings, interior solid cells with per-cell hook
 suppression, and rectangles up to 256 cells per side within 4,096 cells.
 Interior solids are impermeable and adiabatic, and must be static and
-insulating. Its 22 native groups pass on Linux, under sanitizers and as
-MinGW binaries under Wine. It is not yet used in game, and one 64×64 frame
+insulating. Its native groups pass on Linux, under sanitizers and as MinGW
+binaries under Wine. A managed adapter and 7×5 gas and water rooms with an
+interior pillar and ledge pass in Linux Unity (2026-10-18). One 64×64 frame
 takes about 48 s of wall time.
 
 **Missing.**
-- Interior solids in game: the managed adapter and a Unity scene for the
-  configured domain.
+- Configured rooms in saves, on Windows and with occupants (actors, breathing,
+  transfers).
 - Fluid/solid heat exchange at interior faces, and solids that melt, fall or
   are dug inside the owner.
 - More than one owner, and Spaced Out! worlds.
@@ -78,9 +76,9 @@ takes about 48 s of wall time.
   [gas/vacuum front gate](../native/GAS_VACUUM.md) also fails.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
-- Whole-world import. The Windows v5 import staged 50,368 fluid cells, then
+- Whole-world import. The Windows import staged 50,368 fluid cells, then
   rejected compressed-liquid placement
-  ([evidence](implementation-status.md#current-integration-evidence)).
+  ([status](implementation-status.md#game-integration-and-ownership)).
 - Production activation without a development configuration.
 - Coverage: all 3,072 [inventory entries](ownership-coverage.md) remain
   `unimplemented`.
@@ -89,19 +87,23 @@ takes about 48 s of wall time.
 operating systems. That means visible custom mixtures, working native solids
 and buildings, correct callbacks, and no native fluid ownership, with traced
 reader/writer audits. `python3 tools/coverage_inventory.py gate` covers only
-the full release scope; the playtest still needs a defined subset.
+the full release scope; the playtest still needs a defined subset
+(decision 3 below).
 
 ### Gate 2: production timestep
 
 **Exists.** The in-game owner advances `MacClosedWorld` with a 0.01 s maximum
 step, rejected-attempt retries and certified
-[exact equilibrium](#implemented-exact-equilibrium). Sod and collision pass
-with [compressive work](../native/MAC_COMPRESSIVE_WORK.md).
+[exact equilibrium](#implemented-exact-equilibrium). Sod passes with the
+production defaults, which still fail collision density refinement (0.856
+against 0.85). Opt-in selector combinations with
+[compressive work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3)
+also pass collision.
 
 **Missing.**
 - Accuracy. Strong-flow separation fails the finest-grid velocity bound and
-  the central density/pressure bounds. The
-  [curved-nodal diagnostic](../native/MAC_CURVED_NODAL.md) localizes a
+  the central density/pressure bounds ([gate](../native/MAC_STRONG_FLOW.md)). The
+  [curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) localizes a
   pressure/remap convention mismatch; the conservative conversion is unwritten.
 - Range-extended vertical gravity work is not implemented in `MacClosedWorld`;
   a step that requires it faults.
@@ -115,15 +117,15 @@ a fault.
 
 **Exists, within the sealed owner:**
 - Point, radius and rectangle emit/consume transfers with receipts and
-  callbacks ([radial](native-radial-consumption.md),
-  [rectangular](native-rectangular-consumption.md)).
-- Heat edits, additive [cell-mass edits](native-cell-mass-edits.md), and
+  callbacks ([radial](native-domain-transactions.md#radius-consumption),
+  [rectangular](native-domain-transactions.md#rectangular-consumption)).
+- Heat edits, additive [cell-mass edits](native-domain-transactions.md#additive-cell-mass-edits), and
   registered consumer/emitter actors.
-- [Breathing](native-breathing-reader.md) and
-  [pressure](native-pressure-reader.md) readers.
-  [Live breathing](native-live-breathing.md) covers one tracked duplicant.
-- [Body heat](native-body-heat.md) and one [solid-heat](native-solid-heat.md)
-  endpoint.
+- [Breathing](native-domain-readers.md#breathing-selection) and
+  [pressure](native-domain-readers.md#physical-pressure) readers.
+  [Live breathing](native-domain-transactions.md#live-duplicant-breathing) covers one tracked duplicant.
+- [Body heat](native-domain-physics.md#native-object-heat) and one [solid-heat](native-domain-physics.md#native-solid-cell-heat)
+  endpoint (native harness only; its Unity control still fails).
 
 **Missing.**
 - Power and energy reservations.
@@ -145,8 +147,8 @@ consumes neither input nor work.
 **Exists.** Paired native, physical, particle and actor checkpoints. Linux,
 MSVC Windows and WindowsPlayer under Proton pass manual save, frame-zero
 autosave, natural-day autosave and same-process menu reload
-([actors](native-actor-persistence.md),
-[day autosave](native-day-autosave.md), [menu reload](native-menu-reload.md)).
+([actors](native-domain-persistence.md#durable-point-actors),
+[day autosave](native-domain-persistence.md#natural-day-autosaves), [menu reload](native-domain-persistence.md#same-process-main-menu-reload)).
 Cross-platform gas checkpoints agree within 6.74e-12; water still fails the
 1e-8 bound.
 
@@ -167,24 +169,28 @@ systems, with exact continuation.
 ### Gate 5: ten colony cycles
 
 **Exists.** Display fixtures verify hover listing every non-trace gas,
-hazardous-trace warnings, overlays and colour-only mode on Windows (V54) and
-[Linux](linux-tile-hover.md). Windows binds hover and GPU rendering to a
-completed native frame ([rendering](native-fluid-rendering.md)), and the
-[2026-10-17 Windows retest](windows-playtest-2026-10-17.md) repeats the hover
-and overlay checks. The longest physical run reaches the first natural-day
-autosave, about one cycle, in a six-cell room.
+hazardous-trace warnings, overlays and colour-only mode on Windows and Linux
+([hover procedure](mixture-presentation.md#tile-hover-acceptance-procedure)).
+Windows binds hover and GPU rendering to a completed native frame
+([rendering](native-fluid-rendering.md)), and the
+[2026-10-17 Windows checks](windows-validation.md#windows-game-checks-2026-10-17)
+repeat the hover and overlay checks.
 
-The validation harness now accepts an explicit
+The validation harness accepts an explicit
 [long-run request](../tools/ONI_HEADLESS.md#long-development-runs) of up to
 100,000 frames and 48 hours (ten cycles are about 30,000 frames). It appends
 flushed telemetry: domain status, conservation error, native wait,
-publication and presentation latency, and memory. It is not yet exercised
-in game.
+publication and presentation latency, and memory. The longest in-game run,
+a six-cell Linux long run, reached 8,552 domain frames before every
+duplicant died in cycle 3–4; the harness now fails a long run when the
+colony is lost. In that room the native frame wait was below 0.1 ms, while
+the harness's own checks and snapshot copy cost about 74 ms p95 per frame.
 
 **Missing.**
 - Gates 1–4.
 - A colony plan. The harness starts a colony but gives its duplicants no
-  orders, so ten cycles need a scripted build order or a prepared save.
+  orders, and they die in cycle 3–4, so ten cycles need life support from a
+  scripted build order or a prepared save.
 - The game runs at 1× speed, so ten cycles take at least about 1.7 hours of
   wall time.
 - Natural autosaves happen about once per cycle and have never run at this
@@ -199,20 +205,22 @@ passes on Linux and Windows.
 
 The completion plan gives every fluid to the custom engine and keeps solids
 and buildings with native ONI. Today's in-game owner is `MacClosedWorld`
-behind `ma_oni_domain_*`. The managed `FluidWorld`/coupled path
-([coupled ABI](../native/COUPLED_ABI.md)) has no game frame hook. Three
-decisions are open:
+behind `ma_oni_domain_*`.
 
-1. Grow ownership from sealed rooms, or move to whole-world ownership at once.
-   Rooms need permeable owner boundaries, which the sealed contract forbids.
-   Whole-world ownership needs vacuum, free surfaces and the full catalogue
-   first.
-2. Keep `MacClosedWorld` as the production colony solver, or replace it with
-   the coupled `FluidWorld` path.
-3. Define the playtest coverage subset by configuration (base game, Spaced
-   Out!) or by reachable gameplay systems.
+1. **Open:** grow ownership from sealed rooms, or move to whole-world ownership
+   at once. Rooms need permeable owner boundaries, which the sealed contract
+   forbids. Whole-world ownership needs vacuum, free surfaces and the full
+   catalogue first.
+2. **Decided 2026-10-18 by the user:** `MacClosedWorld` (`native/src/mac_*.cpp`)
+   is the production colony solver. ONI's native fluid solver is what the mod
+   replaces and is not used. The managed `FluidWorld`/coupled path
+   ([coupled ABI](../native/COUPLED_ABI.md)), which has no game frame hook, is
+   not the production route.
+3. **Open:** define the playtest coverage subset by configuration (base game,
+   Spaced Out!) or by reachable gameplay systems.
 
-The work plan proceeds with items that hold under either answer.
+The work plan proceeds with items that hold under either answer to the open
+decisions.
 
 ## Work plan
 
@@ -221,9 +229,9 @@ licensed game to verify.
 
 | # | Gate | Item | Size | Game |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | Configured sealed domain: explicit physics settings, interior solid cells, per-cell ownership and a larger bound (native done; not in game) | L | Later |
+| 1 | 1 | Configured sealed domain: explicit physics settings, interior solid cells, per-cell ownership and a larger bound (native done) | L | Later |
 | 2 | 5 | Long-run harness opt-in with bounded telemetry (done; not in game) | M | Later |
-| 3 | 1 | Managed adoption of item 1, and an in-game room with interior solids (in progress) | M | Yes |
+| 3 | 1 | Managed adoption of item 1 and in-game rooms with interior solids (Linux Unity passes; saves, Windows and occupied rooms in progress) | M | Yes |
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended vertical gravity | M–L | No |
@@ -289,9 +297,7 @@ extending this certificate first.
 for gas/water, walls, conduction, viscosity and reload. It checks wake-up for
 heat edits, one-ULP energy/trace changes, normal and below-range momentum, and
 gravity; invalid arguments reject before shortcuts. MSVC Windows and GNU Linux
-pass. The retained first water-test failure incorrectly expected pressure
-iteration after heating a zero-expansion liquid. The corrected test checks
-conduction and complete full-solver agreement.
+pass.
 
 ## Reproduce measurements
 
@@ -312,36 +318,21 @@ and elastic water. `--no-reference` explicitly omits the expensive full solve;
 comparison fields are null. Conservation still includes positive helium trace.
 A passing capture does not mean its performance target passed.
 
-On the Windows Ryzen 9950X, seven 100,000-cell **uniform** samples take
-16.52–17.49 ms per 0.1 s, p50 16.79 ms, with zero mass/energy drift and no solves.
-That run omits full-reference comparison; small exact-byte controls supply that
-comparison. This is whole-owner equilibrium evidence, not active cells,
-publication, sustained 1x or 5900X certification.
+| Measurement | Result |
+| --- | --- |
+| 100,000-cell **uniform** equilibrium, MSVC Windows on a Ryzen 9950X, 7 samples | 16.52–17.49 ms per 0.1 s, p50 16.79 ms; zero mass/energy drift; no solves |
+| Same, GNU Linux on the same host | p50 2.46 ms, p95 8.47 ms; zero mass/energy drift |
+| 16×16 periodic 20 Pa pressure wave, reference, 5 samples | p50/p95 1796.81/1840.48 ms per 0.1 s |
+| Same, benchmark-only `balanced`, 5 samples | p50/p95 1043.78/1199.78 ms; constituent drift < 1.3e-15, energy drift < 6e-16 |
 
-GNU Linux on the same host also passes all 21 registered native test groups.
-Its seven 100,000-cell sleeping samples have p50 2.46 ms and p95 8.47 ms, again
-with zero mass/energy drift and no full-reference solve at that size. MSVC
-Windows passes the same 21 groups, the separate eight-group closed-owner
-control, the 177-scenario managed declaration/FTZ-DAZ suite and the adapter
-build (with its two existing assembly-version warnings). These scoped checks
-do not establish current Unity rendering or a playable colony.
-
-The managed suite additionally reproduces a Windows hover-review race: a
-renamed file can be visible while the native rename DELETE handle is still
-open. The reader now shares deletion, but never writing. The old reader rejects
-the controlled DELETE handle; the repaired reader reads complete bytes, while
-an unfinished exclusive writer still rejects. All four eager-publication tests
-pass. This repairs the private review protocol, not the full colony gate.
-
-For a 16×16 periodic 20 Pa pressure wave, five reference samples have p50/p95
-1796.81/1840.48 ms. Five benchmark-only balanced samples have p50/p95
-1043.78/1199.78 ms, constituent drift below 1.3e-15 and energy drift below 6e-16.
-Endpoint differences from the reference are at most 1.17e-5/1.63e-5 relative
-density/pressure and 0.00140 K temperature. Pressure differs by about 1.63 Pa,
-roughly 8% of the 20 Pa perturbation; normalization only by the 100 kPa background
-hides this flow error. Both modes reject 95 attempts over five samples. Larger
-steps and lower order alone do not meet the target. Raw captures are in
-`local/playtest-performance-r1`.
+The 100,000-cell rows omit the full-reference comparison (small exact-byte
+controls supply it). They are whole-owner equilibrium evidence, not active
+cells, publication, sustained 1× or 5900X certification. The balanced endpoint
+differs from the reference by at most 1.17e-5/1.63e-5 relative density/pressure
+and 0.00140 K; pressure differs by about 1.63 Pa, roughly 8% of the 20 Pa
+perturbation, which normalization by the 100 kPa background would hide. Both
+modes reject 95 attempts over five samples. Larger steps and lower order alone
+do not meet the target.
 
 The active-cell target remains **25 ms per 0.1 simulated seconds for 100,000
 cells on a Ryzen 5900X**, plus actual Windows/Linux game frame times, bounded

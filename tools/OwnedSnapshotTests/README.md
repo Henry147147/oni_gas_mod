@@ -1,34 +1,47 @@
-# Owned native-snapshot memory tests
+# Owned snapshot and adapter-helper tests
 
-Compile and run the original copy/overlay/publication code against the actual
-locally licensed ONI declarations without launching Unity or initializing the
-native simulator. Fixtures contain synthetic unmanaged records and explicitly
-owned immutable fluid inventories.
+This .NET 10 host compiles the adapter's pure snapshot, persistence, message and
+presentation helpers against the declarations of a locally licensed ONI install.
+It never launches Unity or initializes the native simulator. Fixtures use
+synthetic unmanaged records and explicitly owned immutable fluid inventories.
+Game assemblies are referenced in place, never copied, and load only from the
+supplied install.
 
-```powershell
-dotnet run --project tools/OwnedSnapshotTests -c Release `
-  -p:OniGameDir=D:\SteamLibrary\steamapps\common\OxygenNotIncluded -- `
-  D:\SteamLibrary\steamapps\common\OxygenNotIncluded
+```sh
+dotnet run --project tools/OwnedSnapshotTests -c Release \
+  -p:OniGameDir="$ONI_GAME_DIR" -- "$ONI_GAME_DIR" [--frame-coordinator-benchmark]
 ```
 
-The test target is .NET 10, matching the repository's managed test runtime. Game
-assemblies are referenced in place and are not copied into the output. Runtime
-resolution reads them only from the supplied licensed installation.
+The build fails without `ONI_GAME_DIR` or `-p:OniGameDir`.
+`python3 tools/build.py --game-dir <root>` also runs this suite. The host prints
+one `PASS` per scenario and exits nonzero on any failure.
+`--frame-coordinator-benchmark` adds a timing of the synthetic four-cell
+protocol: registration, staging, owned copy, paired publication and
+acknowledgement. It times no native, actor or physics work.
 
-The scenarios exercise all snapshot channels, actual event record sizes,
-independent owned storage, retained publication lifetime, atomic failure,
-custom-event merge, missing optional headless textures, and rejected malformed
-metadata. The same executable checks the save envelope, staged fluid-message
-router and shared presentation adapter. Presentation cases cover explicit
-fixture ownership, one capture per Unity frame, pinned worker reads, stale
-inventory rejection, density-based visual opacity independent of pressure,
-trace hazards independent of tint, and transparent non-gas pixels.
+The scenarios cover:
 
-This is memory-boundary and pure presentation-policy evidence. It does not prove that Unity's
-readers are quiescent at a proposed publication boundary, native source
-coverage, authoritative fluid ownership, actual shader output, or gameplay behavior.
+- **Snapshots.** All 47 `GameDataUpdate` channels, 29 of them events, are
+  deep-copied at their actual record sizes. Covers owned storage, publication
+  lifetime, atomic failure, custom-event merge, missing headless textures and
+  malformed metadata.
+- **Persistence and messages.** The save envelope, fluid-message router, frame
+  coordinator, batch commands and frame-input journal. Also actor registration
+  and checkpoint images, cell-mass edits, transfer plans, transient particles
+  and binary32 wire values.
+- **Domain helpers.** Readings, configured-domain layout, orbital references,
+  breathing and pressure reads, and validation limits.
+- **Presentation.** The adapter runtime, GPU readback plans, tile-hover receipts
+  and telemetry. Ownership is explicit, there is one capture per Unity frame,
+  worker reads are pinned and stale inventories reject. Opacity follows
+  density, not pressure, hazards do not depend on tint, and non-gas pixels are
+  transparent.
+- **Game entry points.** The menu-reload and day-autosave entry points have the
+  inspected signatures.
 
-The parent runtime may opt into `SnapshotCopyValidation.CaptureAndValidate`
-before returning its original native pointer. Publishing an owned copy is a
-separate action and requires retaining it until the next safe publication or
-shutdown. The helper itself installs no patches.
+These are memory-boundary and pure-policy checks. They do not prove that
+Unity's readers are quiescent at publication, native source coverage, fluid
+ownership, shader output or gameplay. The runtime can opt into
+`SnapshotCopyValidation.CaptureAndValidate` before returning the original native
+pointer. Publishing an owned copy is a separate step, and the copy must be kept
+until the next safe publication or shutdown. The helper installs no patches.

@@ -3,28 +3,30 @@
 Accepted execution plan, recorded 2026-10-14. Work proceeds in dependency order;
 an implemented helper or standalone test does not satisfy an in-game exit gate.
 Each milestone is a separate reviewable change. Regular pulls, commits and
-pushes to the shared `main` branch are authorized by the user. Public release
-and Workshop upload still require separate authorization.
+pushes to `main` are authorized by the user. Public release and Workshop upload
+still require separate authorization.
 
-Execution amendment, 2026-10-16: implement and verify the full feature set in
-real games before optimizing it. Slow simulation is acceptable for this stage.
-Retain conservation, thermodynamics and numerical acceptance requirements;
-runtime/performance targets must not prevent functional integration. Pull and
-push regularly while another developer works on `main`. The earlier small
-Linux colony priority remains the first integration step, followed by the full
-Windows/Linux and DLC scope below.
+Amendments:
 
-Playtest amendment, 2026-10-17: investigate conservative performance changes
-and explicit fidelity tradeoffs now, alongside functional integration. Preserve
-the original reference/release criteria, constituent and energy accounts,
-breathing assessment and truthful presentation. The [playtesting readiness and
-performance work](playtesting-readiness.md) distinguishes implemented shortcuts,
-benchmark-only approximations and remaining colony blockers.
-
-Architecture amendment accepted 2026-10-16: implement the full overhaul through
-[native SimDLL hooks](native-backend-integration.md), retaining verified native
-nonfluid services. Observer and takeover work are the next engineering steps;
-they do not replace the remaining full-overhaul milestones.
+- **Architecture, 2026-10-16:** implement the full overhaul through
+  [native SimDLL hooks](native-backend-integration.md), retaining verified native
+  nonfluid services. Observer and takeover work are the next engineering steps;
+  they do not replace the remaining milestones.
+- **Execution, 2026-10-16:** implement and verify the full feature set in real
+  games before optimizing it. Slow simulation is acceptable for this stage.
+  Retain conservation, thermodynamics and numerical acceptance requirements;
+  runtime/performance targets must not prevent functional integration. The
+  small Linux colony remains the first integration step, followed by the full
+  Windows/Linux and DLC scope below.
+- **Playtest, 2026-10-17:** investigate conservative performance changes and
+  explicit fidelity tradeoffs now, alongside functional integration. Preserve
+  the original reference/release criteria, constituent and energy accounts,
+  breathing assessment and truthful presentation. [Playtesting readiness](playtesting-readiness.md)
+  distinguishes implemented shortcuts, benchmark-only approximations and
+  remaining colony blockers.
+- **Solver, 2026-10-18 (user decision):** `MacClosedWorld` (`native/src/mac_*.cpp`)
+  is the production colony fluid solver. ONI's native SimDLL fluid simulation is
+  what the mod replaces and must not be used as the solver.
 
 ## Target
 
@@ -40,14 +42,13 @@ Microscopic droplets, capillary effects, detailed solution chemistry,
 environmental fires and explosions are excluded. Fictional materials require
 documented, conservation-consistent approximations.
 
-## Git checkpoint
+## Source control
 
-1. Initialize a local repository on `main` with the configured Git author.
-2. Exclude private game contracts, saves, inspection artifacts and builds.
-3. Stage original sources, tools, tests, documentation and CI; exclude licensed
-   binaries, decompiled implementations, credentials and generated packages.
-4. Review and commit as `Initial mixed-atmospheres core and ONI integration probe`.
-5. Record this plan in a second commit; use separate commits for milestones.
+All work is reconciled on the single `main` branch (2026-10-18); there are no
+parallel development branches to track. The repository excludes private game
+contracts, saves, inspection artifacts, builds, licensed binaries, decompiled
+implementations, credentials and generated packages. Original sources, tools,
+tests, documentation and CI are committed; milestones use separate commits.
 
 ## A. Integrate natively, complete coverage and prove simulation ownership
 
@@ -78,104 +79,16 @@ Trace execution and audit readers/writers; projected fluid identities are
 allowed and zero-fluid scans alone are insufficient. Every unresolved native
 fluid source blocks this milestone.
 
+Status: the [coverage inventory](ownership-coverage.md) exists (3,072 entries,
+all unimplemented). Exact-build hooks and a bounded
+[sealed native domain](sealed-native-domain.md) run in real Linux and Windows
+games; whole-colony ownership is open. See [implementation status](implementation-status.md).
+
 ## B. Complete production timestep
 
 Replace the runtime gas-only reference world with a coupled multiphase world.
 Keep isolated components as validation references, without mistaking their tests
 for evidence of a complete solver.
-
-The [swept first-moment reconstruction controls](../native/MAC_SWEPT_RECONSTRUCTION.md)
-repair a reproduced moving-cell affine error with an opt-in selector. Component,
-checkpoint and selected Windows/Linux regressions pass; the strong-flow,
-exact-vacuum and production-colony exit gates remain open.
-
-The later [quadratic momentum admission](../native/MAC_QUADRATIC_LIMITER.md)
-passes 179 prerequisite groups and 29 saved reviews on each OS and under Linux
-sanitizers, then still fails the original collision density refinement bound
-(0.856557 versus 0.85). It remains opt-in; this does not satisfy the exit below.
-
-The subsequent [swept physical momentum mode](../native/MAC_SWEPT_MOMENTUM.md)
-implements the reproduced dual-geometry and completed-state admission repairs.
-Windows, Linux and sanitizer controls pass 138 actual affine readings and all
-72 checkpoint continuations per platform, including both true one-dimensional
-axes. The subsequent full prerequisite run passes 185 groups and 30 saved
-reviews per normal OS and under sanitizers; a published deformed-EOS control
-verifies an actual intermediate correction, bringing verification to 186 groups
-and 31 reviews per platform. The changed-method strong run passes Sod and still
-fails collision density refinement (0.856332 versus 0.85). Strong flow and
-production acceptance remain open; the default is unchanged.
-
-The explicit [coupled compressive pressure work](../native/MAC_COMPRESSIVE_WORK.md)
-then passes 207 prerequisite groups and 34 saved reviews on each normal OS and
-under Linux sanitizers. Its first Windows strong-flow attempt passes all Sod
-and collision refinement checks, including the former collision density bound,
-but stops in separation on the original stored-state entropy allowance. Six
-completed profiles pass 82,824 independent saved checks. The full strong-flow
-gate remains failed; no unchanged Linux repeat or default promotion is made.
-The relative-entropy measurement repair then passes 208 prerequisite groups
-and 34 saved reviews per configuration. Its next Windows attempt completes
-all nine profiles without timestep retries, preserving the six earlier
-trajectories byte for byte. Separation still fails the finest velocity error
-and central density/pressure limits. The absolute bounds remain unchanged and
-the full strong-flow and production exits stay open.
-
-Saved-profile localization and a byte-identical diagnostic then reproduce a
-stationary-donor momentum restriction during separation. The opt-in
-[bounded carried-energy selector 4](../native/MAC_BOUNDED_ENERGY.md) passes seven
-scoped groups, 200,276 saved checks and 96 exact checkpoint continuations per
-configuration, plus cross-OS image reads. Eight existing-mode streams remain
-byte identical. Full prerequisites, strong-flow accuracy and production remain
-open; the default remains selector 1.
-
-Its complete 216-group/36-review prerequisite suite then passes on all three
-configurations. The first strong attempt stops before a complete profile on a
-paired-work guard. A saved-operand diagnostic identifies cancellation of tiny
-work at a stationary face. The same analytic law evaluated per side passes
-eight new scoped groups and 231,450 saved checks per platform, including a
-regression that fails with the original libraries. Fresh complete prerequisites
-and strong-flow accuracy remain open; see the linked investigation for retained
-failures and exact scope.
-
-The fresh 217-group/36-review rerun passes on all three configurations. Its
-next strong attempt completes all nine profiles without timestep retries,
-resolving the paired-work guard. Separation still fails the original finest
-velocity and central density/pressure limits. Saved-only review verifies the
-failed criteria; no unchanged Linux repeat or default promotion is made.
-
-Subsequent [private remap comparisons](../native/MAC_REMAP_COUNTERFACTUALS.md)
-keep identical N64 inputs and every original physical guard. They distinguish
-scalar-envelope, energy-placement and local paired-energy effects without
-promoting a numerical change. The paired variant passes its strict local
-energy accounts but increases left/right imbalance; a later local entropy drop
-enters through scalar reconstruction. Update order, scalar entropy transport,
-the original finest-grid accuracy gate and production coverage remain open.
-
-A later symmetric local-admission trial completes its coarse controls. Adding
-source-stencil entropy admission improves the coarse density/pressure errors,
-but its single original N256 separation case still fails velocity and central
-density/pressure criteria. Saved localization keeps these failures explicit;
-the changed methods remain private experiments. The tracked solver, original
-217-group prerequisites and full failed strong-flow gate remain the retained
-baseline for these experiments.
-
-The later private quadratic reconstruction component passes Windows, Linux and
-sanitizer polynomial controls, but its N256 run stops at the heat entropy guard
-before a final profile. Actual stored operands prove an absolute-entropy
-subtraction error. The [relative heat entropy repair](../native/MAC_HEAT_ENTROPY.md)
-passes three focused Windows groups, 528 independent saved checks and an
-original-source negative regression. Its original bound and physical transfer
-remain unchanged. Fresh complete prerequisites then pass 220 groups and 37
-saved reviews on Windows, Linux and sanitizers. The private N256 rerun completes
-182 steps without retry, but still fails the original finest velocity and
-central density/pressure bounds. Fine-grid accuracy remains open; no private
-method, production default or game gate is promoted.
-
-The later [curved-deformation diagnostic](../native/MAC_CURVED_NODAL.md)
-localizes a pressure/remap source-convention mismatch. Both Windows and GNU
-Linux reproduce 24 failed nodal affine readings while the alternate dual-mean
-source passes. The distinction is also present on the original N64 case's first
-pressure step. A conservative momentum/kinetic-energy conversion remains open;
-no solver repair or original strong-flow criterion is promoted by this finding.
 
 - Staggered finite-volume transport, implicit pressure/energy coupling and
   conservative momentum transport.
@@ -193,6 +106,21 @@ provide multiphase behavior without additional implementation and validation.
 Exit: integrated gas/liquid numerical benchmarks pass before broad gameplay
 integration. Measure runtime, but defer performance tuning until the feature set
 works in real games.
+
+Status: `MacClosedWorld` is the production solver and already runs in game in
+the bounded domain. Its prerequisite native groups and saved reviews pass on
+Windows, Linux and Linux ASan/UBSan. With
+[compressive pressure work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3), Sod and
+collision refinement pass, but the original
+[strong-flow separation case](../native/MAC_STRONG_FLOW.md) still fails the
+finest-grid velocity bound and the central density/pressure bounds. The
+[curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) localizes a
+pressure/remap source-velocity convention mismatch, reproduced on Windows and
+Linux; the conservative momentum/kinetic-energy conversion that would resolve
+it is unwritten. The separate [gas/vacuum front gate](../native/GAS_VACUUM.md)
+also fails, and the owner rejects empty cells. Optional modes that did not pass
+remain opt-in experiments; original inputs and acceptance bounds are unchanged.
+The exit above is open.
 
 ## C. Materials, thermodynamics and aquatic chemistry
 
@@ -254,33 +182,20 @@ in [mixture presentation](mixture-presentation.md):
   measured publication budget. Report p50/p95 game costs and peak memory.
   This supplements the separate production-solver performance gate.
 
-Windows V54 passes the scoped four-gas native hover fixture, including the
-exact trace cutoff, retained contaminant warning and 125% UI scale; see
-[evidence and limits](mixture-presentation.md#verification-and-limits). That
-display fixture leaves native ONI in charge of physics. The later
-[Linux four-case hover control](linux-tile-hover.md) also passes actual mouse
-hover and image review, including the exact trace cutoff and 125% UI scale at
-1280 by 720. Its viewport repair preserves every bulk row and hazardous-trace
-warning. These close the scoped display-fixture checks on both platforms;
-authoritative production colony state remains part of this milestone.
-Windows V57 additionally verifies hover against a completed native physical
-frame in a six-cell closed-reference scene, including changing composition and
-colour-only recapture. It retains the surrounding native colony and does not
-complete this production-owner, Linux, save or performance gate.
-Windows V58 additionally passes a physical oxygen/heat edit through the all-world
-coordinator: the mixture heading and all four bulk rows change with the completed
-native state, while hazardous trace warnings remain visible. Colour-only retains
-the same physical facts and accounts. Its six-cell reference scene still does
-not complete this gate; see [the scoped evidence](mixture-presentation.md#completed-colony-transactions-on-windows).
-Later Windows native gas/water controls additionally bind actual hover and
-selected details to the same completed physical object and publication as GPU
-rendering, including paused gas zoom and two water reload sessions. These
-[bounded rendering checks](native-fluid-rendering.md) supplement the required
-all-non-trace tile contents; production and Linux hover remain required.
-
 Exit: duplicants survive and operate for ten cycles with conservation
 diagnostics, and the presentation, screenshot and performance criteria above
 pass on Windows and Linux. This does not authorize public release.
+
+Status: the four-gas tile-hover check passes as a display fixture (native ONI
+physics) on Windows and Linux
+([procedure](mixture-presentation.md#tile-hover-acceptance-procedure)),
+including the exact trace cutoff, hazardous-trace warning and 125% UI scale.
+Windows also binds hover,
+selected details and GPU rendering to completed native physical frames in the
+bounded domain ([rendering](native-fluid-rendering.md)). Hover against
+authoritative production colony state, the 100,000-cell presentation
+performance evidence and the ten-cycle colony remain open; see
+[playtesting readiness](playtesting-readiness.md).
 
 ## E. Every fluid-related gameplay system
 

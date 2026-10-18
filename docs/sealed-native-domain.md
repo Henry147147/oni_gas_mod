@@ -1,300 +1,293 @@
 # Sealed native fluid domain
 
-This is the first bounded takeover experiment for the colony work. The
-custom native engine advances a six-cell room while the surrounding ONI colony
-retains its original simulation. The corrected mixed-air and compressed-water
-equilibrium controls pass in actual Windows and Linux colonies. The basic
-controls are actor-free development scenes; a separate
-registered-actor control exercises an actual game consumer and emitter API.
-Whole-colony ownership, first-playable and release gates remain closed.
+The sealed native domain is the bounded first step of colony fluid ownership.
+`MacClosedWorld` (`native/src/mac_*.cpp`), the project's production colony fluid
+solver, advances one sealed rectangle on ONI's native simulation worker while
+the rest of the colony keeps its original simulation. ONI's native SimDLL fluid
+simulation is what the mod replaces: inside the rectangle it is excluded, and it
+is never used as the solver. The fixed scenes own a 3×2 room; the
+[configured domain](native-configured-domain.md) adds larger rooms with
+interior solids. Every scene starts only from a development
+`colony-validation.json` in a disposable colony. Whole-colony ownership,
+first-playable and release gates remain closed, and every report keeps those
+readiness fields false.
+
+This document is the hub: the execution and ownership contract, the base
+physics and boundary ABIs, paired save/load, the scene list, status per
+platform and open items. Later features have their own documents:
+
+| Topic | Document |
+| --- | --- |
+| Scenarios 3–6 (water gravity, gas/liquid cells, mixed conduction, viscosity), initial inventory, native object and solid-cell heat | [Domain physics](native-domain-physics.md) |
+| Additive cell-mass edits, radius and rectangular consumption, the frame-input journal, live duplicant breathing | [Boundary transactions](native-domain-transactions.md) |
+| Pressure and breathing readers, restored-reader checks, GPU texture readback | [Readers](native-domain-readers.md) |
+| Durable actors, in-flight CO2, day autosaves, main-menu reload, orbital references, Spaced Out saves | [Persistence](native-domain-persistence.md) |
+| Scenario 7: physics flags, interior solids, rooms up to 4,096 cells | [Configured domain](native-configured-domain.md) |
+| Status display, flow-guard flags and liquid fill | [Fluid rendering](native-fluid-rendering.md) |
+| Hook trampolines, solver arithmetic scope, binary32 decoding | [Platform and numerics](native-platform-numerics.md) |
+| Hooks, observer and every capability version | [Backend integration](native-backend-integration.md) |
+| Physical checkpoint (`MACCLS01`), paired capture and save/load mechanics | [Physical checkpoints](../native/MAC_CHECKPOINT.md) |
+| Durable actor records (`MAACTR01`) | [Actor checkpoint](../native/ONI_ACTOR_CHECKPOINT.md) |
+| Save/load matrix and platform terms | [Validation matrix](native-validation-matrix.md) |
+| Windows OS, Proton and native-worker routes | [Windows validation](windows-validation.md) |
+| Isolated licensed-SimDLL controls (`sealed-*`) | [NativeShadowProbe](../tools/NativeShadowProbe/README.md) |
+| Linux game runner | [ONI_HEADLESS.md](../tools/ONI_HEADLESS.md) |
+| The solver | [MacClosedWorld](../native/MAC_SOLVER.md) |
 
 ## Execution and ownership
 
 The mod attaches the exact-build native hooks before initialization. After a
 disposable colony starts, the validation driver builds an unoccupied room with
-an impermeable, adiabatic Unobtanium border. It verifies the border, absence of
-objects, disease and radiation before enabling the domain.
+an impermeable, adiabatic Unobtanium border. It verifies the border and the
+absence of objects, disease and radiation before enabling the domain.
 
-The actual positive `ProcessNextFrame` return supplies the timestep and a
-monotonic ticket. `UpdateData` advances the custom `MacClosedWorld` on the native
-simulation worker, once for the global timestep. The domain's mutex now spans
+**Clock.** The actual positive `ProcessNextFrame` return supplies the timestep
+and a monotonic ticket. `UpdateData` advances the custom owner on the native
+simulation worker, once per global timestep. The domain's mutex spans
 `ProcessNextFrame` through `EndFrame`, including native cell work, custom work
-and the original update. A managed reader cannot consume a partially completed
-native frame. `BeginFrame` may wait for main-thread work and stays outside the
-fence. Synchronization-only passes never advance custom time. There is
-no managed advance timer.
+and the original update, so a managed reader cannot consume a partially
+completed native frame. `BeginFrame` may wait for main-thread work and stays
+outside the fence. Synchronization-only passes never advance custom time, and
+there is no managed advance timer.
 
-The physical model retains constituent mass, U and canonical face momentum.
-It uses the existing closed MAC pressure/transport solver, its compression
-coupling, a declared ideal-gas/elastic-liquid reference and immutable candidate
-advances. The initial air case contains nitrogen, oxygen and helium at trace abundance.
-Carbon dioxide is also a supported physical constituent in the current model.
-The water control initializes 1,100 kg in each cubic metre at 300 K: its
-mechanical pressure is 220 MPa, with elastic energy retained separately from
-thermal energy. These are explicit development materials, not a complete ONI
-material catalogue or free-surface solver.
+**Native exclusions.** The validation scenes queue ONI's gas/liquid
+impermeability flags and verify them in the original native snapshot. Native
+per-cell post-processing and pressure, gas, liquid, thermal and transition
+entry hooks exclude owned cells; three-cell pressure-displacement hooks filter
+every involved cell. Native functions continue outside the rectangle, and a
+hot/cold Granite pair outside the room must keep conducting heat. Installed
+gas-interaction entries have zero calls (Windows inlines those routines), so
+their symbols alone are not coverage evidence.
 
-The synthetic controls first queue ONI's gas/liquid impermeability flags and verify them
-in the original native snapshot. Flag installation can displace fluid before
-ownership begins. After activation it restores deliberately unbalanced,
-nonvacuum scalar cells, then requires an exact match before starting the
-30-frame acceptance interval. A missing projection fails within ten frames.
+**Native indices include a one-cell halo:** for public `(x,y)` and width `W`,
+the native index is `(x+1) + (y+1)*(W+2)`. Configuration and snapshots use
+public coordinates; each cell hook decodes the padded index before checking
+ownership, and start checks the loaded simulator's padded dimensions against
+the requested public grid (on Windows through the PDB's `SimData` width/height
+offsets 0/4). Never apply public-grid indices directly to native cell phases:
+an earlier filter did, excluded the wrong cells, and hardware watchpoints found
+the resulting native gas swap inside `PostProcessCell`.
 
-The explicit [native inventory controls](native-initial-inventory.md) capture
-the initial physical inventory before flag installation, activate the custom
-exclusions, then install the flags and restore those same canonical native
-compatibility cells. The captured inventory supplies the physical owner;
-compatibility writes do not initialize or replace it.
+**Compatibility cells.** The scalar native cells are compatibility data. Flag
+installation can displace fluid before ownership begins. The synthetic
+controls therefore first let original ONI move a deliberately unbalanced scalar
+mass pattern and a `[280, 300, 320] K` temperature pattern, restore those
+nonvacuum cells after activation, and require an exact match before the
+acceptance interval starts; a missing projection fails within ten frames. The
+original element/mass/temperature/disease tuples must then stay byte-identical
+while the physical state advances. This distinguishes a blocked native phase
+from a native state that would never have moved; it does not prove coverage of
+every game writer. Scenes that start from the native inventory capture it
+before installing the flags ([initial inventory](native-domain-physics.md#initial-inventory-admission)).
 
-Native per-cell post-processing and pressure, gas, liquid, thermal and transition
-entry hooks exclude owned cells. **Native indices include a one-cell halo:**
-for public `(x,y)` and width `W`, the native index is
-`(x+1) + (y+1)*(W+2)`. Configuration and snapshots use public coordinates; each
-cell hook decodes the padded index before checking ownership. Start checks the
-actual loaded simulator's padded dimensions against the requested public grid.
-Do not apply public-grid indices directly to native cell phases.
+**Publication.** Each completed custom frame is copied through the
+`ma_oni_domain_*` extension. An owned copy of all 47 native channels keeps the
+surrounding colony's events and nonfluid data; only owned-cell mass,
+temperature and element projections change, and the two synthetic flow flags
+are cleared in that copy ([fluid rendering](native-fluid-rendering.md#flow-guards-and-liquid-fill)).
+Immutable thermodynamic readings feed the mixture renderer and inspection;
+scalar projections never reconstruct the physical inventory. A failed
+publication keeps the last valid owned snapshot, and a fault never enables
+scalar fallback. A fault stops custom advancement while the native fluid
+exclusions stay installed until native shutdown, so the disposable session must
+end.
 
-Hardware watchpoints identified the earlier gas swap inside native
-`PostProcessCell`: the previous hook excluded different cells because of the
-wrong pitch. The corrected filter blocks the containing phase. Additional
-three-cell pressure-displacement hooks filter every involved cell. Installed
-gas-interaction entries still have zero calls, so their symbols alone are not
-coverage evidence. Native functions continue outside the rectangle. A hot/cold
-Granite pair outside the room must continue to conduct heat.
+The solver sets and restores its own floating-point environment on the worker
+thread ([arithmetic scope](native-platform-numerics.md#solver-arithmetic-scope)).
 
-The scalar native cells are compatibility data. To challenge the exclusions,
-the driver first lets original ONI move a deliberately unbalanced scalar mass
-pattern. A nonuniform `[280, 300, 320] K` temperature pattern also challenges
-thermal exclusion. It restores those patterns after activation and requires the original
-element/mass/temperature/disease tuples to remain byte-identical while custom
-physical state advances. This
-control distinguishes a blocked native fluid phase from a native state that
-would never have moved. It does not prove coverage of every game writer.
+## Physical model and domain ABI
 
-Each completed custom frame is copied through a separate `ma_oni_domain_*`
-extension. An owned copy of all 47 native channels retains the surrounding
-colony's events and nonfluid data. Only owned-cell mass, temperature and element
-projections change. Immutable native thermodynamic readings feed the shared
-mixture renderer and inspection path; scalar projections never reconstruct the
-physical inventory. Publishing fails without replacing the last valid owned
-snapshot, and a fault never enables scalar fallback.
+The owner keeps constituent mass, internal energy U and canonical face
+momentum. It uses the closed MAC pressure/transport solver with its compression
+coupling, the declared ideal-gas/elastic-liquid reference model
+`oni-sealed-domain-v2` and immutable candidate advances. The five species are
+nitrogen, oxygen, helium, water and carbon dioxide. The mixed-air control holds
+nitrogen and oxygen with trace helium. The water control initializes 1,100 kg
+in each cubic metre at 300 K: its mechanical pressure is 220 MPa, with elastic
+energy kept separately from thermal energy. These are development materials,
+not a complete ONI material catalogue or a free-surface solver. Scenario
+numbers 0–7 select the physics; the table is in
+[domain physics](native-domain-physics.md).
 
-The solver temporarily selects nearest rounding, masked exceptions and
-FTZ/DAZ off on its executing thread. It restores the complete caller environment
-before returning to Unity/native code. The normal strict arithmetic checks stay
-enabled inside the solver.
+Domain ABI 2 (`native/include/mixed_atmospheres/oni_domain.h`) uses a 40-byte
+`MAOniDomainConfig`, a 440-byte `MAOniDomainStatus` and 96-byte
+`MAOniDomainCell` readings: five constituent masses followed by U, pressure,
+temperature, liquid fraction, resolved kinetic energy and momentum x/y. Native
+and managed clients reject the older four-species layout. The base boundary
+extensions are described below; the full capability list is in
+[backend integration](native-backend-integration.md#interfaces-and-saves).
+
+| Extension | ABI | Records | Section |
+| --- | ---: | --- | --- |
+| Thermal diagnostic | 1 | 80-byte status | [Conduction](#internal-fluid-conduction) |
+| Heat commands | 1 | 48-byte command, 56-byte status | [Heat commands](#conserved-game-heat-commands) |
+| Gravity diagnostic | 1 | 96-byte status | [Gravity](#gravity-and-carried-potential-energy) |
+| Transfers | 2 | 64-byte command, 88-byte receipt, 104-byte status | [Point sources](#gas-point-sources-and-game-callbacks) |
+| Actors | 1 | 80-byte configuration, 64-byte status | [Registered actors](#registered-gas-actors) |
 
 ## Internal fluid conduction
 
-The native domain enables `MacClosedSettings.thermal_conduction`. Each accepted
-physical substep prepares two conductive half stages around the existing
+The domain enables `MacClosedSettings.thermal_conduction`. Each accepted
+physical substep prepares two conductive half stages around the
 compression/pressure/transport stages. All stages share one clock, revision
 and immutable candidate: a rejected thermal solve publishes no partial heat,
-mass, actor receipt or elapsed time. The option remains off by default for
-separate numerical controls whose physical equations exclude conduction.
+mass, actor receipt or elapsed time. The option stays off by default for
+numerical controls whose equations exclude conduction.
 
-Occupied, single-phase cells use the reference EOS heat capacity at fixed
+Occupied single-phase cells use the reference EOS heat capacity at fixed
 volume. Gas conductivity is weighted by partial volume (equivalently mole
 fraction); liquid weights use actual compressed partial volumes. A face's
 conductance is its area divided by the sum of the two half-cell thermal
-resistances. The existing backward-Euler thermal network advances these
-contacts. Walls and exterior faces are insulated. Canonical constituent mass,
-passive inventory and face momentum do not change during this operator.
+resistances, and a backward-Euler thermal network advances the contacts.
+Walls and exterior faces are insulated. Constituent mass, passive inventory and
+face momentum do not change during this operator.
 
 Every stage checks local and global energy accounts and endpoint entropy at
 bounds derived from its operands. Independent two-body equations and analytic
-time refinement test the heat solve; source immutability and the owner's
-single clock are tested separately. The additive thermal diagnostic ABI 1
-uses an 80-byte status with session/frame, enabled state, stage/contact/iteration
-counts, redistributed energy and entropy change. It also counts heat updates
-smaller than the stored binary64 internal-energy resolution. These are reported
-explicitly; the diagnostic does not claim arbitrary precision.
+time refinement test the heat solve; source immutability and the single clock
+are tested separately. Thermal diagnostic ABI 1 reports session/frame, enabled
+state, stage/contact/iteration counts, redistributed energy and entropy change,
+and counts heat updates smaller than the stored binary64 internal-energy
+resolution; these are reported, not hidden. Stored cell energy uses
+[conservative component rounding](../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding),
+the diagnostic counts represented redistribution, and entropy uses the
+represented U increment.
 
-Stored cell energy now uses [conservative component rounding](../native/MAC_CONDUCTION_ROUNDING.md)
-when its neighboring binary64 endpoints admit the exact closed U sum. The
-thermal diagnostic counts represented redistribution, and entropy uses the
-represented U increment directly. Small unresolved requests remain explicit.
-The separate `native-liquid-heat-domain` / `-NativeDomain water-heat` scene
-uses +2 MJ / -0.5 MJ, requires source and neighbor warming, positive represented
-redistribution/entropy, and the usual paired save/reload. Its Unity verification
-passes the frozen `conservative-heat-unity-matrix-v1` Linux source/reload pair;
-licensed Linux and Windows-under-Wine controls also pass.
+- `native-conduction-domain` (`conduction`) seeds a gradient with the ordinary
+  +2,000 J / -500 J game heat commands. It requires positive internal
+  redistribution and entropy, exactly two thermal stages per substep and
+  matching diagnostic session/frame values.
+- `native-liquid-heat-domain` (`water-heat`) applies +2 MJ / -0.5 MJ to filled
+  water. It requires warming of the source and a conductive neighbour,
+  positive represented redistribution and entropy, and the paired save/reload.
+- `sealed-conduction` and `sealed-water-small-heat` are the isolated licensed
+  library controls; the latter checks sub-ULP accounting only.
 
-That Unity source reaches 121 native frames / 24.200000361 s with zero measured
-U+K drift, 9.0625 J represented internal redistribution and positive entropy
-3.278225952e-5 J/K. Its physical image is
-`e22b67714f992cfa23e2810539ce851be01494477b9fee8a2f49f3095b80c05a`,
-and its ordinarily saved colony file is
-`32c4e18a57522e6013ff9f2c4e23ce3236131716655ccf2b0ca59a881c86510f`.
-Fresh-process reload passes the paused autosave challenge and every one of
-120 continued frames through 48.200000718 s, ending at
-`08c0e874f1af2940b42076735958c46f77e65a38a832843ac632bef96d3fb382`.
-The inputs are frozen `67e1475` with compatibility native build v7. Windows
-Unity remains open for the new liquid heat scene.
-
-`native-conduction-domain` seeds a temperature gradient with the ordinary
-+2,000 J / -500 J game heat commands. It requires positive internal heat
-redistribution and entropy, exactly two thermal stages per solver substep,
-matching diagnostic/session/frame values and the full existing game checks.
-`sealed-conduction` exercises the corresponding licensed native-library
-control outside Unity on Linux or Windows. Current support uses development
-constant properties, rejects gas/liquid coexistence and variable heat capacity,
-and excludes fluid/solid exchange, radiation and phase transitions.
+This path uses development constant properties. It rejects gas/liquid
+coexistence (see [mixed-cell conduction](native-domain-physics.md#mixed-cell-conduction))
+and variable heat capacity, and excludes fluid/solid exchange, radiation and
+phase transitions.
 
 ## Conserved game heat commands
 
-`SimMessages.ModifyEnergy` now routes owned-cell heating/cooling into the native
-domain. The message's kJ is converted to joules. A complete batch reserves an
-immutable heat candidate against the exact session and completed frame; enqueue
-changes neither the published state nor time. The next native worker timestep
-commits the candidate and physical advance together. Every constituent and
-canonical face momentum is retained, and the physical clock is preserved.
+`SimMessages.ModifyEnergy` routes owned-cell heating and cooling into the
+domain, converting the message's kJ to joules. A complete batch reserves an
+immutable heat candidate against the exact session and completed frame;
+enqueue changes neither the published state nor time. The next native worker
+timestep commits the candidate and the physical advance together. Every
+constituent, the canonical face momentum and the physical clock are kept.
 
-The additive heat ABI 1 uses 48-byte commands and a 56-byte status. Pending and
-committed batch counts distinguish acceptance from application. Accumulated heat
-accounts retain full additive expansions; their scalar status values are
-read-only projections. The U+K drift diagnostic includes the declared external
-heat account. Invalid, stale, temperature-limited or unrepresentable batches
-queue nothing; a failed physical advance publishes neither heat nor state.
+Heat ABI 1 status counts pending and committed batches separately, so
+acceptance is distinguishable from application. Accumulated heat accounts keep
+full additive expansions; their scalar status values are read-only
+projections. The U+K drift diagnostic includes the declared external heat
+account. Invalid, stale, temperature-limited or unrepresentable batches queue
+nothing, and a failed physical advance publishes neither heat nor state.
 
-This is a reserved external heat boundary, not a power/producer adapter.
-Mixed native/custom batches require a cross-owner reservation and currently
-reject before dispatch. Native heat outside the arena still uses ONI.
+This is a reserved external heat boundary, not a power or producer adapter.
+Mixed native/custom batches need a cross-owner reservation and reject before
+dispatch. Native heat outside the room still uses ONI. `native-heat-domain`
+(`heat`) sends +2,000 J and -500 J through the game API and requires the net
+1,500 J in the U+K account with the original native message entry never
+called.
 
 ## Gravity and carried potential energy
 
 Scenario 2 (`native-gravity-domain` in the game, `sealed-gravity` in the
-isolated licensed-library control) enables the closed owner's existing
-9.81 m/s2 downward gravity. Its force/work calculation uses the actual face
-mass fluxes. The energy account includes internal energy, resolved face
-kinetic energy and `sum(m*g*y)` at cell centres. The bottom of the owned
-rectangle is the potential datum; it is used consistently for all transfers.
-The other scenarios keep their explicitly zero-gravity controls.
+isolated control) enables the owner's 9.81 m/s² downward gravity. Its
+force/work calculation uses the actual face mass fluxes. The energy account
+includes internal energy, resolved face kinetic energy and `sum(m*g*y)` at cell
+centres, with the bottom of the owned rectangle as the potential datum.
+Scenarios 0, 1 and 4–6 have explicitly zero gravity; scenario 3 is filled water
+with gravity ([filled-liquid gravity](native-domain-physics.md#filled-liquid-gravity)).
 
-Gas injection carries potential at its destination elevation; extraction
-carries potential at its source elevation. This applies to both point
-messages and registered consumers/emitters. Equal masses at different
-elevations therefore still have a boundary-energy exchange. Pending transfers
-reserve this account without changing physical state. The native worker
-commits it with material/kinetic accounts, actor receipts and the physical
-advance. Invalid batches and failed timesteps retain the previous accounts.
+Injection carries potential at its destination elevation and extraction at its
+source elevation, for point messages and registered actors alike, so equal
+masses at different elevations still exchange boundary energy. Pending
+transfers reserve this account without changing physical state; the worker
+commits it with the material and kinetic accounts, actor receipts and the
+physical advance. Invalid batches and failed timesteps keep the previous
+accounts.
 
-The additive gravity ABI 1 has a 96-byte status: session/frame, acceleration,
-initial/current potential, committed/pending boundary potential, cumulative
-body impulse, signed internal gravity work and maximum absolute total-energy
-residual. These are diagnostics of the physical owner. The game control
-independently reconstructs potential from all completed cell masses and
-heights, requires vertical momentum and force, injects/consumes actual gas
-through game callbacks, and checks the complete U+K+G boundary balance.
-The native regression also exercises registered actors at different elevations.
-This occupied sealed-room control does not establish free surfaces, arbitrary
-nonlinear buoyancy or whole-colony gravity coverage.
+Gravity ABI 1 reports session/frame, acceleration, initial and current
+potential, committed and pending boundary potential, cumulative body impulse,
+signed internal gravity work and maximum absolute total-energy residual. The
+game control independently reconstructs potential from all completed cell
+masses and heights, requires vertical momentum and force, injects and consumes
+gas through game callbacks, and checks the complete U+K+G boundary balance.
+This occupied sealed room does not establish free surfaces, nonlinear buoyancy
+or whole-colony gravity.
 
 ## Gas point sources and game callbacks
 
-Owned-cell `SimMessages.EmitMass` and single-cell `ConsumeMass` now reserve
-physical gas transfers against the same completed native frame. Injection
-arrives at rest; selective extraction carries the selected gas's internal
-energy and its share of face momentum and kinetic energy. Injection retains
-existing momentum and returns the kinetic mixing loss as heat. Every other
-constituent, including trace helium, remains in the physical inventory.
-These are declared point-source boundaries; pumps still need accountable
-aperture flow, work and output reservations.
+Owned-cell `SimMessages.EmitMass` and single-cell `ConsumeMass` reserve
+physical gas transfers against the completed native frame. Injection arrives
+at rest, keeps existing momentum and returns the kinetic mixing loss as heat.
+Selective extraction carries the selected gas's internal energy and its share
+of face momentum and kinetic energy; every other constituent, including trace
+helium, stays. These are declared point-source boundaries: pumps still need
+accountable aperture flow, work and output reservations.
 
-The current transfer ABI 2 has 64-byte commands, 88-byte receipts and a
-104-byte status with all five constituent accounts. Heat and mass commands share an ordered immutable candidate.
-Enqueue publishes no physical change or callback. The native worker commits
-the candidate, advance, constituent/energy accounts and receipts together.
-Session IDs, expected frames and receipt sequences reject stale work.
-Receipts remain in a bounded outbox until acknowledged with a coherent owned
-snapshot. The snapshot appends the actual game's mass callback records;
-normal game callback managers then deliver them. Callback handles retain all
-32 bits. Binary32 callback amounts agree exactly with the physical transfers;
-unrepresentable extraction remainders stay in the source.
+Transfer ABI 2 status carries all five constituent accounts. Heat and mass
+commands share one ordered immutable candidate. Enqueue publishes no physical
+change or callback; the worker commits the candidate, advance,
+constituent/energy accounts and receipts together. Session IDs, expected
+frames and receipt sequences reject stale work. Receipts stay in a bounded
+outbox until acknowledged with a coherent owned snapshot, which appends the
+game's mass callback records for ONI's normal callback managers to deliver.
+Callback handles keep all 32 bits. Binary32 callback amounts equal the physical
+transfers exactly; unrepresentable extraction remainders stay in the source.
+Fault snapshots clear already delivered event lists before keeping the last
+physical frame, so a stopped publication cannot replay callbacks.
+Handle-indexed emitter, chunk, building-temperature and disease status tables
+stay owned and available while paused.
 
-The real-game control injects 0.05 kg of oxygen and consumes 0.02 kg using the
-ordinary game message APIs. It requires one successful emission callback and
-one consumption callback, unchanged original native cells, no original native
-message dispatch, and independently checked mass and U+K accounts. Fault
-snapshots clear already delivered event lists before retaining the last physical
-frame, so a stopped publication cannot replay callbacks. Handle-indexed emitter,
-chunk, building-temperature and disease status tables remain owned and available
-while paused; they are read by game components independently of frame events.
+`native-transfer-domain` (`transfer`) injects 0.05 kg of oxygen and consumes
+0.02 kg through the ordinary game APIs. It requires one emission and one
+consumption callback, unchanged original native cells, no original native
+message dispatch and independently checked mass and U+K accounts.
+`native-carbon-domain` (`carbon`) does the same with CO2 at 310 K and requires
+transported CO2 in the completed mixture reading.
 
-Current transfers support nitrogen, oxygen, helium and carbon dioxide in occupied gas cells.
-Filled-water transfers are described below. Empty-cell transitions, disease-bearing injection, spatial consumption,
-mixed-owner batches, spatial/bulk actors and producer reservations require
-additional adapters. Unsupported requests reject before dispatch.
+Supported: nitrogen, oxygen, helium and carbon dioxide in occupied gas cells,
+and water in filled cells (below). Radius and rectangular consumption and
+additive cell-mass edits are in [transactions](native-domain-transactions.md).
+Empty-cell transitions, disease-bearing injection, mixed-owner batches, bulk
+actors and producer reservations need further adapters; unsupported requests
+reject before dispatch.
 
 ## Filled-liquid point sources
 
-The same transfer ABI and game message route admit water in an already filled,
+The same transfer ABI and message route admit water in an already filled,
 single-liquid cell. Injection declares a parcel at rest, at the supplied
-temperature and the receiving cell's pre-edit pressure. Its internal energy
-includes both the caloric reference and stored elastic compression energy.
+temperature and the receiving cell's pre-edit pressure; its internal energy
+includes both the caloric reference and the stored elastic compression energy.
 Extraction carries the local specific internal energy and its share of face
 momentum and kinetic energy. The fixed-volume EOS resolves the resulting
 pressure and temperature from conserved state. No implicit pump work or
-enthalpy flux is added; a production pump still needs its own work account.
+enthalpy flux is added.
 
-The immutable operator rejects gas/liquid mixing, another liquid material,
-passive metadata without an adapter, empty cells and removal that would leave
-a void. A later invalid request leaves every earlier candidate, physical
-publication, clock, account and receipt unpublished. Existing gas-only callers
-retain their phase restriction. Physical checkpoints preserve the resulting
-water inventory, elastic energy and canonical face momentum.
+The operator rejects gas/liquid mixing, another liquid material, passive
+metadata without an adapter, empty cells and removal that would leave a void.
+A later invalid request leaves every earlier candidate, publication, clock,
+account and receipt unpublished. Gas-only scenes keep their phase restriction.
+Physical checkpoints keep the resulting water inventory, elastic energy and
+face momentum.
 
-`native-liquid-transfer-domain` / Windows `-NativeDomain water-transfer` injects
-0.05 kg through `SimMessages.EmitMass`, allows a positive native interval to
-create motion, then extracts 0.02 kg through single-cell `ConsumeMass`. It checks
-the original native cells, both game callbacks once, both acknowledged physical
-receipts, their ordered completed frames, constituent accounts and U+K. Add
-`--save-colony` / `-SaveColony` to write the ordinary paired checkpoint, then run
-the normal `native-load-domain --resave-before-resume` control on that file.
-Restored water need not equal the old 1,100 kg equilibrium fixture: complete
-physical-image replay must still match every resumed native frame exactly.
+Water's caloric reference makes absolute internal energies negative, so
+parcel checks compare the EOS value; positivity is not an energy invariant.
+The independent liquid U+K report uses an explicit binary64 roundoff bound,
+`128 * epsilon * (sum(abs(U)+K) before + after)`, instead of a sub-ULP absolute
+tolerance. Gas tolerances and the native expansion-based accounts are
+unchanged.
 
-Water's caloric reference makes these absolute internal energies negative.
-Parcel checks therefore compare the EOS value; positivity is not an energy
-invariant. The independent liquid U+K report uses an explicit binary64
-roundoff bound, `128 * epsilon * (sum(abs(U)+K) before + after)`, rather than a
-sub-ULP absolute tolerance. Existing gas tolerances and native expansion-based
-mass, momentum and energy accounts remain unchanged.
-
-Private `liquid-point-transfer-linux-native-v2` and
-`liquid-point-transfer-windows-native-v1` pass against the licensed current
-Linux and Windows simulation libraries (the Windows host runs under Wine).
-Each verifies the analytic parcel compression energy, atomic void rejection,
-two receipts and 12 exact continuation frames. Linux's U+K residual is
--0.000236340461 J against a 0.005945860769 J roundoff bound. All 13 Linux native
-CTests and the Linux game adapter build pass. Neither library-only run supplies
-Windows Unity evidence.
-
-The actual Linux Unity `liquid-point-transfer-unity-matrix-v1` source scene
-passes 120 post-priming frames (122 total, 24.400000364 s). Emission and
-consumption callbacks each fire once, on physical receipt frames 7 and 8.
-Extraction carries 4.598286402e-7 J of kinetic energy. The final independent
-U+K residual is -0.000495740632 J against a 0.005945860769 J bound; relative
-constituent residual is 1.10e-15. The ordinary paired save passes full
-header/body readback, retaining physical SHA-256
-`2825e2061363fc30f2c2ebf56717f9ad2d942acb21cc9174db14ecab469b2cdc`
-and colony file
-`66c2f52e5e5900c260e4a51a9de2d45e2c79a1fc9ae7faca248f97309d4bbf63`.
-Its fresh-process reload also passes: the initial physical image is byte exact,
-the forced positive-interval challenge holds three ticks before the frame-zero
-deferred autosave, and every one of 120 continued frames matches. The final
-image at 48.400000721 s is
-`7452717aa82683e56573304476dc49c21bb695cd5b450f3bf8044c4d2746b1ec`;
-the frame-zero autosave is
-`a1f3ddfab4bed05e44307e30342373c58f47d1e122444c5baa7307b644b55f1b`.
-Maximum relative mass/energy drift is 8.27e-16 / 8.14e-14. This cohort uses the
-frozen `0e6dc89` runner/package and Ubuntu 22.04 compatibility native build v5.
-
-The current domain ABI 2 uses 96-byte cells: nitrogen, oxygen, helium, water and
-carbon dioxide masses followed by the physical readings. Domain configuration
-and status stay 40/440 bytes; heat and actor extensions keep ABI 1. Native and
-managed clients reject the older four-species layout. The explicit reference
-model is `oni-sealed-domain-v2`; this is still a limited development catalogue.
+`native-liquid-transfer-domain` (`water-transfer`) injects 0.05 kg through
+`EmitMass`, lets a positive native interval create motion, then extracts
+0.02 kg through single-cell `ConsumeMass`. It checks the original native
+cells, both callbacks once, both acknowledged receipts and their ordered
+frames, the constituent accounts and U+K. Add `--save-colony` and reload with
+`native-load-domain --resave-before-resume`; restored water need not equal the
+1,100 kg equilibrium fixture, but replay must match every resumed frame.
 
 ## Registered gas actors
 
@@ -302,826 +295,315 @@ Selective single-cell consumers and disease-free single-cell emitters use the
 same conserved point-source boundary. ONI allocates the real actor handle and
 delivers its ordinary registration callback. The adapter keeps the native
 transfer at its initial inactive setting, admits the full handle, then routes
-subsequent rates and intervals to the custom worker. Native actors outside the
-domain continue normally. Moving a live actor between owners or admitting an
-already active native transfer requires a separate reservation and rejects.
+later rates and intervals to the custom worker. Native actors outside the room
+continue normally. Moving a live actor between owners or admitting an already
+active native transfer needs a cross-owner reservation and rejects.
 
-Actor ABI 1 uses 80-byte configurations and a 64-byte status. Consumption uses
-the actual native timestep; its binary32 reporting remainder stays with the
-actor's demand. Emission retains interval time, resets the interval on changes,
-and reports blocked/unblocked edges once. The existing game's output limit is
-a gas density in kg/m3; this compatibility setting is not labelled as pascals.
-Actor changes, physical transfers, accounts, clocks and receipts are prepared
-together. A late actor or solver failure commits none of the candidate.
+Actor ABI 1: consumption uses the actual native timestep, and its binary32
+reporting remainder stays with the actor's demand. Emission keeps interval
+time, resets the interval on changes and reports blocked/unblocked edges once.
+The game's output limit is a gas density in kg/m³; this compatibility setting
+is not labelled as pascals. Actor changes, physical transfers, accounts,
+clocks and receipts are prepared together, and a late actor or solver failure
+commits none of the candidate.
 
 Completed consumer records feed the actual `ElementConsumer.AddMass` path.
 Emitter records overlay the allocated native status slot; they are status
-samples, not callback events. The latest completed emission status remains
-available during synchronization-only queries. Native positive transfers for
-an admitted handle fail verification. Block notifications use ONI's normal
+samples, not callback events, and the latest completed status stays available
+during synchronization-only queries. A native positive transfer for an
+admitted handle fails verification. Block notifications use ONI's normal
 callback manager. Removal retires the custom actor and ONI's inactive handle.
 
-Owned actor rate/interval configuration batches now prepare all commands
-against one session/frame and commit the ordered registry update together.
-The additive `ma_oni_domain_configure_actors` entry point keeps actor ABI 1;
-it accepts at most 256 commands. A late invalid material, stale frame or
-missing removal handle changes no earlier configuration or output. Repeated
-handles follow command order, with the final configuration governing the next
-physical timestep. Registration, configured rates and physical execution are
-separate; configuring a batch advances no time and emits no mass callbacks.
+### Atomic actor batches
+
+`ma_oni_domain_configure_actors` (actor ABI 1, at most 256 commands) prepares
+every rate/interval command against one session/frame and commits the ordered
+registry update together. A late invalid material, stale frame or missing
+removal handle changes no earlier configuration or output. Repeated handles
+follow command order; the final configuration governs the next timestep.
+Configuring a batch advances no time and emits no mass callbacks.
 
 The managed native-message bridge preflights ownership before admission.
-Supported batches containing only owned consumer/emitter configurations use
-the custom registry; batches of unowned actors retain native dispatch.
-Consumer/emitter registration batches now decode all owned callback bindings
-before publishing any of them, then forward the original inactive native
-registrations. Duplicate callbacks, unsupported materials/radii and malformed
-late entries reject the complete plan without adding earlier bindings. An
-outside consumer keeps its native admission rules. Emitter location/material
-admission still occurs at its later configuration message.
+Batches of owned actors use the custom registry and batches of unowned actors
+keep native dispatch. Registration batches decode all owned callback bindings
+before publishing any, then forward the original inactive native
+registrations; duplicate callbacks, unsupported materials or radii and
+malformed late entries reject the whole plan. Owned removal batches retire
+their complete custom set, then forward the original batch to retire ONI's
+inactive registrations. An outside consumer keeps its native admission rules,
+and emitter location/material admission happens at its later configuration
+message. Mixed-owner mutation batches reject before dispatch.
+Forwarding an inactive registration to a native outside transfer retires its
+eligibility for later custom admission.
 
-Owned removal batches atomically retire their complete custom registry set,
-then forward the original batch to retire ONI's inactive registrations. A
-missing/stale/duplicate removal changes no earlier custom actor. Mixed-owner
-mutation batches and moving an owned handle outside still reject before
-dispatch; these need a cross-owner reservation. Forwarding an inactive registration to a native
-outside transfer retires its eligibility for later custom admission.
+An emitter's first owned configuration resolves its declared material even
+when the output mass is zero (a new water emitter otherwise kept the binding's
+default gas species and failed phase admission). Later zero-output
+configurations keep their admitted material; positive output always validates
+the current material.
 
-`native-actor-domain` spawns an actual Unity `ElementConsumer`, registers an
-emitter through the ordinary game API, changes both rates, blocks/unblocks
-output, disables and removes the actors, then verifies continuing physical
-frames without further actor transfers. It does not reserve producer inventory,
-power or output work, and it does not enable pumps, spatial consumers, disease,
-construction or general building gameplay.
-The same control also sends two ordered rate changes for the actual owned
-consumer in one batch, verifies the batch avoids original native dispatch,
-and forwards a zero-rate batch for a second actual Unity consumer outside the
-domain. Subsequent physical callbacks must reflect the final owned rate.
-The extended fixture registers two real emitter handles in one native batch,
-configures both, holds the second at zero output for eight frames, enables it
-for the next interval, disables it again, and removes both in
-one owned/native retirement batch. Reports separately require both handle
-callbacks and both batch admissions, all physical receipts, and continued
-frames without transfers after retirement. Five declaration-level regression
-groups pass against each platform's licensed assemblies (106 total per
-platform); the extended real-player control is tracked separately from the
-historical one-emitter cohorts below.
-
-Frozen `d43f880` with compatibility build v9 passes the extended Linux gas
-source in `actor-batch-unity-matrix-v1/actor-save`: 121 frames / 24.200000361 s,
-both real emitter registration callbacks, one registration batch, one
-retirement batch, 32 actual consumer callbacks and 80 emitter status samples.
-Both density-edge callbacks occur once; removal at frame 47 is followed by
-74 frames without actor transfers. U+K residual is -1.77527e-9 J against the
-unchanged 1e-6 J bound; maximum relative mass error is 1.80e-15. The ordinary
-save passes full header/body readback with physical SHA-256
-`937e1e16012e214832759073a06b4188d6bc7731d8125bef58e36a795a866281`
-and colony-file SHA-256
-`8fe04815aea3c61497a37beb2462f7b60072ad83a10c2a672a725dcaecc05215`.
-The gas reload also passes its frame-zero autosave and all 120 exact continued
-frames, ending at physical SHA-256
-`e40b28e56e60707ef55cdbcad0cb30a0af4e97ee08ed8ca14719baca56f989cf`
-at 48.200000718 s. The water batch source passes 122 frames / 24.400000364 s,
-32 real consumer callbacks and 80 emitter samples, with U+K residual
--0.00278130483 J against 0.00594629911 J. Its saved physical image is
-`b4d173b1e54d48e05d14d2f2cc409d5df72e7f3f0ae6b3698ceaca680be73d0c`
-and colony-file hash is
-`4038185fb71f3930ce5b7fb4d49d6961fbd124a70890d56f63802cef4527410d`.
-The water reload also passes its frame-zero autosave and all 120 exact continued
-frames. Its final physical image is
-`a3c61fd9e015f7b4ec8080e64c65a9b04d1b4a290aad524d50cde353aa58c1e3`,
-and its frame-zero autosave file hash is
-`a8cb2356ffeaf083eef3356766e4c69e8a7a8318f574057b0232e86d5e51de76`.
-This historical batch cohort enabled its second emitter immediately; the
-initial-zero extension below has a separate gate.
-
-### Initially disabled emitters
-
-An emitter's first owned configuration now resolves its declared material
-even when output mass is zero. Previously a newly registered water emitter
-kept the binding's default gas species and failed native phase admission.
-Later zero-output configurations retain their admitted material; positive
-output always validates the current material. Unsupported materials still
-reject. The extended actor control holds a new emitter at zero for eight
-physical frames, requires real zero-mass status samples with the correct
-phase, then enables it, disables it again and retires both emitter handles.
-The report and validator require that zero-output interval explicitly; runtime
-verification of this extension is separate from the preceding batch cohort.
-
-The frozen `789b914` Linux adapter and Ubuntu 22.04 native build v9 pass all
-four real Unity cases in `initial-zero-actor-unity-matrix-v1`: gas source/save,
-gas load, water source/save and water load. Each source holds the second emitter
-at zero for eight real status samples, then emits 0.109375 kg before disabling
-and retiring it. Both sources pass 32 consumer callbacks, 80 emitter samples,
-both registration callbacks, configuration/retirement batches and the ordinary
-paired save. Gas U+K residual is -3.52571590e-10 J against 1e-6 J; water residual
-is -0.00185072020 J against the unchanged 0.00594629911 J bound. Both loads pass
-the positive paused-tick challenge, ordinary deferred frame-zero autosave,
-complete readback and all 120 exact continued physical images. Source files
-remain unchanged.
-
-| Linux initial-zero control | Source physical SHA-256 | Final reloaded physical SHA-256 |
-| --- | --- | --- |
-| Gas | `4b8f1deecf9fc857085ffff58fcc8690f33231b3bd0e1aa075cc753a8e20d2ad` | `719fd148ca9d39016820a13b361e7f6d700b0d90c2df5e1c0f943db11f4d3588` |
-| Water | `837b057ec9298754926898ea03f8f1b8af3ae2e23ed6ca3af946f77d66939bf5` | `b3dc54cb0e853ff4672431d58c2cf459a58f94969b358ce94c2f1aa17ac4a2b4` |
-
-The corresponding source colony files have SHA-256
-`e751c40933efa73b3cc2b2c956cd903dfa96a9f30e15df8e92adb845ede25fd7`
-and `5e7872fe93ce68d75939faf3943a271a6fc6d2f6796557c9772b6fe62b3973de`.
-Actors are retired before saving; this control does not establish live-actor
-persistence.
-
-Native Windows ONI now passes this extension in `windows-zero-emitter-r1`,
-using the clean merged `c346d93` package. All 9 nitrogen checks, 106
-snapshot/actor-boundary scenarios, 31 inspection checks and the adapter/package
-build pass. Original and patched tag-helper checks pass in the actual player,
-which records `NativeTagHelpersVerified=true`.
-
-At frame 121, the second water emitter has delivered seven zero-mass status
-samples before enablement, retains its water identity, and later emits
-0.109375 kg before disabling again. Both batch admissions, 32 actual consumer
-callbacks, 80 emitter status samples, density edges, retirement and the ordinary
-paired save pass. U+K residual is -0.00438798985 J against the unchanged
-0.00594629911 J bound. Complete header and 10,608,863-byte body readback match;
-the physical hash is
-`6405339d1df2962067597e88c9787aa3ef1c55c782f7f727689627dd1baf0a34`.
-Actual blue-water hover and all six sampled GPU cells match the completed
-physical publication. The process closes successfully, removes its temporary
-mod and restores all 13 original profile files exactly; default and installed
-native libraries remain unchanged. Private terminal review SHA-256:
-`62b9eda857ee686885c773065514d2a77e17dc4abb8b74609a3b0a691f9c80a1`.
-This remains a six-cell source/save control after actor retirement, with no
-live-actor persistence, production device or first-playable acceptance.
-
-### Actual Windows actor batches
-
-The merged `9e57308` source with the explicit nitrogen reflection check passes
-8 nitrogen groups, 106 snapshot/actor-boundary scenarios, 31 inspection groups,
-the adapter/package build and actual native Windows ONI. Native libraries are
-reused only after checking their hashes and unchanged native build inputs
-against the prior completed MSVC readiness run.
-
-`windows-actor-batch-merge-r3` and `windows-water-actor-batch-r1` both pass the
-extended real-consumer/two-emitter fixture: one registration batch, both handle
-callbacks, one retirement batch, 32 actual consumer callbacks and 80 emitter
-status samples. The two density-edge notifications occur once, ordinary
-outside actors retain native dispatch, and no actor transfer follows removal.
-
-| Windows source | Completed frame | U+K residual | Unchanged energy bound |
-| --- | ---: | ---: | ---: |
-| Mixed gas | 120 | -2.0305062e-9 J | 1e-6 J |
-| Filled water | 121 | -0.00270530765 J | 0.00594629911 J |
-
-Both ordinary paired saves pass complete header/body readback. Actual mouse
-hover retains the same completed physical object and publication as the bound
-GPU phase, colour, opacity and danger pixels. Gas hover lists both non-trace
-gases; water remains visibly blue and reports its actual fluid pressure and
-no breathable gas phase. Source physical hashes are
-`338f3c1b6b85cf7afd2339ff6adf0b9739d337eb931832e7c40784efcd1b9d9f`
-and `5bc367dcfd108d2a77d5a69d99eaf6d481620c15c92f33a2f5030afb4f05f3ca`.
-
-`windows-water-actor-batch-reload-r1` loads that water save twice in one Unity
-process, observing shutdown and the main menu between native sessions 1 and 2.
-Both paused autosaves/readbacks pass and all 120 continued physical frames
-match. Both sessions retain physical hash
-`d483b6778feaa50b4b10b8aa5212c12a1ab0e6b98aba6f83f0b2436354719461`
-at 48.200000718 s. Second-session water hover and the GPU inputs still match
-the completed physical reading. Neither resave logs a missing KPrefabID warning
-for this newer input; the older retained water input's warning is not claimed
-fixed. Each process closes successfully, removes its temporary mod and restores
-all 13 original profile files exactly. The original/staged load input and the
-default/installed native libraries remain unchanged.
-
-Private terminal review SHA-256 values:
-
-- Gas source: `0a024be165cafe1de7afa4a9bfbd1aebb0a779db374e4e044c31f46c2dd7f3ea`.
-- Water source: `b5da438b744287fe6c96336dc7b7ec8ac7277c70de36f7915dc874083cc81b5c`.
-- Water reload: `29498216eea4967d1b1a02d6db157e0db2ab7ac7f2e1b6dbc5fae531dca437ff`.
-
-The first preflight's compile failure and the next launch's rejected plural
-mode name remain recorded separately; neither starts ONI. The corrected game
-launch reuses the unchanged passing package. These saves contain the completed
-state **after actors have retired**. Live actor/outbox persistence, production
-device reservations, mixed-owner mutations, arbitrary colony ownership and
-first-playable acceptance remain open.
-
-### Filled-liquid registered actors
+### Filled-liquid actors
 
 Actor ABI 1 also admits water consumers and emitters in the compressed-water
-domain. They use the same elastic-energy parcel contract as the liquid point
-messages. Phase admission matches the domain: gas actors cannot enter filled
-water, and liquid actors cannot enter a gas domain. Rates, intervals, atomic
-configuration batches, binary32 reporting remainders, receipts, density edges
-and retirement share the existing worker transaction. The ABI's historical
-`maximum_gas_density_kg_m3` field compares total fluid density for these water
-point emitters; it is a compatibility output limit with no pump work model.
+domain, with the same elastic-energy parcel contract as the liquid point
+messages. Gas actors cannot enter filled water and liquid actors cannot enter a
+gas domain. The ABI's historical `maximum_gas_density_kg_m3` field compares
+total fluid density for water emitters; it is a compatibility output limit
+with no pump work model.
 
-`native-liquid-actor-domain` / `-NativeDomain water-actor` runs the same real
-Unity consumer/emitter fixture with water, including changed rates, both
-density edges and no transfers after removal. It needs at least 80 native
-frames. Its independent U+K comparison uses the explicit liquid binary64
-roundoff bound described above. The new Linux and Windows-under-Wine native
-regressions pass liquid rate/cadence, later phase rejection, blocked/unblocked
-edges, constituent accounting and removal. The rendered liquid actor scene is
-verified in the actual Linux game as described below. Live actors still block physical/colony checkpoints;
-the optional save control runs after the fixture has removed them. Full actor
-and callback-outbox persistence remains open.
+### Actor scenes
 
-The frozen `2894420` / compatibility v6 `liquid-actors-and-native-features-unity-v1`
-water-actor pair passes both Unity processes. The source completes 121 native
-frames, 32 actual `ElementConsumer` callbacks, 40 emission samples, one blocked
-and one unblocked callback, an owned configuration batch and ordinary outside
-batch, followed by removal with no later actor transfers. Actual consumed and
-emitted mass is 0.200000005309 / 1.09375 kg. U+K residual is -0.003282268941 J
-against a 0.005946249839 J roundoff bound. The ordinary saved physical image is
-`156609a30b8658048a4fcabc79f00075b8e3de5105d99c1f806edc529c1706f9`
-at 24.200000361 s, with colony file
-`9c856e8400c07660d33cb8cbfeaae749c01d07b9826109f36ef5a7b067c76c68`.
-Fresh-process reload passes the initial autosave/pause challenge and all 120
-exact frames through 48.200000718 s, ending at
-`0792a60f84be1e754cfcf88f8a867cc52cf314942c7e2813409f379f1ed73c31`.
-That frozen cohort does not supply native Windows evidence; the later
-[Windows actor-batch controls](#actual-windows-actor-batches) and
-[initially disabled emitter control](#initially-disabled-emitters) cover the
-newer adapter in the actual Windows player.
+`native-actor-domain` (`actor`) and `native-liquid-actor-domain`
+(`water-actor`) need at least 80 frames (use 120). They spawn a real Unity
+`ElementConsumer`, register two emitters in one native batch, change rates in
+an owned batch while a second real consumer outside the room keeps native
+dispatch, hold the second emitter at zero output for eight frames with
+correct-phase zero-mass status samples, enable and disable it, block and
+unblock output, and retire everything in one owned/native batch. They then
+require continuing frames without actor transfers. Reports separately require
+both registration callbacks and batch admissions, all receipts and the
+zero-output interval. The optional ordinary save runs after retirement; live
+actor saves are covered in
+[durable point actors](native-domain-persistence.md#durable-point-actors). The
+scenes reserve no producer inventory, power or output work and enable no pumps,
+spatial consumers, disease or construction.
 
-## Run the actual Linux colony controls
+## Paused colony persistence
 
-The [frozen save/load matrix](native-validation-matrix.md) runs every implemented
-scene and its fresh-process reload with one package and runner snapshot.
+The [physical checkpoint](../native/MAC_CHECKPOINT.md) keeps the complete
+owner, including physical U and full canonical momentum.
+`native-checkpoint-domain` (`checkpoint`) exports a drained, actor-free frame
+and requires its independent continuation to match the exact next worker frame.
+`native-paired-checkpoint-domain` (`pair`) captures native cells and the
+physical owner at one worker barrier, verifies the original native tuples in
+the saved image, checks immutable buffers and validates their shared
+`MACOLONY` container. The isolated `sealed-restore*` controls reload both
+sections through the licensed native loader.
 
-The [physical checkpoint format](../native/MAC_CHECKPOINT.md) now preserves the
-complete native owner, including physical U and full canonical momentum.
-`native-checkpoint-domain` checks restored continuation against the exact next
-worker frame in the real game. Export requires a drained actor-free frame.
-General actor/outbox persistence remains unfinished.
-The actor-free save/load path below now pairs both owners with
-Unity's normal managed colony; both scalar-save guards remain enabled outside
-that single staged save call.
-`native-paired-checkpoint-domain` additionally requests capture at the native
-worker barrier, verifies the original native cell tuples in that saved image,
-checks immutable native/physical buffers and encodes and validates their shared
-`MACOLONY` container. It remains a bounded paired capture, with ordinary
-general save/load admission and actor persistence still unfinished.
-The isolated `sealed-restore`, `sealed-restore-water` and
-`sealed-restore-gravity` controls now reload both paired sections through the
-licensed native loader. They preserve the complete physical state/clock,
-restore native flow flags at zero time and match twelve resumed worker images
-exactly. Source validation rejects corrupt metadata, inventory, geometry,
-phase or clock before native loading. This passes on Linux and the Windows
-library under Wine. The bounded Unity binding is described below.
+**Save.** The ordinary `SaveLoader.Save` entry (manual saves and autosaves)
+pauses and synchronizes the owner, captures both owners and writes a full ONI
+colony; one staged `Sim.Save` writes the paired envelope, and a finalizer
+retires the pair and restores the exact prior pause count. Pending commands,
+owned actors without durable identities, undelivered receipts, nested calls and
+foreign threads reject before serialization. Unstaged `Sim.Save` and the native
+begin-save detour reject (a direct `SIM_BeginSave` returns null/zero), so an
+ordinary scalar save can never stand in for the physical owner. The file is flushed and
+renamed from a fresh temporary destination, readback checks the complete body
+and paired section, and the physical state must stay byte-identical during
+serialization. `native-save-domain` (`save`) exercises this from a running
+colony, including a pending-command save that is declined, keeps its command
+and creates no file; `--save-colony` adds the save to another scene.
 
-### Long development runs
-
-`ColonyValidationConfiguration.LongRun` is the explicit request for ten-cycle
-runs: up to 100,000 frames and 48 hours in `native-domain`,
-`native-liquid-domain` and `native-mixed-domain` (plus `snapshot-copy` and
-`native-observer`). Short requests keep 10,000 frames and 7,200 s. Long runs
-reject the fixed-window save, reload, actor, breathing and particle controls
-and saved-colony replay, whose evidence is one journal per frame. The scene
-itself retains only bounded state per frame; natural autosaves go through the
-ordinary paired admission. Runs append flushed development telemetry with
-native-domain status, game-thread native wait, managed publication and
-presentation latency, and memory. See
-[the runner instructions](../tools/ONI_HEADLESS.md#long-development-runs).
-This is harness capacity, not evidence of a playable colony or production
-timestep.
-
-### Paused colony persistence
-
-The ordinary `SaveLoader.Save` entry now pauses/synchronizes the bounded owner,
-captures both owners and writes a full ONI colony. One staged `Sim.Save`
-writes the paired envelope. The save finalizer retires the pair and restores
-the exact prior pause count. Pending commands, live owned actors, undelivered
-receipts, nested calls and foreign threads reject before serialization.
-`native-save-domain` exercises this entry from a running colony, including a
-rejected pending-command save that retains its command and creates no file. The file
-is flushed and renamed from a fresh temporary destination, and the physical
-state must remain byte-identical during serialization.
-
-`native-load-domain` loads that file through the normal scene loader in a fresh
-process. It validates both sections before native Load, restores the exact
-physical owner after native startup, reinstalls flow flags at zero time and
-delivers retained native startup events once. The managed scene, grid,
-renderer, outside native heat and every resumed physical frame are verified.
-Gas, compressed water and gravity retain their saved scenario. The optional
-`--resave-before-resume` saves through `Game.StartDelayedSave` and the normal
-autosave coroutine at restored
-publication frame zero, requiring the exact saved state/clock and unchanged
-pause depth before resuming. New owners at physical time zero remain ineligible.
-This remains an actor-free development path; actual menu clicks/day-rollover triggers,
-owned actor persistence and whole-colony ownership remain open.
-
-The Linux runner now uses a stable private Dev mod identity across fresh
-profiles. For a file made by the older runner, supply its original folder ID
-with `--mod-id` to avoid ONI's informational Mod Differences dialog.
+**Load.** `native-load-domain` (`load`) loads the file through the normal
+scene loader in a fresh process. It validates both sections before native
+Load, restores the exact physical owner after native startup, reinstalls flow
+flags at zero time and delivers retained native startup events once. The
+managed scene, colony GUID and duplicants, grid, renderer, outside native heat
+and every resumed physical frame are verified. Gas, compressed water and
+gravity keep their saved scenario. `--resave-before-resume` autosaves through
+`Game.StartDelayedSave` and the normal coroutine at restored publication frame
+zero, requiring the exact saved state and clock and unchanged pause depth
+before resuming. A simulation-tick gate holds positive intervals until that
+save completes: the pause count alone cannot exclude a positive delta time that
+Unity latched before the pause. New owners at physical time zero are
+ineligible. The save/load mechanics are specified in
+[paused Unity colony save/load](../native/MAC_CHECKPOINT.md#paused-unity-colony-saveload).
 
 ```sh
 python3 tools/oni_headless.py run --package <package> \
   --mode native-save-domain --frames 120 --timeout 1200
 python3 tools/oni_headless.py run --package <package> \
-  --mode native-load-domain --load-save <first-run-native-colony.sav> \
+  --mode native-load-domain --load-save <saved-colony.sav> \
   --resave-before-resume --frames 120 --timeout 1200
 ```
 
-The source file is copied into the new run and its SHA-256 checked before and
-after staging. The game loads that private copy. The Windows wrapper accepts
-`-NativeDomain save` and `-NativeDomain load -LoadSave <file> -ResaveBeforeResume`.
-Use `--save-colony` / `-SaveColony` with another initial native domain scene.
-The [Windows feature cohort](#additional-windows-feature-controls) below now
-verifies ordinary air/water writes, fresh-process loads and deferred paused
-autosaves through these entries. Actual menu clicks and day-rollover triggers
-remain separate checks.
+The runners copy the input into the new run and check its SHA-256 before and
+after; a changed original fails, and Save As paths stay inside the run. The
+Linux runner uses a stable private Dev mod identity across profiles; for a file
+made with another folder ID, pass it with `--mod-id` to avoid ONI's Mod
+Differences dialog. On Windows use `-NativeDomain save` and `-NativeDomain load
+-LoadSave <file> -ResaveBeforeResume`. Live actors, in-flight particles, day
+autosaves and main-menu reloads extend this path in
+[persistence](native-domain-persistence.md).
 
-Build the native backend and the normal ONI adapter, then create a fresh package:
+## Save failure recovery and native metadata
+
+Save admission reports a busy source without escaping through ONI's save
+coroutine. Handled disk and readback declines keep the previous active save
+selection and ONI's existing dialog, retire the pair and pause request, and let
+ONI finish its deferred-save callbacks and restore dragging.
+`--verify-save-io-recovery` (`-VerifySaveIoRecovery`; `native-save-domain`,
+at least 16 frames) targets a directory as the save file, accepts only ONI's two
+stock disk-error messages (Mono reports access denied for a directory target),
+verifies the retained sentinel and the unchanged physical image, then resumes
+and completes a normal verified save.
+
+ONI 744825 can serialize a native cell outside the domain with disease hash
+zero and a positive count (observed: count 24). Both licensed native loaders
+normalize it to no disease. Preserved-world checks accept that opaque
+native-owned metadata; fluid migration stays strict and owned cells still
+require zero disease fields.
+
+**Status.** Linux Unity passes one pending-command decline and one denied
+write with all three instrumented callbacks once, and restores dragging, pause
+depth and the previous selection. The resumed save matches the uninterrupted
+control's physical image, and its fresh-process reload passes the frame-zero
+autosave and 120 exact frames. The failure UI is not yet tested on Windows.
+
+## Scenes and how to run them
+
+Short names are the Windows `-NativeDomain` values and the
+[matrix](native-validation-matrix.md) scene names; Linux modes are
+`oni_headless.py --mode` values.
+
+| Short name | Linux mode | Checks | Contract |
+| --- | --- | --- | --- |
+| `gas` | `native-domain` | Mixed-air owner, exclusions, projection, rendering | [Execution](#execution-and-ownership) |
+| `water` | `native-liquid-domain` | Compressed-water owner | [Model](#physical-model-and-domain-abi) |
+| `heat` | `native-heat-domain` | Game heat messages | [Heat commands](#conserved-game-heat-commands) |
+| `conduction`, `water-heat` | `native-conduction-domain`, `native-liquid-heat-domain` | Internal conduction | [Conduction](#internal-fluid-conduction) |
+| `transfer`, `carbon` | `native-transfer-domain`, `native-carbon-domain` | O2 and CO2 point transfers | [Point sources](#gas-point-sources-and-game-callbacks) |
+| `water-transfer` | `native-liquid-transfer-domain` | Water point transfers | [Liquid point sources](#filled-liquid-point-sources) |
+| `actor`, `water-actor` | `native-actor-domain`, `native-liquid-actor-domain` | Registered actors (80+ frames) | [Actors](#registered-gas-actors) |
+| `gravity` | `native-gravity-domain` | Gas gravity, carried potential | [Gravity](#gravity-and-carried-potential-energy) |
+| `water-gravity` | `native-liquid-gravity-domain` | Scenario 3 | [Physics](native-domain-physics.md#filled-liquid-gravity) |
+| `mixed`, `mixed-heat`, `viscous` | `native-mixed-domain`, `native-mixed-heat-domain`, `native-viscous-domain` | Scenarios 4–6 | [Physics](native-domain-physics.md#occupied-gasliquid-cells) |
+| `import`, `water-import` | `native-import-domain`, `native-liquid-import-domain` | Start from native cells | [Physics](native-domain-physics.md#initial-inventory-admission) |
+| `solid-heat` | `native-solid-heat-domain` | Solid-cell heat (open in Unity) | [Physics](native-domain-physics.md#native-solid-cell-heat) |
+| `radius`, `rectangular` | `native-radius-domain`, `native-rectangular-domain` | Spatial consumption | [Transactions](native-domain-transactions.md#radius-consumption) |
+| `carbon-particle` | `native-carbon-particle-domain` | Real breath particle (30+ frames) | [Transactions](native-domain-transactions.md#additive-cell-mass-edits) |
+| `breathing-read` | `native-breathing-read-domain` | Breathing reader (30+ frames) | [Readers](native-domain-readers.md#breathing-selection) |
+| `pressure-read`, `water-pressure-read` | `native-pressure-read-domain`, `native-liquid-pressure-read-domain` | Pressure reader | [Readers](native-domain-readers.md#physical-pressure) |
+| `checkpoint`, `pair` | `native-checkpoint-domain`, `native-paired-checkpoint-domain` | Checkpoint continuation, paired capture | [Persistence](#paused-colony-persistence) |
+| `save`, `load` | `native-save-domain`, `native-load-domain` | Ordinary save, fresh-process load | [Persistence](#paused-colony-persistence) |
+| — (Linux only) | `native-configured-domain`, `native-configured-water-domain` | 7×5 rooms with interior solids | [Configured domain](native-configured-domain.md) |
+
+Build an observer-enabled package as in the
+[README](../README.md#compile-install-and-enable), then on Linux:
 
 ```sh
-python3 tools/build.py --oni-native-observer --build-dir build-oni-observer \
-  --game-dir /path/to/OxygenNotIncluded
-python3 tools/package_probe.py \
-  --native build-oni-observer/libmixed_atmospheres.so \
-  --native-observer build-oni-observer/libmixed_atmospheres_oni.so \
-  --output artifacts/sealed-domain-package
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-domain --frames 30 --timeout 600
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-liquid-domain --frames 30 --timeout 600
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-heat-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-transfer-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-actor-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-carbon-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-conduction-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-gravity-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-checkpoint-domain --frames 120 --timeout 1200
-python3 tools/oni_headless.py run --package artifacts/sealed-domain-package \
-  --mode native-paired-checkpoint-domain --frames 120 --timeout 1200
+python3 tools/oni_headless.py run --package <package> \
+  --mode native-domain --frames 120 --timeout 1200
 ```
 
-These runs use separate fresh profiles on the authenticated virtual desktop.
-`native-domain.json` records physical progress, conservation, suppressed native
-phases, projection controls, solid conduction and renderer publication. The
-runner requires these facts and the native backend report, in addition to the
-normal colony/probe report. It also requires the actual game's `Grid` fields
-to match the physical projection, texture writes for the current publication
-generation, and a save attempt rejected before native saving or any output.
-It rejects idle workers, changed compatibility cells, missing controls,
-nonfinite diagnostics and claims of whole-colony or playable readiness. A
-passing offline native test is insufficient to pass this game-level gate.
-
-The old `snapshot-copy` mode still stages the complete generated colony and
-still rejects its unsupported incompressible liquid placement. A passing sealed
-water experiment does not repair that importer or authorize full-world import.
-
-## Current evidence
-
-Actual native Linux Unity runs on ONI 744825, 2026-10-16, use a private
-authenticated Xvfb desktop with rendering enabled. They are normal licensed
-game processes, not a mocked simulation or Unity `-nographics` mode.
-
-| Run | Result |
-| --- | --- |
-| `20261016T181635Z-d3a772` | Failed. Initially paused because of an incorrect speed-control call; manually unpaused for diagnosis. It does not count as an automatic pass. |
-| `20261016T182613Z-13cfc2` | Failed. Original-flow control moved, but restored compatibility cells did not remain fixed. |
-| `20261016T183805Z-270de8` | Failed. Additional gas entry hooks did not stop native transport; their counters stayed zero. |
-| `20261016T185522Z-8a9584` | Failed before physical advancement. Flow-flag installation displaced scalar gas during bootstrap. |
-| `20261016T191212Z-b81fc7` | Failed after ten custom native frames (2.0 s, 210 solver substeps). The restored scalar pattern was verified at frame one, then two scalar masses were exchanged. The original-flow control, flow flags, continuing native solid heat, copied native channels and retained physical frame checks succeeded. Renderer, game-grid projection and save-guard acceptance were not reached. |
-| `20261016T191955Z-858237` | Passed compressed-water equilibrium control: 32 native frames, 30 after projection priming at frame two, 6.4 s and 672 solver substeps. Original-flow contrast, unchanged native compatibility tuples, copied channels, retained physical frames, actual game-grid projection, current-generation texture writes, native solid heat and save rejection all pass. No mod failure lines were reported. |
-| `20261016T194104Z-564b3b` | Passed corrected mixed-air control: 121 native frames, 120 after projection priming, 24.2 s and 2,541 solver substeps. All six mass/temperature compatibility tuples remain unchanged, while custom oxygen transport, copied snapshots, all-six-cell game-grid projection, current-generation rendering, native solid heat and save rejection pass. No mod failure lines. |
-| `20261016T194433Z-dc7013` | Passed corrected compressed-water control: 122 native frames, 120 after priming, 24.4 s and 2,562 solver substeps. Zero mass/energy drift, 1,586 excluded liquid calls, 488 thermal calls and 732 post-processing calls. All-six-cell grid projection, rendering, exact compatibility tuples, solid heat and save rejection pass. No mod failure lines. |
-| `20261016T195730Z-4b7c8c` | Passed actual game heat messages: +2,000 J heating and −500 J cooling, committed on the native clock. Net physical U+K rises by 1,500 J, with residual −4.54e−9 J after 120 post-priming frames. The original native message entry is never called for either heat packet; grid, rendering and native compatibility checks pass. |
-| `20261016T200324Z-fbdef4` | Repeats the heat pass and additionally verifies that a direct native `SIM_BeginSave` returns null/zero without starting a scalar save. Normal managed saving also rejects before writing. |
-| `20261016T200702Z-8e3b53` | Passes after merging the new geometric momentum transport: 122 native frames, 120 after priming, 2,562 substeps, two heat commands and net 1,500 J. U+K heat residual is −1.63e−9 J, maximum relative mass drift 2.06e−15 and energy drift 3.94e−15. Grid, rendering, unchanged native tuples, native solid heat and both save guards pass, with no mod failure lines. |
-| `20261016T202909Z-bef415` | Passes real gas injection/consumption and both actual game callbacks exactly once: 122 native frames, 120 after priming, 2,562 substeps. Net oxygen addition is 0.030000001192092896 kg (the exact difference of the game floats); mass residual is 2.01e−15 and U+K residual 1.62e−10 J. Extraction carries 0.0003848342 J of resolved kinetic energy. Both receipts are acknowledged, native compatibility tuples stay exact, grid/render/solid-heat/save checks pass and no mod failure lines occur. Package source is `6bb2b53` plus the recorded dirty gas-transfer changes; private manifests retain the individual library hashes. |
-| `20261016T204654Z-021e13` | Passes actual Unity `ElementConsumer` and registered emitter integration: 122 native frames, 120 after priming, 2,562 substeps. The consumer receives 32 positive samples totalling 0.20000000530853868 kg; 40 emitter status samples account for 1.09375 kg. Both blocked/unblocked game callbacks fire once. Rate changes, interval resets, disable/removal and 74 subsequent native frames without actor transfers pass. U+K residual is −1.78e−9 J and constituent-mass residual 1.03e−15. Original native tuples, actual game emitter status, grid, renderer, solid heat and both save guards pass. Package source is `ea948bd` plus the recorded actor changes. |
-| `20261016T205811Z-f4c02b` | Passes physical carbon-dioxide injection/consumption on domain/transfer ABI 2: 122 native frames, 120 after priming, 2,562 substeps. Actual game callbacks report 0.05 kg CO2 at 310 K injected and 0.02 kg consumed at 300.481354 K. The fifth mass account retains net 0.030000001192092896 kg; chemical/internal energy and carried kinetic energy remain in the U+K account. Energy residual is −3.33e−9 J and constituent-mass residual 1.85e−15. The actual mixture reading contains transported CO2; native tuples, grid, rendering, solid heat and save guards pass, with no mod failure lines. Package source is `203fd55` plus the recorded ABI/CO2 changes. |
-| `20261016T210133Z-3a5041` | Repeats the complete registered-actor pass on domain ABI 2 and the five-species model: 32 actual consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, retained original cells, game status/grid/rendering, conservation and removal checks. No mod failure lines. |
-| `20261016T210446Z-16a99c` | Repeats the compressed-water control on domain ABI 2: 32 native frames, 30 after priming, 672 substeps, 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. Native tuples, solid heat, actual grid/rendering and both save guards pass without mod failure lines. |
-| `20261016T220819Z-dbcb0f` | Passes internal fluid conduction on the reconstructed-momentum owner: 122 native frames, 120 after priming, 2,562 solver substeps and 5,124 thermal stages. It redistributes 1.01282699 J internally with entropy increase 1.31980e-5 J/K; U+K residual against the external 1,500 J heat input is -3.03e-9 J. Maximum relative mass/energy drift is 1.54e-15 / 5.51e-15. Thermal diagnostics report 35,868 contacts, 4,881 iterations and 222 updates below stored energy resolution. Exact native tuples, game grid/rendering, external native solid heat and both save guards pass, with no mod failure lines. Source is `83b1541` plus the recorded conduction changes; private package manifests retain binary hashes. |
-| `20261016T221722Z-2eb0f8` | Repeats the complete conduction pass after pulling the separate compression-heat component from main. All physical counters and thermal metrics match the earlier run; both save guards and exact compatibility cells pass, with no mod failure lines. Source is `7a781d2`; the separate component is preserved without adding it to this owner. All twelve cross-compiled native tests execute under Wine; six Windows forwarding comparisons remain identical. |
-| `20261016T222138Z-5dd9d7` | Passes native-clock gravity and actual gas transfers: 121 native frames, 120 after priming, 2,541 substeps and zero rejected attempts. Initial/current potential is 68.4864608 / 68.7330484 J; the actual 0.05 kg injection and 0.02 kg consumption carry net 0.147150006 J of boundary potential. Both game callbacks fire once. Cumulative downward body impulse is -1,664.20014 kg m/s, with signed internal gravity work -0.0520605 J. U+K+G transfer residual is -3.48e-9 J; maximum relative mass/energy drift is 2.01e-15 / 6.09e-15. Exact native cells, game grid/rendering, native solid heat and both save guards pass, with no mod failure lines. Source is `5d39a15` plus the recorded gravity changes. |
-| `20261016T223037Z-cf58d3` | Passes atomic owned actor configuration and outside native-batch forwarding with actual Unity consumers. The two ordered owned rate commands avoid native dispatch; the outside zero-rate consumer batch reaches the native batch entry exactly once. Over 120 post-priming frames, 32 consumer callbacks account for 0.2000000053 kg and 40 emitter samples account for 1.09375 kg. Blocked/unblocked callbacks, exact native cells, physical game status, grid/rendering, solid heat and both save guards pass. Removal is followed by 74 further frames without actor transfers. U+K residual is -2.58e-9 J; relative constituent drift is 1.01e-15. No mod failure lines. Source is `4f03eac` plus the recorded batch changes, including the pulled separate heat-component repair. |
-| `20261016T224334Z-cee2a7` | Passes physical checkpoint restore and exact continuation in the actual Linux game: the 3,503-byte source at frame 6 / 1.200000018 s independently restores/advances to the exact image published by native worker frame 7 / 1.400000021 s, with zero observation retries. Expected/actual SHA-256 is `ef895aa34a42ec337bbb0143d9ce870e0f873afdce4dbd673988c987817ba32c`. The full scene completes 122 frames, 120 after priming, 2,562 substeps and 24.4 s; relative mass/energy drift is 1.19e-15 / 5.72e-15. Exact native tuples, grid/rendering, native solid heat and both save guards pass without mod failure lines. Source is `e65ebe3` plus the recorded checkpoint changes. Windows native code under Wine also reads/reserializes this actual Linux game image without changing a byte; full colony save/reload remains open. |
-| `20261016T225904Z-9e5553` | Repeats the full checkpoint game pass with the native worker fence extended through native processing and `EndFrame`. It completes 120 post-priming frames, exact restored/live continuation, unchanged native tuples, grid/rendering, solid heat and both save guards, with no mod failure lines. Source is `42cae2b` plus the recorded fence changes. Both licensed native-library checkpoint controls pass with that fence too (Windows under Wine). |
-| `20261016T232719Z-0a1d98` | Passes paired native/physical capture on the merged compression-heat solver and physical file version 2. Native worker thread 4 captures frame 6 / epoch 541 at 1.200000018 s: 3,585,197 native bytes and 3,507 physical bytes. The physical hash also exactly matches the independently restored next-worker image. The 3,588,900-byte combined envelope retains both sections, original native tuples and geometry; immutable recopy and token retirement pass. The scene completes 121 frames, 120 after priming, 2,541 substeps; relative mass/energy drift is 1.72e-15 / 8.29e-15. Grid/rendering, native solid heat and both scalar-save guards pass, with no mod failure lines. Source is `13afbef` plus the recorded paired-capture changes. Ordinary colony save/reload remains open. |
-| `20261016T233539Z-b39f30` | Repeats the real consumer/emitter and atomic actor configuration pass on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps, consumes 0.2000000053 kg and emits 1.09375 kg; the actor energy residual is -2.87e-9 J. Relative mass/energy drift is 1.54e-15 / 5.84e-15. Native tuples, game grid/rendering, native solid heat and both save guards pass. |
-| `20261016T234845Z-2dc5ea` | Repeats gravity and actual gas callbacks on the merged default compression-heat solver. It completes 121 frames / 2,541 substeps with relative mass/energy drift 1.30e-15 / 5.31e-15 and a boundary U+K+G residual of -3.21e-9 J. Carried potential is 0.147150006 J; maximum absolute physical energy residual is 3.15e-9 J. Native tuples, grid/rendering, native solid heat and both save guards pass. |
-| `20261017T000916Z-64e170` | Passes full paused colony serialization through normal `SaveLoader.Save`, with one staged paired sim section. Source frame 31 / 6.200000092 s retains complete physical SHA-256 `4134507cf55e6af6aaab72ed3a55d6e0ef0b4516f0509e02c224cf70ebbf8c72`. The 742,877-byte colony file has SHA-256 `974bdcde3a3d327320b1b898800ef30e15d36f8b9b96c17fc0d82f973081579f`; serialization changes no physical byte. All normal room, rendering, outside heat and save-guard checks pass. |
-| `20261017T001440Z-b1f96f` | Passes fresh-process loading of that real colony file: original colony GUID and all three duplicants return, the initial physical image is exact, both zero-time startup event batches deliver once, and all 30 native worker frames match independent continuation. Final time is 12.200000182 s; relative mass/energy drift is 6.62e-16 / 3.75e-15. Final image SHA-256 is `b8404589c7180b583d421fbc6a1012bb9c0314bfcc1739f45d90ee855844f929`. Native tuples, game grid/rendering, outside native heat and save guards pass without mod failure lines. An informational Mod Differences dialog caused by the old runner's changing folder ID was acknowledged after checking it listed only the same integration mod. The runner now supports a stable ID. |
-| `20261017T001826Z-0aaf84` | Repeats the same real-file load fully automatically with the source mod ID preserved; no footprint mismatch or UI intervention occurs. All 120 resumed frames / 2,520 substeps match independent continuation exactly, reaching 30.200000450 s from the saved 6.200000092 s. The complete initial hash and colony GUID/three duplicants are retained, both startup event batches deliver once, and final physical SHA-256 is `bc654e2b5435ca3f69a2ad9aa0f8699170d39f431d3a6b2f9a3a1566bc3a1913`. Relative mass/energy drift is 1.20e-15 / 5.53e-15. Grid/rendering, exact native cells, outside native heat and save guards pass with no mod failure lines. |
-| `automatic-admission-merged-gas-save-v1` / `automatic-admission-merged-gas-load-v1` | Ordinary unprepared save admission passes on the merged acoustic-compression owner. The pending-heat rejection creates no file and retains its command/clock. The source at frame 32 / 6.400000095 s has physical SHA-256 `034ad943dae3e385e725da0fe9b6b097652398094872d1e13056bbf39253c0cb`; the colony file is `88df3ecdf0399e0261062827d43bd6a06acd285307421be520b4135817477f52`. Fresh-process loading matches all 120 worker frames, ending at physical SHA-256 `580face75d1b2cfe0227b2c700feda6d9dac1db0873c371d8c2a9a7bd3987e20`. These earlier reports predate explicit pause-depth fields. |
-| `automatic-admission-merged-water-save-v1` | Compressed-water ordinary save passes at frame 32 / 6.400000095 s. Physical SHA-256 is `250c2efd1211ab89953e68e4815fa0f239c2e5dd0b09dab0251353d44fae27e7`; file SHA-256 is `509f4bea47789364c7e3942f104064065274f2f0874005f8f7b1d16f2c0e6749`. |
-| `automatic-admission-merged-water-load-v1` through `v3` | Retained failures: the first observes 119 exact frames then skips an intermediate publication; the second allows two positive frames before initial paused resave; the third writes an exact frame-zero save but leaks a reference-counted pause and never resumes. The third disposable game was stopped after diagnosis. These are not passes. Publication pacing, initial pause retention and balanced pause requests repair the distinct causes. |
-| `automatic-admission-merged-water-load-v4` | Passes an ordinary paused resave before the first new physical timestep and then all 120 exact worker frames. Saved frame is zero, saved time and physical hash match the source, and pause depth is exactly 1 before and after saving. Resaved file SHA-256 is `e11c641081a3c0f26596cac05cc6af76a65042b7f14548bde2aee794eb4d3c76`. This cohort uses the manual-save flag; the later optional resave fixture exercises the autosave flag. |
-| `automatic-admission-framezero-water-reload-v1` | Loads that frame-zero file in another fresh game process. Original colony GUID/three duplicants and the initial complete physical image return. All 120 frames / 2,520 substeps match independent continuation, reaching 30.400000453 s with zero reported mass/energy drift. Final SHA-256 is `89e5b8f4aa5112e4accebe74af662b2617273955cbd78bdb3b5711e36b65d3f5`. Grid/rendering, exact native tuples, outside native heat and save guards pass, with no mod failure lines. |
-| `automatic-admission-baseline-gravity-save-v1` / `automatic-admission-baseline-gravity-load-v1` | The Ubuntu 22.04 native build passes in the actual Linux player. Ordinary save retains source frame 32 / 6.400000095 s, physical SHA-256 `a006387843d80a367a338a924610145397d5eaaef8bc93937992afbf6e8834f2`, and colony-file SHA-256 `26ae12bc6baa895c94a28ecd1e1d0bb181299a4bfc67a490fbebec126fda08f5`. Fresh-process loading preserves gravity, GUID/three duplicants and the exact initial image. A normal autosave at publication frame zero retains the original pause depth 1 and exact physical time/image; its file SHA-256 is `78c030050bf972a0d8aec6234ccb46d6887d52753d799a7004a3c769f08d271f`. All 120 continued frames match independent replay; final physical SHA-256 is `7a89a92f6ffe56800d3c8fa541d60c52c8d78369b2ea2c877eac04dd90b17b47`. Relative mass/energy drift is 1.80e-15 / 3.35e-15; all ordinary grid/render/native-state/heat/save checks pass without mod failures. Native source is frozen before `6f39991` selects the later matched heat default; this cohort retains heat mode 1. |
-| `automatic-admission-matched-gas-save-v1` / `readback-matched-gas-load-v1` | Rebuilt Ubuntu libraries include `6f39991`; inspection of the saved physical settings confirms compression 2 and heat 2. Ordinary save and pending-command rejection pass at frame 31 / 6.200000092 s, physical SHA-256 `e0c675190f5f75874b10f73aaf313eae1fb50dc9dfb6568c9348972e2be515fb`. Fresh-process loading restores that exact image and autosaves it again at frame zero. Readback verifies the complete 5,107,974-byte ordinary body (`8328ed51c4fc7a3f64eb351cc2c8d89b7d675aa1ae6b26545218d9e3b5214d81`), exact paired sim section and colony GUID. Pause depth remains 1. All 120 resumed frames match independent replay, ending at physical SHA-256 `e721d024bcecba9b73891f63045d25c504ae2bd2e0ed55feec77ea94d1b37d4e`; relative mass/energy drift is 1.55e-15 / 2.51e-14. Grid/rendering, outside native heat and scalar save guards pass with no mod failure lines. This cohort calls the public autosave entry directly; the next fixture additionally uses the deferred coroutine. |
-| `readback-deferred-legacy-gravity-load-v1` | The latest matched-heat binary loads the preceding frame-zero gravity autosave while retaining its original heat setting 1 and compression 2. `Game.StartDelayedSave` runs its actual deferred coroutine and produces one autosave section at frame zero without changing physical time/state or pause depth 1. The complete 5,104,558-byte serialized body matches disk readback (`f932e778ba95f29e59a28ce4ecb612b11b8ffa565922c5aafc247420dddc0090`); file SHA-256 is `ebb0fa55e8b4b8167f8cac4969e8f80e61ad73af95dbc6c7fb622e49256fbd04`. All 120 resumed images match independent continuation and the preceding gravity cohort, including final physical SHA-256 `7a89a92f6ffe56800d3c8fa541d60c52c8d78369b2ea2c877eac04dd90b17b47`. Grid/rendering, native state, outside heat and save guards pass without mod failures. |
-| `matrix-matched-v1-save-domain-save` / `...save-domain-load` / `...liquid-domain-save` | The frozen `fdec539` runner and matched-heat Ubuntu package pass mixed-gas ordinary save and 120 exact reloaded frames, then compressed-water ordinary save after 120 post-priming frames. The following load is retained as a failure, so the whole matrix is not a pass. |
-| `matrix-matched-v1-liquid-domain-load` | Fails initial paused resave: one positive frame advances the restored source from 24.400000364 s to 24.600000367 s before the save starts. The pause count alone cannot exclude Unity's previously latched positive delta time. No file is written and the failed disposable session ends. |
-| `paused-tick-fixed-matched-water-load-v1` | Reloads the same source with the simulation-tick gate. Nine startup ticks are held, including three positive intervals and the explicit 0.2-second challenge. Native clock, complete physical bytes and managed accumulators remain unchanged for the frame-zero deferred autosave; pause depth remains exactly 1. Its 5,135,996-byte body matches disk readback (`cb7d0ceaddf90d6bc79723344b96a252c35094ce4991d447072863164bfd9332`). All 120 resumed frames match independent continuation, reaching 48.400000721 s and final physical SHA-256 `f6f6f28e99e385156aa28afbf1f30409ec32bfad25525c3ad3fef2207ee328db`. Grid/rendering, native tuples, outside heat and save guards pass with no mod failure lines. |
-
-The gas run's maximum relative constituent-mass drift was `5.29e-16` and total
-energy drift `9.87e-16`; oxygen transport changed the target cell. Solver thread
-4 differed from activation thread 3. These establish physical solver progress,
-not exclusive native ownership. Failure preserves the last valid owned snapshot,
-stops custom advancement and keeps saving disabled. It cannot repair the
-already observed native write.
-
-The corrected gas run has maximum relative mass drift `1.20e-15` and total
-energy drift `7.31e-15`. The target oxygen mass changes from `0.2067902267` to
-`0.2409221610` kg. It suppresses 726 owned-cell post-processing calls and 484
-thermal calls. Both physical values and exact compatibility tuples are checked;
-the earlier nonzero filter counters were insufficient because they referred
-to different padded-grid cells. The first water run above is retained as
-historical equilibrium/presentation evidence, not proof of the corrected
-per-cell filter. The ABI 3 isolated gas and water controls additionally pass
-sixty post-priming frames with the temperature gradient.
-
-The water run retains exactly 1,100 kg per cubic metre at 300 K and approximately
-220 MPa, with zero reported mass or energy drift. The native compatibility
-pattern remains `[1000, 1200, 1100]` in each row, while the actual game grid reads
-the custom 1,100 kg target-cell projection. Its physical state is an equilibrium
-control: this does not establish moving water, gravity, free surfaces or
-multiphase transport. The saved screenshot is `native-domain.png` in that run's
-private colony-validation directory. Reports retain whole-colony and
-first-playable readiness as false, with saving disabled.
-
-Private reports, game logs and captures remain under
-`<headless-state>/runs/<run-id>`; build and sanitizer logs are in
-`artifacts/headless-working-20261016`. Neither licensed game data nor private
-reports are redistributed. All eleven native CTests pass in Release and with
-ASan/UBSan, including instrumented Funchook/diStorm dependency code. Current Windows x64 code also passes all eleven native tests, six forwarding
-comparisons and three sealed-domain controls under Wine 10. This executes the
-licensed Windows SimDLL and the Windows backend, without a Unity game process.
-That historical Wine cohort supplies no actual Windows OS or Unity evidence;
-the later MSVC/Windows gas run is recorded below.
-
-The Windows controls use the matching PDB's `SimData` width/height offsets 0/4
-and verify them against the loaded padded grid before activation. The same
-public/native halo translation protects each platform's post-processing and
-thermal phases. Windows inlines the gas interaction routines; their absent
-hook slots are not counted as executed coverage. The sixty-frame adversarial
-native-cell control passes through the containing phase exclusions.
-
-Private Windows-binary evidence is under `artifacts/native-integration-r2/`:
-`wine-forwarding-tool`, `wine-domains-tool` and `wine-native-ctests`. The gas
-case reports mass drift 9.26e-16 and energy drift 2.77e-15; water retains exactly
-1,100 kg/cell at 220 MPa with zero drift; net 1,500 J heating has a U+K residual
-of -1.17e-9 J. Every case advances after a rejected scalar save. Each summary
-explicitly records `actualWindowsOS: false` and `unityGameTest: false`.
-
-The MinGW package uses the normal Windows DLL names and statically links its
-compiler/thread runtimes. Import inspection shows only Windows system DLLs.
-A clean package with just the two native libraries passes all 89 managed/native
-Core tests through the normal Windows bootstrap, plus all three licensed
-Windows domain controls under Wine. Evidence is in `windows-package-core-tests.log`
-and `windows-package-domains` beside the other private reports. The managed
-adapter also compiles against the actual Windows game declarations.
-
-For an actual Windows Unity colony, build a Windows observer-enabled package
-and run the normal disposable-profile wrapper in PowerShell 7:
+On Windows, in PowerShell 7 with Python available for the shared acceptance
+checker ([Windows validation](windows-validation.md#windows-os-game-runs)):
 
 ```powershell
 ./tools/run_colony_validation.ps1 -Package ./artifacts/windows-probe `
   -NativeDomain gas -Frames 120 -TimeoutSeconds 1200
 ```
 
-`-NativeDomain` also accepts `water`, `heat`, `transfer`, `actor`, `carbon`,
-`conduction`, `gravity`, `checkpoint`, `pair`, `save` and `load`.
-The actor scene needs at least 80 frames; use 120 for its full control. Python
-must be available for the shared portable acceptance checker. It requires
-`WindowsPlayer` evidence and the same physical, native-source, rendering,
-callback, save and scope checks used on Linux. An isolated Wine report cannot
-pass this Unity gate.
+`tools/oni_proton_headless.py` runs the same scenes in WindowsPlayer under
+Proton, and `tools/oni_native_matrix.py` runs sources with their fresh-process
+reloads from one frozen runner and package.
 
-## Actual Windows gas-owner run
+**Acceptance checks common to every scene.** `native-domain.json` records
+physical progress, conservation, suppressed native phases, projection
+controls, native solid conduction and renderer publication. The runner
+requires these facts, the native backend report and the normal colony/probe
+report. It also requires the game's `Grid` fields to match the physical
+projection, texture writes for the current publication generation, the
+calibrated GPU check and the scalar-save guards. It rejects idle workers,
+changed compatibility cells, missing controls, nonfinite diagnostics and any
+claim of whole-colony or playable readiness. Windows reports must come from
+`WindowsPlayer`; an isolated native-worker or Wine report cannot pass a Unity
+gate, and a passing offline native test is never enough.
 
-The `windows-native-domain-r3` private cohort passes the six-cell mixed-air
-control in Windows ONI 744825 / Unity 6000.3.5f2 using the native MSVC package
-built in `windows-native-domain-r2`. Source is `6f39991` plus the recorded
-two-file startup-linkage/ABI-test patch. It completes 121 physical frames,
-120 after projection priming, 2,541 substeps and 24.20000036 physical seconds,
-with zero rejected attempts. Solver thread 12 differs from activation thread
-11. Maximum relative constituent-mass/energy error is `9.26e-16 / 2.25e-14`.
-Original native cells remain byte-exact; completed snapshot copy, retained
-frame, flow exclusions, worker fence, native solid heat, game grid, rendering
-and both scalar-save guards pass. The portable checker accepts `WindowsPlayer`
-evidence. Whole-colony and first-playable readiness remain false.
+`ColonyValidationConfiguration.LongRun` is the separate request for ten-cycle
+runs of `native-domain`, `native-liquid-domain` and `native-mixed-domain`; it
+rejects the fixed-window fixtures and produces development telemetry, not
+evidence of a playable colony ([long runs](../tools/ONI_HEADLESS.md#long-development-runs)).
+The older `snapshot-copy` mode still rejects its unsupported incompressible
+liquid placement; a passing sealed water scene does not repair that importer.
 
-A computer-use screenshot shows the retained completed reading at revision
-121: **Nitrogen–oxygen mixture (+traces)**, `Breathable`, nitrogen `81.6054%`,
-oxygen `18.3946%`, `100501.0868 Pa`, `300.017112 K` and `1.158178546 kg`.
-The agent did not click the tile. The benign helium trace is omitted from the
-bulk contents list, with the full-composition hint visible. These displayed
-values agree with the physical report. This is a two-bulk-gas observation of
-the completed validation frame; it does not prove four-gas/contaminant hover,
-changing or paused production inspection, save/reload, UI scaling, other
-asteroids or rendering performance. The full [hover criterion](mixture-presentation.md)
-remains required.
+## Current evidence
 
-Fresh strict MSVC controls pass all 13 native CTests, 89 Core groups, 41
-presentation groups, coupled API/passive/mutation executables, adapter compile
-and private packaging. The first compile failed with C4297 because a throwing
-startup helper had C linkage. Moving that helper unchanged into the unnamed
-C++ namespace fixes `/EHc` exception handling while retaining `/W4 /WX`, the
-exported C wrappers and their error boundary. New public-ABI cases verify
-invalid start arguments and unattached restore leave source/output bytes
-unchanged. A fresh GCC 11 / Ubuntu 22.04 Docker build passes all 13 CTests;
-both Linux libraries require at most glibc 2.34, below the 2.35 target. This
-compatibility build supplies no new Linux Unity evidence.
+Linux Unity runs use the licensed LinuxPlayer (ONI 744825) on a private
+authenticated Xvfb desktop with rendering enabled: normal game processes, not
+a mocked simulation or Unity `-nographics`. Windows OS runs use MSVC-built
+libraries with ONI 744825 / Unity 6000.3.5f2; each process exits normally,
+removes its temporary mod and restores all 13 original profile files, and the
+installed SimDLL stays unchanged. Exact continuation compares runs of the same
+binary; cross-compiler trajectory identity is not required. Platform terms are
+defined in the [validation matrix](native-validation-matrix.md#platforms-and-terms).
 
-The initial executable-path retry failed before process creation and reused
-the accepted binaries after locating PowerShell. The successful game exits
-normally with wrapper exit 0, drained/closed output pipes and all 13 original
-profile files restored and independently hashed. The temporary mod is removed;
-the default project DLL and installed SimDLL remain unchanged. No release or
-public package is produced.
-
-Private terminal SHA256 receipts:
-
-- Windows game: `local/windows-native-domain-r3/TERMINAL_REVIEW.json`,
-  `c37b50b0242c9fb8ad377c8749f3bf3e3acdcdaf8786571bf1416acc33190877`.
-- Hover PNG: `local/windows-native-domain-r3/observations/owned-air-hover.png`,
-  `8959519a7a2777cecd5a69e4a31924b2c8e586d1eb15f078dc6ee4ce455ac82e`.
-- Linux compatibility: `local/windows-linkage-linux-r1/TERMINAL_REVIEW.json`,
-  `07554835ba182c243801e8c281bf861d94a3d6b7f93b937f90865493cad89d37`.
-
-These checks were performed by the primary agent; no independent agent review
-is claimed. Earlier failed receipts remain retained.
-
-### Additional Windows feature controls
-
-The `local/windows-native-features-r1` cohort passes eight actual Windows Unity
-runs from clean source `82c3c50`. The adapter is rebuilt against the Windows
-game assemblies. The same accepted MSVC native binaries are reused after
-checking all 193 native/build dependency files against their frozen inputs;
-the numerical method is unchanged. All 81 synthetic save-layout/readback
-groups pass on Windows .NET, and all 51 Linux Python acceptance-guard tests
-pass. The Python controls do not launch a native solver or Linux Unity game.
-
-| Scene | Actual Windows result |
+| Platform | Verified |
 | --- | --- |
-| Compressed water and ordinary save | 30 frames / 630 substeps; 1,100 kg/cell at 220 MPa, zero reported mass/energy drift. The ordinary save verifies its complete 10,548,715-byte body and exact paired section. |
-| Conduction and external heat | 120 frames / 2,520 substeps / 5,040 thermal stages; 0.194107745 J internal redistribution, positive entropy change 1.22099e-6 J/K, and residual -4.19e-9 J against the external 1,500 J input. |
-| CO2 injection and consumption | 121 frames; actual 0.05 kg injection and 0.02 kg consumption callbacks, net 0.0300000011921 kg retained CO2, and U+K residual -6.34e-9 J. |
-| Registered actors | 120 frames; 32 real consumer callbacks, 40 emitter samples, one blocked/unblocked callback each, atomic owned configuration, ordinary outside native batch, rate changes and removal. U+K residual -3.53e-9 J. |
-| Gravity and gas transfers | 121 frames; boundary potential 0.147150006 J, U+K+G residual -2.13e-9 J, and maximum physical energy residual 2.79e-9 J. |
-| Ordinary air save | Saves frame 31 / 6.200000092 s. A reserved heat command first rejects saving without a file, time advance, lost command or leaked pause. The drained save matches its complete 10,542,598-byte body and paired section; pause depth returns to zero. |
-| Fresh-process air load and deferred autosave | Restores the exact initial image, colony GUID and all three duplicants. `Game.StartDelayedSave` autosaves at publication frame zero without changing physical time/state or pause depth 1. All 120 resumed frames match independent checkpoint continuation, reaching 30.200000450 s. |
-| Fresh-process water load and deferred autosave | Restores the exact saved water image, GUID and three duplicants; the same actual deferred autosave retains frame-zero physical state and pause depth 1. All 120 resumed frames match exact continuation, reaching 30.000000447 s with zero reported drift. |
+| Linux Unity | Every base scene in this document: gas, water, heat, conduction, liquid heat, O2/CO2/water transfers, gas and water actors (including batches and initially disabled emitters), gravity, checkpoint, paired capture, ordinary save, save-failure recovery, and fresh-process reload of gas, water, gravity, liquid-transfer, liquid-heat and actor saves with 120 exact frames each; the feature scenes listed in each feature document; configured gas and water rooms |
+| Windows OS (MSVC) | Mixed air; compressed water with ordinary save; conduction with game heat commands; liquid heat with save, fresh load and a second session through the main menu; CO2 transfers; gas gravity with transfers; filled-water gravity with a main-menu reload; gas and water actors with batches, the initially disabled water emitter and a water-actor reload through the main menu; ordinary air/water saves with fresh loads and the paused frame-zero autosave; Save As creation and fresh-process reload of a menu-created file; repaired liquid rendering and inspection |
+| WindowsPlayer under Proton | The feature scenes listed in [Windows validation](windows-validation.md#windowsplayer-under-proton), with local and cross-player reloads against native Linux |
+| Native and Wine | All native CTests in Linux Release and ASan/UBSan (including the Funchook/diStorm sources), MSVC `/W4 /WX`, the Ubuntu 22.04 compatibility build (glibc at most 2.34), and MinGW Windows binaries under Wine 10; the licensed `sealed-*` worker controls on Linux and under Wine. The MinGW package uses the normal DLL names, statically links its compiler/thread runtimes and imports only Windows system DLLs |
 
-Every scene passes the shared `WindowsPlayer` checker, exact native-cell
-compatibility, completed snapshots, game Grid, rendering callbacks, outside
-native solid heat and scalar-save guards. These rendering checks and retained
-Unity PNGs do not establish complete liquid appearance, four-gas hover or
-rendering performance. Both reloads deliver two retained native startup batches
-once; their frame-zero autosaves verify the complete bodies (air 10,542,776
-bytes; water 10,548,893 bytes), exact paired section and original GUID.
+Scenes not listed for Windows OS have no recorded Windows OS run, notably the
+standalone O2 and water point-transfer scenes, checkpoint and pair, the
+save-failure UI, the feature scenes verified only under Proton and the
+configured rooms.
 
-The air source/final physical SHA256 values are
-`41de3ef90deef435006e94fc86b38766cb9f981a26d6d3b27d16aa7e998a0f89` /
-`a23a15bb94173aa2ee5121e8f31c465c8f654485225fc3c0444fb29d103a5ff2`.
-Water source/final values are
-`bd530e60d062f6ef7e6dee69e252711dd8e7939e5dde7a7a219f73202e3a2806` /
-`bd9d033bcd919185a8bf61eb4a7ad93ab5f5fcc988f2980ce7be4ecb7cef1436`.
-Exact continuation uses the same Windows binary; cross-compiler trajectory
-identity is not required.
+Key Linux Unity results (six-cell scenes, 120 frames after projection priming):
 
-All eight game processes exit normally, their wrappers return 0 and both
-output pipes drain/close. Each restores all 13 original profile files; the
-temporary mod is removed, and the default project DLL and installed SimDLL
-remain unchanged. The primary agent reviews saved evidence; no independent
-agent review is claimed. The load-admission helper corrects an unused private
-runner receipt filename before either load launch; no game retry or native
-rebuild is performed for it.
+- **Mixed air.** 2,541 solver substeps over 24.2 s. All six compatibility
+  tuples stay unchanged while custom oxygen transport moves the target cell
+  from 0.2068 to 0.2409 kg; 726 owned post-processing and 484 thermal calls are
+  suppressed. Maximum relative mass/energy drift about 1.2e-15 / 7.3e-15.
+- **Compressed water.** 1,100 kg per cell at 300 K and about 220 MPa with zero
+  reported mass and energy drift; the native compatibility pattern stays
+  `[1000, 1200, 1100]` in each row while the game grid reads the 1,100 kg
+  projection. This is an equilibrium control, not moving water.
+- **Heat and conduction.** Net +1,500 J with a U+K residual of about -1.6e-9 J.
+  Conduction runs 5,124 thermal stages over 2,562 substeps, redistributes
+  1.013 J and raises entropy by 1.32e-5 J/K. Liquid heat redistributes
+  9.0625 J (entropy +3.278e-5 J/K) with zero measured U+K drift, the same on
+  Windows OS.
+- **Transfers.** Net oxygen 0.030000001192092896 kg, the exact difference of
+  the game's binary32 amounts, with a U+K residual of about 1.6e-10 J; CO2
+  matches. Water transfers close at -0.000496 J against the 0.005946 J
+  roundoff bound.
+- **Actors.** 32 consumer callbacks and 80 emitter status samples, both
+  density edges once and 74 frames without actor transfers after removal; gas
+  U+K residual about -1.8e-9 J against 1e-6 J, water -0.0028 J against
+  0.0059 J.
+- **Gravity.** Carried boundary potential 0.147150006 J, cumulative body
+  impulse -1,664.2 kg m/s and a U+K+G residual of about -3.5e-9 J.
+- **Checkpoint and pair.** A frame-6 image restores and advances to exactly the
+  image the worker publishes for frame 7. Paired capture holds 3,585,197
+  native and 3,507 physical bytes from one worker epoch.
 
-Source-freeze SHA256:
-`e1e2b853db1dd6eb9febf48d17ee4d412ef848ae5c40af0ac4a3bbed70167da0`.
-Package-manifest SHA256:
-`3f300853298be75423f101ee86925c64cacc9e07e246b810b349061eb1beb7ac`.
-Aggregate terminal SHA256:
-`1e7be92f88cdf48297aa545acd67b69db8d4fbc3127aa8c136b3d24688254e09`.
-Per-case terminal receipts, full logs, saves, physical images and Unity PNGs
-remain private beneath that cohort. Production actors/persistence, actual
-menu/day-rollover triggers, arbitrary fluid materials and geometry, the failed
-strong-flow gate, whole-colony performance and first-playable acceptance
-remain open. Nothing is released.
+Windows OS mixed air completes 121 frames with maximum relative mass/energy
+error 9.26e-16 / 2.25e-14, and the paused hover shows
+**Nitrogen–oxygen mixture (+traces)**, nitrogen 81.6054%, oxygen 18.3946%,
+100,501.0868 Pa and 300.017112 K, matching the physical report. Water hover
+shows **Fluid pressure 220 MPa** and **No gas phase / not breathable**, and the
+water-actor reload keeps the repaired liquid rendering in both sessions. A
+read-only managed reviewer checks a menu-created Save As file's paired section
+and all physical bytes against the completed game frame, without invoking the
+native simulator. These observations do not establish four-gas production
+hover, other UI scales, rendering performance or a playable colony.
 
-### Windows paused-start and menu controls
+## Limits and open work
 
-`local/windows-paused-restore-r1` separately verifies the later restored-tick
-gate from `2e05423` plus the recorded development-banner change. Air and water
-each reject the forced positive 0.2-second interval while the initial deferred
-autosave is pending. Both hold three positive intervals (80 total held ticks
-for air; 72 for water), retain the exact saved state/time and pause depth, then
-match all 120 physical continuation frames. Final physical hashes remain
-identical to the preceding air/water controls. All 100 snapshot/declaration
-scenarios pass against the Windows assemblies; all 51 Linux Python guard tests
-pass. Native binaries remain unchanged. The banner now describes the admitted
-paired-save conditions, replacing its stale blanket “saves disabled” text. The
-actual Windows 2560×1440 screenshot shows all three lines without clipping;
-other UI scales remain unverified by this observation.
+- Only the bounded development rooms are enabled. Known native mutation
+  packets targeting owned cells or the border reject before dispatch; every
+  other native writer still needs an adapter and dedicated coverage.
+- General production actors, reserved machines and pumps, construction,
+  cross-boundary fluid/solid heat (the Unity
+  [solid-heat gate](native-domain-physics.md#native-solid-cell-heat) fails),
+  open boundaries, vacuum and free surfaces are not implemented for the domain
+  and must not enter it. Mixed native/custom batches reject.
+- Persistence: pending callback outboxes, the Load screen's file selection,
+  overwrite Save, crash durability, actor saves on Windows OS and general
+  managed-reference integrity
+  ([persistence](native-domain-persistence.md#same-process-main-menu-reload)).
+  An older water input logs `Missing KPrefabID reference: 246809` on resave.
+- Strict cross-platform agreement fails for compressed water and the heated
+  mixture ([arithmetic scope](native-platform-numerics.md#solver-arithmetic-scope)).
+- The [strong-flow accuracy gate](../native/MAC_STRONG_FLOW.md) fails, and the
+  production timestep and whole-colony performance gates are open.
+- Next: complete actor and process reservations and persistence, an occupied
+  development colony with life support, then open and multiphase geometry and
+  complete reader/writer coverage ([playtesting readiness](playtesting-readiness.md)).
 
-The air session also uses the actual Escape → Save As → New Save flow, creating
-`MA-Menu-Validation-20261017.sav`. Its 1,146,148 bytes have SHA256
-`b5ce947f771c54e2ed63de5c63df35d8e5c585b14faf8411b86d878b62f3f067`.
-The menu reports “Already Saved”. The old runner loaded its source directly,
-so this new file was created beside that private source; the original source
-file's hash remains exact. The new file is retained in this cohort's observations.
-
-That finding prompted the Windows runner to stage a separate, hash-checked
-`loaded-colony.sav` in each fresh evidence directory. The game configuration
-uses that copy. `load-source-manifest.json` records the original and staged
-hashes before and after the session; a changed original source fails validation
-after profile restoration. Normal Save As paths now stay in the current run.
-
-`local/windows-menu-save-load-r1` verifies this runner change using the actual
-menu-created file. Its package is reused only after all 293 selected source/build
-inputs match their accepted frozen inputs. A fresh game process restores its
-exact `a23a15bb…` physical image at 30.200000450 s, retains the colony GUID and
-three duplicants, passes the forced pause challenge/deferred autosave, and
-matches all 120 subsequent frames to 54.200000808 s. Native cells, completed
-snapshots, game Grid/rendering, outside native heat and scalar-save guards pass.
-
-The actual Save As menu then creates `MA-Isolated-Menu-20261017.sav` **inside
-that run's evidence directory**. A read-only managed reviewer derives the
-saved header, directory, inflated body and sim-section boundaries, validates
-the paired envelope checksum against the admitted source identity, and checks
-all 3,507 physical bytes against the completed game frame. Their SHA256 is
-`56d4f06c5cba17d55bfbad079e870d88c33379e66e7004635976d67500454cdc`.
-The 1,145,778-byte file has SHA256
-`fc163db3dd9f283433faa4c6f9a6b3d6274d46fcd583ee7e738959a977c67573`.
-This reviewer invokes no native simulator and grants no whole-file preflight
-or restore authority. The original input and staged input both remain unchanged.
-The normal Save button's overwrite confirmation is cancelled; overwrite Save
-acceptance is not claimed. Save As creation and the earlier file's actual
-fresh-process load are the admitted menu scope.
-
-Both paused-start sessions and the menu-load session exit normally, return
-wrapper exit 0, drain/close output pipes, restore all 13 profile files and
-remove their temporary mod. The default project DLL and installed SimDLL
-remain unchanged. The retained water reload logs also contain a missing
-KPrefabID-reference warning; these physical controls do not certify every
-managed reference in the colony. General object/actor persistence remains open.
-
-Private terminal SHA256 receipts:
-
-- Paused start and banner: `681aa230b9183de68f69eb9a13ccf5011c0d2408e00482cc59d65679be8f55d1`.
-- Menu file reload and source isolation: `99260d1b03209b51ff029970558da5349525ee2932c78655ba6141c7608f0fdb`.
-- Saved-physical comparison: `25311405a7966f7e6400bfb5279eaa9f3b64b3f0edf98a2eeedb6488933b0e00`.
-
-The first cohort's source-freeze SHA256 is
-`34f26b93ab6531efe77309b9dd5c5dc064d6786442c99a7b2ef19086dec969ec`;
-the menu cohort's is
-`6ce7e88a2b76d6e9dcd3f769a739464bca7a92deb85f130781c30640f1305bcf`.
-No independent agent review, four-gas production hover, whole-colony,
-first-playable or rendering-performance acceptance is claimed.
-
-## Save failure recovery and native metadata
-
-Ordinary save admission now reports a busy source without escaping through
-ONI's save coroutine. Handled disk/readback declines retain the previous active
-save selection and existing ONI dialog, retire the pair/pause request, and let
-ONI finish its deferred-save callbacks and restore dragging. The private
-`--verify-save-io-recovery` control intentionally targets a new directory as a
-save file, verifies its retained sentinel and the exact unchanged physical
-image, then resumes and completes a normal verified colony save.
-
-The first two attempts (`save-problem-deferred-io-control-v1` and `v2`) fail
-before the intended write. The first leaves a coroutine exception and is
-stopped after diagnosis; the second retains the exact native image and cell
-values and closes through the validation failure path. Native cell (102,151)
-contains 0.282589465 kg at 308.757507 K, disease hash zero/count 24; every other
-inventory predicate passes. This is legal native-owned residual metadata.
-Both licensed native libraries admit a controlled hash-zero/count-24 image,
-normalize it to disease index 255/count zero on load and continue four native
-frames. Preserved-world checks now leave that opaque source unchanged; fluid
-migration remains strict and owned cells still require zero disease fields.
-
-The third attempt reaches the denied write and completes all three callbacks,
-but the test expects an IO-exception dialog. Mono returns ONI's ordinary
-access-denied dialog for a directory target. The repaired assertion accepts
-only the exact two stock disk-error messages. The retained attempt remains a
-failure.
-
-`save-problem-deferred-io-control-v4` passes. One pending-command decline and
-one denied write occur. All three instrumented callbacks run once; dragging,
-pause depth and the previous selection are restored. Before/after physical
-SHA-256 is `6fa4785754f1f9b4657b639914d28abc048c62d7fa9419dec0fdc0acd3b3836e`.
-The game resumes and saves at frame 31 / 6.200000092 s. Physical SHA-256
-`e0c675190f5f75874b10f73aaf313eae1fb50dc9dfb6568c9348972e2be515fb`
-also matches the earlier uninterrupted matched-heat control. The complete
-5,122,168-byte body and current header are verified; file SHA-256 is
-`85277244988d52a24e2efb0b2c15f5871d7338a3cd226b4b591ffeaadfe613a3`.
-Relative mass/energy drift is 1.06e-15 / 1.98e-15. Grid/rendering, exact native
-cells, outside native heat and scalar save guards pass with no mod failure
-lines. This uses the GCC 11 baseline build containing the startup-linkage fix.
-
-
-`save-recovery-current-header-gas-load-v1` then loads that exact successful
-post-recovery file in another fresh Linux game. It retains the original GUID,
-three duplicants and complete physical image, passes the positive paused-tick
-challenge, and completes a frame-zero deferred autosave with pause depth 1.
-The current header and complete 5,122,373-byte body match disk readback
-(`9f653e847e3d28072ce6b1213b1e52ca1c1c5bd847692d4da59eb9156f7918f2`).
-All 120 resumed images match independent continuation, reaching 30.200000450 s
-and final physical SHA-256
-`e721d024bcecba9b73891f63045d25c504ae2bd2e0ed55feec77ea94d1b37d4e`.
-Native compatibility cells, grid/rendering, outside heat and save guards pass
-with no mod failure lines. The broader matrix still needs completion after
-its retained water-startup failure.
-
-## Current Windows conservative liquid heat and reload
-
-The `windows-native-domain-current-r1` cohort uses clean `7f29783` source,
-a fresh native MSVC build and a rebuilt managed adapter. All 13 native CTests,
-91 Core groups, 41 presentation groups and the coupled/passive/mutation controls
-pass before actual Windows ONI 744825 / Unity 6000.3.5f2 testing.
-
-The compressed-water heat scene completes 120 frames / 2,520 substeps /
-24.000000358 physical seconds with no rejected attempts and zero reported
-relative mass/energy error. The actual heater supplies 1.5 MJ. Conduction
-completes 5,040 stages and 35,280 contacts, with 9.0625 J of represented
-redistribution and entropy change 3.2782259518690106e-5 J/K. Its 15,057 unresolved
-updates are retained diagnostics; they are not counted as represented transfer.
-Water remains 1100 kg/cell at 220 MPa. The ordinary paired colony save has a
-verified complete 10,585,503-byte body and retains physical SHA-256
-`010edc5167f27ff7cf90de42f8a182de0cc649607b2b89b134887b4d5f97184f`.
-The source save SHA-256 is
-`1fd556e7ba9f85ba0929ed69bae0d593a0ac736b63af75cd409d46b20a6e8fef`.
-Private terminal review SHA-256:
-`7cb098d42a72b686fe21512bd2f9eb76ef018788b002391a5290b6dd70bd4298`.
-
-The same package then passes a fresh load and a second load through the main
-menu within one Windows Unity process. Both sessions pass paused autosaving
-and 120 exact continued frames; see [the lifecycle evidence](native-menu-reload.md).
-Both runs close successfully and restore all 13 original profile files.
-
-Actual mouse inspection exposed the misleading liquid label `Vacuum / no
-atmosphere` and omission of supplied fluid pressure. The follow-up
-`windows-liquid-inspection-r1` package corrects both through the shared model
-and formatter. Its unchanged native binaries are hash-checked against the
-preceding build. All 31 inspection groups, 91 Core groups and 41 presentation
-groups pass. Actual paused Windows hover and selected details now show
-**Fluid pressure 220 MPa**, **No gas phase / not breathable**, liquid volume
-100% and the complete water row. The load again matches all 120 continued
-physical frames, ending at 48.000000715 s with SHA-256
-`d6f2a232c3c990951ceb78397ef148c501b2146992b2131697b349c871c2b294`.
-The two original screenshots and terminal review remain under that private
-cohort; terminal SHA-256:
-`7f41fea48323a37e072b483072bcca6dc815412531db2cbcde90d6c012bf4fa5`.
-
-These are six-cell, actor-free controls. The beige appearance of the liquid
-region still needs investigation; liquid fill rendering is not accepted.
-The existing missing KPrefabID 246809 warning remains unresolved. The observed
-screenshots do not bind every displayed value to an instrumented cell/frame
-record or establish full-world presentation, four-gas production hover,
-rendering performance or first-playable acceptance.
-
-After merging the verified Linux trampoline work, the clean `eae30f9`
-`windows-native-domain-current-merge-r1` cohort rebuilds all native libraries
-and the adapter. All 13 MSVC native CTests, 91 Core groups, 41 presentation
-groups, coupled/passive/mutation controls and seven host hook-profile controls
-pass. Actual Windows Unity heat/save completes at frame 121 / 24.200000361 s,
-with 2,541 substeps, zero reported mass/energy drift and the same represented
-9.0625 J conduction account. Its ordinary colony save has complete header/body
-readback (10,632,709-byte body); physical SHA-256 is
-`e22b67714f992cfa23e2810539ce851be01494477b9fee8a2f49f3095b80c05a`.
-The native hover screenshot still shows 220 MPa and the corrected liquid status.
-The process exits successfully and all 13 profile files are restored. Private
-terminal review SHA-256:
-`3fd4d820aa9dfb2129847f70f59fb5a4d0f221353f7bd46be02f5e56bd302adf`.
-This checks the merged Windows branch; Linux borrowed trampoline execution
-has its separate [evidence](native-trampoline-storage.md).
-
-## Limits and next work
-
-Only the fixed sealed scene is enabled. Direct known native mutation packets
-targeting its cells or border reject before dispatch; every other native writer
-still needs an adapter and dedicated coverage. General production actors, duplicant
-breathing, reserved machines, construction, cross-boundary fluid/solid heat and open
-boundaries are not implemented for this domain. They must not enter it.
-
-An ordinary scalar save cannot resume the complete physical owner. Unstaged
-`Sim.Save` and the native begin-save detour reject. The ordinary colony save
-entry now stages a complete pair for a drained, actor-free bounded owner.
-The isolated control advances another physical frame after a declined
-native save, proving the rejection did not suspend the simulator. Failure stops custom advancement while native fluid exclusions stay
-installed until native shutdown; the disposable session must end.
-
-Retain the adversarial native-state, thermal, grid, rendering and save-guard
-checks as integration regressions. Native index translation and secondary-base
-actor dispatch are now explicit parts of the exact-build contract. Do not
-weaken unchanged-native-cell assertions when adding new writers or actors.
-
-Continue with complete actor/process reservations and persistence, actual
-menu/day-rollover trigger validation, an occupied development colony, then open/multiphase
-geometry and complete reader/writer coverage. Native worker execution alone
-is narrower evidence than a playable overhaul.
+Keep the adversarial native-state, thermal, grid, rendering and save-guard
+checks as integration regressions. Native index translation and
+secondary-base actor dispatch are part of the exact-build contract. Do not
+weaken unchanged-native-cell assertions when adding writers or actors.

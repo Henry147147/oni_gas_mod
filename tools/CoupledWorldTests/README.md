@@ -1,35 +1,43 @@
-# Managed coupled-world boundary controls
+# Managed coupled-world boundary checks
 
-Build `ma_coupled_api_tests` to produce the explicit coupled shared library, then
-run this .NET 10 host against its exact absolute path:
+This .NET 10 host tests `CoupledSimulationWorld`, the .NET Standard 2.1 Core
+binding to the coupled gas/liquid `FluidWorld` C ABI. It runs against an
+explicit `mixed_atmospheres_coupled` library, using original synthetic inputs
+and the linked six-cell presentation scenario. No ONI process, Unity or licensed
+assembly is involved.
 
-```text
-dotnet run --project tools/CoupledWorldTests -c Release -- <absolute coupled library path>
+```sh
+cmake --build build --target ma_coupled_api_tests      # also builds the coupled library
+dotnet run --project tools/CoupledWorldTests -c Release -- "$PWD/build/libmixed_atmospheres_coupled.so"
 ```
 
-It pins the named coupled library, prints its SHA256 and runs seventeen groups using
-the .NET Standard 2.1 Core binding. Controls cover model/layout agreement,
-conserved/owned initialization, completed gas/liquid readings, 2D evolution and
-trace conservation, whole-call rollback, independent lifetimes, concurrent
-inspection and unsupported-input rejection. The two added groups check sparse
-signed disease identities, tiny counts, passive radiation, actual metadata
-arrival, immutable input/read ownership and metadata rollback. Five colony
-coordinator groups add two-world geometry/catalogue admission, identical frame
-clocks, a shared attempt budget, rollback after an earlier world completes,
-explicit pure-liquid mechanical pressure, immutable frame reads and disposal.
-They use original synthetic import blobs. No ONI process or licensed game
-assemblies are used. Physical U and momentum remain in the persistent native
-owners; the scalar total-energy Core projection is read-only and is never used
-to reinitialize physics.
+Both targets are excluded from the default build. On Windows, pass the actual
+path of `mixed_atmospheres_coupled.dll`. The host pins the library, prints its
+SHA256 and one `PASS` per group, and exits nonzero on any failure.
 
-Four presentation groups check exact native U/T/p and constituent reads from a
-completed frame, transported hazardous traces, pure-liquid mechanical pressure,
-colour-only recapture and paired rollback. The shared original six-cell game
-scenario must evolve four bulk gases and two traces, retain the chlorine warning
-and change composition on the next frame. The host links that scenario source
-without linking Unity or any licensed game assembly.
+The groups cover:
 
-The [native boundary documentation](../../native/COUPLED_ABI.md) records matching
-Windows/Linux evidence, preserved first build/driver failures and scope limits.
-This is a binding to the existing closed reference; it does not select the
-production runtime or satisfy game, vacuum, save or performance acceptance.
+- **World.** Model and layout agreement, conserved owned initialization and
+  readings from one completed state. Also a 2D gas/liquid advance with traces,
+  whole-call rollback on a budget failure, snapshots and forks that outlive
+  disposal, and rejection of vacuum, unknown species, overfill and bad
+  configuration.
+- **Metadata.** Sparse signed disease identities, tiny counts and passive
+  radiation through transport, with immutable inputs and metadata rollback.
+- **Colony coordination.** Two-world admission, identical frame clocks, a
+  shared attempt budget, rollback after one world completes, pure-liquid
+  mechanical pressure and immutable frame reads.
+- **Presentation.** Exact U/T/p and constituent reads, hazardous traces,
+  colour-only recapture and paired rollback. In the six-cell scene, four bulk
+  gases and two traces must evolve, the chlorine warning must stay, and the
+  composition must change.
+- **Mutations.** Conserved mutation preparation for worlds and colony frames;
+  invalid mutations reject.
+
+Physical U and momentum stay in the native owners. The scalar total-energy
+projection is read-only.
+
+This binds the closed-domain reference only. The production colony solver is
+`MacClosedWorld` (`native/src/mac_*.cpp`). The checks do not cover game, vacuum,
+save or performance acceptance. The ABI and platform results are in
+[the coupled boundary documentation](../../native/COUPLED_ABI.md).

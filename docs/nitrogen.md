@@ -1,8 +1,11 @@
 # Native nitrogen identities
 
-`elements/mixed_atmospheres_nitrogen.yaml` registers the following original
-identities through ONI's mod virtual filesystem. No game installation file or
-licensed rendering asset is distributed.
+`elements/mixed_atmospheres_nitrogen.yaml` registers three original element
+identities through ONI's mod virtual filesystem. They give nitrogen a native
+identity for display, storage and queries; the custom species registry carries
+its physical properties. No game installation file or licensed rendering asset
+is distributed. The shipped build 744825 has no nitrogen in
+`StreamingAssets/elements/{gas,liquid,solid,special}.yaml`.
 
 | Stable identity | Player name | SDBM hash | Reference template |
 | --- | --- | ---: | --- |
@@ -10,83 +13,21 @@ licensed rendering asset is distributed.
 | `MixedAtmospheresLiquidNitrogen` | Liquid nitrogen | 1078696428 | Liquid oxygen substance |
 | `MixedAtmospheresSolidNitrogen` | Solid nitrogen | 418600943 | Solid oxygen substance |
 
-Namespaced identities avoid assuming compatibility with another mod's nitrogen
-definition. A conflicting hash or substance fails explicitly. Element indices
-are assigned by the game's final sort and are never hardcoded. Save and owned
-import identities use the stable strings, not a custom enum's numeric text.
+- Namespaced identities avoid assuming compatibility with another mod's
+  nitrogen. A conflicting hash or substance fails explicitly.
+- Element indices come from the game's final sort and are never hardcoded.
+  Saves and owned imports use the stable strings, not a custom enum's numeric
+  text.
+- YAML supplies explicit description keys. The installed default getter uses
+  current-culture `ToUpper()`, which produces missing keys for these IDs under
+  Turkish casing.
 
-The three substances clone the installed phase template at runtime and retain
-its native material/animation references. Each has independent colour,
-gradient, UI/conduit colour and mutable material-property block. A witness
-checks that the original template's colour and gradient remain unchanged.
-Null native material/animation references are preserved when the original
-substance uses the renderer's normal fallback. Gas uses RGB (120,145,150),
-liquid (89,130,161), and solid (163,199,219). The mixture presentation obtains
-nitrogen's gas colour from this registered substance.
-
-## Loading only with the adapter
-
-ONI loads a mod's `elements/` folder as layerable files independently of its
-DLL. If the adapter's `OnLoad` fails, it removes every Harmony patch it owns,
-so the substance clones, `STRINGS` names and tag bridge would all be absent:
-ONI would manifest an empty `Substance` (no material or animation; the ground
-renderer reports an error for the solid phase on every colony load) with
-integer tag text. The YAML therefore declares `dlcId:
-MixedAtmospheres.AdapterLoaded` instead of the base-game `""`. ONI's
-`ElementLoader.Load` skips an entry whose content key has no substance table,
-and only the adapter's `NitrogenContentGate` supplies that key (the last
-prefix, mapped to the base-game table) and removes it again (the first
-postfix), restoring each element's `dlcId` to `""` before validation or any
-other consumer. A failed or removed adapter therefore registers no nitrogen at
-all rather than half-registered phases. A save that already contains these
-elements still requires the working adapter.
-
-The shipped `SimHashes` enum cannot acquire new members. Both original
-`GameTagExtensions.Create` and `CreateTag` stringify an unknown enum value as
-an integer and pass it to `TagManager.Create`. The adapter now leaves those
-Tag-returning methods untouched. A prefix on the void `Tag.Name` setter maps
-only the three exact decimal strings in the table above to their canonical
-names, before native string interning and SDBM hashing. This also covers native
-tag deserialization through that setter. Native names and all other strings
-retain their original behavior. `Tag(string)` construction stays native;
-callers constructing a custom tag directly must use its canonical string.
-
-These three decimal names are reserved aliases while the adapter is loaded.
-Before patching, it checks both native proper-name dictionaries and rejects an
-existing alias or hash collision. It never overwrites that entry. There is no
-patch to `System.Enum` and no change to the shipped enum values or names.
-The failed-load path removes this owner's setter patch and clears runtime
-verification. The YAML content gate still prevents partial element loading.
-
-Startup first checks both original helpers through reflection, then directly
-calls the untouched helpers, tag manager, name setter and original constructor
-for native, custom and unknown identities. It compares both names and hashes;
-Tag equality alone would only compare hashes. `NativeTagHelpersVerified` is
-written only after every check completes and is required by the integration
-probe. Physical scene and save/reload checks remain separate.
-
-Earlier ref-result and transpiler patches on the two Tag-returning helpers
-intermittently fail in real WindowsPlayer/Mono under Proton. Prewarming does
-not reliably repair that fault, despite successful source/load cohorts. A later
-constructor-plus-setter alternative crashes at the patched `Tag(string)` call;
-per-call diagnostics locate that boundary after both untouched helpers have
-returned. The constructor patch is therefore removed. The failed runs and crash
-logs remain retained. The setter-only diagnostic package passes the full startup identity check,
-122 physical frames and complete paired-save readback in the first cold
-WindowsPlayer inventory-import run. Both installed-assembly nitrogen suites
-pass all ten groups. The final `2df8e7b` adapter now passes all twelve cold
-WindowsPlayer source/load controls in the
-[native feature matrix](native-windows-feature-matrix.md), plus both repeated
-occupied-mixture load sessions. These actual controls accept the startup path
-for the pinned player/build; arbitrary future Unity versions remain unverified.
-No precise Unity/Mono implementation cause is claimed.
-
-## Property scope
+## Element definitions
 
 These are nominal native pure-phase definitions, version
-`ma-native-nitrogen-reference-v1`, aligned with the existing reference species
-catalogue. They do not supply the production material catalogue or mixture
-phase solver.
+`ma-native-nitrogen-reference-v1`, aligned with the reference species
+catalogue. They are not the production material catalogue or mixture phase
+solver.
 
 | Property | Gas | Liquid | Solid |
 | --- | ---: | ---: | ---: |
@@ -95,73 +36,145 @@ phase solver.
 | Conductivity (W/m/K) | 0.0258 | 0.14 | 0.2 |
 | Native nominal full-cell mass (kg) | game's gas default | 808 | 1026 |
 | Default temperature (K) | 293.15 | 70 | 50 |
+| Colour (RGB) | (120,145,150) | (89,130,161) | (163,199,219) |
 
-The nominal melting and boiling links use 63.15 K and 77.355 K. These are fixed
-reference temperatures, not a pressure-dependent phase boundary. For context,
-the [NIST Chemistry WebBook nitrogen entry](https://webbook.nist.gov/cgi/cbook.cgi?ID=C7727379&Mask=4)
-reports molecular weight 28.0134, a 77.34 K boiling measurement, and a 63.14 K
-triple point. That source does not validate this constant-property model over
-arbitrary world temperatures or pressures. The remaining constants are
-explicit reference approximations, not fitted or certified physical data.
+- The nominal melting and boiling links are fixed at 63.15 K and 77.355 K, not
+  a pressure-dependent phase boundary. For context, the
+  [NIST Chemistry WebBook](https://webbook.nist.gov/cgi/cbook.cgi?ID=C7727379&Mask=4)
+  gives molecular weight 28.0134, a 77.34 K boiling measurement and a 63.14 K
+  triple point. The other constants are explicit reference approximations, not
+  fitted or certified data.
+- The YAML `defaultPressure` is an ONI spawn/rendering field and is not an
+  input to the custom pressure calculation.
+- Native transitions do not account for the overhaul's latent heat.
+  Registration is not evidence of conservative condensation, freezing or
+  mixture equilibrium.
+- The gas is unbreathable by itself and is not tagged as oxygen or an oxidizer.
+  Registration adds no nitrogen to generated worlds.
 
-The YAML `defaultPressure` is an ONI spawn/rendering field. It is not an input
-to the custom physical pressure calculation. Native transitions do not
-account for the overhaul's latent heat; registration must not be treated as
-proof of conservative condensation, freezing, or mixture equilibrium. Gas is
-unbreathable by itself and is not tagged as oxygen or an oxidizer. No nitrogen
-is added to ordinary generated worlds by this registration step.
+Each substance clones the installed phase template at runtime and keeps its
+native material and animation references, with its own colour, gradient,
+UI/conduit colour and mutable material-property block. A witness checks that
+the template's colour and gradient are unchanged. A valid substance may have
+null material/animation references and rely on the renderer's normal fallback;
+those nulls are preserved. The mixture presentation takes nitrogen's gas
+colour from this substance.
+
+## Game loader contract
+
+These are reverse-engineered facts about the shipped loader, not an official
+element authoring API.
+
+- ONI treats an `elements` directory at the mod content root as layerable
+  files. `KMod.Directory` supplies an alias mapped onto
+  `Application.streamingAssetsPath`, and `KMod.Mod.Load` adds that source to
+  `Klei.FileSystem`. `ElementLoader.CollectElementsFromYAML` enumerates
+  `elements/*.yaml` through it, so a mod file at
+  `<mod>/elements/<unique-file>.yaml` loads without copying anything into the
+  game installation. The current KYaml/VYaml reader uses the supplied file
+  handle's bytes.
+- `ElementLoader.Load` hashes each `elementId` with SDBMLower, registers tag,
+  name and description, copies the YAML properties and builds a `Substance`
+  from the DLC-specific substance table. The base-game table key is the empty
+  string `DlcManager.VANILLA_ID`.
+- `FinaliseElementsTable` sorts elements by phase and hash and then assigns
+  indices; resolve indices after that stage.
+- The native `Sim.Element` constructor reads `Gradient` before its later null
+  check, so a missing substance fails at startup.
+
+A maintained community mod's
+[registration patches](https://github.com/Sgt-Imalas/Sgt_Imalas-Oni-Mods/blob/master/RonivansLegacy_ChemicalProcessing/Patches/ElementLoader_Patches.cs)
+register substances before `ElementLoader.Load` and adjust finalized elements
+afterwards, and its
+[element definitions](https://github.com/Sgt-Imalas/Sgt_Imalas-Oni-Mods/blob/master/RonivansLegacy_ChemicalProcessing/Content/ModDb/ModElements.cs)
+add three nitrogen phases. That is implementation precedent only; do not copy
+its code or use its values as physical authority. The
+[VYaml mod-loading report](https://kleiforums.com/klei-bug-tracker/oni_beta/elementloader-yaml-loader-change-breaks-modded-element-loading-r52663/)
+concerns an earlier beta and does not show a failure in the inspected loader.
+
+## Loading only with the adapter
+
+ONI loads a mod's `elements/` folder independently of its DLL. If the
+adapter's `OnLoad` fails, it removes every Harmony patch it owns, so the
+substance clones, `STRINGS` names and tag bridge would be missing and ONI would
+build an empty `Substance` with integer tag text.
+
+The YAML therefore declares `dlcId: MixedAtmospheres.AdapterLoaded` instead of
+the base-game `""`. `ElementLoader.Load` skips an entry whose content key has no
+substance table. Only the adapter's `NitrogenContentGate` supplies that key
+(the last prefix, mapped to the base-game table) and removes it again (the
+first postfix), restoring each element's `dlcId` to `""` before validation or
+any other consumer. A failed or removed adapter registers no nitrogen at all
+rather than half-registered phases. A save that already contains these
+elements still needs the working adapter.
+
+## Tag names
+
+The shipped `SimHashes` enum cannot gain members. The original
+`GameTagExtensions.Create` and `CreateTag` both turn an unknown enum value into
+an integer string and pass it to `TagManager.Create`.
+
+- The adapter leaves those Tag-returning helpers untouched. A prefix on the void
+  `Tag.Name` setter maps only the three exact decimal strings in the identity
+  table to their canonical names, before native string interning and SDBM
+  hashing. This also covers native tag deserialization through that setter.
+- `Tag(string)` construction stays native; code that builds a custom tag
+  directly must use the canonical string.
+- The three decimal names are reserved aliases while the adapter is loaded.
+  Before patching, the adapter checks both native proper-name dictionaries and
+  rejects an existing alias or hash collision without overwriting it. There is
+  no `System.Enum` patch and no change to the shipped enum.
+- The failed-load path removes this setter patch and clears runtime
+  verification.
+- At startup the adapter checks both original helpers by reflection, then calls
+  the untouched helpers, tag manager, name setter and original constructor for
+  native, custom and unknown identities, comparing names and hashes (Tag
+  equality compares hashes only). `NativeTagHelpersVerified` is set only after
+  every check and is required by the integration probe.
+
+Patching the helpers themselves is unsafe. Ref-result and transpiler patches on
+the two Tag-returning helpers fail intermittently in WindowsPlayer/Mono under
+Proton, and prewarming does not fix it. A constructor-plus-setter variant
+crashes at the patched `Tag(string)` call. No precise Unity/Mono cause is
+known.
 
 ## Validation
 
-`tools/NitrogenRegistrationTests` has ten groups covering stable noncolliding
-hashes, exhaustive native enum pass-through, exact custom aliases, localization,
-explicit YAML descriptions under Turkish culture, the unchanged helper IL and
-single void patch target, the content gate, malformed strings, collisions in
-either native name dictionary, and original-helper preflight. Alias checks use
-the installed native tag construction/setter implementations after normalizing
-the input; only real Unity controls certify installed Harmony dispatch. Its
-optional second argument replays a private actual-game
-`nitrogen-validation.json` report.
+`tools/NitrogenRegistrationTests` runs from `tools/build.py --game-dir`. Its ten
+groups cover stable noncolliding hashes, native enum pass-through, exact custom
+aliases, localization, YAML descriptions under Turkish culture, unchanged
+helper IL and the single void patch target, the content gate, malformed
+strings, collisions in either native name dictionary and the original-helper
+preflight. Alias checks use the installed native tag implementations; only real
+Unity runs certify Harmony dispatch. An optional second argument replays a
+private game `nitrogen-validation.json` report.
 
-The disposable presentation runner adds three real native material items after
-the six mixture inspection fixtures. It checks phase links, template isolation,
-hash/tag/prefab lookup, native spawning, exact item mass and temperature, native
-description preservation, and the labelled single-material fluid fallback.
-Three Unity screenshots retain the selected gas, liquid and solid objects.
-An interactive run retains those native items for a separate real
-Save/Quit/Resume check; ordinary automatic runs dispose them before exit.
+The disposable presentation runner adds three native nitrogen items after its
+mixture inspection fixtures. It checks phase links, template isolation,
+hash/tag/prefab lookup, native spawning, exact item mass and temperature,
+preserved native descriptions and the labelled single-material fluid fallback,
+with a Unity screenshot of each selected item.
 
-Windows run `local/colony-runs/presentation-windows-v15` passed all six mixture
-inspection surfaces and all three native nitrogen items, retaining 21 automatic
-Unity screenshots. The same ONI process then used native Save and Quit, returned
-to the main menu, resumed its unique disposable save, and selected all three
-native items. The UI retained their names, 1000 g masses, consistent formatted
-temperatures and descriptions. Four further Unity screenshots record those
-panels and the restored native oxygen overlay. This was an inspection check,
-not an exact post-load binary comparison of every scalar or a mixture save test.
-All five observed teardown boundaries cleared the mixture provider, model,
-cached frame and inspection bindings. The runner restored settings byte for
-byte and archived only its own disposable save. Six standalone checks and the
-optional Windows actual-game replay passed on both Windows and Linux. The
-independent review is in that run's `presentation-review.json`; Linux results
-are in `local/linux-presentation/nitrogen-v15/result.json`. The unrelated old
-ambient `Player-final.log` retained by that runner version is explicitly
-excluded; the invocation's explicit `Player.log` records the matching save/load.
+Current status:
 
-The retained actual Linux `20261016T001005Z-a5b1a6` presentation run also passes
-all three native items in a nine-world Spaced Out! colony. Its three original
-Unity images have now been individually reviewed: the selected gas, liquid and
-solid retain their names, 1000 g masses, descriptions and formatted temperatures
-of 20 C, -203.2 C and -223.2 C. The machine report verifies native spawning,
-template isolation, target selection and unchanged descriptions. The fluid
-items retain the explicit single-material reading; none is presented as an
-owned mixture.
+- **WindowsPlayer under Proton.** The setter-only adapter passes all twelve
+  cold source/load controls in the
+  [native feature matrix](native-validation-matrix.md#windowsplayer-feature-matrix)
+  and both repeated occupied-mixture load sessions, for the pinned player and
+  build.
+- **Actual Windows.** All three items pass, and after native Save and Quit and
+  same-process resume the UI keeps their names, 1000 g masses, temperatures and
+  descriptions. This was an inspection check, not an exact post-load comparison
+  of every scalar or a mixture save test.
+- **Linux.** All three items pass in a nine-world Spaced Out! colony. Reviewed
+  screenshots show names, 1000 g masses, descriptions and temperatures of
+  20 C, -203.2 C and -223.2 C. This used an older adapter revision, and the
+  items were disposed before exit.
 
-This is legacy evidence from `933f0d2` with the recorded pacing changes
-(`source_dirty: true`), on the same installed Linux game binary hashes; it is
-not a new current-adapter regression run. Private image review SHA-256:
-`29a362b717a66c3f4f6753bd2d0cc0082d990374e9af06c02232544a3ac9b263`.
-The items were disposed by the automatic fixture, so this does not prove a
-Linux native-item save/quit/resume. Conservative phase-transition energy,
-starter-world nitrogen resources, mixture storage ownership and progression
-also remain separate acceptance requirements.
+## Open items
+
+- A Linux native-item rerun with the current adapter, including save, quit and
+  resume.
+- Arbitrary future Unity versions, and the cause of the helper-patch fault.
+- Conservative phase-transition energy, starter-world nitrogen resources,
+  mixture storage ownership and progression.

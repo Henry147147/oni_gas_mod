@@ -1,196 +1,107 @@
-# Retained material-node experiment, first gate
+# Retained material-node 1-D state
 
-`ma_occupied_staggered` is a separate static experimental library. It links to
-`ma_core` for the unchanged EOS bridge and occupied pressure/work solve;
-`ma_core`, the game DLL, `FluidWorld::step`, `GasWorld`, C ABI and production
-saves do not link to or select this state. No Eulerian/primal/dual remap or
-corner rebalance is implemented here. The full gas-to-vacuum front gate in
-`GAS_VACUUM.md` remains false. This first material-coordinate gate does not
-validate that front, shocks, arbitrary topology, performance or gameplay.
+`ma_occupied_staggered` (`native/src/occupied_staggered.cpp`,
+`occupied_staggered.hpp`) is a dormant 1-D experiment. It stores nodal momentum
+on a material mesh instead of rebuilding it from cell momentum every step, the
+defect of the `FluidWorld` occupied 1-D mode
+([GAS_VACUUM.md](GAS_VACUUM.md#fluidworld-occupied-1-d-mode-fails)). It links to
+`ma_core` for the EOS bridge and the occupied pressure/work solve; nothing else
+uses it. It has no Eulerian remap (the opt-in remap experiments built on it are
+in [STAGGERED_EXPERIMENTS.md](STAGGERED_EXPERIMENTS.md)) and validates no vacuum
+front, shocks, general topology, performance or gameplay.
 
-## State and explicit initialization
+## State and initialization
 
-`occupied_staggered.hpp` exposes `OccupiedStaggeredState`,
-`initialize_occupied_staggered[_into]` and `advance_occupied_staggered`.
-Initialization supplies all positive material cells and all N+1 ordered nodes
-together, a fixed positive cross-section, nonnegative downward gravity, and
-traction-free or rigid endpoints. Empty cells plus empty node arrays represent
-exact vacuum. Interior vacuum gaps, cavitation/separation, unsupported EOS
-materials and nonpositive represented intervals fail. Supported thermodynamic
-profiles are the existing ideal-gas/zero-expansion-elastic-liquid reference;
-they are not calibrated real-liquid data. Initialization makes a deep owned
-copy of the supplied EOS/registry into an actually const allocation, including
-profile vectors and index mappings. A const shared view of a caller's mutable
-object would not prevent later assignment through that mutable alias. The
-retained immutable copy and complete profile metadata remain part of each
-state, independently of replacement/destruction of the supplied model.
+The API is `OccupiedStaggeredState`, `initialize_occupied_staggered[_into]` and
+`advance_occupied_staggered`. Initialization takes all positive material cells
+and all N+1 nodes together, a positive cross-section, nonnegative downward
+gravity and traction-free or rigid ends; empty arrays mean exact vacuum.
+Interior gaps, cavitation, unsupported materials and nonpositive intervals
+fail. Materials are the reference ideal gases and elastic liquid. The state
+deep-copies the EOS and registry into a const allocation, so later changes to
+the caller's model cannot reach it.
 
-Canonical nodal inertia is `I=(Mleft+Mright)/2`; exterior vacuum contributes
-exactly zero mass. Canonical momentum is `J`, velocity is `J/I`, and fixed wall
-velocity is exactly zero. Each cell's momentum and mechanical variance are
-derived read-only views:
+Nodal inertia is `I=(Mleft+Mright)/2` (vacuum contributes zero), J is canonical,
+velocity is J/I and a rigid wall node has zero velocity. Cell views:
 
 ```
-P_i = M_i*(uL+uR)/2
+P_i        = M_i*(uL+uR)/2
 variance_i = M_i*(uR-uL)^2/8
-K = sum_nodes J_j^2/(2 I_j)
-  = sum_cells (P_i^2/(2 M_i) + variance_i)  [up to reported arithmetic]
+K = sum_nodes J_j^2/(2 I_j) = sum_cells (P_i^2/(2 M_i) + variance_i)
 ```
 
-Input cell P must agree with the independently supplied node means within
-`32*epsilon*(M*(|uL|+|uR|)/2+|P_supplied|)`. There is no unit floor; an external
-momentum conflict is rejected. The returned initializer ledger reports the
-actual momentum reconciliation and kinetic partition arithmetic. No cell-only
-state is silently converted. Two explicit policies are supported:
+The variance is mechanical energy, not heat. Supplied cell P must match the node
+means within `32*epsilon*(M*(|uL|+|uR|)/2+|P_supplied|)` or initialization
+rejects; no cell-only state is converted silently. `preserve_temperature` keeps
+U and reports the added nodal K as declared energy; `preserve_total_energy`
+deducts it from U and validates the EOS domain. Both build a full candidate and
+commit by noexcept move. Aggregate species mass is range-checked; overflow is a
+typed failure, never an infinity.
 
-* `preserve_temperature` keeps supplied internal U and reports the actual
-  additional canonical nodal-versus-prior-bulk K as declared added energy.
-  This is an initialization energy addition, not conservation.
-* `preserve_total_energy` deducts each cell's added mechanical partition from
-  U and validates the resulting EOS domain. The ledger compares actual total
-  canonical K and represented U, separately reports kinetic partition rounding
-  and sub-ULP energy conversions, and rejects material residuals. A rounded
-  conversion is not described as exactly conserved.
+## Pressure step and accounting
 
-Both initializers build a complete candidate. `_into` commits only through a
-noexcept move after validation. Node/cell arrays, model identity, geometry,
-time, caches and ledgers cannot be externally edited through this API.
-Species mass aggregation is checked for finite range both before initialization
-publishes and whenever totals are requested. Finite per-cell masses and EOS
-states do not imply a finite aggregate; overflow is a typed precision failure,
-never a published infinity. This adds no physical tolerance or mass cutoff.
-
-## Retained pressure, gravity and residual accounting
-
-Each material call passes the retained nodal velocities and fixed inertias to
-the existing implicit isentropic pressure/work solve. It retains the new J
-and all nodal K; no whole-velocity PIC averaging, incremental variance heat,
-artificial viscosity or correction heat is applied. Mass vectors are copied
-unchanged. Endpoint EOS readings are recomputed from actual stored U and
-represented material volumes, rather than copied from a different root volume.
-
-Let `delta_i` be the pressure root's requested cell volume change, `p_i^w`
-its secant work pressure, `ubar` its midpoint node velocity and
-`r_i=delta_i-A*dt*(ubarR-ubarL)` its signed nonlinear residual. In exact
-compatible arithmetic:
+Each call passes the retained node velocities and inertias to the implicit
+isentropic pressure/work solve and keeps the new J and K, with no PIC averaging,
+artificial viscosity or correction heat. With requested volume change
+`delta_i`, secant work pressure `p_i^w`, midpoint velocity `ubar` and residual
+`r_i = delta_i - A*dt*(ubarR-ubarL)`:
 
 ```
 deltaU_i = -p_i^w*delta_i
-deltaK = sum_i p_i^w*A*dt*(ubarR-ubarL) + body_work
-deltaPE = -body_work             [occupied-centroid half-mass gravity]
+deltaK   = sum_i p_i^w*A*dt*(ubarR-ubarL) + body_work
+deltaPE  = -body_work
 delta(U+K+PE) = -sum_i p_i^w*r_i
 ```
 
-The last term is an actual finite nonlinear-solve error, not floating-point
-roundoff, heat or external work. Reports separate that signed residual work,
-represented stored-U addition roundoff, canonical J/I/force arithmetic, and
-represented gravity/geometry work error. The measured remaining energy
-discrepancy is checked against `128*epsilon` times the individual absolute
-force/work and old/new K terms. Actual total energy error is also checked
-independently against the unchanged `2e-11` local thermal+elastic+mechanical
-budget (excluding formation-reference and absolute coordinate floors).
-Finite root tolerance therefore permits small energy and entropy errors;
-neither is claimed exact or canceled by adding a source.
+The last term is the finite nonlinear-solve error, reported as signed residual
+work, apart from stored-U rounding and force and gravity arithmetic. The
+remainder must fit `128*epsilon` of the individual terms and the total energy
+error the `2e-11` local budget. In the compressed-liquid regression (8796 J of
+work) the energy residual `5.09e-5 J` is almost all residual work, and entropy
+changes by `1.7e-7 J/K`: energy and entropy are not exact. Rigid walls take the
+reaction impulse and do no work; the momentum bound is `64*epsilon` of the
+absolute terms. Any range or precision failure rejects the whole candidate.
 
-For the single compressed-liquid regression, Windows measured work is about
-8796 J, actual total energy residual `5.08859e-5 J`, signed nonlinear residual
-work `5.15909e-5 J`, stored-U rounding `-7.04993e-7 J`, and remaining arithmetic
-about `-7.05e-13 J`. Entropy changes about `1.71e-7 J/K`. Independent integrated
-liquid `p(V)` and ideal-gas adiabats check velocity, T, p and volume without
-using the pressure helper as their oracle. These are finite-error checks, not
-proof of exact energy/entropy preservation.
+## Coordinates and numerical domain
 
-Fixed walls supply the reaction impulse and perform zero work. Momentum's
-arithmetic bound uses `64*epsilon` times the sum of old/new absolute J and
-each individual `dt*A*|p_left|`, `dt*A*|p_right|` and `dt*I*g` term. Opposing
-large wall impulses are not bounded by their tiny net reaction or a unit floor.
-Sub-ULP requested nodal impulses, energy/volume updates and relative position
-changes are reported explicitly. Material range/precision failures reject the
-candidate. No state is partially published and no retry loop hides a typed
-topology error.
+Nodes use relative coordinates and a compensated two-double origin, anchored at
+a rigid end or else the left node, so translation moves the origin without
+subtracting large positions. Origin and cell-volume changes must match the
+requested ones within 32 epsilon. Unresolved geometry is typed-fatal; there is
+no density, pressure, species or volume floor, and a step that cannot advance
+represented time fails.
 
-## Coordinates and bounded numerical domain
+`StaggeredInitialization.retain_local_geometry` stores each node as
+`relative_position_m` plus `relative_position_low_m` and uses both everywhere.
+The remap experiments only accept the scalar form and reject the paired form
+explicitly, so a pair-aware remap is needed before composing them.
 
-`StaggeredInitialization.retain_local_geometry` explicitly enables two-part
-local coordinates. Each node retains `relative_position_m` and
-`relative_position_low_m`; rebasing, updates, cell widths and gravity work use
-both parts. The existing local-volume bound remains `32*epsilon*V_endpoint`.
-The default scalar representation remains available for the unfinished scalar
-Cartesian/hybrid experiments. Their planners, remap entry point and endcap
-binder reject the paired representation explicitly, including an empty low
-part, so they cannot silently discard its geometry. Pair-aware remap remains
-required before composing that path with transport.
+## Tests
 
-Nodes use relative material coordinates and a compensated two-double global
-origin. A rigid endpoint is the coordinate anchor if present, otherwise the
-left free node is the anchor. Common translation changes the origin without
-repeatedly subtracting large absolute positions; rigid endpoints remain fixed
-at their actual wall coordinates. Actual origin displacement must match the
-requested local displacement within `32*epsilon*|displacement|`.
+CTest `retained_occupied_staggered` (`ma_occupied_staggered_tests`, 17 groups,
+default build) covers both initialization policies and conflicts, K/P/variance
+identities, ledgers, vacuum, stationary liquid, translation at huge origins and
+local scales `2^-300`/`2^300`, symmetric gas and liquid expansion, one-cell
+adiabats, Fourier dt-to-zero, an alternating-pressure force, acoustics with grid
+and timestep refinement, free fall, wall impulse and reflection, hydrostatics,
+denormal traces, typed rollback, EOS replacement after initialization, and
+aggregate-mass overflow. The acoustic standing wave
+(`u=a*sin(pi*x)*cos(c*pi*t)`, `a/c=1e-7`, Courant 0.1) converges at second
+order:
 
-Relative node motion uses midpoint velocity relative to that anchor. Each
-actual positive volume is checked against the pressure root's requested
-change and signed residual within `32*epsilon*V_endpoint`, separately from
-the scalar root/addition arithmetic diagnostics. This does not support every
-possible tiny interval far from the anchor: unresolved material geometry is
-typed-fatal, rather than rounded into empty material. There is no density,
-pressure, species, donor-fraction or occupied-volume floor. Time remains a
-double; requested/represented increments and its addition error are reported,
-and a timestep that cannot advance represented time fails atomically.
+| Measure | N16 | N32 | N64 |
+| --- | ---: | ---: | ---: |
+| Velocity L1 | 2.8202e-4 | 7.0788e-5 | 1.7720e-5 |
+| Pressure L1 | 4.7962e-4 | 1.1986e-4 | 2.9959e-5 |
+| Sound-speed relative error | 1.6359e-3 | 4.0939e-4 | 1.0240e-4 |
 
-## Acceptance scope and reproducible tests
+All 17 pass on MSVC, strict GNU and ASan/UBSan. The paired-coordinate controls
+(`ma_retained_geometry_tests`) and the gas/vacuum driver are described in
+[GAS_VACUUM.md](GAS_VACUUM.md#retained-nodal-replacement-path). Paired liquid
+mechanics and remap composition are not validated.
 
-The additional explicit local-geometry controls pass three groups on Windows
-and Linux. Saved operands undergo exact-rational review: 128 positive widths,
-127 shared-node identities, a short interval retained beside a `1e100` high
-coordinate, nine-node/eight-cell gravity work and corrupted-low-part rejection.
-The original seventeen groups and independent twenty-seven thermodynamic groups
-pass on current source. The new gas/vacuum driver completes a bounded three-grid
-front trend with substantial remaining absolute error; see
-[results, preserved failures and scope](GAS_VACUUM.md#retained-nodal-replacement-path).
-The new geometry checks exercise gas material; paired liquid mechanics, remap
-composition and production topology still need validation.
-
-The dedicated CTest entry is `retained_occupied_staggered`. It covers explicit
-initialization policies and conflicts; canonical K/P/variance identities with
-unequal masses; unresolved conversion ledgers; exact vacuum; stationary liquid;
-both translations, huge global origins and local scales `2^-300` / `2^300`;
-isolated symmetric gas and compressed-liquid expansion with retained K;
-independent one-cell adiabats; Fourier dt-to-zero velocity; nonzero alternating
-pressure force; independent small-amplitude acoustic profiles/phase with
-separate grid and timestep refinement; freefall/gravity; rigid-wall impulse
-and reflected single-wall motion; hydrostatics; positive-denormal gas traces;
-and invalid configuration/topology/EOS/precision with whole-candidate rollback.
-Two independent-review regressions additionally mutate/replace a caller's
-same-size caloric EOS and larger registry after initialization, then verify
-retained profiles, metadata, caches, totals and the next actual step are
-unchanged; and construct 512 finite-EOS dyadic liquid cells whose constituent
-mass sum overflows, checking atomic rejection against a finite near-limit
-255-cell control. The mass fixture has `m=2^1016`, `rho0=1024`,
-`V=area=2^1006`, `Cv=2^-10`, `T=1`, zero velocity/pressure and finite aggregate
-U. This is an explicit numerical-range surrogate, not material calibration.
-
-The acoustic standing-wave comparison uses the linear ideal-gas solution
-`u=a*sin(pi*x)*cos(c*pi*t)` and
-`delta_p=-rho*c*a*cos(pi*x)*sin(c*pi*t)`, amplitude `a/c=1e-7`.
-It measures actual node velocity and material cell pressure. At Courant .1,
-N=16/32/64 Windows velocity L1 errors are approximately
-`2.8202e-4 / 7.0788e-5 / 1.7720e-5`, pressure errors
-`4.7962e-4 / 1.1986e-4 / 2.9959e-5`, and inferred sound-speed relative errors
-`1.6359e-3 / 4.0939e-4 / 1.0240e-4`. Fixed N=16 timestep refinement is compared
-to a finer temporal reference on the same grid, isolating time dispersion.
-These establish the bounded material consistency gate, not a vacuum-front or
-general free-surface convergence result. Separate opt-in Cartesian/hybrid
-remap experiments and their remaining failures are described in
-`STAGGERED_EXPERIMENTS.md`; they do not change this retained material-state
-API or add a composed physical timestep. The retained library and its
-17-group test remain in the default seven-test native build.
-
-Build in a private directory with `MA_BUILD_TESTS=ON`; build target
-`ma_occupied_staggered_tests`, then `ctest -R retained_occupied_staggered`.
-The new library and test use strict MSVC `/W4 /WX /permissive-` or GNU/Clang
-`-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror`. Existing root
-`MA_SANITIZERS=ON` instruments the separate library/test on GNU/Clang too.
-Source/binary manifests and compiler/build/CTest logs are frozen under ignored
-`local/occupied-staggered-validation/gate1-review2` for the post-review freeze;
-the pre-review `gate1` evidence is retained separately.
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMA_BUILD_TESTS=ON
+cmake --build build --target ma_occupied_staggered_tests
+ctest --test-dir build -R retained_occupied_staggered --output-on-failure
+```
