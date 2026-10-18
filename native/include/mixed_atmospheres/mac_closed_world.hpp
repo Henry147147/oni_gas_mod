@@ -102,6 +102,8 @@ struct MacClosedAdvanceReport {
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
     std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;
     std::size_t interval_rounded_updates = 0, interval_unresolved_updates = 0;
+    std::size_t interval_multigrid_solves = 0, interval_multigrid_cycles = 0, interval_multigrid_fallbacks = 0;
+    std::size_t interval_multigrid_levels = 0, interval_topology_builds = 0;
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
     std::size_t exact_equilibrium_intervals = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
@@ -146,6 +148,7 @@ struct MacClosedAdvance;
 // change. Reference execution remains available for comparisons and diagnostics.
 enum class MacExecutionPolicy { reference, exact_equilibrium };
 struct MacFluidTransferResult;
+struct MacIntervalCache;
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
@@ -209,6 +212,9 @@ private:
     MacClosedSettings settings_;
     double time_s_ = 0;
     std::uint64_t revision_ = 1;
+    // Derived immutable topology only; numerical workspaces/coefficients are
+    // local to an advance. A geometry-changing operation must replace this.
+    std::shared_ptr<MacIntervalCache> interval_cache_;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
 struct MacFluidTransferResult {

@@ -137,8 +137,10 @@ An opt-in [interval-audited kernel](../native/MAC_INTERVAL_KERNEL.md) now ports
 the existing donor-cell ideal-gas pressure/transport laws inside `MacClosedWorld`.
 It preserves selected laws through reference fallback, persists its numerical
 setting and checks completed intervals. The 10,000-step and 81-species controls
-pass; 250,000-cell timing remains about 10.2 s per 0.1 simulated seconds on one
-core. Higher-order selectors, regularization, liquid/free-surface ports and the
+pass. Automatic [pressure multigrid](../native/MAC_MULTIGRID.md), fixed-block
+reductions and immutable topology reuse reduce 250,000-cell timing to about
+6.63 s per 0.1 simulated seconds on one core, with every cell changing and no
+retries. Higher-order selectors, regularization, liquid/free-surface ports and the
 real-time acceptance gate remain open. The default kernel is unchanged.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,

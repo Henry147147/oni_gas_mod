@@ -26,6 +26,7 @@ Topic documents:
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Interval kernel](MAC_INTERVAL_KERNEL.md) | First normal-range pressure/transport port, interval audits and retained-reference fallback |
+| [Pressure multigrid](MAC_MULTIGRID.md) | Geometric preconditioning and immutable topology reuse inside the interval kernel |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |

@@ -484,6 +484,7 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
+    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) interval_cache_ = std::make_shared<MacIntervalCache>();
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits) const {
     require_mac_energy_environment();
@@ -507,6 +508,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_);
+    candidate.interval_cache_ = interval_cache_;
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return candidate;
 }
@@ -534,7 +536,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
     }
     std::size_t discarded_interval_attempts = 0;
     if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
-        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts);
+        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts, interval_cache_.get());
         if (candidate) {
             MacClosedAdvance result{*this, candidate->report}; result.world.state_ = std::move(candidate->state);
             result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1; return result;

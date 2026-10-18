@@ -22,8 +22,9 @@ limit, but each present column currently spans the grid. Spatial block sparsity
 and workspace retention across intervals remain open.
 
 The nonlinear pressure equation uses continuous work-pressure increments and
-analytic isentropic secants/tangents. A matrix-free Jacobi-PCG operator solves
-each Newton correction. Midpoint sweeps define the material volumes; pressure
+analytic isentropic secants/tangents. A matrix-free PCG operator solves
+each Newton correction, with an automatic [geometric multigrid preconditioner](MAC_MULTIGRID.md)
+for coupled large grids and retained explicit Jacobi. Midpoint sweeps define the material volumes; pressure
 work uses those actual sweeps. Material quantities use one shared flux per
 primal face. Normal momentum uses the original compatible primal-to-dual mass
 fluxes, including transverse edges. Positive mixing variance and fixed-wall
@@ -76,8 +77,8 @@ initial serial kernel; checkpoint continuation is exact on the same build.
 
 `ma_mac_interval_kernel_tests` compares the port against identical reference
 selectors in periodic 2-D, closed 2-D with an interior solid, and closed 1-D
-scenes. The largest pressure difference is `3.64e-12` times the 20 Pa
-disturbance amplitude. Native controls cover exact checkpoint continuation,
+scenes, including multigrid-sized periodic and disconnected domains. Native
+controls cover exact checkpoint continuation,
 failed-budget atomicity, invalid settings, reference fallback, 518 account
 boundary/range decisions, 81 present species, 82 passive identities and 10,000
 closed-system steps.
@@ -88,14 +89,14 @@ traces without an absolute allowance and rejects five altered captures. It
 does not run native code. This evidence covers the selected port, not the
 original strong-flow gate or a playable colony.
 
-Each saved-data review passes 38,250 checks and rejects five altered captures.
+Each saved-data interval review now passes 105,931 checks and rejects five altered captures.
 The native controls and saved-data reviews pass on GNU/Linux, fatal ASan/UBSan,
 and MinGW Windows binaries under Wine. Linux/Wine continuation from each
 platform's gas checkpoint agrees byte for byte (480 inspected numeric fields
 per source). This is distinct from Windows OS evidence and does not close the
-existing liquid cross-platform continuation failure. The 33 registered Linux
-tests pass; 48 retained reference captures keep their original bytes/results,
-including the known failed strong-flow gate.
+existing liquid cross-platform continuation failure. The separate
+[multigrid controls](MAC_MULTIGRID.md) verify periodic and disconnected
+hierarchies, coefficient replacement and cache-independent continuation.
 
 Build and review:
 
@@ -122,10 +123,16 @@ at 256 cells (50 accepted substeps); its absolute clock avoids the port's tiny
 remainder step on some intervals. The port is about 11 times faster in this
 small comparison; neither timing describes the original higher-order defaults.
 
-The 250,000-cell result remains about 163 times over the 62.5 ms target. Peak
+That initial 250,000-cell result was about 163 times over the 62.5 ms target. Peak
 standalone resident memory was about 329 MiB, including the test owner and
 buffers, rather than additional memory inside ONI. These samples are not
 performance acceptance: physical
 regularization, higher-order reconstruction, liquids, free surfaces, local
-subcycling, multigrid, deterministic parallelism, machines and game rendering
+subcycling, deterministic parallelism, machines and game rendering
 remain open.
+
+The subsequent [multigrid and reduction follow-up](MAC_MULTIGRID.md) reduces
+the measured 250,000-cell median to 6,626.66 ms, with no retries or physical
+selector changes. The same fine operator, outer root and interval accounts
+remain in force. This remains about 106 times over the solver-plus-adapter
+budget, before adapters and rendering.

@@ -194,5 +194,11 @@ Both decisions are now recorded in the production contract. The first
 [interval-kernel port](../native/MAC_INTERVAL_KERNEL.md) implements the existing
 donor-cell gas pressure/transport laws, reusable fields and interval audits. Its
 initial 250,000-cell result is about 10.2 s per 0.1 simulated seconds on one core.
-The projected multigrid, parallel and larger-step combination remains unvalidated;
-no active-colony performance gate passes.
+The [multigrid follow-up](../native/MAC_MULTIGRID.md) implements positive
+geometric preconditioning, immutable topology caching and fixed-block
+double-double reductions. Its five fully changing 250,000-cell intervals take
+6.63 s median, with no retries. The earlier pressure-cost percentage does not
+describe this port: profiling its initial large-grid implementation finds about
+70% in the linear solves and nearly half of the frame in dot products. Both
+costs motivated this follow-up. Parallel execution and accurate larger calm
+steps remain unimplemented; no active-colony performance gate passes.
