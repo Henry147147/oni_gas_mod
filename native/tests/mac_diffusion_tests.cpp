@@ -41,7 +41,7 @@ double span(const MacTransportState& s,std::size_t species=1) {
 void analytic() {
     Setup setup(true);const auto profile=constant(.01);const MacDiffusionSettings mode;
     double worst=0,worst_refined=0;
-    for(const auto [w,h]:{std::pair<std::size_t,std::size_t>{2,1},{3,2},{32,2}}) {
+    for(const auto& [w,h]:{std::pair<std::size_t,std::size_t>{2,1},{3,2},{32,2}}) {
         auto source=setup.state(w,h);const double amplitude=.01;
         for(std::size_t y=0;y<h;++y)for(std::size_t x=0;x<w;++x) {
             const double oxygen=.25+amplitude*std::cos(std::numbers::pi*(static_cast<double>(x)+.5)/static_cast<double>(w));
@@ -108,6 +108,22 @@ void controls() {
     moving.momentum_x[moving.grid.x_face(1,0)]=.01*inertia.x[moving.grid.x_face(1,0)];
     const auto mixed=MacClosedWorld(setup.registry,setup.eos,moving,settings).advanced(.02);
     check(mixed.report.diffusion.exchanged_mass_kg>0 && mixed.world.state().momentum_x!=moving.momentum_x,"Diffusion did not compose with bulk momentum transport");
+    // Stored Fuller coefficients are platform-independent literals; they must
+    // still agree with the formula evaluated by this host's libm to a few ulps.
+    {
+        const char* names[]={"nitrogen","oxygen","helium","carbon_dioxide"};
+        const double weights[]={28.0134,31.9988,4.002602,44.0095},volumes[]={18.5,16.3,2.67,26.9};
+        std::size_t compared=0;
+        for(const auto& p:profile->pairs())if(p.estimated) {
+            std::size_t i=4,j=4;for(std::size_t k=0;k<4;++k) { if(p.first==names[k])i=k;if(p.second==names[k])j=k; }
+            check(i<4 && j<4,"Unknown Fuller pair");
+            const double sum=std::cbrt(volumes[i])+std::cbrt(volumes[j]);
+            const double formula=std::log(.001*std::sqrt(1/weights[i]+1/weights[j])/(sum*sum));
+            check(std::abs(formula-p.a)<=4*std::numeric_limits<double>::epsilon()*std::abs(p.a),"Fuller literal differs from its formula");
+            ++compared;
+        }
+        check(compared==4,"Fuller pair count changed");
+    }
     const double d=profile->diffusivity("nitrogen","oxygen",300,101325);
     check(d>1.5e-5 && d<2.5e-5,"N2/O2 coefficient unit conversion failed");
     check(std::abs(profile->diffusivity("nitrogen","oxygen",300,101325./2)-2*d)<1e-14*d,"Gas diffusivity did not scale with pressure");

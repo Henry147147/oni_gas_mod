@@ -19,7 +19,7 @@ J_k  = J*_k - Y_k sum(J*_j)
 
 This is the mole-gradient, mixture-averaged formulation in the
 [Cantera governing equations](https://cantera.org/3.2/reference/onedim/governing-equations.html#diffusive-fluxes).
-It approximates the Maxwellâ€“Stefan coupling. The largest mass fraction's flux
+It approximates the Maxwell–Stefan coupling. The largest mass fraction's flux
 is evaluated as the negative sum of all other corrected fluxes, imposing zero
 net diffusive mass algebraically. No inventory is clipped or normalized.
 
@@ -33,7 +33,7 @@ interval, the existing flow solver for the interval, then diffusion for the
 other half. Flow keeps its existing maximum 0.01-second substep. This symmetric
 composition is not a claim of second-order accuracy for the full nonlinear
 solver. Diffusion itself uses explicit Heun prediction/correction, with
-`dt max(D_kj) / dxÂ² <= 0.2` in both stages. Positivity, admissible thermodynamic
+`dt max(D_kj) / dx² <= 0.2` in both stages. Positivity, admissible thermodynamic
 states and entropy are checked; invalid trials backtrack. A shared attempt
 budget bounds retries. A failed advance publishes no candidate state or clock.
 
@@ -48,26 +48,26 @@ requires identical neighbouring constituent inventories without a tolerance.
 
 `GasTransportProfile::standard()` is immutable profile `ma-gas-transport-1`.
 The coefficients and their provenance are stored together in the profile.
-Binary diffusivity is in mÂ²/s:
+Binary diffusivity is in m²/s:
 
 ```
 D(T,p) = 1e-4 exp(a + b/T + c ln(T)) 101325/p
 ```
 
-The factor `1e-4` converts cmÂ²/s. T is kelvin, p is pascals. The common admitted
-pressure envelope, 10â€“200 kPa, is a chosen low-density model envelope for the
+The factor `1e-4` converts cm²/s. T is kelvin, p is pascals. The common admitted
+pressure envelope, 10–200 kPa, is a chosen low-density model envelope for the
 inverse-pressure approximation, not a measured pressure range from NIST.
 
 | Pair | Source/model | T range (K) | Estimated |
 | --- | --- | --- | --- |
-| Nâ‚‚â€“He | NIST TN 2279 Table 1a, a=-10.266, b=27.449, c=1.724 | 298â€“723, including the tabulated 298 K reference; fitted range starts at 300 K | No, evaluated fit |
-| Nâ‚‚â€“COâ‚‚ | NIST TN 2279 Table 1a, a=-7.317, b=-139.909, c=1.103 | 253â€“473 | No, evaluated fit |
-| Nâ‚‚â€“Oâ‚‚, Oâ‚‚â€“He, Oâ‚‚â€“COâ‚‚, Heâ€“COâ‚‚ | Fullerâ€“Schettlerâ€“Giddings correlation | 253â€“473, selected validation envelope | Yes |
+| N₂–He | NIST TN 2279 Table 1a, a=-10.266, b=27.449, c=1.724 | 298–723, including the tabulated 298 K reference; fitted range starts at 300 K | No, evaluated fit |
+| N₂–CO₂ | NIST TN 2279 Table 1a, a=-7.317, b=-139.909, c=1.103 | 253–473 | No, evaluated fit |
+| N₂–O₂, O₂–He, O₂–CO₂, He–CO₂ | Fuller–Schettler–Giddings correlation | 253–473, selected validation envelope | Yes |
 
 NIST's reference values and correlations come from
 [Burgess, NIST TN 2279 (2024)](https://doi.org/10.6028/NIST.TN.2279).
 The Fuller estimates use molecular weights in g/mol and diffusion volumes
-Nâ‚‚=18.5, Oâ‚‚=16.3, He=2.67, COâ‚‚=26.9, with the coefficient `0.001 T^1.75`
+N₂=18.5, O₂=16.3, He=2.67, CO₂=26.9, with the coefficient `0.001 T^1.75`
 atmospheric-pressure formulation, as documented in
 [COMSOL's gas diffusion model](https://doc.comsol.com/6.4/doc/com.comsol.help.lgp/lgp_ug_thermo.5.27.html).
 Property uncertainty is separate from numerical error and from the
@@ -124,17 +124,17 @@ equilibrium threshold.
 Run `ctest -R gas_diffusion --output-on-failure` after building, or run
 `ma_mac_diffusion_tests` directly. Tests cover 2-, 6- and 64-cell analytical
 binary modes and refined numerical solutions (<=1% of the initial perturbation),
-conservation, absent gases, helium and COâ‚‚ traces, pure gases, walls, unequal
+conservation, absent gases, helium and CO₂ traces, pure gases, walls, unequal
 temperature, moving mixtures, accelerated time scaling, rollback, more than
 four species, subnormals, profile identity and deterministic checkpoint
 continuation. Native tests cover the ABI, worker dispatch, stale-frame rejection
 and mode persistence.
 
-`tools/review_gas_diffusion.py` independently solves dense Maxwellâ€“Stefan face
+`tools/review_gas_diffusion.py` independently solves dense Maxwell–Stefan face
 systems using the same exported transport/caloric data. It reports mixing-time
 model error separately from 10/5-second refinement error for both solvers. Its
-declared ordinary-air envelope is 300 K, approximately one bar, Nâ‚‚/Oâ‚‚ with
-0â€“0.1% COâ‚‚ by mass. The model target is <=5% mixing-time difference; the
+declared ordinary-air envelope is 300 K, approximately one bar, N₂/O₂ with
+0–0.1% CO₂ by mass. The model target is <=5% mixing-time difference; the
 numerical target is <=1%. This narrow envelope does not validate arbitrary
 helium-rich mixtures, temperature extremes or room-scale circulation.
 
@@ -144,7 +144,7 @@ state construction and replacement, with five warmup advances and 31 samples
 each for uniform and actively mixing grids. The proposed
 allocation is 6.25 ms p95 per 0.1 simulated seconds on a Ryzen 5900X. It remains
 a measurement target, not an achieved guarantee. The complete colony gate is
-still solver plus adapter <=62.5 ms p95, sustained 1Ã— and >=30 FPS; the flow
+still solver plus adapter <=62.5 ms p95, sustained 1× and >=30 FPS; the flow
 solver also needs substantial optimization. Native Linux tests do not establish
 actual Linux ONI runtime validation.
 

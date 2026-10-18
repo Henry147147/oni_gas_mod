@@ -169,15 +169,18 @@ std::shared_ptr<const GasTransportProfile> GasTransportProfile::standard() {
         pairs.push_back({"nitrogen","carbon_dioxide",-7.317,-139.909,1.103,253,473,10000,200000,false,nist});
         // Fuller-Schettler-Giddings estimates; SI conversion from cm^2/s.
         // Volumes: COMSOL Liquid & Gas Properties, Fuller table (O2=16.3).
-        const char* names[]={"nitrogen","oxygen","helium","carbon_dioxide"};
-        const double weights[]={28.0134,31.9988,4.002602,44.0095},volumes[]={18.5,16.3,2.67,26.9};
-        for(std::size_t i=0;i<4;++i)for(std::size_t j=i+1;j<4;++j) {
-            if(i==0 && (j==2 || j==3))continue;
-            const double sum=std::cbrt(volumes[i])+std::cbrt(volumes[j]);
-            const double a=std::log(.001*std::sqrt(1/weights[i]+1/weights[j])/(sum*sum));
-            pairs.push_back({names[i],names[j],a,0,1.75,253,473,10000,200000,true,
-                "Fuller-Schettler-Giddings correlation; https://doc.comsol.com/6.4/doc/com.comsol.help.lgp/lgp_ug_thermo.5.27.html"});
-        }
+        // a = ln(0.001 sqrt(1/W_i+1/W_j) / (cbrt(V_i)+cbrt(V_j))^2), with W =
+        // N2 28.0134, O2 31.9988, He 4.002602, CO2 44.0095 g/mol and V = 18.5,
+        // 16.3, 2.67, 26.9. The values are stored as exact binary64 literals
+        // (correctly rounded cbrt/log, IEEE +,*,/,sqrt) instead of being
+        // evaluated with the host libm: checkpoints compare every coefficient
+        // bit for bit, and glibc/MSVC cbrt and log are not correctly rounded,
+        // so a runtime evaluation would make saves platform/libm specific.
+        const std::string fuller="Fuller-Schettler-Giddings correlation; https://doc.comsol.com/6.4/doc/com.comsol.help.lgp/lgp_ug_thermo.5.27.html";
+        pairs.push_back({"nitrogen","oxygen",-0x1.71949acae4936p+3,0,1.75,253,473,10000,200000,true,fuller});
+        pairs.push_back({"oxygen","helium",-0x1.48d438f95b97dp+3,0,1.75,253,473,10000,200000,true,fuller});
+        pairs.push_back({"oxygen","carbon_dioxide",-0x1.793aa1c2c98c3p+3,0,1.75,253,473,10000,200000,true,fuller});
+        pairs.push_back({"helium","carbon_dioxide",-0x1.506e1b2bad992p+3,0,1.75,253,473,10000,200000,true,fuller});
         return std::make_shared<const GasTransportProfile>("ma-gas-transport-1",std::move(pairs));
     }();return value;
 }
