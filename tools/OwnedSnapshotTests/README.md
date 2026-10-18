@@ -31,6 +31,9 @@ The scenarios cover:
   and binary32 wire values. Configured payloads (versions 4 and 5) check the
   `MADCFG01` framing, header/wrapper agreement and native-world mask faults;
   four legacy payload SHA-256 values pin versions 1–3 to the unmodified codec.
+  Solver checkpoint version 5 (gas diffusion) passes through legacy, actor and
+  configured wrappers for full native diffusion-property admission; version 4
+  (interval kernel, never selected by the game) and unknown versions reject.
 - **Domain helpers.** Readings, configured-domain layout, orbital references,
   breathing and pressure reads, and validation limits.
 - **Presentation.** The adapter runtime, GPU readback plans, tile-hover receipts

@@ -424,7 +424,9 @@ namespace MixedAtmospheres.Oni
         }
         private static void VerifyRestoredPhysicalFrame()
         {
-            if(!colonyLoaded || restoredExpected==null || latest.CompletedFrames==replayFrame) return;
+            // The bounded continuation audit and its submission fence end
+            // together. Normal play may then change settings and advance freely.
+            if(completed || !colonyLoaded || restoredExpected==null || latest.CompletedFrames==replayFrame) return;
             Require(latest.CompletedFrames==replayFrame+1 && latest.LastTimestepSeconds==(double).2f,"Restored worker observation skipped a physical frame or changed timestep.");
             var expected=ReplayCompletedFrameInputs(restoredExpected);
             // A live duplicant may already have reserved its next request.

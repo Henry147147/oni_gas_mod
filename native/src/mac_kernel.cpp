@@ -20,12 +20,13 @@ struct MacKernelAccess {
     static double time(const MacClosedWorld& w) { return w.time_s_; }
     static std::uint64_t revision(const MacClosedWorld& w) { return w.revision_; }
     static void stamp(MacClosedWorld& w, double time, std::uint64_t revision) { w.time_s_ = time; w.revision_ = revision; }
-    // The retained reference implementation for the same interval (range
-    // flags): a copy that selects no fast path, published with the caller's
-    // numerical-kernel setting.
+    // The retained reference implementation for the same flow interval
+    // (range flags): a copy that selects no fast path, published with the
+    // caller's numerical-kernel setting. Flow only, like the kernel: gas
+    // diffusion half steps belong to the owner's composition around it.
     static MacClosedAdvance reference(const MacClosedWorld& w, double seconds, std::size_t budget) {
         auto copy = w; copy.settings_.numerical_kernel = MacNumericalKernel::reference;
-        auto result = copy.advanced(seconds, budget, MacExecutionPolicy::reference);
+        auto result = copy.advanced_flow(seconds, budget, MacExecutionPolicy::reference);
         result.world.settings_.numerical_kernel = w.settings_.numerical_kernel;
         return result;
     }
@@ -450,12 +451,19 @@ void set_mac_kernel_default_options(const MacKernelOptions& options) {
 }
 MacKernelAdvance advance_mac_kernel(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state,
     const MacClosedSettings& settings, double start_time, double seconds, std::size_t budget, const MacKernelOptions& options) {
+    mac_kernel::require(settings.diffusion.mode == MacDiffusionMode::disabled,
+        "The production kernel advances flow only; MacExecutionPolicy::production composes gas diffusion");
     MacKernelAdvance result{state, {}};
     result.report = mac_kernel::run_interval(registry, eos, state, settings, start_time, seconds, budget, options, result.state);
     return result;
 }
 const MacKernelReport& last_mac_production_report() { return mac_kernel::last_report(); }
 MacClosedAdvance advance_mac_production(const MacClosedWorld& world, double seconds, std::size_t budget, const MacKernelOptions& options) {
+    mac_kernel::require(MacKernelAccess::settings(world).diffusion.mode == MacDiffusionMode::disabled,
+        "advance_mac_production advances flow only; MacExecutionPolicy::production composes gas diffusion");
+    return advance_mac_production_flow(world, seconds, budget, options);
+}
+MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double seconds, std::size_t budget, const MacKernelOptions& options) {
     mac_kernel::last_report() = {};
     const auto revision = MacKernelAccess::revision(world);
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");

@@ -49,6 +49,49 @@ but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
+Conservative [gas diffusion](../native/MAC_DIFFUSION.md) is merged into main as
+formulation 2. It supplies species-specific exchange with carried enthalpy,
+physical and accelerated modes, completed-frame configuration and versioned
+checkpoints (`MACCLS01` version 5, beside the interval kernel's version 4).
+
+The Maxwell–Stefan driving force includes pressure diffusion, in a symmetric
+positive-semidefinite discrete form, so its first-order entropy production
+cannot be negative. Faces touching empty cells carry no flux. Correlations
+outside their validated ranges are extrapolated, combined with the cell's
+Knudsen limit and counted.
+
+These pass:
+
+- binary analytical controls (1.1e-5 of the perturbation);
+- independent Maxwell–Stefan ordinary-air comparisons (at most 0.0407%
+  mixing-time model error);
+- the review's opposing-gradient, empty-cell and 200–600 K, 1e-9 Pa–500 kPa
+  controls in both modes;
+- Linux address and undefined-behaviour sanitizers.
+
+On 2026-10-18 the native Linux game ran with the default physical mode (ONI
+744825, Ubuntu 22.04 compatibility libraries, private display). The six-cell
+mixed-air scene and the 7×5 configured gas room each took a paired save. A
+fresh-process load resumed each one exactly for 120 frames. The configured
+water room, where diffusion is off, matched its earlier 2,562 substeps with no
+rejected attempt.
+
+Two known limits remain:
+
+- A locally introduced gas faults physical diffusion once its front is about
+  36 cells from the source, because positive amounts below binary64 reject.
+- Diffused traces beside a strong pressure jump reach an existing flow-solver
+  rejection.
+
+The Windows 9950X benchmark of formulation 1 measured 5.06 ms p95 for certified
+uniform inventories and 188.32 ms for active mixing per 0.1 simulated seconds
+at 250,000 cells. On a shared Linux host, formulation 2's times overlap
+formulation 1's. Active diffusion misses its proposed 6.25 ms allocation; this
+is not the required Ryzen 5900X colony/adapter benchmark. The Windows evidence
+predates formulation 2: six-cell physical/100× runs, a diffusion-enabled save
+and restore, and 120-frame replay. See the
+[validation record](gas-diffusion-validation.json).
+
 An opt-in [1-D nodal momentum/kinetic conversion](../native/MAC_NODAL_CONVERSION.md)
 now passes the original curved-deformation point oracle with independently checked
 work and inventories. It preserves full-range momentum, carries conversion work
@@ -137,8 +180,10 @@ An opt-in [interval-audited kernel](../native/MAC_INTERVAL_KERNEL.md) now ports
 the existing donor-cell ideal-gas pressure/transport laws inside `MacClosedWorld`.
 It preserves selected laws through reference fallback, persists its numerical
 setting and checks completed intervals. The 10,000-step and 81-species controls
-pass; 250,000-cell timing remains about 10.2 s per 0.1 simulated seconds on one
-core. Higher-order selectors, regularization, liquid/free-surface ports and the
+pass. Automatic [pressure multigrid](../native/MAC_MULTIGRID.md), fixed-block
+reductions and immutable topology reuse reduce 250,000-cell timing to about
+6.63 s per 0.1 simulated seconds on one core, with every cell changing and no
+retries. Higher-order selectors, regularization, liquid/free-surface ports and the
 real-time acceptance gate remain open. The default kernel is unchanged.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,

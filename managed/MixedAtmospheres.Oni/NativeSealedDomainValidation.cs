@@ -321,25 +321,24 @@ namespace MixedAtmospheres.Oni
             Game.Instance.SandboxModeActive = true;
             var start = SaveLoader.Instance.cachedGSD.baseStartPos + ClusterManager.Instance.GetStartWorld().WorldOffset;
             var chosen = false;
-            var reach = ConfiguredMode ? 24 : 8; var top = ConfiguredMode ? 40 : 30;
+            const int reach = 24, top = 40;
             // A burrowed critter or an entombed item is not always in
             // Grid.Objects, yet falls into the room once its rock becomes
             // fluid (actual runs: a Hatch, then a buried Muckroot). The larger
-            // configured room keeps every positioned prefab out of its arena
+            // development room keeps every positioned prefab out of its arena
             // margin, and live creatures and duplicants further away.
             // Entombed items and burrowed critters can also still be unspawned
             // world-gen records, in no object list, that WorldGenSpawner spawns
             // in their own cell once it stops being solid or is revealed (a
             // third attempt: a Muckroot). Only a record inside the cells this
             // fixture rewrites can spawn into the room, so it has no margin.
-            var unspawned = ConfiguredMode && SaveGame.Instance.worldGenSpawner != null ?
+            var unspawned = SaveGame.Instance.worldGenSpawner != null ?
                 SaveGame.Instance.worldGenSpawner.GetSpawnables().Where(item => !item.isSpawned).Select(item => (Cell: item.cell, Margin: 0)).ToArray()
                 : Array.Empty<(int Cell, int Margin)>();
-            var occupants = ConfiguredMode ? UnityEngine.Object.FindObjectsByType<KPrefabID>(FindObjectsSortMode.None)
+            var occupants = UnityEngine.Object.FindObjectsByType<KPrefabID>(FindObjectsSortMode.None)
                 .Where(item => item != null && item.gameObject.activeInHierarchy).Select(item => (Cell: Grid.PosToCell(item), Margin: item.GetComponent<Brain>() != null ? 8 : 4))
                 .Concat(unspawned)
-                .Where(item => Grid.IsValidCell(item.Cell)).Select(item => (X: item.Cell % Grid.WidthInCells, Y: item.Cell / Grid.WidthInCells, item.Margin)).ToArray()
-                : Array.Empty<(int X, int Y, int Margin)>();
+                .Where(item => Grid.IsValidCell(item.Cell)).Select(item => (X: item.Cell % Grid.WidthInCells, Y: item.Cell / Grid.WidthInCells, item.Margin)).ToArray();
             for (var yy = start.y + 16; yy <= start.y + top && !chosen; ++yy)
             for (var xx = start.x - reach; xx <= start.x + reach && !chosen; ++xx)
             {
@@ -450,6 +449,8 @@ namespace MixedAtmospheres.Oni
             if (ConfiguredMode) ImportConfiguredInventory(source, ref configuration);
             else if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
+            GasDiffusionOptions.NewDomain(latest, configuration.Scenario == 0 || configuration.Scenario == 2 ||
+                (ConfiguredMode && (ConfiguredPhysics.Flags & (PhysicsLiquid | PhysicsMixture)) == 0));
             RegisterNativeSolidHeat(source);
             domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
@@ -476,6 +477,11 @@ namespace MixedAtmospheres.Oni
             finally { writingProjection = false; }
             ColonyRuntimeValidation.SetStage("running-sealed-native-domain"); WriteReport();
         }
+        internal static void CycleGasDiffusion()
+        {
+            GasDiffusionOptions.Cycle();
+            if (active && !failed) { Capture(); WriteReport(); }
+        }
         private static void Capture()
         {
             var held = (Cell[])cells.Clone(); var previous = latest.CompletedFrames;
@@ -491,6 +497,7 @@ namespace MixedAtmospheres.Oni
             var first = FirstDomainFluid;
             retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[first].InternalEnergy == cells[first].InternalEnergy;
             latest = next; cells = values;
+            GasDiffusionOptions.Refresh(latest);
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
@@ -771,7 +778,8 @@ namespace MixedAtmospheres.Oni
             Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2",
             Scenario = ConfiguredMode ? Liquid ? "configured-pillared-water" : "configured-pillared-gas" : MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
-            NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
+            NativeDomain = latest, GasDiffusion = GasDiffusionOptions.Current,
+            NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             ConfiguredDomain = ConfiguredReport(),
             MixedPhase = MixedPhaseReport(),
             PhysicalViscosity = ViscosityReport(),

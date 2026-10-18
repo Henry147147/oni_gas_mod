@@ -18,14 +18,20 @@ see [performance](#performance) and [remaining work](#remaining-work).
 ## Selection
 
 - `MacExecutionPolicy::production` on `MacClosedWorld::advanced()`: the
-  exact-equilibrium certificate first, then the production kernel. This is an
-  execution choice only: no setting or checkpoint byte changes.
+  exact-equilibrium certificate first, then the production kernel for each
+  flow interval. With gas diffusion enabled, the owner's
+  [diffusion](MAC_DIFFUSION.md) half steps wrap each flow interval exactly as
+  for the reference policy. This is an execution choice only: no setting or
+  checkpoint byte changes.
 - `advance_mac_production(world, seconds, budget, options)`: the kernel alone
-  (no certificate), with explicit `MacKernelOptions` (thread count).
+  (no certificate), with explicit `MacKernelOptions` (thread count). It
+  advances flow only and rejects an owner with diffusion enabled.
 - `MacNumericalKernel::interval_audited` (the persisted selection added in
-  de805b7, [interval kernel](MAC_INTERVAL_KERNEL.md)): when that first port
-  declines a configuration it does not cover, the production kernel takes it
-  if its own admission passes, before falling back to the reference.
+  de805b7, [interval kernel](MAC_INTERVAL_KERNEL.md)): with
+  `MacKernelOptions::extend_interval_admission` set (default off), when that
+  first port declines a configuration it does not cover, the production
+  kernel takes it if its own admission passes, before falling back to the
+  reference.
 
 The thread count never changes a result (see [determinism](#determinism)).
 `set_mac_kernel_default_options()` sets the process-wide options used by the
@@ -109,12 +115,15 @@ line order reproduces the reference to roundoff. Viscosity modes and mixed
 conduction contacts couple both directions: viscosity uses a fixed 9-colour
 order, mixed conduction runs sequentially.
 
-**Diffusion slot.** `stage_diffusion` is reserved for the gas-diffusion stage
-being merged on main (`mac_diffusion*.cpp`). That stage wraps flow intervals
-in diffusion half steps at the owner level; once merged, the production
-policy keeps the wrapper around the kernel (diffusion stays reference) until a
-flux-form diffusion stage fills this slot: per-face antisymmetric species
-fluxes on the species-major columns, accumulated into the same interval audit.
+**Diffusion slot.** Gas diffusion (`mac_diffusion*.cpp`) wraps each flow
+interval in half steps at the owner level. The production policy keeps that
+wrapper around the kernel (the diffusion implementation is main's), so a
+diffusion-enabled owner gets the same composition and composed energy
+account with either policy; the unit suite compares the two on the room
+scene with physical diffusion (roundoff agreement). `stage_diffusion` stays
+reserved for a flux-form diffusion stage inside the kernel: per-face
+antisymmetric species fluxes on the species-major columns, accumulated into
+the same interval audit.
 
 ## Production contract
 
@@ -336,16 +345,20 @@ is an open ownership decision.
   per 0.1 s (3.6 s on one thread) against 62.5 ms, a factor of about 19; at
   100,000 cells about 0.40 s against 25 ms, a factor of about 16 (wave scene,
   shared host).
-- Larger calm-region steps with local subcycling and a tuned multigrid
-  preconditioner are separate work (`mac_pressure_multigrid.*`) and not part
-  of this kernel; the multigrid option here is an untuned aggregation
-  V-cycle. Both reduce the substep and iteration counts that every number
-  above is proportional to.
+- Main's geometric multigrid preconditioner ([MAC_MULTIGRID.md](MAC_MULTIGRID.md),
+  `mac_pressure_multigrid.*`, serial) serves the interval kernel and is not
+  wired into this kernel, whose default is Jacobi-PCG (about 37 PCG
+  iterations per substep in the 250,000-cell wave; the multigrid option here
+  is an untuned aggregation V-cycle). Its `prepare(compliance, conductances)` /
+  `apply` interface matches this kernel's operator `diag + B diag(w) Bᵀ`.
+  Larger calm-region steps with local subcycling are not part of this
+  kernel either. Both reduce the substep and iteration counts that every
+  number above is proportional to.
 - Thread scaling stops near 3–3.7 times on 12 threads on the shared host.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
   reduction per iteration) and a measurement on an idle host are the next
   steps.
-- Gas diffusion (the stage slot above), swept reconstruction, momentum
-  selectors 2–5 and coupled compressive pressure are not ported.
+- Diffusion inside the kernel (the stage slot above), swept reconstruction,
+  momentum selectors 2–5 and coupled compressive pressure are not ported.
 - Below-range transients inside an interval round without per-value counting;
   only interval endpoints and inputs are range-checked.

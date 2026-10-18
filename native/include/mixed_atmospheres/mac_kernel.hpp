@@ -95,8 +95,15 @@ struct MacKernelAdvance { MacTransportState state; MacKernelReport report; };
     const MacTransportState&, const MacClosedSettings&, double start_time_s, double seconds,
     std::size_t attempt_budget, const MacKernelOptions&);
 // Owner-level production advance with the same atomicity as advanced():
-// returns a new owner one revision later or throws, publishing nothing.
+// returns a new owner one revision later or throws, publishing nothing. Flow
+// only: an owner with gas diffusion enabled is rejected here (and by
+// advance_mac_kernel); MacClosedWorld::advanced with
+// MacExecutionPolicy::production wraps the kernel in the owner's diffusion
+// half steps.
 [[nodiscard]] MacClosedAdvance advance_mac_production(const MacClosedWorld&, double seconds,
+    std::size_t attempt_budget, const MacKernelOptions&);
+// The flow interval of a diffusion-composed owner (used by MacClosedWorld).
+[[nodiscard]] MacClosedAdvance advance_mac_production_flow(const MacClosedWorld&, double seconds,
     std::size_t attempt_budget, const MacKernelOptions&);
 // The kernel report of the most recent advance_mac_production on this thread
 // (diagnostic convenience for the benchmark; cleared on failure).

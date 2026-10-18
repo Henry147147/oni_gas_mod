@@ -76,6 +76,24 @@ int main(int argc, char** argv) {
             const auto moving = owner(wave(8, 8)).advanced(.1, 64, MacExecutionPolicy::production);
             check(moving.report.exact_equilibrium_intervals == 0 && moving.report.substeps > 0, "production policy advances a wave");
         }
+        // Gas diffusion: the flow-only entry rejects a diffusion-enabled owner;
+        // the production policy wraps the kernel in the owner's diffusion half
+        // steps and agrees with the reference composition.
+        {
+            auto sc = room(24, 16);
+            const auto source = owner(sc).with_diffusion(MacDiffusionSettings{});
+            bool rejected = false;
+            try { static_cast<void>(advance_mac_production(source, .1, 1024, {})); } catch (const std::invalid_argument&) { rejected = true; }
+            const auto ref = source.advanced(.1, 1024, MacExecutionPolicy::reference);
+            const auto prod = source.advanced(.1, 1024, MacExecutionPolicy::production);
+            const auto m = compare(ref.world, prod.world, sc.disturbance_pa);
+            std::cout << "DIFFUSION substeps=" << prod.report.diffusion.substeps << " dT_K=" << m.temperature_k
+                << " dp_over_disturbance=" << m.pressure_over_disturbance << " dO2pp_rel=" << m.oxygen_relative
+                << " dconstituent_rel=" << m.constituent_relative << '\n';
+            check(rejected && prod.report.diffusion.substeps > 0 && ref.report.diffusion.substeps == prod.report.diffusion.substeps &&
+                m.temperature_k <= .1 && m.pressure_over_disturbance <= .01 && m.oxygen_relative <= .01 && m.constituent_relative <= .01,
+                "production policy composes gas diffusion");
+        }
         // Opt-in extension of the persisted interval kernel's admission: an
         // unported selector set goes to the production kernel (not the
         // reference), agreeing with the reference within the tolerances; a

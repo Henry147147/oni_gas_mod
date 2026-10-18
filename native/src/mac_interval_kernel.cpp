@@ -3,6 +3,7 @@
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -94,6 +95,7 @@ struct Reading {
 struct Kernel {
     const MacTransportState& source;
     const MacClosedSettings& settings;
+    MacIntervalCache& cache;
     Geometry topology;
     std::vector<Gas> gases;
     std::vector<std::uint64_t> passive_ids;
@@ -101,14 +103,17 @@ struct Kernel {
     std::vector<Reading> initial, current;
     std::vector<double> dv, trial, pressure, increment, compliance, residual, x, r, z, direction, applied, diagonal;
     std::vector<double> material_volume, pressure_u, next_mass;
-    std::array<std::vector<double>, 2> inertia, sweep, pressure_j, mass_flux, scalar_flux;
+    std::array<std::vector<double>, 2> inertia, conductance, sweep, pressure_j, mass_flux, scalar_flux;
     std::vector<double> keep, velocity, provisional, dual_flux;
     std::vector<StoredSum> gathered, heat;
+    mutable std::vector<Sum> dot_blocks;
     std::array<MacEnergySum, 2> wall;
     Sum mixing_heat, wall_heat;
     Rounding rounding;
     MacClosedAdvanceReport report;
     std::size_t selected = 0;
+    std::size_t active_cells = 0, topology_builds = 0;
+    std::unique_ptr<interval_detail::PressureMultigrid> multigrid;
 
     static std::vector<Gas> gas_models(const SpeciesRegistry& registry, const FluidThermodynamics& model,
         const MacTransportState& input) {
@@ -134,18 +139,20 @@ struct Kernel {
         return result;
     }
     Kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model, const MacTransportState& input,
-        const MacClosedSettings& config) : source(input), settings(config), topology(input.grid),
+        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(input.grid),
         gases(gas_models(registry, model, input)), passive_ids(ids(input)),
         banks{Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology),
               Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology)} {
         if (!source.full_momentum_x.empty() || !source.full_momentum_y.empty()) throw Decline{};
         normal(source.grid.volume_m3()); normal(source.grid.spacing_m * source.grid.depth_m);
+        active_cells = source.grid.walls.size() - static_cast<std::size_t>(std::count(source.grid.walls.begin(), source.grid.walls.end(), std::uint8_t{1}));
         const auto n = input.cells.size(); initial.resize(n); current.resize(n); heat.resize(n);
+        dot_blocks.resize((n + 255) / 256);
         for (auto* v : {&dv, &trial, &pressure, &increment, &compliance, &residual, &x, &r, &z, &direction, &applied,
             &diagonal, &material_volume, &pressure_u, &next_mass}) v->resize(n);
         for (std::size_t a = 0; a < 2; ++a) {
             const auto count = topology.faces[a].size();
-            for (auto* v : {&inertia[a], &sweep[a], &pressure_j[a], &mass_flux[a], &scalar_flux[a]}) v->resize(count);
+            for (auto* v : {&inertia[a], &conductance[a], &sweep[a], &pressure_j[a], &mass_flux[a], &scalar_flux[a]}) v->resize(count);
         }
         const auto count = std::max(topology.faces[0].size(), topology.faces[1].size());
         for (auto* v : {&keep, &velocity, &provisional}) v->resize(count);
@@ -262,36 +269,80 @@ struct Kernel {
         return norm;
     }
     double dot(const std::vector<double>& a, const std::vector<double>& b) const {
-        Sum sum; for (std::size_t i = 0; i < a.size(); ++i) if (!source.grid.walls[i]) sum.add(product(a[i], b[i]));
+        // Fixed blocks and lanes keep the reduction independent of future task
+        // partitioning while breaking the long double-double dependency chain.
+        for (std::size_t block = 0; block < dot_blocks.size(); ++block) {
+            std::array<Sum, 4> lanes{}; const auto begin = block * 256, end = std::min(begin + 256, a.size());
+            bool flagged = false;
+            const auto accumulate = [&](std::size_t i, Sum& lane) {
+                if (source.grid.walls[i]) return;
+                const double value = a[i] * b[i]; const auto bits = std::bit_cast<std::uint64_t>(value) & UINT64_C(0x7fffffffffffffff);
+                // Delay only the exception, not a physical state update. This
+                // keeps ordinary multiplies/adds free of throwing branches.
+                flagged |= ((bits != 0) & (bits < std::bit_cast<std::uint64_t>(0x1p-450))) |
+                    (bits > std::bit_cast<std::uint64_t>(0x1p450)) | ((bits == 0) & (a[i] != 0) & (b[i] != 0));
+                lane.add(value);
+            };
+            auto i = begin;
+            for (; i + 4 <= end; i += 4) { accumulate(i, lanes[0]); accumulate(i + 1, lanes[1]); accumulate(i + 2, lanes[2]); accumulate(i + 3, lanes[3]); }
+            for (; i < end; ++i) accumulate(i, lanes[i % 4]);
+            if (flagged) throw Decline{};
+            Sum value; for (const auto& lane : lanes) { value.add(lane.hi); value.add(lane.lo); } dot_blocks[block] = value;
+        }
+        Sum sum; for (const auto& block : dot_blocks) { sum.add(block.hi); sum.add(block.lo); }
         return normal(sum.value());
     }
-    void apply(const std::vector<double>& in, std::vector<double>& out, double factor) const {
+    void apply(const std::vector<double>& in, std::vector<double>& out) const {
         for (std::size_t i = 0; i < in.size(); ++i) out[i] = source.grid.walls[i] ? 0 : compliance[i] * in[i];
         for (std::size_t a = 0; a < 2; ++a) for (std::size_t f = 0; f < topology.faces[a].size(); ++f) {
             const auto& pair = topology.faces[a][f]; if (!pair.free()) continue;
-            const double v = factor / inertia[a][f] * (in[pair.left] - in[pair.right]);
+            const double v = conductance[a][f] * (in[pair.left] - in[pair.right]);
             out[pair.left] += v; out[pair.right] -= v;
         }
     }
-    std::size_t solve(double dt) {
+    std::size_t solve(double dt, MacClosedAdvanceReport& step) {
         const double da = dt * source.grid.spacing_m * source.grid.depth_m, factor = .5 * da * da;
         for (std::size_t i = 0; i < current.size(); ++i) {
             x[i] = 0; r[i] = source.grid.walls[i] ? 0 : residual[i]; diagonal[i] = compliance[i];
         }
         for (std::size_t a = 0; a < 2; ++a) for (std::size_t f = 0; f < topology.faces[a].size(); ++f) {
-            const auto& pair = topology.faces[a][f]; if (!pair.free()) continue;
-            const double g = factor / inertia[a][f]; diagonal[pair.left] += g; diagonal[pair.right] += g;
+            const auto& pair = topology.faces[a][f]; conductance[a][f] = 0; if (!pair.free()) continue;
+            const double g = conductance[a][f] = normal(factor / inertia[a][f]); diagonal[pair.left] += g; diagonal[pair.right] += g;
         }
-        for (std::size_t i = 0; i < r.size(); ++i) z[i] = direction[i] = source.grid.walls[i] ? 0 : r[i] / diagonal[i];
+        double coupling = 0;
+        for (std::size_t i = 0; i < r.size(); ++i) if (!source.grid.walls[i]) coupling = std::max(coupling, (diagonal[i] - compliance[i]) / compliance[i]);
+        bool use_multigrid = settings.preconditioner == PressurePreconditioner::automatic && active_cells >= 256 && coupling >= 2;
+        if (use_multigrid) {
+            if (!multigrid) {
+                std::call_once(cache.multigrid_once, [&] {
+                    cache.multigrid = std::make_shared<const interval_detail::PressureMultigridTopology>(source.grid); ++topology_builds;
+                });
+                multigrid = std::make_unique<interval_detail::PressureMultigrid>(cache.multigrid);
+            }
+            use_multigrid = multigrid->prepare(compliance, conductance[0], conductance[1]);
+            if (use_multigrid) {
+                ++step.interval_multigrid_solves;
+                step.interval_multigrid_levels = std::max(step.interval_multigrid_levels, cache.multigrid->levels().size());
+            } else ++step.interval_multigrid_fallbacks;
+        }
+        const auto precondition = [&] {
+            if (use_multigrid) { if (!multigrid->apply(r, z)) throw Decline{}; }
+            else for (std::size_t i = 0; i < r.size(); ++i) z[i] = source.grid.walls[i] ? 0 : r[i] / diagonal[i];
+        };
+        const auto completed = [&](std::size_t iterations) {
+            if (use_multigrid) step.interval_multigrid_cycles += multigrid->cycles();
+            return iterations;
+        };
+        precondition(); direction = z;
         double rz = dot(r, z); const double rr0 = dot(r, r);
-        if (rr0 == 0) return 0;
+        if (rr0 == 0) return completed(0);
         for (std::size_t iteration = 0; iteration < 512; ++iteration) {
-            apply(direction, applied, factor); const double denominator = dot(direction, applied);
+            apply(direction, applied); const double denominator = dot(direction, applied);
             if (!(denominator > 0 && rz > 0)) throw std::domain_error("Interval pressure PCG lost positive definiteness");
             const double alpha = rz / denominator;
             for (std::size_t i = 0; i < r.size(); ++i) { x[i] += alpha * direction[i]; r[i] -= alpha * applied[i]; }
-            if (dot(r, r) <= 1e-24 * rr0) return iteration + 1;
-            for (std::size_t i = 0; i < r.size(); ++i) z[i] = source.grid.walls[i] ? 0 : r[i] / diagonal[i];
+            if (dot(r, r) <= 1e-24 * rr0) return completed(iteration + 1);
+            precondition();
             const double next = dot(r, z), beta = next / rz; rz = next;
             for (std::size_t i = 0; i < r.size(); ++i) direction[i] = z[i] + beta * direction[i];
         }
@@ -304,7 +355,7 @@ struct Kernel {
         double norm = evaluate(from, dv, dt);
         for (std::size_t iteration = 0; norm > 16 * eps; ++iteration) {
             if (iteration == 64) throw std::domain_error("Interval pressure nonlinear root exhausted iterations");
-            step.pressure_iterations += solve(dt); ++step.nonlinear_iterations;
+            step.pressure_iterations += solve(dt, step); ++step.nonlinear_iterations;
             // Keep the tangent from the accepted iterate across backtracking.
             for (std::size_t i = 0; i < dv.size(); ++i) applied[i] = -compliance[i] * x[i];
             double fraction = 1; bool accepted = false;
@@ -540,6 +591,9 @@ struct Kernel {
                         step(dt, accepted, reaction);
                         for (std::size_t a = 0; a < 2; ++a) for (std::size_t k = 0; k < reaction[a].size(); ++k) wall[a].add(reaction[a].component(k));
                         report.pressure_iterations += accepted.pressure_iterations; report.nonlinear_iterations += accepted.nonlinear_iterations;
+                        report.interval_multigrid_solves += accepted.interval_multigrid_solves; report.interval_multigrid_cycles += accepted.interval_multigrid_cycles;
+                        report.interval_multigrid_fallbacks += accepted.interval_multigrid_fallbacks;
+                        report.interval_multigrid_levels = std::max(report.interval_multigrid_levels, accepted.interval_multigrid_levels);
                         report.maximum_geometric_residual_m3 = std::max(report.maximum_geometric_residual_m3, accepted.maximum_geometric_residual_m3);
                         ++report.substeps; elapsed += dt; next_dt = std::min(maximum_dt, 2 * dt); break;
                     } catch (const std::domain_error&) {
@@ -553,6 +607,7 @@ struct Kernel {
         }
         report.attempts = attempts; report.rejected_attempts = rejected; report.interval_audit_retries = audit_retries;
         report.interval_kernel_intervals = 1; report.interval_rounded_updates = rounding.rounded; report.interval_unresolved_updates = rounding.unresolved;
+        report.interval_topology_builds = topology_builds;
         report.mixing_heat_j = normal(mixing_heat.value()); report.mixing_heat_wide_j = MacEnergy::from_double(report.mixing_heat_j);
         report.wall_heat_j = normal(wall_heat.value()); report.wall_heat_wide_j = MacEnergy::from_double(report.wall_heat_j);
         report.full_wall_impulse_x = wall[0].value(); report.full_wall_impulse_y = wall[1].value();
@@ -570,7 +625,7 @@ struct Kernel {
 };
 }
 std::optional<MacIntervalCandidate> advance_mac_interval_kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, const MacClosedSettings& settings, double seconds, std::size_t budget, std::size_t& attempts) {
+    const MacTransportState& source, const MacClosedSettings& settings, double seconds, std::size_t budget, std::size_t& attempts, MacIntervalCache* cached) {
     attempts = 0;
     // Never substitute a cheaper physical selector. Each remaining selector
     // will be ported and validated before this admission expands.
@@ -579,7 +634,8 @@ std::optional<MacIntervalCandidate> advance_mac_interval_kernel(const SpeciesReg
         settings.compression_viscosity != MacCompressionViscosity::none || settings.shock_heat != MacShockHeatRegularization::none ||
         settings.thermal_conduction || settings.viscosity.shear_pa_s != 0 || settings.viscosity.bulk_pa_s != 0 ||
         settings.gravity_m_per_s2 != 0 || settings.preconditioner == PressurePreconditioner::incomplete_cholesky) return {};
-    try { normal(seconds); normal(settings.maximum_timestep_s); return Kernel(registry, model, source, settings).run(seconds, budget, attempts); }
+    MacIntervalCache local_cache;
+    try { normal(seconds); normal(settings.maximum_timestep_s); return Kernel(registry, model, source, settings, cached ? *cached : local_cache).run(seconds, budget, attempts); }
     catch (const Decline&) { return {}; }
 }
 void validate_mac_interval_fallback(const MacTransportState& before, const MacTransportState& after, MacClosedAdvanceReport& report) {

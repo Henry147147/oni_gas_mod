@@ -11,9 +11,30 @@ namespace MixedAtmospheres.Oni
         private static Configuration replayGeometry;
         private static readonly List<object> replayInputEvidence=new List<object>();
         private static readonly List<string> replayPhysicalInputs=new List<string>();
+        private static readonly List<object> replayDiffusionBoundaries=new List<object>();
         private static string PhysicalInputTranscriptHash()=>System.Text.Encoding.ASCII.GetString(NativeFrameInputJournal.Digest(
             System.Text.Encoding.ASCII.GetBytes(string.Concat(replayPhysicalInputs))));
         private static int replayInputFrames,replayInputHeatBatches,replayInputTransferBatches,replayActorRefreshFrames;
+        internal static void BeforeGasDiffusionChange()
+        {
+            // Verify any newly completed frame before configuration invalidates
+            // that frame's immutable source/journal cache.
+            if(colonyLoaded && !completed) VerifyRestoredPhysicalFrame();
+        }
+        internal static void AfterGasDiffusionChange(uint mode,double multiplier)
+        {
+            if(!colonyLoaded || completed) return;
+            Require(latest.CompletedFrames==replayFrame && latest.TimeSeconds==replayTime,
+                "Diffusion configuration changed outside the observed continuation boundary.");
+            Require(TryCapturePhysicalCheckpoint(out var configured),"Diffusion configuration did not retain a drained continuation image.");
+            // Explicit configuration begins a new reference segment at the
+            // same physical time. Retain its source so the transition is auditable.
+            var file="native-diffusion-boundary-"+latest.Session+"-"+latest.CompletedFrames+"-"+(replayDiffusionBoundaries.Count+1)+".bin";
+            File.WriteAllBytes(Path.Combine(ColonyRuntimeValidation.OutputDirectory,file),configured);
+            replayDiffusionBoundaries.Add(new {latest.Session,CompletedFrame=latest.CompletedFrames,PhysicalTime=latest.TimeSeconds,
+                Mode=mode,Multiplier=multiplier,SourceFile=file,SourceSha256=CheckpointHash(configured)});
+            restoredExpected=configured;
+        }
         private static byte[] ReadCompletedPhysicalFrame()
         {
             Check(CopyCompletedSnapshot(latest.Session,latest.CompletedFrames,null,0,out var size));
@@ -64,6 +85,7 @@ namespace MixedAtmospheres.Oni
             AbiVersion=1,CompletedSnapshotAbiVersion=1,ReplayedFrames=replayInputFrames,ActorRefreshFramesCompared=replayActorRefreshFrames,
             HeatBatches=replayInputHeatBatches,TransferBatches=replayInputTransferBatches,Journals=replayInputEvidence.ToArray(),
             PhysicalInputTranscriptSha256=PhysicalInputTranscriptHash(),
+            DiffusionConfigurationBoundaries=replayDiffusionBoundaries.ToArray(),
             PredictsFutureGameCommands=false,ActorReconfigurationReplayImplemented=false
         };
     }

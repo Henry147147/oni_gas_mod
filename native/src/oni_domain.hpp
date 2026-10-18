@@ -37,6 +37,8 @@ void configure_persistent_domain_actors(const MAOniDomainPersistentActor*,std::u
 std::uint32_t pending_domain_actor_restores();
 void copy_domain_actor_status(MAOniDomainActorStatus&);
 void copy_domain_thermal_status(MAOniDomainThermalStatus&);
+void configure_domain_diffusion(std::uint64_t,std::uint64_t,std::uint32_t,double);
+void copy_domain_diffusion_status(MAOniDomainDiffusionStatus&);
 void copy_domain_viscosity_status(MAOniDomainViscosityStatus&);
 struct DomainChunkHeat { bool handled{};float temperature{},delta_kj{}; };
 DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,

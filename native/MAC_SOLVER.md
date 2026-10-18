@@ -24,8 +24,10 @@ Topic documents:
 | [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–5 |
 | [One-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) | Opt-in point-to-dual momentum/kinetic conversion and its remaining limits |
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
+| [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Interval kernel](MAC_INTERVAL_KERNEL.md) | First normal-range pressure/transport port, interval audits and retained-reference fallback |
+| [Pressure multigrid](MAC_MULTIGRID.md) | Geometric preconditioning and immutable topology reuse inside the interval kernel |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
@@ -70,6 +72,12 @@ component tests; it excludes the regularization, conduction and viscosity stages
 
 ## Substep structure
 
+When gas diffusion is enabled, the owner wraps each interval of at most 0.1 s
+with half a diffusion advance before flow and half after. The following flow
+substeps retain their maximum 0.01 s timestep. Exact-equilibrium execution must
+also certify zero diffusion flux (identical inventories and U across every open
+face, or a face touching an empty cell). See [gas diffusion](MAC_DIFFUSION.md).
+
 Each attempted substep of length dt applies these stages to a local candidate, in
 this order (`MacClosedWorld::advanced` in `mac_closed_world.cpp`):
 
@@ -112,6 +120,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
 | `numerical_kernel` | 0 `reference` | 1 `interval_audited` (first gas port; unsupported selections use the retained reference) |
+| `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 
 The native domain builds its settings from these defaults, keeping the selectors.
 Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the gravity

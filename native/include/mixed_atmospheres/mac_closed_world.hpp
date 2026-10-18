@@ -1,5 +1,6 @@
 #pragma once
 #include "mac_thermal.hpp"
+#include "mac_diffusion.hpp"
 #include "mac_viscosity.hpp"
 #include "mac_shock_heat.hpp"
 #include "mac_reconstruction.hpp"
@@ -37,6 +38,10 @@ struct MacClosedSettings {
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
     MacViscosity viscosity;
     MacNumericalKernel numerical_kernel = MacNumericalKernel::reference;
+    // Legacy/reference callers retain their trajectories. New game sessions
+    // explicitly select physical diffusion; old checkpoints restore disabled.
+    // Diffusion composes with either numerical kernel (it wraps each flow interval).
+    MacDiffusionSettings diffusion=MacDiffusionSettings::disabled();
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -94,14 +99,18 @@ struct MacClosedSubstep {
 // volume and reconstructed material parcels for compatible transport. Gravity work
 // is reconciled with actual potential-energy mass flux, with a signed internal
 // energy change kept separate from transport mixing/projection heat. No
-// diffusion, free surface, phase transition or game dispatch is supplied here.
+// diffusion, free surface, phase transition or game dispatch is supplied by this
+// flow substep. MacClosedWorld composes diffusion around its flow intervals.
 [[nodiscard]] MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, double seconds, const MacClosedSettings& = {});
 
 struct MacClosedAdvanceReport {
+    MacDiffusionReport diffusion;
     std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
     std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;
     std::size_t interval_rounded_updates = 0, interval_unresolved_updates = 0;
+    std::size_t interval_multigrid_solves = 0, interval_multigrid_cycles = 0, interval_multigrid_fallbacks = 0;
+    std::size_t interval_multigrid_levels = 0, interval_topology_builds = 0;
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
     std::size_t exact_equilibrium_intervals = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
@@ -148,6 +157,7 @@ struct MacClosedAdvance;
 // kernel (mac_kernel.hpp, native/MAC_KERNEL.md) under the interval contract.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
+struct MacIntervalCache;
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
@@ -172,11 +182,14 @@ struct MacCellHeat {
 // creates a new owner; failed later attempts publish neither time nor state.
 class MacClosedWorld {
 public:
-    MacClosedWorld(SpeciesRegistry, std::shared_ptr<const FluidThermodynamics>, MacTransportState, MacClosedSettings = {});
+    MacClosedWorld(SpeciesRegistry, std::shared_ptr<const FluidThermodynamics>, MacTransportState, MacClosedSettings = {},
+        std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
     [[nodiscard]] const MacTransportState& state() const noexcept { return state_; }
     [[nodiscard]] const SpeciesRegistry& registry() const noexcept { return registry_; }
     [[nodiscard]] const FluidThermodynamics& thermodynamics() const noexcept { return *thermodynamics_; }
     [[nodiscard]] const MacClosedSettings& settings() const noexcept { return settings_; }
+    [[nodiscard]] const GasTransportProfile& transport_profile() const noexcept { return *transport_; }
+    [[nodiscard]] MacClosedWorld with_diffusion(MacDiffusionSettings) const;
     [[nodiscard]] double time_s() const noexcept { return time_s_; }
     [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
     [[nodiscard]] MacClosedAdvance advanced(double seconds, std::size_t attempt_budget = 1024,
@@ -203,15 +216,21 @@ public:
     // requires the exact registry/EOS identity and validates the complete image.
     [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;
     [[nodiscard]] static MacClosedWorld from_checkpoint(SpeciesRegistry,
-        std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>);
+        std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>,
+        std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
 private:
+    [[nodiscard]] MacClosedAdvance advanced_flow(double,std::size_t,MacExecutionPolicy) const;
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;
     MacTransportState state_;
     MacClosedSettings settings_;
+    std::shared_ptr<const GasTransportProfile> transport_;
     double time_s_ = 0;
     std::uint64_t revision_ = 1;
+    // Derived immutable topology only; numerical workspaces/coefficients are
+    // local to an advance. A geometry-changing operation must replace this.
+    std::shared_ptr<MacIntervalCache> interval_cache_;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
 struct MacFluidTransferResult {

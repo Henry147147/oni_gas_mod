@@ -47,6 +47,25 @@ namespace MixedAtmospheres.Oni
         // records for solids. Legacy entry points keep rejecting scenario 7.
         internal const uint ConfiguredAbiVersion = 1, ConfiguredScenario = 7, ConfiguredMaximumSide = 256, ConfiguredMaximumCells = 4096;
         internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16;
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+        internal struct DiffusionStatus
+        {
+            public uint Size, Version, State, Mode;
+            public ulong Session, CompletedFrame, Substeps, RejectedAttempts, Faces, UnresolvedUpdates;
+            public double Multiplier, ExchangedMassKg, ElapsedMilliseconds;
+            public double MaximumMassResidualKg, MaximumMassBoundKg, EnergyResidualJoules, EnergyBoundJoules;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string Profile;
+            // Extrapolated pair evaluations outside the validated ranges and
+            // their extreme face states (zero when there are none).
+            public ulong OutOfRangeEvaluations;
+            public double OutOfRangeMinimumTemperatureK, OutOfRangeMaximumTemperatureK;
+            public double OutOfRangeMinimumPressurePa, OutOfRangeMaximumPressurePa;
+            internal static DiffusionStatus Empty => new DiffusionStatus { Size = 224, Version = 2, Profile = "" };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_diffusion_configure", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int ConfigureDiffusion(ulong session, ulong completedFrame, uint mode, double multiplier);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_diffusion_status", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int CopyDiffusionStatus(ref DiffusionStatus status);
         [StructLayout(LayoutKind.Sequential)]
         internal struct Physics
         {
