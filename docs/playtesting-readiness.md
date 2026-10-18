@@ -59,10 +59,20 @@ conduction, viscosity and phase admission. The managed driver uses a fixed
 and mixed scenes pass on Linux Unity and on Windows. The domain starts only
 from a development `colony-validation.json`.
 
+The additive [configured domain](native-configured-domain.md) (scenario 7)
+adds explicit physics settings, interior solid cells with per-cell hook
+suppression, and rectangles up to 256 cells per side within 4,096 cells.
+Interior solids are impermeable and adiabatic, and must be static and
+insulating. Its 22 native groups pass on Linux, under sanitizers and as
+MinGW binaries under Wine. It is not yet used in game, and one 64×64 frame
+takes about 48 s of wall time.
+
 **Missing.**
-- Solid cells inside the owner. The grid has no interior walls, and native
-  hook suppression covers the whole bounding rectangle.
-- Domains over 16 cells per side, more than one owner, and Spaced Out! worlds.
+- Interior solids in game: the managed adapter and a Unity scene for the
+  configured domain.
+- Fluid/solid heat exchange at interior faces, and solids that melt, fall or
+  are dug inside the owner.
+- More than one owner, and Spaced Out! worlds.
 - Vacuum and free surfaces. Both the in-game owner and the MAC solver reject
   empty cells. The separate `FluidWorld`
   [gas/vacuum front gate](../native/GAS_VACUUM.md) also fails.
@@ -159,14 +169,28 @@ systems, with exact continuation.
 **Exists.** Display fixtures verify hover listing every non-trace gas,
 hazardous-trace warnings, overlays and colour-only mode on Windows (V54) and
 [Linux](linux-tile-hover.md). Windows binds hover and GPU rendering to a
-completed native frame ([rendering](native-fluid-rendering.md)). The longest
-physical run reaches the first natural-day autosave, about one cycle, in a
-six-cell room.
+completed native frame ([rendering](native-fluid-rendering.md)), and the
+[2026-10-17 Windows retest](windows-playtest-2026-10-17.md) repeats the hover
+and overlay checks. The longest physical run reaches the first natural-day
+autosave, about one cycle, in a six-cell room.
 
-**Missing.** Gates 1–4. The validation harness rejects runs over 10,000
-frames or 7,200 s, while ten cycles are about 30,000 frames. Milestone D's
-100,000-cell presentation performance and frame-time evidence are also
-missing.
+The validation harness now accepts an explicit
+[long-run request](../tools/ONI_HEADLESS.md#long-development-runs) of up to
+100,000 frames and 48 hours (ten cycles are about 30,000 frames). It appends
+flushed telemetry: domain status, conservation error, native wait,
+publication and presentation latency, and memory. It is not yet exercised
+in game.
+
+**Missing.**
+- Gates 1–4.
+- A colony plan. The harness starts a colony but gives its duplicants no
+  orders, so ten cycles need a scripted build order or a prepared save.
+- The game runs at 1× speed, so ten cycles take at least about 1.7 hours of
+  wall time.
+- Natural autosaves happen about once per cycle and have never run at this
+  scale.
+- Milestone D's 100,000-cell presentation performance and frame-time
+  evidence.
 
 **Closes when** the [playtest definition](#playtest-definition-proposed)
 passes on Linux and Windows.
@@ -197,9 +221,9 @@ licensed game to verify.
 
 | # | Gate | Item | Size | Game |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | Configured sealed domain: explicit physics settings, interior solid cells, per-cell ownership and a larger bound (in progress) | L | Later |
-| 2 | 5 | Long-run harness opt-in with bounded telemetry (in progress) | M | Later |
-| 3 | 1 | Managed adoption of item 1, and an in-game room with interior solids | M | Yes |
+| 1 | 1 | Configured sealed domain: explicit physics settings, interior solid cells, per-cell ownership and a larger bound (native done; not in game) | L | Later |
+| 2 | 5 | Long-run harness opt-in with bounded telemetry (done; not in game) | M | Later |
+| 3 | 1 | Managed adoption of item 1, and an in-game room with interior solids (in progress) | M | Yes |
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended vertical gravity | M–L | No |
@@ -216,7 +240,8 @@ licensed game to verify.
 | 17 | 4 | Durable pending outbox; production load path, load menu, overwrite save and missing-mod rejection | M–L | Yes |
 | 18 | 4 | Asteroid switching, actual Windows runs, the water cross-platform bound and interrupted saves | M–L | Yes |
 | 19 | 2, 5 | Active-cell performance: the "Further work" rows below | XL | No |
-| 20 | 5 | Ten-cycle playtest and 100,000-cell presentation performance on both OSes | L | Yes |
+| 20 | 5 | Scripted playtest colony plan or prepared save for unattended runs | M | Yes |
+| 21 | 5 | Ten-cycle playtest and 100,000-cell presentation performance on both OSes | L | Yes |
 
 Items 5–7 and 19 continue the current production-timestep work.
 
