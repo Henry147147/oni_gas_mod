@@ -458,9 +458,14 @@ transfer 87.51526116611785 J, followed by 120 restored contacts transferring
 the unchanged approximately 1.691e-7 J endpoint bounds. The reload verifies the
 initial saved image, paused frame-zero resave and 120 exact accepted-input
 continuations. The package uses a frozen Ubuntu 22.04 native build with all
-38 registered tests passing. WindowsPlayer and actual Windows OS acceptance
-for this repair remain separate. Private reports are under
+38 registered tests passing. WindowsPlayer under official Proton 10.0-4b also
+passes source/save and a fresh-process reload with 121/120 contacts, the same
+represented heat quantities, zero endpoint residual, a frame-zero resave and
+120 exact input replays. This uses MinGW-built DLLs; actual Windows OS/MSVC
+acceptance of the repair remains open. Private reports are under
 `local/solid-heat-native-debug/unity-publication-matrix-v1/`.
+The Proton results are in `unity-publication-proton-matrix-v2/` beside it; the
+first Proton attempt failed prefix initialization before launching the game.
 
 Whole-colony heat, moving or changing solids, building thermal components and
 phase-changing boundaries remain open.

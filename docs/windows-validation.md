@@ -173,6 +173,14 @@ fresh-process load pass with MinGW-built DLLs
 ([configured saves](native-configured-domain.md#saves-and-reloads)). That is
 neither Windows OS nor MSVC evidence.
 
+The completed-frame publication repair also passes WindowsPlayer under
+official Proton 10.0-4b with MinGW-built DLLs. The solid-heat source/save
+completes 121 contacts and its fresh-process load completes 120 more, with zero
+published-temperature energy residuals, a paused frame-zero resave and 120
+exact accepted-input continuations. This is real Windows Unity player execution
+on Linux; actual Windows OS/MSVC acceptance of the new bindings remains open.
+See [the publication contract](native-domain-publication.md).
+
 ## Isolated native worker harness
 
 The [NativeShadowProbe harness](../tools/NativeShadowProbe/README.md) runs the

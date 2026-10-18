@@ -98,3 +98,11 @@ Linux Release and Ubuntu 22.04 suites pass 38/38, the two changed C ABI/lease
 tests pass fatal ASan/UBSan with leak detection and MinGW/Wine, and the Python
 suite passes 297 tests with four skips. Actual Windows OS acceptance of these
 new bindings remains open.
+
+WindowsPlayer under official Proton 10.0-4b passes the same source/save and
+fresh-process reload with MinGW-built DLLs: 121/120 contact-bearing frames,
+zero endpoint residuals, a paused frame-zero resave and 120 exact resumed
+input replays. The first attempt failed before launching ONI because the
+selected Proton tool was nested under the sandbox's read-only Steam mount;
+the successful run uses the separately staged installation. The private
+Windows host still refuses SSH, so this does not add Windows OS/MSVC evidence.

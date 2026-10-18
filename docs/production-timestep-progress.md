@@ -739,3 +739,10 @@ it is not the production colony ABI or a colony-scale publication performance
 result. Details and scope are in [completed native exports](native-domain-publication.md).
 Actual Windows OS evidence for this repair, whole-colony heat, moving solids,
 building thermal components and phase-changing boundaries remain open.
+
+WindowsPlayer under official Proton 10.0-4b subsequently passes source/save and
+fresh-process reload too: 121/120 contacts, zero endpoint residuals, a paused
+frame-zero resave and 120 exact resumed input replays. These MinGW/Proton runs
+are separate from actual Windows OS/MSVC acceptance. The first attempt failed
+prefix initialization before any game launch; both attempts are retained under
+`local/solid-heat-native-debug/`.
