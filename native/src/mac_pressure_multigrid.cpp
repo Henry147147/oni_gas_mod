@@ -226,10 +226,24 @@ void PressureMultigrid::smooth(std::size_t l, bool reverse) {
     // diagonal-scaled graph operator's spectral interval. Reverse the two
     // stages on the upward sweep to retain a symmetric V-cycle.
     constexpr std::array<double, 2> weights{.5, 1.5};
-    for (int pass = 0; pass < 2; ++pass) {
-        residual(l); auto& value = values_[l];
+    auto& value = values_[l]; const auto& level = topology_->levels()[l];
+    // Every downward solve defines an exactly zero initial correction. Its
+    // first residual is the RHS; assign the first correction directly.
+    if (!reverse) for (std::size_t i = 0; i < value.correction.size(); ++i)
+        value.correction[i] = (.5 * value.relaxation[i]) * value.rhs[i];
+    for (int pass = reverse ? 0 : 1; pass < 2; ++pass) {
         const auto omega = weights[static_cast<std::size_t>(reverse ? 1 - pass : pass)];
-        for (std::size_t i = 0; i < value.correction.size(); ++i) value.correction[i] += (omega * value.relaxation[i]) * value.scratch[i];
+        // Gather from the unchanged old vector and write the next correction
+        // directly. This retains each row's arithmetic order while avoiding
+        // a separate residual write/read and correction-update pass.
+        for (std::size_t i = 0; i < value.correction.size(); ++i) {
+            double sum = value.rhs[i] - value.compliance[i] * value.correction[i];
+            for (auto k = level.adjacent_offsets[i]; k < level.adjacent_offsets[i + 1]; ++k) {
+                const auto& neighbor = level.adjacent[k]; sum -= value.conductance[neighbor.edge] * (value.correction[i] - value.correction[neighbor.node]);
+            }
+            value.scratch[i] = value.correction[i] + (omega * value.relaxation[i]) * sum;
+        }
+        value.correction.swap(value.scratch);
     }
 }
 void PressureMultigrid::cycle(std::size_t l) {
@@ -255,7 +269,7 @@ void PressureMultigrid::cycle(std::size_t l) {
         for (auto k = level.restrict_offsets[i]; k < level.restrict_offsets[i + 1]; ++k) {
             const auto& term = level.restrict[k]; sum += term.weight * value.scratch[term.node];
         }
-        next.rhs[i] = sum; next.correction[i] = 0;
+        next.rhs[i] = sum;
     }
     cycle(l + 1);
     for (std::size_t i = 0; i < value.correction.size(); ++i) {
@@ -272,12 +286,15 @@ bool PressureMultigrid::apply(std::span<const double> rhs, std::span<double> out
     if (!prepared_) return false;
     auto& first = values_[0]; const auto& active = topology_->active_cells();
     for (std::size_t i = 0; i < active.size(); ++i) {
-        const double r = rhs[active[i]]; if (!std::isfinite(r)) return false; first.rhs[i] = r; first.correction[i] = 0;
+        const double r = rhs[active[i]]; if (!std::isfinite(r)) return false; first.rhs[i] = r;
     }
     cycle(0); ++cycles_;
     for (const auto value : first.correction) if (!std::isfinite(value)) return false;
-    std::fill(output.begin(), output.end(), 0);
-    for (std::size_t i = 0; i < active.size(); ++i) output[active[i]] = first.correction[i];
+    if (active.size() == output.size()) std::copy(first.correction.begin(), first.correction.end(), output.begin());
+    else {
+        std::fill(output.begin(), output.end(), 0);
+        for (std::size_t i = 0; i < active.size(); ++i) output[active[i]] = first.correction[i];
+    }
     return true;
 }
 }
