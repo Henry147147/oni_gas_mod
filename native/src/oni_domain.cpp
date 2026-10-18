@@ -901,7 +901,9 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         for (const auto* value:{&next_viscous_dissipation,&next_viscous_stored_heat,&next_viscous_entropy,&next_viscous_wall_x,&next_viscous_wall_y})
             if (!std::isfinite(value->value().project().value)) throw std::overflow_error("Native viscosity diagnostic exceeds its scalar range");
         auto next_impulse=body_impulse,next_gravity_work=gravity_internal_work;
-        next_impulse.add(result.report.body_impulse_y); next_gravity_work.add(result.report.gravity_internal_change_j);
+        // Accumulate the full-range operands: the scalar projections round
+        // below-range impulse/work to zero, which would pass the check below.
+        next_impulse.add(result.report.full_body_impulse_y); next_gravity_work.add(result.report.gravity_internal_change_wide_j);
         (void)next_impulse.value().require_representable(); (void)next_gravity_work.value().require_representable();
         next_redistribution.add(result.report.conductive_redistribution_j); next_entropy.add(result.report.conductive_entropy_j_per_k);
         if (!std::isfinite(next_redistribution.value().project().value) || !std::isfinite(next_entropy.value().project().value))

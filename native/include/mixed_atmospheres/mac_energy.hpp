@@ -48,6 +48,21 @@ struct MacEnergyPair { MacEnergy high, low; };
 [[nodiscard]] MacEnergyPair add_mac_energy(MacEnergy, MacEnergy);
 class MacEnergySum {
 public:
+    MacEnergySum() noexcept = default;
+    MacEnergySum(const MacEnergySum&) = default;
+    MacEnergySum& operator=(const MacEnergySum&) = default;
+    // A moved-from sum is empty. The defaulted moves would keep its
+    // component count beside an emptied extended vector.
+    MacEnergySum(MacEnergySum&& other) noexcept
+        : local_(other.local_), extended_(std::move(other.extended_)), used_(std::exchange(other.used_, 0)),
+          extended_mode_(std::exchange(other.extended_mode_, false)) {}
+    MacEnergySum& operator=(MacEnergySum&& other) noexcept {
+        if (this != &other) {
+            local_ = other.local_; extended_ = std::move(other.extended_);
+            used_ = std::exchange(other.used_, 0); extended_mode_ = std::exchange(other.extended_mode_, false);
+        }
+        return *this;
+    }
     void add(MacEnergy);
     void add(double);
     [[nodiscard]] std::size_t size() const noexcept { return used_; }

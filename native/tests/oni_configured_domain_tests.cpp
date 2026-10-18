@@ -81,6 +81,20 @@ long peak_resident_kib() {
     return -1;
 }
 
+// Admission accepts any 0<g<=100. One rigid fluid row under solids at
+// 4e-308 m/s2 keeps a normal potential energy but a subnormal frame impulse;
+// that must fault the scalar gravity diagnostics rather than be rounded away.
+void below_range_gravity() {
+    const auto value=room(2,2,physics(MA_ONI_DOMAIN_PHYSICS_GRAVITY,4e-308),
+        [](auto,auto y) { return y==1; },[](auto,auto) { return record({.9,.27,0,0,0},290); });
+    start(value);std::vector<MAOniDomainCell> cells(value.mask.size());(void)capture(cells);
+    advance_domain(1,.2,2);
+    MAOniDomainStatus status{};copy_domain(status,cells.data(),static_cast<std::uint32_t>(cells.size()));
+    require(status.state!=1 && std::string(status.error).find("not exactly representable")!=std::string::npos,
+        "A below-range body impulse was recorded as zero");
+    shutdown_domain();
+    std::cout<<"PASS below-range gravity diagnostics fault the configured owner\n";
+}
 Room probe_room() {
     return room(4,3,physics(MA_ONI_DOMAIN_PHYSICS_GRAVITY|MA_ONI_DOMAIN_PHYSICS_CONDUCTION,9.81),
         [](auto x,auto y) { return x==1 && y==1; },[](auto x,auto y) { return record({.9,.27+.01*at(x),1e-28,0,0},290+at(x+y)); });
@@ -553,6 +567,7 @@ int main() {
     try {
         std::cout<<std::setprecision(17);
         admission_rejection();
+        below_range_gravity();
         legacy_equivalence();
         interior_walls();
         wall_targets();
