@@ -398,8 +398,20 @@ cores, 32 threads), with eight diffusion workers at 250,000 cells:
 | Uniform, exact zero-flux certificate | 4.80 | 5.06 | Met on this host |
 | Actively mixing | 179.87 | 188.32 | **Missed** |
 
-Formulation 2 adds one `log1p` or logarithm per present species per face. Its
-relative cost on Linux is recorded with the merge verification. These are
+Formulation 2 adds one `log1p` or logarithm per present species per face. On
+2026-10-18 both formulations ran alternately on the shared 24-thread Linux
+development host (load average about 25, GCC Release): four runs each, with
+formulation 2's uniform scene counted only from its two runs after the
+certificate change. Their times overlapped:
+
+| Scene | Formulation 1 p50 (ms) | Formulation 2 p50 (ms) |
+| --- | --- | --- |
+| Uniform | 1.9–3.4 | 2.0–3.4 |
+| Actively mixing | 249–272 | 260–301 |
+
+The uniform figures for formulation 2 are after the certificate examines
+emptiness only for differing inventories. Before that change it summed both
+cells' masses on every face, which cost about 1.7× in the uniform scene. These are
 isolated synthetic diffusion measurements, without the flow solver or the ONI
 adapter. They do not establish colony real-time performance or the 5900X
 gate. Authoritative state copies, remaining serial work and worker launch
@@ -410,7 +422,7 @@ Formulation-2 accuracy on Linux is as follows. The binary analytical
 perturbation error is 0.00110%, with 0.00109% difference from a
 16-times-refined time integration. Independent ordinary-air Maxwell–Stefan
 model errors are 0% (binary) and 0.0407% for both ternary cases, both with
-pressure diffusion. Refinement errors are at most 0.00813%.
+pressure diffusion. Refinement errors are at most 0.00814%.
 
 Against the earlier pressure-diffusion-free oracle, the same production
 mixing times differ by 0.32–0.43%. That is the effect of the reference cases'

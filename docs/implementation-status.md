@@ -49,20 +49,48 @@ but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
-Conservative [gas diffusion](../native/MAC_DIFFUSION.md) now supplies
-species-specific exchange with carried enthalpy, physical/accelerated modes,
-completed-frame configuration and versioned checkpoint properties. Binary
-analytical/refinement controls and independent Maxwell–Stefan ordinary-air
-comparisons pass; Linux sanitizer checks pass. On a Ryzen 9950X, a 250,000-cell
-two-half-stage benchmark measures 5.06 ms p95 for certified uniform inventories
-and 188.32 ms for active mixing per 0.1 simulated seconds. Active diffusion
-misses its proposed 6.25 ms allocation; this is not the required Ryzen 5900X
-colony/adapter benchmark, and actual Linux ONI validation remains open.
-Windows six-cell physical/100× runs, diffusion-enabled paired save/readback,
-exact zero-time restore and 120-frame continuation replay pass. The mode
-shortcut preserves the selected composition overlay, and play continues after
-the bounded restore audit. See the [validation record](gas-diffusion-validation.json)
-for the measured scope and remaining gates.
+Conservative [gas diffusion](../native/MAC_DIFFUSION.md) is merged into main as
+formulation 2. It supplies species-specific exchange with carried enthalpy,
+physical and accelerated modes, completed-frame configuration and versioned
+checkpoints (`MACCLS01` version 5, beside the interval kernel's version 4).
+
+The Maxwell–Stefan driving force includes pressure diffusion, in a symmetric
+positive-semidefinite discrete form, so its first-order entropy production
+cannot be negative. Faces touching empty cells carry no flux. Correlations
+outside their validated ranges are extrapolated, combined with the cell's
+Knudsen limit and counted.
+
+These pass:
+
+- binary analytical controls (1.1e-5 of the perturbation);
+- independent Maxwell–Stefan ordinary-air comparisons (at most 0.0407%
+  mixing-time model error);
+- the review's opposing-gradient, empty-cell and 200–600 K, 1e-9 Pa–500 kPa
+  controls in both modes;
+- Linux address and undefined-behaviour sanitizers.
+
+On 2026-10-18 the native Linux game ran with the default physical mode (ONI
+744825, Ubuntu 22.04 compatibility libraries, private display). The six-cell
+mixed-air scene and the 7×5 configured gas room each took a paired save. A
+fresh-process load resumed each one exactly for 120 frames. The configured
+water room, where diffusion is off, matched its earlier 2,562 substeps with no
+rejected attempt.
+
+Two known limits remain:
+
+- A locally introduced gas faults physical diffusion once its front is about
+  36 cells from the source, because positive amounts below binary64 reject.
+- Diffused traces beside a strong pressure jump reach an existing flow-solver
+  rejection.
+
+The Windows 9950X benchmark of formulation 1 measured 5.06 ms p95 for certified
+uniform inventories and 188.32 ms for active mixing per 0.1 simulated seconds
+at 250,000 cells. On a shared Linux host, formulation 2's times overlap
+formulation 1's. Active diffusion misses its proposed 6.25 ms allocation; this
+is not the required Ryzen 5900X colony/adapter benchmark. The Windows evidence
+predates formulation 2: six-cell physical/100× runs, a diffusion-enabled save
+and restore, and 120-frame replay. See the
+[validation record](gas-diffusion-validation.json).
 
 An opt-in [1-D nodal momentum/kinetic conversion](../native/MAC_NODAL_CONVERSION.md)
 now passes the original curved-deformation point oracle with independently checked
