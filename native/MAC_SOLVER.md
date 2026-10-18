@@ -155,6 +155,9 @@ kernel is checked once per completed interval instead of in every stage:
 - **Unchanged.** Determinism: results are bit-identical for the same build and
   inputs, independent of thread count and scheduling. Also unchanged: checkpoint
   continuation, atomicity, fail-closed admission and the arithmetic environment.
+- **Calm-region steps (user decision, 2026-10-18).** The production kernel may
+  take larger steps in calm regions and subcycle active ones locally. Faces
+  between differently stepped regions carry one shared, time-integrated flux.
 - **Reference oracle.** The current implementation, with the per-stage rules
   below, stays buildable and tested. The production kernel is validated
   against it on shared scenes within the completion plan's accuracy tolerances.

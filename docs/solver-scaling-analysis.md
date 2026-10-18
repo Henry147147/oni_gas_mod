@@ -180,8 +180,8 @@ built or validated.
 
 **Decided 2026-10-18:** the user relaxed the per-stage contracts to
 interval-level conservation audits
-([production contract](../native/MAC_SOLVER.md#numerical-contracts)). The
-calm-region step approximation is still open.
+([production contract](../native/MAC_SOLVER.md#numerical-contracts)), and
+accepted larger calm-region steps with local subcycling.
 
 The two decisions this path needed:
 - amending the per-stage 128 ε, full-range and 16 ε contracts in

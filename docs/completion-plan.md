@@ -45,8 +45,11 @@ Amendments:
   strict implementation stays buildable and tested as the validation reference.
   Physical model, selectors, conservation of every constituent and energy,
   determinism, checkpoints and the accuracy tolerances below are unchanged.
-  Larger calm-region steps with local subcycling (one of milestone B's ordered
-  approximations) are a separate decision, still open.
+- **Calm-region steps, 2026-10-18 (user decision):** accept larger
+  calm-region steps with local subcycling, one of milestone B's ordered
+  approximations, for the production kernel. Fluxes stay shared between
+  differently stepped regions, so conservation holds by construction. Accuracy
+  is still judged against resolved references with the tolerances below.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
