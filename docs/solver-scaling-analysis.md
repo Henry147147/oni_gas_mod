@@ -178,7 +178,12 @@ built or validated.
     admitting 0.05–0.1 s calm steps with local subcycling;
   - static 12-thread partitions.
 
-This needs two decisions from the user:
+**Decided 2026-10-18:** the user relaxed the per-stage contracts to
+interval-level conservation audits
+([production contract](../native/MAC_SOLVER.md#numerical-contracts)). The
+calm-region step approximation is still open.
+
+The two decisions this path needed:
 - amending the per-stage 128 ε, full-range and 16 ε contracts in
   [MAC_SOLVER.md](../native/MAC_SOLVER.md) and
   [MAC_RANGE.md](../native/MAC_RANGE.md) to interval-level conservation

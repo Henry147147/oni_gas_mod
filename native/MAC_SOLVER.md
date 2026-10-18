@@ -128,7 +128,39 @@ donor-cell momentum, `advance_mac_compression` to the quadratic law and
 
 ## Numerical contracts
 
-These rules hold in every stage:
+**Production contract (user decision, 2026-10-18).** The production substep
+kernel is checked once per completed interval instead of in every stage:
+
+- **Conservation by construction.** Every constituent mass, passive quantity,
+  momentum component and U+K+G moves only through shared face fluxes and
+  explicit exchange terms applied antisymmetrically, so what leaves one cell
+  enters its neighbour.
+- **Interval audit.** At the end of each interval, the species, passive,
+  momentum (with wall and body impulse) and U+K+G totals, including external
+  heat and work, are reconciled against 128 binary64 epsilons of the interval's
+  absolute operands. The audit uses double-double accumulation and escalates
+  to exact expansions only when that comparison cannot decide. An interval
+  that fails its audit is rejected and retried smaller, or it faults; it is
+  never published.
+- **Rounding.** Primary storage stays binary64. Updates below a stored value's
+  resolution, and transfers below binary64 range, may round. Each rounding is
+  counted and included in the audited bound. Fields are still never clipped,
+  floored or renormalized to close an account, and a positive constituent is
+  never removed by repair.
+- **Entropy.** The interval rejects a decrease in total stored-state entropy
+  beyond `128 ε Σ(|U|/T)` over its endpoints. Per-stage entropy admission is no
+  longer required.
+- **Range.** Full-range arithmetic is used only where a cheap check flags a
+  value outside the normal binary64 range during the interval.
+- **Unchanged.** Determinism: results are bit-identical for the same build and
+  inputs, independent of thread count and scheduling. Also unchanged: checkpoint
+  continuation, atomicity, fail-closed admission and the arithmetic environment.
+- **Reference oracle.** The current implementation, with the per-stage rules
+  below, stays buildable and tested. The production kernel is validated
+  against it on shared scenes within the completion plan's accuracy tolerances.
+
+Until the production kernel exists, the code still enforces the reference
+rules. **Reference rules,** held in every stage of the current implementation:
 
 - **Accounts.** Each stage checks its species, passive, momentum and energy
   balances against 128 binary64 epsilons of the actual operands: the residual is
