@@ -76,6 +76,107 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                [('Colour',colours),('Opacity',[[0,0,0,value] for value in opacity]),('Danger',[[0,0,0,value] for value in danger])]})
         return report
 
+    CONFIGURED_MASK=[1 if (x==3 and y<=2) or (x==5 and y==3) else 0 for y in range(5) for x in range(7)]
+
+    def configured_report(self, liquid=False):
+        report=copy.deepcopy(self.report);mask=list(self.CONFIGURED_MASK);species=3 if liquid else 1
+        report.update(Scenario='configured-pillared-water' if liquid else 'configured-pillared-gas',Width=7,Height=5,X=119,Y=207)
+        report['NativeDomain'].update(Cells=35)
+        if liquid:report['NativeDomain'].update(SuppressedLiquid=40,LiquidMassKg=1000.0)
+        physics=dict(Size=40,Version=1,Flags=19 if liquid else 3,Reserved=0,GravityMetresPerSecondSquared=9.81,
+                     ShearViscosityPaSeconds=0.0,BulkViscosityPaSeconds=0.0)
+        report['ConfiguredDomain']=dict(Required=True,AbiVersion=1,NativeScenario=7,Variant='water' if liquid else 'gas',Width=7,Height=5,
+            Mask=mask,FluidCells=31,SolidCells=4,FirstFluidCell=0,Physics=physics,CopiedPhysics=dict(physics),CopiedMask=list(mask),
+            CopiedConfiguration=dict(Size=40,Version=2,Flags=1,GridWidth=256,X=119,Y=207,Width=7,Height=5,Scenario=7,Reserved=0),
+            InventoryVerified=True,ConfigurationCopyVerified=True,CopiesAndReadingsVerified=True,InteriorSolidsVerified=True,
+            ThermalVerified=True,GravityVerified=True,MotionObserved=True,InventorySha256='e'*64,
+            InventorySource='completed-native-GameDataUpdate-before-flow-fence',
+            Inventory=[dict(Index=i,Solid=bool(bit),NativeElementIndex=7,TemperatureK=0.0 if bit else 290.0,
+                            MassesKg=[0.0]*5 if bit else [1.0 if k==species else 0.0 for k in range(5)]) for i,bit in enumerate(mask)],
+            InteriorSolids=[dict(Index=i,Element='Unobtanium',Solid=True,MassKg=20000.0,TemperatureK=300.0,thermalConductivity=0.0,
+                                 specificHeatCapacity=0.0,highTemp=10000.0,HighTempTransition=None,IsUnstable=False,FluidFaces=2,
+                                 Occupied=False,Insulating=True) for i,bit in enumerate(mask) if bit],
+            InterfaceModel='impermeable-adiabatic-interior-faces',SolidsAreNativeData=True,CompatibilityProjectionInSolids=False)
+        report['ThermalConduction']=dict(Size=80,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Stages=1260,Contacts=40,
+            Iterations=80,UnresolvedUpdates=0,RedistributedEnergy=12.5,EntropyChange=.01)
+        report['Gravity']=dict(Size=96,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Gravity=9.81,InitialPotential=100.0,
+            Potential=99.5,CommittedBoundaryPotential=0.0,PendingBoundaryPotential=0.0,BodyImpulseY=-3.0,InternalWork=.1,MaximumEnergyResidual=1e-9)
+        return report
+
+    def test_configured_room_requires_exact_copied_scenario_seven_native_solids_and_acting_physics(self):
+        for liquid in (False,True):
+            report=self.configured_report(liquid)
+            self.assertTrue(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid))
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,liquid=liquid))
+            self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=not liquid))
+            for extra in ('heat','transfers','gravity','conduction','saved','restored','mixed_phase'):
+                self.assertFalse(runner.native_domain_passed(report,self.observation,30,configured=True,liquid=liquid,**{extra:True}),extra)
+        self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,configured=True))
+        self.assertFalse(runner.native_domain_passed(self.configured_report(),self.observation,31,configured=True))
+
+    def test_configured_room_rejects_fluid_solids_unverified_copies_and_inert_physics(self):
+        def changed(edit):
+            report=self.configured_report();edit(report);return runner.native_domain_passed(report,self.observation,30,configured=True)
+        value=lambda report:report['ConfiguredDomain']
+        for key in ('InventoryVerified','ConfigurationCopyVerified','CopiesAndReadingsVerified','InteriorSolidsVerified','ThermalVerified',
+                    'GravityVerified','MotionObserved','SolidsAreNativeData','Required'):
+            self.assertFalse(changed(lambda report:value(report).update({key:False})),key)
+        edits={
+            'projection in solids':lambda r:value(r).update(CompatibilityProjectionInSolids=True),
+            'legacy size':lambda r:r.update(Width=3,Height=2),
+            'cell count':lambda r:r['NativeDomain'].update(Cells=6),
+            'copied mask':lambda r:value(r)['CopiedMask'].__setitem__(3,0),
+            'all-fluid mask':lambda r:value(r).update(Mask=[0]*35,CopiedMask=[0]*35),
+            'all-solid mask':lambda r:value(r).update(Mask=[1]*35,CopiedMask=[1]*35),
+            'viscosity enabled':lambda r:value(r)['Physics'].update(Flags=7,ShearViscosityPaSeconds=.5),
+            'gravity value':lambda r:[value(r)[k].update(GravityMetresPerSecondSquared=9.8) for k in ('Physics','CopiedPhysics')],
+            'copied scenario':lambda r:value(r)['CopiedConfiguration'].update(Scenario=0),
+            'copied position':lambda r:value(r)['CopiedConfiguration'].update(X=120),
+            'solid inventory':lambda r:value(r)['Inventory'][3]['MassesKg'].__setitem__(1,.1),
+            'solid temperature':lambda r:value(r)['Inventory'][3].update(TemperatureK=300.0),
+            'empty fluid':lambda r:value(r)['Inventory'][0]['MassesKg'].__setitem__(1,0.0),
+            'wrong species':lambda r:value(r)['Inventory'][0]['MassesKg'].__setitem__(3,1.0),
+            'conductive solid':lambda r:value(r)['InteriorSolids'][0].update(thermalConductivity=2.0),
+            'granite solid':lambda r:value(r)['InteriorSolids'][0].update(Element='Granite'),
+            'occupied solid':lambda r:value(r)['InteriorSolids'][1].update(Occupied=True),
+            'unstable solid':lambda r:value(r)['InteriorSolids'][1].update(IsUnstable=True),
+            'missing solid':lambda r:value(r)['InteriorSolids'].pop(),
+            'hot solid':lambda r:value(r)['InteriorSolids'][2].update(TemperatureK=10000.0),
+            'thermal stages':lambda r:r['ThermalConduction'].update(Stages=630),
+            'no conduction':lambda r:r['ThermalConduction'].update(RedistributedEnergy=0.0),
+            'gravity impulse':lambda r:r['Gravity'].update(BodyImpulseY=0.0),
+            'gravity potential':lambda r:r['Gravity'].update(Potential=100.0),
+            'scenario':lambda r:r.update(Scenario='mixed-air'),
+            'variant':lambda r:value(r).update(Variant='water'),
+            'inventory hash':lambda r:value(r).update(InventorySha256='x'),
+        }
+        for name,edit in edits.items():
+            self.assertFalse(changed(edit),name)
+
+    def test_configured_rendering_and_gpu_rows_keep_interior_solids_native(self):
+        report=self.configured_report()|{key:value for key,value in self.gpu_texture_report().items() if key in ('RenderingInputs','GpuGasTextures')}
+        mask=self.CONFIGURED_MASK;gpu=report['GpuGasTextures'];rows=[]
+        colour,opacity=[110,154,168,255],150
+        for index,bit in enumerate(mask):
+            rows.append(dict(Cell=207*256+119+index%7+256*(index//7),Solid=bool(bit),Reading=None if bit else dict(Revision=30,GasMassKg=1),
+                             ExpectedGas=None if bit else dict(Colour=colour,Pressure=opacity,Danger=0)))
+        report['RenderingInputs']['Rows']=rows
+        gpu.update(ExpectedColours=[None if bit else colour for bit in mask],ExpectedOpacity=[-1 if bit else opacity for bit in mask],
+                   ExpectedDanger=[-1 if bit else 0 for bit in mask])
+        gpu['Orientation'].update(X=118,Y=206,Width=9,Height=7,Expected=[[250,0,0,255]]*63,Identity=dict(Available=True,Rgba=[[255,0,0,131]]*63),
+                                  Reflected=dict(Available=True,Rgba=[[250,0,0,255]]*63))
+        for name,pixels in (('Colour',[[0,0,0,0] if bit else colour for bit in mask]),('Opacity',[[0,0,0,0 if bit else opacity] for bit in mask]),
+                            ('Danger',[[0,0,0,0] for bit in mask])):
+            gpu[name]['Rgba']=pixels
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,configured=True))
+        for edit in (lambda r:r['RenderingInputs']['Rows'][3].update(Reading=dict(Revision=30,GasMassKg=1)),
+                     lambda r:r['RenderingInputs']['Rows'][3].update(Solid=False),
+                     lambda r:r['RenderingInputs']['Rows'][0].update(Solid=True),
+                     lambda r:r['GpuGasTextures']['ExpectedColours'].__setitem__(3,colour),
+                     lambda r:r['GpuGasTextures']['ExpectedOpacity'].__setitem__(10,opacity)):
+            changed=copy.deepcopy(report);edit(changed)
+            self.assertFalse(runner.native_domain_passed(changed,self.observation,30,configured=True))
+
     def test_gpu_extension_requires_actual_colour_opacity_and_hazard_from_the_current_publication(self):
         report=self.gpu_texture_report()
         self.assertTrue(runner.native_domain_passed(report,self.observation,30))
@@ -1769,6 +1870,7 @@ class LongRunLimitTests(unittest.TestCase):
         spec.loader.exec_module(demo)
         for long_run in (False, True):
             self.assertLessEqual(set(demo.configuration("mixed", long_run)), fields)
+        self.assertLessEqual(set(demo.configuration("pillared")), fields)
         constants = dict(re.findall(r"(\w+) = ([0-9][0-9 *]*)[,;]", source))
         self.assertEqual(eval(constants["MaximumFrames"]), runner.FRAME_LIMIT)
         self.assertEqual(eval(constants["MaximumLongRunFrames"]), runner.LONG_RUN_FRAME_LIMIT)
@@ -1779,9 +1881,40 @@ class LongRunLimitTests(unittest.TestCase):
                          runner.TELEMETRY_INTERVAL_LIMITS)
         modes = re.search(r"LongRunModes =\s*\{([^}]*)\}", source).group(1)
         self.assertEqual(tuple(re.findall(r'"([^"]+)"', modes)), runner.LONG_RUN_MODES)
-        self.assertEqual(set(demo.SCENES.values()) - set(runner.LONG_RUN_MODES), set())
+        self.assertEqual({demo.SCENES[name] for name in demo.LONG_RUN_SCENES} - set(runner.LONG_RUN_MODES), set())
+        self.assertLessEqual(set(demo.SCENES.values()), set(re.findall(r'"([^"]+)"', re.search(r"Modes =\s*\{([^}]*)\}", source).group(1))))
         self.assertIn(f'FileName = "{runner.TELEMETRY_FILE}"', (ROOT / "managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs").read_text())
         self.assertIn(f'Kind = "{runner.TELEMETRY_KIND}"', (ROOT / "managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs").read_text())
+
+
+class ConfiguredDomainMirrorTests(unittest.TestCase):
+    def test_managed_configured_constants_match_the_native_header(self):
+        header=(ROOT/"native/include/mixed_atmospheres/oni_domain.h").read_text()
+        defines={name:int(value) for name,value in re.findall(r"#define MA_ONI_DOMAIN_(\w+) (\d+)U",header)}
+        source=(ROOT/"managed/MixedAtmospheres.Oni/OniNativeDomain.cs").read_text()
+        constants={name:int(value) for name,value in re.findall(r"(\w+) = (\d+)(?=[,;])",source)}
+        for native,managed in (("CONFIGURED_ABI_VERSION","ConfiguredAbiVersion"),("CONFIGURED_SCENARIO","ConfiguredScenario"),
+                               ("CONFIGURED_MAXIMUM_SIDE","ConfiguredMaximumSide"),("CONFIGURED_MAXIMUM_CELLS","ConfiguredMaximumCells"),
+                               ("PHYSICS_GRAVITY","PhysicsGravity"),("PHYSICS_CONDUCTION","PhysicsConduction"),
+                               ("PHYSICS_VISCOSITY","PhysicsViscosity"),("PHYSICS_MIXTURE","PhysicsMixture"),("PHYSICS_LIQUID","PhysicsLiquid")):
+            self.assertEqual(defines[native],constants[managed],native)
+        self.assertRegex(header,r"typedef struct MAOniDomainPhysics \{\s*uint32_t struct_size, abi_version, flags, reserved;\s*"
+                                r"double gravity_m_per_s2, shear_viscosity_pa_s, bulk_viscosity_pa_s;\s*\} MAOniDomainPhysics;")
+        for entry in ("ma_oni_domain_configured_abi_version","ma_oni_domain_start_configured","ma_oni_domain_configured_checkpoint_validate",
+                      "ma_oni_domain_restore_configured","ma_oni_domain_configuration_copy"):
+            self.assertIn(entry,header);self.assertIn(f'EntryPoint = "{entry}"',source)
+
+    def test_runner_modes_match_the_managed_validation_modes(self):
+        source=CONFIGURATION_SOURCE.read_text(encoding="utf-8")
+        modes=re.search(r"Modes =\s*\{([^}]*)\}",source).group(1)
+        managed=set(re.findall(r'"([^"]+)"',modes))
+        with tempfile.TemporaryDirectory() as state, mock.patch.object(sys,"argv",["oni_headless","--state",state,"run","--package",state,"--mode","nope"]), \
+                mock.patch.dict(os.environ,{"COLUMNS":"100000"}), contextlib.redirect_stderr(io.StringIO()) as error, self.assertRaises(SystemExit):
+            runner.main()
+        offered=set(re.findall(r"[a-z][a-z-]+",error.getvalue().split("choose from",1)[1]))
+        self.assertEqual(offered-{"menu"},managed-{"coupled-presentation"})
+        self.assertIn("native-configured-domain",managed);self.assertIn("native-configured-water-domain",managed)
+        self.assertNotIn("native-configured-domain",runner.LONG_RUN_MODES)
 
 
 class LongRunTelemetryTests(unittest.TestCase):
@@ -1797,6 +1930,29 @@ class LongRunTelemetryTests(unittest.TestCase):
             path.write_text("{}\n{}\n")
             self.assertFalse(watch.poll(2801))
             self.assertTrue(watch.poll(3701))
+            self.assertEqual(watch.reason, "telemetry file stopped growing")
+
+    def test_watchdog_reports_a_started_game_whose_clock_stops_while_lines_continue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / runner.TELEMETRY_FILE
+            watch = runner.TelemetryWatch(path, 0, stall_seconds=900)
+            loading = {"Game": {"Started": False, "TimeSeconds": None}}
+            for now in range(0, 2000, 100):
+                path.write_text("x" * (now + 1))  # Lines keep arriving while the game loads.
+                self.assertFalse(watch.poll(now, loading))
+            for now, clock in ((2000, 10.0), (2500, 110.0), (2900, 110.0), (3300, 110.0)):
+                path.write_text("x" * (now + 1))
+                self.assertFalse(watch.poll(now, {"Game": {"Started": True, "TimeSeconds": clock}}))
+            path.write_text("x" * 3401)
+            self.assertTrue(watch.poll(3400, {"Game": {"Started": True, "TimeSeconds": 110.0}}))
+            self.assertEqual(watch.reason, "game clock stopped advancing")
+            # Without a fresh line the clock rule keeps its last observation.
+            other = runner.TelemetryWatch(path, 0, stall_seconds=900)
+            self.assertFalse(other.poll(10, {"Game": {"Started": True, "TimeSeconds": 5.0}}))
+            path.write_text("y")
+            self.assertFalse(other.poll(500))
+            path.write_text("yy")
+            self.assertTrue(other.poll(910))
 
     def test_tail_reader_returns_the_last_complete_telemetry_object(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1807,7 +1963,7 @@ class LongRunTelemetryTests(unittest.TestCase):
                 stream.write('{"Kind":"mixed-atmos')  # A line Unity is still writing.
             self.assertEqual(runner.last_telemetry_line(path)["Sequence"], 2)
             self.assertFalse(runner.telemetry_final(path))
-            self.assertIn("frames=600 cycle=2", runner.telemetry_progress(runner.last_telemetry_line(path)))
+            self.assertIn("frames=600 cycle=2 paused=None duplicants=None", runner.telemetry_progress(runner.last_telemetry_line(path)))
             self.assertEqual(runner.last_telemetry_line(path, limit=40), None)
             _write_telemetry(path, [_telemetry_line(1, "start"), _telemetry_line(2, "final")])
             self.assertTrue(runner.telemetry_final(path))

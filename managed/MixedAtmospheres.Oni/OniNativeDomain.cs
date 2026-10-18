@@ -42,6 +42,27 @@ namespace MixedAtmospheres.Oni
             public double Nitrogen, Oxygen, Helium, Water, CarbonDioxide, Temperature;
             public double Mass(int index) => index == 0 ? Nitrogen : index == 1 ? Oxygen : index == 2 ? Helium : index == 3 ? Water : index == 4 ? CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(index));
         }
+        // Configured sealed-domain ABI 1 (scenario 7): explicit physics, a
+        // row-major solid mask and a complete initial inventory with all-zero
+        // records for solids. Legacy entry points keep rejecting scenario 7.
+        internal const uint ConfiguredAbiVersion = 1, ConfiguredScenario = 7, ConfiguredMaximumSide = 256, ConfiguredMaximumCells = 4096;
+        internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16;
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Physics
+        {
+            public uint Size, Version, Flags, Reserved;
+            // A disabled value must be exactly +0.
+            public double GravityMetresPerSecondSquared, ShearViscosityPaSeconds, BulkViscosityPaSeconds;
+            internal static Physics Create(uint flags, double gravity = 0, double shear = 0, double bulk = 0) =>
+                new Physics { Size = 40, Version = ConfiguredAbiVersion, Flags = flags, GravityMetresPerSecondSquared = gravity,
+                    ShearViscosityPaSeconds = shear, BulkViscosityPaSeconds = bulk };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_configured_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ConfiguredVersion();
+        [DllImport(Library, EntryPoint = "ma_oni_domain_start_configured", CallingConvention = CallingConvention.Cdecl)] internal static extern int BeginConfigured(ref Configuration configuration, ref Physics physics, [In] byte[] solidMask, uint maskCount, [In] InitialCell[] cells, uint cellCount, ref Status status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_configured_checkpoint_validate", CallingConvention = CallingConvention.Cdecl)] internal static extern int ValidateConfiguredCheckpoint(ref Configuration configuration, ref Physics physics, [In] byte[] solidMask, uint maskCount, [In] byte[] input, uint inputBytes, double expectedTime);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_restore_configured", CallingConvention = CallingConvention.Cdecl)] internal static extern int RestoreConfigured(ref Configuration configuration, ref Physics physics, [In] byte[] solidMask, uint maskCount, [In] byte[] input, uint inputBytes, double expectedTime, ref Status status);
+        // A null mask with zero capacity queries the count; failure changes no output.
+        [DllImport(Library, EntryPoint = "ma_oni_domain_configuration_copy", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyConfiguration(ulong session, ref Configuration configuration, ref Physics physics, [Out] byte[]? solidMask, uint maskCapacity, out uint maskCount);
         [DllImport(Library, EntryPoint = "ma_oni_domain_initial_inventory_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint InitialInventoryVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_start_from_cells", CallingConvention = CallingConvention.Cdecl)] internal static extern int BeginFromCells(ref Configuration configuration, [In] InitialCell[] cells, uint count, ref Status status);
         [StructLayout(LayoutKind.Sequential)]

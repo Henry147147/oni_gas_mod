@@ -30,7 +30,8 @@ internal static class ColonyValidationLimitsTests
             var defaults=Valid(new ColonyValidationConfiguration());
             check(defaults.Mode=="snapshot-copy" && defaults.CompletedFrames==30 && defaults.TimeoutSeconds==600 && defaults.LoadSavePath=="" &&
                 !defaults.LongRun && defaults.TelemetryIntervalFrames==ColonyValidationLimits.DefaultTelemetryIntervalFrames);
-            check(ColonyValidationLimits.Modes.Length==34 && ColonyValidationLimits.Modes.Distinct().Count()==34);
+            check(ColonyValidationLimits.Modes.Length==36 && ColonyValidationLimits.Modes.Distinct().Count()==36 &&
+                ColonyValidationLimits.Modes.Contains("native-configured-domain") && ColonyValidationLimits.Modes.Contains("native-configured-water-domain"));
             foreach(var mode in ColonyValidationLimits.Modes)
             {
                 check(Valid(Request(mode,1,30)).Mode==mode);

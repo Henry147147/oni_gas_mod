@@ -36,9 +36,26 @@ def _pattern(material_id, x, y):
             * math.cos((y % 4) * math.pi / 2 * (1 + ((hashed >> 21) & 1)) + phase_y))
 
 
+def configured_solid_mask(report: dict) -> list[int] | None:
+    """The configured room's row-major solid mask, or None for a legacy room.
+
+    A configured interior solid is native data: it publishes no reading or
+    expected mixture texel. Raises ValueError for a malformed mask.
+    """
+    value = report.get('ConfiguredDomain')
+    if value is None:
+        return None
+    mask = value['Mask']
+    if (not isinstance(mask, list) or len(mask) != report['Width'] * report['Height']
+            or any(type(bit) is not int or bit not in (0, 1) for bit in mask) or 0 not in mask):
+        raise ValueError('Invalid configured solid mask')
+    return mask
+
+
 def world_appearance_passed(report: dict) -> bool:
     """Require exact byte reconstruction of every published mixed/dry pixel."""
     try:
+        mask = configured_solid_mask(report)
         inputs = report['RenderingInputs']
         settings = inputs['WorldAppearance']
         if (settings['Model'] != 'actual-phase-volume-linear-rgb-v1'
@@ -70,6 +87,10 @@ def world_appearance_passed(report: dict) -> bool:
             x, y = cell % grid_width, cell // grid_width
             if (x, y) != (report['X'] + index % report['Width'], report['Y'] + index // report['Width']):
                 return False
+            if mask is not None and mask[index]:
+                if row.get('Solid') is not True or row['Reading'] is not None or row['ExpectedGas'] is not None:
+                    return False
+                continue
             reading = row['Reading']
             volume, gas_volume, liquid_volume, gas_mass = (reading[k] for k in
                 ('VolumeCubicMetres', 'GasVolumeCubicMetres', 'LiquidVolumeCubicMetres', 'GasMassKg'))

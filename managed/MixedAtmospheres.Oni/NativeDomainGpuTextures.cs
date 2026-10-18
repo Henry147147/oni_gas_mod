@@ -48,19 +48,22 @@ namespace MixedAtmospheres.Oni
                 ReferenceEquals(opacity, buffers[(int)PropertyTextures.Property.GasPressure].texture) &&
                 ReferenceEquals(danger, buffers[(int)PropertyTextures.Property.GasDanger].texture);
             gpuGasColour = TexturePixels(colour, true); gpuGasOpacity = TexturePixels(opacity, true); gpuGasDanger = TexturePixels(danger, true);
+            // A configured interior solid has no physical reading: its stock
+            // native texels are recorded but carry no mixture expectation.
             var samples = Enumerable.Range(0, cells.Length).Select(index => {
+                if (IsDomainSolid(index)) return (MixtureWorldRendering.GasVisualSample?)null;
                 var global = Grid.XYToCell(x + index % Width, y + index / Width);
                 Require(frame.TryGetCell(global, out var reading) && reading!.Revision == (long)latest.CompletedFrames,
                     "GPU source reading is stale.");
                 return MixtureWorldRendering.SampleForValidation(reading!, global % frame.Width, global / frame.Width);
             }).ToArray();
-            gpuExpectedColours = samples.Select(item => new[] { (int)item.R, item.G, item.B, item.Alpha }).ToArray();
-            gpuExpectedOpacity = samples.Select(item => (int)item.Opacity).ToArray();
-            gpuExpectedDanger = samples.Select(item => (int)item.Hazard).ToArray();
+            gpuExpectedColours = samples.Select(item => item.HasValue ? new[] { (int)item.Value.R, item.Value.G, item.Value.B, item.Value.Alpha } : null!).ToArray();
+            gpuExpectedOpacity = samples.Select(item => item.HasValue ? (int)item.Value.Opacity : -1).ToArray();
+            gpuExpectedDanger = samples.Select(item => item.HasValue ? (int)item.Value.Hazard : -1).ToArray();
             gpuGasVerified = gpuGasBindingsVerified && gpuGasColour.Available && gpuGasOpacity.Available && gpuGasDanger.Available &&
                 gpuGasColour.Rgba.Length == cells.Length && gpuGasOpacity.Rgba.Length == cells.Length && gpuGasDanger.Rgba.Length == cells.Length &&
                 frame.PublicationGeneration == MixtureWorldRendering.LastTexturePublicationGeneration &&
-                Enumerable.Range(0, cells.Length).All(index => gpuGasColour.Rgba[index].SequenceEqual(gpuExpectedColours[index]) &&
+                Enumerable.Range(0, cells.Length).All(index => IsDomainSolid(index) || gpuGasColour.Rgba[index].SequenceEqual(gpuExpectedColours[index]) &&
                     gpuGasOpacity.Rgba[index][3] == gpuExpectedOpacity[index] && gpuGasDanger.Rgba[index][3] == gpuExpectedDanger[index]);
             Require(gpuGasVerified, "Actual shader-bound gas GPU texels disagree with the completed colour, density-opacity or hazard reading.");
         }

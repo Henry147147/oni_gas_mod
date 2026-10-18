@@ -45,6 +45,17 @@ body passes readback, with colony-file hash
 `6d9b637c5e88ccd876282ddd1a2880288690bdcc3c4bb45819e391910d2bf393`.
 The original input remains unchanged. Proton continues to use its existing private display by default.
 
+## Configured rooms
+
+`native-configured-domain` (gas) and `native-configured-water-domain` (water)
+run the configured sealed ABI in a 7x5 room with an interior Neutronium pillar
+and ledge; the solids stay native data. They need an observer-enabled package
+whose native libraries come from the Ubuntu 22.04 compatibility build, and they
+reject `--save-colony` and `--long-run`. Both pass with
+`artifacts/configured-probe-linux-v3` (`<state>/runs/configured-gas-linux-v3`,
+`configured-water-linux-v1`). Scope, commands and numbers:
+[configured domain](../docs/native-configured-domain.md#linux-game-evidence).
+
 ## Current machine: 2026-10-16
 
 `native-domain` and `native-liquid-domain` test a sealed custom physical owner
@@ -387,7 +398,7 @@ below 13,000. Fields:
 | Field | Meaning |
 | --- | --- |
 | `Kind`, `SchemaVersion`, `DevelopmentOnly`, `Session`, `Sequence`, `Reason` | `mixed-atmospheres-development-telemetry`, schema 1, always `true`, one id per game process, line number, `start`/`interval`/`heartbeat`/`final`/`sim-shutdown` |
-| `NativeFramesProcessed`, `IntervalNativeFrames`, `UnityFrame` | native frames returned by `PrepareGameData` since telemetry started and since the previous line; Unity frame |
+| `NativeFramesProcessed`, `IntervalNativeFrames`, `UnityFrame` | native frames returned by `PrepareGameData` since telemetry started and since the previous line, including world-generation settling and zero-time frames while paused (use `Game` and `NativeDomain` for colony progress); Unity frame |
 | `UtcTime`, `WallSeconds`, `IntervalWallSeconds` | host time and monotonic seconds since telemetry started |
 | `Game` | game started, `TimeSeconds`, `Cycle`, `TimeInCycles`, paused, speed, live duplicants |
 | `NativeDomain` | for native-domain scenes: state, session, completed and post-priming validation frames, physical time, last timestep, maximum relative mass/energy error, cumulative and per-line substeps and rejected attempts, publications, native error text |
@@ -401,8 +412,11 @@ solver wall clock; the game-thread wait is therefore an upper bound on solver
 time hidden from the game, not a solver measurement.
 
 The runner reads only the file's tail while the game runs and prints a compact
-progress line every 5 minutes. If the file has not grown for 900 s, the run
-stops as `timeout` with `telemetry_stalled: true`. While the game runs, the runner
+progress line every 5 minutes. If the file has not grown for 900 s, or a
+started game's clock (`Game.TimeSeconds`) has not advanced for 900 s, the run
+stops as `timeout` with `telemetry_stalled: true` and `telemetry_stall_reason`;
+a modal pause keeps emitting zero-time frames and lines, so file growth alone
+does not detect it. While the game runs, the runner
 reads `Player.log` only in `menu` mode; the complete log is read once
 afterwards. A long run otherwise passing fails as `failed-long-run-telemetry`
 unless one complete error-free session ends in a `final` line and its count
@@ -411,6 +425,28 @@ matches the colony report. `result.json` adds `long_run`, `telemetry_stalled`,
 maxima) and `development_telemetry_passed`. The runner applies no latency
 thresholds. During long runs the native observer report refreshes every 30 s,
 not every second, and is still flushed at completion.
+
+The harness does not manage the colony. A long run fails as soon as every
+duplicant has died, because ONI then pauses on its Colony Lost screen and no
+frame can complete. In the default disposable colony (seed 147147, no orders)
+all three duplicants die in the third or fourth cycle, after about 8,500–9,100
+domain frames, so no run can yet pass 10,000 frames or ten cycles: a ten-cycle
+pass first needs life support.
+
+Game check (native Linux, `artifacts/configured-probe-linux-v4`,
+`--mode native-domain --long-run --frames 10500 --timeout 14400 --private-display`):
+`<state>/runs/long-run-native-domain-linux-v2` accepts the opt-in, runs the
+six-cell domain for 8,552 post-priming frames and ends as
+`failed-runtime-validation` on the duplicants' death, with a complete
+telemetry session (52 lines ending in `final`). At game speed 1 the colony
+phase kept real time, 0.208 s of wall time per 0.2 s frame. Per-line medians
+of the p95 values: native wait 0.08 ms, managed publication 74 ms, presentation
+lag 174 ms, texture batch 7.5 ms; Unity frame p50 153 ms (llvmpipe). RSS rose
+from 6.80 to 7.02 GiB in 29 minutes; the managed heap stayed near 1.5 GiB.
+Mass and energy drift stayed at 3.5e-15 and 1.1e-12 with no rejected attempts.
+The earlier `long-run-native-domain-linux-v1` (stopped by hand on the Colony
+Lost pause) showed that file growth alone missed the pause; the clock rule and
+the duplicant check above came from it.
 
 `tools/configure_visual_demo.py --long-run` prepares the same request for a
 manually started scene: 30,000 frames by default, a 48-hour limit and telemetry.

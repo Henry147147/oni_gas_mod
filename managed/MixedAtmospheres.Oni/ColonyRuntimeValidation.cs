@@ -112,6 +112,8 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
             if (configuration.SaveOnComplete && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
                 throw new InvalidDataException("SaveOnComplete requires an initial native domain validation scene.");
+            if (configuration.SaveOnComplete && configuration.Mode.StartsWith("native-configured-", StringComparison.Ordinal))
+                throw new InvalidDataException("Configured rooms have no paired colony save adapter yet; SaveOnComplete is unavailable.");
             if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
             if (configuration.VerifySaveIoRecovery && (configuration.Mode!="native-save-domain" || configuration.CompletedFrames<16))
@@ -273,6 +275,7 @@ namespace MixedAtmospheres.Oni
             if (Game.Instance == null) return;
             Report.GameStarted = Game.Instance.GameStarted();
             if (!Report.GameStarted) return;
+            if (LongRunColonyLost()) return;
             if (NativeSealedDomainValidation.IsMode)
             {
                 NativeSealedDomainValidation.Tick(); return;

@@ -19,7 +19,10 @@ namespace MixedAtmospheres.Oni
     // admits only actors with an explicit conserved point-boundary adapter.
     internal static unsafe partial class NativeSealedDomainValidation
     {
-        private const int Width = 3, Height = 2;
+        // Legacy scenes own the fixed 3x2 rectangle; a configured scene owns the
+        // fluid cells of its own layout, whose interior solids stay native.
+        private static int Width => ConfiguredMode ? ConfiguredRoom.Width : 3;
+        private static int Height => ConfiguredMode ? ConfiguredRoom.Height : 2;
         private static readonly string[] Ids = { "nitrogen", "oxygen", "helium", "water", "carbon_dioxide" };
         private static bool prepared, arming, completed, failed;
         private static volatile bool active;
@@ -78,7 +81,7 @@ namespace MixedAtmospheres.Oni
         internal static bool Failed => failed;
         internal static string FailureMessage => error;
         internal static bool SaveBlocked => active || arming;
-        internal static bool IsMode => RectangularConsumptionMode || RadialConsumptionMode || MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
+        internal static bool IsMode => ConfiguredMode || RectangularConsumptionMode || RadialConsumptionMode || MixedPhaseMode || PressureReadMode || BreathingReadMode || CarbonParticleMode || InitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode || ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-actor-domain" ||
             ColonyRuntimeValidation.Settings?.Mode == "native-carbon-domain" || ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" ||
@@ -88,7 +91,7 @@ namespace MixedAtmospheres.Oni
         private static bool LiquidActorMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-actor-domain";
         private static bool LiquidHeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-liquid-heat-domain";
         private static double FixtureHeatJoules => LiquidHeatMode || MixedHeatMode ? 1500000 : 1500;
-        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
+        private static bool Liquid => restoredScenarioSelected ? restoredScenario==1 || restoredScenario==3 : ConfiguredLiquidMode || LiquidPressureReadMode || LiquidInitialInventoryMode || ColonyRuntimeValidation.Settings?.Mode == "native-liquid-domain" || LiquidTransferMode || LiquidActorMode || LiquidHeatMode;
         private static bool HeatMode => ColonyRuntimeValidation.Settings?.Mode == "native-heat-domain" || ConductionMode;
         private static bool ConductionMode => ColonyRuntimeValidation.Settings?.Mode == "native-conduction-domain" || LiquidHeatMode || MixedHeatMode;
         private static bool TransferMode => RectangularConsumptionMode || RadialConsumptionMode || ColonyRuntimeValidation.Settings?.Mode == "native-transfer-domain" || LiquidTransferMode || CarbonMode || GravityMode;
@@ -162,6 +165,7 @@ namespace MixedAtmospheres.Oni
                 gameGridProjectionVerified = Enumerable.Range(0, cells.Length).All(index =>
                 {
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
+                    if (IsDomainSolid(index)) return Grid.Solid[global] && Grid.Element[global].id == SimHashes.Unobtanium;
                     return Math.Abs(Grid.Mass[global] - (float)cells[index].TotalMass) <= 1e-6 &&
                         Math.Abs(Grid.Temperature[global] - (float)cells[index].Temperature) <= 1e-4 &&
                         Grid.Element[global].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen) &&
@@ -181,13 +185,15 @@ namespace MixedAtmospheres.Oni
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
-                Require(MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == (MixedConductionMode ? 1U : 0U) :
+                Require(ConfiguredMode ? ConfiguredPhysicsExercised :
+                    MixedPhaseMode ? MixedPhaseVerified && latest.CurrentOxygenKg != latest.InitialOxygenKg && thermalStatus.Enabled == (MixedConductionMode ? 1U : 0U) :
                     InitialInventoryMode ? InitialInventoryAdvanced && latest.PressurePa > 0 :
                     Liquid ? LiquidActorMode || PersistentActorValidationRequired ? cells.Sum(cell => cell.Water) != 6600 && latest.PressurePa > 0 :
                     LiquidTransferMode ? cells.Sum(cell => cell.Water) > 6600 && latest.PressurePa > 2.2e8 :
                     latest.LiquidMassKg == 1100 && Math.Abs(latest.PressurePa - 2.2e8) < 1 :
                     latest.CurrentOxygenKg != latest.InitialOxygenKg, "Custom fluid state did not exercise its intended physics.");
                 if (ViscousMode) Require(ViscosityVerified, "Native worker did not complete physical viscosity and represented heating.");
+                if (ConfiguredMode) VerifyConfiguredCompletion();
                 if (LiveBreathingRequired) VerifyLiveBreathing();
                 VerifyNativeSolidHeatCompletion();
                 if (HeatMode)
@@ -306,17 +312,30 @@ namespace MixedAtmospheres.Oni
             Require(GravityVersion() == 1 && Marshal.SizeOf<GravityStatus>() == 96, "Unsupported native gravity ABI.");
             Require(CheckpointVersion() == 1, "Unsupported native physical checkpoint ABI.");
             Require(PairVersion()==1 && Marshal.SizeOf<PairStatus>()==112,"Unsupported native paired checkpoint ABI.");
+            if (ConfiguredMode) RequireConfiguredCapability();
             prepared = true; preparedFrame = Time.frameCount; started = Time.realtimeSinceStartup;
+            cells = new Cell[Width * Height];
             ConfigureNaturalAutosaveControl();
             Game.Instance.debugWasUsed = true;
             CustomGameSettings.Instance.SetQualitySetting(CustomGameSettingConfigs.SandboxMode, "Enabled");
             Game.Instance.SandboxModeActive = true;
             var start = SaveLoader.Instance.cachedGSD.baseStartPos + ClusterManager.Instance.GetStartWorld().WorldOffset;
             var chosen = false;
-            for (var yy = start.y + 16; yy <= start.y + 30 && !chosen; ++yy)
-            for (var xx = start.x - 8; xx <= start.x + 8 && !chosen; ++xx)
+            var reach = ConfiguredMode ? 24 : 8; var top = ConfiguredMode ? 40 : 30;
+            // A burrowed critter or an entombed item is not always in
+            // Grid.Objects, yet falls into the room once its rock becomes
+            // fluid (actual runs: a Hatch, then a buried Muckroot). The larger
+            // configured room keeps every positioned prefab out of its arena
+            // margin, and live creatures and duplicants further away.
+            var occupants = ConfiguredMode ? UnityEngine.Object.FindObjectsByType<KPrefabID>(FindObjectsSortMode.None)
+                .Where(item => item != null && item.gameObject.activeInHierarchy).Select(item => (Cell: Grid.PosToCell(item), Margin: item.GetComponent<Brain>() != null ? 8 : 4))
+                .Where(item => Grid.IsValidCell(item.Cell)).Select(item => (X: item.Cell % Grid.WidthInCells, Y: item.Cell / Grid.WidthInCells, item.Margin)).ToArray()
+                : Array.Empty<(int X, int Y, int Margin)>();
+            for (var yy = start.y + 16; yy <= start.y + top && !chosen; ++yy)
+            for (var xx = start.x - reach; xx <= start.x + reach && !chosen; ++xx)
             {
-                var clear = true;
+                var clear = !occupants.Any(item => item.X >= xx - 2 - item.Margin && item.X <= xx + Width + 3 + item.Margin &&
+                    item.Y >= yy - 1 - item.Margin && item.Y <= yy + Height + item.Margin);
                 // Replacing a neighbouring support cell can uproot flora and
                 // spawn a seed into an otherwise empty chamber. Reserve an
                 // object-free margin around every cell this fixture changes,
@@ -337,7 +356,7 @@ namespace MixedAtmospheres.Oni
             var eventId = CellEventLogger.Instance.SandBoxTool;
             for (var dy = -1; dy <= Height; ++dy) for (var dx = -1; dx <= Width; ++dx)
             {
-                var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
+                var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height || IsDomainSolidAt(dx, dy);
                 Grid.Visible[index] = byte.MaxValue;
                 var thermalWall=SolidHeatMode && dx== -1 && dy==0;
                 SimMessages.ReplaceElement(index, thermalWall ? SimHashes.Granite : wall ? SimHashes.Unobtanium : Liquid ? SimHashes.Water : InitialInventoryMode && dy == 0 ? SimHashes.CarbonDioxide : SimHashes.Oxygen,
@@ -354,8 +373,10 @@ namespace MixedAtmospheres.Oni
             for (var dy = -1; dy <= Height; ++dy) for (var dx = -1; dx <= Width; ++dx)
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
-                if (Grid.Solid[index] != wall || (wall && Grid.Element[index].id != (IsSolidHeatBoundary(dx,dy) ? SimHashes.Granite : SimHashes.Unobtanium)) ||
-                    (!wall && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
+                var solid = wall || IsDomainSolidAt(dx, dy);
+                if (Grid.Solid[index] != solid || (solid && Grid.Element[index].id != (IsSolidHeatBoundary(dx,dy) ? SimHashes.Granite : SimHashes.Unobtanium)) ||
+                    (solid && ConfiguredMode && !InsulatingStaticSolid(index)) ||
+                    (!solid && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
                 if (!wall)
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
@@ -377,17 +398,17 @@ namespace MixedAtmospheres.Oni
             // First establish that vanilla would move this intentionally
             // unbalanced scalar state. The same projection is then restored
             // under exclusions and must remain byte-identical thereafter.
-            nativeFlowControlObserved = Enumerable.Range(0, Width * Height).Any(index =>
+            nativeFlowControlObserved = Enumerable.Range(0, Width * Height).Any(index => !IsDomainSolid(index) &&
                 Math.Abs(Grid.Mass[Grid.XYToCell(x + index % Width, y + index / Width)] - ProjectionMass(index % Width)) > .001);
             Require(nativeFlowControlObserved, "Unhooked native pressure-gradient control did not flow.");
             ConfigureDomainPresentation();
             arming = true;
-            for (var index = 0; index < cells.Length && !InitialInventoryMode; ++index)
+            for (var index = 0; index < cells.Length && !InitialInventoryMode && !ConfiguredMode; ++index)
                 SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width),
                     NativeFlowMask);
             initialHot = Grid.Temperature[hotSolid]; initialCold = Grid.Temperature[coldSolid];
-            var center = Grid.CellToPosCCC(target, Grid.SceneLayer.Background);
-            CameraController.Instance.SnapTo(center, 4);
+            var center = Grid.CellToPosCCC(ConfiguredMode ? Grid.XYToCell(x + Width / 2, y + Height / 2) : target, Grid.SceneLayer.Background);
+            CameraController.Instance.SnapTo(center, ConfiguredMode ? 6 : 4);
             SpeedControlScreen.Instance.Unpause(false);
             ColonyRuntimeValidation.SetStage("fencing-sealed-native-domain"); WriteReport();
         }
@@ -414,9 +435,11 @@ namespace MixedAtmospheres.Oni
         {
             Require(BoundaryReady(false), "The sealed boundary changed before native ownership activation.");
             var configuration = new Configuration { Size = 40, Version = 2, Flags = 1, GridWidth = (uint)Grid.WidthInCells,
-                X = (uint)x, Y = (uint)y, Width = Width, Height = Height, Scenario = ViscousMode ? 6U : MixedHeatMode ? 5U : MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
+                X = (uint)x, Y = (uint)y, Width = (uint)Width, Height = (uint)Height,
+                Scenario = ConfiguredMode ? ConfiguredScenario : ViscousMode ? 6U : MixedHeatMode ? 5U : MixedPhaseMode ? 4U : LiquidGravityMode ? 3U : Liquid ? 1U : GravityMode ? 2U : 0U };
             latest = Status.Empty;
-            if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
+            if (ConfiguredMode) ImportConfiguredInventory(source, ref configuration);
+            else if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
             RegisterNativeSolidHeat(source);
             domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
@@ -424,16 +447,18 @@ namespace MixedAtmospheres.Oni
             writingProjection = true;
             try
             {
-                if (InitialInventoryMode)
+                if (InitialInventoryMode || ConfiguredMode)
                 {
-                    Require(initialInventoryVerified && latest.State == 1 && !nativeFlowFenceVerified,
+                    Require((ConfiguredMode ? configuredInventoryVerified : initialInventoryVerified) && latest.State == 1 && !nativeFlowFenceVerified,
                         "Imported ownership must precede the native flow fence.");
-                    initialInventoryBeforeFence = true;
+                    if (InitialInventoryMode) initialInventoryBeforeFence = true;
                     for (var index = 0; index < cells.Length; ++index)
-                        SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width), NativeFlowMask);
+                        if (!IsDomainSolid(index)) SimMessages.SetCellProperties(Grid.XYToCell(x + index % Width, y + index / Width), NativeFlowMask);
                 }
                 for (var index = 0; index < cells.Length; ++index)
                 {
+                    // Compatibility projections never enter a native solid.
+                    if (IsDomainSolid(index)) continue;
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     SimMessages.ReplaceElement(global, Liquid ? SimHashes.Water : SimHashes.Oxygen,
                         CellEventLogger.Instance.SandBoxTool, ProjectionMass(index % Width), ProjectionTemperature(index % Width));
@@ -454,7 +479,8 @@ namespace MixedAtmospheres.Oni
             completedReceipts = receipts.Take(checked((int)count)).ToArray();
             if (next.Session != latest.Session || next.CompletedFrames < previous) throw new InvalidOperationException("Native domain session changed during capture.");
             // Retained values are independent of all future native advances.
-            retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[0].InternalEnergy == cells[0].InternalEnergy;
+            var first = FirstDomainFluid;
+            retainedFrameVerified |= previous > 0 && next.CompletedFrames > previous && held[first].InternalEnergy == cells[first].InternalEnergy;
             latest = next; cells = values;
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
@@ -472,11 +498,11 @@ namespace MixedAtmospheres.Oni
             try
             {
                 var source = (Sim.GameDataUpdate*)pointer;
-                nativeFlowFenceVerified = Enumerable.Range(0, cells.Length).All(index =>
+                nativeFlowFenceVerified = Enumerable.Range(0, cells.Length).All(index => IsDomainSolid(index) ||
                     (source->properties[Grid.XYToCell(x + index % Width, y + index / Width)] & NativeFlowMask) == NativeFlowMask);
                 if (arming)
                 {
-                    if (InitialInventoryMode ? source->numFramesProcessed <= 0 : !nativeFlowFenceVerified) return pointer;
+                    if (InitialInventoryMode || ConfiguredMode ? source->numFramesProcessed <= 0 : !nativeFlowFenceVerified) return pointer;
                     ActivateOwner(source);
                 }
                 Capture(); Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
@@ -487,7 +513,7 @@ namespace MixedAtmospheres.Oni
                     source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)]).ToArray();
                 if (!projectionPrimed)
                 {
-                    projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index =>
+                    projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index => IsDomainSolid(index) ||
                         source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionMass(index % Width) &&
                         source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionTemperature(index % Width) &&
                         source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);
@@ -505,6 +531,9 @@ namespace MixedAtmospheres.Oni
                         else Require(first.Equals(native), "An unhandled native writer changed custom domain compatibility cell " +
                             global + ": " + first + " -> " + native + ".");
                     }
+                    // An interior solid is native data: it keeps its unchanged
+                    // native tuple above and publishes no physical reading.
+                    if (IsDomainSolid(index)) { Require(ConfiguredDomainLayout.IsZero(cell), "A configured solid published fluid state."); continue; }
                     readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global));
                 }
                 // Capture first and prove every native channel was copied. Only
@@ -520,6 +549,7 @@ namespace MixedAtmospheres.Oni
                 var properties = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.properties));
                 for (var index = 0; index < cells.Length; ++index)
                 {
+                    if (IsDomainSolid(index)) continue;
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     masses[global] = checked((float)cells[index].TotalMass); temperatures[global] = checked((float)cells[index].Temperature);
                     elements[global] = (ushort)ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx;
@@ -577,9 +607,9 @@ namespace MixedAtmospheres.Oni
         }
         private static IntPtr LastSnapshot() => currentSnapshot != null ? (IntPtr)currentSnapshot.Pointer :
             throw new InvalidOperationException("Native domain faulted before a valid owned snapshot existed; scalar fallback is forbidden.");
-        private static float ProjectionMass(int column) => Liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
+        private static float ProjectionMass(int column) => ConfiguredMode ? ConfiguredProjectionMass(column) : Liquid ? column == 0 ? 1000 : column == 1 ? 1200 : 1100 :
             column == 0 ? .6f : column == 1 ? 1.2f : 2.4f;
-        private static float ProjectionTemperature(int column) => 280 + 20 * column;
+        private static float ProjectionTemperature(int column) => ConfiguredMode ? ConfiguredProjectionTemperature(column) : 280 + 20 * column;
         private static void SubmitGameFluidTransfers()
         {
             if(RadialConsumptionMode) {radialSourceCellOxygen=cells[0].Oxygen;radialSourceFrame=latest.CompletedFrames;}
@@ -619,8 +649,11 @@ namespace MixedAtmospheres.Oni
             Require(transfersAvoidedNativeDispatch && transferPacketsRouted == 2, "Liquid consumption bypassed custom native routing.");
             transferConsumptionSubmitted = true;
         }
+        // Owned cells are the fluid cells of the rectangle. Pressure, breathing,
+        // hover, transfer and heat readers treat an interior solid as native.
         private static bool OwnsPublicCell(int cell) => cell >= 0 && cell % Grid.WidthInCells >= x && cell % Grid.WidthInCells < x + Width &&
-            cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height;
+            cell / Grid.WidthInCells >= y && cell / Grid.WidthInCells < y + Height &&
+            !IsDomainSolidAt(cell % Grid.WidthInCells - x, cell / Grid.WidthInCells - y);
         private static SimHashes SpeciesHash(uint species) => species == 0 ? OniNitrogenElements.Gas : species == 1 ? SimHashes.Oxygen :
             species == 2 ? SimHashes.Helium : species == 3 ? SimHashes.Water : species == 4 ? SimHashes.CarbonDioxide : throw new ArgumentOutOfRangeException(nameof(species));
         internal static bool TryHandleTransfers(int message, int length, int count, byte* payload)
@@ -726,9 +759,11 @@ namespace MixedAtmospheres.Oni
         }
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
             Kind = "actual-game-sealed-native-fluid-domain", Status = completed ? "passed" : failed ? "failed" : "pending", Error = error,
-            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2", Scenario = MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
+            Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2",
+            Scenario = ConfiguredMode ? Liquid ? "configured-pillared-water" : "configured-pillared-gas" : MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
+            ConfiguredDomain = ConfiguredReport(),
             MixedPhase = MixedPhaseReport(),
             PhysicalViscosity = ViscosityReport(),
             NativeBodyHeat = ChunkHeatReport(),

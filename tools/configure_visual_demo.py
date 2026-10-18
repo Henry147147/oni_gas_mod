@@ -11,7 +11,12 @@ SCENES = {
     "air": "native-domain",
     "water": "native-liquid-domain",
     "mixed": "native-mixed-domain",
+    # Configured 7x5 rooms with an interior Neutronium pillar and ledge. They
+    # have no paired save adapter yet, so they are short scenes only.
+    "pillared": "native-configured-domain",
+    "pillared-water": "native-configured-water-domain",
 }
+LONG_RUN_SCENES = ("air", "water", "mixed")
 # Mirrors ColonyValidationLimits; ten ONI cycles are about 30,000 native frames.
 FRAMES, LONG_RUN_FRAMES = (120, 10000), (30000, 100000)
 TIMEOUT_SECONDS, LONG_RUN_TIMEOUT_SECONDS = 7200, 48 * 3600
@@ -20,6 +25,8 @@ TELEMETRY_INTERVAL_FRAMES = 300
 
 def configuration(scene: str, long_run: bool = False, frames: int | None = None) -> dict:
     """The colony-validation.json request; the short scene keeps its original keys."""
+    if long_run and scene not in LONG_RUN_SCENES:
+        raise ValueError("--long-run admits only the " + ", ".join(LONG_RUN_SCENES) + " scenes")
     default, limit = LONG_RUN_FRAMES if long_run else FRAMES
     frames = default if frames is None else frames
     if type(frames) is not int or not 1 <= frames <= limit:

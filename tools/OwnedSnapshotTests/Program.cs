@@ -327,6 +327,7 @@ internal static unsafe class Program
         NativeDomainReadingTests.Run(Test,Check,Reject);
         ColonyValidationLimitsTests.Run(Test,Check,Reject);
         DevelopmentTelemetryTests.Run(Test,Check,Reject);
+        ConfiguredDomainLayoutTests.Run(Test,Check,Reject);
         Test("natural day autosave entry is the inspected game scheduler with a cycle argument", () => {
             var method=typeof(GameClock).GetMethod("DoAutoSave",BindingFlags.Instance|BindingFlags.NonPublic);
             Check(method!=null && method.ReturnType==typeof(void) && method.GetMethodBody()!=null &&

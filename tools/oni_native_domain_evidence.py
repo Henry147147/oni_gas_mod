@@ -11,7 +11,7 @@ import json
 import math
 from pathlib import Path
 import struct
-from oni_world_appearance_evidence import world_appearance_passed
+from oni_world_appearance_evidence import configured_solid_mask, world_appearance_passed
 
 def _sha256(value) -> bool:
     return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
@@ -217,6 +217,9 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
             return False
         if len({row['Cell'] for row in rows}) != count:
             return False
+        mask = configured_solid_mask(report)
+        if mask is not None and len(mask) != count:
+            return False
         for channel in ('Colour','Opacity','Danger'):
             value = gpu[channel]
             if (value.get('Available') is not True or value.get('Kind') != 'GPU ReadPixels' or len(value['Rgba']) != count
@@ -227,6 +230,14 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
             return False
         for index,row in enumerate(rows):
             expected, reading = row['ExpectedGas'],row['Reading']
+            if mask is not None and mask[index]:
+                # A configured solid stays native: no reading or mixture texel expectation.
+                if (row.get('Solid') is not True or reading is not None or expected is not None or gpu['ExpectedColours'][index] is not None
+                        or gpu['ExpectedOpacity'][index] != -1 or gpu['ExpectedDanger'][index] != -1):
+                    return False
+                continue
+            if row.get('Solid', False) is not False:
+                return False
             if (type(reading.get('GasMassKg')) not in (int,float) or not 0 <= reading['GasMassKg'] < math.inf
                     or type(reading.get('Revision')) is not int or reading['Revision'] != physical['CompletedFrames']
                     or len(expected['Colour']) != 4 or any(type(byte) is not int or not 0 <= byte <= 255 for byte in expected['Colour'])
@@ -238,6 +249,73 @@ def _gpu_gas_passed(report: dict, physical: dict) -> bool:
                 return False
         return 'WorldAppearance' not in inputs or world_appearance_passed(report)
     except (KeyError,TypeError,ValueError,AttributeError,IndexError):
+        return False
+
+
+def _configured_domain_passed(report: dict, physical: dict, liquid: bool) -> bool:
+    """A configured scenario-7 room: exact copied geometry/physics/mask, native interior solids and acting physics."""
+    try:
+        value = report['ConfiguredDomain']; width, height = value['Width'], value['Height']
+        mask = configured_solid_mask(report)
+        flags = 1 | 2 | (16 if liquid else 0)
+        physics = value['Physics']
+        expected_physics = dict(Size=40, Version=1, Flags=flags, Reserved=0, GravityMetresPerSecondSquared=9.81,
+                                ShearViscosityPaSeconds=0.0, BulkViscosityPaSeconds=0.0)
+        copied = value['CopiedConfiguration']
+        if (value.get('Required') is not True or value.get('AbiVersion') != 1 or value.get('NativeScenario') != 7
+                or value.get('Variant') != ('water' if liquid else 'gas')
+                or report.get('Scenario') != ('configured-pillared-water' if liquid else 'configured-pillared-gas')
+                or (width, height) != (report['Width'], report['Height']) or not 2 <= width <= 256 or not 2 <= height <= 256
+                or width * height > 4096 or width * height <= 6 or physical.get('Cells') != width * height
+                or mask is None or value.get('SolidCells') != mask.count(1) or mask.count(1) < 1
+                or value.get('FluidCells') != mask.count(0) or value.get('FirstFluidCell') != mask.index(0)
+                or physics != expected_physics or value.get('CopiedPhysics') != expected_physics or value.get('CopiedMask') != mask
+                or copied != dict(Size=40, Version=2, Flags=1, GridWidth=copied.get('GridWidth'), X=report['X'], Y=report['Y'],
+                                  Width=width, Height=height, Scenario=7, Reserved=0)
+                or type(copied.get('GridWidth')) is not int or copied['GridWidth'] <= report['X'] + width
+                or any(value.get(key) is not True for key in ('InventoryVerified', 'ConfigurationCopyVerified', 'CopiesAndReadingsVerified',
+                                                               'InteriorSolidsVerified', 'ThermalVerified', 'GravityVerified',
+                                                               'MotionObserved', 'SolidsAreNativeData'))
+                or value.get('CompatibilityProjectionInSolids') is not False
+                or value.get('InterfaceModel') != 'impermeable-adiabatic-interior-faces' or not _sha256(value.get('InventorySha256'))):
+            return False
+        inventory = value['Inventory']
+        if len(inventory) != len(mask):
+            return False
+        for index, row in enumerate(inventory):
+            masses = row['MassesKg']
+            if row.get('Index') != index or row.get('Solid') is not bool(mask[index]) or len(masses) != 5:
+                return False
+            if mask[index]:
+                if any(item != 0 for item in masses) or row.get('TemperatureK') != 0:
+                    return False
+            elif (type(row.get('TemperatureK')) not in (int, float) or not 0 < row['TemperatureK'] < math.inf
+                    or any(type(item) not in (int, float) or not 0 <= item < math.inf for item in masses)
+                    or any(item != 0 for species, item in enumerate(masses) if species != (3 if liquid else 1))
+                    or not masses[3 if liquid else 1] > 0):
+                return False
+        solids = value['InteriorSolids']
+        if [item.get('Index') for item in solids] != [index for index, bit in enumerate(mask) if bit]:
+            return False
+        for item in solids:
+            if (item.get('Element') != 'Unobtanium' or item.get('Solid') is not True or item.get('Insulating') is not True
+                    or item.get('Occupied') is not False or item.get('IsUnstable') is not False
+                    or item.get('thermalConductivity') != 0 or item.get('specificHeatCapacity') != 0
+                    or type(item.get('FluidFaces')) is not int or not 1 <= item['FluidFaces'] <= 4
+                    or type(item.get('TemperatureK')) not in (int, float) or not item['TemperatureK'] < item['highTemp']):
+                return False
+        rows = report.get('RenderingInputs', {}).get('Rows')
+        if rows is not None and [row.get('Solid') for row in rows] != [bool(bit) for bit in mask]:
+            return False
+        thermal, gravity = report['ThermalConduction'], report['Gravity']
+        return (thermal.get('Enabled') == 1 and thermal.get('State') == 1 and thermal.get('Session') == physical['Session']
+                and thermal.get('CompletedFrame') == physical['CompletedFrames'] and thermal.get('Stages') == 2 * physical['Substeps']
+                and thermal.get('Contacts', 0) > 0 and thermal.get('RedistributedEnergy', 0) > 0 and thermal.get('EntropyChange', 0) > 0
+                and gravity.get('Enabled') == 1 and gravity.get('State') == 1 and gravity.get('Gravity') == 9.81
+                and gravity.get('Session') == physical['Session'] and gravity.get('CompletedFrame') == physical['CompletedFrames']
+                and gravity.get('BodyImpulseY', 0) < 0 and gravity.get('Potential') != gravity.get('InitialPotential')
+                and physical['PressurePa'] > 0)
+    except (KeyError, TypeError, ValueError, AttributeError, IndexError):
         return False
 
 
@@ -691,9 +769,15 @@ def _native_solid_heat_passed(report: dict, restored: bool) -> bool:
     except (KeyError,TypeError,AttributeError,ValueError,OverflowError,struct.error):return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False, rectangular_consumption: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False, rectangular_consumption: bool = False, configured: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
+        return False
+    # A configured room is never accepted as, or hidden behind, a legacy scene.
+    if configured != (report.get('ConfiguredDomain') is not None):
+        return False
+    if configured and (restored or saved or heat or transfers or actors or carbon or conduction or gravity or checkpoint or paired
+                       or mixed_phase or initial_inventory or live_breathing or natural_autosave or persistent_actors):
         return False
     solid=report.get('NativeSolidHeat',{})
     if not isinstance(solid,dict):return False
@@ -1131,6 +1215,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                          physical["LiquidMassKg"] == 1100 and abs(physical["PressurePa"] - 2.2e8) < 1 if liquid else
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
+    if configured:
+        physics_exercised = _configured_domain_passed(report, physical, liquid)
     if restored:
         # Exact complete-state replay and the saved-clock checks above cover
         # valid equilibrium restarts as well as moving mixtures.
@@ -1163,7 +1249,7 @@ def main() -> int:
     parser.add_argument("--domain", type=Path, required=True)
     parser.add_argument("--observation", type=Path, required=True)
     parser.add_argument("--frames", type=int, required=True)
-    parser.add_argument("--mode", choices=("solid-heat", "mixed", "mixed-heat", "viscous", "radius", "rectangular", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
+    parser.add_argument("--mode", choices=("configured", "configured-water", "solid-heat", "mixed", "mixed-heat", "viscous", "radius", "rectangular", "import", "water-import", "gas", "water", "water-transfer", "water-actor", "water-heat", "heat", "transfer", "actor", "carbon", "carbon-particle", "breathing-read", "pressure-read", "water-pressure-read", "conduction", "gravity", "water-gravity", "checkpoint", "pair", "save", "load"), required=True)
     parser.add_argument("--saved", action="store_true", help="Require an ordinarily admitted colony save as well as the selected scene")
     parser.add_argument("--natural-autosave",action="store_true",help="Require an actual day-rollover save and exact continuation")
     parser.add_argument("--persistent-actors",action="store_true",help="Require live saved actors and actual component/callback evidence")
@@ -1183,7 +1269,7 @@ def main() -> int:
     try:
         report = json.loads(args.domain.read_text(encoding="utf-8-sig"))
         observation = json.loads(args.observation.read_text(encoding="utf-8-sig"))
-        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", rectangular_consumption=args.mode=="rectangular", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor"), liquid_transfers=args.mode == "water-transfer",
+        passed = native_domain_passed(report, observation, args.frames, mixed_phase=args.mode in ("mixed", "mixed-heat", "viscous"), radial_consumption=args.mode=="radius", rectangular_consumption=args.mode=="rectangular", initial_inventory=args.mode in ("import", "water-import"), liquid=args.mode in ("water-pressure-read", "water-import", "water", "water-transfer", "water-actor", "configured-water"), liquid_transfers=args.mode == "water-transfer", configured=args.mode in ("configured", "configured-water"),
             heat=args.mode in ("heat", "mixed-heat"), liquid_heat=args.mode == "water-heat", transfers=args.mode in ("transfer", "radius", "rectangular"), actors=args.mode in ("actor", "water-actor"), liquid_actors=args.mode == "water-actor",
             live_breathing=args.live_breathing,solid_heat=args.mode=="solid-heat",subnormal_carbon_particle=args.subnormal_carbon_particle,transient_particles=args.transient_particles,persistent_actors=args.persistent_actors,natural_autosave=args.natural_autosave, pressure_read=args.mode in ("pressure-read", "water-pressure-read"), breathing_read=args.mode == "breathing-read", carbon_particle=args.mode == "carbon-particle", carbon=args.mode == "carbon", expected_platform=args.platform, conduction=args.mode in ("conduction", "mixed-heat"), gravity=args.mode == "gravity", liquid_gravity=args.mode == "water-gravity", checkpoint=args.mode == "checkpoint", paired=args.mode == "pair", saved=args.mode == "save" or args.saved, restored=args.mode == "load",save_io_recovery=args.save_io_recovery,reload_in_process=args.reload_in_process)
     except (OSError, ValueError, TypeError, KeyError) as error:

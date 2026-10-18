@@ -53,12 +53,14 @@ namespace MixedAtmospheres.Oni
             "native-liquid-actor-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain",
             "native-breathing-read-domain", "native-carbon-particle-domain", "native-carbon-domain", "native-conduction-domain",
             "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain",
-            "native-save-domain", "native-load-domain", "presentation", "tile-hover", "coupled-presentation", "load-rejection"
+            "native-save-domain", "native-load-domain", "presentation", "tile-hover", "coupled-presentation", "load-rejection",
+            "native-configured-domain", "native-configured-water-domain"
         };
         // Scenes whose retained evidence was audited as bounded per frame.
         // Fixture variants keep their short, exact windows; saved-colony replay
         // keeps one journal per frame and single-save evidence, so it is not
-        // admitted until those are streamed.
+        // admitted until those are streamed. Configured rooms have no paired
+        // save adapter yet, so a cycle's natural autosave would be declined.
         internal static readonly string[] LongRunModes =
             { "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain" };
 

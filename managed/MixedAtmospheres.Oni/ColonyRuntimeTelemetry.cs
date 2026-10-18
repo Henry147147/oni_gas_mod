@@ -148,6 +148,21 @@ namespace MixedAtmospheres.Oni
             UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Development telemetry stopped after an error: " + error.Message);
         }
 
+        // A long run has no colony management. Once every duplicant has died,
+        // ONI pauses on its Colony Lost screen and no frame can complete, so
+        // the run ends with that reason instead of waiting for its timeout.
+        private static bool longRunDuplicantsSeen;
+        private static bool LongRunColonyLost()
+        {
+            if (configuration?.LongRun != true) return false;
+            var living = Components.LiveMinionIdentities.Count;
+            if (living > 0) { longRunDuplicantsSeen = true; return false; }
+            if (!longRunDuplicantsSeen) return false;
+            Fail(new InvalidOperationException("All duplicants died at cycle " + (GameClock.Instance?.GetCycle().ToString() ?? "unknown") +
+                "; this long run has no life support and ONI paused on its Colony Lost screen."));
+            return true;
+        }
+
         // Observer forwarding refreshes its report on every Unity frame for
         // short controls. A long run keeps that report at most one second old.
         private static void WriteProgressReport()

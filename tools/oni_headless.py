@@ -71,6 +71,7 @@ TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
 TELEMETRY_STALL_SECONDS = 900
 TELEMETRY_PROGRESS_SECONDS = 300
 TELEMETRY_FINAL_WAIT_SECONDS = 30
+TELEMETRY_CLOCK_CHECK_SECONDS = 30
 TELEMETRY_MAXIMUM_BYTES = 64 << 20
 RUNNER_GRACE_SECONDS, LONG_RUN_GRACE_SECONDS = 60, 600
 
@@ -635,21 +636,37 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
 
 
 class TelemetryWatch:
-    """Host-clock watchdog for a long run's append-only development telemetry."""
+    """Host-clock watchdog for a long run's append-only development telemetry.
+
+    The run stalls when the file stops growing, or when a started game's clock
+    stops advancing: a modal pause still emits zero-time native frames and
+    therefore telemetry lines.
+    """
 
     def __init__(self, path: Path, started: float, stall_seconds: int = TELEMETRY_STALL_SECONDS):
         self.path, self.stall_seconds = path, stall_seconds
         self.size, self.changed = -1, started
+        self.clock, self.clock_changed = None, started
+        self.reason: str | None = None
 
-    def poll(self, now: float) -> bool:
-        """Record growth; return True once the file has not grown for stall_seconds."""
+    def poll(self, now: float, line: dict | None = None) -> bool:
+        """Record growth and, given the latest line, game-clock progress; True once stalled."""
         try:
             size = self.path.stat().st_size
         except OSError:
             size = -1
         if size != self.size:
             self.size, self.changed = size, now
-        return now - self.changed >= self.stall_seconds
+        if line is not None:
+            game = line.get("Game") or {}
+            clock = game.get("TimeSeconds")
+            if game.get("Started") is not True or type(clock) not in (int, float):
+                self.clock, self.clock_changed = None, now
+            elif clock != self.clock:
+                self.clock, self.clock_changed = clock, now
+        self.reason = ("telemetry file stopped growing" if now - self.changed >= self.stall_seconds else
+                       "game clock stopped advancing" if self.clock is not None and now - self.clock_changed >= self.stall_seconds else None)
+        return self.reason is not None
 
 
 def last_telemetry_line(path: Path, limit: int = 1 << 16) -> dict | None:
@@ -682,7 +699,8 @@ def telemetry_progress(line: dict) -> str:
     game, domain, latency, memory = (line.get(key) or {} for key in ("Game", "NativeDomain", "Latency", "Memory"))
     wait = (latency.get("NativeFrameWaitMs") or {}).get("P95")
     return (f"long-run telemetry #{line.get('Sequence')} {line.get('Reason')}: frames={line.get('NativeFramesProcessed')} "
-            f"cycle={game.get('Cycle')} domain_frames={domain.get('ValidationFrames')} state={domain.get('State')} "
+            f"cycle={game.get('Cycle')} paused={game.get('Paused')} duplicants={game.get('Duplicants')} "
+            f"domain_frames={domain.get('ValidationFrames')} state={domain.get('State')} "
             f"wait_p95_ms={wait} rss={memory.get('ResidentBytes')} heap={memory.get('ManagedHeapBytes')}")
 
 
@@ -762,7 +780,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "native-configured-domain", "native-configured-water-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -837,6 +855,7 @@ def playtest(args, state: Path, session: dict) -> int:
             telemetry_file = colony_file.parent / TELEMETRY_FILE
             watch = TelemetryWatch(telemetry_file, time.monotonic()) if long_run else None
             next_progress = time.monotonic() + TELEMETRY_PROGRESS_SECONDS
+            next_clock_check = time.monotonic()
             timed_out = telemetry_stalled = False
             menu_seen = completed_seen = None
             inspection_started = None
@@ -853,12 +872,16 @@ def playtest(args, state: Path, session: dict) -> int:
                         time.sleep(MENU_SETTLE_SECONDS)
                         break
                 if watch is not None:
-                    if watch.poll(time.monotonic()):
+                    line = None
+                    if time.monotonic() >= next_clock_check:
+                        next_clock_check = time.monotonic() + TELEMETRY_CLOCK_CHECK_SECONDS
+                        line = last_telemetry_line(telemetry_file)
+                    if watch.poll(time.monotonic(), line):
                         timed_out = telemetry_stalled = True
                         break
                     if time.monotonic() >= next_progress:
                         next_progress = time.monotonic() + TELEMETRY_PROGRESS_SECONDS
-                        if (line := last_telemetry_line(telemetry_file)) is not None:
+                        if (line := line or last_telemetry_line(telemetry_file)) is not None:
                             print(telemetry_progress(line), flush=True)
                 if (args.keep_open or inspection_seconds) and colony_file.exists():
                     try:
@@ -904,14 +927,15 @@ def playtest(args, state: Path, session: dict) -> int:
                 hover_ok = tile_hover_passed(hover_report, colony_file.parent)
                 if code == 0 and not hover_ok:
                     status, code = "failed-tile-hover-evidence", 2
-            if args.mode in ("native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
+            if args.mode in ("native-configured-domain", "native-configured-water-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain"):
                 try:
                     domain_report = read_json(colony_file.parent / "native-domain.json")
                 except (OSError, json.JSONDecodeError):
                     pass
                 domain_ok = native_domain_passed(domain_report, observer_report, args.frames,
                     mixed_phase=args.mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
-                    initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", solid_heat=args.mode=="native-solid-heat-domain", heat=args.mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=args.mode == "native-liquid-heat-domain",
+                    configured=args.mode in ("native-configured-domain", "native-configured-water-domain"),
+                    initial_inventory=args.mode in ("native-import-domain", "native-liquid-import-domain"), liquid=args.mode in ("native-configured-water-domain", "native-liquid-pressure-read-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-liquid-actor-domain", "native-liquid-heat-domain"), liquid_transfers=args.mode == "native-liquid-transfer-domain", solid_heat=args.mode=="native-solid-heat-domain", heat=args.mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=args.mode == "native-liquid-heat-domain",
                     transfers=args.mode in ("native-transfer-domain", "native-radius-domain", "native-rectangular-domain"), radial_consumption=args.mode == "native-radius-domain", rectangular_consumption=args.mode == "native-rectangular-domain", actors=args.mode in ("native-actor-domain", "native-liquid-actor-domain"), liquid_actors=args.mode == "native-liquid-actor-domain",
                     pressure_read=args.mode in ("native-pressure-read-domain", "native-liquid-pressure-read-domain"), breathing_read=args.mode == "native-breathing-read-domain", carbon_particle=args.mode == "native-carbon-particle-domain", carbon=args.mode == "native-carbon-domain", conduction=args.mode in ("native-conduction-domain", "native-mixed-heat-domain"), gravity=args.mode == "native-gravity-domain", liquid_gravity=args.mode == "native-liquid-gravity-domain", checkpoint=args.mode in ("native-checkpoint-domain", "native-paired-checkpoint-domain"), paired=args.mode == "native-paired-checkpoint-domain",
                     persistent_actors=getattr(args,"verify_persistent_actors",False) is True,
@@ -950,6 +974,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
                 "tile_hover": hover_report, "tile_hover_passed": hover_ok,
                 "long_run": long_run, "telemetry_stalled": telemetry_stalled,
+                "telemetry_stall_reason": watch.reason if watch is not None else None,
                 "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
@@ -984,7 +1009,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-configured-domain", "native-configured-water-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
                       help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")
     play.add_argument("--timeout", type=int, metavar="30..7200 (30..172800 with --long-run)",
@@ -1044,6 +1069,8 @@ def main() -> int:
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not args.mode.startswith("native-") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
+    if args.command == "run" and args.save_colony and args.mode.startswith("native-configured-"):
+        parser.error("Configured rooms have no paired colony save adapter yet; --save-colony is unavailable")
     if args.command == "run" and (bool(args.load_save) != (args.mode == "native-load-domain") or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)

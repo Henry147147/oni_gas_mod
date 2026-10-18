@@ -3,8 +3,11 @@
 This is the first native slice of [gate 1](playtesting-readiness.md), colony
 fluid ownership. An additive ABI lets the sealed native owner take explicit
 physics, interior solids and larger rectangles. Scenarios 0–6, their
-checkpoint bytes and every existing entry point are unchanged. No managed
-adapter or Unity scene uses this ABI yet; nothing here is verified in game.
+checkpoint bytes and every existing entry point are unchanged. A managed
+adapter and two small Unity scenes (a 7x5 room with interior solids, gas or
+water) now use it and pass on native Linux; see
+[the managed adapter](#managed-adapter-and-unity-scenes). They remain bounded
+development rooms, not colony ownership.
 
 ## ABI
 
@@ -211,9 +214,101 @@ The sanitizer build did not link `ma_mac_equilibrium_tests` on unmodified
 `HEAD`: that target was missing from the instrumented list. `CMakeLists.txt`
 now instruments it and `ma_mac_playtest_benchmark`.
 
+## Managed adapter and Unity scenes
+
+`OniNativeDomain.cs` declares the 40-byte `Physics` record, the flags, size
+limits and the five configured entry points. `ConfiguredDomainLayout.cs` is the
+engine-free room: mask admission, the complete inventory with all-zero solid
+records and the all-zero copy check. Managed tests check the layout; a Python
+test compares the constants and entry points with this header.
+
+Two development scenes reuse the sealed-scene builder
+(`NativeSealedDomainValidation.cs`) in one 7x5 room
+(`ConfiguredDomainLayout.PillaredRoom`): a three-cell Unobtanium pillar on the
+floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
+
+| Mode | Physics | Fluid |
+| --- | --- | --- |
+| `native-configured-domain` | `GRAVITY\|CONDUCTION`, g = 9.81 | oxygen, 0.6–2.4 kg per column, 280–310 K |
+| `native-configured-water-domain` | `LIQUID\|GRAVITY\|CONDUCTION`, g = 9.81 | filled water, 1000–1120 kg, 280–310 K |
+
+- **Placement.** The arena keeps every active positioned prefab at least four
+  cells, and every `Brain` (critter, duplicant) eight cells, away. Burrowed
+  critters and entombed items are not always in `Grid.Objects` and otherwise
+  fall in when their rock is replaced.
+- **Solids.** Interior solids are built and verified exactly like the border,
+  before activation and on every frame: solid Unobtanium with zero
+  conductivity and heat capacity, no unstable tag, its own high-temperature
+  target far above its temperature, no objects. They are native data: no flow
+  fence, projection write, owned-copy overlay or physical reading;
+  `OwnsPublicCell` excludes them, so pressure, breathing, hover, heat and
+  transfer paths stay native, and known native mutations aimed at them stop
+  the scene like the border. Their native tuples stay in the unchanged-cell
+  check; the GPU check compares mixture texels for fluid cells only.
+- **Activation.** After a completed native frame, the fluid cells' native
+  mass, temperature and element form the complete inventory (solids all
+  zero). `ma_oni_domain_start_configured` admits it; the copy must match with
+  solids all zero and status from the first fluid cell, and
+  `ma_oni_domain_configuration_copy` must return the exact geometry, physics
+  bits and mask. Only then are the fluid cells fenced and projected.
+- **Completion.** Besides the existing frame, conservation, projection,
+  rendering, save-guard and suppression checks: the configuration copy again,
+  all-zero solid copies, readings for fluid cells only, unchanged unowned
+  solids, conduction (stages twice the substeps, contacts, redistributed
+  energy, positive entropy), gravity (negative body impulse, changed
+  potential), fluid motion and no viscosity work.
+
+The runner and `oni_native_domain_evidence.py --mode configured` /
+`configured-water` require the `ConfiguredDomain` block, copied configuration,
+inventory, interior-solid evidence and thermal and gravity statuses. A
+configured report never passes as a legacy scene, nor the reverse. Configured
+rooms reject `--save-colony`/`SaveOnComplete` and `--long-run`: the paired save
+payload and restore adapter admit only scenarios 0–6 and the 3x2 room, so an
+autosave would be declined. `tools/configure_visual_demo.py --scene pillared`
+(or `pillared-water`) prepares the same room for manual viewing.
+
+### Linux game evidence
+
+Both scenes pass on native Linux (Steam build 744825, Mesa llvmpipe, private
+display) with native libraries from the Ubuntu 22.04 compatibility build of
+`21c8a7c` (22/22 native tests, glibc at most 2.34) and the managed adapter
+packaged as `artifacts/configured-probe-linux-v3`:
+
+```sh
+python3 tools/build_linux_compat.py --output build-agent-linux-compat --jobs 8
+python3 tools/package_probe.py --native build-agent-linux-compat/native/libmixed_atmospheres.so \
+  --native-observer build-agent-linux-compat/native/libmixed_atmospheres_oni.so \
+  --native-build-info build-agent-linux-compat/compatibility-build.json --output artifacts/configured-probe-linux-v3
+python3 tools/oni_headless.py run --game-dir <Steam ONI> --package artifacts/configured-probe-linux-v3 \
+  --mode native-configured-domain --frames 120 --timeout 3600 --private-display
+```
+
+| | Gas (`configured-gas-linux-v3`) | Water (`configured-water-linux-v1`) |
+| --- | --- | --- |
+| Frames after priming | 120 (24.4 s physical) | 120 (24.4 s) |
+| Substeps / rejected attempts | 2,573 / 18 | 2,562 / 0 |
+| Max relative mass / energy error | 2.9e-16 / 3.8e-15 | 9.0e-16 / 4.0e-15 |
+| Conduction redistributed / entropy | 15.74 J / +1.7e-3 J/K | 99.36 J / +6.6e-3 J/K |
+| Gravity potential | 1,138.7 → 1,152.0 J | 818,494 → 825,640 J |
+| Wall time per 0.2 s frame | about 0.34 s | about 0.66 s |
+
+Run directories are under `<state>/runs/`. Every `ConfiguredDomain` check is
+true, all 35 rectangle cells keep their native tuples where native, no mod
+failure lines appear, and the standalone checker accepts both reports (the gas
+report fails as a legacy `gas` scene). The captures show the Neutronium pillar
+and ledge inside the sealed walls, 31 fluid readings in the status panel and
+the stock Neutronium tooltip over the pillar. The four solids' stock gas texels
+are transparent zero. Suppressed pressure and gas counters stay zero, as in the
+legacy fenced scenes. Wall times include software Unity rendering; they are not
+a production timestep or performance result.
+
 ## Open work
 
-- A managed adapter, Unity scenes, colony saves and reloads for this ABI.
+- Colony saves, autosaves and reloads for configured rooms: the paired save
+  payload and the restore adapter still admit only scenarios 0–6 and the 3x2
+  room. Long runs of configured rooms wait for this.
+- Windows Unity runs of the configured scenes, and occupied rooms (actors,
+  breathing, transfers) with interior solids.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
 - Vacuum, free surfaces, passive data and disease; vacuum is separate solver work.

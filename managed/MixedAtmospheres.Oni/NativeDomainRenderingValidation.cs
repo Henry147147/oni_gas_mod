@@ -23,7 +23,7 @@ namespace MixedAtmospheres.Oni
                 var global = Grid.XYToCell(x + index % Width, y + index / Width);
                 return new
                 {
-                    Cell = global, PublishedProperties = snapshot->properties[global],
+                    Cell = global, Solid = IsDomainSolid(index), PublishedProperties = snapshot->properties[global],
                     LiquidTexture = Pixel(snapshot->propertyTextureLiquid, global),
                     LiquidDataTexture = Pixel(snapshot->propertyTextureLiquidData, global),
                     MaterialDataTexture = Pixel(snapshot->propertyTextureMaterialData, global),

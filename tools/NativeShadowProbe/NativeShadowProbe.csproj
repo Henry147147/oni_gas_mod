@@ -13,6 +13,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonySaveEnvelope.cs" Link="ColonySaveEnvelope.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeDomainCheckpointPayload.cs" Link="NativeDomainCheckpointPayload.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeTransientParticleImage.cs" Link="NativeTransientParticleImage.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/NativeBinary32.cs" Link="NativeBinary32.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/NativeActorCheckpointImage.cs" Link="NativeActorCheckpointImage.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeObserver.cs" Link="OniNativeObserver.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeDomain.cs" Link="OniNativeDomain.cs" />
