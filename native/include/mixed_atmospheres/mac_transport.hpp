@@ -15,7 +15,8 @@ enum class MacMomentumReconstruction { donor_cell = 0, limited_linear = 1, quadr
     swept_physical = 3, swept_energy_flux = 4, swept_nodal_1d = 5 };
 // Closed rectangular MAC transport component. Periodicity is explicit; solids
 // and exterior boundaries are impermeable. No pressure, body force or timestep
-// selection is performed here. Every fluid cell must remain occupied.
+// selection is performed here. Exact vacuum has zero inventory and zero
+// momentum on massless faces. Resolved occupied-volume interfaces remain open.
 struct MacGrid {
     std::size_t width = 1, height = 1;
     double spacing_m = 1, depth_m = 1;

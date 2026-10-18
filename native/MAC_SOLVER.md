@@ -7,7 +7,9 @@ SimDLL must not be used as the solver. The ONI native domain
 `native/include/mixed_atmospheres/mac_*.hpp` and `native/src/mac_*.cpp`, in namespace
 `ma::experimental` (the name predates the decision).
 
-The solver works on a closed, fully occupied, regular two-dimensional MAC grid.
+The solver works on a closed regular two-dimensional MAC grid. Exact empty-cell
+inventory and gas arrival are supported, but the [vacuum front](MAC_VACUUM.md)
+still lacks occupied-volume tracking and fails its accuracy gate.
 Primary state is each cell's constituent masses, stored internal energy U and passive
 quantities, plus the canonical normal momentum J on every face. Every derived quantity
 (velocity, kinetic energy K, pressure, temperature) is computed from those; nothing
@@ -25,6 +27,7 @@ Topic documents:
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
+| [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
 
 Separate documents cover [physical viscosity](../docs/native-domain-physics.md#physical-viscosity),
 [gas/liquid conduction](../docs/native-domain-physics.md#mixed-cell-conduction),

@@ -25,7 +25,7 @@ MacNativeHeatExchange exchange_mac_native_heat(const MacClosedWorld& source,std:
     const double capacity=body.heat_capacity_kj_per_k*1000;
     if (!std::isfinite(capacity)) throw std::overflow_error("Native body heat capacity exceeds its joule range");
     const double duration_conductance=seconds*conductance;
-    if (capacity==0 || duration_conductance==0 || body.temperature_k==initial.temperature_k) return result;
+    if (capacity==0 || duration_conductance==0 || mixture.mass()==0 || body.temperature_k==initial.temperature_k) return result;
     if (!std::isfinite(duration_conductance)) throw std::overflow_error("Native heat interval/conductance exceeds its range");
     const double direction=body.temperature_k>initial.temperature_k ? 1 : -1;
     const auto temperature=[&](double magnitude) {

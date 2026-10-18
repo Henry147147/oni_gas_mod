@@ -476,3 +476,60 @@ but worsen core accuracy, so neither enters the solver; see the
 General two-dimensional conversion, vacuum, free surfaces and the full performance
 and colony gates remain open. Captures, paired builds, source/library hashes,
 platform reviews and private probes are under `local/remap-preparation/`.
+
+## Exact empty-cell inventory and pressure boundaries
+
+The standalone MAC owner now admits zero-inventory cells. Empty cells supply
+swept geometry and zero boundary traction, without a pressure unknown, artificial
+mass or inertia. Gas arrival uses the existing conservative primal/dual transfers.
+Empty-volume parcels carry zero inventory, including when empty space moves into
+material. Velocity reconstruction excludes massless source faces and cannot leave
+momentum on depleted endpoints. Conduction, compression, shock heat, viscosity and
+body heat handle empty cells without evaluating a temperature/capacity ratio there.
+Internal liquid voids and free surfaces remain unsupported.
+
+Twelve bounded two-step controls cover both axes/directions, defaults, swept/coupled
+pressure and enabled conduction/viscosity/gravity. They verify positive bulk and
+trace gas arrival, exact remaining vacuum, actual U+K+G and impulse accounts, source
+immutability and byte-exact saved continuation. Six further transport controls
+exercise complete depletion, including all three physical momentum modes and
+nonuniform linear/quadratic reconstruction near massless endpoints. Closing a
+one-cell empty gap retries twice and completes; an exhausted attempt budget
+publishes no partial state. Entire-vacuum advancement, zero body heat and malformed
+massless inventories/momentum are also checked.
+
+The saved-only reader checks 18,285 assertions over the captured endpoint pairs,
+using exact fractions and 100-digit EOS/entropy. It rejects five corrupted inputs.
+The native-only depletion/identity/rollback controls are reported separately.
+Checkpoint format and numerical selectors are unchanged; the production-default
+continuation retains SHA256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+
+**The vacuum-front gate remains false.** The tracked front diagnostic uses the
+original ideal-gas/vacuum problem, time and Courant number. At N32 positive tails
+reach all 8 m before 0.8t; the final front error is 3.4902539095 m and recent speed
+zero against 5.0194921810 c0. A separate saved reader reconstructs the actual
+strictly positive support and the analytic front, rejecting five ways of hiding
+this failure. Occupied-volume/interface tracking remains necessary.
+
+N64/N128 stop on the existing compressive entropy guard. A captured N64 trial loses
+1.1414615997e-17 m3 when adding its volume change. Independent actual-state entropy
+is -4.9916788264e-80 J/K against the unchanged 2.9255213546e-80 J/K allowance. The
+guard is correct; retained volume/energy remainders are needed rather than a larger
+entropy budget. [Details and reproduction](../native/MAC_VACUUM.md) describe the
+scope and failures. Captures, source hashes and platform reviews are under
+`local/mac-vacuum/`. Normal colony activation, point transfers into empty cells,
+whole-colony persistence and all release gates remain open.
+
+Final Linux Release CTest passes 30/30. All 46 MAC components were rebuilt: 45 pass,
+with the original strong-flow failure unchanged. Every one of the 45 prior output
+streams is byte-identical, including the updated malformed-domain controls' output.
+Five executables pass fatal ASan/UBSan with leak detection and five static MinGW
+Windows-target executables pass under Wine. The new saved-inventory review passes
+on Linux, sanitizer and Wine captures. These are not actual Windows OS or Unity
+runs, and no active-colony performance gate passes.
+
+The concurrently added [scaling analysis](solver-scaling-analysis.md) also records
+the large-grid exact-sum capacity failure and the remaining kernel cost. This
+empty-cell work changes none of the per-stage conservation, range or volume
+contracts. It does not resolve that scaling failure or establish a real-time path.

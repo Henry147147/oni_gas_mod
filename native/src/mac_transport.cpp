@@ -86,8 +86,9 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
         validate_passive_quantities(cell.passive_quantities);
         const auto mass = cell.mixture.mass();
         if (g.walls[i]) require(mass == 0 && cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC solid contains fluid");
+        else if (mass == 0)
+            require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC vacuum contains energy or passive inventory");
         else {
-            if (!(mass > 0)) throw FluidFatalError(FluidFatalCode::unsupported_topology, "MAC transport requires occupied fluid cells");
             for (std::size_t s = 0; s < registry.size(); ++s)
                 require(cell.mixture.masses[s] == 0 || registry[s].phase != Phase::solid, "MAC transport cannot move solids");
             if (model && evaluate_eos) {
@@ -110,7 +111,8 @@ std::vector<double> inertias(const std::vector<Neighbors>& faces, const std::vec
     std::vector<double> result; result.reserve(faces.size());
     for (const auto& face : faces) {
         const double left = face.left == absent ? 0 : .5 * m[face.left], right = face.right == absent ? 0 : .5 * m[face.right];
-        if ((face.left != absent && left == 0) || (face.right != absent && right == 0)) precision("Positive MAC half mass is unrepresentable");
+        if ((face.left != absent && m[face.left] > 0 && left == 0) ||
+            (face.right != absent && m[face.right] > 0 && right == 0)) precision("Positive MAC half mass is unrepresentable");
         const double value = left + right; require_finite(value, "MAC face inertia"); result.push_back(value);
     }
     return result;
@@ -214,7 +216,7 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
     MacMomentumReconstruction reconstruction) {
     const auto count = faces.size(), width = x_component ? grid.x_width() : grid.width,
         height = x_component ? grid.height : grid.y_height();
-    const auto is_free = [&](std::size_t i) { return i != absent && faces[i].left != absent && faces[i].right != absent; };
+    const auto is_free = [&](std::size_t i) { return i != absent && faces[i].left != absent && faces[i].right != absent && report.old_inertia[i] > 0; };
     const auto neighbor = [&](std::size_t i, std::size_t axis, bool positive) {
         const auto x = i % width, y = i / width;
         const auto coordinate = axis == 0 ? x : y, length = axis == 0 ? width : height;
@@ -258,6 +260,8 @@ void reconstruct_momentum(const MacGrid& grid, bool x_component, const std::vect
     for (std::size_t k = 0; k < report.fluxes.size(); ++k) {
         const auto& edge = report.fluxes[k]; const auto flux = mac_dual_mass(edge);
         if (flux.is_zero() || !is_free(edge.left) || !is_free(edge.right)) continue;
+        // A depleted endpoint has no kinetic degree of freedom to correct.
+        if (report.new_inertia[edge.left] == 0 || report.new_inertia[edge.right] == 0) continue;
         const auto axis = axis_of(edge), donor = flux.mantissa() > 0 ? edge.left : edge.right,
             target = flux.mantissa() > 0 ? edge.right : edge.left;
         const auto slope = axis == 0 ? report.velocity_slope_x[donor] : report.velocity_slope_y[donor];
@@ -401,7 +405,11 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
         model.validate_inventory(cell.mixture); validate_passive_quantities(cell.passive_quantities);
         require(std::isfinite(volume) && volume >= 0, "Invalid MAC parcel volume");
         if (volume == 0) { require(cell.mixture.mass() == 0 && cell.mixture.energy == 0 && cell.passive_quantities.empty(), "Zero-volume MAC parcel is not empty"); return; }
-        require(cell.mixture.mass() > 0 && scale_volume > 0, "MAC parcel has no occupied inventory");
+        if (cell.mixture.mass() == 0) {
+            require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC vacuum parcel contains energy or passive inventory");
+            return;
+        }
+        require(scale_volume > 0, "MAC parcel has no reference volume");
         auto normalized = cell.mixture;
         for (auto& value : normalized.masses) value = share(value, scale_volume, volume);
         normalized.energy = share(normalized.energy, scale_volume, volume);
@@ -747,8 +755,8 @@ void transport_candidate(const SpeciesRegistry& registry, const MacTransportStat
             const auto& a = prepared.source_thermal[i];
             const auto& b = completed_thermal[i];
             entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
-            allowance.add(MacEnergy::from_double(std::abs(source.cells[i].mixture.energy)).shared(1, a.temperature_k).shifted(-45));
-            allowance.add(MacEnergy::from_double(std::abs(result.state.cells[i].mixture.energy)).shared(1, b.temperature_k).shifted(-45));
+            if (m0[i] > 0) allowance.add(MacEnergy::from_double(std::abs(source.cells[i].mixture.energy)).shared(1, a.temperature_k).shifted(-45));
+            if (m1[i] > 0) allowance.add(MacEnergy::from_double(std::abs(result.state.cells[i].mixture.energy)).shared(1, b.temperature_k).shifted(-45));
         }
         report.entropy_change_j_per_k = entropy.value(); report.entropy_allowance_j_per_k = allowance.value();
         for (std::size_t k = 0; k < allowance.size(); ++k) entropy.add(allowance.component(k));

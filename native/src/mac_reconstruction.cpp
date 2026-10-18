@@ -118,7 +118,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
     for (std::size_t i = 0; i < count; ++i) {
         require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0), "Invalid reconstruction material volume");
         sparse_count += source.cells[i].passive_quantities.size(); require(sparse_count <= 16000000, "MAC reconstruction passive capacity exceeded");
-        if (!g.walls[i]) {
+        if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
             const auto eos = model.evaluate(source.cells[i].mixture, volumes[i]);
             if (eos.vacuum_volume_m3 > 32 * eps * volumes[i]) throw std::domain_error("MAC reconstruction source contains internal void");
             positive_energy[i] = eos.thermal_energy_j + eos.elastic_energy_j; require_finite(positive_energy[i], "MAC positive reconstruction energy");
@@ -283,6 +283,10 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         };
         const auto admitted = [&](const MacMaterialCell& cell, double volume) {
             model.validate_inventory(cell.mixture); validate_passive_quantities(cell.passive_quantities);
+            if (cell.mixture.mass() == 0) {
+                require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "Reconstructed vacuum contains energy or passive inventory");
+                return;
+            }
             const auto eos = model.evaluate(cell.mixture, volume);
             if (eos.vacuum_volume_m3 > 32 * eps * volume) throw std::domain_error("Reconstructed MAC state has internal void");
         };

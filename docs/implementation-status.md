@@ -140,7 +140,7 @@ verification are in [timestep progress](production-timestep-progress.md#prepared
 | --- | --- |
 | [Strong-flow Riemann gate](../native/MAC_STRONG_FLOW.md) | Sod and collision pass with [compressive work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3). **Separation fails** the finest-grid velocity bound and the central density/pressure bounds |
 | [Curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) | Localizes a pressure/remap source-velocity convention mismatch. Opt-in selector 5 passes the interior 1-D oracle with original J/K; general 2-D conversion and strong-flow acceptance remain open |
-| [Gas/vacuum front](../native/GAS_VACUUM.md) | **Fails** in the separate `FluidWorld` experiment; the MAC owner and in-game domain reject empty cells |
+| [Gas/vacuum front](../native/GAS_VACUUM.md) | **Fails**. Standalone MAC [empty-cell support](../native/MAC_VACUUM.md) admits conservative gas arrival and complete zero-inventory checkpoints; its front remains wrong without occupied-volume tracking. The in-game domain still rejects empty cells |
 | Shocks, free surfaces, phase interfaces, phase transitions | Not implemented in the owner |
 
 Separate references, excluded from game dispatch: the gas-only `GasWorld`

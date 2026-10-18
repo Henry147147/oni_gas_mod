@@ -6,6 +6,11 @@ retained material-node state. Neither is used by ONI, `GasWorld`, the C ABI or
 `MacClosedWorld`. No shock, cavitation, 2-D or performance result follows from
 them.
 
+The MAC owner now has separate [empty-cell inventory support](MAC_VACUUM.md).
+Its cell-average front diagnostic also fails: positive tails fill the N32 domain,
+and finer cases stop on a verified stored-volume entropy violation. It does not
+replace or pass this gate.
+
 ## Problem
 
 - Domain [0,8] m, cross-section 1 m2, rigid left wall. Gas initially fills

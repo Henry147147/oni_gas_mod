@@ -197,7 +197,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
         result.report.frozen_conductance_capacity_j_per_k.resize(source.cells.size());
     }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
-    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         current_index[i]=current.size();current.push_back(model.evaluate(source.cells[i].mixture,g.volume_m3()));
         initial.emplace_back(current.back());
         result.report.frozen_capacity_j_per_k[i] = current.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
@@ -216,7 +216,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             static_cast<void>(MacEnergy::kinetic(m[f], j[f]).project());
             if (m[f] > 0) velocity[f] = j[f].shared(1, m[f]);
         }
-        for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+        for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
             const auto x = i % g.width, y = i / g.width;
             const auto l = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
@@ -238,6 +238,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             if (l != none && g.walls[l]) l = none;
             if (r != none && g.walls[r]) r = none;
             if (l == none || r == none) { require(j[f].is_zero(), "Fixed shock-heat face has normal momentum"); continue; }
+            if (current_index[l] == none || current_index[r] == none) continue;
             if (l == r) continue;
             const auto w = mac_scaled_difference(closing[l], closing[r]).mantissa() >= 0 ? closing[l] : closing[r];
             auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
@@ -276,7 +277,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
         result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair), link.diffusion});
     }
     MacEnergyAccount balance; std::vector<EntropyReading> final; std::vector<EntropyCell> entropy_cells;
-    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         balance.add(result.state.cells[i].mixture.energy); balance.add(-source.cells[i].mixture.energy);
         final.emplace_back(current[current_index[i]]);++result.report.reused_endpoint_eos_readings;
         entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, g.volume_m3()});

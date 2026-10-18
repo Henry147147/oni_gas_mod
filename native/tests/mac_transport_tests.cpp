@@ -142,7 +142,12 @@ void rejected_controls() {
         if (control == 0) flux.x = {2, 2};
         if (control == 1) flux.y.pop_back();
         if (control == 2) bad.momentum_y[0] = 1;
-        if (control == 3) { std::fill(bad.cells[1].mixture.masses.begin(), bad.cells[1].mixture.masses.end(), 0); bad.cells[1].mixture.energy = 0; bad.cells[1].passive_quantities.clear(); }
+        if (control == 3) {
+            std::fill(bad.cells[1].mixture.masses.begin(), bad.cells[1].mixture.masses.end(), 0);
+            bad.cells[1].mixture.energy = 0; bad.cells[1].passive_quantities.clear();
+            // A zero-flux empty cell is valid. It cannot export positive mass.
+            flux.x[0] = .125;
+        }
         const auto before = fingerprint(bad); bool caught = false;
         try { static_cast<void>(advance_mac_transport(registry(), bad, flux)); } catch (const std::exception&) { caught = true; }
         check(caught && fingerprint(bad) == before && fingerprint(state) == held, "Invalid/CFL transport changed caller state");

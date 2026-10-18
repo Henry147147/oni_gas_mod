@@ -46,8 +46,21 @@ MacMaterialCell mac_parcel_contents_at(const MacPrimalParcel& parcel, double vol
     return result;
 }
 MacScaled mac_parcel_mass_scaled(const MacPrimalParcel& parcel) {
+    const auto volume = mac_parcel_volume(parcel);
+    if (parcel.reference_volume_m3 == 0 && !parcel.full_volume_m3.is_zero())
+        throw std::invalid_argument("Full MAC parcel needs a normalized prototype");
+    const auto reference = MacScaled::from_double(parcel.reference_volume_m3);
     MacScaledSum total;
-    for (const auto mass : parcel.contents.mixture.masses) total.add(mac_parcel_quantity(parcel, mass));
+    for (const auto mass : parcel.contents.mixture.masses) {
+        if (!std::isfinite(mass) || mass < 0) throw std::invalid_argument("Invalid MAC parcel constituent mass");
+        const auto value = MacScaled::from_double(mass);
+        total.add(parcel.reference_volume_m3 == 0 ? value : value.shared(volume, reference));
+    }
+    if (total.sign() == 0) {
+        if (parcel.contents.mixture.energy != 0 || !parcel.contents.passive_quantities.empty())
+            throw std::invalid_argument("MAC vacuum parcel contains energy or passive inventory");
+        return {};
+    }
     const auto result = mac_scaled_primary(total);
     if (!(result.mantissa() > 0)) precision("Positive MAC parcel bulk mass is unrepresentable");
     return result;

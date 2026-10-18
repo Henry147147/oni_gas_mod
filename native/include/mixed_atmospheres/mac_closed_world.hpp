@@ -47,7 +47,8 @@ struct MacClosedSubstep {
     MacMassFluxes volume_fluxes_m3, mass_fluxes_kg;
     MacTransportReport transport;
     std::optional<MacParcelPlan> reconstruction;
-    // Pressure cells are compacted in ascending grid-cell order. The two face
+    // Occupied pressure cells are compacted in ascending grid-cell order;
+    // exact vacuum has no pressure unknown. The two face
     // arrays contain the corresponding compact pressure-node index, or max().
     std::vector<std::size_t> active_cells, pressure_nodes_x, pressure_nodes_y;
     std::vector<double> material_volumes_m3, geometric_residuals_m3;
@@ -83,7 +84,8 @@ struct MacClosedSubstep {
     std::size_t unresolved_compressive_work_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
 };
-// Closed, occupied regular-grid Lagrange/projection split. Work pressure acts
+// Closed regular-grid Lagrange/projection split. Exact empty cells contribute
+// geometry and zero traction, without a pressure unknown. Work pressure acts
 // directly on canonical face J; the same midpoint sweeps define material
 // volume and reconstructed material parcels for compatible transport. Gravity work
 // is reconciled with actual potential-energy mass flux, with a signed internal

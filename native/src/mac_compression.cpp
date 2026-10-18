@@ -123,7 +123,7 @@ MacCompressionCoefficients freeze_mac_compression_coefficients(const SpeciesRegi
     if (law != MacCompressionLaw::quadratic) {
         result.source_linear_speeds.resize(source.cells.size());
         if (law == MacCompressionLaw::pressure_sensed_acoustic) result.source_pressures_pa.resize(source.cells.size());
-        for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+        for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
             const auto& mixture = source.cells[i].mixture;
             const auto anchor = model.reference().make_isentrope(model.to_reference(mixture, g.volume_m3()));
             const auto compliance = model.compression_compliance(anchor);
@@ -189,7 +189,7 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     for (int axis = 0; axis < 2; ++axis) for (std::size_t sweep = 0; sweep < 2; ++sweep)
         for (std::size_t n = 0; n < source.cells.size(); ++n) {
             const auto cell = sweep == 0 ? n : source.cells.size() - 1 - n;
-            if (g.walls[cell]) continue;
+            if (g.walls[cell] || source.cells[cell].mixture.mass() == 0) continue;
             const auto x = cell % g.width, y = cell / g.width;
             const auto l = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
@@ -210,7 +210,7 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     store_mac_field(result.state.momentum_x, result.state.full_momentum_x, jx);
     store_mac_field(result.state.momentum_y, result.state.full_momentum_y, jy);
     MacEnergyAccount balance; MacEnergySum entropy, entropy_bound;
-    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
+    for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         const auto& old = source.cells[i].mixture; const auto& next = result.state.cells[i].mixture;
         balance.add(next.energy); balance.add(-old.energy);
         const auto a = model.evaluate(old, g.volume_m3()), b = model.evaluate(next, g.volume_m3());

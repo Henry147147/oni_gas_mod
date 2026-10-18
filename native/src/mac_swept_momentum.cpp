@@ -52,7 +52,7 @@ MacNodalConversion convert_mac_nodal_momentum_1d(const MacGrid& g, bool x_compon
     };
     MacNodalConversion result;result.momentum.assign(original.begin(),original.end());result.work.resize(original.size());
     std::vector<MacScaledSum> corrections(original.size());
-    for (std::size_t i=0;i<cell_mass.size();++i) if (!g.walls[i]) {
+    for (std::size_t i=0;i<cell_mass.size();++i) if (!g.walls[i] && cell_mass[i]>0) {
         const auto x=i%g.width,y=i/g.width;
         const auto left=x_component ? g.x_face(x,y) : g.y_face(x,y);
         const auto right=x_component ? g.x_face((x+1)%g.x_width(),y) : g.y_face(x,(y+1)%g.y_height());
@@ -105,7 +105,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
          reconstruction!=MacMomentumReconstruction::swept_nodal_1d))
         throw std::invalid_argument("Invalid swept MAC momentum geometry or correction fraction");
     const auto free = [&](std::size_t i) {
-        if (i == none) return false;
+        if (i == none || report.old_inertia[i] == 0) return false;
         const auto x = i % width, y = i / width;
         if (x_component) return (x > 0 || g.periodic_x) && x < g.width &&
             !g.walls[(x + g.width - 1) % g.width + y * g.width] && !g.walls[x + y * g.width];
@@ -228,6 +228,7 @@ void reconstruct_mac_swept_momentum(const MacGrid& g, bool x_component,
     for (std::size_t k = 0; k < report.fluxes.size(); ++k) {
         const auto& edge=report.fluxes[k]; const auto flux=mac_dual_mass(edge); const auto axis=axis_of(edge);
         if (flux.is_zero() || !free(edge.left) || !free(edge.right)) continue;
+        if (report.new_inertia[edge.left] == 0 || report.new_inertia[edge.right] == 0) continue;
         const auto donor=flux.mantissa()>0 ? edge.left : edge.right;
         const auto target=flux.mantissa()>0 ? edge.right : edge.left;
         if (unresolved[donor]) { ++report.unresolved_momentum_corrections; continue; }

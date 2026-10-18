@@ -113,7 +113,7 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
     MacScaledSum div_weight;div_weight.add(shear_weight.shared(1,3));
     div_weight.add(MacScaled::from_double(coefficients.bulk_pa_s).multiplied(g.volume_m3()));
     std::vector<Stencil> stencils;
-    for (std::size_t cell=0;cell<source.cells.size();++cell) if (!g.walls[cell]) {
+    for (std::size_t cell=0;cell<source.cells.size();++cell) if (!g.walls[cell] && source.cells[cell].mixture.mass() > 0) {
         const auto x=cell%g.width,y=cell/g.width;
         for (std::size_t kind=0;kind<2;++kind) {
             Stencil s;s.kind=kind;s.location=cell;s.cells={cell};s.weight=kind==0 ? shear_weight : div_weight.value();
@@ -128,7 +128,7 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
         for (std::size_t x=g.periodic_x ? 0 : 1;x<g.width;++x) {
             const auto left=(x+g.width-1)%g.width,bottom=(y+g.height-1)%g.height;
             std::vector<std::size_t> cells={left+bottom*g.width,x+bottom*g.width,left+y*g.width,x+y*g.width};
-            if (std::any_of(cells.begin(),cells.end(),[&](auto cell) { return g.walls[cell]!=0; })) continue;
+            if (std::any_of(cells.begin(),cells.end(),[&](auto cell) { return g.walls[cell]!=0 || source.cells[cell].mixture.mass()==0; })) continue;
             Stencil s;s.kind=2;s.location=x+y*g.width;s.weight=shear_weight;s.cells=std::move(cells);
             term(s,0,g.x_face(x,bottom),negative);term(s,0,g.x_face(x,y),gradient);
             term(s,1,g.y_face(left,y),negative);term(s,1,g.y_face(x,y),gradient);

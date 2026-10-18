@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_parcel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -63,8 +64,9 @@ struct Pair { std::size_t left = none, right = none; };
 struct Topology {
     std::vector<std::size_t> active, local;
     std::vector<Pair> x, y;
-    explicit Topology(const MacGrid& g) : local(g.walls.size(), none) {
-        for (std::size_t i = 0; i < g.walls.size(); ++i) if (!g.walls[i]) { local[i] = active.size(); active.push_back(i); }
+    explicit Topology(const MacGrid& g, const MacTransportState* state = nullptr) : local(g.walls.size(), none) {
+        for (std::size_t i = 0; i < g.walls.size(); ++i)
+            if (!g.walls[i] && (!state || state->cells[i].mixture.mass() > 0)) { local[i] = active.size(); active.push_back(i); }
         const auto fluid = [&](std::size_t cell) { return g.walls[cell] ? none : cell; };
         x.resize(g.x_width() * g.height); y.resize(g.width * g.y_height());
         for (std::size_t row = 0; row < g.height; ++row) for (std::size_t col = 0; col < g.x_width(); ++col) {
@@ -181,7 +183,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
     require_mac_energy_environment();
     settings.validate(); require(std::isfinite(dt) && dt > 0 && dt <= settings.maximum_timestep_s, "Invalid MAC closed substep time");
-    const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid; const Topology topology(g);
+    const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid; const Topology topology(g, &source);
     require(settings.gravity_m_per_s2 == 0 || !g.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     const auto jx0 = mac_field_values(source.momentum_x, source.full_momentum_x), jy0 = mac_field_values(source.momentum_y, source.full_momentum_y);
     validate_momentum(topology.x, inertia.x, jx0); validate_momentum(topology.y, inertia.y, jy0);
@@ -259,8 +261,8 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         auto& momentum = axis == 0 ? px : py;
         for (std::size_t f = 0; f < pairs.size(); ++f) if (m[f] > 0) {
             const auto& pair = pairs[f];
-            const double pl = pair.left == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.left]];
-            const double pr = pair.right == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.right]];
+            const double pl = pair.left == none || topology.local[pair.left] == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.left]];
+            const double pr = pair.right == none || topology.local[pair.right] == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.right]];
             const auto gravity_force = axis == 0 ? MacScaled{} : force_product(-m[f], settings.gravity_m_per_s2);
             const auto gravity_impulse = gravity_force.multiplied(dt);
             MacScaled impulse;
@@ -313,6 +315,14 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     }
     store_mac_field(result.pressure_state.momentum_x, result.pressure_state.full_momentum_x, jx1);
     store_mac_field(result.pressure_state.momentum_y, result.pressure_state.full_momentum_y, jy1);
+    // Empty cells contribute geometry, never a pressure unknown or invented
+    // inertia. Their swept empty volume closes the same fixed-grid rezone.
+    for (std::size_t cell = 0; cell < source.cells.size(); ++cell)
+        if (!g.walls[cell] && topology.local[cell] == none) {
+            auto volume = sweeps[cell]; volume.add(g.volume_m3());
+            result.material_volumes_m3[cell] = store_mac_primary(volume, true);
+            if (!(result.material_volumes_m3[cell] > 0)) throw std::domain_error("MAC swept vacuum volume exhausted");
+        }
     result.volume_fluxes_m3 = mac_fluxes(qx, qy); result.mass_fluxes_kg = mac_fluxes(fx, fy);
     const auto wall_reaction = [&](std::size_t axis) {
         MacScaledSum reaction; reaction.add(wall_pressure[axis].value().multiplied(dt).multiplied(area));
@@ -329,7 +339,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         result.full_compressive_volume_changes_m3.resize(source.cells.size());
         result.full_compressive_internal_work_j.resize(source.cells.size());
     }
-    for (auto cell : topology.active) {
+    for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (!g.walls[cell]) {
         MacScaledSum limit; limit.add(MacScaled::from_double(result.material_volumes_m3[cell]).multiplied(settings.maximum_outgoing_volume_fraction));
         for (std::size_t k = 0; k < outgoing[cell].size(); ++k) limit.add(outgoing[cell].component(k).negated());
         if (limit.sign() < 0)
@@ -338,7 +348,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         for (std::size_t k = 0; k < sweeps[cell].size(); ++k) geometry.add(sweeps[cell].component(k).negated());
         if (!geometry.within_bound()) throw std::domain_error("MAC pressure full material-volume closure exceeds its operand bound");
         result.geometric_residuals_m3[cell] = geometry.residual().project().value;
-        if(settings.compression_viscosity==MacCompressionViscosity::coupled_pressure) {
+        if(settings.compression_viscosity==MacCompressionViscosity::coupled_pressure && topology.local[cell] != none) {
             const auto at=topology.local[cell];MacEnergySum requested;
             const double work_pressure=result.pressure.work_pressures_pa[at];
             for(std::size_t k=0;k<sweeps[cell].size();++k)
@@ -419,8 +429,15 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 const auto old_eos = model.evaluate(source.cells[i].mixture, g.volume_m3());
                 const auto next_eos = model.evaluate(cell.mixture, g.volume_m3());
                 entropy.add(next_eos.entropy_j_per_k); entropy.add(-old_eos.entropy_j_per_k);
-                entropy_roundoff.add(128 * eps * (std::abs(source.cells[i].mixture.energy) + std::abs(before) + std::abs(cell.mixture.energy)) /
-                    std::min(old_eos.temperature_k, next_eos.temperature_k));
+                if (source.cells[i].mixture.mass() > 0 && cell.mixture.mass() > 0)
+                    entropy_roundoff.add(128 * eps * (std::abs(source.cells[i].mixture.energy) + std::abs(before) + std::abs(cell.mixture.energy)) /
+                        std::min(old_eos.temperature_k, next_eos.temperature_k));
+                else {
+                    if (source.cells[i].mixture.mass() > 0)
+                        entropy_roundoff.add(128 * eps * std::abs(source.cells[i].mixture.energy) / old_eos.temperature_k);
+                    if (cell.mixture.mass() > 0)
+                        entropy_roundoff.add(128 * eps * (std::abs(before) + std::abs(cell.mixture.energy)) / next_eos.temperature_k);
+                }
             }
         }
         if (!potential.within_bound()) throw std::domain_error("MAC potential-energy mass transport exceeds its operand bound");
@@ -665,7 +682,12 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
         const auto a = thermodynamics_->evaluate(old, state_.grid.volume_m3());
         const auto b = thermodynamics_->evaluate(next, state_.grid.volume_m3());
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
-        entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));
+        if (old.mass() > 0 && next.mass() > 0)
+            entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));
+        else {
+            if (old.mass() > 0) entropy_roundoff.add(128 * eps * std::abs(old.energy) / a.temperature_k);
+            if (next.mass() > 0) entropy_roundoff.add(128 * eps * std::abs(next.energy) / b.temperature_k);
+        }
     }
     result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
     return result;

@@ -38,8 +38,11 @@ Inputs and candidates own their arrays; failure changes no input. Grids are limi
 one million cells. Constituent accumulation has no species-count/product cap.
 Periodicity is explicit and
 needs at least two cells along a periodic axis; solids and the exterior are
-impermeable; every fluid cell must stay occupied. A zero-flux step preserves every
-stored value bit for bit.
+impermeable. Exact vacuum has zero constituent, U and passive inventory; a face
+with zero inertia must have zero momentum. Gas can enter an empty cell without
+seed mass. The cell-average path still lacks resolved occupied-volume geometry
+and **fails the vacuum-front gate**; see [empty-cell support](MAC_VACUUM.md).
+A zero-flux step preserves every stored value bit for bit.
 
 There are two flux-driven entry points. The original overload requires gas headspace
 or a filled constant-density liquid. The EOS-aware overload takes the material source

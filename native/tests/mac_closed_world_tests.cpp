@@ -151,7 +151,11 @@ void rejected_domains() {
         if (control == 0) eos.reset();
         if (control == 1) { auto extra = registry[registry.index("oxygen")]; extra.id = "extra"; registry.add(extra); }
         if (control == 2) { bad.cells[0].mixture.masses[registry.index("chlorine")] = 1e-28; }
-        if (control == 3) { bad.cells[0].mixture = MixtureInventory(registry.size()); bad.cells[0].passive_quantities.clear(); }
+        if (control == 3) {
+            // Empty cells are admitted; energy without material remains invalid.
+            bad.cells[0].mixture = MixtureInventory(registry.size()); bad.cells[0].mixture.energy = 1e-100;
+            bad.cells[0].passive_quantities.clear();
+        }
         if (control == 4) { std::vector<double> m(registry.size()); m[registry.index("water")] = 10; bad.cells[0].mixture = set.eos->initialize_at_temperature(m, 300, 1).mixture; }
         if (control == 5) bad.momentum_x[0] = 1;
         if (control == 6) bad.momentum_y.pop_back();

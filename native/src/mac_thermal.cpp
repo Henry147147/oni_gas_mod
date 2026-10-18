@@ -283,7 +283,7 @@ MacThermalAdvance advance_mac_conduction(const SpeciesRegistry& registry,const F
     const auto& grid=source.grid; const auto absent=std::numeric_limits<std::size_t>::max();
     std::vector<std::size_t> nodes(source.cells.size(),absent),cells;
     std::vector<ThermalBody> bodies; std::vector<double> conductivity;bool mixed=false;
-    for (std::size_t i=0;i<source.cells.size();++i) if (!grid.walls[i]) {
+    for (std::size_t i=0;i<source.cells.size();++i) if (!grid.walls[i] && source.cells[i].mixture.mass() > 0) {
         const auto& mixture=source.cells[i].mixture; const auto reading=eos.evaluate(mixture,grid.volume_m3());
         const auto capacity=reading.equilibrium_heat_capacity_at_cell_volume_j_per_k;
         const bool variable=reading.has_gas && reading.liquid_volume_m3>0;mixed|=variable;
@@ -307,7 +307,7 @@ MacThermalAdvance advance_mac_conduction(const SpeciesRegistry& registry,const F
         if (!std::isfinite(k) || k < 0) throw std::invalid_argument("MAC mixture conductivity is unrepresentable");
         nodes[i]=cells.size(); cells.push_back(i); bodies.push_back({capacity,reading.temperature_k}); conductivity.push_back(k);
     }
-    if (cells.empty()) throw std::invalid_argument("MAC conduction has no occupied cells");
+    if (cells.empty()) return {source, {}};
     std::vector<ThermalContact> contacts;
     const auto edge=[&](std::size_t a,std::size_t b) {
         if (nodes[a] == absent || nodes[b] == absent) return;
