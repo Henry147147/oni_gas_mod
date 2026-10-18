@@ -118,8 +118,10 @@ void rejection(){
     options.compression_viscosity=static_cast<MacCompressionViscosity>(4);
     reject([&]{static_cast<void>(MacClosedWorld(set.registry,set.eos,s,options));});options=settings();
     auto full=mac_field_values(s.momentum_x,s.full_momentum_x);full[s.grid.x_face(1,0)]=MacScaled::from_parts(.5,MacExponent(-2000));
-    store_mac_field(s.momentum_x,s.full_momentum_x,full);const MacClosedWorld tiny(set.registry,set.eos,s,options);const auto tiny_held=tiny.checkpoint();
-    reject([&]{static_cast<void>(tiny.advanced(dt));});check(tiny.checkpoint()==tiny_held,"Rejected range projection changed canonical source");
+    store_mac_field(s.momentum_x,s.full_momentum_x,full);s.momentum_x[s.grid.x_face(1,0)]=1;
+    const auto malformed=ma::testing::fingerprint(s);
+    reject([&]{static_cast<void>(MacClosedWorld(set.registry,set.eos,s,options));});
+    check(ma::testing::fingerprint(s)==malformed,"Rejected stale projection changed canonical source");
     const MacClosedWorld owner(set.registry,set.eos,source(),options);const auto held=owner.checkpoint();
     reject([&]{static_cast<void>(owner.advanced(3*dt,1));});check(owner.checkpoint()==held && owner.time_s()==0,"Late interval failure published a partial candidate");
     std::cout<<"COREJECTED "<<count<<'\n';
@@ -134,6 +136,6 @@ int main(){try{
     scene(3,source(false,false,true),settings(),true);std::cout<<"PASS uniform translation has no coupled heat\n";
     owner_clock();std::cout<<"PASS unsplit owner clock and compression heat diagnostics\n";
     checkpoints();std::cout<<"PASS coupled checkpoint exact continuation across all 24 new settings\n";
-    rejection();std::cout<<"PASS coupled range early and late atomic rejection\n";
+    rejection();std::cout<<"PASS coupled configuration, stale projection and late atomic rejection\n";
     check(response_count==29,"Unexpected completed owner response count");return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

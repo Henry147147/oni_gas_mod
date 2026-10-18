@@ -134,9 +134,13 @@ The equilibrium certificate checks these same full forces: equality of rounded
 subnormal products alone cannot certify rest. A rigid equilibrium can also retain
 a below-range body/wall impulse without falling back to ordinary stepping.
 
-Limits: coupled compression mode 3 rejects inputs that need projection; full range
-does not make arbitrarily small velocities change stored U or volume. Unresolved
-gravity U changes are counted and retained in the substep report, but their
+Coupled compression mode 3 now retains full incoming motion and midpoint sweeps,
+and adds an actual per-cell pressure-work check at the original operand bound.
+The full requested work and unresolved update counts remain visible even when the
+root's binary64 volume parameter is zero ([coupled pressure](MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3)).
+
+Limits: full range does not make arbitrarily small velocities change stored U or
+volume. Unresolved gravity and coupled-pressure U changes are counted, but their
 remainders are not persisted in the physical checkpoint. Completing primary-field
 rounding remainder storage remains necessary for production acceptance.
 
@@ -151,6 +155,7 @@ rounding remainder storage remains necessary for production acceptance.
 | `ma_mac_momentum_parcel_tests` | 4 | The 3.6e-585 kg m/s incoming share joining an existing J; minimum-denormal retained/incoming recombination; signed cancellation; the remaining atomic rejection |
 | `ma_mac_canonical_range_tests` | 5 | A uniform atmosphere at the rejected J scale through one step and one owner interval; warm thin gas with J below range; a new positive J on a previously zero face; below-range wall reaction and heat; stale projections and invalid full-field shapes |
 | `ma_mac_gravity_range_tests` | 5 | Full incoming vertical J with ordinary gravity; below-range body impulse, body work and potential mass flux; minimum-subnormal gravity with a below-range vertical sweep; checkpoint continuation and atomic rollback; 10,000 closed steps retaining all primary masses/passives and the accumulated full impulse |
+| `ma_mac_compressive_range_tests` | 4 | Eight full incoming-motion/sweep/work controls in coupled gas/wet/liquid pressure, active stress with a projected incoming velocity, source/endpoint continuation and genuine unrepresentable-work/shared-budget rollback |
 | `ma_mac_exponent_tests` | 6 | Signed 32/64-bit boundaries and large integers; shared immutable ownership under three threads; the −3049816383 exponent and cancelling huge exponents; expansions and accounts; 256 successive scaled products; decimal, narrowing and capacity limits |
 
 ```sh

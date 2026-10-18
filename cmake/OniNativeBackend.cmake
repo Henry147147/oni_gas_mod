@@ -173,6 +173,8 @@ if(MA_BUILD_TESTS)
     set_target_properties(ma_mac_compact_sum_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME mac_shock_heat_eos_cache COMMAND ma_mac_shock_heat_cache_tests)
     set_target_properties(ma_mac_shock_heat_cache_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME mac_coupled_pressure_range COMMAND ma_mac_compressive_range_tests)
+    set_target_properties(ma_mac_compressive_range_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
 endif()
 if(MA_SANITIZERS AND NOT MSVC)
     foreach(target mixed_atmospheres_oni ma_oni_backend_tests ma_oni_detour_tests ma_oni_domain_tests ma_oni_arithmetic_precision_tests ma_oni_mixed_domain_tests ma_oni_radial_consumption_tests ma_oni_frame_inputs_tests ma_oni_configured_domain_tests ma_mac_boundary_transfer_tests ma_mac_thermal_tests ma_mac_checkpoint_tests

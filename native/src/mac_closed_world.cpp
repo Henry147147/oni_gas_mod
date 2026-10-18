@@ -217,8 +217,6 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     work_root.relative_pressure_tolerance = eps / 4;
     if (!materials.empty()) {
         if (settings.compression_viscosity == MacCompressionViscosity::coupled_pressure) {
-            if (result.rounded_pressure_velocity_inputs != 0)
-                throw FluidFatalError(FluidFatalCode::numerical_precision,"Coupled compressive pressure requires representable incoming nodal velocities");
             result.compressive_coefficients = freeze_mac_compression_coefficients(registry, model, source,
                 MacCompressionLaw::pressure_sensed_acoustic);
             for (const auto cell : topology.active) {
@@ -316,9 +314,6 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     store_mac_field(result.pressure_state.momentum_x, result.pressure_state.full_momentum_x, jx1);
     store_mac_field(result.pressure_state.momentum_y, result.pressure_state.full_momentum_y, jy1);
     result.volume_fluxes_m3 = mac_fluxes(qx, qy); result.mass_fluxes_kg = mac_fluxes(fx, fy);
-    if (settings.compression_viscosity == MacCompressionViscosity::coupled_pressure &&
-        (!result.volume_fluxes_m3.full_x.empty() || !result.volume_fluxes_m3.full_y.empty()))
-        throw FluidFatalError(FluidFatalCode::numerical_precision,"Coupled compressive pressure requires representable midpoint volume sweeps");
     const auto wall_reaction = [&](std::size_t axis) {
         MacScaledSum reaction; reaction.add(wall_pressure[axis].value().multiplied(dt).multiplied(area));
         reaction.add(wall_body[axis].value()); return mac_scaled_primary(reaction);
@@ -329,6 +324,11 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     result.full_body_impulse_y = body_impulse.value();
     result.body_impulse_y = projected_energy(result.full_body_impulse_y, result.rounded_gravity_projections);
     if (!px.within_bound() || !py.within_bound()) throw std::domain_error("MAC pressure full momentum plus wall reaction failed");
+    MacEnergyAccount compressive_work;
+    if(settings.compression_viscosity==MacCompressionViscosity::coupled_pressure) {
+        result.full_compressive_volume_changes_m3.resize(source.cells.size());
+        result.full_compressive_internal_work_j.resize(source.cells.size());
+    }
     for (auto cell : topology.active) {
         MacScaledSum limit; limit.add(MacScaled::from_double(result.material_volumes_m3[cell]).multiplied(settings.maximum_outgoing_volume_fraction));
         for (std::size_t k = 0; k < outgoing[cell].size(); ++k) limit.add(outgoing[cell].component(k).negated());
@@ -338,7 +338,27 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         for (std::size_t k = 0; k < sweeps[cell].size(); ++k) geometry.add(sweeps[cell].component(k).negated());
         if (!geometry.within_bound()) throw std::domain_error("MAC pressure full material-volume closure exceeds its operand bound");
         result.geometric_residuals_m3[cell] = geometry.residual().project().value;
+        if(settings.compression_viscosity==MacCompressionViscosity::coupled_pressure) {
+            const auto at=topology.local[cell];MacEnergySum requested;
+            const double work_pressure=result.pressure.work_pressures_pa[at];
+            for(std::size_t k=0;k<sweeps[cell].size();++k)
+                requested.add(sweeps[cell].component(k).multiplied(-work_pressure));
+            const auto work=mac_scaled_primary(requested);
+            result.full_compressive_volume_changes_m3[cell]=mac_scaled_primary(sweeps[cell]);
+            result.full_compressive_internal_work_j[cell]=work;
+            MacEnergyAccount local;
+            const auto before=source.cells[cell].mixture.energy,after=result.pressure_state.cells[cell].mixture.energy;
+            local.add(after);local.add(-before);
+            for(std::size_t k=0;k<requested.size();++k)local.add(requested.component(k).negated());
+            if(!local.within_bound())throw std::domain_error("Coupled pressure actual full cell work exceeds its operand bound");
+            compressive_work.add(after);compressive_work.add(-before);
+            for(std::size_t k=0;k<requested.size();++k)compressive_work.add(requested.component(k).negated());
+            if(!work.is_zero() && !resolved_update(MacEnergy::from_double(before),MacEnergy::from_double(after),work))
+                ++result.unresolved_compressive_work_updates;
+        }
     }
+    result.full_compressive_work_residual_j=compressive_work.residual();
+    result.full_compressive_work_bound_j=compressive_work.bound();
     auto pressure_balance = energy_difference(source, result.pressure_state, inertia, inertia);
     if (settings.gravity_m_per_s2 != 0) for (const auto& work : result.full_gravity_body_work_y) pressure_balance.add(work.negated());
     if (!pressure_balance.within_bound()) throw std::domain_error("MAC pressure represented energy exceeds its operand bound");
@@ -563,6 +583,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
                     if (!response.dissipated_heat_j.is_zero()) ++result.report.compression_events;
                     if (response.unresolved_energy_update) ++result.report.unresolved_compression_heat_updates;
                 }
+                result.report.unresolved_compressive_work_updates+=candidate.unresolved_compressive_work_updates;
                 if (settings_.thermal_conduction) for (const auto* conduction : {&before_conduction,&after_conduction}) {
                     bounds.add(conduction->energy_bound); conductive_redistribution.add(conduction->redistributed_energy);
                     conductive_entropy.add(conduction->entropy_change_j_per_k);

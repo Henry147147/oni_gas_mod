@@ -317,3 +317,45 @@ evolve without retries, and both endpoint checkpoints have SHA256
 `7bb7bf006aa435dfffd81df0cd89e38a32636369c9e73132f2e28b35550e30e4`.
 These component timings do not pass a colony performance gate. Captures, paired
 build settings and source/executable hashes are under `local/shock-heat-cache/`.
+
+## Follow-up: coupled-pressure full motion and actual cell work
+
+Coupled compression now retains full incoming canonical velocity corrections and
+midpoint sweeps. Each cell checks its actual stored-U change against its full
+midpoint pressure work at the existing operand bound. It reports full volume/work
+and unresolved update counts separately from the constitutive root's binary64
+volume parameter. No new heat, budget allowance, pressure selector or timestep
+default is introduced. Primary-U/volume remainders remain unpersisted.
+
+Eight saved gas, wet-mixture and compressed-liquid controls cover both axes/signs,
+below-range and rounded-subnormal velocities, divergent microscopic motion,
+positive traces and exact source/endpoint continuation. An additional regression
+combines a projected incoming velocity with active compressive heating. A zero-U
+case with unstorable actual work still rejects, and an exhausted interval budget
+publishes no partial result. The saved reviewer rebuilds actual cell sweeps/work
+with fractions and EOS readings at 100 digits, and rejects seven corruptions.
+Its pure-liquid branch also checks analytic cold-curve pressure and elastic work;
+the earlier gas/mixed reader paths retain their acceptance checks.
+
+After incorporating `1bb1787` from main, Linux Release CTest passes 28/28. The range
+and ordinary coupled-owner controls pass fatal ASan/UBSan with leak detection and
+MinGW Windows-target runs under Wine. Eight saved reviews pass across those builds
+and previous gas/mixed captures. The ordinary coupled-owner physical records remain
+unchanged; only its formerly unsupported-range rejection is replaced by a stale
+canonical-projection rejection. The final default 256-cell continuation still has
+SHA256 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+No new actual Windows OS or Unity evidence is claimed.
+
+The default strong-flow failure retains identical saved operands. An opt-in
+2 / 4 / 3 / 2 probe completes Sod and collision and separation N64 without retries,
+then reaches the 180-second process limit before completing the remaining profiles.
+Selector 5's automatic pressure preconditioner reaches a separate transverse-motion
+restriction at Sod N128. Jacobi preserves its planar motion through Sod N256, but
+collision N128 pressure refinement is about 0.947 against 0.85. None of these
+diagnostics passes the full flow gate or changes its inputs/bounds. Captures and
+source/executable hashes are under `local/coupled-range-probe/`.
+
+The next cost to remove is duplicate thermodynamic work in coupled compression:
+the pressure root computes an isentropic response/tangent and then invokes a
+constitutive callback that solves the same response again. Reusing that completed
+response preserves the physical law and is needed before larger flow runs.

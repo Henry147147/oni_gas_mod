@@ -169,8 +169,20 @@ Rejected Newton trials are not published. In the owner, mode 3 skips both split
 compression halves. It freezes the incoming half-sound speed and pressure sensors once
 per candidate and uses the larger directional value for one isotropic bulk stress.
 The accepted work pressure supplies the face impulse and midpoint sweep; heat is
-counted once. Incoming face velocities or midpoint sweeps that need range projection
-reject atomically rather than dropping below-range volume work.
+counted once. Incoming velocity projections retain their full canonical correction,
+and full midpoint sweeps feed material transport. Each cell also checks its actual
+stored-U change against `-p_work * sum(full midpoint sweeps)`, at the original
+128-epsilon operand bound. This supplements the constitutive root's binary64 volume
+parameter and the existing full geometry, momentum and total-energy checks. A range
+projection alone no longer rejects a coupled candidate; a failed actual-work check
+still rejects atomically.
+
+The substep exposes `full_compressive_volume_changes_m3`,
+`full_compressive_internal_work_j`, and their full residual/bound. Changes not resolved
+by stored U increment `unresolved_compressive_work_updates` in both substep and owner
+reports. These are diagnostic accounts, not additional heat or another energy-budget
+allowance. Primary-U/volume rounding remainders remain unpersisted; this does not
+complete the production conservation contract.
 
 Entropy admission measures constant-composition relative entropy: pure gas uses
 actual conserved caloric increments and cell volumes; mixed and liquid states use
@@ -260,7 +272,19 @@ reference-crossing admission, identical-state zero entropy and real cooling reje
 filled water, gravity/body work, uniform periodic translation and early/late
 rejection. `ma_mac_compressive_owner_tests` (seven groups) covers dry 2-D flow, wet
 gravity with walls, filled water, uniform translation, unsplit clock and heat
-accounting, 24 checkpoint-setting continuations and early/range/late rejection.
+accounting, 24 checkpoint-setting continuations and invalid-configuration,
+stale-projection and late rejection.
+
+`ma_mac_compressive_range_tests` adds eight captured gas/wet/liquid controls with
+both motion axes/signs, below-range and rounded-subnormal velocities, actual full
+midpoint work, positive constituent/passive traces and source/endpoint checkpoint
+continuation. A separate active-pressure regression combines a projected incoming
+velocity with nonzero compressive heating. A zero-U control whose actual work cannot
+be stored still rejects, and the shared-budget owner rolls back. The saved reader
+reconstructs actual sweeps and cell work with exact fractions and the EOS at 100
+digits, and rejects seven corruptions. Its pure-liquid oracle is checked against
+analytic cold-curve pressure and elastic-work differences in compression/expansion;
+internal void still rejects.
 
 Strong-shock behaviour of each mode is in [strong flow](MAC_STRONG_FLOW.md#results-by-method):
 mode 3 is the only mode that passes the collision refinement gate.

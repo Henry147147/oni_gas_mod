@@ -135,8 +135,10 @@ def equilibrium(masses, materials, energy_f, volume_f):
             else:
                 hi = mid
         p = (lo + hi) / 2; _, temperature, gas_volume = point(p)
-    check(temperature > 0 and p > 0 and gas_volume > 0, 'Independent EOS left occupied positive branch')
-    _, _, capacity, _, _ = eos_values(masses, materials, p)
+    _, _, capacity, _, moles = eos_values(masses, materials, p)
+    check(temperature > 0 and p > 0 and (gas_volume > 0 if moles else gas_volume == 0), 'Independent EOS left occupied positive branch')
+    if not moles:
+        check(eos_values(masses, materials, D(0))[0] >= volume, 'Independent pure liquid contains unsupported void')
     entropy = capacity * (temperature / dec(F(298.15))).ln()
     for species, amount in masses.items():
         phase, molar, *_ = materials[species]
@@ -148,9 +150,14 @@ def equilibrium(masses, materials, energy_f, volume_f):
 def isentropic_work(masses, materials, energy, volume, change):
     p0, t0, vg0, _ = equilibrium(masses, materials, energy, volume)
     _, _, capacity, offset, moles = eos_values(masses, materials, p0)
+    if not change:
+        return p0
     alpha = capacity / (capacity + moles * dec(R)); target = dec(volume + change)
     def state(p):
         liquid, elastic, *_ = eos_values(masses, materials, p)
+        if not moles:
+            check(target <= eos_values(masses, materials, D(0))[0], 'Independent pure liquid isentrope contains void')
+            return liquid, offset + capacity * t0 + elastic
         vg = vg0 * (alpha * (p0 / p).ln()).exp(); temperature = p * vg / (moles * dec(R))
         return liquid + vg, offset + capacity * temperature + elastic
     lo, hi = D(0), p0
@@ -166,8 +173,6 @@ def isentropic_work(masses, materials, energy, volume, change):
             lo = mid
         else:
             hi = mid
-    if not change:
-        return p0
     return -(state((lo + hi) / 2)[1] - dec(energy)) / dec(change)
 
 

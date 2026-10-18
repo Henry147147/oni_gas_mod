@@ -75,6 +75,12 @@ struct MacClosedSubstep {
     double gravity_internal_change_j = 0, entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
     std::size_t unresolved_momentum_updates = 0;
     std::size_t rounded_pressure_velocity_inputs = 0;
+    // Actual full midpoint sweeps, distinct from the binary64 pressure-root
+    // volume parameter. Coupled work must close locally against these values.
+    std::vector<MacScaled> full_compressive_volume_changes_m3;
+    std::vector<MacEnergy> full_compressive_internal_work_j;
+    MacEnergy full_compressive_work_residual_j, full_compressive_work_bound_j;
+    std::size_t unresolved_compressive_work_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
 };
 // Closed, occupied regular-grid Lagrange/projection split. Work pressure acts
@@ -93,6 +99,7 @@ struct MacClosedAdvanceReport {
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
     std::size_t compression_events = 0, unresolved_compression_heat_updates = 0, unresolved_compression_momentum_updates = 0;
+    std::size_t unresolved_compressive_work_updates = 0;
     std::size_t momentum_correction_events = 0, limited_momentum_corrections = 0;
     std::size_t unresolved_momentum_corrections = 0, unresolved_remainder_corrections = 0;
     std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0, unresolved_conduction_updates = 0;

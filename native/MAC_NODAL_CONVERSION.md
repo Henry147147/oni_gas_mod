@@ -86,9 +86,14 @@ A bounded N64 separation probe with the unchanged scientific inputs and selector
 2 / 5 / 3 / 2 gives density/pressure/velocity L1 about 0.08597 / 0.07989 / 0.13251.
 The same build at 2 / 4 / 3 / 2 gives 0.05540 / 0.05052 / 0.18507. Velocity improves;
 density and pressure worsen. This does not pass the strong-flow gate. An attempted
-full original profile sequence also stops at the existing coupled-compression
-restriction on range-projected incoming velocities. Neither a bound nor an input
-was changed to accept either result.
+full original profile sequence stopped at the former coupled-compression
+restriction on range-projected incoming velocities. The range extension in
+[coupled pressure](MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3) removes
+that restriction while adding an actual cell-work check. A new automatic-PC probe
+finishes Sod N64, then reaches selector 5's separate 2-D-motion rejection at N128.
+An existing Jacobi-PC setting preserves the planar motion through Sod N256, but
+collision N128 fails pressure refinement (about 0.947 versus 0.85). These are
+diagnostic opt-in results; no production selector or bound was changed.
 
 Captures and the bounded probe build description are under the ignored
 `local/nodal-conversion/`. They are component evidence, not game, actual Windows OS

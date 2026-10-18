@@ -29,9 +29,11 @@ for component while reducing their object size from 128 to 72 bytes; all 38
 comparable saved MAC captures remain byte-identical. The strong-flow failure remains.
 The heat stage also reuses validated EOS readings with explicit per-pair updates;
 72 replay stages and the 27-test Linux suite pass, with the heat/compression saved
-outputs unchanged. Physics and real-time colony acceptance remain open.
-Its 256-cell wave is about 1.7× faster with exact baseline continuation, but a
-4,096-cell wave still takes about 11.9 seconds per 0.1 simulated seconds and a
+outputs unchanged. Coupled pressure now retains full incoming motion and sweeps,
+checking actual per-cell work and exposing unresolved U updates; primary remainders
+remain unpersisted. Physics and real-time colony acceptance remain open.
+The latest paired 256-cell wave takes about 436 ms with exact baseline continuation,
+but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds and a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
