@@ -1,0 +1,180 @@
+{
+  "kind": "conservative-gas-diffusion-validation",
+  "schema_version": 1,
+  "date": "2026-10-18",
+  "source_revision": "fa8df8ea66ec7fb2d6aaef645f121c92fe2d9683",
+  "source_dirty": true,
+  "transport_profile": "ma-gas-transport-1",
+  "binary_controls": {
+    "cells": [
+      2,
+      6,
+      64
+    ],
+    "normalization": "initial concentration perturbation",
+    "maximum_analytical_error": 1.09893e-05,
+    "maximum_refinement_error": 1.09477e-05,
+    "target": 0.01,
+    "passed": true
+  },
+  "maxwell_stefan": {
+    "kind": "independent-maxwell-stefan-gas-diffusion-review",
+    "cases": [
+      {
+        "name": "binary-air",
+        "mixture_averaged_seconds": 61285,
+        "maxwell_stefan_seconds": 61285,
+        "production_refinement_error": 8.158603247121476e-05,
+        "oracle_refinement_error": 8.158603247121476e-05,
+        "model_mixing_time_error": 0.0,
+        "passed": true
+      },
+      {
+        "name": "ordinary-air-CO2",
+        "mixture_averaged_seconds": 61240,
+        "maxwell_stefan_seconds": 61215,
+        "production_refinement_error": 0.0,
+        "oracle_refinement_error": 8.167932696223623e-05,
+        "model_mixing_time_error": 0.00040839663481162525,
+        "passed": true
+      },
+      {
+        "name": "ordinary-air-CO2-reversed",
+        "mixture_averaged_seconds": 61240,
+        "maxwell_stefan_seconds": 61265,
+        "production_refinement_error": 0.0,
+        "oracle_refinement_error": 8.161266628570196e-05,
+        "model_mixing_time_error": 0.0004080633314290649,
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "verification": {
+    "windows_full_native_suite": {
+      "passed": 32,
+      "failed": 0
+    },
+    "windows_managed_and_installed_game_api_checks": "passed; resumed remaining checks after the file-promotion retry",
+    "windows_latest_focused_regressions": {
+      "passed": 4,
+      "failed": 0
+    },
+    "linux_native_diffusion": "passed",
+    "linux_address_and_undefined_behavior_sanitizers": "passed",
+    "file_promotion": {
+      "first_run": {
+        "passed": 38,
+        "failed": 1
+      },
+      "fresh_retry": {
+        "passed": 39,
+        "failed": 0
+      },
+      "cause": "intermittent assertion failure; cause not established"
+    },
+    "linux_checked_source_revision": "05bbd5eefc361d7ce1871121e5357b80f8c81ae7",
+    "windows_managed_snapshot_and_persistence_checks": {
+      "passed": 200,
+      "failed": 0
+    },
+    "windows_final_native_diffusion_and_frame_input_regressions": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "performance": {
+    "cpu": "AMD Ryzen 9 9950X",
+    "physical_cores": 16,
+    "logical_processors": 32,
+    "platform": "Windows",
+    "compiler": "MSVC Release, strict floating point, IPO",
+    "workers": 8,
+    "includes": "two half-stages, exact zero-flux checks, validation, state construction and replacement",
+    "excludes": "bulk flow and ONI adapter",
+    "samples": [
+      {
+        "scene": "uniform",
+        "cells": 250000,
+        "simulation_seconds": 0.1,
+        "half_stages": 2,
+        "samples": 31,
+        "warmup": 5,
+        "p50_ms": 4.7951,
+        "p95_ms": 5.0553,
+        "budget_ms": 6.25,
+        "passed": true
+      },
+      {
+        "scene": "mixing",
+        "cells": 250000,
+        "simulation_seconds": 0.1,
+        "half_stages": 2,
+        "samples": 31,
+        "warmup": 5,
+        "p50_ms": 179.8661,
+        "p95_ms": 188.3158,
+        "budget_ms": 6.25,
+        "passed": false
+      }
+    ],
+    "required_5900x_colony_gate": "not demonstrated",
+    "active_mixing_budget_passed": false
+  },
+  "actual_game": {
+    "windows": {
+      "status": "passed within the bounded six-cell development scope",
+      "oni_build": 744825,
+      "edition": "Spaced Out",
+      "scene": "mixed-air sealed room",
+      "launch": "Steam; inspected and controlled with the computer-use skill",
+      "physical": {
+        "completed_frames": 121,
+        "simulation_seconds": 24.2000003606081,
+        "maximum_relative_mass_error": 4.099569463879691e-15,
+        "maximum_relative_energy_error": 1.815452974838335e-14,
+        "exchanged_mass_kg": 0.00010006765552531402
+      },
+      "accelerated": {
+        "multiplier": 100.0,
+        "completed_frame": 1268,
+        "exchanged_mass_kg": 0.04704802406560189,
+        "failure": ""
+      },
+      "paired_save_restore": {
+        "source_frame": 120,
+        "source_physical_sha256": "bbb07372a81ab704c392e61a9054d4e0b101486e4dacdc39ebb50db18033e05f",
+        "file_readback_verified": true,
+        "pause_state_restored": true,
+        "zero_time_restore_verified": true,
+        "exact_continuation_frames": 120,
+        "saved_mode": "accelerated",
+        "restored_multiplier": 100.0,
+        "new_region_preference_during_restore": "physical",
+        "restored_renderer_verified": true
+      },
+      "mode_shortcut": {
+        "physical_accelerated_off_cycle_verified": true,
+        "composition_overlay_preserved": true,
+        "continued_after_completed_restore_audit": true
+      },
+      "final_observation": {
+        "completed_frame": 465,
+        "status": "Custom fluid active \u00b7 running",
+        "mode": "physical",
+        "multiplier": 1,
+        "failure": ""
+      },
+      "installed_package": "artifacts/probe-windows-diffusion-fa8df8e-boundary",
+      "installed_managed_sha256": "c8af695abb1badaf9dca3cf13d0ba052a72667ddb9be557c66e850607ff7ea53",
+      "installed_native_backend_sha256": "74aa53cab9ab2401db330e638ba5156324cf9c5b244d3ffbc1a7d4e5892005c0",
+      "limits": [
+        "No whole-colony or gameplay FPS acceptance established.",
+        "A late heat-control fixture had equilibrated; its aggregate restore validation was not counted as a pass.",
+        "Actual Linux ONI remains unverified."
+      ]
+    },
+    "linux": "not verified"
+  },
+  "release_ready": false
+}

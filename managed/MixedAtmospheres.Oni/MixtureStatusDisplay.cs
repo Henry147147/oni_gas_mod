@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         private int shortcutsAccepted;
         private string lastShortcut = "";
         private string lastShortcutEvent = "";
-        private bool pendingOverlayCycle;
+        private bool pendingOverlayCycle, pendingDiffusionOverlayRestore;
         private bool overlayObserved;
         private HashedString observedOverlay;
         private bool diagnosticWarning;
@@ -98,7 +98,7 @@ namespace MixedAtmospheres.Oni
                 frame.Revision.ToString(CultureInfo.InvariantCulture) + "\n" +
                 (NativeSealedDomainValidation.Active ? "Bounded development region; surrounding colony uses ONI physics." :
                  frame.IsFixture ? "Colours and readings are a display fixture." : "Only explicitly supplied cells show mixture data.") + "\n" +
-                "Renderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
+                GasDiffusionOptions.Description + "\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
                     MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
             if (frame.SuppliedCells.Count == 0) return;
             sampleCell = frame.SuppliedCells.Keys.Min();
@@ -156,7 +156,15 @@ namespace MixedAtmospheres.Oni
         private void LateUpdate()
         {
             if (!InColony || OverlayScreen.Instance == null)
-            { overlayObserved = pendingOverlayCycle = false; return; }
+            { overlayObserved = pendingOverlayCycle = pendingDiffusionOverlayRestore = false; return; }
+            // Modified F6 also reaches ONI's plumbing-overlay input route.
+            // Restore the pre-key mode after that route has handled the key.
+            if (pendingDiffusionOverlayRestore)
+            {
+                pendingDiffusionOverlayRestore = false;
+                if (overlayObserved && OverlayScreen.Instance.GetMode() != observedOverlay)
+                    OverlayScreen.Instance.ToggleOverlay(observedOverlay, false);
+            }
             // ONI also handles F5 through its native input route. Apply our
             // modified-key request after that route, using the mode observed
             // before the F5 frame. Reading the current mode here would cycle
@@ -167,7 +175,7 @@ namespace MixedAtmospheres.Oni
                 CycleOverlay(overlayObserved ? observedOverlay : OverlayScreen.Instance.GetMode());
                 RecordValidationStatus();
             }
-            if (!Input.GetKeyDown(KeyCode.F5) || !overlayObserved)
+            if ((!Input.GetKeyDown(KeyCode.F5) && !Input.GetKeyDown(KeyCode.F6)) || !overlayObserved)
             {
                 observedOverlay = OverlayScreen.Instance.GetMode();
                 overlayObserved = true;
@@ -179,7 +187,7 @@ namespace MixedAtmospheres.Oni
             // Consume each shortcut's event and modifiers together, including
             // paused inspection, without relying on legacy input poll order.
             var key = Event.current;
-            if (key.type == EventType.KeyDown && (key.keyCode == KeyCode.F5 || key.keyCode == KeyCode.F8 ||
+            if (key.type == EventType.KeyDown && (key.keyCode == KeyCode.F5 || key.keyCode == KeyCode.F6 || key.keyCode == KeyCode.F8 ||
                 key.keyCode == KeyCode.F9 || key.keyCode == KeyCode.F10))
                 lastShortcutEvent = key.keyCode + " · " + key.modifiers;
             if (key.type == EventType.KeyDown && (key.shift || key.control))
@@ -191,6 +199,7 @@ namespace MixedAtmospheres.Oni
                     case KeyCode.F8: expanded = !expanded; break;
                     case KeyCode.F9: FocusReadings(); break;
                     case KeyCode.F10: showBoundary = !showBoundary; break;
+                    case KeyCode.F6: pendingDiffusionOverlayRestore = true; NativeSealedDomainValidation.CycleGasDiffusion(); break;
                     default: accepted = false; break;
                 }
                 if (accepted)
@@ -227,7 +236,7 @@ namespace MixedAtmospheres.Oni
                     if (message.Length > 180) message = message.Substring(0, 180) + "… (see Player.log)";
                     body += "\n\nAttention: " + message;
                 }
-                var hints = "Shift+F8 details · Shift+F9 find fluid\nShift+F5 overlay · Shift+F10 boundary\nHover a cell; select it for full composition.";
+                var hints = "Shift+F8 details · Shift+F9 find fluid\nShift+F5 overlay · Shift+F10 boundary\nShift+F6 diffusion: physical / accelerated / off\nHover a cell; select it for full composition.";
                 var height = 66f + (expanded ? textStyle!.CalcHeight(new GUIContent(body), contentWidth) +
                     hintStyle!.CalcHeight(new GUIContent(hints), contentWidth) + 14 : 0);
                 var top = InColony ? 200 : Screen.height / scale - height - 20;
@@ -266,6 +275,7 @@ namespace MixedAtmospheres.Oni
                     LastShortcut = lastShortcut, ShortcutsAccepted = shortcutsAccepted,
                     LastShortcutEvent = lastShortcutEvent, ApplicationFocused = Application.isFocused,
                     Overlay = OverlayScreen.Instance?.GetMode().ToString(),
+                    GasDiffusion = GasDiffusionOptions.Current,
                     PresentationRevision = frame?.Revision, PublicationGeneration = frame?.PublicationGeneration,
                     SuppliedCellCount = frame?.SuppliedCells.Count ?? 0, SampleCell = sampleCell,
                     Sample = reading == null ? null : new

@@ -93,6 +93,7 @@ std::map<ActorIdentityKey,actor_checkpoint::State> pending_actor_restore;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
 std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{};
 MacEnergySum thermal_redistribution,thermal_entropy;
+MacDiffusionReport diffusion_progress;
 std::uint64_t viscous_stages{},viscous_modes{},unresolved_viscous_heat{},unresolved_viscous_momentum{};
 MacEnergySum viscous_dissipation,viscous_stored_heat,viscous_entropy,viscous_wall_x,viscous_wall_y;
 struct ChunkHeatProgress {
@@ -685,6 +686,7 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     pending_actor_restore=std::move(restored_actors);
     thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
     thermal_redistribution={}; thermal_entropy={};
+    diffusion_progress={};
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
@@ -927,6 +929,12 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         }
         auto next_chunk_heat=combined_chunk_heat(committed_chunk_heat,pending_chunk_heat);
         auto next_solid_heat=combined_chunk_heat(committed_solid_heat,pending_solid_heat);
+        auto next_diffusion=diffusion_progress;const auto& d=result.report.diffusion;
+        next_diffusion.substeps+=d.substeps;next_diffusion.rejected_attempts+=d.rejected_attempts;
+        next_diffusion.faces+=d.faces;next_diffusion.unresolved_updates+=d.unresolved_updates;
+        next_diffusion.exchanged_mass_kg+=d.exchanged_mass_kg;next_diffusion.elapsed_ms+=d.elapsed_ms;
+        next_diffusion.species_mass_residual=d.species_mass_residual;next_diffusion.species_mass_bound=d.species_mass_bound;
+        next_diffusion.energy_residual=d.energy_residual;next_diffusion.energy_bound=d.energy_bound;
         world=std::move(owner); publication=std::move(cells); status=next;
         completed_audit=std::move(next_audit);completed_snapshot.clear();
         committed_chunk_heat=std::move(next_chunk_heat);pending_chunk_heat={};
@@ -940,6 +948,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         maximum_energy_residual=std::max(maximum_energy_residual,static_cast<double>(energy_residual));
         thermal_stages+=result.report.conduction_stages; thermal_contacts+=result.report.conduction_contacts;
         thermal_iterations+=result.report.conduction_iterations; unresolved_thermal_updates+=result.report.unresolved_conduction_updates;
+        diffusion_progress=std::move(next_diffusion);
         viscous_stages+=result.report.viscosity_stages;viscous_modes+=result.report.viscosity_modes;
         unresolved_viscous_heat+=result.report.unresolved_viscous_heat_updates;unresolved_viscous_momentum+=result.report.unresolved_viscous_momentum_updates;
         actors=std::move(next_actors); actor_steps=next_steps; consumer_samples=next_consumed; emitter_samples=next_emitted;
@@ -1290,6 +1299,35 @@ std::uint32_t pending_domain_actor_restores() {
 }
 void copy_domain_actor_status(MAOniDomainActorStatus& output) {
     std::lock_guard lock(state_mutex); output=actor_status();
+}
+void configure_domain_diffusion(std::uint64_t session,std::uint64_t frame,std::uint32_t mode,double multiplier) {
+    const MacDiffusionSettings setting{static_cast<MacDiffusionMode>(mode),multiplier};setting.validate();
+    std::lock_guard frame_lock(frame_mutex);std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;
+    if(!world || status.state!=1 || status.session!=session || status.completed_frames!=frame || pending_world)
+        throw std::logic_error("Diffusion configuration requires a drained current completed native frame");
+    if(liquid_domain(geometry,physics_settings) || mixed_domain(geometry,physics_settings))
+        throw std::invalid_argument("Molecular gas diffusion currently requires a gas-only domain");
+    // Construct first: failed validation leaves the complete physical owner intact.
+    auto candidate=std::make_unique<MacClosedWorld>(world->with_diffusion(setting));
+    // The next journal hashes its newly configured source image. A reader
+    // retaining the old settings must rebase to that exact image; no actor
+    // configuration changed here. Preserve any independently pending actor flag.
+    world=std::move(candidate);completed_snapshot.clear();completed_inputs.clear();completed_audit.reset();
+}
+void copy_domain_diffusion_status(MAOniDomainDiffusionStatus& output) {
+    std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;output={};
+    output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
+    output.session=status.session;output.completed_frame=status.completed_frames;
+    if(world) {
+        output.mode=static_cast<std::uint32_t>(world->settings().diffusion.mode);output.multiplier=world->settings().diffusion.multiplier;
+        const auto& id=world->transport_profile().identity();std::copy_n(id.c_str(),std::min(id.size(),sizeof(output.profile)-1),output.profile);
+    }
+    output.substeps=diffusion_progress.substeps;output.rejected_attempts=diffusion_progress.rejected_attempts;
+    output.faces=diffusion_progress.faces;output.unresolved_updates=diffusion_progress.unresolved_updates;
+    output.exchanged_mass_kg=diffusion_progress.exchanged_mass_kg;output.elapsed_ms=diffusion_progress.elapsed_ms;
+    for(double v:diffusion_progress.species_mass_residual)output.maximum_mass_residual_kg=std::max(output.maximum_mass_residual_kg,std::abs(v));
+    for(double v:diffusion_progress.species_mass_bound)output.maximum_mass_bound_kg=std::max(output.maximum_mass_bound_kg,v);
+    output.energy_residual_j=diffusion_progress.energy_residual.project().value;output.energy_bound_j=diffusion_progress.energy_bound.project().value;
 }
 void copy_domain_thermal_status(MAOniDomainThermalStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;

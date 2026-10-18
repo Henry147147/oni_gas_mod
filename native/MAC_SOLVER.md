@@ -24,6 +24,7 @@ Topic documents:
 | [Face momentum reconstruction](MAC_MOMENTUM.md) | Compatible momentum corrections, momentum selectors 0–5 |
 | [One-dimensional nodal conversion](MAC_NODAL_CONVERSION.md) | Opt-in point-to-dual momentum/kinetic conversion and its remaining limits |
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
+| [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
@@ -69,6 +70,11 @@ component tests; it excludes the regularization, conduction and viscosity stages
 
 ## Substep structure
 
+When gas diffusion is enabled, the owner wraps each interval of at most 0.1 s
+with half a diffusion advance before flow and half after. The following flow
+substeps retain their maximum 0.01 s timestep. Exact-equilibrium execution must
+also certify zero diffusion flux. See [gas diffusion](MAC_DIFFUSION.md).
+
 Each attempted substep of length dt applies these stages to a local candidate, in
 this order (`MacClosedWorld::advanced` in `mac_closed_world.cpp`):
 
@@ -110,6 +116,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
+| `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical | physical 1×, accelerated (initial preference 100×) |
 
 The native domain builds its settings from these defaults, keeping the selectors.
 Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the gravity

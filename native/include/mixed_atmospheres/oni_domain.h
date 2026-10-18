@@ -288,6 +288,20 @@ typedef struct MAOniDomainThermalStatus {
 MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);
 
+/* Gas diffusion ABI 1. Configuration commits only at the requested completed
+ * frame under the worker fence. Mode 0 off, 1 physical (multiplier 1), 2
+ * accelerated (multiplier >=1). Saved physical owners retain these settings;
+ * restoring a legacy checkpoint never implicitly enables diffusion. */
+typedef struct MAOniDomainDiffusionStatus {
+    uint32_t struct_size,abi_version,state,mode;
+    uint64_t session,completed_frame,substeps,rejected_attempts,faces,unresolved_updates;
+    double multiplier,exchanged_mass_kg,elapsed_ms;
+    double maximum_mass_residual_kg,maximum_mass_bound_kg,energy_residual_j,energy_bound_j;
+    char profile[64];
+} MAOniDomainDiffusionStatus;
+MA_ONI_API MAOniResult ma_oni_domain_diffusion_configure(uint64_t session,uint64_t completed_frame,uint32_t mode,double multiplier);
+MA_ONI_API MAOniResult ma_oni_domain_diffusion_status(MAOniDomainDiffusionStatus*);
+
 /* Additive physical-viscosity diagnostics, ABI 1. Requested modal kinetic
  * dissipation and represented cell-U heating are separate accounts. Unresolved
  * heat/momentum updates are explicit. Entropy is a positive-heating lower

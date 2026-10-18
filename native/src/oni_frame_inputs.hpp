@@ -10,7 +10,7 @@ struct Batch {
     std::vector<MAOniDomainTransfer> transfers;
 };
 struct Image {
-    std::uint32_t flags{}; // 1: actor configuration, 2: non-durable actors
+    std::uint32_t flags{}; // 1: owner/actor configuration changed, 2: non-durable actors
     std::uint64_t session{},source_frame{},completed_frame{};
     double source_time{},seconds{};
     MAOniDomainConfig geometry{};

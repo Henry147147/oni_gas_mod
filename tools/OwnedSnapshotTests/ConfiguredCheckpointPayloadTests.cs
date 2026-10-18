@@ -41,6 +41,21 @@ internal static class ConfiguredCheckpointPayloadTests
                 check(parsed.Configured==null && parsed.FormatVersion==version && parsed.CopyEncodedData().AsSpan().SequenceEqual(bytes));
             }
         });
+        test("diffusion solver version four survives paired-save framing with legacy configured and actor wrappers",()=> {
+            foreach(var scenario in new[]{0U,6U,7U}) foreach(var withActor in new[]{false,true}) {
+                var geometry=scenario==7 ? ConfiguredGeometry() : LegacyGeometry(scenario);
+                foreach(var version in new[]{4U,5U}) {
+                    var solver=Solver(geometry.Width,geometry.Height,version);
+                    var image=scenario==7 ? Wrapper(ConfiguredDomainLayout.PillaredRoom().Mask,ConfiguredDomainLayout.ScenePhysics(false),solverVersion:version) : solver;
+                    if(withActor) image=ActorImage(image,geometry,10+10*64);
+                    var pair=Pair(image,geometry);
+                    if(version==5) {reject(()=>NativeDomainCheckpointPayload.Create(pair,image));continue;}
+                    var payload=NativeDomainCheckpointPayload.Create(pair,image);
+                    var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+                    check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
+                }
+            }
+        });
         test("configured wrapper exposes the exact saved geometry physics record mask and solver image",()=> {
             var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.ScenePhysics(false));
             var value=NativeConfiguredDomainImage.Parse(image);

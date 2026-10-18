@@ -49,6 +49,21 @@ but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant
 real-time target and every first-playable gate remain open.
 
+Conservative [gas diffusion](../native/MAC_DIFFUSION.md) now supplies
+species-specific exchange with carried enthalpy, physical/accelerated modes,
+completed-frame configuration and versioned checkpoint properties. Binary
+analytical/refinement controls and independent Maxwell–Stefan ordinary-air
+comparisons pass; Linux sanitizer checks pass. On a Ryzen 9950X, a 250,000-cell
+two-half-stage benchmark measures 5.06 ms p95 for certified uniform inventories
+and 188.32 ms for active mixing per 0.1 simulated seconds. Active diffusion
+misses its proposed 6.25 ms allocation; this is not the required Ryzen 5900X
+colony/adapter benchmark, and actual Linux ONI validation remains open.
+Windows six-cell physical/100× runs, diffusion-enabled paired save/readback,
+exact zero-time restore and 120-frame continuation replay pass. The mode
+shortcut preserves the selected composition overlay, and play continues after
+the bounded restore audit. See the [validation record](gas-diffusion-validation.json)
+for the measured scope and remaining gates.
+
 An opt-in [1-D nodal momentum/kinetic conversion](../native/MAC_NODAL_CONVERSION.md)
 now passes the original curved-deformation point oracle with independently checked
 work and inventories. It preserves full-range momentum, carries conversion work
