@@ -245,19 +245,27 @@ configuration invalidates replay across that boundary until a new checkpoint.
 The option file selects new regions; a restored owner uses its saved mode.
 Liquid and mixed gas/liquid regions reject enabling gas diffusion.
 
-Enabled checkpoints use `MACCLS01` version 4. After the multiplier they store
-the discrete formulation number (`mac_diffusion_formulation`, 2), then the
-profile identity and every coefficient, validated range, estimated flag and
-source. **The version-4 layout changed in this revision.** The field was added
-after the multiplier. Version-4 images were never released, and a
-formulation-1 image now rejects with "Unsupported saved gas diffusion
-formulation" rather than restoring under different physics. A changed
-property under the same profile ID also rejects.
+Enabled checkpoints use `MACCLS01` version 5 with either numerical kernel (see
+[version assignment](MAC_CHECKPOINT.md#version-assignment)). After the kernel
+selector they store the mode and multiplier, then the discrete formulation
+number (`mac_diffusion_formulation`, 2), the profile identity and every
+coefficient, validated range, estimated flag and source. A changed property
+under the same profile ID rejects. So does any other formulation.
 
-Disabled owners keep their version 2/3 bytes. Old checkpoints restore with
-diffusion disabled until explicitly upgraded through the mode control. The
-managed paired-save wrapper reads only the unchanged version-4 metadata
-prefix.
+On its development branch diffusion used version 4, first without and then
+with the formulation field. Those images were never released. Main's interval
+kernel took version 4, and diffusion moved to version 5. Both earlier diffusion
+layouts now reject instead of restoring under different physics.
+
+Disabled owners keep their version 2/3 (reference kernel) or 4 (interval
+kernel) bytes. Old checkpoints restore with diffusion disabled until explicitly
+upgraded through the mode control. The managed paired-save wrapper reads only
+the unchanged metadata prefix of version 5.
+
+Diffusion composes with either numerical kernel: it wraps each flow interval,
+whether the interval kernel publishes it or falls back to the reference.
+Composed reports accumulate every flow counter, including main's interval and
+pressure-restart counters.
 
 ## Execution and validation
 
@@ -303,8 +311,12 @@ Formulation-2 controls cover:
   in-range 300 K room records no out-of-range evaluations. The diffusion stage
   alone runs at 1e-4 and 1e-9 Pa. The controls check counts, recorded
   extremes, conservation and Knudsen-bounded substep counts.
-- **Persistence.** The formulation field is present and a rebuilt
-  formulation-1 image rejects.
+- **Persistence.** Version 5 round-trips and continues exactly with both
+  kernels in both modes. Rebuilt version-4 diffusion layouts, an unknown kernel,
+  formulation 1 and a diffusion-disabled version 5 reject. Diffusion-disabled
+  owners still write version 2 (reference) or 4 (interval).
+- **Composed reports.** A zero-flux single-gas wave reports exactly the flow
+  counters of the diffusion-off owner, including a pressure-increment restart.
 
 `ma_oni_diffusion_tests` covers the ABI, worker dispatch, stale-frame
 rejection and mode persistence. It also runs the review's scenes through the

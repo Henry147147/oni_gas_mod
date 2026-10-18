@@ -121,8 +121,9 @@ also pass collision.
   unresolved U updates are reported rather than saved.
 - Active-cell performance; see [measurements](#reproduce-measurements). The
   [scaling analysis](solver-scaling-analysis.md) measures the current substep
-  at about 6,500–8,900× over the 250,000-cell budget. Grids of about 9,000
-  cells or more also fail on exact-sum capacity.
+  at about 6,500–8,900× over the 250,000-cell budget. The user has relaxed the
+  per-stage numerical contracts to interval-level audits (2026-10-18), so the
+  substep kernel can be replaced; that kernel is not yet written.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

@@ -26,6 +26,7 @@ Topic documents:
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
+| [Interval kernel](MAC_INTERVAL_KERNEL.md) | First normal-range pressure/transport port, interval audits and retained-reference fallback |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
@@ -117,7 +118,8 @@ in checkpoints and never change meaning; new methods get new values.
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
-| `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical | physical 1×, accelerated (initial preference 100×) |
+| `numerical_kernel` | 0 `reference` | 1 `interval_audited` (first gas port; unsupported selections use the retained reference) |
+| `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 
 The native domain builds its settings from these defaults, keeping the selectors.
 Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the gravity
@@ -136,7 +138,44 @@ donor-cell momentum, `advance_mac_compression` to the quadratic law and
 
 ## Numerical contracts
 
-These rules hold in every stage:
+**Production contract (user decision, 2026-10-18).** The production substep
+kernel is checked once per completed interval instead of in every stage:
+
+- **Conservation by construction.** Every constituent mass, passive quantity,
+  momentum component and U+K+G moves only through shared face fluxes and
+  explicit exchange terms applied antisymmetrically, so what leaves one cell
+  enters its neighbour.
+- **Interval audit.** At the end of each interval, the species, passive,
+  momentum (with wall and body impulse) and U+K+G totals, including external
+  heat and work, are reconciled against 128 binary64 epsilons of the interval's
+  absolute operands. The audit uses double-double accumulation and escalates
+  to exact expansions only when that comparison cannot decide. An interval
+  that fails its audit is rejected and retried smaller, or it faults; it is
+  never published.
+- **Rounding.** Primary storage stays binary64. Updates below a stored value's
+  resolution, and transfers below binary64 range, may round. Each rounding is
+  counted and included in the audited bound. Fields are still never clipped,
+  floored or renormalized to close an account, and a positive constituent is
+  never removed by repair.
+- **Entropy.** The interval rejects a decrease in total stored-state entropy
+  beyond `128 ε Σ(|U|/T)` over its endpoints. Per-stage entropy admission is no
+  longer required.
+- **Range.** Full-range arithmetic is used only where a cheap check flags a
+  value outside the normal binary64 range during the interval.
+- **Unchanged.** Determinism: results are bit-identical for the same build and
+  inputs, independent of thread count and scheduling. Also unchanged: checkpoint
+  continuation, atomicity, fail-closed admission and the arithmetic environment.
+- **Calm-region steps (user decision, 2026-10-18).** The production kernel may
+  take larger steps in calm regions and subcycle active ones locally. Faces
+  between differently stepped regions carry one shared, time-integrated flux.
+- **Reference oracle.** The current implementation, with the per-stage rules
+  below, stays buildable and tested. The production kernel is validated
+  against it on shared scenes within the completion plan's accuracy tolerances.
+
+The [first interval kernel](MAC_INTERVAL_KERNEL.md) implements a bounded set of
+existing physical selectors. The default and retained fallback still enforce
+the reference stage rules; opting into the interval kernel also requires its
+interval audits on a fallback result. **Reference rules:**
 
 - **Accounts.** Each stage checks its species, passive, momentum and energy
   balances against 128 binary64 epsilons of the actual operands: the residual is
@@ -164,8 +203,10 @@ These rules hold in every stage:
 
 ## Scope and unsupported cases
 
-- Every fluid cell must be occupied: gas with positive headspace, or liquid. Empty
-  cells, internal liquid voids, vacuum and free surfaces reject.
+- Exact empty inventory and conservative gas arrival/depletion are supported in
+  the reference. Resolved occupied-volume interfaces, internal liquid voids and
+  free-surface dynamics remain open. The native game adapter still rejects empty
+  cells; the interval kernel uses the reference for this topology.
 - Walls and exterior faces are impermeable. Periodicity is explicit and needs at
   least two cells along the axis. Nonzero gravity rejects vertical periodicity.
 - Gravity work and potential flux retain full-range operands. Primary U and

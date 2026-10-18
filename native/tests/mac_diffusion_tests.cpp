@@ -412,23 +412,54 @@ void report_composition_control() {
     }
     std::cout<<"PASS composed reports keep flow counters, including pressure-increment restarts\n";
 }
-void formulation_checkpoint_control() {
-    Setup setup;MacClosedSettings settings;settings.diffusion={};
-    const auto image=MacClosedWorld(setup.registry,setup.eos,setup.state(3,2),settings).checkpoint();
-    check(image[8]==4,"Diffusion checkpoint is not version 4");
-    // Rebuild the unreleased formulation-1 layout (no formulation field).
-    const std::string id="ma-gas-transport-1";std::vector<std::uint8_t> marker{2,0,0,0,static_cast<std::uint8_t>(id.size()),0,0,0};
-    marker.insert(marker.end(),id.begin(),id.end());
-    const auto at=std::search(image.begin(),image.end(),marker.begin(),marker.end());
-    check(at!=image.end(),"Diffusion formulation field is missing");
-    std::vector<std::uint8_t> old(image.begin(),at);old.insert(old.end(),at+4,image.end()-8);
-    std::uint64_t sum=14695981039346656037ULL;for(auto byte:old) { sum^=byte;sum*=1099511628211ULL; }
-    for(int bit=0;bit<64;bit+=8)old.push_back(static_cast<std::uint8_t>(sum>>bit));
-    bool rejected=false;
-    try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,old); }
-    catch(const std::invalid_argument& error) { rejected=std::string(error.what()).find("formulation")!=std::string::npos; }
-    check(rejected,"Unreleased formulation-1 diffusion checkpoint was admitted");
-    std::cout<<"PASS diffusion checkpoint formulation field and unreleased-layout rejection\n";
+std::vector<std::uint8_t> resealed(std::vector<std::uint8_t> bytes) {
+    std::uint64_t sum=14695981039346656037ULL;
+    for(std::size_t i=0;i+8<bytes.size();++i) { sum^=bytes[i];sum*=1099511628211ULL; }
+    for(int bit=0;bit<64;bit+=8)bytes[bytes.size()-8+static_cast<std::size_t>(bit/8)]=static_cast<std::uint8_t>(sum>>bit);
+    return bytes;
+}
+bool rejects(const Setup& setup,const std::vector<std::uint8_t>& bytes) {
+    try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,bytes); }catch(const std::invalid_argument&) { return true; }
+    return false;
+}
+// Checkpoint versions: 2/3 reference, 4 interval kernel (main), 5 diffusion
+// with either kernel. Unreleased version-4 diffusion layouts must reject.
+void checkpoint_version_controls() {
+    Setup setup;
+    for(int mode:{1,2})for(const auto kernel:{MacNumericalKernel::reference,MacNumericalKernel::interval_audited}) {
+        MacClosedSettings settings;settings.diffusion=mode_setting(mode);settings.numerical_kernel=kernel;settings.maximum_timestep_s=.01;
+        const MacClosedWorld owner(setup.registry,setup.eos,setup.state(3,2),settings);const auto image=owner.checkpoint();
+        check(image[8]==5,"Diffusion checkpoint is not version 5");
+        const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
+        check(restored.checkpoint()==image && restored.settings().numerical_kernel==kernel && restored.settings().diffusion.mode==settings.diffusion.mode,
+            "Version-5 checkpoint lost its kernel or diffusion setting");
+        // Diffusion wraps either kernel's flow interval; restore continues exactly.
+        const auto a=owner.advanced(.2,4096,MacExecutionPolicy::exact_equilibrium),b=restored.advanced(.2,4096,MacExecutionPolicy::exact_equilibrium);
+        check(a.world.checkpoint()==b.world.checkpoint() && a.report.diffusion.substeps>0,"Diffusion/kernel continuation differs after restore");
+        if(kernel==MacNumericalKernel::interval_audited)
+            check(a.report.interval_kernel_intervals+a.report.interval_reference_fallbacks>0,"Interval kernel did not run under diffusion");
+        // Rebuild both unreleased version-4 diffusion layouts: formulation 1
+        // (no kernel or formulation fields) and the first fix (no kernel field).
+        const std::string id="ma-gas-transport-1";std::vector<std::uint8_t> marker{2,0,0,0,static_cast<std::uint8_t>(id.size()),0,0,0};
+        marker.insert(marker.end(),id.begin(),id.end());
+        const auto at=std::search(image.begin(),image.end(),marker.begin(),marker.end());
+        check(at!=image.end(),"Diffusion formulation field is missing");
+        const auto formulation=static_cast<std::size_t>(at-image.begin()),kernel_field=formulation-16;
+        for(const bool keep_formulation:{false,true}) {
+            std::vector<std::uint8_t> old(image.begin(),image.begin()+static_cast<std::ptrdiff_t>(kernel_field));
+            old.insert(old.end(),image.begin()+static_cast<std::ptrdiff_t>(kernel_field+4),image.begin()+static_cast<std::ptrdiff_t>(formulation));
+            old.insert(old.end(),image.begin()+static_cast<std::ptrdiff_t>(keep_formulation ? formulation : formulation+4),image.end());
+            old[8]=4;check(rejects(setup,resealed(old)),"Unreleased version-4 diffusion checkpoint was admitted");
+        }
+        auto bad_kernel=image;bad_kernel[kernel_field]=2;check(rejects(setup,resealed(bad_kernel)),"Unknown kernel admitted in version 5");
+        auto bad_formulation=image;bad_formulation[formulation]=1;check(rejects(setup,resealed(bad_formulation)),"Formulation 1 admitted in version 5");
+        auto disabled=image;disabled[kernel_field+4]=0;check(rejects(setup,resealed(disabled)),"Diffusion-disabled version 5 admitted");
+    }
+    // Diffusion-disabled owners keep main's versions: 2 reference, 4 interval.
+    MacClosedSettings reference;const MacClosedWorld plain(setup.registry,setup.eos,setup.state(3,2),reference);check(plain.checkpoint()[8]==2,"Reference owner left version 2");
+    reference.numerical_kernel=MacNumericalKernel::interval_audited;
+    const MacClosedWorld interval(setup.registry,setup.eos,setup.state(3,2),reference);check(interval.checkpoint()[8]==4,"Interval owner left version 4");
+    std::cout<<"PASS checkpoint versions 2/4/5, diffusion with both kernels, unreleased v4 diffusion layouts rejected\n";
 }
 void benchmark(std::size_t cells) {
     Setup setup;const auto profile=GasTransportProfile::standard();std::vector<double> samples;
@@ -492,6 +523,6 @@ void reference_cases() {
 }
 }
 int main(int argc,char** argv) {
-    try { if(argc==3 && std::string(argv[1])=="--benchmark")benchmark(std::stoull(argv[2]));else if(argc==2 && std::string(argv[1])=="--reference")reference_cases();else { analytic();controls();general_range_controls();vacuum_controls();entropy_controls();range_controls();formulation_checkpoint_control();report_composition_control(); }return 0; }
+    try { if(argc==3 && std::string(argv[1])=="--benchmark")benchmark(std::stoull(argv[2]));else if(argc==2 && std::string(argv[1])=="--reference")reference_cases();else { analytic();controls();general_range_controls();vacuum_controls();entropy_controls();range_controls();checkpoint_version_controls();report_composition_control(); }return 0; }
     catch(const std::exception& error) { std::cerr<<"FAIL "<<error.what()<<'\n';return 1; }
 }

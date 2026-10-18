@@ -7,6 +7,16 @@ and release packaging have not been enabled.
 
 ## Implemented
 
+- The opt-in [interval-audited kernel](../native/MAC_INTERVAL_KERNEL.md) now ports
+  the existing donor-cell ideal-gas pressure/transport laws to reusable field
+  buffers and a matrix-free pressure operator. It audits conserved inventories,
+  impulses, energy and entropy before publication, preserves every selected
+  physical law through explicit reference fallback, and persists its numerical
+  implementation in checkpoint version 4. Same-platform continuation, 81-species
+  and 82-passive controls, and 10,000 closed steps pass. Initial 250,000-cell
+  timing is about 10.2 s per 0.1 simulated seconds on one core, still 163 times
+  over the target. Default selectors, strong-flow acceptance and normal colony
+  activation remain open.
 - Compiler/linker-checked IPO defaults on for Release and RelWithDebInfo.
   `-DMA_ENABLE_IPO=OFF` retains a comparison build. Sanitizers disable IPO;
   sanitizer flags now precede every target, fixing missing runtime linkage in

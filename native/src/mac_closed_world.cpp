@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
+#include "mac_interval_kernel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -168,7 +169,8 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportStat
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
-    require(std::isfinite(maximum_timestep_s) && maximum_timestep_s > 0 && maximum_timestep_s <= 1 &&
+    require((numerical_kernel == MacNumericalKernel::reference || numerical_kernel == MacNumericalKernel::interval_audited) &&
+        std::isfinite(maximum_timestep_s) && maximum_timestep_s > 0 && maximum_timestep_s <= 1 &&
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
          preconditioner == PressurePreconditioner::incomplete_cholesky) && std::isfinite(gravity_m_per_s2) && gravity_m_per_s2 >= 0 &&
@@ -532,6 +534,8 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     // initially missed when the diffusion composition was merged).
 #define MA_ADD(field) combine(a.field,b.field)
     MA_ADD(substeps);MA_ADD(attempts);MA_ADD(rejected_attempts);MA_ADD(exact_equilibrium_intervals);
+    MA_ADD(interval_kernel_intervals);MA_ADD(interval_reference_fallbacks);MA_ADD(interval_audit_exact_fallbacks);
+    MA_ADD(interval_audit_retries);MA_ADD(interval_rounded_updates);MA_ADD(interval_unresolved_updates);
     MA_ADD(pressure_iterations);MA_ADD(nonlinear_iterations);MA_ADD(pressure_increment_restarts);MA_ADD(unresolved_heat_updates);MA_ADD(unresolved_momentum_updates);
     MA_ADD(unresolved_gravity_internal_updates);MA_ADD(compression_events);MA_ADD(unresolved_compression_heat_updates);MA_ADD(unresolved_compression_momentum_updates);
     MA_ADD(unresolved_compressive_work_updates);
@@ -619,7 +623,17 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         result.report.full_wall_impulse_y=equilibrium_body.negated();result.report.wall_impulse_y=-result.report.body_impulse_y;
         return result;
     }
+    std::size_t discarded_interval_attempts = 0;
+    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
+        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts);
+        if (candidate) {
+            MacClosedAdvance result{*this, candidate->report}; result.world.state_ = std::move(candidate->state);
+            result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1; return result;
+        }
+    }
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
+    result.report.attempts = discarded_interval_attempts; result.report.rejected_attempts = discarded_interval_attempts;
+    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;
     MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change;
@@ -791,6 +805,12 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         }
     }
     result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
+    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
+        if (!total.within_bound()) throw std::domain_error("MAC reference fallback failed its interval energy audit");
+        result.report.energy_bound_wide_j = total.bound();
+        result.report.energy_bound_j = projected_energy(total.bound(), result.report.rounded_energy_projections);
+        validate_mac_interval_fallback(state_, result.world.state_, result.report);
+    }
     return result;
 }
 }

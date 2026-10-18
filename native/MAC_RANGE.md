@@ -12,6 +12,12 @@ Primary cell storage (constituent masses, U, passive amounts) stays binary64.
 Derived energies, parcels, momentum contributions, canonical J and fluxes carry full
 range behind explicit binary64 projections.
 
+This full-range rule belongs to the reference implementation. Under the
+production contract decided on 2026-10-18
+([numerical contracts](MAC_SOLVER.md#numerical-contracts)), below-range
+contributions may round, provided the rounding is counted and audited per
+interval. Range arithmetic is then needed only for values a cheap check flags.
+
 Code: `mac_energy.hpp`/`.cpp`, `mac_exponent.hpp`/`.cpp`, `mac_scaled.hpp`,
 `mac_fields.hpp`.
 

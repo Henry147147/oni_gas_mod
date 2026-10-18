@@ -29,17 +29,20 @@ All integers are little-endian; floating values are finite IEEE binary64 values
 stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1 GiB and consists of:
 
-1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (4 with
-   diffusion, otherwise 3 with viscosity or 2), and a length-prefixed binary model identity.
+1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
+   reference-kernel viscosity is enabled; 4 for the interval kernel; 5 with gas
+   diffusion, for either kernel), and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
    material/compression/momentum reconstruction settings, conduction flag and
    compression-activated heat enum. Version 3 then adds the shear and bulk viscosity
-   coefficients (binary64). Version 4 includes those coefficients, then diffusion
-   mode/multiplier, the unsigned 32-bit discrete diffusion formulation (2) and
-   the complete immutable transport profile (identity, pair coefficients,
-   validated ranges, estimated flags and sources).
+   coefficients (binary64). Version 4 also includes both viscosity coefficients
+   and the numerical-kernel enum (unsigned 32-bit). Version 5 includes both
+   viscosity coefficients, the numerical-kernel enum (0 or 1), then the diffusion
+   mode, multiplier, the unsigned 32-bit discrete diffusion formulation (2) and the
+   complete immutable transport profile (identity, pair coefficients, validated
+   ranges, estimated flags and sources).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -48,31 +51,53 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    and a length-prefixed canonical decimal exponent.
 8. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
-With diffusion disabled, version 2 is written when both viscosity coefficients
-are zero, so legacy owners keep their exact bytes; a version 3 image with both
+Version 2 is written for the reference kernel whenever both viscosity coefficients
+are zero and diffusion is disabled, so existing reference images retain their
+bytes. A version 3 image with both
 coefficients zero is noncanonical and rejects. Version 1, which lacked the heat
 setting, rejects explicitly: no missing setting is filled from whatever default the
 current binary has.
 
-Versions 2 and 3 explicitly restore with diffusion disabled. Version 4 requires
-enabled diffusion, the current diffusion formulation and an exact matching
-transport profile, including properties and provenance under the same identity.
-Mode changes require explicit opt-in at a completed simulation boundary; loading
-a save cannot enable diffusion.
+### Version assignment
 
-The formulation field was added to the version-4 layout when the diffusion
-flux became pressure-diffusion and entropy consistent
-([formulation 2](MAC_DIFFUSION.md#discrete-face-flux)). Version-4 images were
-never released. An image of the earlier layout reads its profile-identity
-length where the formulation is expected and rejects with "Unsupported saved gas
-diffusion formulation"; it never restores under different physics. Versions 2
-and 3 are unchanged byte for byte.
+Each owner writes the lowest version that represents its settings:
 
-The managed paired-colony wrapper admits the version 4 metadata prefix for
-ordinary, actor and configured-domain images. Full native admission still
-validates the viscosity values, diffusion settings and exact transport profile
-against the saved domain before activation. The enclosing paired-payload
-versions and legacy bytes are unchanged; unknown solver versions reject.
+| Version | Kernel | Viscosity | Gas diffusion |
+| --- | --- | --- | --- |
+| 2 | reference | off | off |
+| 3 | reference | on | off |
+| 4 | interval audited (1) | either | off |
+| 5 | reference (0) or interval audited (1) | either | physical or accelerated |
+
+Version 4 requires numerical kernel 1 (`interval_audited`). It restores that
+selection before advancing, including when an unsupported state takes the retained
+reference path. Kernel 0 continues to write versions 2/3; a version 4 image with
+kernel 0 or an unknown selector rejects as noncanonical/unsupported.
+
+Version 5 requires enabled diffusion, a known kernel selector, the current
+diffusion formulation and an exact matching transport profile, including
+properties and provenance under the same identity. A version 5 image with
+diffusion disabled is noncanonical and rejects. Versions 2–4 explicitly restore
+with diffusion disabled. Mode changes require explicit opt-in at a completed
+simulation boundary; loading a save cannot enable diffusion.
+
+Neither the interval-kernel version 4 nor diffusion images had been released
+when the two were merged, so diffusion moved from the version 4 it used on its
+development branch to version 5. Main's version-4 bytes are unchanged. Both
+earlier diffusion-branch layouts (formulation 1, and the first formulation-2
+layout without a kernel field) now read as version 4. There their diffusion
+mode lands in the kernel field. An accelerated image (mode 2) rejects as an
+unknown kernel. A physical image (mode 1) passes that check but then reads its
+multiplier's low word (zero) as the cell count, and rejects with "Saved MAC
+geometry disagrees with its payload". Neither can restore under different
+physics. Versions 2 and 3 are unchanged byte for byte.
+
+The managed paired-colony wrapper admits the version 5 metadata prefix for
+ordinary, actor and configured-domain images. Version 4 stays rejected there,
+because the game never selects the interval kernel. Full native admission still
+validates the viscosity values, kernel, diffusion settings and exact transport
+profile against the saved domain before activation. The enclosing paired-payload
+versions and legacy bytes are unchanged, and unknown solver versions reject.
 
 An explicit diffusion change during the bounded managed continuation audit
 starts a new reference segment at the same clock and frame, retaining the exact
@@ -90,6 +115,7 @@ older reader rejects a value it does not know):
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic/quadratic, 3 coupled compressive pressure |
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
+| Numerical kernel (versions 4, 5) | 0 reference (version 5 only; implicit in versions 2/3), 1 interval audited |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must

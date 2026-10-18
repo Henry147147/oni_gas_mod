@@ -37,6 +37,19 @@ Amendments:
   configuration must not become the production default. The first implementation
   slice and its remaining blockers are recorded in
   [production timestep progress](production-timestep-progress.md).
+- **Solver contracts, 2026-10-18 (user decision):** relax the per-stage
+  numerical contracts to interval-level conservation audits, so the substep
+  kernel can be replaced for performance
+  ([scaling analysis](solver-scaling-analysis.md)). The production contract is
+  in [MAC_SOLVER.md](../native/MAC_SOLVER.md#numerical-contracts). The current
+  strict implementation stays buildable and tested as the validation reference.
+  Physical model, selectors, conservation of every constituent and energy,
+  determinism, checkpoints and the accuracy tolerances below are unchanged.
+- **Calm-region steps, 2026-10-18 (user decision):** accept larger
+  calm-region steps with local subcycling, one of milestone B's ordered
+  approximations, for the production kernel. Fluxes stay shared between
+  differently stepped regions, so conservation holds by construction. Accuracy
+  is still judged against resolved references with the tolerances below.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;

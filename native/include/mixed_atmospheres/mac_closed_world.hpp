@@ -19,6 +19,9 @@ enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic
 enum class MacShockHeatRegularization {
     none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3
 };
+// Persisted numerical implementation. The interval kernel retains the selected
+// physical laws and falls back to the reference for unsupported/range cases.
+enum class MacNumericalKernel { reference = 0, interval_audited = 1 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -34,8 +37,10 @@ struct MacClosedSettings {
     bool thermal_conduction = false;
     MacShockHeatRegularization shock_heat = MacShockHeatRegularization::pressure_sensed_acoustic;
     MacViscosity viscosity;
+    MacNumericalKernel numerical_kernel = MacNumericalKernel::reference;
     // Legacy/reference callers retain their trajectories. New game sessions
     // explicitly select physical diffusion; old checkpoints restore disabled.
+    // Diffusion composes with either numerical kernel (it wraps each flow interval).
     MacDiffusionSettings diffusion=MacDiffusionSettings::disabled();
     void validate() const;
 };
@@ -101,6 +106,9 @@ struct MacClosedSubstep {
 
 struct MacClosedAdvanceReport {
     MacDiffusionReport diffusion;
+    std::size_t interval_kernel_intervals = 0, interval_reference_fallbacks = 0;
+    std::size_t interval_audit_exact_fallbacks = 0, interval_audit_retries = 0;
+    std::size_t interval_rounded_updates = 0, interval_unresolved_updates = 0;
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
     std::size_t exact_equilibrium_intervals = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
