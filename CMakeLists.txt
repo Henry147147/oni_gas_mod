@@ -9,8 +9,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Used only by the explicit experimental FluidWorld geometry/EOS mode. The
-# existing GasWorld/C ABI do not select it. Keep its independent test project.
+# Reference EOS used through FluidThermodynamics by MacClosedWorld (the
+# production solver) and the experimental FluidWorld geometry mode. GasWorld
+# and its C ABI do not select it. Keep its independent test project.
 add_library(ma_fluid_reference STATIC native/experimental/liquid_reference.cpp)
 set_target_properties(ma_fluid_reference PROPERTIES POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)

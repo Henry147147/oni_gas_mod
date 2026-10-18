@@ -6,8 +6,9 @@
 #include <string>
 #include <vector>
 
-// Thermodynamic prototype, tested standalone and used through the explicit
-// experimental FluidWorld bridge. GasWorld and the C ABI do not select it.
+// Reference thermodynamics, tested standalone and used through FluidThermodynamics
+// by MacClosedWorld and the experimental FluidWorld bridge. GasWorld and the C
+// ABI do not select it.
 // All energies below exclude bulk kinetic energy.
 namespace ma::experimental {
 inline constexpr double reference_gas_constant = 8.31446261815324;

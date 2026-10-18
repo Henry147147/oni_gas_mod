@@ -42,6 +42,7 @@ EXPERIMENT_TESTS = {
     "protected_hybrid_nonlinear_passive": "ma_occupied_staggered_hybrid_nonlinear_tests",
 }
 REFERENCE_TESTS = {"liquid_reference_thermodynamics": "liquid_reference_tests"}
+REFERENCE_GROUPS = 27  # distinct PASS groups in native/experimental/liquid_reference_tests.cpp
 LEGACY = "positive_staggered_rezone"
 LEGACY_SOURCE = "native/tests/occupied_staggered_remap_tests.cpp"
 LEGACY_SOURCE_SHA256 = "f2184c67aac6191a7d63923b57faa45f6d1fbf09f15f49298546de223a3b37ba"
@@ -236,8 +237,8 @@ def validate_reference(run: Run) -> None:
     identifiers = validate_ctest(run, set(REFERENCE_TESTS))
     body = native_lines(run.text, identifiers["liquid_reference_thermodynamics"])
     passes = re.findall(r"^PASS (.*)$", body, re.M)
-    require(len(passes) == len(set(passes)) == 26 and not re.findall(r"^FAIL ", body, re.M),
-            "Independent thermodynamic reference must execute all 26 distinct passing groups")
+    require(len(passes) == len(set(passes)) == REFERENCE_GROUPS and not re.findall(r"^FAIL ", body, re.M),
+            f"Independent thermodynamic reference must execute all {REFERENCE_GROUPS} distinct passing groups")
 
 
 def nonlinear_output(run: Run, build: Path, before: set[Path], *, enclosing_ctest_exit: int = 0) -> Path:
@@ -431,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
         validate_discovery(clean_run(reference_discovered, 0), REFERENCE_TESTS, reference)
         reference_run = execute([args.ctest, "--test-dir", str(reference), "--timeout", timeout, "-V"], ROOT, "reference-ctest.log")
         validate_reference(reference_run)
-        summary["reference_groups_passed"] = 26
+        summary["reference_groups_passed"] = REFERENCE_GROUPS
         binary_files = sorted(path for directory in (build, reference) for path in directory.iterdir()
                               if path.is_file() and (path.suffix in {".exe", ".dll", ".lib", ".a", ".so"} or
                                                      path.name in set(expected.values()) | set(REFERENCE_TESTS.values())))

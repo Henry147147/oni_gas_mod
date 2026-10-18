@@ -25,8 +25,8 @@ struct FluidThermodynamicInitialization {
     double initialized_elastic_energy_j = 0;
 };
 
-// Immutable registry/profile bridge for the opt-in experimental FluidWorld
-// geometry mode. Inventory U includes elastic energy. Legacy inventory caloric
+// Immutable registry/profile bridge used by MacClosedWorld and the opt-in
+// experimental FluidWorld geometry mode. Inventory U includes elastic energy. Legacy inventory caloric
 // temperature and nominal condensed-volume helpers are not this mode's EOS.
 class FluidThermodynamics {
 public:

@@ -36,7 +36,7 @@ def ctest_output(names: list[str], failures: set[str] | None = None) -> str:
         if name == evidence.LEGACY:
             body = LEGACY_OUTPUT
         elif name == "liquid_reference_thermodynamics":
-            body = "\n".join(f"PASS synthetic reference fixture {index}" for index in range(26))
+            body = "\n".join(f"PASS synthetic reference fixture {index}" for index in range(evidence.REFERENCE_GROUPS))
         else:
             body = evidence.GROUP_SUMMARIES.get(name, "PASS synthetic fixture")
         lines += [f"{identifier}: {line}" for line in body.splitlines()]
@@ -191,11 +191,12 @@ class StaggeredEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(evidence.EvidenceError, "Timed out"):
             evidence.validate_ctest(run(ctest_output(list(evidence.DEFAULT_TESTS)), timed_out=True), set(evidence.DEFAULT_TESTS))
 
-    def test_reference_requires_26_distinct_executed_groups(self):
+    def test_reference_requires_every_distinct_executed_group(self):
         text = ctest_output(list(evidence.REFERENCE_TESTS))
         evidence.validate_reference(run(text))
-        for faulty in (text.replace("1: PASS synthetic reference fixture 25\n", ""),
-                       text.replace("fixture 25", "fixture 24"), text + "runtime error: divide by zero\n"):
+        last = evidence.REFERENCE_GROUPS - 1
+        for faulty in (text.replace(f"1: PASS synthetic reference fixture {last}\n", ""),
+                       text.replace(f"fixture {last}", f"fixture {last - 1}"), text + "runtime error: divide by zero\n"):
             with self.assertRaises(evidence.EvidenceError):
                 evidence.validate_reference(run(faulty))
 

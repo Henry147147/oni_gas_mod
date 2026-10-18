@@ -76,7 +76,7 @@ struct FluidStepResult {
 // GasWorld and its existing ABI remain the separate explicit reference path.
 // The explicit FluidGeometry1D overload instead uses occupied intervals and a
 // versioned elastic EOS. Its bounded liquid/free-surface validation and opt-in
-// representability approximation are documented in native/FREE_SURFACES.md.
+// representability approximation are documented in native/FLUID_WORLD.md.
 // Gas/vacuum rarefaction convergence and 2-D interfaces are not validated here.
 class FluidWorld {
 public:
