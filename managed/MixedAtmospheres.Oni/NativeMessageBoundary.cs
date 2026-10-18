@@ -79,10 +79,20 @@ namespace MixedAtmospheres.Oni
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleActorMessage(message, length, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active) NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload);
+                // Development telemetry only: wall time of the game thread in
+                // the native frame submit/wait and the managed publication.
+                var timed = DevelopmentTelemetry.Active && (message == DevelopmentTelemetrySampler.NewGameFrameMessage ||
+                    message == DevelopmentTelemetrySampler.PrepareGameDataMessage);
+                var started = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 var native = Sim.SIM_HandleMessage(message, length, payload);
+                var returned = timed ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                var processed = timed && message == DevelopmentTelemetrySampler.PrepareGameDataMessage && native != IntPtr.Zero
+                    ? ((Sim.GameDataUpdate*)native)->numFramesProcessed : 0;
                 NativeBackendObservation.AfterNativeMessage(message);
                 if (NativeSealedDomainValidation.IsMode) native = NativeSealedDomainValidation.AfterNativeMessage(message, native);
-                return ColonyRuntimeValidation.AfterNativeMessage(message, native);
+                var published = ColonyRuntimeValidation.AfterNativeMessage(message, native);
+                if (timed) DevelopmentTelemetry.Sampler.RecordNativeMessage(message, started, returned, System.Diagnostics.Stopwatch.GetTimestamp(), processed);
+                return published;
             }
             if (length < 0 || (length != 0 && payload == null)) throw new ArgumentException("Invalid scoped message payload.");
             switch ((SimMessageHashes)message)

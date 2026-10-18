@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import struct
 import sys
@@ -1667,6 +1668,217 @@ class SpawnLifetimeTests(unittest.TestCase):
                 runner.spawn(["unit-never-executed"], Path(directory) / "console.log", {})
             cleanup.assert_not_called()
             self.assertEqual(runner.CHILDREN, {})
+
+
+
+ROOT = Path(__file__).resolve().parents[2]
+CONFIGURATION_SOURCE = ROOT / "managed/MixedAtmospheres.Oni/ColonyValidationConfiguration.cs"
+
+
+def _run_args(**values):
+    from types import SimpleNamespace
+    base = dict(mode="native-domain", frames=120, timeout=600, long_run=False, telemetry_interval_frames=None, keep_open=False,
+                save_colony=False, resave_before_resume=False, load_save=None)
+    base.update(values)
+    return SimpleNamespace(**base)
+
+
+def _telemetry_line(sequence, reason, session="unit-session", **values):
+    line = {"Kind": runner.TELEMETRY_KIND, "SchemaVersion": 1, "DevelopmentOnly": True, "Session": session,
+            "Sequence": sequence, "Reason": reason, "NativeFramesProcessed": 300 * sequence,
+            "Game": {"Cycle": sequence}, "NativeDomain": {"State": 1, "ValidationFrames": 300 * sequence,
+            "MaximumRelativeMassError": 1e-12 * sequence, "MaximumRelativeEnergyError": 0.0, "RejectedAttempts": sequence},
+            "Latency": {"NativeFrameWaitMs": {"Samples": 300, "Retained": 300, "P50": 2.0, "P95": 4.0 + sequence, "Max": 9.0, "Mean": 2.5},
+                        "PresentationLagMs": {"Samples": 0, "Retained": 0, "P50": None, "P95": None, "Max": None, "Mean": None}},
+            "Memory": {"ResidentBytes": 1000 + sequence, "PeakResidentBytes": 2000, "ManagedHeapBytes": 500}}
+    line.update(values)
+    return line
+
+
+def _write_telemetry(path: Path, lines) -> None:
+    path.write_text("".join((value if isinstance(value, str) else json.dumps(value, separators=(",", ":"))) + "\n" for value in lines))
+
+
+class LongRunLimitTests(unittest.TestCase):
+    def test_short_limits_are_unchanged_and_name_the_long_run_opt_in(self):
+        self.assertIsNone(runner.run_limits_error(_run_args(frames=10000, timeout=7200)))
+        self.assertIsNone(runner.run_limits_error(_run_args(mode="presentation", frames=1, timeout=30)))
+        for values in ({"frames": 0}, {"frames": 10001}, {"frames": 30000}, {"timeout": 29}, {"timeout": 7201}, {"timeout": 172800}):
+            with self.subTest(values=values):
+                error = runner.run_limits_error(_run_args(**values))
+                self.assertIsNotNone(error)
+                self.assertIn("requires --long-run" if max(values.values()) > 7200 else "requires", error)
+        self.assertIn("requires --long-run", runner.run_limits_error(_run_args(telemetry_interval_frames=300)))
+
+    def test_long_run_admits_ten_cycles_with_margin_and_rejects_unaudited_scenes_or_fixtures(self):
+        for mode in runner.LONG_RUN_MODES:
+            self.assertIsNone(runner.run_limits_error(_run_args(mode=mode, frames=30000, timeout=172800, long_run=True)))
+            self.assertIsNone(runner.run_limits_error(_run_args(mode=mode, frames=100000, timeout=30, long_run=True, telemetry_interval_frames=10)))
+        for values in ({"frames": 100001}, {"timeout": 172801}, {"telemetry_interval_frames": 9}, {"telemetry_interval_frames": 10001},
+                       {"telemetry_interval_frames": True}, {"mode": "menu"}, {"mode": "native-heat-domain"},
+                       {"mode": "native-load-domain"}, {"mode": "presentation"}, {"save_colony": True}, {"load_save": Path("/x.sav")},
+                       {"verify_natural_autosave": True}, {"verify_live_breathing": True}, {"reload_in_process": True}):
+            with self.subTest(values=values):
+                self.assertIsNotNone(runner.run_limits_error(_run_args(**dict(dict(frames=30000, timeout=172800, long_run=True), **values))))
+
+    def test_parser_rejects_widened_limits_without_the_explicit_opt_in(self):
+        for extra in (["--frames", "30000"], ["--timeout", "86400"], ["--telemetry-interval-frames", "60"],
+                      ["--long-run", "--mode", "native-load-domain", "--load-save", "/dev/null"], ["--long-run", "--mode", "menu"]):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as state, \
+                    mock.patch.object(sys, "argv", ["oni_headless", "--state", state, "run", "--package", state,
+                                                    *(["--mode", "native-domain"] if "--mode" not in extra else []), *extra]), \
+                    contextlib.redirect_stderr(io.StringIO()) as error, self.assertRaises(SystemExit) as raised:
+                runner.main()
+            self.assertEqual(raised.exception.code, 2)
+            self.assertRegex(error.getvalue(), "--long-run|requires")
+
+    def test_parser_defaults_keep_short_runs_and_give_long_runs_ten_cycles_and_48_hours(self):
+        seen = []
+        for extra, expected in (([], (30, 600)), (["--long-run"], (30000, 172800)),
+                                (["--long-run", "--frames", "600", "--timeout", "3600"], (600, 3600))):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as state, \
+                    mock.patch.object(sys, "argv", ["oni_headless", "--state", state, "run", "--package", state, "--mode", "native-domain", *extra]), \
+                    mock.patch.object(runner, "locked_command", side_effect=lambda args, state, session: seen.append((args.frames, args.timeout)) or 0):
+                self.assertEqual(runner.main(), 0)
+            self.assertEqual(seen[-1], expected)
+
+    def test_short_configuration_keeps_its_original_keys_and_long_run_adds_explicit_telemetry(self):
+        short = runner.colony_configuration(_run_args(), "MA-unit", None, 0)
+        self.assertEqual(set(short), {"Mode", "AutoStartNewColony", "ReuseGeneratedWorld", "CompletedFrames", "TimeoutSeconds",
+                                      "QuitWhenComplete", "Seed", "ColonyName", "PrivateOwnedLoadRejection", "LoadSavePath",
+                                      "SaveOnComplete", "SaveBeforeResume"})
+        self.assertNotIn("LongRun", short)
+        long_run = runner.colony_configuration(_run_args(frames=30000, timeout=172800, long_run=True), "MA-unit", None, 0)
+        self.assertEqual((long_run["LongRun"], long_run["TelemetryIntervalFrames"], long_run["CompletedFrames"], long_run["TimeoutSeconds"]),
+                         (True, 300, 30000, 172800))
+        self.assertEqual(runner.colony_configuration(_run_args(long_run=True, telemetry_interval_frames=60), "MA-unit", None, 0)
+                         ["TelemetryIntervalFrames"], 60)
+        # A Mock argument object is never mistaken for an explicit opt-in.
+        self.assertNotIn("LongRun", runner.colony_configuration(mock.Mock(mode="native-domain", frames=1, timeout=30, keep_open=False,
+                                                                          load_save=None), "MA-unit", None, 0))
+
+    def test_runner_and_visual_demo_requests_match_the_managed_configuration_and_limits(self):
+        source = CONFIGURATION_SOURCE.read_text(encoding="utf-8")
+        fields = set(re.findall(r"public (?:bool|int|string) (\w+) =", source))
+        everything = _run_args(frames=30000, timeout=172800, long_run=True, verify_natural_autosave=True, verify_persistent_actors=True,
+                               verify_live_breathing=True, verify_transient_particles=True, subnormal_carbon_particle=True,
+                               verify_save_io_recovery=True, reload_in_process=True)
+        self.assertLessEqual(set(runner.colony_configuration(everything, "MA-unit", Path("/x.sav"), 0)), fields)
+        spec = importlib.util.spec_from_file_location("configure_visual_demo", ROOT / "tools/configure_visual_demo.py")
+        demo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(demo)
+        for long_run in (False, True):
+            self.assertLessEqual(set(demo.configuration("mixed", long_run)), fields)
+        constants = dict(re.findall(r"(\w+) = ([0-9][0-9 *]*)[,;]", source))
+        self.assertEqual(eval(constants["MaximumFrames"]), runner.FRAME_LIMIT)
+        self.assertEqual(eval(constants["MaximumLongRunFrames"]), runner.LONG_RUN_FRAME_LIMIT)
+        self.assertEqual(eval(constants["MaximumTimeoutSeconds"]), runner.TIMEOUT_LIMIT)
+        self.assertEqual(eval(constants["MaximumLongRunTimeoutSeconds"]), runner.LONG_RUN_TIMEOUT_LIMIT)
+        self.assertEqual(eval(constants["DefaultTelemetryIntervalFrames"]), runner.TELEMETRY_INTERVAL_DEFAULT)
+        self.assertEqual((eval(constants["MinimumTelemetryIntervalFrames"]), eval(constants["MaximumTelemetryIntervalFrames"])),
+                         runner.TELEMETRY_INTERVAL_LIMITS)
+        modes = re.search(r"LongRunModes =\s*\{([^}]*)\}", source).group(1)
+        self.assertEqual(tuple(re.findall(r'"([^"]+)"', modes)), runner.LONG_RUN_MODES)
+        self.assertEqual(set(demo.SCENES.values()) - set(runner.LONG_RUN_MODES), set())
+        self.assertIn(f'FileName = "{runner.TELEMETRY_FILE}"', (ROOT / "managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs").read_text())
+        self.assertIn(f'Kind = "{runner.TELEMETRY_KIND}"', (ROOT / "managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs").read_text())
+
+
+class LongRunTelemetryTests(unittest.TestCase):
+    def test_watchdog_reports_a_stall_only_after_the_file_stops_growing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / runner.TELEMETRY_FILE
+            watch = runner.TelemetryWatch(path, 1000, stall_seconds=900)
+            self.assertFalse(watch.poll(1899))
+            self.assertTrue(watch.poll(1900))  # Never appeared after launch.
+            path.write_text("{}\n")
+            self.assertFalse(watch.poll(1901))
+            self.assertFalse(watch.poll(2800))
+            path.write_text("{}\n{}\n")
+            self.assertFalse(watch.poll(2801))
+            self.assertTrue(watch.poll(3701))
+
+    def test_tail_reader_returns_the_last_complete_telemetry_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / runner.TELEMETRY_FILE
+            self.assertIsNone(runner.last_telemetry_line(path))
+            _write_telemetry(path, [_telemetry_line(1, "start"), _telemetry_line(2, "interval"), '{"Kind": "other"}'])
+            with path.open("a") as stream:
+                stream.write('{"Kind":"mixed-atmos')  # A line Unity is still writing.
+            self.assertEqual(runner.last_telemetry_line(path)["Sequence"], 2)
+            self.assertFalse(runner.telemetry_final(path))
+            self.assertIn("frames=600 cycle=2", runner.telemetry_progress(runner.last_telemetry_line(path)))
+            self.assertEqual(runner.last_telemetry_line(path, limit=40), None)
+            _write_telemetry(path, [_telemetry_line(1, "start"), _telemetry_line(2, "final")])
+            self.assertTrue(runner.telemetry_final(path))
+
+    def test_summary_and_gate_require_one_complete_error_free_session(self):
+        report = {"LongRun": True, "DevelopmentTelemetryError": "", "DevelopmentTelemetryTruncated": False, "DevelopmentTelemetryLines": 3}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / runner.TELEMETRY_FILE
+            missing = runner.telemetry_summary(path)
+            self.assertFalse(missing["present"])
+            self.assertFalse(runner.long_run_telemetry_passed(missing, report))
+            _write_telemetry(path, [_telemetry_line(1, "start"), _telemetry_line(2, "heartbeat"), _telemetry_line(3, "final")])
+            summary = runner.telemetry_summary(path)
+            self.assertEqual((summary["lines"], summary["sessions"], summary["reasons"], summary["final_line"], summary["invalid_lines"]),
+                             (3, ["unit-session"], {"start": 1, "heartbeat": 1, "final": 1}, True, 0))
+            self.assertEqual(summary["maxima"]["NativeFrameWaitMs.P95"], 7.0)
+            self.assertEqual(summary["maxima"]["Memory.ResidentBytes"], 1003)
+            self.assertEqual(summary["maxima"]["NativeDomain.RejectedAttempts"], 3)
+            self.assertNotIn("PresentationLagMs.Max", summary["maxima"])
+            self.assertTrue(summary["development_only"])
+            self.assertTrue(runner.long_run_telemetry_passed(summary, report))
+            for changed in ({"DevelopmentTelemetryError": "IOException"}, {"DevelopmentTelemetryTruncated": True},
+                            {"DevelopmentTelemetryLines": 2}, {"LongRun": False}):
+                with self.subTest(report=changed):
+                    self.assertFalse(runner.long_run_telemetry_passed(summary, dict(report, **changed)))
+            self.assertFalse(runner.long_run_telemetry_passed(summary, None))
+            for lines in ([_telemetry_line(1, "start"), _telemetry_line(2, "interval"), _telemetry_line(3, "sim-shutdown")],
+                          [_telemetry_line(1, "start"), _telemetry_line(2, "final"), _telemetry_line(3, "start", session="other")],
+                          [_telemetry_line(1, "start"), "not json", _telemetry_line(3, "final")],
+                          [_telemetry_line(1, "start"), _telemetry_line(2, "interval", DevelopmentOnly=False), _telemetry_line(3, "final")],
+                          [_telemetry_line(1, "final")]):
+                with self.subTest(lines=[getattr(line, "get", lambda key: line)("Reason") for line in lines]):
+                    _write_telemetry(path, lines)
+                    self.assertFalse(runner.long_run_telemetry_passed(runner.telemetry_summary(path), dict(report, DevelopmentTelemetryLines=len(lines))))
+            with mock.patch.object(runner, "TELEMETRY_MAXIMUM_BYTES", 10):
+                self.assertIn("exceeds", runner.telemetry_summary(path)["error"])
+
+    def _long_run_playtest(self, telemetry: bool):
+        report = {"Status": "passed", "GameStarted": True, "LongRun": True, "DevelopmentTelemetryError": "",
+                  "DevelopmentTelemetryTruncated": False, "DevelopmentTelemetryLines": 2}
+
+        def stage(package, mod, manifest):
+            reports = mod / "game-contract-local/colony-validation"
+            reports.mkdir(parents=True)
+            (reports / "colony-validation.json").write_text(json.dumps(report))
+            if telemetry:
+                _write_telemetry(reports / runner.TELEMETRY_FILE, [_telemetry_line(1, "start"), _telemetry_line(2, "final")])
+
+        with _mock_playtest_case(outcome=("passed-snapshot-copy", 0)) as (args, state, session, record, events, writes, cleanup), \
+                mock.patch.object(runner, "stage_package", side_effect=stage):
+            args.mode, args.frames, args.timeout, args.long_run, args.telemetry_interval_frames = "snapshot-copy", 30000, 172800, True, None
+            code = runner.playtest(args, state, session)
+            request = next(value for path, value in writes if path.name == "colony-validation.json")
+            result = next(value for path, value in writes if path.name == "result.json")
+            return code, request, result
+
+    def test_long_run_playtest_requests_telemetry_and_fails_without_a_complete_session(self):
+        code, request, result = self._long_run_playtest(telemetry=True)
+        self.assertEqual((code, result["status"], result["long_run"], result["development_telemetry_passed"]), (0, "passed-snapshot-copy", True, True))
+        self.assertEqual((request["LongRun"], request["TelemetryIntervalFrames"], request["CompletedFrames"]), (True, 300, 30000))
+        self.assertEqual(result["development_telemetry"]["lines"], 2)
+        self.assertFalse(result["telemetry_stalled"])
+        code, request, result = self._long_run_playtest(telemetry=False)
+        self.assertEqual((code, result["status"], result["development_telemetry_passed"]), (2, "failed-long-run-telemetry", False))
+        self.assertFalse(result["development_telemetry"]["present"])
+
+    def test_short_playtest_records_no_long_run_telemetry(self):
+        with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+            self.assertEqual(runner.playtest(args, state, session), 0)
+            result = next(value for path, value in writes if path.name == "result.json")
+            self.assertEqual((result["long_run"], result["development_telemetry"], result["development_telemetry_passed"]), (False, None, False))
 
 
 if __name__ == "__main__":

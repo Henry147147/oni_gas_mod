@@ -53,6 +53,7 @@ namespace MixedAtmospheres.Oni
         private static int heatPacketsRouted;
         private static TransferStatus transferStatus;
         private static Receipt[] completedReceipts = Array.Empty<Receipt>();
+        private static readonly Receipt[] ReceiptBuffer = new Receipt[4096];
         private static ulong deliveredReceipt;
         private static long transferPacketsRouted, receiptsPublished;
         private static bool transfersSubmitted, transfersVerified, transfersAvoidedNativeDispatch;
@@ -445,7 +446,9 @@ namespace MixedAtmospheres.Oni
         {
             var held = (Cell[])cells.Clone(); var previous = latest.CompletedFrames;
             var next = Status.Empty; var values = new Cell[Width * Height];
-            var receipts = new Receipt[4096];
+            // One reused copy buffer: Capture runs on every published frame,
+            // and only the first count records are ever read back.
+            var receipts = ReceiptBuffer;
             Check(CopyReceipts(ref next, values, (uint)values.Length, receipts, (uint)receipts.Length, out var count));
             if (count > receipts.Length) throw new InvalidOperationException("Native receipt count exceeds capacity.");
             completedReceipts = receipts.Take(checked((int)count)).ToArray();

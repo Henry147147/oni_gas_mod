@@ -14,6 +14,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureHoverLayout.cs" Link="MixtureHoverLayout.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureHoverViewport.cs" Link="MixtureHoverViewport.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixturePresentationRuntime.cs" Link="MixturePresentationRuntime.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs" Link="DevelopmentTelemetry.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureContainerVisualValidation.cs" Link="MixtureContainerVisualValidation.cs" />
     <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>

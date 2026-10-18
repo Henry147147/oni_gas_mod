@@ -59,6 +59,20 @@ MOD_FRAME = re.compile(r"MixedAtmospheres\.|DMD<|HarmonyLib\.")
 HARMONY_FAILURE = re.compile(r"HarmonyException|Patching exception", re.IGNORECASE)
 SHUTDOWN_ABORT = "Thread was being aborted"
 MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# Mirrors ColonyValidationLimits (ColonyValidationConfiguration.cs). Ten ONI
+# cycles are about 30,000 native 0.2 s frames; long runs are an explicit opt-in.
+FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
+TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
+TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
+LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain")
+TELEMETRY_FILE = "development-telemetry.jsonl"
+TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
+# The game writes a telemetry heartbeat at least every 60 s of wall time.
+TELEMETRY_STALL_SECONDS = 900
+TELEMETRY_PROGRESS_SECONDS = 300
+TELEMETRY_FINAL_WAIT_SECONDS = 30
+TELEMETRY_MAXIMUM_BYTES = 64 << 20
+RUNNER_GRACE_SECONDS, LONG_RUN_GRACE_SECONDS = 60, 600
 
 
 def read_json(path: Path) -> dict:
@@ -574,6 +588,160 @@ def native_observer_passed(manifest: dict, report: dict | None) -> bool:
             and reading.get("AuthoritativeFluidOwner") is False and reading.get("OniBuild") == 744825)
 
 
+def run_limits_error(args) -> str | None:
+    """Return the parser error for frame/timeout/long-run limits, or None."""
+    long_run = getattr(args, "long_run", False) is True
+    interval = getattr(args, "telemetry_interval_frames", None)
+    frames, timeout = (LONG_RUN_FRAME_LIMIT, LONG_RUN_TIMEOUT_LIMIT) if long_run else (FRAME_LIMIT, TIMEOUT_LIMIT)
+    if type(args.frames) is not int or not 1 <= args.frames <= frames:
+        return f"--frames requires 1..{frames}" + ("" if long_run else f"; up to {LONG_RUN_FRAME_LIMIT} requires --long-run")
+    if type(args.timeout) is not int or not 30 <= args.timeout <= timeout:
+        return f"--timeout requires 30..{timeout} seconds" + ("" if long_run else f"; up to {LONG_RUN_TIMEOUT_LIMIT} requires --long-run")
+    if interval is not None and not long_run:
+        return "--telemetry-interval-frames requires --long-run"
+    if interval is not None and (type(interval) is not int or not TELEMETRY_INTERVAL_LIMITS[0] <= interval <= TELEMETRY_INTERVAL_LIMITS[1]):
+        return "--telemetry-interval-frames requires {}..{} native frames".format(*TELEMETRY_INTERVAL_LIMITS)
+    if long_run and args.mode not in LONG_RUN_MODES:
+        return "--long-run admits only " + ", ".join(LONG_RUN_MODES)
+    fixtures = ("save_colony", "resave_before_resume", "verify_save_io_recovery", "verify_natural_autosave", "verify_persistent_actors",
+                "verify_live_breathing", "verify_transient_particles", "subnormal_carbon_particle", "reload_in_process")
+    if long_run and (any(getattr(args, name, False) is True for name in fixtures) or getattr(args, "load_save", None)):
+        return "--long-run excludes fixed-window save, reload, actor, breathing and particle controls"
+    return None
+
+
+def colony_configuration(args, name: str, load_fixture: Path | None, inspection_seconds: int) -> dict:
+    """The private colony-validation.json request; short runs keep their original keys."""
+    configuration = {
+        "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
+        "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout,
+        "QuitWhenComplete": not args.keep_open and not inspection_seconds, "Seed": "147147", "ColonyName": name,
+        "PrivateOwnedLoadRejection": args.mode == "load-rejection",
+        "LoadSavePath": str(load_fixture) if load_fixture else "",
+        "SaveOnComplete": bool(getattr(args, "save_colony", False)),
+        "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
+        **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
+        **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
+        **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
+        **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
+        **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {}),
+        **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
+        **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
+    }
+    if getattr(args, "long_run", False) is True:
+        interval = getattr(args, "telemetry_interval_frames", None)
+        configuration.update(LongRun=True, TelemetryIntervalFrames=TELEMETRY_INTERVAL_DEFAULT if interval is None else interval)
+    return configuration
+
+
+class TelemetryWatch:
+    """Host-clock watchdog for a long run's append-only development telemetry."""
+
+    def __init__(self, path: Path, started: float, stall_seconds: int = TELEMETRY_STALL_SECONDS):
+        self.path, self.stall_seconds = path, stall_seconds
+        self.size, self.changed = -1, started
+
+    def poll(self, now: float) -> bool:
+        """Record growth; return True once the file has not grown for stall_seconds."""
+        try:
+            size = self.path.stat().st_size
+        except OSError:
+            size = -1
+        if size != self.size:
+            self.size, self.changed = size, now
+        return now - self.changed >= self.stall_seconds
+
+
+def last_telemetry_line(path: Path, limit: int = 1 << 16) -> dict | None:
+    """The last complete telemetry object, reading only the file's tail."""
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            stream.seek(max(0, size - limit))
+            tail = stream.read()
+    except OSError:
+        return None
+    for line in reversed(tail.split(b"\n")):
+        try:
+            value = json.loads(line)
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(value, dict) and value.get("Kind") == TELEMETRY_KIND:
+            return value
+    return None
+
+
+def telemetry_final(path: Path) -> bool:
+    line = last_telemetry_line(path)
+    return line is not None and line.get("Reason") == "final"
+
+
+def telemetry_progress(line: dict) -> str:
+    """One compact host-side progress line for a running long run."""
+    game, domain, latency, memory = (line.get(key) or {} for key in ("Game", "NativeDomain", "Latency", "Memory"))
+    wait = (latency.get("NativeFrameWaitMs") or {}).get("P95")
+    return (f"long-run telemetry #{line.get('Sequence')} {line.get('Reason')}: frames={line.get('NativeFramesProcessed')} "
+            f"cycle={game.get('Cycle')} domain_frames={domain.get('ValidationFrames')} state={domain.get('State')} "
+            f"wait_p95_ms={wait} rss={memory.get('ResidentBytes')} heap={memory.get('ManagedHeapBytes')}")
+
+
+def telemetry_summary(path: Path) -> dict:
+    """Bounded review of the development telemetry file; never a performance verdict."""
+    summary = {"path": str(path), "present": path.is_file(), "lines": 0, "sessions": [], "reasons": {}, "invalid_lines": 0,
+               "final_line": False, "first": None, "last": None, "maxima": {}, "development_only": True, "error": None}
+    if not summary["present"]:
+        return summary
+    if path.stat().st_size > TELEMETRY_MAXIMUM_BYTES:
+        summary["error"] = f"telemetry exceeds {TELEMETRY_MAXIMUM_BYTES} bytes"
+        return summary
+    maxima: dict[str, float] = {}
+
+    def keep(key: str, value) -> None:
+        if type(value) in (int, float) and (key not in maxima or value > maxima[key]):
+            maxima[key] = value
+
+    with path.open("rb") as stream:
+        for raw in stream:
+            try:
+                line = json.loads(raw)
+            except (ValueError, UnicodeDecodeError):
+                summary["invalid_lines"] += 1
+                continue
+            if not isinstance(line, dict) or line.get("Kind") != TELEMETRY_KIND or line.get("DevelopmentOnly") is not True:
+                summary["invalid_lines"] += 1
+                continue
+            summary["lines"] += 1
+            summary["first"] = summary["first"] or line
+            summary["last"] = line
+            if line.get("Session") not in summary["sessions"]:
+                summary["sessions"].append(line.get("Session"))
+            reason = str(line.get("Reason"))
+            summary["reasons"][reason] = summary["reasons"].get(reason, 0) + 1
+            summary["final_line"] = summary["final_line"] or reason == "final"
+            for name, value in (line.get("Latency") or {}).items():
+                if isinstance(value, dict):
+                    keep(name + ".Max", value.get("Max"))
+                    keep(name + ".P95", value.get("P95"))
+            memory, domain = line.get("Memory") or {}, line.get("NativeDomain") or {}
+            for key in ("ResidentBytes", "PeakResidentBytes", "ManagedHeapBytes"):
+                keep("Memory." + key, memory.get(key))
+            for key in ("MaximumRelativeMassError", "MaximumRelativeEnergyError", "RejectedAttempts", "IntervalRejectedAttempts"):
+                keep("NativeDomain." + key, domain.get(key))
+    summary["maxima"] = maxima
+    return summary
+
+
+def long_run_telemetry_passed(summary: dict, report: dict | None) -> bool:
+    """A long run must leave one complete, error-free telemetry session ending in a final line."""
+    last = summary.get("last") or {}
+    return (summary.get("present") is True and summary.get("error") is None and summary.get("invalid_lines") == 0
+            and summary.get("lines", 0) >= 2 and len(summary.get("sessions", [])) == 1 and summary.get("final_line") is True
+            and last.get("Reason") == "final" and isinstance(report, dict) and report.get("LongRun") is True
+            and report.get("DevelopmentTelemetryError") == "" and report.get("DevelopmentTelemetryTruncated") is False
+            and report.get("DevelopmentTelemetryLines") == summary.get("lines"))
+
+
 def completed_inspection(report: dict, seconds: int, started: float | None, now: float) -> tuple[float | None, bool]:
     """Hold only a completed scene, measured by the host's monotonic clock."""
     if report.get("Status") == "failed":
@@ -638,22 +806,7 @@ def playtest(args, state: Path, session: dict) -> int:
         if digest(load_fixture) != original_hash or digest(load_save) != original_hash:
             raise ValueError("Source colony save changed while staging the private input")
     if args.mode != "menu":
-        write_json(mod / "colony-validation.json", {
-            "Mode": args.mode, "AutoStartNewColony": True, "ReuseGeneratedWorld": False,
-            "CompletedFrames": args.frames, "TimeoutSeconds": args.timeout,
-            "QuitWhenComplete": not args.keep_open and not inspection_seconds, "Seed": "147147", "ColonyName": name,
-            "PrivateOwnedLoadRejection": args.mode == "load-rejection",
-            "LoadSavePath": str(load_fixture) if load_fixture else "",
-            "SaveOnComplete": bool(getattr(args, "save_colony", False)),
-            "SaveBeforeResume": bool(getattr(args, "resave_before_resume", False)),
-            **({"VerifyNaturalAutosave": True} if getattr(args,"verify_natural_autosave",False) is True else {}),
-            **({"VerifyPersistentActors": True} if getattr(args,"verify_persistent_actors",False) is True else {}),
-            **({"VerifyLiveBreathing": True} if getattr(args,"verify_live_breathing",False) is True else {}),
-            **({"VerifyTransientParticles": True} if getattr(args,"verify_transient_particles",False) is True else {}),
-            **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {}),
-            **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
-            **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
-        })
+        write_json(mod / "colony-validation.json", colony_configuration(args, name, load_fixture, inspection_seconds))
     thin = output / "game"
     thin.mkdir()
     for file in game.iterdir():
@@ -677,14 +830,20 @@ def playtest(args, state: Path, session: dict) -> int:
             session.update(game=record, game_display=display_record, latest_run=str(output))
             write_json(state / "session.json", session)
             print(f"Playtest PID {record['pid']}; evidence: {output}", flush=True)
-            deadline = time.monotonic() + args.timeout + 60 + inspection_seconds
+            long_run = getattr(args, "long_run", False) is True
+            deadline = time.monotonic() + args.timeout + (LONG_RUN_GRACE_SECONDS if long_run else RUNNER_GRACE_SECONDS) + inspection_seconds
             probe_file = mod / "integration-probe.json"
             colony_file = mod / "game-contract-local/colony-validation/colony-validation.json"
-            timed_out = False
-            menu_seen = None
+            telemetry_file = colony_file.parent / TELEMETRY_FILE
+            watch = TelemetryWatch(telemetry_file, time.monotonic()) if long_run else None
+            next_progress = time.monotonic() + TELEMETRY_PROGRESS_SECONDS
+            timed_out = telemetry_stalled = False
+            menu_seen = completed_seen = None
             inspection_started = None
             while alive(record):
-                log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
+                # Only the menu gate reads Player.log while running; a long
+                # colony log is read once after the game exits.
+                log = (output / "Player.log").read_text(errors="replace") if args.mode == "menu" and (output / "Player.log").exists() else ""
                 if args.mode == "menu" and MAIN_MENU_MARKER in log:
                     # The mod's contract export runs after the marker. Wait for its
                     # own completion/failure line (bounded), then let trailing
@@ -693,11 +852,24 @@ def playtest(args, state: Path, session: dict) -> int:
                     if contract_export(log) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
                         time.sleep(MENU_SETTLE_SECONDS)
                         break
+                if watch is not None:
+                    if watch.poll(time.monotonic()):
+                        timed_out = telemetry_stalled = True
+                        break
+                    if time.monotonic() >= next_progress:
+                        next_progress = time.monotonic() + TELEMETRY_PROGRESS_SECONDS
+                        if (line := last_telemetry_line(telemetry_file)) is not None:
+                            print(telemetry_progress(line), flush=True)
                 if (args.keep_open or inspection_seconds) and colony_file.exists():
                     try:
                         current_report = read_json(colony_file)
                         if args.keep_open and current_report.get("Status") in ("passed", "failed"):
-                            break
+                            # A retained long run first records its final
+                            # telemetry line on the next Unity frame (bounded).
+                            completed_seen = time.monotonic() if completed_seen is None else completed_seen
+                            if not long_run or telemetry_final(telemetry_file) or time.monotonic() - completed_seen >= TELEMETRY_FINAL_WAIT_SECONDS:
+                                time.sleep(2 if long_run else 0)
+                                break
                         if inspection_seconds:
                             inspection_started, inspected = completed_inspection(current_report, inspection_seconds, inspection_started, time.monotonic())
                             if inspected:
@@ -753,6 +925,10 @@ def playtest(args, state: Path, session: dict) -> int:
                     status, code = "failed-native-domain", 2
             elif code == 0 and not observer_ok:
                 status, code = "failed-native-observer", 2
+            telemetry = telemetry_summary(telemetry_file) if long_run else None
+            telemetry_ok = long_run and long_run_telemetry_passed(telemetry, report)
+            if code == 0 and long_run and not telemetry_ok:
+                status, code = "failed-long-run-telemetry", 2
             retain_on_success = args.keep_open and code == 0
             result = {
                 "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
@@ -773,6 +949,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "native_backend_observer_passed": observer_ok,
                 "native_domain": domain_report, "bounded_native_domain_passed": domain_ok,
                 "tile_hover": hover_report, "tile_hover_passed": hover_ok,
+                "long_run": long_run, "telemetry_stalled": telemetry_stalled,
+                "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
                     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll", "OxygenNotIncluded_Data/Plugins/libSimDLL.so")},
@@ -807,8 +985,15 @@ def main() -> int:
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
     play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
-    play.add_argument("--frames", type=int, choices=range(1, 10001), default=30, metavar="1..10000")
-    play.add_argument("--timeout", type=int, choices=range(30, 7201), default=600, metavar="30..7200")
+    play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
+                      help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")
+    play.add_argument("--timeout", type=int, metavar="30..7200 (30..172800 with --long-run)",
+                      help="Game-side validation limit in seconds (default 600, or 172800 = 48 h with --long-run)")
+    play.add_argument("--long-run", action="store_true",
+                      help="Explicit development long run (about 30,000 frames is ten ONI cycles) in "
+                           + ", ".join(LONG_RUN_MODES) + "; writes bounded development telemetry")
+    play.add_argument("--telemetry-interval-frames", type=int, metavar="10..10000",
+                      help=f"Native frames per development telemetry line (default {TELEMETRY_INTERVAL_DEFAULT}); requires --long-run")
     play.add_argument("--output", type=Path)
     play.add_argument("--keep-open", action="store_true")
     play.add_argument("--inspection-seconds", type=int, choices=range(0,301), default=0, metavar="0..300",
@@ -826,6 +1011,12 @@ def main() -> int:
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     args = parser.parse_args()
+    if args.command == "run":
+        long_run = args.long_run is True
+        args.frames = (LONG_RUN_DEFAULT_FRAMES if long_run else 30) if args.frames is None else args.frames
+        args.timeout = (LONG_RUN_TIMEOUT_LIMIT if long_run else 600) if args.timeout is None else args.timeout
+        if reason := run_limits_error(args):
+            parser.error(reason)
     if args.command=="run" and args.subnormal_carbon_particle and args.mode!="native-carbon-particle-domain" and not (args.verify_transient_particles and args.mode in ("native-domain","native-load-domain") and not args.verify_live_breathing):
         parser.error("Subnormal carbon input requires the carbon-particle scene or transient-particle save/load without a live producer")
     if args.command=="run" and args.verify_transient_particles and (args.mode not in ("native-domain","native-load-domain") or args.mode=="native-domain" and not args.save_colony or args.mode=="native-load-domain" and not args.resave_before_resume):

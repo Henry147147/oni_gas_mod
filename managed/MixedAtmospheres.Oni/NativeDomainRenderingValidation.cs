@@ -97,13 +97,18 @@ namespace MixedAtmospheres.Oni
             return new { Colour = new[] { (int)sample.R, sample.G, sample.B, sample.Alpha }, Pressure = sample.Opacity, Danger = sample.Hazard };
         }
 
+        // A completed visible scene may keep running under manual inspection;
+        // one file per hovered cell and frame is capped for each process.
+        internal const int MaximumNativeHoverFiles = 4096;
+        private static int nativeHoverFiles;
         private static void ObserveNativeHover(int cell, MixturePresentation reading, IReadOnlyList<string> contents, bool selected)
         {
             if (!active || !completed || publishedReadings == null || !publishedReadings.TryGetValue(cell, out var physical)) return;
             var filename = "native-hover-S" + latest.Session.ToString(CultureInfo.InvariantCulture) + "-C" + cell.ToString(CultureInfo.InvariantCulture) +
                 "-F" + reading.Revision.ToString(CultureInfo.InvariantCulture) + (selected ? "-selected.json" : "-hover.json");
             var path = Path.Combine(ColonyRuntimeValidation.OutputDirectory, filename);
-            if (File.Exists(path)) return;
+            if (nativeHoverFiles >= MaximumNativeHoverFiles || File.Exists(path)) return;
+            ++nativeHoverFiles;
             var view = MixturePresentationRuntime.AcquireFrame();
             File.WriteAllText(path, ReportJson.Serialize(new
             {

@@ -33,7 +33,10 @@ The main [README](../README.md#compile-install-and-enable) contains build,
 installation and manual visual-scene instructions. The packaged mod defaults
 to observation; `tools/configure_visual_demo.py` explicitly selects a disposable
 air, water or mixed-fluid scene. Preparation pauses after its 120-frame control
-so a person can inspect it. These remain bounded development domains.
+so a person can inspect it. `--long-run` instead keeps the scene running for
+ten ONI cycles (30,000 frames, or `--frames` up to 100,000) under a 48-hour
+limit and appends [development telemetry](../tools/ONI_HEADLESS.md#long-development-runs).
+These remain bounded development domains.
 
 Private development scenes retain `status-display.json` alongside their other
 reports. It records the displayed state, reading frame, sample, camera size,

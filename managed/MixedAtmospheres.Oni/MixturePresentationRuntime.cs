@@ -207,6 +207,7 @@ namespace MixedAtmospheres.Oni
                         throw new ArgumentException("Native domain cell or revision disagrees with its completed frame.");
                 fixture = new FixtureSource(width, height, readings, revision, model);
                 includeWorldCells = true; ++generation;
+                DevelopmentTelemetry.Sampler.ObservePublication(generation, System.Diagnostics.Stopwatch.GetTimestamp());
             }
         }
 

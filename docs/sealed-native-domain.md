@@ -571,6 +571,22 @@ exactly. Source validation rejects corrupt metadata, inventory, geometry,
 phase or clock before native loading. This passes on Linux and the Windows
 library under Wine. The bounded Unity binding is described below.
 
+### Long development runs
+
+`ColonyValidationConfiguration.LongRun` is the explicit request for ten-cycle
+runs: up to 100,000 frames and 48 hours in `native-domain`,
+`native-liquid-domain` and `native-mixed-domain` (plus `snapshot-copy` and
+`native-observer`). Short requests keep 10,000 frames and 7,200 s. Long runs
+reject the fixed-window save, reload, actor, breathing and particle controls
+and saved-colony replay, whose evidence is one journal per frame. The scene
+itself retains only bounded state per frame; natural autosaves go through the
+ordinary paired admission. Runs append flushed development telemetry with
+native-domain status, game-thread native wait, managed publication and
+presentation latency, and memory. See
+[the runner instructions](../tools/ONI_HEADLESS.md#long-development-runs).
+This is harness capacity, not evidence of a playable colony or production
+timestep.
+
 ### Paused colony persistence
 
 The ordinary `SaveLoader.Save` entry now pauses/synchronizes the bounded owner,

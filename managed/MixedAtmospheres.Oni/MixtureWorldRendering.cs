@@ -152,7 +152,8 @@ namespace MixedAtmospheres.Oni
                     __state.Lease?.Dispose();
                     if (__state.StartTimestamp != 0)
                     {
-                        var elapsed = Stopwatch.GetTimestamp() - __state.StartTimestamp;
+                        var finished = Stopwatch.GetTimestamp(); var elapsed = finished - __state.StartTimestamp;
+                        DevelopmentTelemetry.Sampler.ObserveTextureBatch(LastTexturePublicationGeneration, __state.StartTimestamp, finished);
                         var seen = Interlocked.Read(ref maximumBatchTicks);
                         while (elapsed > seen)
                         {

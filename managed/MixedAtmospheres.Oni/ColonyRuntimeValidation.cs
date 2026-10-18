@@ -15,33 +15,8 @@ namespace MixedAtmospheres.Oni
     // Explicit private development opt-in. This validates the real publication
     // and new-colony boundaries while native ONI still owns colony physics.
     // It must never be interpreted as permission to enable an incomplete owner.
-    internal static unsafe class ColonyRuntimeValidation
+    internal static unsafe partial class ColonyRuntimeValidation
     {
-        internal sealed class Configuration
-        {
-            public string Mode = "snapshot-copy";
-            public string LoadSavePath = "";
-            public bool AutoStartNewColony = false;
-            public bool ReuseGeneratedWorld = false;
-            public bool IdleReservoirLeaseOnly = false;
-            public string PrivateFileProtocolAssemblySha256 = "";
-            public bool PrivateOwnedLoadRejection = false;
-            public bool QuitWhenComplete = false;
-            public bool SaveOnComplete = false;
-            public bool SaveBeforeResume = false;
-            public bool VerifySaveIoRecovery = false;
-            public bool VerifyNaturalAutosave = false;
-            public bool VerifyPersistentActors = false;
-            public bool VerifyLiveBreathing = false;
-            public bool VerifyTransientParticles = false;
-            public bool SubnormalCarbonParticle = false;
-            public bool ReloadInProcess = false;
-            public int CompletedFrames = 30;
-            public int TimeoutSeconds = 600;
-            public string Seed = "147147";
-            public string ColonyName = "MA Visual Test";
-        }
-
         internal sealed class ValidationReport
         {
             public string Kind = "actual-game-colony-boundary-validation";
@@ -73,9 +48,15 @@ namespace MixedAtmospheres.Oni
             public string MaterialFingerprint = "";
             public string StartedUtc = System.DateTime.UtcNow.ToString("O");
             public string FinishedUtc = "";
+            public bool LongRun;
+            public int TelemetryIntervalFrames;
+            public string DevelopmentTelemetryFile = "";
+            public int DevelopmentTelemetryLines;
+            public bool DevelopmentTelemetryTruncated;
+            public string DevelopmentTelemetryError = "";
         }
 
-        private static Configuration? configuration;
+        private static ColonyValidationConfiguration? configuration;
         private static readonly ValidationReport Report = new ValidationReport();
         private static OwnedSnapshotPublisher? publisher;
         private static ColonyValidationDriver? driver;
@@ -86,20 +67,14 @@ namespace MixedAtmospheres.Oni
         private static ulong observerTimestepBaseline, observerUpdateBaseline;
         private static string ReportPath => Path.Combine(OutputDirectory, "colony-validation.json");
         internal static string OutputDirectory => Path.Combine(Mod.DirectoryPath, "game-contract-local", "colony-validation");
-        internal static Configuration? Settings => configuration;
+        internal static ColonyValidationConfiguration? Settings => configuration;
 
         internal static void Initialize()
         {
             var file = Path.Combine(Mod.DirectoryPath, "colony-validation.json");
             if (!File.Exists(file)) return;
-            var bytes = File.ReadAllText(file);
-            if (bytes.Length > 8192) throw new InvalidDataException("Colony validation configuration is too large.");
-            configuration = JsonConvert.DeserializeObject<Configuration>(bytes, new JsonSerializerSettings
-            { TypeNameHandling = TypeNameHandling.None, MissingMemberHandling = MissingMemberHandling.Error })
-                ?? throw new InvalidDataException("Missing colony validation configuration.");
-            if ((configuration.Mode != "snapshot-copy" && configuration.Mode != "native-observer" && configuration.Mode != "native-import-domain" && configuration.Mode != "native-liquid-import-domain" && configuration.Mode != "native-domain" && configuration.Mode != "native-solid-heat-domain" && configuration.Mode != "native-mixed-domain" && configuration.Mode != "native-mixed-heat-domain" && configuration.Mode != "native-viscous-domain" && configuration.Mode != "native-liquid-domain" && configuration.Mode != "native-liquid-transfer-domain" && configuration.Mode != "native-heat-domain" && configuration.Mode != "native-liquid-heat-domain" && configuration.Mode != "native-transfer-domain" && configuration.Mode != "native-radius-domain" && configuration.Mode != "native-rectangular-domain" && configuration.Mode != "native-actor-domain" && configuration.Mode != "native-liquid-actor-domain" && configuration.Mode != "native-pressure-read-domain" && configuration.Mode != "native-liquid-pressure-read-domain" && configuration.Mode != "native-breathing-read-domain" && configuration.Mode != "native-carbon-particle-domain" && configuration.Mode != "native-carbon-domain" && configuration.Mode != "native-conduction-domain" && configuration.Mode != "native-gravity-domain" && configuration.Mode != "native-liquid-gravity-domain" && configuration.Mode != "native-checkpoint-domain" && configuration.Mode != "native-paired-checkpoint-domain" && configuration.Mode != "native-save-domain" && configuration.Mode != "native-load-domain" && configuration.Mode != "presentation" && configuration.Mode != "tile-hover" && configuration.Mode != "coupled-presentation" && configuration.Mode != "load-rejection") || configuration.CompletedFrames < 1 ||
-                configuration.CompletedFrames > 10000 || configuration.TimeoutSeconds < 30 || configuration.TimeoutSeconds > 7200)
-                throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            // Mode, frame/timeout, long-run and telemetry limits are engine-free.
+            configuration = ColonyValidationLimits.Parse(File.ReadAllText(file));
             if ((configuration.Mode == "native-carbon-particle-domain" || configuration.Mode == "native-breathing-read-domain") && configuration.CompletedFrames < 30)
                 throw new InvalidDataException("Native CO2 particle and breathing-reader controls require at least 30 frames.");
             if(configuration.SubnormalCarbonParticle && configuration.Mode!="native-carbon-particle-domain" &&
@@ -149,8 +124,12 @@ namespace MixedAtmospheres.Oni
                 Report.SnapshotCopiesIncludeCustomProjections = true;
                 Report.AllCopiesByteIdentical = false;
             }
+            Report.LongRun = configuration.LongRun;
+            if (configuration.LongRun) StartTelemetry();
             WriteReport();
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode +
+                (configuration.LongRun ? " (long run, " + configuration.CompletedFrames + " frames, development telemetry every " +
+                    configuration.TelemetryIntervalFrames + " frames)" : "") +
                 (NativeSealedDomainValidation.IsMode ? ". Experimental sealed-domain ownership checks are required." : ". Colony physics remains native."));
         }
 
@@ -351,7 +330,7 @@ namespace MixedAtmospheres.Oni
                 // without a physical timestep. Keep observing until both native
                 // progress counters reach the requested amount.
                 if (forwardingValid && (Report.ObserverTimestepReturns < (ulong)configuration.CompletedFrames ||
-                    Report.ObserverPhysicalUpdates < (ulong)configuration.CompletedFrames)) { WriteReport(); return; }
+                    Report.ObserverPhysicalUpdates < (ulong)configuration.CompletedFrames)) { WriteProgressReport(); return; }
                 Report.NativeObserverForwardingPassed = forwardingValid;
                 Report.Status = Report.NativeObserverForwardingPassed ? "passed" : "failed";
                 Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
@@ -474,6 +453,7 @@ namespace MixedAtmospheres.Oni
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(Report));
         internal static void Shutdown()
         {
+            ShutdownTelemetry();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();
             if (configuration?.Mode == "coupled-presentation") CoupledPresentationValidation.Abort();
@@ -499,6 +479,10 @@ namespace MixedAtmospheres.Oni
         {
             var config = ColonyRuntimeValidation.Settings;
             if (config == null) return;
+            // Development telemetry also records the final line after the
+            // validation completes and before the optional quit below.
+            DevelopmentTelemetry.Sampler.RecordUnityFrame(Time.unscaledDeltaTime * 1000.0);
+            ColonyRuntimeValidation.TickTelemetry();
             if (!ColonyRuntimeValidation.ObserveMessage)
             {
                 if (config.QuitWhenComplete && ++completionWaitFrames >= 20) Application.Quit();

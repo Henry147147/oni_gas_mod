@@ -36,6 +36,9 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureOverlays.cs" Link="MixtureOverlays.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/MixtureAppearanceSettings.cs" Link="MixtureAppearanceSettings.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ReportJson.cs" Link="ReportJson.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyValidationConfiguration.cs" Link="ColonyValidationConfiguration.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/DevelopmentTelemetry.cs" Link="DevelopmentTelemetry.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/DevelopmentTelemetryJournal.cs" Link="DevelopmentTelemetryJournal.cs" />
     <ProjectReference Include="../../managed/MixedAtmospheres.Core/MixedAtmospheres.Core.csproj" />
     <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(OniManagedDir)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>

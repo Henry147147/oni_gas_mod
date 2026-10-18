@@ -64,7 +64,9 @@ namespace MixedAtmospheres.Oni
                 HookNames = OniNativeObserver.HookNames, Trace = observer.CaptureTrace()
             };
             File.WriteAllText(reportPath, ReportJson.Serialize(report));
-            nextWrite = System.DateTime.UtcNow.AddSeconds(1);
+            // The report carries the complete bounded trace. A long run
+            // refreshes it less often; completion still flushes it explicitly.
+            nextWrite = System.DateTime.UtcNow.AddSeconds(ColonyRuntimeValidation.Settings?.LongRun == true ? 30 : 1);
         }
         internal static void ResetAfterFailedLoad()
         {

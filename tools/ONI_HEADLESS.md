@@ -307,8 +307,9 @@ export to log success, `Native contract export failed` or `Native contract
 diagnostics capture failed` (at most 120 s), then 5 s more for trailing
 exception lines, before stopping the game. Either failure line fails the run.
 
-`--frames 30` sets the snapshot acknowledgement target. `--timeout` accepts
-30–7200 seconds. `--output /absolute/new/directory` selects an evidence location.
+`--frames 30` sets the snapshot acknowledgement target (1–10,000). `--timeout`
+accepts 30–7200 seconds. Larger values need the explicit `--long-run` below.
+`--output /absolute/new/directory` selects an evidence location.
 `--keep-open` retains a successful test's game for further UI inspection.
 The runner does not acknowledge license agreements or arbitrary dialogs.
 First-login or content dialogs can require interaction in the viewer. Active
@@ -354,6 +355,65 @@ successful startup/colony claim. The runner always
 keeps `full_mod_completion_verified` and
 `authoritative_colony_simulation_ready` false: broader completion requires the
 [accepted plan's acceptance evidence](../docs/completion-plan.md).
+
+## Long development runs
+
+Ten ONI cycles are about 30,000 native frames of 0.2 s. `--long-run` is a
+separate, explicit request for such a run; it never widens the short fixture
+controls. It accepts 1–100,000 frames (default 30,000) and 30–172,800 s
+(default 48 h), and only the `snapshot-copy`, `native-observer`,
+`native-domain`, `native-liquid-domain` and `native-mixed-domain` scenes.
+Fixture flags with exact short windows
+(`--save-colony`, `--resave-before-resume`, `--load-save`, autosave, actor,
+breathing, particle, I/O and reload controls) are rejected. Saved-colony replay
+keeps one input journal per frame and single-save evidence, so it stays a short
+control for now. Natural autosaves still occur and use the ordinary paired save
+path. The mod enforces the same limits (`ColonyValidationLimits` in
+`ColonyValidationConfiguration.cs`); the Python suite checks that both agree.
+
+```sh
+python3 tools/oni_headless.py run --package artifacts/probe-linux-new --mode native-domain \
+  --long-run --frames 30000 --timeout 172800 --private-display
+```
+
+A long run writes **development telemetry**, not acceptance evidence, to
+`game-contract-local/colony-validation/development-telemetry.jsonl` beside the
+other reports. Each line is one flushed JSON object, written every
+`--telemetry-interval-frames` native frames (10–10,000, default 300 ≈ one game
+minute) and at least every 60 s of wall time, plus `start`, `final` and
+`sim-shutdown` lines. The journal is capped at 20,000 lines; valid limits stay
+below 13,000. Fields:
+
+| Field | Meaning |
+| --- | --- |
+| `Kind`, `SchemaVersion`, `DevelopmentOnly`, `Session`, `Sequence`, `Reason` | `mixed-atmospheres-development-telemetry`, schema 1, always `true`, one id per game process, line number, `start`/`interval`/`heartbeat`/`final`/`sim-shutdown` |
+| `NativeFramesProcessed`, `IntervalNativeFrames`, `UnityFrame` | native frames returned by `PrepareGameData` since telemetry started and since the previous line; Unity frame |
+| `UtcTime`, `WallSeconds`, `IntervalWallSeconds` | host time and monotonic seconds since telemetry started |
+| `Game` | game started, `TimeSeconds`, `Cycle`, `TimeInCycles`, paused, speed, live duplicants |
+| `NativeDomain` | for native-domain scenes: state, session, completed and post-priming validation frames, physical time, last timestep, maximum relative mass/energy error, cumulative and per-line substeps and rejected attempts, publications, native error text |
+| `Latency` | per line: `NativeFrameSubmitMs` and `NativeFrameWaitMs` (game-thread wall time inside `SIM_HandleMessage` for `NewGameFrame` and `PrepareGameData`), `ManagedPublicationMs` (owned snapshot, readings, presentation publication and development checks after `PrepareGameData` returns), `PresentationLagMs` (native-domain publication to the first property-texture batch that renders it), `TextureBatchMs`, `UnityFrameMs`; each has `Samples`, `Retained`, `P50`, `P95`, `Max`, `Mean` |
+| `Memory` | `GC.GetTotalMemory`, GC counts, resident and peak resident bytes (`VmRSS`/`VmHWM` on Linux, working set elsewhere) |
+
+Percentiles are nearest-rank over at most the latest 4,096 samples per metric;
+counts, means and maxima cover every sample. The custom solver runs on the
+native simulation worker inside the native frame, and the native ABI exposes no
+solver wall clock; the game-thread wait is therefore an upper bound on solver
+time hidden from the game, not a solver measurement.
+
+The runner reads only the file's tail while the game runs and prints a compact
+progress line every 5 minutes. If the file has not grown for 900 s, the run
+stops as `timeout` with `telemetry_stalled: true`. While the game runs, the runner
+reads `Player.log` only in `menu` mode; the complete log is read once
+afterwards. A long run otherwise passing fails as `failed-long-run-telemetry`
+unless one complete error-free session ends in a `final` line and its count
+matches the colony report. `result.json` adds `long_run`, `telemetry_stalled`,
+`development_telemetry` (line/session/reason counts, first and last line and
+maxima) and `development_telemetry_passed`. The runner applies no latency
+thresholds. During long runs the native observer report refreshes every 30 s,
+not every second, and is still flushed at completion.
+
+`tools/configure_visual_demo.py --long-run` prepares the same request for a
+manually started scene: 30,000 frames by default, a 48-hour limit and telemetry.
 
 ## Inspect and stop
 
