@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_energy.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
+#include <algorithm>
 #include <cmath>
 #include <bit>
 #include <cfenv>
@@ -192,9 +193,19 @@ void MacEnergySum::add(double value) {
     promote();add_extended(MacEnergy::from_double(value));
 }
 void MacEnergySum::add_extended(MacEnergy value) {
-    if (used_ >= 4096) precision("MAC derived energy expansion storage capacity exceeded");
     std::size_t written = 0;
-    for (std::size_t i = 0; i < used_; ++i) {
+    if (used_ > 16) {
+        // Components are ordered by magnitude. An exponent gap above 54
+        // makes two-sum return {value, component}, preserving this prefix
+        // verbatim. Search it once instead of visiting every remote low term.
+        const auto end = extended_.begin() + static_cast<std::ptrdiff_t>(used_);
+        written = static_cast<std::size_t>(std::lower_bound(extended_.begin(), end, value,
+            [](const MacEnergy& component, const MacEnergy& operand) {
+                return component.exponent() < operand.exponent() &&
+                    operand.exponent() - component.exponent() > 54;
+            }) - extended_.begin());
+    }
+    for (std::size_t i = written; i < used_; ++i) {
         const auto next = add_mac_energy(value, at(i));
         if (!next.low.is_zero()) put(written++, next.low);
         value = next.high;

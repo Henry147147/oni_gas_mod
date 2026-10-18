@@ -34,7 +34,10 @@ storage exhaustion are typed numerical-precision failures.
 `MacEnergySum` keeps a nonoverlapping additive expansion whose components have their
 own exponents. Two-sum runs on aligned normal significands when the exponent gap is at
 most 54; larger gaps keep both operands. Every represented operand is preserved
-through cancellation. Four ordinary components are stored inline and at most 4,096 in total.
+through cancellation. Four ordinary components are stored inline; larger expansions
+grow with the number of retained terms, subject to available storage. The former
+4,096-component limit has been removed: a large grid's diagnostic sum must not
+reject merely because its distinct low terms exceed a small-room limit.
 `value()` is only a rounded estimate of the exact expansion.
 
 The common accumulator uses normal binary64 components directly. It prepares an
@@ -46,6 +49,15 @@ the existing addition algorithm. This changes storage and arithmetic cost, with 
 trace threshold, altered precision, changed summation order or persisted selector.
 The Linux x86-64 object is 72 bytes instead of 128. A promoted expansion allocates
 its component vector; ordinary expansions through four components allocate none.
+
+For more than 16 components, a binary search skips the ordered prefix whose
+exponents are more than 54 below the incoming operand. The original two-sum would
+return that operand and each unchanged low component throughout this prefix.
+The remaining recurrence is unchanged, including ties, carries and cancellation.
+No component is dropped or projected. Appending separated larger operands avoids
+a full scan; inserting smaller operands can still visit the remaining expansion.
+This removes the capacity fault and some repeated arithmetic, not the solver's
+overall time or memory limits. No checkpoint field or numerical selector changes.
 
 `MacEnergyAccount` holds the signed sum and the sum of absolute operands. Its
 `within_bound()` compares the residual with exactly 2^-45 (128 binary64 epsilons)
@@ -150,6 +162,7 @@ rounding remainder storage remains necessary for production acceptance.
 | --- | --- | --- |
 | `ma_mac_energy_tests` | 7 | Binary64 roundtrips; derived K/variance/parcel products including the 9.12e-436 J case; cancellation and 32 generated 80-operand expansions; accounts above and below binary64 range; projections and strict narrowing; invalid and overflow cases; five unsupported arithmetic modes (restored afterwards) |
 | `ma_mac_compact_sum_tests` | 1 | Component-by-component comparison with the original independent-exponent recurrence after each addition; every binary64 exponent bin; subnormal, overflow, fifth-component and huge-exponent promotion; cancellation, copies/moves and direct nonfinite rejection |
+| `ma_mac_wide_sum_tests` | 1 | Ascending, descending and shuffled 5,003-cluster expansions compared with the uncapped original recurrence after every addition/cancellation; 256-bit exponents; 250,000 isolated retained terms; exact conservation decisions controlled by below-range tails |
 | `ma_mac_energy_transport_tests` | 4 | Gas transport with momenta near 1e-200 and below-range K and heat; the original kinetic-parcel scale; a warm thin-gas (1e-200 kg) pressure reversal through constructor, candidate and atomic owner; a denormal passive parcel that must still reject |
 | `ma_mac_primary_parcel_tests` | 5 | The 8.59e-325 kg helium contribution surviving on a uniform grid; a 1e-350 passive per parcel; four quarter-denormal helium contributions forming 2^-1074 kg; unresolved destination rejection; invalid reference volumes |
 | `ma_mac_momentum_parcel_tests` | 4 | The 3.6e-585 kg m/s incoming share joining an existing J; minimum-denormal retained/incoming recombination; signed cancellation; the remaining atomic rejection |
@@ -173,3 +186,9 @@ pressure accounts (ideal-gas pressure and temperature at 80 digits), and, for
 exponents, use Python integers and symbolic significand/exponent clusters rather than
 constructing `2**huge_exponent`. Raw outputs need not be bit-identical across
 platforms; both platforms' independent reviews must pass.
+
+`review_mac_wide_sum.py` checks the wide captures using exact rational coefficients
+in separated symbolic exponent clusters. It never allocates a power proportional
+to the exponent magnitude. It verifies every saved input and retained component
+and rejects missing tails, altered exponents, counts and signs. The 250,000-term
+native stress case is an accumulator test, not a 250,000-cell simulation.

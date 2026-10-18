@@ -15,6 +15,12 @@ measured gap is about 6,500–8,900× on one core, and 540–740× with ideal
 scaling across all 12 cores. Separately, grids of about 9,000 cells or more
 fail in their first substep (see [below](#exact-sum-capacity-failure)).
 
+**Subsequent implementation:** the [exact-sum capacity follow-up](production-timestep-progress.md#large-grid-exact-sum-capacity)
+removes that fixed ceiling without dropping terms or relaxing an account. Both
+formerly failing small grids now finish; a 250,000-cell wave finishes one
+0.01-second substep in about 30 seconds. The timing analysis below remains
+historical evidence of the unresolved real-time gap, not current capacity status.
+
 ## Method
 
 - **Benchmark:** `ma_mac_playtest_benchmark`, reference profile, wave scene,
@@ -109,10 +115,15 @@ failure is the diagnostic heat sum in `advance_mac_compression`
 heats with exponents down to about -2.8e13, and each one keeps its own
 expansion component; a 256×64 grid already reaches 3,510 components.
 
-Bounding that growth conflicts with the no-drop, full-range contract
+Dropping components to bound that growth would conflict with the no-drop, full-range contract
 ([MAC_RANGE.md](../native/MAC_RANGE.md)). The in-game configured limit of
 4,096 cells (64×64) is below the failure size, but whole-world ownership is
 not.
+
+The follow-up instead retains the complete expansion in growing contiguous
+storage and skips only provably unchanged low prefixes. It preserves the original
+recurrence and exact conservation decisions. Arbitrary low insertions can still
+scan the remaining expansion; complete memory and time scaling remain open.
 
 ## Options
 

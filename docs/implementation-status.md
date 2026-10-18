@@ -27,6 +27,10 @@ reconstruction fields remain dense ([transport contract](../native/MAC_TRANSPORT
 Compact normal accumulators preserve the original full-range expansion component
 for component while reducing their object size from 128 to 72 bytes; all 38
 comparable saved MAC captures remain byte-identical. The strong-flow failure remains.
+The [large-grid exact-sum follow-up](production-timestep-progress.md#large-grid-exact-sum-capacity)
+also removes the 4,096-component accounting limit without dropping terms. A
+250,000-cell wave completes one 0.01-second step and exact checkpoint restoration,
+but takes about 30 seconds; the sustained real-time gate remains open.
 The heat stage also reuses validated EOS readings with explicit per-pair updates;
 72 replay stages and the 27-test Linux suite pass, with the heat/compression saved
 outputs unchanged. Coupled pressure now retains full incoming motion and sweeps,

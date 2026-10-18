@@ -533,3 +533,69 @@ The concurrently added [scaling analysis](solver-scaling-analysis.md) also recor
 the large-grid exact-sum capacity failure and the remaining kernel cost. This
 empty-cell work changes none of the per-stage conservation, range or volume
 contracts. It does not resolve that scaling failure or establish a real-time path.
+
+## Large-grid exact-sum capacity
+
+The follow-up removes the fixed 4,096-component `MacEnergySum` ceiling. Its
+contiguous expansion now grows with the actual retained terms. A binary search
+skips only components more than 54 exponent units below the incoming operand:
+the original two-sum returns each of those components unchanged. The remaining
+addition recurrence, summation order, estimates, signs and exact accounts are
+unchanged. There is no truncation, trace cutoff, new selector or tolerance change.
+Small inline sums keep their existing path.
+
+The pre-change binary at `5d0081c` reproduces both the 96×96 and 64×128 wave
+failures with `MAC derived energy expansion storage capacity exceeded`. Both now
+finish their full 0.1-second interval with every cell evolving, 11 substeps and
+zero retries. Their respective solver times on this busy Linux host are
+19,607.74 and 21,149.88 ms, not real-time results. Maximum constituent drift,
+including helium, is 2.05e-17 and total-energy drift 7.17e-17. The 256-cell
+before/after endpoint remains byte-identical.
+
+A separate 500×500 wave completes one 0.01-second production substep, with all
+250,000 material cells changing, zero retries and 20 pressure iterations. Exact
+constituent/passive accounts and checkpoint restoration pass. Solver wall time
+is 30,163.34 ms; GNU time records 1,587,568 KiB peak RSS for the whole standalone
+probe. This is a single shorter interval, not the required 0.1-second sustained
+workload, additional memory inside ONI, or any performance acceptance. It contains
+the test EOS and no gameplay adapters or rendering.
+
+That 250,000-cell checkpoint also matches a separately linked copy of the
+original accumulator with only its capacity guard removed: SHA256
+`cef57c1bbf12b08755cdc0d732f24229c139f3d67460562b33962cb3b1015e44`.
+The comparison uses the same other dependency libraries; it checks the prefix
+optimization's continuation independently of the synthetic expansion inputs.
+
+New controls compare ascending, descending and shuffled 5,003-cluster expansions
+with the original uncapped recurrence after every addition and cancellation:
+30,432 prefixes match component for component. Separate controls retain 5,003
+clusters with 256-bit integer exponents, exactly cancel 250,000 isolated terms,
+and require a remote positive/negative tail to decide a conservation account
+at its unchanged 128-epsilon limit. The saved reader verifies every captured
+operand/component through exact symbolic clusters (241,831 checks), and rejects
+four corruptions. The original 1.49-million-prefix compact controls and energy
+capture also remain byte-identical.
+
+Linux Release CTest passes 31/31. All 46 prior MAC executables were rebuilt and
+retain byte-identical output: 45 pass and the original strong-flow test keeps its
+known collision-refinement failure. The new wide-sum executable passes as well.
+Energy, compact and wide controls pass fatal ASan/UBSan with leak detection and
+as static MinGW Windows-target executables under Wine. Both saved wide-sum
+reviews pass. These are not actual Windows OS or Unity runs. The five-interval
+default continuation retains the original checkpoint SHA256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+
+The component vector can still incur a long scan for low incoming terms. This
+fix removes the small-room storage fault; it does not replace the expensive
+substep kernel, bound all transient memory or close the
+[remaining scaling gap](solver-scaling-analysis.md). Vacuum/interface accuracy,
+primary-field remainders, whole-colony activation, gameplay coverage and complete
+persistence remain open. Sources, raw comparisons, native probes and reviews
+are under the ignored `local/wide-exact-sum/` directory. Reproduction of the new
+accumulator control:
+
+```sh
+cmake --build build-production --target ma_mac_wide_sum_tests
+build-production/ma_mac_wide_sum_tests > wide-sum.stdout
+python3 native/tests/review_mac_wide_sum.py wide-sum.stdout
+```
