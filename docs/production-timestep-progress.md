@@ -285,3 +285,35 @@ invocation peaks at 1,695,296 KiB. Different progress at timeout prevents compar
 that peak directly with earlier incomplete runs. No active-cell real-time or full
 memory budget is certified. Captures and source/executable hashes are under
 `local/compact-accumulators/`.
+
+## Follow-up: stage-local shock-heat EOS reuse
+
+The heat stage now reuses validated pair-input and endpoint EOS readings. Each
+accepted heat pair updates both inventories' cached readings; bit-identical stored
+U retains its prior reading. The cache lasts only for that stage, so changes to
+material, geometry, model or heat between calls always start fresh. Source/final
+entropy snapshots retain only the temperature and gas volume they use. There is
+no approximate matching, changed physical coefficient or relaxed acceptance check.
+
+The new replay control passes 72 stages and compares all 2,064 receipts with fresh
+EOS calls, including 1,440 changed-inventory reuse witnesses. It covers three laws,
+walls, periodicity, wet mixtures, traces, below-range updates and edits between calls.
+The control and the three existing heat suites pass Release, fatal ASan/UBSan with
+leak detection, and MinGW Windows-target builds under Wine. Linux Release CTest:
+27/27 pass. Eight targeted heat/compression components pass and their complete
+saved outputs match the previous build; the original strong-flow failure also
+matches byte for byte. Fourteen saved-operand reviews pass. No new Unity or actual
+Windows OS evidence is claimed.
+
+The separate baseline build is commit `9ceebad` with the same GNU Release/IPO and
+physical settings. Sequential 256-cell wave continuation captures (five intervals)
+measure median/p95 490.88/496.13 ms before and 436.43/446.34 ms after this change,
+per 0.1 simulated seconds. Every cell evolves, with no retries or equilibrium skip,
+and both endpoints retain the original checkpoint SHA256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+At 4,096 cells (three consecutive intervals), median/p95 improve from
+7,561.93/8,322.64 ms to 6,625.70/7,192.22 ms per 0.1 simulated seconds. All cells
+evolve without retries, and both endpoint checkpoints have SHA256
+`7bb7bf006aa435dfffd81df0cd89e38a32636369c9e73132f2e28b35550e30e4`.
+These component timings do not pass a colony performance gate. Captures, paired
+build settings and source/executable hashes are under `local/shock-heat-cache/`.

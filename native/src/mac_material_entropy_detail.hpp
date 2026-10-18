@@ -34,9 +34,9 @@ inline MacEnergy logarithmic_ratio(double after,double before) {
 // both absolute entropy subtraction and a rounded-temperature subtraction.
 // The mixed/liquid path reads the actual stored-state EOS temperatures and
 // headspaces; no hypothetical isentropic endpoint substitutes for actual U.
+template<class Before,class After>
 inline MacEnergy change(const FluidThermodynamics& model,const MixtureInventory& source,double v0,
-    const ReferenceEquilibriumState& before,const MixtureInventory& endpoint,double v1,
-    const ReferenceEquilibriumState& after) {
+    const Before& before,const MixtureInventory& endpoint,double v1,const After& after) {
     if(source.masses!=endpoint.masses)throw std::invalid_argument("Relative material entropy requires unchanged constituents");
     const auto input=model.to_reference(source,v0);const auto& definitions=model.reference().materials();
     MacEnergySum capacity,gas,offset;bool liquid=false;

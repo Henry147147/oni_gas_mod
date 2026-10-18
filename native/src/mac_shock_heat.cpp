@@ -3,7 +3,9 @@
 #include "mac_material_entropy_detail.hpp"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <span>
 
@@ -99,8 +101,12 @@ MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureIn
     precision("Shock-heat equilibrium exhausted its bracket iterations");
 }
 struct EntropyCell { const MixtureInventory* source; const MixtureInventory* endpoint; double volume; };
+struct EntropyReading {
+    double temperature_k,gas_volume_m3;
+    EntropyReading(const ReferenceEquilibriumState& state):temperature_k(state.temperature_k),gas_volume_m3(state.gas_volume_m3){}
+};
 void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell> cells,
-    const std::vector<ReferenceEquilibriumState>& before, const std::vector<ReferenceEquilibriumState>& after,
+    const std::vector<EntropyReading>& before, const std::vector<EntropyReading>& after,
     double& change, double& allowance) {
     MacEnergySum entropy, bound;
     for (std::size_t i = 0; i < before.size(); ++i) {
@@ -119,12 +125,11 @@ void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell
     change = entropy.value().project().value; allowance = bound.value().project().value;
 }
 struct Link { std::size_t axis, face, left, right; MacScaled closing; MacEnergy integrated; MacScaled diffusion; };
-}
-MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, const MixtureInventory& left,
-    const MixtureInventory& right, double vl, double vr, MacEnergy gdt) {
+MacShockHeatPair relax_pair(const FluidThermodynamics& model, const MixtureInventory& left,
+    const MixtureInventory& right, double vl, double vr, MacEnergy gdt,
+    ReferenceEquilibriumState& a,ReferenceEquilibriumState& b) {
     require_mac_energy_environment();
     require(std::isfinite(vl) && std::isfinite(vr) && vl > 0 && vr > 0 && gdt.mantissa() >= 0, "Invalid shock-heat geometry/conductance");
-    const auto a = model.evaluate(left, vl), b = model.evaluate(right, vr);
     MacShockHeatPair p; p.before_left_j = p.after_left_j = left.energy; p.before_right_j = p.after_right_j = right.energy;
     p.temperature_left_k = p.after_temperature_left_k = a.temperature_k; p.temperature_right_k = p.after_temperature_right_k = b.temperature_k;
     p.capacity_left_j_per_k = a.equilibrium_heat_capacity_at_cell_volume_j_per_k;
@@ -145,7 +150,8 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
     if (p.transfer.is_zero()) precision("Shock heat lost a positive full-range transfer");
     p.after_left_j = updated_energy(left.energy, p.transfer.negated()); p.after_right_j = updated_energy(right.energy, p.transfer);
     auto l = left, r = right; l.energy = p.after_left_j; r.energy = p.after_right_j;
-    const auto nl = model.evaluate(l, vl), nr = model.evaluate(r, vr);
+    auto nl = std::bit_cast<std::uint64_t>(l.energy)==std::bit_cast<std::uint64_t>(left.energy) ? a : model.evaluate(l, vl);
+    auto nr = std::bit_cast<std::uint64_t>(r.energy)==std::bit_cast<std::uint64_t>(right.energy) ? b : model.evaluate(r, vr);
     p.after_temperature_left_k = nl.temperature_k; p.after_temperature_right_k = nr.temperature_k;
     const auto lo = std::min(a.temperature_k, b.temperature_k), hi = std::max(a.temperature_k, b.temperature_k);
     if (!interval(nl.temperature_k, lo, hi) || !interval(nr.temperature_k, lo, hi) ||
@@ -159,7 +165,16 @@ MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model, con
     const std::array<EntropyCell, 2> entropy_cells{{{&left, &l, vl}, {&right, &r, vr}}};
     entropy_check(model, entropy_cells, {a, b}, {nl, nr},
         p.entropy_change_j_per_k, p.entropy_roundoff_j_per_k);
+    a=std::move(nl);b=std::move(nr);
     return p;
+}
+}
+MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model,const MixtureInventory& left,
+    const MixtureInventory& right,double vl,double vr,MacEnergy gdt) {
+    require_mac_energy_environment();
+    require(std::isfinite(vl) && std::isfinite(vr) && vl>0 && vr>0 && gdt.mantissa()>=0,"Invalid shock-heat geometry/conductance");
+    auto a=model.evaluate(left,vl),b=model.evaluate(right,vr);
+    return relax_pair(model,left,right,vl,vr,gdt,a,b);
 }
 MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, MacShockHeatLaw law) {
@@ -170,7 +185,12 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
     require(jx.size() == inertia.x.size() && jy.size() == inertia.y.size(), "Shock-heat momentum shape differs");
-    MacShockHeatAdvance result{source, {}}; std::vector<ReferenceEquilibriumState> initial;
+    MacShockHeatAdvance result{source, {}}; std::vector<EntropyReading> initial;
+    // Only U changes in this stage. A successful pair publishes its validated
+    // EOS endpoints with the same U update; masses, volume and model stay fixed.
+    // The cache is local to this call and cannot survive a material/boundary edit.
+    std::vector<ReferenceEquilibriumState> current;
+    std::vector<std::size_t> current_index(source.cells.size(),none);
     result.report.law = law;
     if (sensed) {
         result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source, MacCompressionLaw::pressure_sensed_acoustic);
@@ -178,10 +198,11 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
-        initial.push_back(model.evaluate(source.cells[i].mixture, g.volume_m3()));
-        result.report.frozen_capacity_j_per_k[i] = initial.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
+        current_index[i]=current.size();current.push_back(model.evaluate(source.cells[i].mixture,g.volume_m3()));
+        initial.emplace_back(current.back());
+        result.report.frozen_capacity_j_per_k[i] = current.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
         if (sensed) {
-            const auto& e = initial.back(); MacEnergySum cp; cp.add(e.intrinsic_heat_capacity_j_per_k);
+            const auto& e = current.back(); MacEnergySum cp; cp.add(e.intrinsic_heat_capacity_j_per_k);
             if (e.has_gas) cp.add(MacEnergy::from_double(e.gas_pressure_pa).multiplied(e.gas_volume_m3).shared(1, e.temperature_k));
             result.report.frozen_conductance_capacity_j_per_k[i] = cp.value();
         }
@@ -247,15 +268,17 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     for (std::size_t sweep = 0; sweep < 2; ++sweep) for (std::size_t n = 0; n < links.size(); ++n) {
         const auto& link = links[sweep == 0 ? n : links.size() - 1 - n];
         auto& left = result.state.cells[link.left].mixture; auto& right = result.state.cells[link.right].mixture;
-        auto pair = relax_mac_shock_heat_pair(model, left, right, g.volume_m3(), g.volume_m3(), link.integrated);
+        auto pair = relax_pair(model,left,right,g.volume_m3(),g.volume_m3(),link.integrated,
+            current[current_index[link.left]],current[current_index[link.right]]);
+        result.report.reused_pair_eos_readings+=2;
         left.energy = pair.after_left_j; right.energy = pair.after_right_j;
         transferred.add(pair.transfer.magnitude()); result.report.unresolved_updates += pair.unresolved_updates;
         result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair), link.diffusion});
     }
-    MacEnergyAccount balance; std::vector<ReferenceEquilibriumState> final; std::vector<EntropyCell> entropy_cells;
+    MacEnergyAccount balance; std::vector<EntropyReading> final; std::vector<EntropyCell> entropy_cells;
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i]) {
         balance.add(result.state.cells[i].mixture.energy); balance.add(-source.cells[i].mixture.energy);
-        final.push_back(model.evaluate(result.state.cells[i].mixture, g.volume_m3()));
+        final.emplace_back(current[current_index[i]]);++result.report.reused_endpoint_eos_readings;
         entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, g.volume_m3()});
     }
     if (!balance.within_bound()) precision("Shock-heat global actual U account exceeds its operand bound");

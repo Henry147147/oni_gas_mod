@@ -41,6 +41,7 @@ struct MacShockHeatReport {
     MacShockHeatLaw law = MacShockHeatLaw::closing_velocity;
     std::vector<MacEnergy> frozen_conductance_capacity_j_per_k;
     MacCompressionCoefficients compression_coefficients;
+    std::size_t reused_pair_eos_readings = 0, reused_endpoint_eos_readings = 0;
 };
 struct MacShockHeatAdvance { MacTransportState state; MacShockHeatReport report; };
 // Separate occupied-grid regularization. Its default is the retained reference

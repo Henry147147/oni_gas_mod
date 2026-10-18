@@ -87,6 +87,31 @@ None of these coefficients was fitted to a benchmark. Mode 3 made the strong-flo
 collision result worse than mode 2 (density/pressure ratios 0.919/0.898 against
 0.856/0.796), so mode 2 stays the default ([results](MAC_STRONG_FLOW.md#results-by-method)).
 
+### Reusing completed EOS readings
+
+Each heat stage retains the current validated EOS reading for every fluid cell.
+Each accepted pair replaces its two cached readings together with the corresponding
+stored-U updates. A bit-identical U reuses its existing reading; changed U receives
+a complete evaluation before the pair can pass its interval, energy and entropy
+checks. Coefficients remain frozen from the original source. Masses, volumes and the
+immutable model stay fixed during the stage; the cache is destroyed on return or
+failure, so an edit between calls always receives fresh readings. No wall-clock or
+approximate-state criterion controls reuse.
+
+Source and final entropy checks keep only temperature and gas-volume readings,
+instead of retaining two complete EOS result vectors. Pair input evaluations and
+the final whole-grid evaluation pass reuse the corresponding validated states.
+The report counts these as `reused_pair_eos_readings` and
+`reused_endpoint_eos_readings`; they do not include the source-admission, coefficient
+or mixed-EOS bracket evaluations, which still execute.
+
+`ma_mac_shock_heat_cache_tests` compares every pair receipt and the complete endpoint
+against ordered replay through the public, freshly evaluated pair operator. Its 72
+stages cover both boundary types, an interior solid, all three laws, wet mixtures,
+traces, below-range velocities/heat and edits between calls. There are 2,064 exact
+receipt comparisons and 1,440 witnesses where an earlier pair changed a later pair's
+input inventory. These are cache-correctness controls, not a strong-flow pass.
+
 ## Entropy measurement
 
 Heat and compressive-work stages admit a candidate only if actual stored-state entropy
@@ -182,7 +207,7 @@ python3 native/tests/review_mac_shock_heat.py heat.stdout
 build/ma_mac_shock_heat_tests --entropy-regression > heat-entropy.stdout
 python3 native/tests/review_mac_heat_entropy.py heat-entropy.stdout heat-entropy.json
 build/ma_mac_shock_heat_owner_tests > heat-owner.stdout
-python3 native/tests/review_mac_shock_heat_owner.py heat-owner.stdout --matched-heat
+python3 native/tests/review_mac_shock_heat_owner.py heat-owner.stdout heat-owner.json --matched-heat
 ```
 
 The owner test and its reviewer use different flags for the same configuration:
