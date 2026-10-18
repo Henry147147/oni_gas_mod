@@ -323,9 +323,9 @@ bool mac_diffusion_stationary(const SpeciesRegistry& registry,const MacTransport
         const auto& a=state.cells[l].mixture;const auto& b=state.cells[r].mixture;
         // Sufficient exact certificate. No tolerance may erase a small gradient.
         // Equal inventories and U give equal T, p and partial pressures; a face
-        // touching an empty cell carries no flux.
-        if(a.mass()==0 || b.mass()==0)return true;
-        for(std::size_t s=0;s<registry.size();++s)if(a.masses[s]!=b.masses[s])return false;
+        // touching an empty cell carries no flux. Emptiness is examined only
+        // when inventories differ, keeping the uniform certificate cheap.
+        for(std::size_t s=0;s<registry.size();++s)if(a.masses[s]!=b.masses[s])return a.mass()==0 || b.mass()==0;
         return a.energy==b.energy;
     };
     for(std::size_t y=0;y<g.height;++y)for(std::size_t x=0;x<g.width;++x) {
