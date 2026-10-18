@@ -6,7 +6,7 @@
     "coverage_policy": "4e36cd207d0e0930d16a22a60a1644f5222a97809a6db2063b1b455556399e45",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "549ff922c38101ef88620cd5bad7e2fe0f26f07e10102e848777291f6c78b28b"
+    "native_hook_profiles": "7f345b81b88d3c998e7417914d6ca410183ac07941e07675d46e8d8787da77d8"
   },
   "assembly_hashes": {
     "windows-x64": "a58e04d0ffdf89b86fb28b71ad900625b3b539db30d67f8c6269f73a9f5ae599",
@@ -7873,6 +7873,42 @@
       }
     },
     {
+      "id": "native-hook/copy-to-game",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "windows-x64",
+            "binding_group": "publication_bindings",
+            "index": 0,
+            "role": "copy-to-game",
+            "symbol": "?CopySimDataToGame@SimBase@@QEAAXAEAVSimData@@AEAVGameData@@AEBV3@H@Z",
+            "rva": 206880,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "55e3d337c8e527e4f46bca6a78d7be15f9aa66f6cb580c63552b95e806f48ad0",
+            "signature": "void(this*,data*,game*,const-game*,int)"
+          },
+          {
+            "platform": "linux-x64",
+            "binding_group": "publication_bindings",
+            "index": 0,
+            "role": "copy-to-game",
+            "symbol": "_ZN7SimBase17CopySimDataToGameER7SimDataR8GameDataRKS2_i",
+            "rva": 361984,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "0e868e021916a8a93b5afefa7e127a752f3a3e71944d03675618abc5a6875a54",
+            "signature": "void(this*,data*,game*,const-game*,int)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
       "id": "native-hook/emitter",
       "kind": "native-hook",
       "owner": "native-boundary",
@@ -8386,6 +8422,42 @@
             "fingerprint_bytes": 32,
             "fingerprint_sha256": "e7866f71e126c1801cade3b64a0f227719ff050a424974d1b178bd644148f156",
             "signature": "void(data*,events*,int)"
+          }
+        ],
+        "requires_enclosing_phase_coverage": [],
+        "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
+      }
+    },
+    {
+      "id": "native-hook/prepare-game-data-update",
+      "kind": "native-hook",
+      "owner": "native-boundary",
+      "adapter": "NativeBackendHooks",
+      "acceptance": "native-service",
+      "status": "unimplemented",
+      "fact": {
+        "locations": [
+          {
+            "platform": "windows-x64",
+            "binding_group": "publication_bindings",
+            "index": 1,
+            "role": "prepare-game-data-update",
+            "symbol": "?PrepareGameDataUpdate@@YAPEAXAEBVGameData@@@Z",
+            "rva": 26560,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "25fc36d6c1401121e689b8d0973d301b85987cb10740b0e76929f41e4e541237",
+            "signature": "pointer(const-game*)"
+          },
+          {
+            "platform": "linux-x64",
+            "binding_group": "publication_bindings",
+            "index": 1,
+            "role": "prepare-game-data-update",
+            "symbol": "_Z21PrepareGameDataUpdateRK8GameData",
+            "rva": 206128,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "76b3423301f0d39aed01ece8d7d3e82a1c83c27ad31cec404a48d5af37916c57",
+            "signature": "pointer(const-game*)"
           }
         ],
         "requires_enclosing_phase_coverage": [],

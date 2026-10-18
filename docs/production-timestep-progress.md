@@ -107,9 +107,9 @@ records are under the ignored `local/production-timestep/` directory:
 The pressure/remap momentum-and-kinetic-energy conversion, persistent primary-field
 rounding remainders, true vacuum, free surfaces, phase/solution transport,
 the full material catalogue, a production colony ABI, whole-world ownership,
-resource/power/heat transactions, the Unity solid-heat correction, gameplay
+resource/power/heat transactions, whole-colony solid-heat coverage, gameplay
 adapters, progression, complete persistence and cross-platform water
-continuation remain open. All 3,072 coverage entries still lack acceptance
+continuation remain open. All 3,074 coverage entries still lack acceptance
 evidence. Existing conservation gates, breathing thresholds, new-colony-only
 scope and verified ONI 744825 profiles remain the governing requirements.
 
@@ -712,3 +712,37 @@ Linux tests pass again. A pinned three-interval comparison measures 7.15 s
 before and 6.46 s after; other busy-host samples vary substantially. This is
 an implementation improvement without a new physical approximation, and
 [active-cell performance remains open](../native/MAC_MULTIGRID.md#fused-pass-follow-up).
+
+## Native exported-frame identity and solid heat
+
+The Unity solid-heat failure came from comparing different completed frames.
+A reproduced native temperature drop accounts for the entire 0.4821777474717237 J
+journal entry, while the previously exported game buffer still describes the
+earlier temperature. Two inspected, separately fingerprinted native procedures
+now bind each exported packet to its completed physical source. An additive
+reader ABI retains immutable cells, the heat account and native observations
+under a bounded lease. Observer ABI 4 and all public hook indices remain intact.
+
+Linux Unity source/save and fresh-process reload now pass 121 and 120 positive
+contacts respectively, with exactly zero published-temperature residual at the
+unchanged endpoint bounds. The reload checks the initial image, paused
+frame-zero resave and 120 exact accepted-input continuations. Input reservations
+still use the current owner. The native Release and frozen Ubuntu 22.04 suites
+pass 38/38; changed lease/C ABI tests pass fatal ASan/UBSan with leak detection
+and MinGW/Wine. Licensed Linux gas/water and Windows-DLL/Wine gas controls pass
+56 matching publication samples each. Python tests pass 297 with four skips.
+
+The two publication responsibilities extend the coverage inventory to 3,074
+entries without changing the earlier 3,072 entries or claiming full acceptance.
+The reader still has the development ABI's 4096-cell/five-constituent bounds;
+it is not the production colony ABI or a colony-scale publication performance
+result. Details and scope are in [completed native exports](native-domain-publication.md).
+Actual Windows OS evidence for this repair, whole-colony heat, moving solids,
+building thermal components and phase-changing boundaries remain open.
+
+WindowsPlayer under official Proton 10.0-4b subsequently passes source/save and
+fresh-process reload too: 121/120 contacts, zero endpoint residuals, a paused
+frame-zero resave and 120 exact resumed input replays. These MinGW/Proton runs
+are separate from actual Windows OS/MSVC acceptance. The first attempt failed
+prefix initialization before any game launch; both attempts are retained under
+`local/solid-heat-native-debug/`.

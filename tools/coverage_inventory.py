@@ -68,11 +68,14 @@ def interface_entries(contract: dict, policy: dict) -> list[dict]:
     for profile in profiles["profiles"]:
         for hook in profile["hooks"]:
             by_role.setdefault(hook["role"], []).append({"platform": profile["platform"], **hook})
+        for hook in profile.get("publication_bindings", []):
+            by_role.setdefault(hook["role"], []).append({"platform": profile["platform"],
+                "binding_group": "publication_bindings", **hook})
     for role, locations in sorted(by_role.items()):
         add(f"native-hook/{role}", "native-hook", "native-boundary", "NativeBackendHooks", "native-service",
             {"locations": locations,
              "requires_enclosing_phase_coverage": [p["platform"] for p in profiles["profiles"]
-                                                  if not any(h["role"] == role for h in p["hooks"])],
+                                                  if not any(h["role"] == role for h in p["hooks"] + p.get("publication_bindings", []))],
              "scope": "Forwarding observer; replacement/reader-writer coverage remains required."})
     runtime = json.loads(RUNTIME.read_text(encoding="utf-8"))
     if runtime["schema_version"] != 1 or runtime["oni_build"] != contract["scope"]["oniBuild"] or runtime["coverage_complete"] is not False:

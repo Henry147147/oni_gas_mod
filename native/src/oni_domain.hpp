@@ -1,5 +1,6 @@
 #pragma once
 #include "mixed_atmospheres/oni_domain.h"
+#include "oni_publication.hpp"
 #include <cstdint>
 #include <mutex>
 #include <span>
@@ -51,6 +52,8 @@ void copy_domain_solid_cell_state(MAOniDomainSolidCellState&);
 void record_domain_solid_cell_state(const MAOniDomainSolidCellState&);
 bool domain_solid_heat_registered(int native_cell) noexcept;
 void fault_domain_solid_heat(const char*) noexcept;
+// Called at the completed native GameData copy; never serializes a checkpoint.
+std::optional<published_frames::Frame> capture_domain_publication(std::uint64_t native_epoch);
 // The native detour supplies the current native cell facts. A changed material
 // or mass faults the owner before either thermal endpoint is modified.
 DomainChunkHeat exchange_domain_solid_heat(int fluid_native_cell,int solid_native_cell,std::uint16_t element,

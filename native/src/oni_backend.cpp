@@ -33,6 +33,7 @@ static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
 static_assert(sizeof(MAOniDomainSolidHeatCell) == 48);
 static_assert(sizeof(MAOniDomainSolidHeatEndpoint) == 64);
 static_assert(sizeof(MAOniDomainSolidCellState) == 64);
+static_assert(sizeof(MAOniDomainPublicationInfo) == 64);
 static_assert(sizeof(MAOniDomainPhysics) == 40);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
@@ -46,6 +47,7 @@ struct Failure : std::runtime_error {
 thread_local std::array<char,2048> last_error{};
 std::mutex lifecycle;
 std::array<void*,MA_ONI_HOOK_COUNT> originals{};
+std::array<void*,2> publication_originals{};
 struct Counter { std::atomic<std::uint64_t> entries{}, exits{}; };
 std::array<Counter,MA_ONI_HOOK_COUNT> counters;
 std::atomic<std::uint64_t> active{}, positive_steps{}, trace_reserved{}, thread_sequence{};
@@ -112,6 +114,12 @@ struct Call {
         counters[hook].exits.fetch_add(1, std::memory_order_relaxed);
         active.fetch_sub(1, std::memory_order_release);
     }
+};
+// Separate additive reader bindings do not change the observer ABI's hook
+// indices or statistics layout. They still participate in safe detach.
+struct PublicationCall {
+    PublicationCall() { active.fetch_add(1, std::memory_order_relaxed); }
+    ~PublicationCall() { active.fetch_sub(1, std::memory_order_release); }
 };
 template<class Function> Function original(std::uint32_t index) noexcept {
     return reinterpret_cast<Function>(originals[index]);
@@ -353,6 +361,29 @@ float on_chunk_heat(void* accessor,void* chunk,float dt,float scale) {
 }
 #endif
 
+void on_copy_to_game(void* self, void* data, void* game, const void* previous, int frames) {
+    PublicationCall call;
+    std::unique_lock<std::mutex> frame_lock;
+    if (!worker_frame_fence.owns_lock()) frame_lock = std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
+    using Function = void (*)(void*, void*, void*, const void*, int);
+    reinterpret_cast<Function>(publication_originals[0])(self, data, game, previous, frames);
+    try {
+        ma::oni::published_frames::record(game,
+            ma::oni::capture_domain_publication(native_frame_epochs.load(std::memory_order_acquire)));
+    } catch (const std::exception& error) { ma::oni::fault_domain_solid_heat(error.what()); }
+      catch (...) { ma::oni::fault_domain_solid_heat("Cannot capture completed native publication"); }
+}
+void* on_prepare_game_update(const void* game) {
+    PublicationCall call; ma::oni::published_frames::unbind();
+    const auto result = reinterpret_cast<void* (*)(const void*)>(publication_originals[1])(game);
+    try { ma::oni::published_frames::bind(game, result); }
+    catch (const std::exception& error) { ma::oni::fault_domain_solid_heat(error.what()); }
+    catch (...) { ma::oni::fault_domain_solid_heat("Cannot bind completed native publication"); }
+    return result;
+}
+const std::array<void*,2> publication_replacements{
+    reinterpret_cast<void*>(&on_copy_to_game), reinterpret_cast<void*>(&on_prepare_game_update)};
+
 const std::array<void*,MA_ONI_HOOK_COUNT> replacements{
     reinterpret_cast<void*>(&on_initialize), reinterpret_cast<void*>(&on_shutdown),
     reinterpret_cast<void*>(&on_message), reinterpret_cast<void*>(&on_messages),
@@ -436,6 +467,8 @@ void require_quiescent() {
 bool fingerprints_match() {
     for (const auto& hook : profile_hooks)
         if (ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+hook.rva),32) != hook.hash) return false;
+    for (const auto& hook : profile_publication_bindings)
+        if (ma::oni::hash_memory(reinterpret_cast<const void*>(image_base+hook.rva),32) != hook.hash) return false;
     return true;
 }
 
@@ -476,7 +509,7 @@ void register_trampoline_storage() {
     if (ma_funchook_register_trampoline_buffer(reinterpret_cast<void*>(image_base+trampoline_storage.rva),
                                              trampoline_storage.bytes)!=0)
         throw Failure(MA_ONI_HOOK_ERROR,"Cannot reserve verified native trampoline storage");
-    if (ma_funchook_trampoline_capacity()<std::size(profile_hooks)) {
+    if (ma_funchook_trampoline_capacity()<std::size(profile_hooks)+profile_publication_bindings.size()) {
         (void)ma_funchook_register_trampoline_buffer(nullptr,0);
         throw Failure(MA_ONI_HOOK_ERROR,"Verified native trampoline storage cannot hold every required hook");
     }
@@ -650,8 +683,13 @@ MAOniResult ma_oni_attach_observer(const MAOniObserverConfig* config,MAOniObserv
                     throw Failure(MA_ONI_HOOK_ERROR,detail.data());
                 }
             }
+            for (const auto& hook : profile_publication_bindings) {
+                publication_originals[hook.index] = reinterpret_cast<void*>(image_base + hook.rva);
+                if (funchook_prepare(detours, &publication_originals[hook.index], publication_replacements[hook.index]) != 0)
+                    throw Failure(MA_ONI_HOOK_ERROR, funchook_error_message(detours));
+            }
 #if defined(__linux__)
-            if (ma_funchook_trampoline_used()!=std::size(profile_hooks))
+            if (ma_funchook_trampoline_used()!=std::size(profile_hooks)+profile_publication_bindings.size())
                 throw Failure(MA_ONI_HOOK_ERROR,"A required hook did not use the verified native trampoline buffer");
 #endif
             if (funchook_install(detours,0) != 0) throw Failure(MA_ONI_HOOK_ERROR,funchook_error_message(detours));
@@ -794,6 +832,47 @@ MAOniResult ma_oni_domain_chunk_heat_status(MAOniDomainChunkHeatStatus* output) 
     });
 }
 std::uint32_t ma_oni_domain_solid_heat_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_publication_abi_version() { return profile_publication_bindings.size() == 2 ? 1U : 0U; }
+MAOniResult ma_oni_domain_publication_acquire(const void* native_update, MAOniDomainPublicationInfo* output) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_PUBLICATION_ABI_VERSION)
+            throw Failure(MA_ONI_INVALID_ARGUMENT, "Invalid native publication info ABI");
+        try { *output = ma::oni::published_frames::acquire(native_update); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT, error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY, error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_publication_copy(std::uint64_t token, MAOniDomainStatus* output, MAOniDomainCell* cells,
+    std::uint32_t capacity, MAOniDomainSolidHeatStatus* heat, MAOniDomainSolidHeatEndpoint* endpoint, MAOniDomainSolidCellState* solid) {
+    return boundary([&] {
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION || !cells ||
+            !heat || heat->struct_size != sizeof(*heat) || heat->abi_version != 1 ||
+            !endpoint || endpoint->struct_size != sizeof(*endpoint) || endpoint->abi_version != 1 ||
+            !solid || solid->struct_size != sizeof(*solid) || solid->abi_version != 1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT, "Invalid leased publication output ABI");
+        std::shared_ptr<const ma::oni::published_frames::Frame> frame;
+        try { frame = ma::oni::published_frames::read(token); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT, error.what()); }
+        if (capacity < frame->cells.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL, "Leased cell output is too small");
+        std::copy(frame->cells.begin(), frame->cells.end(), cells);
+        *output = frame->status; *heat = frame->solid_heat; *endpoint = frame->solid_endpoint; *solid = frame->solid_cell;
+    });
+}
+MAOniResult ma_oni_domain_publication_cells(std::uint64_t token, const MAOniDomainCell** cells, std::uint32_t* count) {
+    return boundary([&] {
+        if (!cells || !count) throw Failure(MA_ONI_INVALID_ARGUMENT, "Missing leased cell view output");
+        std::shared_ptr<const ma::oni::published_frames::Frame> frame;
+        try { frame = ma::oni::published_frames::read(token); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT, error.what()); }
+        *cells = frame->cells.data(); *count = static_cast<std::uint32_t>(frame->cells.size());
+    });
+}
+MAOniResult ma_oni_domain_publication_release(std::uint64_t token) {
+    return boundary([&] {
+        try { ma::oni::published_frames::release(token); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT, error.what()); }
+    });
+}
 MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus* output) {
     return boundary([&] {
         if(!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)

@@ -55,6 +55,22 @@ class NativeProfileTests(unittest.TestCase):
             self.assertIn(value["assembly_sha256"], text)
         self.assertNotIn("0x48,", text)
 
+    def test_publication_bindings_preserve_observer_abi_and_reject_drift(self):
+        for platform in range(2):
+            bindings=self.value['profiles'][platform]['publication_bindings']
+            self.assertEqual([h['role'] for h in bindings],['copy-to-game','prepare-game-data-update'])
+            for update in ({'rva':0},{'signature':'void()'},{'symbol':'other'},{'fingerprint_sha256':'bad'},
+                           {'rva':self.value['profiles'][platform]['hooks'][0]['rva']}):
+                value=copy.deepcopy(self.value);value['profiles'][platform]['publication_bindings'][0].update(update)
+                with self.assertRaises(ValueError):profiles.validate(value)
+            value=copy.deepcopy(self.value);value['profiles'][platform]['publication_bindings'].pop()
+            with self.assertRaises(ValueError):profiles.validate(value)
+        legacy=copy.deepcopy(self.value)
+        for platform in legacy['profiles']:del platform['publication_bindings']
+        profiles.validate(legacy)
+        self.assertIn('std::array<HookProfile, 0> profile_publication_bindings',profiles.header(legacy))
+        self.assertIn('std::array<HookProfile, 2> profile_publication_bindings',profiles.header(self.value))
+
     def test_native_body_layout_and_private_location_drift_rejected(self):
         for platform in range(2):
             for key in profiles.CHUNK_HEAT_LAYOUT:

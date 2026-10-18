@@ -10,13 +10,17 @@ enabled production importer.
 
 ## Executable inventory
 
-`coverage-inventory.json` contains 3,072 entries: 212 material identities,
-62 native messages, 16 native imports, 29 native-hook responsibilities, 47
+`coverage-inventory.json` contains 3,074 entries: 212 material identities,
+62 native messages, 16 native imports, 31 native-hook responsibilities, 47
 snapshot/event/texture channels, 215 observed call sites, 39 gameplay systems,
 2,143 prefab registrations, 34 prefab converters and 275 recipe registrations.
 Every entry names its intended owner, adapter and acceptance requirement.
 Adapter names with `unimplemented` status are planned responsibilities, not
 existing code; today every entry is `unimplemented`.
+
+The two [publication bindings](native-domain-publication.md) are included among
+the native-hook responsibilities. They leave the observer's 29 public hook
+indices unchanged and still require full colony acceptance evidence.
 
 The inventory is a conservative list of known work, not a completeness proof:
 

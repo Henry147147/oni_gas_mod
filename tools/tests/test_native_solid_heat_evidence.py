@@ -19,13 +19,16 @@ class NativeSolidHeatEvidenceTests(unittest.TestCase):
             Unresolved=20,Iterations=0,BodyHeatLossJoules=loss,StoredFluidHeatJoules=loss,
             MaximumBalanceResidualJoules=1e-9,MaximumBalanceBoundJoules=1e-7,EntropyLowerBound=.1,RequestedAbsoluteHeatJoules=loss+1)
         value=dict(Required=True,AbiVersion=1,Source='actual-native-UpdateTemperature-cell-pair',ConfiguredCells=[cell],Status=heat,
+            Publication=dict(Size=64,Version=1,State=1,Reserved=0,Reserved2=0,Token=12,NativeEpoch=125,Session=3,
+                CompletedFrame=120,Cells=6,TimeSeconds=24.,LeaseReleased=True,CellsMatchLatest=True,
+                Source='inspected-native-GameData-copy-and-export',UnboundUpdatesObserved=1),
             Endpoints=[dict(PublicCell=649,BeforeTemperatureK=before,PublishedTemperatureK=after,
                 HeatCapacityJoulesPerKelvin=capacity,MassKg=10,SpecificHeatKJPerKgK=cp)],ObservedFrame=120,
             ObservedSolidHeatLossJoules=loss,ObservedBalanceResidualJoules=0,ObservedBalanceBoundJoules=bound,
             EndpointsVerified=True,NativeOldTemperatureGridPreserved=True,WholeColonySolidHeat=False,
             CapacityModel='native-mass-times-native-specific-heat-without-binary32-product-rounding',
             ConductivityModel='harmonic-conductivity-with-squared-native-insulation-fractions')
-        return dict(NativeDomain=dict(Session=3,CompletedFrames=120),TargetCell=650,NativeSolidHeat=value,
+        return dict(NativeDomain=dict(Session=3,CompletedFrames=120,Cells=6,TimeSeconds=24.),TargetCell=650,NativeSolidHeat=value,
             ColonyCheckpoint=dict(FrameInputReplay=dict(ActorRefreshFramesCompared=0,HeatBatches=100)))
 
     def test_actual_current_endpoints_and_separate_account_are_required(self):
@@ -52,3 +55,12 @@ class NativeSolidHeatEvidenceTests(unittest.TestCase):
             self.assertFalse(_native_solid_heat_passed(bad,False),key)
         report['ColonyCheckpoint']['FrameInputReplay']['HeatBatches']=0
         self.assertFalse(_native_solid_heat_passed(report,True))
+
+    def test_leased_publication_must_match_cells_clock_session_and_release(self):
+        report=self.fixture()
+        for key,value in [('Version',0),('CompletedFrame',119),('Session',4),('Cells',5),('TimeSeconds',23.8),
+                          ('LeaseReleased',False),('CellsMatchLatest',False),('Source','latest-owner'),('NativeEpoch',0),('Token',0)]:
+            bad=copy.deepcopy(report);bad['NativeSolidHeat']['Publication'][key]=value
+            self.assertFalse(_native_solid_heat_passed(bad,False),key)
+        del report['NativeSolidHeat']['Publication']
+        self.assertFalse(_native_solid_heat_passed(report,False))

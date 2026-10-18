@@ -11,6 +11,7 @@ internal static unsafe partial class Program
         private float temperature;
         private double bodyLoss;
         private int samples;
+        private int publicationSamples;
         private readonly List<object> evidence=new();
         internal NativeSolidHeatControl(NativeSim sim,Contract contract,OniNativeDomain.Status status)
         {
@@ -21,6 +22,7 @@ internal static unsafe partial class Program
                 "Native solid control needs a finite initial temperature above its 300 K fluid.");
             temperature=InitialTemperature;
             Require(OniNativeDomain.SolidHeatVersion()==1,"Native solid heat capability differs.");
+            Require(OniNativePublication.Version()==1,"Native solid control requires publication leases.");
             void Replace(int position,int element,float mass,float kelvin)=>sim.Send(-1252920804,WritePayload(writer=> {
                 writer.Write(position);writer.Write(-1);writer.Write(kelvin);writer.Write(mass);writer.Write(0);
                 writer.Write((ushort)element);writer.Write((byte)1);writer.Write((byte)255);writer.Write((byte)1);writer.Write(new byte[3]);
@@ -58,6 +60,28 @@ internal static unsafe partial class Program
             Require(Math.Abs(bodyLoss-heat.BodyHeatLossJoules)<=bound,"Actual native solid temperature lost a native contribution or its represented fluid heat: published="+
                 (double)temperature+", nativeOld="+(double)native.OldTemperatureK+", nativeUpdated="+(double)native.UpdatedTemperatureK+
                 ", observedLoss="+bodyLoss+", journalLoss="+heat.BodyHeatLossJoules+", frame="+status.CompletedFrames+".");
+            var info=OniNativePublication.Info.Empty;
+            Require(OniNativePublication.Acquire(snapshot.NativeUpdate,ref info)==0,"Native snapshot has no leased physical publication.");
+            try {
+                var source=OniNativeDomain.Status.Empty;var cells=new OniNativeDomain.Cell[status.Cells];
+                var sourceHeat=OniNativeDomain.ChunkHeatStatus.Empty;var endpoint=OniNativeDomain.SolidHeatEndpoint.Empty;
+                var sourceCell=OniNativeDomain.SolidCellState.Empty;
+                Require(OniNativePublication.Copy(info.Token,ref source,cells,(uint)cells.Length,ref sourceHeat,ref endpoint,ref sourceCell)==0 &&
+                    info.State==1 && info.Reserved==0 && info.Reserved2==0 && info.NativeEpoch>0 &&
+                    info.Session==status.Session && info.CompletedFrame==status.CompletedFrames && info.Cells==status.Cells &&
+                    source.NativeTicket==status.NativeTicket && source.TimeSeconds==status.TimeSeconds && source.PressurePa==status.PressurePa &&
+                    sourceHeat.CompletedFrame==status.CompletedFrames && sourceHeat.BodyHeatLossJoules==heat.BodyHeatLossJoules &&
+                    sourceCell.CompletedFrame==status.CompletedFrames && sourceCell.UpdatedTemperatureK==current.Temperature &&
+                    endpoint.CompletedFrame==status.CompletedFrames,
+                    "Native publication lease mixed source, cells or heat journal frames.");
+                Require(OniNativePublication.Cells(info.Token,out var view,out var count)==0 && view!=IntPtr.Zero && count==cells.Length &&
+                    ((OniNativeDomain.Cell*)view)[0].Temperature==cells[0].Temperature &&
+                    ((OniNativeDomain.Cell*)view)[0].Oxygen==cells[0].Oxygen,
+                    "Leased native cell view differs from the copied source frame.");
+                ++publicationSamples;
+            } finally {
+                Require(OniNativePublication.Release(info.Token)==0,"Native publication lease release failed.");
+            }
             evidence.Add(new {status.CompletedFrames,NativeTemperature=temperature,NativeMass=current.Mass,NativeInsulation=current.Insulation,
                 ObservedBodyHeatLossJoules=bodyLoss,ObservedBalanceBoundJoules=bound,
                 CompletedNativeCell=new {native.CompletedFrame,native.NativeTicket,
@@ -69,13 +93,13 @@ internal static unsafe partial class Program
         internal object Finish(double initialEnergy,double initialScale,OniNativeDomain.Cell[] fluid)
         {
             var heat=OniNativeDomain.ChunkHeatStatus.Empty;Require(OniNativeDomain.CopySolidHeat(ref heat)==0,"Native solid final heat is unavailable.");
-            Require(samples>=50 && heat.Contacts>=50 && heat.Transfers>=50 && bodyLoss>0 && temperature<InitialTemperature,
+            Require(samples>=50 && publicationSamples==samples && heat.Contacts>=50 && heat.Transfers>=50 && bodyLoss>0 && temperature<InitialTemperature,
                 "Actual licensed native temperature-pair contacts did not exchange represented solid heat.");
             var finalEnergy=fluid.Sum(c=>c.InternalEnergy+c.ResolvedKineticEnergy);var residual=finalEnergy-initialEnergy-heat.BodyHeatLossJoules;
             var bound=128*2.2204460492503131e-16*(initialScale+fluid.Sum(c=>Math.Abs(c.InternalEnergy)+c.ResolvedKineticEnergy)+Math.Abs(heat.BodyHeatLossJoules));
             Require(Math.Abs(residual)<=bound,"Actual native solid/fluid U+K boundary did not close.");
             return new {Verified=true,ActualLicensedNativeWorker=true,UnityGameTest=false,ActualWindowsOsEstablishedByThisProbe=false,
-                Samples=samples,InitialTemperature,FinalTemperature=temperature,HeatCapacityJoulesPerKelvin=capacity,
+                Samples=samples,PublicationSamples=publicationSamples,PublicationLeasesVerified=true,InitialTemperature,FinalTemperature=temperature,HeatCapacityJoulesPerKelvin=capacity,
                 BodyHeatLossJoules=bodyLoss,ClosedEnergyResidualJoules=residual,ClosedEnergyBoundJoules=bound,
                 NativeOldTemperatureGridPreserved=true,CompatibilityCellTemperatureUnchanged=true,Evidence=evidence};
         }

@@ -68,6 +68,15 @@ CHUNK_HEAT_LOCATIONS={
 CHUNK_HEAT_LAYOUT=dict(accessor_bytes=16,cell_index_offset=8,chunk_bytes=44,temperature_offset=4,
     heat_capacity_offset=8,conductivity_offset=12,transfer_scale_offset=16)
 
+# Separate read-only publication bindings leave the observer ABI and its public
+# hook indices unchanged. No private GameData/STL layout is read by the mod.
+PUBLICATION_SPECS = (
+    ('copy-to-game', '?CopySimDataToGame@SimBase@@QEAAXAEAVSimData@@AEAVGameData@@AEBV3@H@Z',
+     '_ZN7SimBase17CopySimDataToGameER7SimDataR8GameDataRKS2_i', 'void(this*,data*,game*,const-game*,int)'),
+    ('prepare-game-data-update', '?PrepareGameDataUpdate@@YAPEAXAEBVGameData@@@Z',
+     '_Z21PrepareGameDataUpdateRK8GameData', 'pointer(const-game*)'),
+)
+
 def signature_for(signature,platform):
     return signature if isinstance(signature,str) else signature[platform]
 
@@ -211,6 +220,12 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
         hooks.append({"index": index, "role": role, "symbol": symbol, "rva": rva,
                       "fingerprint_bytes": 32, "fingerprint_sha256": sha(data[offset:offset + 32]),
                       "signature": signature,**({"native_layout":CHUNK_HEAT_LAYOUT} if role=="chunk-heat" else {})})
+    publication_bindings = []
+    for index, (role, win, linux, signature) in enumerate(PUBLICATION_SPECS):
+        symbol = win if platform == 'windows-x64' else linux
+        rva = symbols[symbol]; offset = file_offset(sections, rva, 32, executable=True)
+        publication_bindings.append(dict(index=index, role=role, symbol=symbol, rva=rva,
+            fingerprint_bytes=32, fingerprint_sha256=sha(data[offset:offset + 32]), signature=signature))
     globals_ = []
     for name in ("gSim", "gSimData"):
         symbol = (f"?{name}@@3V?$unique_ptr@V{name[1:]}@@U?$default_delete@V{name[1:]}@@@std@@@std@@A"
@@ -222,6 +237,7 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
     return {"platform": platform, "native_relative_path": relative,
             "native_sha256": sha(data), "assembly_sha256": sha((game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes()),
             "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks,
+            "publication_bindings": publication_bindings,
             **({"trampoline_storage": storage} if storage else {})}
 
 
@@ -232,6 +248,20 @@ def validate(value: dict) -> None:
     if [p["platform"] for p in platforms] != ["windows-x64", "linux-x64"]:
         raise ValueError("Both independent platform profiles are required")
     for profile in platforms:
+        publication = profile.get('publication_bindings', [])
+        if not isinstance(publication, list):
+            raise ValueError('Invalid publication binding list')
+        if publication:
+            if len(publication) != 2 or [h.get('index') for h in publication] != [0, 1]:
+                raise ValueError('Missing/duplicate publication binding')
+            for hook, (role, win, linux, signature) in zip(publication, PUBLICATION_SPECS):
+                if (hook.get('role'), hook.get('symbol'), hook.get('signature')) != (role, win if profile['platform'] == 'windows-x64' else linux, signature):
+                    raise ValueError('Publication binding identity/signature mismatch')
+                if not 0 < hook['rva'] < profile['native_bytes'] or hook.get('fingerprint_bytes') != 32 or not re.fullmatch('[0-9a-f]{64}', hook.get('fingerprint_sha256', '')):
+                    raise ValueError('Invalid publication binding fingerprint')
+            locations = [h['rva'] for h in [*profile['hooks'], *publication]]
+            if len(set(locations)) != len(locations):
+                raise ValueError('Publication binding aliases another hook')
         expected = {i for i, spec in enumerate(SPECS) if profile["platform"] != "windows-x64" or spec[1] is not None}
         if len(profile["hooks"]) != len(expected) or {h["index"] for h in profile["hooks"]} != expected:
             raise ValueError("Missing or duplicate required hook")
@@ -265,10 +295,10 @@ def validate(value: dict) -> None:
             # entry. Its actual compiled capacity is checked again at attach.
             if (page != 4096 or segment <= 0 or memory <= 0 or raw < 0 or raw % page != segment % page or
                 first != ((end + 15) & ~15) or first + size != ((end + page - 1) & ~(page - 1)) or
-                first // page != (first + size - 1) // page or size < 16 + 72 * len(profile["hooks"]) or
+                first // page != (first + size - 1) // page or size < 16 + 72 * (len(profile["hooks"]) + len(publication)) or
                 raw + first + size - segment > profile["native_bytes"] or storage["fill_byte"] != 0 or
                 storage.get("sha256") != sha(bytes(size)) or
-                any(first < h["rva"] + 32 and h["rva"] < first + size for h in profile["hooks"]) or
+                any(first < h["rva"] + 32 and h["rva"] < first + size for h in [*profile["hooks"], *publication]) or
                 any(first < g["rva"] + 8 and g["rva"] < first + size for g in profile["globals"])):
                 raise ValueError("Invalid Linux trampoline storage bounds or fingerprint")
 
@@ -293,6 +323,11 @@ def header(value: dict) -> str:
         for hook in profile["hooks"]:
             lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
         lines += ["};"]
+        publication = profile.get('publication_bindings', [])
+        lines.append(f'constexpr std::array<HookProfile, {len(publication)}> profile_publication_bindings{{{{')
+        for hook in publication:
+            lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
+        lines.append('}};')
     return "\n".join(lines + ["#endif", ""])
 
 

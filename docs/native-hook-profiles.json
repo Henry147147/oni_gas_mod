@@ -259,6 +259,26 @@
             "transfer_scale_offset": 16
           }
         }
+      ],
+      "publication_bindings": [
+        {
+          "index": 0,
+          "role": "copy-to-game",
+          "symbol": "?CopySimDataToGame@SimBase@@QEAAXAEAVSimData@@AEAVGameData@@AEBV3@H@Z",
+          "rva": 206880,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "55e3d337c8e527e4f46bca6a78d7be15f9aa66f6cb580c63552b95e806f48ad0",
+          "signature": "void(this*,data*,game*,const-game*,int)"
+        },
+        {
+          "index": 1,
+          "role": "prepare-game-data-update",
+          "symbol": "?PrepareGameDataUpdate@@YAPEAXAEBVGameData@@@Z",
+          "rva": 26560,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "25fc36d6c1401121e689b8d0973d301b85987cb10740b0e76929f41e4e541237",
+          "signature": "pointer(const-game*)"
+        }
       ]
     },
     {
@@ -548,6 +568,26 @@
             "conductivity_offset": 12,
             "transfer_scale_offset": 16
           }
+        }
+      ],
+      "publication_bindings": [
+        {
+          "index": 0,
+          "role": "copy-to-game",
+          "symbol": "_ZN7SimBase17CopySimDataToGameER7SimDataR8GameDataRKS2_i",
+          "rva": 361984,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "0e868e021916a8a93b5afefa7e127a752f3a3e71944d03675618abc5a6875a54",
+          "signature": "void(this*,data*,game*,const-game*,int)"
+        },
+        {
+          "index": 1,
+          "role": "prepare-game-data-update",
+          "symbol": "_Z21PrepareGameDataUpdateRK8GameData",
+          "rva": 206128,
+          "fingerprint_bytes": 32,
+          "fingerprint_sha256": "76b3423301f0d39aed01ece8d7d3e82a1c83c27ad31cec404a48d5af37916c57",
+          "signature": "pointer(const-game*)"
         }
       ],
       "trampoline_storage": {
