@@ -227,7 +227,8 @@ blocks and candidate reuse are still open.
 
 The new control transports 4,097 catalogue entries through 4,096 cells and actual
 EOS reconstructed parcels, exceeding the former product cap. With two positive
-constituents per cell it allocates 8,192 full-range accumulators (1 MiB), rather
+constituents per cell it allocates 8,192 full-range accumulators (1 MiB in the
+128-byte accumulator build), rather
 than 16,781,312 (about 2 GiB). This counts accumulator objects only. Separate controls
 keep all 4,097 species positive, verify analytic two-axis trace transfers and reject
 invented traces without changing the source. Existing primary-parcel controls retain
@@ -254,3 +255,33 @@ cmake --build build-production --target ma_mac_sparse_constituent_tests -j 8
 build-production/ma_mac_sparse_constituent_tests
 ctest --test-dir build-production --output-on-failure
 ```
+
+## Follow-up: compact exact accumulators
+
+The [normal arithmetic path](../native/MAC_RANGE.md#additive-expansions-and-accounts)
+stores four binary64 components inline and promotes an unchanged original expansion
+for subnormals, overflow, additional components or independent exponents. It preserves
+every additive component, contribution order and projection remainder. The object
+shrinks from 128 to 72 bytes on Linux x86-64; the sparse capacity control's 8,192
+accumulators now occupy 576 KiB. Full-range fallback uses a component vector, so this
+does not imply an allocation-free extreme-range path.
+
+The new control compares 1,490,300 intermediate expansions with the original
+independent-exponent recurrence, including both public addition overloads, every
+binary64 exponent bin, huge exponents, overflow/capacity promotion, full cancellation,
+copy/move operations and atomic nonfinite rejection. Linux Release CTest: 26/26 pass.
+All 40 MAC component executables were rebuilt: 39 pass, with the original strong-flow
+collision refinement failure unchanged. All 38 available comparable saved captures
+match their previous verified outputs byte for byte. Six controls pass ASan/UBSan
+with fatal diagnostics and leak detection; the large sparse/EOS control also passes.
+Four MinGW Windows-target controls pass under Wine. Sixteen saved-operand reviews
+pass across Linux, sanitizers and Wine; the separate partial Riemann review correctly
+reports the physical gate failed. No new Unity or Windows OS evidence is claimed.
+
+Five consecutive default 256-cell wave intervals still match the original checkpoint
+SHA256 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+The 250,000-cell wave again completes no sample within 45 seconds; its incomplete
+invocation peaks at 1,695,296 KiB. Different progress at timeout prevents comparing
+that peak directly with earlier incomplete runs. No active-cell real-time or full
+memory budget is certified. Captures and source/executable hashes are under
+`local/compact-accumulators/`.

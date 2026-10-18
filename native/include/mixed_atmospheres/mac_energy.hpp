@@ -49,7 +49,7 @@ struct MacEnergyPair { MacEnergy high, low; };
 class MacEnergySum {
 public:
     void add(MacEnergy);
-    void add(double value) { add(MacEnergy::from_double(value)); }
+    void add(double);
     [[nodiscard]] std::size_t size() const noexcept { return used_; }
     [[nodiscard]] MacEnergy component(std::size_t) const;
     [[nodiscard]] int sign() const noexcept;
@@ -57,11 +57,17 @@ public:
     // expansion; callers must not infer an exact sum from the estimate alone.
     [[nodiscard]] MacEnergy value() const;
 private:
-    std::array<MacEnergy, 4> local_{};
-    std::vector<MacEnergy> overflow_;
+    // Four ordinary components stay inline. Promotion retains the same full
+    // expansion for subnormals, range extension and larger component counts.
+    std::array<double, 4> local_{};
+    std::vector<MacEnergy> extended_;
     std::size_t used_ = 0;
+    bool extended_mode_ = false;
     [[nodiscard]] MacEnergy at(std::size_t) const noexcept;
     void put(std::size_t, MacEnergy);
+    [[nodiscard]] bool try_native_add(double);
+    void promote();
+    void add_extended(MacEnergy);
 };
 class MacEnergyAccount {
 public:

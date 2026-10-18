@@ -34,8 +34,18 @@ storage exhaustion are typed numerical-precision failures.
 `MacEnergySum` keeps a nonoverlapping additive expansion whose components have their
 own exponents. Two-sum runs on aligned normal significands when the exponent gap is at
 most 54; larger gaps keep both operands. Every represented operand is preserved
-through cancellation. Four components are stored inline and at most 4,096 in total.
+through cancellation. Four ordinary components are stored inline and at most 4,096 in total.
 `value()` is only a rounded estimate of the exact expansion.
+
+The common accumulator uses normal binary64 components directly. It prepares an
+error-free two-sum candidate, then promotes the original expansion to independent
+exponents if an operand/result is subnormal, a sum overflows, or more than four
+components are needed. Promotion retries the complete operand; a failed candidate
+cannot discard visited low terms. Range extension and large integer exponents use
+the existing addition algorithm. This changes storage and arithmetic cost, with no
+trace threshold, altered precision, changed summation order or persisted selector.
+The Linux x86-64 object is 72 bytes instead of 128. A promoted expansion allocates
+its component vector; ordinary expansions through four components allocate none.
 
 `MacEnergyAccount` holds the signed sum and the sum of absolute operands. Its
 `within_bound()` compares the residual with exactly 2^-45 (128 binary64 epsilons)
@@ -135,6 +145,7 @@ rounding remainder storage remains necessary for production acceptance.
 | Target | Groups | What it covers |
 | --- | --- | --- |
 | `ma_mac_energy_tests` | 7 | Binary64 roundtrips; derived K/variance/parcel products including the 9.12e-436 J case; cancellation and 32 generated 80-operand expansions; accounts above and below binary64 range; projections and strict narrowing; invalid and overflow cases; five unsupported arithmetic modes (restored afterwards) |
+| `ma_mac_compact_sum_tests` | 1 | Component-by-component comparison with the original independent-exponent recurrence after each addition; every binary64 exponent bin; subnormal, overflow, fifth-component and huge-exponent promotion; cancellation, copies/moves and direct nonfinite rejection |
 | `ma_mac_energy_transport_tests` | 4 | Gas transport with momenta near 1e-200 and below-range K and heat; the original kinetic-parcel scale; a warm thin-gas (1e-200 kg) pressure reversal through constructor, candidate and atomic owner; a denormal passive parcel that must still reject |
 | `ma_mac_primary_parcel_tests` | 5 | The 8.59e-325 kg helium contribution surviving on a uniform grid; a 1e-350 passive per parcel; four quarter-denormal helium contributions forming 2^-1074 kg; unresolved destination rejection; invalid reference volumes |
 | `ma_mac_momentum_parcel_tests` | 4 | The 3.6e-585 kg m/s incoming share joining an existing J; minimum-denormal retained/incoming recombination; signed cancellation; the remaining atomic rejection |

@@ -143,21 +143,55 @@ MacEnergyPair add_mac_energy(MacEnergy a, MacEnergy b) {
     const double sum = x + y, z = sum - x, error = (x - (sum - z)) + (y - z);
     return {normalized(sum, a.exponent()), normalized(error, a.exponent())};
 }
-MacEnergy MacEnergySum::at(std::size_t i) const noexcept { return i < local_.size() ? local_[i] : overflow_[i - local_.size()]; }
+MacEnergy MacEnergySum::at(std::size_t i) const noexcept {
+    return extended_mode_ ? extended_[i] : MacEnergy::from_double(local_[i]);
+}
 MacEnergy MacEnergySum::component(std::size_t i) const {
     if (i >= used_) throw std::out_of_range("MAC energy expansion component");
     return at(i);
 }
 void MacEnergySum::put(std::size_t i, MacEnergy value) {
-    if (i < local_.size()) local_[i] = value;
-    else {
-        const auto index = i - local_.size();
-        if (index == overflow_.size()) overflow_.push_back(value);
-        else overflow_[index] = value;
+    if (i == extended_.size()) extended_.push_back(value);
+    else extended_[i] = value;
+}
+bool MacEnergySum::try_native_add(double value) {
+    if (extended_mode_ || std::abs(value) < std::numeric_limits<double>::min()) return false;
+    // The normal two-sum is the power-of-two-scaled version of the full-range
+    // operation. Build a candidate so range/capacity fallback starts from every
+    // original component, including low terms already visited by this trial.
+    std::array<double,4> candidate{};std::size_t written=0;
+    for (std::size_t i=0;i<used_;++i) {
+        double x=value,y=local_[i];if(std::abs(x)<std::abs(y))std::swap(x,y);
+        const double sum=x+y;
+        if (!std::isfinite(sum) || (sum!=0 && std::abs(sum)<std::numeric_limits<double>::min()))return false;
+        const double z=sum-x,error=(x-(sum-z))+(y-z);
+        if(error!=0) {
+            if (std::abs(error)<std::numeric_limits<double>::min() || written==candidate.size())return false;
+            candidate[written++]=error;
+        }
+        value=sum;
     }
+    if(value!=0){if(written==candidate.size())return false;candidate[written++]=value;}
+    local_=candidate;used_=written;return true;
+}
+void MacEnergySum::promote() {
+    if(extended_mode_)return;
+    // Leave the inline state intact until allocation and conversion succeed.
+    extended_.clear();extended_.reserve(local_.size());
+    for(std::size_t i=0;i<used_;++i)extended_.push_back(MacEnergy::from_double(local_[i]));
+    extended_mode_=true;
 }
 void MacEnergySum::add(MacEnergy value) {
     if (value.is_zero()) return;
+    if(!extended_mode_ && value.exponent()>=-1021 && value.exponent()<=1024 && try_native_add(value.project().value))return;
+    promote();add_extended(value);
+}
+void MacEnergySum::add(double value) {
+    finite(value);if(value==0)return;
+    if(try_native_add(value))return;
+    promote();add_extended(MacEnergy::from_double(value));
+}
+void MacEnergySum::add_extended(MacEnergy value) {
     if (used_ >= 4096) precision("MAC derived energy expansion storage capacity exceeded");
     std::size_t written = 0;
     for (std::size_t i = 0; i < used_; ++i) {
@@ -169,7 +203,8 @@ void MacEnergySum::add(MacEnergy value) {
     used_ = written;
 }
 int MacEnergySum::sign() const noexcept {
-    return used_ == 0 ? 0 : at(used_ - 1).mantissa() < 0 ? -1 : 1;
+    if(used_==0)return 0;
+    return (extended_mode_ ? extended_[used_-1].mantissa() : local_[used_-1])<0 ? -1 : 1;
 }
 MacEnergy MacEnergySum::value() const {
     MacEnergy result;

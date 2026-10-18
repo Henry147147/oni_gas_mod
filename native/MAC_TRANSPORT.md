@@ -84,7 +84,9 @@ even when that species was absent in the donor. Exact-zero accounts need no work
 `MacTransportReport::constituent_accumulators` reports the actual workspace slots.
 The capacity test uses 4,097 registered species and 4,096 cells, with two positive
 species per cell: 8,192 accumulators replace 16,781,312 dense slots. In the Linux
-build these require 1 MiB of accumulator objects rather than about 2 GiB. This is a
+build these require 576 KiB of accumulator objects rather than about 1.125 GiB,
+following the [compact accumulator](MAC_RANGE.md#additive-expansions-and-accounts)
+change (72 bytes per object, previously 128). This is a
 workspace measurement, not the total solver or additional in-game memory budget.
 
 `ma_mac_sparse_constituent_tests` also admits actual reconstructed EOS parcels beyond
