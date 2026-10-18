@@ -103,6 +103,34 @@ continuation remain open. All 3,072 coverage entries still lack acceptance
 evidence. Existing conservation gates, breathing thresholds, new-colony-only
 scope and verified ONI 744825 profiles remain the governing requirements.
 
+## Independent verification and game evidence
+
+A separate review and rebuild of `7267b1c`..`4f8e752` (2026-10-18) found no
+correctness defects and confirmed the counts above, with these corrections:
+CMake defines 46 MAC executables, and 41 runnable components were rerun (40
+pass; only the original strong-flow test fails, at 0.8561655676). The
+documented sanitizer configuration is Debug
+`-O1 -g -D_GLIBCXX_ASSERTIONS -fno-sanitize-recover=all`. With it, CTest
+passes 27/27 and all 55 MAC runs give Release-identical output with no
+sanitizer report. IPO and non-IPO builds give identical output in 220
+comparisons and the same checkpoint hashes; GCC 15.2 keeps `-ffp-contract=off`
+per function through LTO, and the binaries contain no FMA instructions.
+`ab10ddd` now applies the strict floating-point flags to every GCC/Clang
+target (previously the game libraries and reference EOS used the compiler
+default); outputs and the 256-cell checkpoint are unchanged. `1bb1787` makes
+the sealed domain accumulate full-range gravity report operands, so a
+below-range impulse faults instead of being recorded as zero.
+
+Linux Unity runs of the Ubuntu 22.04 build of `4f8e752` (`artifacts/regress-*`)
+pass gas, water and actor saves with fresh-process loads (120 exact frames
+each), configured gas save/load with in-process reload, configured water,
+2,001-frame configured-gas and native-domain long runs, and the configured gas
+save/load in WindowsPlayer under Proton. Deferred frame capture reduced the
+configured room's managed publication p95 from about 315 to 180 ms per frame
+(wall time 0.347 to 0.300 s per 0.2 s frame). Host load stayed between 18
+and 71, so other timing comparisons are unreliable. Water scenes now take one
+certified equilibrium interval per frame.
+
 ## Reproduce
 
 ```sh
