@@ -472,6 +472,7 @@ internal static unsafe partial class Program
         byte Insulation, byte Strength, byte Disease, int DiseaseCount, ushort Backwall, float BackwallMass, float BackwallTemperature);
     private sealed class Snapshot
     {
+        [System.Text.Json.Serialization.JsonIgnore] public IntPtr NativeUpdate { get; init; }
         public int FramesProcessed { get; init; }
         public int FluidCells { get; init; }
         public double FluidMass { get; init; }
@@ -524,7 +525,7 @@ internal static unsafe partial class Program
             }
             return new Snapshot
             {
-                Elements = elements, CellData = states, FramesProcessed = Marshal.ReadInt32(pointer, 0), FluidCells = fluids,
+                NativeUpdate = pointer, Elements = elements, CellData = states, FramesProcessed = Marshal.ReadInt32(pointer, 0), FluidCells = fluids,
                 FluidMass = fluidMass, TotalMass = totalMass, ColdTemperature = temperatures[ColdCell], HotTemperature = temperatures[HotCell],
                 SecondaryColdTemperature = temperatures[SecondaryColdCell], SecondaryHotTemperature = temperatures[SecondaryHotCell],
                 TransitionElement = indices[TransitionCell], SubstanceChangeEvents = Marshal.ReadInt32(pointer, 136),

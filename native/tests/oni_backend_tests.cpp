@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "mixed_atmospheres/oni_domain.h"
+#include "mixed_atmospheres/oni_publication.h"
 #include "../src/oni_sha256.hpp"
 #include "../src/oni_funchook_storage.hpp"
 #include <array>
@@ -14,6 +15,21 @@ static void require(bool condition,const char* message) {
 }
 int main() {
     try {
+        static_assert(sizeof(MAOniDomainPublicationInfo)==64);
+        require(ma_oni_domain_publication_abi_version()==1,"native publication ABI version");
+        MAOniDomainPublicationInfo publication{};publication.struct_size=sizeof(publication);publication.abi_version=1;publication.token=99;
+        const auto original_publication=publication;
+        require(ma_oni_domain_publication_acquire(nullptr,&publication)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&publication,&original_publication,sizeof(publication))==0,"null publication changed output");
+        require(ma_oni_domain_publication_acquire(reinterpret_cast<void*>(std::uintptr_t{1}),&publication)==MA_ONI_BUSY &&
+            std::memcmp(&publication,&original_publication,sizeof(publication))==0,"unbound publication changed output");
+        publication.abi_version=99;
+        require(ma_oni_domain_publication_acquire(reinterpret_cast<void*>(std::uintptr_t{1}),&publication)==MA_ONI_INVALID_ARGUMENT,
+            "unknown native publication ABI admitted");
+        require(ma_oni_domain_publication_release(0)==MA_ONI_INVALID_ARGUMENT,"unknown publication lease released");
+        const MAOniDomainCell* borrowed=nullptr;std::uint32_t borrowed_count=123;
+        require(ma_oni_domain_publication_cells(0,&borrowed,&borrowed_count)==MA_ONI_INVALID_ARGUMENT && borrowed==nullptr && borrowed_count==123,
+            "invalid publication view changed output");
 #if defined(__linux__)
         const ma::oni::TrampolineStorage storage{0xa41c0,0xe40,4096,0x2a000,0x2a000,0x7a1b9};
         std::array<Elf64_Phdr,2> headers{};

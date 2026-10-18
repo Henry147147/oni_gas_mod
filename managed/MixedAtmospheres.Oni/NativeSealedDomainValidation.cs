@@ -156,6 +156,7 @@ namespace MixedAtmospheres.Oni
                     rendererWaitFrame = Time.frameCount; SpeedControlScreen.Instance.Pause(false); return;
                 }
                 if (Time.frameCount - rendererWaitFrame < 3) return;
+                if (!NativeSolidHeatReadyToComplete) return;
                 var view = MixturePresentationRuntime.AcquireFrame(); MixturePresentation? reading = null;
                 Require(view != null && !view.IsFixture && view.TryGetCell(target, out reading) &&
                     reading!.Revision == (long)renderedRevision && reading.ThermodynamicReading != null,

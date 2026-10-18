@@ -441,10 +441,26 @@ the failing colony's 369.62255859375 K initial temperature on Linux and under
 Wine, with both native arrays matching the published temperature. See
 [the Windows worker harness](windows-validation.md#isolated-native-worker-harness).
 
-**Open: Unity acceptance.** The actual Unity source reaches two positive
-contacts, then rejects: the published solid endpoint accounts for one
-represented temperature step while the completed fluid journal accounts for
-two. Acceptance requires the published solid temperature to account for every
-represented heat step in the journal at the unchanged energy bound, followed
-by source/save/reload controls. Whole-colony heat, moving or changing solids,
-building thermal components and phase-changing boundaries remain open.
+**Unity publication repair.** A fresh Linux reproduction confirmed that the
+completed native old and updated arrays already accounted for the full heat
+exchange. The exported `GameDataUpdate` described an older frame than the
+separately read fluid journal. Two inspected native procedures now associate
+each export with an immutable [completed publication lease](native-domain-publication.md).
+The heat control reads that source's cells, journal and native observations
+together; current-owner command reservations are unchanged. Completion drains
+zero-time exports and requires the final source frame, clock, native ticket
+and every fluid cell to match the paused owner. No endpoint or tolerance is
+changed.
+
+Linux Unity source/save and fresh-process reload now pass: 121 source contacts
+transfer 87.51526116611785 J, followed by 120 restored contacts transferring
+86.79199454491027 J. Both published-temperature residuals are exactly zero at
+the unchanged approximately 1.691e-7 J endpoint bounds. The reload verifies the
+initial saved image, paused frame-zero resave and 120 exact accepted-input
+continuations. The package uses a frozen Ubuntu 22.04 native build with all
+38 registered tests passing. WindowsPlayer and actual Windows OS acceptance
+for this repair remain separate. Private reports are under
+`local/solid-heat-native-debug/unity-publication-matrix-v1/`.
+
+Whole-colony heat, moving or changing solids, building thermal components and
+phase-changing boundaries remain open.

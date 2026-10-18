@@ -25,6 +25,7 @@ The domain's feature contracts and their verification are in:
 | --- | --- |
 | [Boundary transactions](native-domain-transactions.md) | Cell-mass edits, radius and rectangular consumption, the accepted frame-input journal and completed image, live duplicant breathing |
 | [Readers](native-domain-readers.md) | Physical pressure, breathing selection, restored-reader checks, GPU texture readback |
+| [Completed native exports](native-domain-publication.md) | Actual game-buffer source binding, immutable bounded-domain leases and matching solid heat journals |
 | [Physics](native-domain-physics.md) | Scenarios 0–7, filled-liquid gravity, gas/liquid cells, mixed conduction, viscosity, initial inventory, object and solid-cell heat |
 | [Persistence](native-domain-persistence.md) | Durable actors, in-flight CO2, natural day autosaves, same-process reload, orbital references, Spaced Out saves |
 | [Platform and numerics](native-platform-numerics.md) | Linux trampoline storage, solver arithmetic scope, binary32 wire values |

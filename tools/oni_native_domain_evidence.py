@@ -758,6 +758,15 @@ def _native_solid_heat_passed(report: dict, restored: bool) -> bool:
     try:
         value=report['NativeSolidHeat'];heat=value['Status'];physical=report['NativeDomain']
         cells=value['ConfiguredCells'];endpoints=value['Endpoints']
+        publication=value.get('Publication')
+        if (not isinstance(publication,dict) or publication.get('Size')!=64 or publication.get('Version')!=1
+                or publication.get('State')!=1 or publication.get('Reserved')!=0 or publication.get('Reserved2')!=0
+                or publication.get('Session')!=physical['Session'] or publication.get('CompletedFrame')!=physical['CompletedFrames']
+                or publication.get('Cells')!=physical['Cells'] or publication.get('TimeSeconds')!=physical['TimeSeconds']
+                or publication.get('LeaseReleased') is not True or publication.get('CellsMatchLatest') is not True
+                or publication.get('Source')!='inspected-native-GameData-copy-and-export'
+                or any(type(publication.get(k)) is not int or publication[k]<=0 for k in ('Token','NativeEpoch'))
+                or type(publication.get('UnboundUpdatesObserved')) is not int or publication['UnboundUpdatesObserved']<0):return False
         if (value.get('Required') is not True or value.get('AbiVersion')!=1
                 or value.get('Source')!='actual-native-UpdateTemperature-cell-pair'
                 or value.get('CapacityModel')!='native-mass-times-native-specific-heat-without-binary32-product-rounding'

@@ -43,8 +43,10 @@ class CoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Missing discovered"): coverage.validate(self.inventory)
 
     def test_native_hooks_cannot_disappear_from_coverage(self):
-        self.inventory["entries"] = [entry for entry in self.inventory["entries"] if entry["id"] != "native-hook/pressure"]
-        with self.assertRaisesRegex(ValueError, "Missing discovered"): coverage.validate(self.inventory)
+        for role in ("pressure", "copy-to-game", "prepare-game-data-update"):
+            inventory=copy.deepcopy(self.inventory)
+            inventory["entries"] = [entry for entry in inventory["entries"] if entry["id"] != "native-hook/"+role]
+            with self.assertRaisesRegex(ValueError, "Missing discovered"): coverage.validate(inventory)
 
     def test_forwarding_observer_cannot_satisfy_native_takeover(self):
         entry = next(entry for entry in self.inventory["entries"] if entry["kind"] == "native-hook")

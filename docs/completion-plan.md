@@ -108,7 +108,7 @@ Trace execution and audit readers/writers; projected fluid identities are
 allowed and zero-fluid scans alone are insufficient. Every unresolved native
 fluid source blocks this milestone.
 
-Status: the [coverage inventory](ownership-coverage.md) exists (3,072 entries,
+Status: the [coverage inventory](ownership-coverage.md) exists (3,074 entries,
 all unimplemented). Exact-build hooks and a bounded
 [sealed native domain](sealed-native-domain.md) run in real Linux and Windows
 games; whole-colony ownership is open. See [implementation status](implementation-status.md).

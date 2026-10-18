@@ -89,7 +89,7 @@ saves, fresh-process loads and natural autosaves
   rejected compressed-liquid placement
   ([status](implementation-status.md#game-integration-and-ownership)).
 - Production activation without a development configuration.
-- Coverage: all 3,072 [inventory entries](ownership-coverage.md) remain
+- Coverage: all 3,074 [inventory entries](ownership-coverage.md) remain
   `unimplemented`.
 
 **Closes when** milestone A's exit holds for the playtest colony on both
@@ -141,7 +141,9 @@ a fault.
   [pressure](native-domain-readers.md#physical-pressure) readers.
   [Live breathing](native-domain-transactions.md#live-duplicant-breathing) covers one tracked duplicant.
 - [Body heat](native-domain-physics.md#native-object-heat) and one [solid-heat](native-domain-physics.md#native-solid-cell-heat)
-  endpoint (native harness only; its Unity control still fails).
+  endpoint. The solid control now passes Linux Unity source/save and a
+  fresh-process reload with matching completed publication leases and 120
+  exact resumed frames. Whole-colony solid heat remains open.
 
 **Missing.**
 - Power and energy reservations.

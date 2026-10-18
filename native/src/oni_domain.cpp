@@ -667,6 +667,7 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     const auto totals=masses(*candidate); const auto total_energy=energy(*candidate); const auto next_potential=potential(*candidate);
     MAOniDomainStatus next{}; next.struct_size=sizeof(next); next.abi_version=MA_ONI_DOMAIN_ABI_VERSION;
     if (session_sequence==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native domain session range exhausted");
+    published_frames::reset();
     next.state=1; next.cells=static_cast<std::uint32_t>(cells.size()); next.session=++session_sequence;
     next.time_seconds=candidate->time_s(); geometry=config; physics_settings=physics;
     const auto& walls=candidate->state().grid.walls;
@@ -1075,6 +1076,30 @@ void copy_domain_solid_cell_state(MAOniDomainSolidCellState& output) {
     std::lock_guard lock(state_mutex);output=completed_solid_cell;
     output.struct_size=sizeof(output);output.abi_version=1;output.state=status.state;
     output.session=status.session;
+}
+MAOniDomainStatus frame_status();
+std::optional<published_frames::Frame> capture_domain_publication(std::uint64_t native_epoch) {
+    std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
+    if (!enabled.load(std::memory_order_acquire) || !world || status.state != 1) return {};
+    published_frames::Frame frame; frame.status = frame_status(); frame.cells = publication;
+    frame.native_epoch = native_epoch;
+    const auto& p = committed_solid_heat;
+    frame.solid_heat = {sizeof(frame.solid_heat), 1, status.state, 0, status.session, status.completed_frames,
+        p.contacts, p.transfers, p.unresolved, p.iterations, p.body_loss.value().require_representable(),
+        p.fluid_heat.value().require_representable(), p.maximum_residual, p.maximum_bound,
+        p.entropy.value().require_representable(), p.requested.value().require_representable()};
+    frame.solid_endpoint = p.endpoint;
+    frame.solid_endpoint.struct_size = sizeof(frame.solid_endpoint); frame.solid_endpoint.abi_version = 1;
+    frame.solid_endpoint.state = status.state; frame.solid_endpoint.session = status.session;
+    frame.solid_endpoint.completed_frame = status.completed_frames;
+    frame.solid_cell = completed_solid_cell;
+    if (p.endpoint.contact_frame == 0) {
+        frame.solid_cell.struct_size = sizeof(frame.solid_cell); frame.solid_cell.abi_version = 1;
+        frame.solid_cell.state = status.state; frame.solid_cell.session = status.session;
+        frame.solid_cell.completed_frame = status.completed_frames; frame.solid_cell.native_ticket = status.native_ticket;
+    } else if (frame.solid_cell.session != status.session || frame.solid_cell.completed_frame != status.completed_frames ||
+        frame.solid_cell.native_ticket != status.native_ticket) throw std::logic_error("Native publication solid observation is stale");
+    return frame;
 }
 void record_domain_solid_cell_state(const MAOniDomainSolidCellState& input) {
     std::lock_guard lock(state_mutex);
