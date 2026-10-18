@@ -703,3 +703,12 @@ are in [MAC_MULTIGRID.md](../native/MAC_MULTIGRID.md); private captures live und
 The 34 registered Linux tests pass. All 48 retained MAC captures remain
 byte-identical with their prior exit statuses, including the known original
 strong-flow failure.
+
+The subsequent smoothing-pass fusion removes a guaranteed-zero graph traversal,
+fuses residual/update passes and avoids redundant clears. Complete component and
+owner streams remain byte-identical on Linux, fatal ASan/UBSan and MinGW/Wine;
+old multigrid checkpoints also continue identically on both. The 34 registered
+Linux tests pass again. A pinned three-interval comparison measures 7.15 s
+before and 6.46 s after; other busy-host samples vary substantially. This is
+an implementation improvement without a new physical approximation, and
+[active-cell performance remains open](../native/MAC_MULTIGRID.md#fused-pass-follow-up).

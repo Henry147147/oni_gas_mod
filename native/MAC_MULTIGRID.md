@@ -46,6 +46,13 @@ within its interval. A geometry-changing operation must replace the cache.
 Checkpoint restoration rebuilds it. Cache state never changes the continued
 physical result, so no derived cache bytes are serialized.
 
+The first downward correction is computed directly from its exactly zero
+initial value. Remaining smoothing stages gather each residual and write the
+next correction together, retaining row arithmetic order and swapping reusable
+buffers. This removes a graph traversal, separate update passes and redundant
+zero fills. Fully active grids copy the final vector without an initial clear;
+grids with walls retain the zero-filled scatter.
+
 PCG dot products now use fixed 256-cell blocks and four double-double lanes,
 then a fixed-order block reduction. Their ordering is independent of future
 task scheduling. Operand range flags still request the retained reference
@@ -96,3 +103,19 @@ These are serial donor-cell gas measurements, without game adapters or rendering
 They remain about 106 times over the 62.5 ms budget; neither the p95 colony gate
 nor the default strong-flow gate is satisfied. Raw captures and profiles are in
 the ignored `local/interval-multigrid/` directory.
+
+## Fused-pass follow-up
+
+After pass fusion, the complete component and owner captures remain byte for
+byte identical on GNU/Linux, fatal ASan/UBSan and MinGW/Wine. The same saved-data
+reviews therefore cover the changed implementation. Continuation from the
+previous multigrid checkpoint remains byte-identical on both Linux and Wine,
+in both source directions. The 34 registered Linux tests pass again.
+
+A pinned three-interval comparison on the same CPU measures 7,154.98 ms median
+before and 6,460.12 ms after, with identical 480 pressure iterations, 33 accepted
+substeps and no retries. Other busy-host samples of the fused implementation
+range from 6.36 to 8.67 seconds, so these timings do not certify a percentile or
+close the performance gate. The first 100,000-cell multigrid measurement is
+2,540.07 ms median per 0.1 s, also far above its 25 ms budget. Raw comparisons,
+including the slower samples, are retained in `local/multigrid-fusion/`.
