@@ -32,6 +32,9 @@ The heat stage also reuses validated EOS readings with explicit per-pair updates
 outputs unchanged. Coupled pressure now retains full incoming motion and sweeps,
 checking actual per-cell work and exposing unresolved U updates; primary remainders
 remain unpersisted. Physics and real-time colony acceptance remain open.
+The coupled constitutive callback now reuses completed isentropic queries; its
+saved work/pressure/owner/range outputs remain exact, and the Linux suite has 29
+passing tests. This reduces solver cost without changing a physical selector.
 The latest paired 256-cell wave takes about 436 ms with exact baseline continuation,
 but a 4,096-cell wave still takes about 6.63 seconds per 0.1 simulated seconds and a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant

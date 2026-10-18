@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_compressive_work.hpp"
 #include "mac_material_entropy_detail.hpp"
+#include "mac_compressive_work_detail.hpp"
 #include <cmath>
 #include <limits>
 
@@ -23,8 +24,23 @@ MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& mode
     const double mass=source.mass();
     if (!(mass>0) || !std::isfinite(mass)) throw std::invalid_argument("Compressive pressure work requires occupied material");
     const auto anchor=model.reference().make_isentrope(model.to_reference(source,volume));
+    ReferenceIsentropicResponse iso;double derivative=0;
+    if(delta==0)iso=model.reference().isentropic_response(anchor,delta,options);
+    else {
+        auto evaluated=model.reference().isentropic_work(anchor,delta,options);
+        derivative=evaluated.work_pressure_volume_derivative_pa_per_m3;iso=std::move(evaluated.response);
+    }
+    if(iso.state.vacuum_volume_m3>32*std::numeric_limits<double>::epsilon()*iso.endpoint.volume_m3)
+        throw FluidFatalError(FluidFatalCode::unsupported_topology,"Compressive pressure work cannot create a liquid void");
+    if(delta==0 || (!iso.state.has_gas && iso.work_pressure_pa==0))derivative=-.5/model.compression_compliance(anchor);
+    return compression_detail::finish(model,source,anchor,iso,derivative,spacing,dt,linear);
+}
+MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,const MixtureInventory& source,
+    const ReferenceIsentrope& anchor,const ReferenceIsentropicResponse& isentropic,double derivative,
+    double spacing,double dt,MacEnergy linear) {
+    const double mass=source.mass(),volume=anchor.reference_cell().volume_m3,delta=isentropic.volume_change_m3;
     MacCompressiveWork result;
-    result.isentropic=model.reference().isentropic_response(anchor,delta,options);
+    result.isentropic=isentropic;
     const auto& iso=result.isentropic;
     if (iso.state.vacuum_volume_m3>32*std::numeric_limits<double>::epsilon()*iso.endpoint.volume_m3)
         throw FluidFatalError(FluidFatalCode::unsupported_topology,"Compressive pressure work cannot create a liquid void");
@@ -40,8 +56,6 @@ MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& mode
         result.dissipated_heat_j=result.stress_pa.multiplied(-delta);
     } else if (delta==0) result.stress_volume_derivative_pa_per_m3=a.shared(1,volume).negated();
     result.total_work_pressure_pa=sum(MacEnergy::from_double(iso.work_pressure_pa),result.stress_pa);
-    const double derivative=delta==0 || (!iso.state.has_gas && iso.work_pressure_pa==0) ?
-        -.5/model.compression_compliance(anchor) : model.reference().isentropic_work_pressure_derivative(anchor,delta,options);
     result.work_pressure_volume_derivative_pa_per_m3=sum(MacEnergy::from_double(derivative),result.stress_volume_derivative_pa_per_m3);
     if (result.work_pressure_volume_derivative_pa_per_m3.mantissa()>=0)
         precision("Compressive pressure work has no strictly negative tangent");

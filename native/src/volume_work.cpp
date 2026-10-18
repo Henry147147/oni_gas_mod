@@ -340,7 +340,7 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
                 derivative = -0.5 / model.compression_compliance(anchors[i]);
             if (custom_work) {
                 if (roundoff_fill) throw std::invalid_argument("A constitutive work override requires the strict occupied EOS branch");
-                const auto local=custom_work(i,delta[i]);
+                const auto local=custom_work(i,delta[i],anchors[i],response,derivative);
                 for (const double value : {local.pressure_pa,local.derivative_pa_per_m3,local.requested_energy_change_j,local.stored_energy_j})
                     require_finite(value,"occupied constitutive pressure work");
                 if (local.pressure_pa<0 || local.derivative_pa_per_m3>=0)
@@ -434,7 +434,11 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
     result.zero_work_substituted.resize(count, 0);
     long double energy_change = 0, scale = 0, body_work = 0, work_roundoff = 0;
     for (std::size_t i = 0; i < count; ++i) {
-        const auto response = model.reference().isentropic_response(anchors[i], changes[i], isentropic_root_options);
+        experimental::ReferenceIsentropicResponse response;double derivative=0;
+        if(custom_work && changes[i]!=0) {
+            auto evaluated=model.reference().isentropic_work(anchors[i],changes[i],isentropic_root_options);
+            derivative=evaluated.work_pressure_volume_derivative_pa_per_m3;response=std::move(evaluated.response);
+        } else response=model.reference().isentropic_response(anchors[i],changes[i],isentropic_root_options);
         const bool substituted = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
         auto& cell = result.cells[i];
         cell.volume_m3 = response.endpoint.volume_m3;
@@ -442,7 +446,9 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         bool resolves_energy=response.endpoint_energy_resolves_change;
         if (custom_work) {
             if (substituted) throw std::invalid_argument("Constitutive work cannot substitute an elastic endpoint");
-            const auto local=custom_work(i,changes[i]);
+            if(changes[i]==0 || (!response.state.has_gas && response.work_pressure_pa==0))
+                derivative=-.5/model.compression_compliance(anchors[i]);
+            const auto local=custom_work(i,changes[i],anchors[i],response,derivative);
             if (local.pressure_pa!=work[i]) throw std::runtime_error("Accepted constitutive pressure work changed during publication");
             energy_update=local.requested_energy_change_j;cell.mixture.energy=local.stored_energy_j;resolves_energy=!local.unresolved_energy_update;
         } else cell.mixture.energy += energy_update;

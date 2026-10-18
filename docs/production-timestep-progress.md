@@ -359,3 +359,43 @@ The next cost to remove is duplicate thermodynamic work in coupled compression:
 the pressure root computes an isentropic response/tangent and then invokes a
 constitutive callback that solves the same response again. Reusing that completed
 response preserves the physical law and is needed before larger flow runs.
+
+## Follow-up: coupled constitutive EOS reuse
+
+The private constitutive callback now receives the root's validated source anchor,
+isentropic response and tangent. Completing the compressive response reuses these
+values. The public standalone response builds its own anchor and obtains response
+and tangent in one query. The callback keeps no borrowed references after return;
+accepted publication uses the completed query and the same physical/rounding checks.
+This removes repeated source evaluation and isentropic root solves without changing
+coefficients, physical selectors, numerical settings or checkpoint format.
+
+A new control compares 56 callback queries with fresh public queries across gas,
+wet and compressed-liquid nonlinear solves. Accepted pressures, velocities, volumes,
+U, nonlinear/linear iteration counts and immutable sources agree exactly. Four
+existing complete work/pressure/owner/range output streams match the previous build
+byte for byte. Linux Release CTest passes 29/29; five compression executables pass
+fatal ASan/UBSan with leak detection and static MinGW Windows-target runs under Wine.
+Fourteen saved-operand reviews pass, including the unchanged ordinary closed-world
+and gravity captures. Actual Windows OS and Unity remain unverified.
+
+Sequential diagnostic wave runs compare commit `05bbd5e` with the reuse build,
+using GNU Release/IPO and existing selectors 1 / 1 / 3 / 2. This is an opt-in coupled
+configuration, not a promoted production default. Every cell evolves, with no retry
+or equilibrium skip. Per 0.1 simulated seconds:
+
+| Cells / samples | Before median / p95 | After median / p95 |
+| --- | ---: | ---: |
+| 256 / 5 consecutive intervals | 511.14 / 603.93 ms | 350.22 / 508.38 ms |
+| 4,096 / 3 consecutive intervals | 7,771.43 / 8,127.93 ms | 6,886.80 / 6,905.69 ms |
+
+Each paired endpoint checkpoint is byte-identical. The separate production-default
+continuation still matches SHA256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+These timings do not establish a colony-scale performance path or pass its budget.
+Captures, fixed benchmark wrapper, build settings and source/executable hashes are
+under `local/coupled-eos-reuse/`.
+
+Repeating the full opt-in 2 / 4 / 3 / 2 flow probe still reaches its 180-second
+limit. Its captured prefix is byte-identical to the previous bounded run; completing
+seven visible profiles and part of another does not certify the full flow gate.

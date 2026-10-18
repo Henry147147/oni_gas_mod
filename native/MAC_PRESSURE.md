@@ -184,6 +184,18 @@ reports. These are diagnostic accounts, not additional heat or another energy-bu
 allowance. Primary-U/volume rounding remainders remain unpersisted; this does not
 complete the production conservation contract.
 
+The constitutive callback reuses the pressure root's immutable source anchor and
+completed isentropic response/tangent. It adds the same compressive stress, actual
+stored-U update and admission checks without solving the isentrope again. The public
+standalone response entry constructs its own validated anchor and uses the combined
+isentropic work/tangent query. Publication supplies the completed query too; no
+borrowed reference survives the callback. This changes evaluation cost, with the
+same physical coefficients, root options, source lifetime and saved settings.
+
+`ma_mac_compressive_eos_reuse_tests` compares 56 callback queries against freshly
+anchored responses through nonlinear gas, wet-mixture and liquid solves. The accepted
+pressure/velocity/volume/U arrays, iteration path and source inventories remain exact.
+
 Entropy admission measures constant-composition relative entropy: pure gas uses
 actual conserved caloric increments and cell volumes; mixed and liquid states use
 stable log ratios of the EOS temperature and gas headspace. Subtracting rounded

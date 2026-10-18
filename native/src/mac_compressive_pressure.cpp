@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_compressive_work.hpp"
 #include "occupied_material_work_detail.hpp"
+#include "mac_compressive_work_detail.hpp"
 #include <cmath>
 
 namespace ma::experimental {
@@ -13,8 +14,9 @@ MacCompressivePressureStep advance_mac_compressive_pressure(const FluidThermodyn
     const auto response=[&](std::size_t cell,double change) {
         return evaluate_mac_compressive_work(model,cells[cell].mixture,cells[cell].volume_m3,change,spacing,dt,linear[cell],options);
     };
-    const detail::OccupiedWorkLaw law=[&](std::size_t cell,double change) {
-        const auto r=response(cell,change);
+    const detail::OccupiedWorkLaw law=[&](std::size_t cell,double,const ReferenceIsentrope& anchor,
+        const ReferenceIsentropicResponse& isentropic,double derivative) {
+        const auto r=compression_detail::finish(model,cells[cell].mixture,anchor,isentropic,derivative,spacing,dt,linear[cell]);
         return detail::OccupiedWorkResponse{r.total_work_pressure_pa.project().value,r.work_pressure_volume_derivative_pa_per_m3.project().value,
             r.requested_energy_change_j.project().value,r.mixture.energy,r.unresolved_energy_update};
     };
