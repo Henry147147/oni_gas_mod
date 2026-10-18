@@ -30,7 +30,7 @@ void run(int material,std::size_t& trials) {
     ReferenceRootOptions options;options.relative_pressure_tolerance=std::numeric_limits<double>::epsilon()/4;
     std::size_t callbacks=0;
     const ma::detail::OccupiedWorkLaw fresh_law=[&](std::size_t cell,double change,const ReferenceIsentrope& anchor,
-        const ReferenceIsentropicResponse& isentropic,double derivative){
+        const ReferenceIsentropicResponse& isentropic,double derivative,std::optional<double> increment){
         const auto fresh=evaluate_mac_compressive_work(*set.eos,cells[cell].mixture,1,change,1,dt,linear[cell],options);
         const auto reused=compression_detail::finish(*set.eos,cells[cell].mixture,anchor,isentropic,derivative,1,dt,linear[cell]);
         check(anchor.reference_cell().masses_kg==set.eos->to_reference(cells[cell].mixture,1).masses_kg &&
@@ -41,7 +41,7 @@ void run(int material,std::size_t& trials) {
         ++callbacks;
         return ma::detail::OccupiedWorkResponse{fresh.total_work_pressure_pa.project().value,
             fresh.work_pressure_volume_derivative_pa_per_m3.project().value,fresh.requested_energy_change_j.project().value,
-            fresh.mixture.energy,fresh.unresolved_energy_update};
+            fresh.mixture.energy,fresh.unresolved_energy_update,compression_detail::pressure_increment(fresh.stress_pa,increment)};
     };
     const auto fresh=ma::detail::advance_occupied_material_pressure_with_work(*set.eos,cells,nodes,dt,PressurePreconditioner::automatic,
         LiquidFillRoundoffPolicy::strict_eos,16*std::numeric_limits<double>::epsilon(),options,fresh_law);

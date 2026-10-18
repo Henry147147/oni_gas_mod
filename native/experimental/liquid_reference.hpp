@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -144,6 +145,13 @@ struct ReferenceIsentropicDerivatives {
 struct ReferenceIsentropicWork {
     ReferenceIsentropicResponse response;
     double work_pressure_volume_derivative_pa_per_m3 = 0;
+    // Continuous work-pressure change from the anchor, evaluated without
+    // subtracting two large rounded pressures. Reconstructing the work pressure
+    // must agree with the absolute secant within its existing reference bound.
+    // Absent if that check fails or the increment cannot be stored accurately;
+    // the ordinary query remains valid. Zero is available at zero change and
+    // on a pressure-free branch.
+    std::optional<double> work_pressure_change_pa;
 };
 
 class LiquidThermodynamicReference {

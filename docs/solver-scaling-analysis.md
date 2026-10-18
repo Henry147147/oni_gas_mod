@@ -100,6 +100,12 @@ plain binary64 prototype hits the same floor, so it comes from solving in
 absolute pressure. Larger steps therefore need a different pressure
 formulation, not just a larger setting.
 
+**Subsequent implementation:** a bounded [pressure-increment restart](../native/MAC_PRESSURE_INCREMENTS.md)
+now converges these timesteps at the original closure tolerance, gathering all
+four pressure terms before rounding the node force. This removes the measured
+cancellation floor. It does not authorize larger production steps: a completed
+five-interval wave comparison still fails the disturbance-relative accuracy gate.
+
 The `long double` EOS is load-bearing. With `double`, the floor reaches
 7e-15 even at 0.01 s, the substep count doubles and the run is 2.4× slower.
 MSVC's `long double` is 64-bit, so Windows builds may behave like the

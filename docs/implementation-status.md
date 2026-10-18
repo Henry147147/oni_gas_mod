@@ -31,6 +31,11 @@ The [large-grid exact-sum follow-up](production-timestep-progress.md#large-grid-
 also removes the 4,096-component accounting limit without dropping terms. A
 250,000-cell wave completes one 0.01-second step and exact checkpoint restoration,
 but takes about 30 seconds; the sustained real-time gate remains open.
+A [pressure-increment restart](../native/MAC_PRESSURE_INCREMENTS.md) now resolves
+previously stalled larger implicit steps at the original geometry and accounting
+bounds. Actual U/K/G, coupled liquids and checkpoint continuation pass bounded
+controls. The larger-step wave accuracy comparison still fails; defaults remain
+unchanged.
 The heat stage also reuses validated EOS readings with explicit per-pair updates;
 72 replay stages and the 27-test Linux suite pass, with the heat/compression saved
 outputs unchanged. Coupled pressure now retains full incoming motion and sweeps,

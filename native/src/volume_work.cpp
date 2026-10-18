@@ -310,6 +310,23 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
     std::vector<double> changes(count, 0), work(count), compliance(count), residual(count);
     std::vector<double> endpoint_volumes(count), root_arithmetic_roundoff(count);
     std::vector<bool> roundoff_trial(count, false);
+    bool incremental_pressure = false;
+    std::vector<double> pressure_changes;
+    const auto pressure_difference = [&](const OccupiedMaterialNode& node, const std::vector<double>& pressures) {
+        const double pl = node.left == no_material_cell ? 0 : pressures[node.left];
+        const double pr = node.right == no_material_cell ? 0 : pressures[node.right];
+        if (!incremental_pressure) return pl - pr;
+        const double bl = node.left == no_material_cell ? 0 : anchors[node.left].reference_state().mechanical_pressure_pa;
+        const double br = node.right == no_material_cell ? 0 : anchors[node.right].reference_state().mechanical_pressure_pa;
+        const double dl = node.left == no_material_cell ? 0 : pressure_changes[node.left];
+        const double dr = node.right == no_material_cell ? 0 : pressure_changes[node.right];
+        // Equalizing a stiff liquid can cancel most of the source gradient.
+        // Gather all four operands before rounding; rounding dl-dr first can
+        // leave a nonconservative residual larger than the final impulse.
+        VolumeSum difference; difference.add(bl); difference.add(-br);
+        difference.add(dl); difference.add(-dr);
+        return difference.value();
+    };
     const auto void_message = [&] {
         std::ostringstream message; message << std::setprecision(17) << "Occupied pressure root requires internal cavitation/gap creation";
         for (std::size_t i = 0; i < count; ++i) if (!anchors[i].reference_state().has_gas)
@@ -324,10 +341,12 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         for (std::size_t i = 0; i < count; ++i) {
             experimental::ReferenceIsentropicResponse response;
             double derivative = 0;
+            std::optional<double> increment = 0.;
             if (delta[i] == 0) response = model.reference().isentropic_response(anchors[i], delta[i], isentropic_root_options);
             else {
                 auto evaluated = model.reference().isentropic_work(anchors[i], delta[i], isentropic_root_options);
                 derivative = evaluated.work_pressure_volume_derivative_pa_per_m3;
+                increment = evaluated.work_pressure_change_pa;
                 response = std::move(evaluated.response);
             }
             endpoint_volumes[i] = response.endpoint.volume_m3;
@@ -340,12 +359,19 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
                 derivative = -0.5 / model.compression_compliance(anchors[i]);
             if (custom_work) {
                 if (roundoff_fill) throw std::invalid_argument("A constitutive work override requires the strict occupied EOS branch");
-                const auto local=custom_work(i,delta[i],anchors[i],response,derivative);
+                const auto local=custom_work(i,delta[i],anchors[i],response,derivative,increment);
                 for (const double value : {local.pressure_pa,local.derivative_pa_per_m3,local.requested_energy_change_j,local.stored_energy_j})
                     require_finite(value,"occupied constitutive pressure work");
                 if (local.pressure_pa<0 || local.derivative_pa_per_m3>=0)
                     throw std::domain_error("Occupied constitutive work requires nonnegative pressure and a negative tangent");
                 pressures[i]=local.pressure_pa;derivative=local.derivative_pa_per_m3;
+                increment=local.pressure_change_pa;
+            }
+            if (incremental_pressure) {
+                if (roundoff_fill) increment = -anchors[i].reference_state().mechanical_pressure_pa;
+                if (!increment || !std::isfinite(*increment))
+                    throw std::domain_error("Occupied pressure increment is not resolved; retry smaller timestep");
+                pressure_changes[i] = *increment;
             }
             capacities[i] = -1 / derivative;
             if (!std::isfinite(capacities[i]) || capacities[i] <= 0)
@@ -354,9 +380,7 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         }
         for (const auto& node : nodes) {
             if (node.fixed_zero_velocity) continue;
-            const double pl = node.left == no_material_cell ? 0 : pressures[node.left];
-            const double pr = node.right == no_material_cell ? 0 : pressures[node.right];
-            const double force = node.area_m2 * (pl - pr) + node.inertia_kg * node.acceleration_m_per_s2;
+            const double force = node.area_m2 * pressure_difference(node, pressures) + node.inertia_kg * node.acceleration_m_per_s2;
             // Use the same represented endpoint velocity and midpoint
             // displacement as FluidWorld's geometry update. Algebraically
             // u0 + dt*force/(2I) is equivalent, but a different rounding path
@@ -377,11 +401,21 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
     };
     OccupiedMaterialPressureStep result;
     double norm = evaluate(changes, work, compliance, residual);
+    std::size_t restart_iteration = 0;
+    const auto restart_with_increments = [&] {
+        if (incremental_pressure) return false;
+        incremental_pressure = true; pressure_changes.resize(count);
+        restart_iteration = result.nonlinear_iterations;
+        norm = evaluate(changes, work, compliance, residual);
+        ++result.pressure_increment_restarts;
+        return true;
+    };
     // Reuse the line-search candidate arrays across iterations and rejected
     // trials. Accepted buffers swap roles; none alias the caller's cells.
     std::vector<double> next_changes(count), next_work(count), next_compliance(count), next_residual(count);
     while (norm > tolerance) {
-        if (result.nonlinear_iterations == 80) {
+        if (result.nonlinear_iterations - restart_iteration == 80) {
+            if (restart_with_increments()) continue;
             if (saw_void) throw FluidFatalError(FluidFatalCode::unsupported_topology, void_message());
             throw std::domain_error("Occupied pressure root did not converge; retry smaller timestep");
         }
@@ -423,6 +457,7 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
             fraction *= 0.5;
         }
         if (!accepted) {
+            if (restart_with_increments()) continue;
             if (saw_void) throw FluidFatalError(FluidFatalCode::unsupported_topology, void_message());
             throw std::domain_error("Occupied pressure line search failed; retry smaller timestep");
         }
@@ -435,9 +470,10 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
     long double energy_change = 0, scale = 0, body_work = 0, work_roundoff = 0;
     for (std::size_t i = 0; i < count; ++i) {
         experimental::ReferenceIsentropicResponse response;double derivative=0;
+        std::optional<double> increment = 0.;
         if(custom_work && changes[i]!=0) {
             auto evaluated=model.reference().isentropic_work(anchors[i],changes[i],isentropic_root_options);
-            derivative=evaluated.work_pressure_volume_derivative_pa_per_m3;response=std::move(evaluated.response);
+            derivative=evaluated.work_pressure_volume_derivative_pa_per_m3;increment=evaluated.work_pressure_change_pa;response=std::move(evaluated.response);
         } else response=model.reference().isentropic_response(anchors[i],changes[i],isentropic_root_options);
         const bool substituted = roundoff_anchor[i] && model.liquid_fill_resolution(response.endpoint).within_roundoff;
         auto& cell = result.cells[i];
@@ -448,7 +484,7 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
             if (substituted) throw std::invalid_argument("Constitutive work cannot substitute an elastic endpoint");
             if(changes[i]==0 || (!response.state.has_gas && response.work_pressure_pa==0))
                 derivative=-.5/model.compression_compliance(anchors[i]);
-            const auto local=custom_work(i,changes[i],anchors[i],response,derivative);
+            const auto local=custom_work(i,changes[i],anchors[i],response,derivative,increment);
             if (local.pressure_pa!=work[i]) throw std::runtime_error("Accepted constitutive pressure work changed during publication");
             energy_update=local.requested_energy_change_j;cell.mixture.energy=local.stored_energy_j;resolves_energy=!local.unresolved_energy_update;
         } else cell.mixture.energy += energy_update;
@@ -484,10 +520,16 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
             anchors[i].reference_state().elastic_energy_j + state.elastic_energy_j;
         result.maximum_volume_residual_m3 = std::max(result.maximum_volume_residual_m3, std::abs(residual[i]));
     }
+    if (incremental_pressure) {
+        result.work_pressure_changes_pa = pressure_changes;
+        result.reference_pressures_pa.reserve(count);
+        for (const auto& anchor : anchors) result.reference_pressures_pa.push_back(anchor.reference_state().mechanical_pressure_pa);
+        result.node_pressure_differences_pa.reserve(nodes.size());
+    }
     for (const auto& node : nodes) {
-        const double pl = node.left == no_material_cell ? 0 : work[node.left];
-        const double pr = node.right == no_material_cell ? 0 : work[node.right];
-        const double force = node.area_m2 * (pl - pr) + node.inertia_kg * node.acceleration_m_per_s2;
+        const double difference = pressure_difference(node, work);
+        if (incremental_pressure) result.node_pressure_differences_pa.push_back(difference);
+        const double force = node.area_m2 * difference + node.inertia_kg * node.acceleration_m_per_s2;
         const double next = node.fixed_zero_velocity ? 0 : node.velocity_m_per_s + dt * force / node.inertia_kg;
         require_finite(next, "occupied updated node velocity");
         result.velocities_m_per_s.push_back(next);

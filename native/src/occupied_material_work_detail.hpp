@@ -8,9 +8,10 @@ namespace ma::detail {
 struct OccupiedWorkResponse {
     double pressure_pa, derivative_pa_per_m3, requested_energy_change_j, stored_energy_j;
     bool unresolved_energy_update;
+    std::optional<double> pressure_change_pa;
 };
 using OccupiedWorkLaw=std::function<OccupiedWorkResponse(std::size_t,double,
-    const experimental::ReferenceIsentrope&,const experimental::ReferenceIsentropicResponse&,double)>;
+    const experimental::ReferenceIsentrope&,const experimental::ReferenceIsentropicResponse&,double,std::optional<double>)>;
 [[nodiscard]] OccupiedMaterialPressureStep advance_occupied_material_pressure_with_work(
     const FluidThermodynamics&,std::span<const MaterialCell>,std::span<const OccupiedMaterialNode>,double,
     PressurePreconditioner,LiquidFillRoundoffPolicy,double,experimental::ReferenceRootOptions,const OccupiedWorkLaw&);

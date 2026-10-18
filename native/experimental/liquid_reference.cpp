@@ -626,6 +626,28 @@ Real work_derivative(const IsentropicCurve& curve, const IsentropicSolution& sol
     check(std::isfinite(result) && result <= 0, ReferenceErrorCode::numerical_range, "Isentropic work-pressure derivative is not finite and nonpositive");
     return result;
 }
+std::optional<double> work_pressure_change(const IsentropicCurve& curve,
+    const IsentropicSolution& solution, Real derivative) {
+    const Real delta = solution.response.volume_change_m3;
+    if (delta == 0 || curve.stats.mass == 0) return 0.;
+    // W'=(p_endpoint-W)/dV, hence W-p0=(p_endpoint-p0)-dV*W'.
+    // Both terms on the right are first order near dV=0. The curve retains
+    // endpoint pressure changes using expm1, including mixed/liquid states.
+    // Far from the anchor, the direct work difference is well conditioned.
+    const Real change = std::abs(solution.point.delta_pressure) < std::abs(curve.p0) / 8
+        ? solution.point.delta_pressure - delta * derivative
+        : -solution.point.delta_energy / delta - curve.p0;
+    const double stored = static_cast<double>(change);
+    if (!std::isfinite(stored) || (stored == 0 && (change != 0 || derivative != 0)) ||
+        std::abs(static_cast<Real>(stored) - change) > boundary_roundoff(change, change)) return std::nullopt;
+    // Anchor readings, the volume inversion and the absolute secant each have
+    // their documented rounding. Admit the continuous increment only while
+    // its reconstructed work pressure agrees within that same reference bound.
+    const Real reconstructed = curve.p0 + change;
+    if (std::abs(reconstructed - solution.response.work_pressure_pa) >
+        boundary_roundoff(reconstructed, solution.response.work_pressure_pa)) return std::nullopt;
+    return stored;
+}
 }
 
 ReferenceIsentrope LiquidThermodynamicReference::make_isentrope(const ReferenceConservedCell& cell, ReferenceRootOptions options) const {
@@ -661,7 +683,9 @@ double LiquidThermodynamicReference::isentropic_work_pressure_derivative(const R
 ReferenceIsentropicWork LiquidThermodynamicReference::isentropic_work(const ReferenceIsentrope& anchor, double delta, ReferenceRootOptions options) const {
     check(anchor.model_metadata() == metadata(), ReferenceErrorCode::incompatible_entropy_reference, "Entropy reference belongs to a different model profile");
     auto solution = solve_isentrope(materials_, anchor, static_cast<Real>(anchor.reference_cell().volume_m3) + delta, delta, true, options);
-    const double derivative = checked(work_derivative(IsentropicCurve(materials_, anchor), solution));
-    return {std::move(solution.response), derivative};
+    const IsentropicCurve curve(materials_, anchor);
+    const Real derivative = work_derivative(curve, solution);
+    const auto change = work_pressure_change(curve, solution, derivative);
+    return {std::move(solution.response), checked(derivative), change};
 }
 }

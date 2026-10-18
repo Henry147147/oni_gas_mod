@@ -98,6 +98,7 @@ struct MacClosedAdvanceReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0;
     std::size_t exact_equilibrium_intervals = 0;
     std::size_t pressure_iterations = 0, nonlinear_iterations = 0;
+    std::size_t pressure_increment_restarts = 0;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
     std::size_t compression_events = 0, unresolved_compression_heat_updates = 0, unresolved_compression_momentum_updates = 0;

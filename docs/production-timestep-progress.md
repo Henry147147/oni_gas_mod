@@ -599,3 +599,58 @@ cmake --build build-production --target ma_mac_wide_sum_tests
 build-production/ma_mac_wide_sum_tests > wide-sum.stdout
 python3 native/tests/review_mac_wide_sum.py wide-sum.stdout
 ```
+
+## Pressure cancellation and larger-step evidence
+
+A failed occupied-material pressure root can now restart with separate anchor
+pressures and continuous work-pressure increments. The fused EOS query retains
+the increment without subtracting rounded absolute pressures; reconstruction must
+still agree with the ordinary secant at its original reference bound. An
+unrepresentable increment is explicitly unavailable. Coupled bulk stress uses the
+same path. The ordinary root path and all physical defaults remain unchanged.
+
+The restart keeps the original 16-epsilon volume closure. The same compensated
+node pressure difference drives both the pressure root and canonical momentum;
+wall reactions retain both components before their common time/area factor.
+New coupled-liquid controls caught a loss when the two pressure differences
+rounded separately. Gathering all four operands before rounding passes the
+original actual-momentum bound. No energy, entropy or momentum allowance changed.
+
+The 16×16 wave's material root previously failed at 0.025, 0.05 and 0.1 seconds;
+all now converge at the original bound. Coupled gas, mixed and liquid controls
+exercise both failed-line-search and iteration-budget restarts. The owning gas
+case advances 0.1 seconds in one step without retry, restores its checkpoint and
+continues exactly. Fixed-wall cases with gravity 0 and 9.81 also advance in one
+step and independently check actual U+K+G. The saved reader checks 11,812
+assertions with exact fractions and 100-digit independent anchored adiabats,
+rejecting four corruptions. Details and reproduction are in the
+[pressure-increment contract](../native/MAC_PRESSURE_INCREMENTS.md).
+
+The benchmark now sums full-range constituent inventories and U+K before forming
+drift estimates. It no longer rejects a retained below-range kinetic term merely
+because its audit requested a binary64 projection. A nonzero new constituent
+with zero source inventory rejects. This affects diagnostics, not advancement.
+
+**No larger-step configuration is promoted.** A final five-interval, 256-cell
+wave comparison with the old balanced profile completes five substeps without
+timestep retry. Its maximum temperature difference is 0.01493473 K, but pressure
+error is **0.87343693 times the 20 Pa disturbance amplitude**, far above 1%.
+The smaller background-relative pressure error (0.00017465) does not satisfy
+that gate. Busy-host p50/p95 are 124.02/1,087.06 ms; this is no real-time result.
+The source/default 0.01-second selectors remain 1 / 1 / 2 / 2. Their five-interval
+checkpoint still matches
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+
+The independently confirmed vacuum stored-volume entropy failure remains valid.
+Primary-field remainders, general pressure/remap conversion, interface tracking,
+whole-colony ownership, adapters and persistence remain unfinished. This change
+does not relax a gate or certify a larger physical timestep. Captures and final
+verification are under `local/pressure-increments/`.
+
+Final Linux Release CTest passes 32/32. All 47 prior MAC output streams remain
+byte-identical; the new pressure-increment suite passes, and the original
+strong-flow collision-refinement failure is unchanged. Three suites pass fatal
+ASan/UBSan with leak detection and three static MinGW Windows-target suites pass
+under Wine, including the saved pressure review on both. The standalone
+thermodynamic suite and five benchmark-runner Python tests also pass. No actual
+Windows OS or new Unity evidence is claimed.

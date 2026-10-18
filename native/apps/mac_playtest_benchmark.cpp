@@ -14,12 +14,21 @@ using namespace ma;
 using namespace ma::experimental;
 using Clock=std::chrono::steady_clock;
 double elapsed(Clock::time_point start) { return std::chrono::duration<double,std::milli>(Clock::now()-start).count(); }
-struct Totals { std::vector<long double> mass; long double energy=0; };
+struct Totals { std::vector<MacEnergySum> mass; MacEnergySum energy; };
+double relative_difference(const MacEnergySum& after,const MacEnergySum& before) {
+    MacEnergySum difference;
+    for(std::size_t i=0;i<after.size();++i) difference.add(after.component(i));
+    for(std::size_t i=0;i<before.size();++i) difference.add(before.component(i).negated());
+    if(difference.sign()==0) return 0;
+    const auto scale=before.value().magnitude();
+    if(scale.is_zero()) throw std::runtime_error("Nonzero benchmark change has zero reference inventory");
+    return difference.value().magnitude().shared(MacEnergy::from_double(1),scale).project().value;
+}
 Totals totals(const MacClosedWorld& owner) {
-    Totals result{std::vector<long double>(owner.registry().size()),0};
+    Totals result{std::vector<MacEnergySum>(owner.registry().size()),{}};
     for (const auto& cell:owner.state().cells) {
-        for (std::size_t k=0;k<result.mass.size();++k) result.mass[k]+=cell.mixture.masses[k];
-        result.energy+=cell.mixture.energy;
+        for (std::size_t k=0;k<result.mass.size();++k) result.mass[k].add(cell.mixture.masses[k]);
+        result.energy.add(cell.mixture.energy);
     }
     const auto inertia=mac_face_inertias(owner.registry(),owner.state(),owner.thermodynamics());
     for (int axis=0;axis<2;++axis) {
@@ -27,7 +36,7 @@ Totals totals(const MacClosedWorld& owner) {
         const auto momentum=axis==0?mac_field_values(owner.state().momentum_x,owner.state().full_momentum_x):
             mac_field_values(owner.state().momentum_y,owner.state().full_momentum_y);
         for (std::size_t k=0;k<mass.size();++k)
-            result.energy+=MacEnergy::kinetic(mass[k],momentum[k]).require_representable();
+            result.energy.add(MacEnergy::kinetic(mass[k],momentum[k]));
     }
     return result;
 }
@@ -89,9 +98,9 @@ int main(int argc,char** argv) {
             const auto start=Clock::now(); auto result=input.advanced(.1,4096,policy); times.push_back(elapsed(start));
             minimum_active=std::min(minimum_active,active_cells(input.state(),result.world.state()));
             const auto final=totals(result.world);
-            for (std::size_t k=0;k<initial.mass.size();++k) if (initial.mass[k]!=0)
-                mass_drift=std::max(mass_drift,static_cast<double>(std::abs(final.mass[k]-initial.mass[k])/std::abs(initial.mass[k])));
-            energy_drift=std::max(energy_drift,static_cast<double>(std::abs(final.energy-initial.energy)/std::abs(initial.energy)));
+            for (std::size_t k=0;k<initial.mass.size();++k)
+                mass_drift=std::max(mass_drift,relative_difference(final.mass[k],initial.mass[k]));
+            energy_drift=std::max(energy_drift,relative_difference(final.energy,initial.energy));
             substeps+=result.report.substeps; retries+=result.report.rejected_attempts;
             iterations+=result.report.pressure_iterations; skipped+=result.report.exact_equilibrium_intervals;
             endpoint=std::move(result.world);

@@ -38,6 +38,12 @@ timestep and area, which avoids cancelling separately rounded large wall product
 Range handling of face velocities and sweeps is described in
 [range arithmetic](MAC_RANGE.md#canonical-momentum-and-fluxes).
 
+The [pressure-increment restart](MAC_PRESSURE_INCREMENTS.md) additionally repairs
+absolute-pressure cancellation when an ordinary occupied root stalls. It retains
+the original closure/account bounds and publishes the same compensated node
+differences to canonical momentum. Default timesteps and selectors are unchanged;
+the larger-step wave accuracy gate still fails.
+
 ## Gravity
 
 Constant downward gravity (`gravity_m_per_s2`, default 0) applies a body force to the

@@ -72,6 +72,11 @@ struct OccupiedMaterialPressureStep : MaterialPressureStep {
     std::vector<std::uint8_t> zero_work_substituted;
     std::size_t zero_work_substitutions = 0;
     double maximum_omitted_pressure_pa = 0, omitted_elastic_work_bound_j = 0;
+    // A deterministic numerical restart after ordinary pressure subtraction
+    // stalls. Retain p0 and W-p0 separately, and publish the exact same node
+    // pressure differences used by the root for canonical momentum gathering.
+    std::size_t pressure_increment_restarts = 0;
+    std::vector<double> reference_pressures_pa, work_pressure_changes_pa, node_pressure_differences_pa;
 };
 // Explicit model-aware overload: no legacy caloric/nominal-volume validation,
 // no vacuum unknowns, and no fake material beyond a traction-free boundary.

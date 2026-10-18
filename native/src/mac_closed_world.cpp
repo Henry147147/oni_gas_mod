@@ -263,14 +263,16 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             const auto& pair = pairs[f];
             const double pl = pair.left == none || topology.local[pair.left] == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.left]];
             const double pr = pair.right == none || topology.local[pair.right] == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.right]];
+            const double pressure_difference = result.pressure.node_pressure_differences_pa.empty() ? pl - pr
+                : result.pressure.node_pressure_differences_pa[(axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y)[f]];
             const auto gravity_force = axis == 0 ? MacScaled{} : force_product(-m[f], settings.gravity_m_per_s2);
             const auto gravity_impulse = gravity_force.multiplied(dt);
             MacScaled impulse;
             if (settings.gravity_m_per_s2 == 0) {
-                const double value = dt * area * (pl - pr); require_finite(value, "MAC pressure impulse");
+                const double value = dt * area * pressure_difference; require_finite(value, "MAC pressure impulse");
                 impulse = MacScaled::from_double(value);
             } else {
-                const auto pressure_force = force_product(area, pl - pr);
+                const auto pressure_force = force_product(area, pressure_difference);
                 const auto body = gravity_force.project(), pressure = pressure_force.project();
                 if (!body.rounded && !pressure.rounded) {
                     // Cancellation at a represented hydrostatic balance must
@@ -288,8 +290,17 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 // Cancel boundary pressures before their common dt*area factor.
                 // Scaling large opposing wall forces separately loses a small
                 // net reaction even when the interior gradient is well resolved.
-                wall_pressure[static_cast<std::size_t>(axis)].add(-pl);
-                wall_pressure[static_cast<std::size_t>(axis)].add(pr);
+                if (result.pressure.reference_pressures_pa.empty()) {
+                    wall_pressure[static_cast<std::size_t>(axis)].add(-pl);
+                    wall_pressure[static_cast<std::size_t>(axis)].add(pr);
+                } else {
+                    for (const auto& field : {&result.pressure.reference_pressures_pa, &result.pressure.work_pressure_changes_pa}) {
+                        if (pair.left != none && topology.local[pair.left] != none)
+                            wall_pressure[static_cast<std::size_t>(axis)].add(-(*field)[topology.local[pair.left]]);
+                        if (pair.right != none && topology.local[pair.right] != none)
+                            wall_pressure[static_cast<std::size_t>(axis)].add((*field)[topology.local[pair.right]]);
+                    }
+                }
                 wall_body[static_cast<std::size_t>(axis)].add(gravity_impulse.negated());
                 momentum.add(impulse);
             }
@@ -630,6 +641,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds, std::size_t budget, Ma
                         }
                     }
                 result.report.pressure_iterations += candidate.pressure.pressure_iterations;
+                result.report.pressure_increment_restarts += candidate.pressure.pressure_increment_restarts;
                 result.report.nonlinear_iterations += candidate.pressure.nonlinear_iterations;
                 result.report.unresolved_heat_updates += candidate.transport.unresolved_heat_updates;
                 result.report.unresolved_momentum_updates += candidate.unresolved_momentum_updates;
