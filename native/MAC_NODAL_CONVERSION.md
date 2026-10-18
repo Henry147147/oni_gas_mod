@@ -61,7 +61,7 @@ No energy or inventory is renormalized. Primary-U rounding remains explicit and
 unpersisted, as described in [range arithmetic](MAC_RANGE.md).
 
 Conservative nodal remap and kinetic/internal reconciliation are also treated by
-[Liska et al., subcell remapping](https://www.math.ntnu.no/conservation/2004/058.html)
+[Loubere and Shashkov, subcell remapping](https://www.math.ntnu.no/conservation/2004/058.html)
 and [Kucharik et al., positivity-preserving staggered remapping](https://www.osti.gov/servlets/purl/1771097).
 The geometry factor and material-work transfer above are this implementation's.
 

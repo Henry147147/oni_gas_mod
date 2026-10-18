@@ -130,6 +130,12 @@ and gravity, with atomic intervals and bounded retries. Its components and
 defaults are documented in [the closed owner](../native/MAC_SOLVER.md)
 and the linked `native/MAC_*.md` notes.
 
+[Prepared remap admission](../native/MAC_TRANSPORT.md#prepared-admission-and-reusable-candidates)
+reuses immutable material transport and candidate buffers without changing the
+physical result. The full opt-in strong-flow sequence now completes within its
+180-second bound on Linux; its separation accuracy still fails. Measurements and
+verification are in [timestep progress](production-timestep-progress.md#prepared-remap-admission).
+
 | Gate | Status |
 | --- | --- |
 | [Strong-flow Riemann gate](../native/MAC_STRONG_FLOW.md) | Sod and collision pass with [compressive work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3). **Separation fails** the finest-grid velocity bound and the central density/pressure bounds |

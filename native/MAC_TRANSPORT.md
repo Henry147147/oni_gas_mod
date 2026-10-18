@@ -64,6 +64,31 @@ transport and the nonnegative mixing heat. The API validates a plan; it does not
 certify how a caller built it. Parcels whose amounts would lose binary64 range carry a
 normalized prototype and scale ([range arithmetic](MAC_RANGE.md#primary-parcels)).
 
+## Prepared admission and reusable candidates
+
+Each transport call prepares the validated topology, source masses and momenta,
+actual primal/dual fluxes, transported constituent/passive inventories and internal
+energy once. These inputs do not depend on the swept-momentum correction fraction.
+Source temperature and entropy come from the same EOS reading that validates the
+source. The preparation lives only for that call, so a different source, plan,
+topology or EOS profile always receives fresh validation.
+
+The first trial moves the prepared inventory into its working buffer. A limiter
+search allocates a second inventory only after the full correction has failed and
+the zero-correction candidate has passed. Trials restore the original transported U,
+recompute J and compatible work, and swap accepted/working buffers. They reuse the
+constituent and passive arrays without repeating material transport. No rejected
+candidate is published. Each completed trial still receives a fresh EOS reading;
+that same reading supplies its entropy check. The original storage, constituent,
+momentum, energy, EOS and entropy bounds and the 53-trial search are unchanged.
+
+This is reuse within one remap, not a persistent block cache. Reconstruction and
+diagnostic workspaces still allocate, and primary inventory vectors remain dense.
+Continuation and nine saved component captures agree byte for byte with the prior
+implementation. The opt-in 2/4/3/2 strong-flow sequence now produces all nine profiles
+within its 180-second bound, but still fails separation accuracy; see
+[measured progress](../docs/production-timestep-progress.md#prepared-remap-admission).
+
 ## Sparse constituent workspace
 
 Transport accumulates mass in contiguous compressed rows containing only exact

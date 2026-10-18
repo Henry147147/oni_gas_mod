@@ -427,3 +427,52 @@ under `local/coupled-eos-reuse/`.
 Repeating the full opt-in 2 / 4 / 3 / 2 flow probe still reaches its 180-second
 limit. Its captured prefix is byte-identical to the previous bounded run; completing
 seven visible profiles and part of another does not certify the full flow gate.
+
+## Prepared remap admission
+
+The remapper now prepares immutable topology, source masses/momenta, validated
+parcels, transported inventories and dual fluxes once per call. Its limiter trials
+reuse two candidate inventories, restoring transported U and recalculating J and
+compatible work. A second inventory is allocated only when a search is needed.
+The source EOS validation supplies cached temperature/entropy, and each completed
+candidate's fresh EOS validation supplies its entropy reading. No cache survives
+the call. Physical settings, accumulation order, the 53-trial search and all
+conservation, storage, EOS and entropy bounds stay unchanged.
+
+Nine complete component captures match the prior implementation byte for byte,
+including the intermediate correction fraction 0.33562886732840125 and 28 rejected
+candidates. A paired 32-cell 2-D EOS-admission control takes median 80.13 ms before
+and 58.07 ms after, over nine alternating pairs pinned to one logical CPU. Both
+implementations use identical current strict-FP/IPO dependency libraries. This
+includes fixture construction and the donor/unrestricted controls; it is a
+component cost measurement, not an active-colony performance result.
+
+The opt-in 2 / 4 / 3 / 2 flow sequence finishes all nine profiles in 144.96 seconds,
+within the original 180-second process bound and 2 MiB stream bound. Its previously
+captured 958,464-byte prefix is unchanged. The complete stream has SHA256
+`dbcaa676bcd9a2ca136e31b3cfbee34d804b5de4abaef75a5ee21f28990f4663`.
+Independent saved analysis checks 124,190 assertions across the nine profiles;
+the full review still rejects separation accuracy. Its N256 density/pressure/
+velocity errors are 0.01783407 / 0.01930700 / **0.09087668**, and central density/
+pressure errors are **25.92562 / 56.93006**, against 0.06 and 0.5 respectively.
+Every profile completes with no timestep retry. This is the same failed physical
+solution, now captured completely on Linux.
+
+Linux Release CTest passes 29/29. All 45 MAC components were rebuilt: 44 pass and
+the original default strong-flow failure retains its exact output hash
+`a4bfd132931cc1436930313097b6c39eed4cb92e4612effe1dc59fee5b71247e`.
+The two additional swept/bounded owner suites pass, including 96 bounded-energy
+checkpoint continuations. Fatal ASan/UBSan with leak detection passes seven runs,
+including sparse catalogue capacity. Static MinGW Windows-target executables pass
+six runs under Wine. Saved reviews retain their original account and corruption
+checks. The default continuation checkpoint remains byte-identical to
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+No actual Windows OS or new Unity run is claimed.
+
+Two private source/target momentum-conversion variants were also measured against
+the unchanged N64 separation input. They retain the original stored-state accounts
+but worsen core accuracy, so neither enters the solver; see the
+[strong-flow investigation](../native/MAC_STRONG_FLOW.md#private-remap-experiments).
+General two-dimensional conversion, vacuum, free surfaces and the full performance
+and colony gates remain open. Captures, paired builds, source/library hashes,
+platform reviews and private probes are under `local/remap-preparation/`.

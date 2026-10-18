@@ -15,6 +15,12 @@ grids, timesteps and limits below are fixed; no failed result may be fixed by
 changing them. Unless stated otherwise, results are single Windows/MSVC runs; a
 method that failed was not repeated on Linux.
 
+The latest GNU Release/IPO 2/4/3/2 sequence also completes all nine profiles on Linux
+in 144.96 seconds after [remap preparation reuse](MAC_TRANSPORT.md#prepared-admission-and-reusable-candidates).
+Its saved accounts pass independent analysis and its finest separation errors
+reproduce the failure below. The production defaults still fail collision density
+refinement with byte-identical saved output. See [evidence and limits](../docs/production-timestep-progress.md#prepared-remap-admission).
+
 ## Benchmark
 
 The reference is the exact ideal-gas Euler Riemann solution, with shock jump curves,
@@ -226,6 +232,8 @@ Each kept the original inputs, timestep and physical guards. Separation N64 resu
 | Pooled budget, quarter/half/quarter traversal | 0.0566224 | 0.0552036 | 0.176857 | 0.0367862 / 0.0507058 |
 | Symmetric traversal + entropy-admitted reconstruction | 0.0493508 | 0.0476480 | 0.178860 | |
 | Quadratic reconstruction, global entropy reference | 0.0481518 | 0.0458518 | 0.167497 | |
+| Full source mean / target point conversion | 0.0773135 | 0.0717195 | 0.136296 | |
+| Same conversion, dual-carried representation work | 0.0804294 | 0.0734279 | 0.133987 | |
 
 Findings:
 
@@ -247,6 +255,16 @@ Findings:
 - Quadratic reconstruction at N256 first stopped on a false heat entropy rejection
   ([fixed](MAC_HEAT.md#entropy-measurement)), then gave 0.0121233 / 0.0120709 /
   0.0814362 and central errors 32.64 / 135.97, with the core at 0.0110 kg/m³ and 55.6 K.
+- The full source/target conversion interpolates half-cell velocity with each
+  source cell's constant density, using pair impulse `m (ur-ul)/8`, then solves the
+  target mass-weighted relation for point velocities. Both transformations retain
+  original J and K+U through compatible work. Carrying that work with material gives
+  N64 central density/pressure errors 150.19 / 1401.46; carrying it with the dual
+  packets gives 155.59 / 1294.54. Native and saved-state conservation/entropy checks
+  pass, but these coarse results worsen the core and do not establish a correct
+  general conversion. No finer-grid or full-gate claim is made. Sources, raw data
+  and derived-review provenance are under `local/remap-preparation/consistent-nodal/`
+  and `dual-work-nodal/`; neither variant is tracked.
 
 Better scalar reconstruction lowers the density and pressure L1 errors but leaves the
 velocity and central criteria failing.
