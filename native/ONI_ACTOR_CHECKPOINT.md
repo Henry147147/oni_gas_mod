@@ -27,6 +27,13 @@ structure padding is serialized.
 | Following records | Solver byte count | Complete `MACCLS01` image |
 | Final 64 bytes | 64 | Lowercase ASCII SHA-256 of all preceding bytes |
 
+For a configured (scenario 7) owner, the enclosed solver section is the
+checksummed `MADCFG01` wrapper, which carries the exact geometry, physics and
+solid mask around the `MACCLS01` image; see the
+[configured domain](../docs/native-configured-domain.md). Restore compares the
+actor header geometry and that wrapper with the caller's configuration.
+Legacy images are unchanged.
+
 Each actor record is:
 
 | Record offset | Bytes | Value |

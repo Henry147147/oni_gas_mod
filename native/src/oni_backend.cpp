@@ -33,6 +33,7 @@ static_assert(sizeof(MAOniDomainChunkHeatStatus) == 112);
 static_assert(sizeof(MAOniDomainSolidHeatCell) == 48);
 static_assert(sizeof(MAOniDomainSolidHeatEndpoint) == 64);
 static_assert(sizeof(MAOniDomainSolidCellState) == 64);
+static_assert(sizeof(MAOniDomainPhysics) == 40);
 static_assert(sizeof(MAOniTraceEvent) == 32);
 static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
@@ -577,7 +578,8 @@ template<class Action> MAOniResult boundary(Action action) noexcept {
 // Keep throwing implementation helpers under C++ linkage. MSVC /EHc treats
 // C-linkage functions as nonthrowing; exported entry points use boundary().
 void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* output,
-    std::span<const std::uint8_t> image,double saved_time,std::span<const MAOniDomainInitialCell> initial_cells={}) {
+    std::span<const std::uint8_t> image,double saved_time,std::span<const MAOniDomainInitialCell> initial_cells={},
+    const MAOniDomainPhysics* physics=nullptr,std::span<const std::uint8_t> solid_mask={}) {
     std::lock_guard save_lock(native_save_mutex);
     if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
     if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
@@ -599,9 +601,17 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
         dimensions[0] != static_cast<std::int32_t>(config->native_grid_width+2) || dimensions[1] <= 2 ||
         static_cast<std::uint64_t>(config->offset_y)+config->height+2 >= static_cast<std::uint32_t>(dimensions[1]))
         throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
-    try { ma::oni::start_domain(*config,native_thread(),image,saved_time,initial_cells); }
+    try {
+        if (physics) ma::oni::start_configured_domain(*config,*physics,solid_mask,native_thread(),image,saved_time,initial_cells);
+        else ma::oni::start_domain(*config,native_thread(),image,saved_time,initial_cells);
+    }
     catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
     ma::oni::copy_domain(*output,nullptr,0);
+}
+void configured_inputs_valid(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,const std::uint8_t* mask,std::uint32_t count) {
+    if (!config || !physics || !mask || !count || count>MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_CELLS ||
+        static_cast<std::uint64_t>(config->width)*config->height!=count)
+        throw Failure(MA_ONI_INVALID_ARGUMENT,"Configured native domain requires its geometry, physics and complete solid mask");
 }
 }
 
@@ -705,6 +715,45 @@ MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig* config,const
             static_cast<std::uint64_t>(config->width)*config->height!=count)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Initial native inventory must cover every domain cell");
         start_domain_checked(config,output,{},0,std::span(cells,count));
+    });
+}
+std::uint32_t ma_oni_domain_configured_abi_version() { return MA_ONI_DOMAIN_CONFIGURED_ABI_VERSION; }
+MAOniResult ma_oni_domain_start_configured(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,
+    const std::uint8_t* mask,std::uint32_t mask_count,const MAOniDomainInitialCell* cells,std::uint32_t count,MAOniDomainStatus* output) {
+    return boundary([&] {
+        configured_inputs_valid(config,physics,mask,mask_count);
+        if (!cells || count!=mask_count) throw Failure(MA_ONI_INVALID_ARGUMENT,"Configured initial inventory must cover every domain cell");
+        start_domain_checked(config,output,{},0,std::span(cells,count),physics,std::span(mask,mask_count));
+    });
+}
+MAOniResult ma_oni_domain_configured_checkpoint_validate(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,
+    const std::uint8_t* mask,std::uint32_t mask_count,const std::uint8_t* image,std::uint32_t size,double saved_time) {
+    return boundary([&] {
+        configured_inputs_valid(config,physics,mask,mask_count);
+        if (!image || !size) throw Failure(MA_ONI_INVALID_ARGUMENT,"Configured checkpoint validation source is missing");
+        try { ma::oni::validate_configured_domain_checkpoint(*config,*physics,std::span(mask,mask_count),std::span(image,size),saved_time); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_domain_restore_configured(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,
+    const std::uint8_t* mask,std::uint32_t mask_count,const std::uint8_t* image,std::uint32_t size,double saved_time,MAOniDomainStatus* output) {
+    return boundary([&] {
+        configured_inputs_valid(config,physics,mask,mask_count);
+        if (!image || !size) throw Failure(MA_ONI_INVALID_ARGUMENT,"Configured checkpoint restore source is missing");
+        start_domain_checked(config,output,std::span(image,size),saved_time,{},physics,std::span(mask,mask_count));
+    });
+}
+MAOniResult ma_oni_domain_configuration_copy(std::uint64_t session,MAOniDomainConfig* config,MAOniDomainPhysics* physics,
+    std::uint8_t* mask,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!config || !physics || !count || (!mask && capacity)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid configured domain output");
+        MAOniDomainConfig geometry{};MAOniDomainPhysics settings{};std::vector<std::uint8_t> solids;
+        try { ma::oni::copy_domain_configuration(session,geometry,settings,solids); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        if (mask && capacity<solids.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Configured solid mask capacity is insufficient");
+        if (mask) std::copy(solids.begin(),solids.end(),mask);
+        *config=geometry;*physics=settings;*count=static_cast<std::uint32_t>(solids.size());
     });
 }
 MAOniResult ma_oni_domain_checkpoint_validate(const MAOniDomainConfig* config,const std::uint8_t* image,std::uint32_t size,double saved_time) {

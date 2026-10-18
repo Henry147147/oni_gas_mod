@@ -9,7 +9,9 @@ extern "C" {
 /* Development-only sealed domain. This is not whole-colony ownership. The
  * caller must verify an empty, impermeable, adiabatic native border before
  * activation. No native inventory, machine, radiation or disease may enter it.
- * Unsupported operations fault the domain; original fluids never take over. */
+ * Unsupported operations fault the domain; original fluids never take over.
+ * Scenarios 0..6 own the complete rectangle. The additive configured ABI
+ * below (scenario 7) adds explicit physics, interior solids and larger sizes. */
 #define MA_ONI_DOMAIN_ABI_VERSION 2U
 #define MA_ONI_DOMAIN_TRANSFER_ABI_VERSION 2U
 #define MA_ONI_DOMAIN_SEALED_TEST 1U
@@ -17,7 +19,7 @@ extern "C" {
 typedef struct MAOniDomainConfig {
     uint32_t struct_size, abi_version, flags, native_grid_width; /* public width; native pitch includes a one-cell halo */
     uint32_t offset_x, offset_y, width, height;
-    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied mixture without conduction, 5: mixture with conduction, 6: mixture with conduction and physical viscosity */
+    uint32_t scenario, reserved; /* 0: mixed air, 1: compressed water, 2: mixed air with gravity, 3: compressed water with gravity, 4: occupied mixture without conduction, 5: mixture with conduction, 6: mixture with conduction and physical viscosity, 7: configured (physics and solid mask supplied separately) */
 } MAOniDomainConfig;
 
 typedef struct MAOniDomainStatus {
@@ -56,6 +58,71 @@ typedef struct MAOniDomainInitialCell {
 MA_ONI_API uint32_t ma_oni_domain_initial_inventory_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig*,
     const MAOniDomainInitialCell*, uint32_t count, MAOniDomainStatus*);
+
+/* Additive configured sealed-domain ABI 1. Scenario 7 is admitted only by
+ * these entry points; every legacy entry point keeps rejecting it, and the
+ * behaviour and bytes of scenarios 0..6 are unchanged. Physics flags select
+ * gravity, fluid conduction, physical viscosity and gas/liquid mixture
+ * admission independently. Without MIXTURE, LIQUID selects filled
+ * single-liquid (water) admission; otherwise the domain is gas-only. The
+ * registry and EOS are those of scenarios 0..2 and 4..6; the 5-species
+ * catalogue is unchanged. Disabled values must be exactly +0. Admission
+ * bounds, not material laws: 0<g<=100 m/s2 and viscosities 0..1000 Pa s.
+ *
+ * solid_mask is row-major width*height, 0 fluid or 1 solid, with at least one
+ * fluid cell. Solids are impermeable MAC walls with all-zero initial records
+ * (masses and temperature). Every fluid cell is occupied: no vacuum, passive
+ * data or disease. Heat edits, point transfers, radius centres and actors
+ * targeting a solid reject the whole batch; rectangle footprints skip solids,
+ * including their anchor, exactly as the inspected native loop does. Copies
+ * publish solids as all-zero cells (a fluid cell always has positive mass and
+ * temperature); ma_oni_domain_configuration_copy returns the authoritative
+ * mask. Status scalars sample the first fluid cell in row-major order. Native
+ * compatibility projections must not be written into solid cells.
+ *
+ * Ownership is per cell: owned fluid cells exclude native pressure, liquid,
+ * gas, displacement, temperature and chunk-heat work, while solids inside the
+ * rectangle keep them (native solid/solid and solid/outside conduction).
+ * Post-process, state-transition, load-transition and sublimation entries
+ * stay excluded for the whole rectangle: a native melt or falling solid would
+ * otherwise create fluid inside the owner. Interior fluid/solid faces are
+ * impermeable and adiabatic; solid-heat registration still admits only
+ * outside faces that touch an owned fluid cell. The caller must verify every
+ * interior solid exactly as it verifies the border: static, stable,
+ * non-transitioning and insulating (or accepted as adiabatic), with no
+ * objects. Outside fluid cells on the rectangle edge still need the verified
+ * impermeable, adiabatic native border.
+ *
+ * Sizes are 2..256 per side and at most 4096 cells. Checkpoints, durable
+ * actor images and completed snapshots carry a checksummed MADCFG01 wrapper
+ * with the exact geometry, physics and mask around the unchanged MACCLS01
+ * solver image. Restore and validation reject any mismatch. */
+#define MA_ONI_DOMAIN_CONFIGURED_ABI_VERSION 1U
+#define MA_ONI_DOMAIN_CONFIGURED_SCENARIO 7U
+#define MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_SIDE 256U
+#define MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_CELLS 4096U
+#define MA_ONI_DOMAIN_PHYSICS_GRAVITY 1U
+#define MA_ONI_DOMAIN_PHYSICS_CONDUCTION 2U
+#define MA_ONI_DOMAIN_PHYSICS_VISCOSITY 4U
+#define MA_ONI_DOMAIN_PHYSICS_MIXTURE 8U
+#define MA_ONI_DOMAIN_PHYSICS_LIQUID 16U
+typedef struct MAOniDomainPhysics {
+    uint32_t struct_size, abi_version, flags, reserved;
+    double gravity_m_per_s2, shear_viscosity_pa_s, bulk_viscosity_pa_s;
+} MAOniDomainPhysics;
+MA_ONI_API uint32_t ma_oni_domain_configured_abi_version(void);
+/* Complete validation precedes activation; the caller retains every input. */
+MA_ONI_API MAOniResult ma_oni_domain_start_configured(const MAOniDomainConfig*, const MAOniDomainPhysics*,
+    const uint8_t* solid_mask, uint32_t mask_count, const MAOniDomainInitialCell*, uint32_t cell_count, MAOniDomainStatus*);
+MA_ONI_API MAOniResult ma_oni_domain_configured_checkpoint_validate(const MAOniDomainConfig*, const MAOniDomainPhysics*,
+    const uint8_t* solid_mask, uint32_t mask_count, const uint8_t* input, uint32_t input_bytes, double expected_time);
+MA_ONI_API MAOniResult ma_oni_domain_restore_configured(const MAOniDomainConfig*, const MAOniDomainPhysics*,
+    const uint8_t* solid_mask, uint32_t mask_count, const uint8_t* input, uint32_t input_bytes, double expected_time,
+    MAOniDomainStatus*);
+/* Exact configuration of the active configured session. A null mask with
+ * zero capacity queries the count; all failure outputs are unchanged. */
+MA_ONI_API MAOniResult ma_oni_domain_configuration_copy(uint64_t session, MAOniDomainConfig*, MAOniDomainPhysics*,
+    uint8_t* solid_mask, uint32_t mask_capacity, uint32_t* mask_count);
 
 MA_ONI_API uint32_t ma_oni_domain_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_start(const MAOniDomainConfig*, MAOniDomainStatus*);

@@ -10,6 +10,14 @@ namespace ma::oni {
 void start_domain(const MAOniDomainConfig&, std::uint64_t start_thread,std::span<const std::uint8_t> checkpoint={},double saved_time=0,
     std::span<const MAOniDomainInitialCell> initial_cells={});
 void validate_domain_checkpoint(const MAOniDomainConfig&,std::span<const std::uint8_t>,double saved_time);
+// Configured ABI 1 (scenario 7). Exactly one of initial_cells or checkpoint is
+// supplied; legacy entry points above keep rejecting scenario 7.
+void start_configured_domain(const MAOniDomainConfig&,const MAOniDomainPhysics&,std::span<const std::uint8_t> solid_mask,
+    std::uint64_t start_thread,std::span<const std::uint8_t> checkpoint={},double saved_time=0,
+    std::span<const MAOniDomainInitialCell> initial_cells={});
+void validate_configured_domain_checkpoint(const MAOniDomainConfig&,const MAOniDomainPhysics&,std::span<const std::uint8_t> solid_mask,
+    std::span<const std::uint8_t>,double saved_time);
+void copy_domain_configuration(std::uint64_t session,MAOniDomainConfig&,MAOniDomainPhysics&,std::vector<std::uint8_t>& solid_mask);
 void stop_domain() noexcept;
 void shutdown_domain() noexcept;
 void advance_domain(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;

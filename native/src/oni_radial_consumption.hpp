@@ -10,10 +10,13 @@
 namespace ma::oni::radial {
 struct Allocation { std::size_t cell;double mass; };
 struct Plan { double mass=0;int quantum_exponent=0;std::vector<Allocation> allocations; };
+// The largest native owner: the configured ABI's 4096-cell budget. Legacy
+// scenarios never exceed 16x16, so their admission is unchanged.
+constexpr std::size_t maximum_side=256,maximum_cells=4096;
 inline void validate_sources(std::size_t width,std::size_t height,std::span<const std::uint8_t> walls,
     std::span<const double> masses,double requested) {
     ma::experimental::require_mac_energy_environment();
-    if (!width || !height || width>256 || height>256 || width*height>256 || walls.size()!=width*height ||
+    if (!width || !height || width>maximum_side || height>maximum_side || width*height>maximum_cells || walls.size()!=width*height ||
         masses.size()!=walls.size() || !std::isfinite(requested) || requested<0 ||
         static_cast<double>(static_cast<float>(requested))!=requested)
         throw std::invalid_argument("Invalid regional consumption geometry or callback request");
