@@ -203,6 +203,8 @@ int main(int argc,char** argv) {
         // Production-only fields; the reference output keeps its schema.
         if (production) {
             std::cout<<",\"kernel\":\"production\",\"threads\":"<<kernel_options.threads
+                <<",\"kernel_threads_used\":"<<last_mac_production_report().threads_used
+                <<",\"kernel_workspace_bytes\":"<<last_mac_production_report().workspace_bytes
                 <<",\"ns_per_cell_substep_p50\":"<<(percentile(.5)*1e6/(static_cast<double>(width*height)*static_cast<double>(substeps)/static_cast<double>(samples)))
                 <<",\"process_cpu_ms\":[";
             for (std::size_t i=0;i<cpu.size();++i) { if(i) std::cout<<","; if(cpu[i]<0) std::cout<<"null"; else std::cout<<cpu[i]; }

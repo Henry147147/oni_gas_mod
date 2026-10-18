@@ -13,6 +13,35 @@
 namespace ma::experimental::mac_kernel {
 namespace {
 double combine(const std::vector<double>& part) { DD s; for (const double v : part) s.add(v); return s.value(); }
+// q = z + beta p computed on the fly (for the cell and its neighbours) and
+// stored for the cell, fused with A q and q.Aq: one pass per PCG direction.
+void apply_direction(const Context& c, const LinearSystem& sys, const std::vector<double>& z, const std::vector<double>& p, double beta,
+    std::vector<double>& q, std::vector<double>& y, double& dot) {
+    const auto& g = c.g;
+    const double* zv = z.data(); const double* pv = p.data();
+    const double* wx = sys.wx.data(); const double* wy = sys.wy.data(); const double* d = sys.diag.data();
+    const auto dir = [&](std::size_t j) { return zv[j] + beta * pv[j]; };
+    auto part = c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        double local = 0;
+        for (std::size_t row = y0; row < y1; ++row) {
+            const std::size_t base = row * g.W, xb = row * g.XW;
+            const std::size_t down = row > 0 ? base - g.W : base + (g.H - 1) * g.W;
+            const std::size_t up = row + 1 < g.H ? base + g.W : base - (g.H - 1) * g.W;
+            const std::size_t yb = row * g.W, yt = ((row + 1) % g.YH) * g.W;
+            for (std::size_t col = 0; col < g.W; ++col) {
+                const auto i = base + col;
+                const double xi = dir(i);
+                if (!sys.active[i]) { y[i] = 0; q[i] = xi; continue; }
+                const auto left = col > 0 ? i - 1 : i + g.W - 1, right = col + 1 < g.W ? i + 1 : i + 1 - g.W;
+                const double wl = wx[xb + col], wr = wx[xb + (col + 1) % g.XW], wb = wy[yb + col], wt = wy[yt + col];
+                const double value = d[i] * xi + wl * (xi - dir(left)) + wr * (xi - dir(right)) + wb * (xi - dir(down + col)) + wt * (xi - dir(up + col));
+                q[i] = xi; y[i] = value; local += xi * value;
+            }
+        }
+        return local;
+    });
+    dot = combine(part);
+}
 void apply(const Context& c, const LinearSystem& sys, const std::vector<double>& x, std::vector<double>& y, std::vector<double>* dot_with,
     double* dot) {
     const auto& g = c.g;
@@ -197,11 +226,8 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
         double pAp = 0;
         if (it == 1) apply(c, sys, ws.lp, ws.lAp, &ws.lp, &pAp);
         else {
-            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) ws.lq[i] = ws.lz[i] + beta * ws.lp[i];
-            });
+            apply_direction(c, sys, ws.lz, ws.lp, beta, ws.lq, ws.lAp, pAp);
             ws.lp.swap(ws.lq);
-            apply(c, sys, ws.lp, ws.lAp, &ws.lp, &pAp);
         }
         if (!(pAp > 0)) break;
         const double alpha = rz / pAp;
@@ -477,7 +503,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             ++c.counters.line_search; fraction *= .5;
         }
-        if (std::getenv("MA_KERNEL_DEBUG")) std::fprintf(stderr, "  newton %zu norm %.3e linear %zu res %.3e conv %d accepted %d\n", newton, norm, solved.iterations, solved.residual, solved.converged ? 1 : 0, accepted ? 1 : 0);
+        if (kernel_debug()) std::fprintf(stderr, "  newton %zu norm %.3e linear %zu res %.3e conv %d accepted %d\n", newton, norm, solved.iterations, solved.residual, solved.converged ? 1 : 0, accepted ? 1 : 0);
         if (!accepted) reject("Production pressure line search failed; retry smaller timestep");
         ++newton;
     }

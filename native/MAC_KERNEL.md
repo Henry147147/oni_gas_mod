@@ -8,7 +8,10 @@ API, physical model, selectors, substep order, retry schedule and the
 validation oracle.
 
 Status: phase 1 (single-threaded flux-form kernel, oracle validation,
-benchmark option) and the deterministic block-parallel structure are done.
+benchmark option) and phase 3 (deterministic multithreading: bit-identical
+results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
+pressure formulation is in; the multigrid preconditioner and larger calm steps
+are separate work (`mac_pressure_multigrid.*`) and not part of this kernel.
 It covers every selector the ONI domain uses. The real-time gate is not met;
 see [performance](#performance) and [remaining work](#remaining-work).
 
@@ -42,10 +45,19 @@ policy paths.
 Swept material reconstruction (2), momentum selectors 2–5 and coupled
 compressive pressure (3) are rejected with `std::invalid_argument` on the
 explicit production path; the interval-kernel path then uses the reference.
-Admission also requires normal-range inputs: no full-range canonical
-momentum and every nonzero stored value within `2^-450..2^450`. A flagged
-input (or endpoint) runs the whole interval through the reference
+
+Range: a nonfinite or overflow-range value (above `2^450`) in the input or
+at the interval endpoint runs the whole interval through the reference
 implementation, so full-range arithmetic is used only for flagged values.
+Below-range values are admitted. Roundoff-level transverse momentum on large
+grids decays far below binary64's normal range within a few intervals;
+falling back for it made the 160x160 wave about 100 times slower than
+necessary. Full-range canonical momentum is projected, subnormal results
+round, and the audit counts up to `2^-1075` of absolute rounding per operand
+per substep. A momentum-correction pair whose heat budget is below the
+subnormal resolution takes the always-admissible zero correction, and a
+compression pair with a closing speed below `2^-500` m/s whose midpoint
+rounds away is skipped; both are counted.
 
 ## Design
 
@@ -129,9 +141,24 @@ fluxes on the species-major columns, accumulated into the same interval audit.
 
 Rows are grouped into fixed blocks (about 1,024 cells each) that depend only
 on the grid shape. Each block is processed by one thread; reductions combine
-per-block partials in block order; line sweeps assign whole lines to blocks.
-The thread pool's exception propagation rethrows the lowest failing block.
-Results are therefore bit-identical for any thread count.
+per-block partials in block order; line sweeps assign whole lines to fixed
+line blocks. The thread pool's exception propagation rethrows the lowest
+failing block. Results are therefore bit-identical for any thread count.
+
+The pool (`mac_kernel_parallel.cpp`) keeps its workers between parallel
+regions. Threads claim blocks dynamically from one 64-bit ticket (region
+generation and next block), so a descheduled worker delays only the block it
+holds; which thread runs a block never changes the result. Idle workers pause
+briefly, then yield, then sleep on a condition variable. Before a new region
+changes the block count and job, the finished region's ticket is closed, so a
+late worker cannot claim a block of the new region twice. The first pool
+partitioned blocks statically; on the shared host one preempted thread then
+stalled every region: at 65,536 cells 8 threads gained 1.1 times and 12 ran
+at 0.56 times the one-thread speed.
+
+Every executing thread checks the arithmetic environment before it claims a
+block; a thread that fails the check records the fault on the blocks it would
+have run.
 
 ## Validation
 
@@ -168,8 +195,8 @@ walls, gravity, conduction, viscosity), atomic budget exhaustion, rejection of
 swept/coupled selectors, the production policy's equilibrium certificate, the
 opt-in interval-admission extension and range fallback, and that every audit
 quantity passes. Both suites are run under ASan/UBSan (Debug, `-O1
--D_GLIBCXX_ASSERTIONS`, fatal findings); see the commit messages for the
-exact coverage of each run.
+-D_GLIBCXX_ASSERTIONS`, fatal findings) and ThreadSanitizer; see the commit
+messages for the exact coverage of each run.
 
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
@@ -178,20 +205,23 @@ consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
 
 ## Performance
 
-Method: `ma_mac_playtest_benchmark` through `tools/run_mac_playtest_benchmark.py
---kernel production --profile reference --scene wave --continuation`, GNU
-15.2 Release/IPO, default production selectors (limited-linear material and
+Method: `ma_mac_playtest_benchmark WIDTH HEIGHT 3 reference wave --continuation
+--no-reference --kernel production --threads N` (what
+`tools/run_mac_playtest_benchmark.py --kernel production` runs), GNU 15.2
+Release/IPO, default production selectors (limited-linear material and
 momentum, pressure-sensed compression and shock heat), 0.01 s maximum step,
-three consecutive 0.1 s samples per run, process pinned to one logical CPU
-with `taskset`, three runs per size (two at 250,000). The host was shared:
-1-minute load 21–30 during these runs. Process CPU time is recorded beside
-wall time; they agreed within 10% here. ns per cell-substep is the median
-wall time divided by cells times substeps per sample (10.3 substeps per 0.1 s,
-as the reference schedule).
+three consecutive 0.1 s samples per run (10.3 substeps per 0.1 s, the
+reference schedule), three runs per size and thread count. ms per 0.1 s is the
+median sample of a run; ns per cell-substep divides it by cells times
+substeps. The host (Ryzen 9 5900X, 12 cores, 24 logical CPUs) was shared with
+a video encoder using about 11 cores and other builds: the 1-minute load was
+21-30 for phase 1 and 24-51 for the current sweep. Processes were pinned with
+`taskset` (one logical CPU for phase 1; logical CPUs 0-11, one per core, for
+the current sweep). Process CPU time is recorded beside wall time.
 
-Phase 1, one thread:
+Phase 1 (commit 08337ed), one thread:
 
-| Cells (shape) | ms per 0.1 s (p50, three runs) | ns per cell-substep | Reference ms per 0.1 s |
+| Cells (shape) | ms per 0.1 s (three runs) | ns per cell-substep | Reference ms per 0.1 s |
 | ---: | --- | ---: | ---: |
 | 4,096 (64x64) | 60, 65, 79 | 1,420–1,870 | 7,560 |
 | 16,384 (128x128) | 310, 332, 349 | 1,830–2,060 | 36,231 |
@@ -202,9 +232,69 @@ Reference figures are from the [scaling analysis](../docs/solver-scaling-analysi
 (same host, thread CPU time, four pinned cores). The production kernel is
 about 100–120 times faster at the same physics, selectors and schedule.
 
-Comparison with the de805b7 interval port on its admitted configuration
-(donor-cell material and momentum, no regularization, gas only), one thread,
-same host and hour, thread CPU per 0.1 s:
+Current kernel, one thread. Since phase 1: no integer division in face and
+neighbour addressing (per-cell face table, column/row-carrying helpers),
+stored inverse face inertias, the PCG direction update fused into the
+operator application, and parallel load, store, field copies and audit
+partials.
+
+| Cells | ms per 0.1 s (three runs) | ns per cell-substep |
+| ---: | --- | ---: |
+| 4,096 | 61, 70, 88 | 1,450–2,070 |
+| 16,384 | 231, 257, 269 | 1,360–1,590 |
+| 65,536 | 900, 1,018, 1,064 | 1,330–1,570 |
+| 250,000 | 3,563, 3,630, 3,803 | 1,380–1,470 |
+
+Threads (median of three runs, speedup against the one-thread median of the
+same sweep; every endpoint checkpoint of a size is byte-identical across
+thread counts). The 4,096- and 16,384-cell rows are from a second sweep
+(load 43–48) after the thread cap below changed; the 100,000-cell rows from a
+third (load 18):
+
+| Cells | Threads used | ms per 0.1 s | ns per cell-substep | Speedup | Process CPU ms per 0.1 s |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4,096 | 1 | 52 | 1,233 | 1 | 52 |
+| 4,096 | 2 | 47 | 1,118 | 1.10 | 94 |
+| 4,096 | 4 (4, 8 or 12 requested) | 36–43 | 850–1,014 | 1.22–1.45 | 135–142 |
+| 16,384 | 1 | 276 | 1,632 | 1 | 273 |
+| 16,384 | 2 | 200 | 1,181 | 1.38 | 393 |
+| 16,384 | 4 | 129 | 760 | 2.15 | 448 |
+| 16,384 | 8 | 92 | 543 | 3.01 | 540 |
+| 16,384 | 12 | 83 | 492 | 3.31 | 561 |
+| 65,536 | 1 | 1,018 | 1,503 | 1 | 1,017 |
+| 65,536 | 2 | 664 | 981 | 1.53 | 1,246 |
+| 65,536 | 4 | 439 | 649 | 2.32 | 1,581 |
+| 65,536 | 8 | 313 | 462 | 3.25 | 1,868 |
+| 65,536 | 12 | 277 | 410 | 3.67 | 2,006 |
+| 100,000 (400x250) | 1 | 1,477 | 1,430 | 1 | 1,465 |
+| 100,000 | 12 | 397 | 384 | 3.72 | 2,989 |
+| 250,000 | 1 | 3,630 | 1,405 | 1 | 3,618 |
+| 250,000 | 2 | 2,445 | 946 | 1.48 | 4,723 |
+| 250,000 | 4 | 1,510 | 584 | 2.40 | 5,546 |
+| 250,000 | 8 | 1,226 | 474 | 2.96 | 7,394 |
+| 250,000 | 12 | 1,164 (1,106–1,267) | 451 | 3.12 | 7,797 |
+
+The kernel never runs more threads than row blocks
+(`MacKernelOptions::minimum_blocks_per_thread`, default 1): idle workers
+woken for every parallel region only cost time. At 4,096 cells (four blocks,
+load 18) four threads gave 2.0 times one thread and twelve uncapped threads
+1.6 times. An earlier build with the static-partition pool collapsed
+instead (12 threads on 4,096 cells: 1.9–9.8 s per 0.1 s, 25–150 times slower
+than one thread, load 30). Scaling beyond four threads is limited by the number of parallel
+regions (two per PCG iteration, several per sweep stage) and by the shared
+host; the spin-wait shows as process CPU time above the wall time.
+
+Memory: retained kernel workspace (`MacKernelReport::workspace_bytes`: field
+banks and scratch) is 4.1, 16.5, 66.2, 101.0 and 252.5 MiB at 4,096, 16,384,
+65,536, 100,000 and 250,000 cells, about 1,060 bytes per cell. The whole
+benchmark process (source and result owners, checkpoint, kernel workspace)
+peaks at 609–611 MB RSS at 250,000 cells, 246 MB at 100,000 and 163 MB at
+65,536, independent of the thread count.
+
+Comparison of the phase 1 kernel with the de805b7 interval port on the
+port's admitted configuration (donor-cell material and momentum, no
+regularization, gas only), one thread, same host and hour, thread CPU per
+0.1 s:
 
 | Cells | de805b7 | Production kernel |
 | ---: | --- | --- |
@@ -215,7 +305,7 @@ The port takes a remainder substep per interval because it restarts its clock
 at zero; the production kernel reproduces the reference's absolute-clock
 schedule.
 
-Stage breakdown (4,096 cells, default selectors, one thread, ns per
+Phase 1 stage breakdown (4,096 cells, default selectors, one thread, ns per
 cell-substep): pressure root and PCG 410, momentum transport 275, shock heat
 265, reconstruction 225, compression 215, primal gather/heat/gravity 70,
 EOS anchors 40, audit 28.
@@ -242,12 +332,19 @@ is an open ownership decision.
 
 ## Remaining work
 
-- Real-time target: not met. At 250,000 cells one thread takes about 6 s per
-  0.1 s against 62.5 ms; deterministic threading, per-stage cost reduction and
-  larger calm steps (in progress elsewhere) are all required.
+- Real-time target: not met. At 250,000 cells 12 threads take about 1.16 s
+  per 0.1 s (3.6 s on one thread) against 62.5 ms, a factor of about 19; at
+  100,000 cells about 0.40 s against 25 ms, a factor of about 16 (wave scene,
+  shared host).
 - Larger calm-region steps with local subcycling and a tuned multigrid
-  preconditioner are not part of this kernel; the multigrid option here is an
-  untuned aggregation V-cycle.
+  preconditioner are separate work (`mac_pressure_multigrid.*`) and not part
+  of this kernel; the multigrid option here is an untuned aggregation
+  V-cycle. Both reduce the substep and iteration counts that every number
+  above is proportional to.
+- Thread scaling stops near 3–3.7 times on 12 threads on the shared host.
+  Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
+  reduction per iteration) and a measurement on an idle host are the next
+  steps.
 - Gas diffusion (the stage slot above), swept reconstruction, momentum
   selectors 2–5 and coupled compressive pressure are not ported.
 - Below-range transients inside an interval round without per-value counting;

@@ -5,9 +5,11 @@
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstdint>
 #include <exception>
 #include <functional>
@@ -23,6 +25,9 @@ inline constexpr Index none = std::numeric_limits<Index>::max();
 inline constexpr double eps = std::numeric_limits<double>::epsilon();
 inline constexpr double unit_roundoff = eps / 2;
 
+// MA_KERNEL_DEBUG prints rejections, Newton progress and audit escalations
+// to stderr (diagnostics only; read once).
+inline bool kernel_debug() { static const bool on = std::getenv("MA_KERNEL_DEBUG") != nullptr; return on; }
 [[noreturn]] inline void reject(const char* why) { throw std::domain_error(why); }
 [[noreturn]] inline void precision(const char* why) { throw FluidFatalError(FluidFatalCode::numerical_precision, why); }
 inline void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(why); }
@@ -55,10 +60,13 @@ struct Grid {
     Grid() = default;
     [[nodiscard]] Index xface(std::size_t x, std::size_t y) const { return static_cast<Index>(x + y * XW); }
     [[nodiscard]] Index yface(std::size_t x, std::size_t y) const { return static_cast<Index>(x + y * W); }
-    [[nodiscard]] Index left_face(std::size_t c) const { return xface(c % W, c / W); }
-    [[nodiscard]] Index right_face(std::size_t c) const { return xface((c % W + 1) % XW, c / W); }
-    [[nodiscard]] Index bottom_face(std::size_t c) const { return yface(c % W, c / W); }
-    [[nodiscard]] Index top_face(std::size_t c) const { return yface(c % W, (c / W + 1) % YH); }
+    // Per-cell face table (left, right, bottom, top): avoids two runtime
+    // integer divisions per lookup in every cell loop.
+    std::vector<std::array<Index, 4>> cell_faces;
+    [[nodiscard]] Index left_face(std::size_t c) const { return cell_faces[c][0]; }
+    [[nodiscard]] Index right_face(std::size_t c) const { return cell_faces[c][1]; }
+    [[nodiscard]] Index bottom_face(std::size_t c) const { return cell_faces[c][2]; }
+    [[nodiscard]] Index top_face(std::size_t c) const { return cell_faces[c][3]; }
     [[nodiscard]] std::size_t block_row_begin(std::size_t b) const { return std::min(H, b * rows_per_block); }
     [[nodiscard]] std::size_t block_row_end(std::size_t b) const { return std::min(H, (b + 1) * rows_per_block); }
     // y-face rows [begin, end) of a block.
@@ -131,23 +139,27 @@ public:
     Pool(const Pool&) = delete;
     Pool& operator=(const Pool&) = delete;
     [[nodiscard]] unsigned size() const noexcept { return threads_; }
-    // Runs job(block) for every block; blocks are statically partitioned in
-    // contiguous ranges. The exception of the lowest throwing block is
-    // rethrown, independent of scheduling.
+    // Runs job(block) for every block. Threads claim blocks dynamically, so
+    // a descheduled thread never holds up the others; which thread runs a
+    // block never changes its result. The exception of the lowest throwing
+    // block is rethrown, independent of scheduling.
     void run(std::size_t blocks, const std::function<void(std::size_t)>& job);
 private:
-    void worker(unsigned id);
+    void worker();
+    void claim(std::uint64_t generation);
     unsigned threads_;
     std::vector<std::thread> workers_;
     std::mutex mutex_, run_mutex_;
-    std::condition_variable start_, done_;
-    std::atomic<std::uint64_t> generation_{0};
-    std::atomic<unsigned> remaining_{0};
+    std::condition_variable start_;
+    // Generation in the high 32 bits, next unclaimed block in the low bits.
+    std::atomic<std::uint64_t> ticket_{0};
+    std::atomic<std::size_t> done_{0};
+    std::atomic<unsigned> sleeping_{0};
     std::atomic<bool> stop_{false};
-    std::size_t blocks_ = 0;
+    // Written only while the ticket is closed (see run()).
+    std::atomic<std::size_t> blocks_{0};
     const std::function<void(std::size_t)>* job_ = nullptr;
     std::vector<std::exception_ptr> errors_;
-    void execute(unsigned id);
 };
 Pool& pool_for(unsigned threads);
 

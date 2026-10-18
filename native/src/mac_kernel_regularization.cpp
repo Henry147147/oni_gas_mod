@@ -39,32 +39,33 @@ void compression_coefficients(Context& c, bool acoustic) {
     });
     if (!acoustic) return;
     // Neighbour along an axis; boundaries and solids supply the cell itself.
-    const auto neighbour = [&](std::size_t cell, int axis, bool forward) {
-        const auto x = cell % g.W, y = cell / g.W;
+    const auto neighbour = [&](std::size_t cell, std::size_t x, std::size_t y, int axis, bool forward) {
         if (axis == 0) {
             if (!g.px && (forward ? x + 1 == g.W : x == 0)) return cell;
-            const auto n = (forward ? (x + 1) % g.W : (x + g.W - 1) % g.W) + y * g.W;
+            const auto n = forward ? (x + 1 == g.W ? cell + 1 - g.W : cell + 1) : (x == 0 ? cell + g.W - 1 : cell - 1);
             return g.wall[n] ? cell : n;
         }
         if (!g.py && (forward ? y + 1 == g.H : y == 0)) return cell;
-        const auto n = x + (forward ? (y + 1) % g.H : (y + g.H - 1) % g.H) * g.W;
+        const auto n = forward ? (y + 1 == g.H ? cell + g.W - g.N : cell + g.W) : (y == 0 ? cell + g.N - g.W : cell - g.W);
         return g.wall[n] ? cell : n;
     };
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) for (int axis = 0; axis < 2; ++axis) {
+        for (std::size_t y = y0; y < y1; ++y) for (std::size_t x = 0; x < g.W; ++x) for (int axis = 0; axis < 2; ++axis) {
+            const auto i = x + y * g.W;
             double& out = ws.closing[static_cast<std::size_t>(axis) * N + i];
             if (g.wall[i]) { out = 0; continue; }
-            const double l = ws.pressure[neighbour(i, axis, false)], m = ws.pressure[i], r = ws.pressure[neighbour(i, axis, true)];
+            const double l = ws.pressure[neighbour(i, x, y, axis, false)], m = ws.pressure[i], r = ws.pressure[neighbour(i, x, y, axis, true)];
             const double d = l + 2 * m + r;
             out = d == 0 ? 0 : std::abs((l + r) - 2 * m) / d;
         }
     });
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) for (int axis = 0; axis < 2; ++axis) {
+        for (std::size_t y = y0; y < y1; ++y) for (std::size_t x = 0; x < g.W; ++x) for (int axis = 0; axis < 2; ++axis) {
+            const auto i = x + y * g.W;
             auto& sensor = axis == 0 ? ws.sensor0 : ws.sensor1;
             if (g.wall[i]) { sensor[i] = 0; continue; }
             const double* curvature = ws.closing.data() + static_cast<std::size_t>(axis) * N;
-            sensor[i] = std::max({curvature[i], curvature[neighbour(i, axis, false)], curvature[neighbour(i, axis, true)]});
+            sensor[i] = std::max({curvature[i], curvature[neighbour(i, x, y, axis, false)], curvature[neighbour(i, x, y, axis, true)]});
         }
     });
 }
@@ -109,7 +110,12 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
                 d = B * closing * (lin + closing) * ph / (1 + rel * ph);
             }
             const double mid = closing - d * a * .5;
-            if (!(mid > 0)) precision("Production compression relaxation lost its positive midpoint closing speed");
+            if (!(mid > 0)) {
+                // Only a physically negligible closing speed can lose its
+                // positive midpoint to binary64 rounding: skip it, counted.
+                if (closing < 0x1p-500) { ++o.unresolved; return; }
+                precision("Production compression relaxation lost its positive midpoint closing speed");
+            }
             const double Q = d * mid;
             o.ops += std::abs(J[l]) + std::abs(J[r]) + 2 * std::abs(d);
             if (!fixl) J[l] -= d; else o.wall += d;
@@ -282,7 +288,10 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
     };
     x_links(false); y_links(false); y_links(true); x_links(true);
     double u_ops = 0;
-    for (std::size_t i = 0; i < N; ++i) if (occupied(e.kind[i])) u_ops += std::abs(f.U[i]);
+    for (const double v : c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        double sum = 0; for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (occupied(e.kind[i])) sum += std::abs(f.U[i]);
+        return sum;
+    })) u_ops += v;
     acc.operands[c.q_energy()] += 2 * u_ops + 2 * transferred;
     acc.shock_heat += transferred; acc.unresolved += unresolved;
     c.counters.shock_events += events;

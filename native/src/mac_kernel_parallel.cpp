@@ -1,7 +1,7 @@
-// Static row-block partitions and a persistent worker pool. Results never
-// depend on the thread count: blocks are fixed by the grid shape, each block
-// is processed by exactly one thread, and reductions combine per-block
-// partials in block order (MAC_KERNEL.md, "Determinism").
+// Fixed row-block partitions and a persistent worker pool that claims blocks
+// dynamically. Results never depend on the thread count: blocks are fixed by
+// the grid shape, each block is processed by exactly one thread, and
+// reductions combine per-block partials in block order (MAC_KERNEL.md, "Determinism").
 #include "mac_kernel_detail.hpp"
 #include <map>
 #include <memory>
@@ -32,45 +32,72 @@ Grid::Grid(const MacGrid& mg)
         if (row > 0 || py) yl[f] = fluid(col + ((row + H - 1) % H) * W);
         if (row < H) yr[f] = fluid(col + row * W);
     }
+    cell_faces.resize(N);
+    for (std::size_t row = 0; row < H; ++row) for (std::size_t col = 0; col < W; ++col)
+        cell_faces[col + row * W] = {xface(col, row), xface(col + 1 == XW ? 0 : col + 1, row), yface(col, row), yface(col, row + 1 == YH ? 0 : row + 1)};
     rows_per_block = std::max<std::size_t>(1, (1024 + W / 2) / W);
     blocks = (H + rows_per_block - 1) / rows_per_block;
 }
 
-namespace { constexpr int spin_limit = 20000; }
+namespace {
+// Short pause spin, then yield, then sleep: an oversubscribed host must not
+// burn the cores other threads (including our own workers) need.
+constexpr int pause_spins = 256, yield_spins = 64;
+// Block index of a closed ticket: never below any admissible block count.
+constexpr std::uint64_t closed = 0xffffffffU;
+}
 Pool::Pool(unsigned threads) : threads_(std::max(1U, threads)) {
-    for (unsigned id = 1; id < threads_; ++id) workers_.emplace_back([this, id] { worker(id); });
+    for (unsigned id = 1; id < threads_; ++id) workers_.emplace_back([this] { worker(); });
 }
 Pool::~Pool() {
-    { std::lock_guard lock(mutex_); stop_.store(true); generation_.fetch_add(1); }
+    { std::lock_guard lock(mutex_); stop_.store(true); ticket_.fetch_add(std::uint64_t{1} << 32); }
     start_.notify_all();
     for (auto& w : workers_) w.join();
 }
-void Pool::execute(unsigned id) {
-    const auto begin = blocks_ * id / threads_, end = blocks_ * (id + 1) / threads_;
-    try { require_mac_energy_environment(); }
-    catch (...) { for (auto b = begin; b < end; ++b) errors_[b] = std::current_exception(); return; }
-    for (auto b = begin; b < end; ++b) {
-        try { (*job_)(b); } catch (...) { errors_[b] = std::current_exception(); }
+void Pool::claim(std::uint64_t generation) {
+    std::uint64_t t = ticket_.load(std::memory_order_acquire);
+    for (;;) {
+        if ((t >> 32) != generation) return;
+        const auto block = static_cast<std::size_t>(t & 0xffffffffU);
+        if (block >= blocks_.load(std::memory_order_acquire)) return;
+        if (!ticket_.compare_exchange_weak(t, t + 1, std::memory_order_acq_rel, std::memory_order_acquire)) continue;
+        try { (*job_)(block); } catch (...) { errors_[block] = std::current_exception(); }
+        done_.fetch_add(1, std::memory_order_acq_rel);
+        t = ticket_.load(std::memory_order_acquire);
     }
 }
-void Pool::worker(unsigned id) {
+void Pool::worker() {
     std::uint64_t seen = 0;
     for (;;) {
-        std::uint64_t now = generation_.load(std::memory_order_acquire);
-        for (int spin = 0; now == seen; ++spin) {
-            if (spin < spin_limit) MA_KERNEL_PAUSE();
+        std::uint64_t generation = ticket_.load(std::memory_order_acquire) >> 32;
+        for (int spin = 0; generation == seen; ++spin) {
+            if (spin < pause_spins) MA_KERNEL_PAUSE();
+            else if (spin < pause_spins + yield_spins) std::this_thread::yield();
             else {
                 std::unique_lock lock(mutex_);
-                start_.wait(lock, [&] { return generation_.load(std::memory_order_acquire) != seen; });
+                sleeping_.fetch_add(1);
+                start_.wait(lock, [&] { return (ticket_.load(std::memory_order_acquire) >> 32) != seen; });
+                sleeping_.fetch_sub(1);
             }
-            now = generation_.load(std::memory_order_acquire);
+            generation = ticket_.load(std::memory_order_acquire) >> 32;
         }
-        seen = now;
+        seen = generation;
         if (stop_.load(std::memory_order_acquire)) return;
-        execute(id);
-        if (remaining_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            std::lock_guard lock(mutex_);
-            done_.notify_one();
+        bool environment = true;
+        try { require_mac_energy_environment(); } catch (...) { environment = false; }
+        if (environment) claim(generation);
+        else {
+            // This thread cannot execute: record the failure on the lowest
+            // block it would claim and let the others finish.
+            std::uint64_t t = ticket_.load(std::memory_order_acquire);
+            while ((t >> 32) == generation && (t & 0xffffffffU) < blocks_.load(std::memory_order_acquire)) {
+                if (ticket_.compare_exchange_weak(t, t + 1)) {
+                    errors_[t & 0xffffffffU] = std::make_exception_ptr(FluidFatalError(FluidFatalCode::numerical_precision,
+                        "MAC energy arithmetic requires binary64 x86-64 nearest rounding, FTZ/DAZ off and masked SSE exceptions"));
+                    done_.fetch_add(1);
+                    t = ticket_.load(std::memory_order_acquire);
+                }
+            }
         }
     }
 }
@@ -82,17 +109,23 @@ void Pool::run(std::size_t blocks, const std::function<void(std::size_t)>& job) 
             try { job(b); } catch (...) { errors_[b] = std::current_exception(); break; }
         }
     } else {
-        job_ = &job; blocks_ = blocks;
-        remaining_.store(threads_ - 1, std::memory_order_relaxed);
-        { std::lock_guard lock(mutex_); generation_.fetch_add(1, std::memory_order_acq_rel); }
-        start_.notify_all();
-        execute(0);
-        for (int spin = 0; remaining_.load(std::memory_order_acquire) != 0; ++spin) {
-            if (spin < spin_limit) MA_KERNEL_PAUSE();
-            else {
-                std::unique_lock lock(mutex_);
-                done_.wait(lock, [&] { return remaining_.load(std::memory_order_acquire) == 0; });
-            }
+        if (blocks >= closed) throw std::invalid_argument("Production kernel block count exceeds the pool ticket range");
+        // Close the finished generation before blocks_ and job_ change: a
+        // worker still in its claim loop that reads the new block count then
+        // fails its compare-exchange instead of claiming a block twice.
+        const std::uint64_t previous = ticket_.load(std::memory_order_relaxed) >> 32;
+        ticket_.store(previous << 32 | closed, std::memory_order_relaxed);
+        job_ = &job; done_.store(0, std::memory_order_relaxed);
+        blocks_.store(blocks, std::memory_order_release);
+        const std::uint64_t generation = previous + 1;
+        {
+            std::lock_guard lock(mutex_);
+            ticket_.store(generation << 32, std::memory_order_release);
+        }
+        if (sleeping_.load(std::memory_order_acquire) != 0) start_.notify_all();
+        claim(generation);
+        for (int spin = 0; done_.load(std::memory_order_acquire) != blocks; ++spin) {
+            if (spin < pause_spins) MA_KERNEL_PAUSE(); else std::this_thread::yield();
         }
         job_ = nullptr;
     }

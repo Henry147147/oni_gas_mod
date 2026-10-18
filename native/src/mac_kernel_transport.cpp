@@ -21,7 +21,7 @@ double sum3(double a, double b, double c) { DD s; s.add(a); s.add(b); s.add(c); 
 
 // Reference limit_mac_momentum_pair (linear heat limiter with transported
 // work budget), in binary64. Returns false when no admissible limiter exists.
-struct Pair { double jl, jr, ql, qr, kl, kr; bool limited = false; };
+struct Pair { double jl, jr, ql, qr, kl, kr; bool limited = false, skipped = false; };
 bool limit_pair(double il, double ir, Pair& p, double requested) {
     if (requested == 0) return true;
     const double ul = p.jl / il, ur = p.jr / ir, difference = ul - ur, vsum = ul + ur;
@@ -53,7 +53,11 @@ bool limit_pair(double il, double ir, Pair& p, double requested) {
         if (limiter == 0) break;
         limiter = std::nextafter(limiter, 0.);
     }
-    return false;
+    // Below the subnormal resolution the back-off cannot resolve a heat
+    // budget the reference keeps in range arithmetic. A zero correction is
+    // always admissible and conservative; the caller counts it.
+    p.skipped = true;
+    return true;
 }
 }
 
@@ -117,10 +121,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             // Stencil (walls excluded, empty cells included with zero inventory).
             const auto x = col, y = row;
             Index nb[4] = {none, none, none, none};
-            if (g.px || x > 0) { const auto n = (x + g.W - 1) % g.W + y * g.W; if (!g.wall[n]) nb[0] = static_cast<Index>(n); }
-            if (g.px || x + 1 < g.W) { const auto n = (x + 1) % g.W + y * g.W; if (!g.wall[n]) nb[1] = static_cast<Index>(n); }
-            if (g.py || y > 0) { const auto n = x + ((y + g.H - 1) % g.H) * g.W; if (!g.wall[n]) nb[2] = static_cast<Index>(n); }
-            if (g.py || y + 1 < g.H) { const auto n = x + ((y + 1) % g.H) * g.W; if (!g.wall[n]) nb[3] = static_cast<Index>(n); }
+            if (g.px || x > 0) { const auto n = (x == 0 ? g.W - 1 : x - 1) + y * g.W; if (!g.wall[n]) nb[0] = static_cast<Index>(n); }
+            if (g.px || x + 1 < g.W) { const auto n = (x + 1 == g.W ? 0 : x + 1) + y * g.W; if (!g.wall[n]) nb[1] = static_cast<Index>(n); }
+            if (g.py || y > 0) { const auto n = x + (y == 0 ? g.H - 1 : y - 1) * g.W; if (!g.wall[n]) nb[2] = static_cast<Index>(n); }
+            if (g.py || y + 1 < g.H) { const auto n = x + (y + 1 == g.H ? 0 : y + 1) * g.W; if (!g.wall[n]) nb[3] = static_cast<Index>(n); }
             double ratio[4] = {0, 0, 0, 0};
             for (int n = 0; n < 4; ++n) if (nb[n] != none) ratio[n] = Vi / ws.Vmat[nb[n]];
             const bool hx = nb[0] != none && nb[1] != none, hy = nb[2] != none && nb[3] != none;
@@ -304,13 +308,12 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         auto& en = ws.dual_en; auto& et = ws.dual_et; auto& has_n = ws.dual_has_n; auto& has_t = ws.dual_has_t;
         en.assign(NF, 0); et.assign(NF, 0); has_n.assign(NF, 0); has_t.assign(NF, 0);
         ws.v0.resize(NF);
-        const auto normal_prev = [&](std::size_t fidx) -> std::size_t { // face before along the component axis
-            const auto x = fidx % cw, y = fidx / cw;
+        // Lattice neighbours of face fidx = col + row * cw (no divisions).
+        const auto normal_prev = [&](std::size_t fidx, std::size_t x, std::size_t y) -> std::size_t { // face before along the component axis
             if (xc) return x > 0 ? fidx - 1 : (normal_periodic ? fidx + cw - 1 : NF);
             return y > 0 ? fidx - cw : (normal_periodic ? fidx + (ch - 1) * cw : NF);
         };
-        const auto transverse_prev = [&](std::size_t fidx) -> std::size_t {
-            const auto x = fidx % cw, y = fidx / cw;
+        const auto transverse_prev = [&](std::size_t fidx, std::size_t x, std::size_t y) -> std::size_t {
             if (xc) return y > 0 ? fidx - cw : (transverse_periodic ? fidx + (ch - 1) * cw : NF);
             return x > 0 ? fidx - 1 : (transverse_periodic ? fidx + cw - 1 : NF);
         };
@@ -322,19 +325,19 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 const auto fidx = col + row * cw;
                 ws.v0[fidx] = m0[fidx] > 0 ? J[fidx] / m0[fidx] : 0;
                 // Normal edge ending at fidx: the fluid cell between prev and fidx.
-                const auto prev = normal_prev(fidx);
+                const auto prev = normal_prev(fidx, col, row);
                 if (prev != NF) {
                     const Index cell = fl[fidx]; // cell to the left/below of fidx
                     if (cell != none) { has_n[fidx] = 1; en[fidx] = .5 * (Fn[prev] + Fn[fidx]); }
                 }
-                const auto tp = transverse_prev(fidx);
+                const auto tp = transverse_prev(fidx, col, row);
                 if (tp != NF) {
                     has_t[fidx] = 1;
                     double a = 0, b = 0;
                     if (xc) {
                         // Corner at x-face (x, y): y faces of row y at cells x-1 and x.
                         const auto x = col, y = row;
-                        if (x > 0 || g.px) a = Ft[g.yface((x + g.W - 1) % g.W, y)];
+                        if (x > 0 || g.px) a = Ft[g.yface(x == 0 ? g.W - 1 : x - 1, y)];
                         if (x < g.W) b = Ft[g.yface(x, y)];
                     } else {
                         const auto x = col, y = row;
@@ -350,13 +353,11 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         auto& v0 = ws.v0; auto& jsum = ws.jsum; auto& ktr = ws.ktr; auto& keep = ws.keep; auto& mix = ws.mix; auto& wheat = ws.wheat;
         auto& J1 = ws.dual_j1;
         for (auto* v : {&jsum, &ktr, &keep, &mix, &wheat, &J1}) v->resize(NF);
-        const auto normal_next = [&](std::size_t fidx) -> std::size_t {
-            const auto x = fidx % cw, y = fidx / cw;
+        const auto normal_next = [&](std::size_t fidx, std::size_t x, std::size_t y) -> std::size_t {
             if (xc) return x + 1 < cw ? fidx + 1 : (normal_periodic ? fidx + 1 - cw : NF);
             return y + 1 < ch ? fidx + cw : (normal_periodic ? fidx + cw - NF : NF);
         };
-        const auto transverse_next = [&](std::size_t fidx) -> std::size_t {
-            const auto x = fidx % cw, y = fidx / cw;
+        const auto transverse_next = [&](std::size_t fidx, std::size_t x, std::size_t y) -> std::size_t {
             if (xc) return y + 1 < ch ? fidx + cw : (transverse_periodic ? fidx + cw - NF : NF);
             return x + 1 < cw ? fidx + 1 : (transverse_periodic ? fidx + 1 - cw : NF);
         };
@@ -372,7 +373,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 // Edges touching fidx: (prev -> fidx) stored at fidx, (fidx -> next) stored at next.
                 struct Touch { double mass; std::size_t other; bool upper, normal; };
                 Touch touches[4]; int n = 0;
-                const auto np = normal_prev(fidx), nn = normal_next(fidx), tp = transverse_prev(fidx), tn = transverse_next(fidx);
+                const auto np = normal_prev(fidx, col, row), nn = normal_next(fidx, col, row), tp = transverse_prev(fidx, col, row), tn = transverse_next(fidx, col, row);
                 if (has_n[fidx]) touches[n++] = {en[fidx], np, true, true};
                 if (nn != NF && has_n[nn]) touches[n++] = {en[nn], nn, false, true};
                 if (has_t[fidx]) touches[n++] = {et[fidx], tp, true, false};
@@ -433,9 +434,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             (xc ? wall_x : wall_y) += o.wall;
         }
         if (corrected) {
-            const auto apply_edge = [&](std::size_t fidx, bool normal_edges, std::size_t& local_limited) {
+            const auto apply_edge = [&](std::size_t fidx, std::size_t col, std::size_t row, bool normal_edges, std::size_t& local_limited) {
                 const auto upper = fidx;
-                const auto lower = normal_edges ? normal_prev(fidx) : transverse_prev(fidx);
+                const auto lower = normal_edges ? normal_prev(fidx, col, row) : transverse_prev(fidx, col, row);
                 const bool along_x = xc ? normal_edges : !normal_edges;
                 const double flux = normal_edges ? en[fidx] : et[fidx];
                 if (flux == 0 || !is_free(lower) || !is_free(upper)) return;
@@ -452,6 +453,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 Pair p{J1[lower], J1[upper], mix[lower], mix[upper], ktr[lower], ktr[upper]};
                 if (!limit_pair(m1[lower], m1[upper], p, request))
                     precision("Production momentum correction has no admissible limiter");
+                if (p.skipped) { ++local_limited; return; } // counted below-range skip
                 J1[lower] = p.jl; J1[upper] = p.jr; mix[lower] = p.ql; mix[upper] = p.qr;
                 ktr[lower] = p.kl; ktr[upper] = p.kr;
                 if (p.limited) ++local_limited;
@@ -481,30 +483,35 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             };
             if (xc) {
                 row_pass(g.H, [&](std::size_t y, std::size_t& lim) {
-                    for (std::size_t x = 0; x < g.W; ++x) if (!g.wall[x + y * g.W]) apply_edge(g.xface((x + 1) % g.XW, y), true, lim);
+                    for (std::size_t x = 0; x < g.W; ++x) if (!g.wall[x + y * g.W]) { const auto col = x + 1 == g.XW ? 0 : x + 1; apply_edge(g.xface(col, y), col, y, true, lim); }
                 });
                 column_pass(g.XW, [&](std::size_t x, std::size_t& lim) {
-                    for (std::size_t y = g.py ? 0 : 1; y < g.H; ++y) apply_edge(g.xface(x, y), false, lim);
+                    for (std::size_t y = g.py ? 0 : 1; y < g.H; ++y) apply_edge(g.xface(x, y), x, y, false, lim);
                 });
             } else {
                 column_pass(g.W, [&](std::size_t x, std::size_t& lim) {
-                    for (std::size_t y = 0; y < g.H; ++y) if (!g.wall[x + y * g.W]) apply_edge(g.yface(x, (y + 1) % g.YH), true, lim);
+                    for (std::size_t y = 0; y < g.H; ++y) if (!g.wall[x + y * g.W]) { const auto row = y + 1 == g.YH ? 0 : y + 1; apply_edge(g.yface(x, row), x, row, true, lim); }
                 });
                 row_pass(g.YH, [&](std::size_t y, std::size_t& lim) {
-                    for (std::size_t x = g.px ? 0 : 1; x < g.W; ++x) apply_edge(g.yface(x, y), false, lim);
+                    for (std::size_t x = g.px ? 0 : 1; x < g.W; ++x) apply_edge(g.yface(x, y), x, y, false, lim);
                 });
             }
         }
-        double component_ops = 0;
-        for (std::size_t fidx = 0; fidx < NF; ++fidx) {
-            J[fidx] = J1[fidx];
-            const double heat = mix[fidx] + wheat[fidx];
-            (xc ? ws.face_heat_x : ws.face_heat_y)[fidx] = heat;
-            mixing += mix[fidx]; wall_heat += wheat[fidx];
-            energy_ops += ktr[fidx] + heat + (m1[fidx] > 0 ? kinetic(m1[fidx], J1[fidx]) : 0) + (m0[fidx] > 0 ? kinetic(m0[fidx], jsum[fidx]) : 0);
-            component_ops += 2 * std::abs(jsum[fidx]) + std::abs(J1[fidx]);
-        }
-        (xc ? jx_ops : jy_ops) += component_ops;
+        struct Finish { double mixing = 0, wall = 0, energy = 0, momentum = 0; };
+        auto finished = c.exec.partials<Finish>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            Finish o;
+            const std::size_t r1 = xc ? y1 : g.block_yrow_end(blk);
+            for (std::size_t fidx = y0 * cw; fidx < r1 * cw; ++fidx) {
+                J[fidx] = J1[fidx];
+                const double heat = mix[fidx] + wheat[fidx];
+                (xc ? ws.face_heat_x : ws.face_heat_y)[fidx] = heat;
+                o.mixing += mix[fidx]; o.wall += wheat[fidx];
+                o.energy += ktr[fidx] + heat + (m1[fidx] > 0 ? kinetic(m1[fidx], J1[fidx]) : 0) + (m0[fidx] > 0 ? kinetic(m0[fidx], jsum[fidx]) : 0);
+                o.momentum += 2 * std::abs(jsum[fidx]) + std::abs(J1[fidx]);
+            }
+            return o;
+        });
+        for (const auto& o : finished) { mixing += o.mixing; wall_heat += o.wall; energy_ops += o.energy; (xc ? jx_ops : jy_ops) += o.momentum; }
     }
     acc.mixing_heat += mixing; acc.wall_heat += wall_heat; acc.wall_x += wall_x; acc.wall_y += wall_y;
     acc.operands[c.q_jx()] += jx_ops; acc.operands[c.q_jy()] += jy_ops;
@@ -512,8 +519,12 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     if (c.options.collect_stage_timing) c.timing.momentum_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_dual).count();
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
-    auto unresolved = c.exec.partials<std::size_t>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        std::size_t local = 0;
+    struct Deposit { std::size_t unresolved = 0; double gravity = 0; };
+    auto deposited = c.exec.partials<Deposit>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+        Deposit d;
+        if (gravity != 0) for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx)
+            d.gravity += std::abs(ws.body_work_y[fidx]) + std::abs(ws.fy[fidx] * gravity * g.h);
+        std::size_t& local = d.unresolved;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i] || !(ws.mass_after[i] > 0)) continue;
             const double mi = ws.mass_after[i];
@@ -539,12 +550,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             f.U[i] = before + h;
             if (f.U[i] == before) ++local;
         }
-        return local;
+        return d;
     });
-    for (const auto n : unresolved) acc.unresolved += n;
     double gravity_ops = 0;
-    if (gravity != 0) for (std::size_t fidx = 0; fidx < g.NY; ++fidx)
-        gravity_ops += std::abs(ws.body_work_y[fidx]) + std::abs(ws.fy[fidx] * gravity * g.h);
+    for (const auto& d : deposited) { acc.unresolved += d.unresolved; gravity_ops += d.gravity; }
     acc.operands[c.q_energy()] += energy_ops + 2 * gravity_ops;
 }
 }

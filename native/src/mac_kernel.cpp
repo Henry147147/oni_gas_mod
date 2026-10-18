@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <map>
 #include <set>
+#include <type_traits>
 
 namespace ma::experimental {
 struct MacKernelAccess {
@@ -74,10 +75,10 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
     m.passive_ids.assign(ids.begin(), ids.end());
     return m;
 }
-std::size_t load(const Model& model, const Grid& g, const MacTransportState& state, Fields& f) {
+std::size_t load(const Exec& exec, const Model& model, const Grid& g, const MacTransportState& state, Fields& f) {
     const auto N = g.N, K = model.K(), P = model.P();
-    f.m.assign(K * N, 0); f.U.assign(N, 0); f.q.assign(P * N, 0);
-    for (std::size_t i = 0; i < N; ++i) {
+    f.m.resize(K * N); f.U.resize(N); f.q.assign(P * N, 0);
+    exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         const auto& cell = state.cells[i];
         for (std::size_t k = 0; k < K; ++k) f.m[k * N + i] = cell.mixture.masses[model.species[k].registry];
         f.U[i] = cell.mixture.energy;
@@ -86,7 +87,7 @@ std::size_t load(const Model& model, const Grid& g, const MacTransportState& sta
             while (model.passive_ids[p] != entry.identity) ++p;
             f.q[p * N + i] = entry.quantity;
         }
-    }
+    } });
     require(state.momentum_x.size() == g.NX && state.momentum_y.size() == g.NY, "Production kernel momentum shape differs");
     f.jx = state.momentum_x; f.jy = state.momentum_y;
     std::size_t rounded = 0;
@@ -94,9 +95,9 @@ std::size_t load(const Model& model, const Grid& g, const MacTransportState& sta
         for (const auto& v : *full) if (v.project().rounded) ++rounded;
     return rounded;
 }
-void store(const Model& model, const Grid& g, const Fields& f, MacTransportState& out) {
+void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f, MacTransportState& out) {
     const auto N = g.N, K = model.K(), P = model.P();
-    for (std::size_t i = 0; i < N; ++i) {
+    exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         auto& cell = out.cells[i];
         for (std::size_t k = 0; k < K; ++k) cell.mixture.masses[model.species[k].registry] = f.m[k * N + i];
         cell.mixture.energy = f.U[i];
@@ -105,7 +106,7 @@ void store(const Model& model, const Grid& g, const Fields& f, MacTransportState
             const double v = f.q[p * N + i];
             if (v != 0) cell.passive_quantities.push_back({model.passive_ids[p], v});
         }
-    }
+    } });
     out.momentum_x = f.jx; out.momentum_y = f.jy;
     out.full_momentum_x.clear(); out.full_momentum_y.clear();
 }
@@ -115,15 +116,19 @@ void store(const Model& model, const Grid& g, const Fields& f, MacTransportState
 // (mac_interval_audit.hpp).
 struct Quantity {
     interval_detail::Sum sum, scale;
-    std::size_t count = 0;
+    std::size_t count = 0, tiny = 0;
     bool ordinary = true;
     void add(double v) {
         sum.add(v); scale.add(std::abs(v)); ++count;
-        if (!std::isfinite(v) || (v != 0 && (std::abs(v) < 0x1p-450 || std::abs(v) > 0x1p450))) ordinary = false;
+        // Only overflow-range or nonfinite values leave the ordinary path.
+        // Below-range (including subnormal) values round with an absolute
+        // error of at most 2^-1075 per operation, counted in the bound.
+        if (!std::isfinite(v) || std::abs(v) > 0x1p450) ordinary = false;
+        if (v != 0 && std::abs(v) < 0x1p-450) ++tiny;
     }
     void merge(const Quantity& o) {
         sum.add(o.sum.hi); sum.add(o.sum.lo); scale.add(o.scale.hi); scale.add(o.scale.lo);
-        count += o.count + 4; ordinary = ordinary && o.ordinary;
+        count += o.count + 4; tiny += o.tiny; ordinary = ordinary && o.ordinary;
     }
 };
 using Totals = std::vector<Quantity>;
@@ -232,8 +237,43 @@ std::string quantity_name(const Context& c, std::size_t q) {
     if (q == c.q_jy()) return "momentum_y";
     return "energy_u_k_g";
 }
+// Parallel copy of the field state (fixed row blocks of every column).
+void copy_fields(const Exec& exec, const Grid& g, const Model& model, const Fields& from, Fields& to) {
+    const auto N = g.N;
+    to.m.resize(from.m.size()); to.U.resize(from.U.size()); to.q.resize(from.q.size());
+    to.jx.resize(from.jx.size()); to.jy.resize(from.jy.size());
+    exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+        const auto a = y0 * g.W, b = y1 * g.W;
+        for (std::size_t k = 0; k < model.K(); ++k) std::copy(from.m.begin() + static_cast<std::ptrdiff_t>(k * N + a), from.m.begin() + static_cast<std::ptrdiff_t>(k * N + b), to.m.begin() + static_cast<std::ptrdiff_t>(k * N + a));
+        for (std::size_t p = 0; p < model.P(); ++p) std::copy(from.q.begin() + static_cast<std::ptrdiff_t>(p * N + a), from.q.begin() + static_cast<std::ptrdiff_t>(p * N + b), to.q.begin() + static_cast<std::ptrdiff_t>(p * N + a));
+        std::copy(from.U.begin() + static_cast<std::ptrdiff_t>(a), from.U.begin() + static_cast<std::ptrdiff_t>(b), to.U.begin() + static_cast<std::ptrdiff_t>(a));
+        std::copy(from.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW), from.jx.begin() + static_cast<std::ptrdiff_t>(y1 * g.XW), to.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW));
+        std::copy(from.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W), from.jy.begin() + static_cast<std::ptrdiff_t>(g.block_yrow_end(blk) * g.W), to.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W));
+    });
+}
 struct Workspaces { Workspace ws; Fields start, current, trial; };
+std::size_t retained_bytes(const Workspaces& w) {
+    std::size_t total = 0;
+    const auto add = [&](const auto& v) { total += v.capacity() * sizeof(typename std::decay_t<decltype(v)>::value_type); };
+    const auto& ws = w.ws; const auto& e = ws.eos;
+    for (const auto* v : {&e.M, &e.Cv, &e.off, &e.nR, &e.Nl, &e.T, &e.p, &e.Vg, &e.Eel, &e.Ceq, &e.comp, &e.lcomp}) add(*v);
+    add(e.kind); add(ws.anchor);
+    for (const auto* v : {&ws.cell_mass, &ws.mass_after, &ws.ix, &ws.iy, &ws.ix1, &ws.iy1, &ws.inv_ix, &ws.inv_iy, &ws.dp0x, &ws.dp0y,
+        &ws.wx, &ws.wy, &ws.bdiag, &ws.dV, &ws.dW, &ws.cc, &ws.res, &ws.sx, &ws.sy, &ws.tdV, &ws.tdW, &ws.tcc, &ws.tres, &ws.sol,
+        &ws.Vmat, &ws.dU, &ws.tdU, &ws.qx, &ws.qy, &ws.body_work_y, &ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag, &ws.px, &ws.py,
+        &ws.retained, &ws.fx, &ws.fy, &ws.theta, &ws.keep, &ws.jsum, &ws.ktr, &ws.mix, &ws.wheat, &ws.v0, &ws.vprov, &ws.slope0,
+        &ws.slope1, &ws.cour0, &ws.cour1, &ws.face_heat_x, &ws.face_heat_y, &ws.dual_en, &ws.dual_et, &ws.dual_j1, &ws.speed,
+        &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy}) add(*v);
+    add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag);
+    for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->q); add(f->jx); add(f->jy); }
+    return total;
+}
 Workspaces& workspaces() { static thread_local Workspaces w; return w; }
+// Threads beyond one per minimum_blocks_per_thread row blocks would only
+// wait; the cap never changes a result.
+unsigned threads_for(const Grid& g, const MacKernelOptions& o) {
+    return static_cast<unsigned>(std::clamp<std::size_t>(g.blocks / o.minimum_blocks_per_thread, 1, o.threads));
+}
 
 // Runs one interval; writes the endpoint into out (pre-filled with a copy of
 // the source state, so per-cell vectors are reused).
@@ -251,8 +291,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     const Model model = build_model(registry, eos, source);
     auto& w = workspaces();
     MacKernelReport report;
-    report.rounded_range_inputs = load(model, g, source, w.start);
-    Context c{w.ws, model, g, settings, options, Exec{g, pool_for(options.threads)}, {}, {}};
+    report.threads_used = threads_for(g, options);
+    Context c{w.ws, model, g, settings, options, Exec{g, pool_for(report.threads_used)}, {}, {}};
+    report.rounded_range_inputs = load(c.exec, model, g, source, w.start);
     for (std::size_t i = 0; i < g.N; ++i) {
         if (g.wall[i]) {
             for (std::size_t k = 0; k < model.K(); ++k) require(w.start.m[k * g.N + i] == 0, "Production kernel solid contains fluid");
@@ -269,7 +310,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     report.timing.audit_ms += since(audit_start);
     double maximum_dt = settings.maximum_timestep_s;
     for (std::size_t audit_attempt = 0;; ++audit_attempt) {
-        w.current = w.start;
+        copy_fields(c.exec, g, model, w.start, w.current);
         Accounts acc; acc.resize(c.quantities());
         double time = start_time, next_dt = maximum_dt;
         report.minimum_timestep_s = std::numeric_limits<double>::infinity(); report.maximum_timestep_s = 0;
@@ -280,7 +321,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                 if (report.attempts == budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");
                 ++report.attempts;
                 if (!(dt > 0) || time + dt <= time) throw FluidFatalError(FluidFatalCode::numerical_precision, "Production retry time cannot be represented");
-                w.trial = w.current;
+                copy_fields(c.exec, g, model, w.current, w.trial);
                 w.ws.stats_valid = false; // trial masses come from the accepted state
                 Accounts stage; stage.resize(c.quantities());
                 try {
@@ -292,7 +333,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     report.maximum_timestep_s = std::max(report.maximum_timestep_s, dt);
                     next_dt = std::min(maximum_dt, 2 * dt); accepted = true;
                 } catch (const std::domain_error& error) {
-                    if (std::getenv("MA_KERNEL_DEBUG")) std::fprintf(stderr, "reject t=%.17g dt=%.17g: %s\n", time, dt, error.what());
+                    if (kernel_debug()) std::fprintf(stderr, "reject t=%.17g dt=%.17g: %s\n", time, dt, error.what());
                     ++report.rejected_attempts; dt *= .5;
                 }
             }
@@ -315,15 +356,21 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             Quantity total = t0[q]; total.merge(t1[q]);
             total.add(-external); total.add(acc.operands[q]); total.add(-acc.operands[q]);
             constexpr double e = eps;
-            const double residual = total.sum.value(), scale = total.scale.value(), bound = 128 * e * scale;
+            // Counted below-range rounding: every operand value may carry up
+            // to 2^-1075 of absolute rounding per substep (subnormal results,
+            // projected full-range inputs), independent of its magnitude.
+            const double tiny_allowance = 0x1p-1070 * static_cast<double>(total.count) * static_cast<double>(report.substeps + 1);
+            const double residual = total.sum.value(), scale = total.scale.value(), bound = 128 * e * scale + tiny_allowance;
             const double error = 64 * e * e * (static_cast<double>(total.count) + 1) * scale + 16 * e * (std::abs(residual) + bound);
             const double margin = bound - std::abs(residual);
             MacKernelAudit a; a.quantity = quantity_name(c, q); a.residual = residual; a.bound = bound; a.rounding_allowance = acc.rounding[q];
             if (total.ordinary && std::isfinite(scale) && std::isfinite(residual) && total.count < (std::size_t{1} << 26) &&
                 (margin > error || margin < -error)) a.passed = margin > error;
             else {
+                if (kernel_debug()) std::fprintf(stderr, "escalate %s residual %.3e bound %.3e error %.3e ordinary %d count %zu\n", quantity_name(c, q).c_str(), residual, bound, error, total.ordinary ? 1 : 0, total.count);
                 a.escalated = true;
-                MacEnergyAccount exact; exact_replay(c, q, w.start, w.current, external, acc.operands[q], exact);
+                // The absolute allowance enters the exact 2^-45 operand bound as a cancelling pair.
+                MacEnergyAccount exact; exact_replay(c, q, w.start, w.current, external, acc.operands[q] + std::ldexp(tiny_allowance, 44), exact);
                 a.passed = exact.within_bound();
             }
             passed = passed && a.passed;
@@ -349,8 +396,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             throw FluidFatalError(FluidFatalCode::numerical_precision, passed ? "Production interval entropy audit failed" : "Production interval conservation audit failed");
     }
     const auto store_time = Clock::now();
-    store(model, g, w.current, out);
+    store(c.exec, model, g, w.current, out);
     report.timing.conversion_ms += since(store_time);
+    report.workspace_bytes = retained_bytes(w);
     report.newton_iterations = c.counters.newton; report.linear_iterations = c.counters.linear;
     report.line_search_backtracks = c.counters.line_search; report.eos_evaluations = c.counters.eos;
     report.isentropic_evaluations = c.counters.isentropic; report.reconstruction_backtracks = c.counters.reconstruction_backtracks;
@@ -372,6 +420,8 @@ MacKernelReport& last_report() { static thread_local MacKernelReport r; return r
 namespace ma::experimental {
 void MacKernelOptions::validate() const {
     mac_kernel::require(threads >= 1 && threads <= 256, "Production kernel thread count must be 1..256");
+    mac_kernel::require(minimum_blocks_per_thread >= 1 && minimum_blocks_per_thread <= 65536,
+        "Production kernel minimum blocks per thread must be 1..65536");
     mac_kernel::require(preconditioner == MacKernelPreconditioner::jacobi || preconditioner == MacKernelPreconditioner::multigrid,
         "Invalid production preconditioner");
 }
@@ -381,8 +431,10 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure;
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
-    if (!state.full_momentum_x.empty() || !state.full_momentum_y.empty()) return false;
-    const auto normal = [](double v) { return v == 0 || (std::isfinite(v) && std::abs(v) >= 0x1p-450 && std::abs(v) <= 0x1p450); };
+    // Below-range values (and full-range canonical momentum, whose binary64
+    // projection rounds below 2^-1074) are admitted and counted; only
+    // nonfinite or overflow-range values need the reference.
+    const auto normal = [](double v) { return std::isfinite(v) && std::abs(v) <= 0x1p450; };
     for (const auto& cell : state.cells) {
         if (!normal(cell.mixture.energy)) return false;
         for (const double m : cell.mixture.masses) if (!normal(m)) return false;

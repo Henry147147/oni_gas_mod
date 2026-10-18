@@ -39,8 +39,9 @@ int main(int argc, char** argv) {
                 "checkpoint continuation " + sc.name);
         }
         // Results never depend on the thread count (fixed blocks, block-ordered
-        // reductions, line-ordered sweeps).
-        for (auto sc : {wave(40, 37), room(33, 21), hydrostatic(9, 31), conduction(27, 18), viscous_wave(19, 23)}) {
+        // reductions, line-ordered sweeps). The two larger grids have nine row
+        // blocks each, so up to nine threads run blocks concurrently.
+        for (auto sc : {wave(40, 37), room(33, 21), hydrostatic(9, 31), conduction(27, 18), viscous_wave(19, 23), wave(96, 90), room(128, 72)}) {
             std::vector<std::uint8_t> first;
             bool same = true;
             for (const auto t : thread_counts) {
@@ -86,15 +87,28 @@ int main(int argc, char** argv) {
             auto options = mac_kernel_default_options(); options.extend_interval_admission = true;
             set_mac_kernel_default_options(options);
             const auto on = source.advanced(.1);
+            // Below-range traces are admitted (counted rounding); an
+            // overflow-range stored amount takes the reference.
             auto trace = sc; for (auto& cell : trace.state.cells) cell.mixture.masses[s.registry.index("helium")] = 1e-310;
-            const auto flagged = owner(trace).advanced(.1);
+            auto huge = sc; huge.state.cells[0].passive_quantities.back().quantity = 1e200;
+            const auto subnormal = owner(trace).advanced(.1);
+            const auto flagged = owner(huge).advanced(.1);
             options.extend_interval_admission = false; set_mac_kernel_default_options(options);
             const auto m = compare(off.world, on.world, sc.disturbance_pa);
             check(off.report.interval_reference_fallbacks == 1 && on.report.interval_kernel_intervals == 1 &&
                 m.pressure_over_disturbance < 1e-6 && m.temperature_k < 1e-6 && on.world.settings().numerical_kernel == MacNumericalKernel::interval_audited,
                 "interval admission extension takes production selectors");
-            check(flagged.report.interval_reference_fallbacks == 1 && flagged.report.interval_kernel_intervals == 0,
-                "flagged range keeps the reference fallback");
+            check(subnormal.report.interval_kernel_intervals == 1 && flagged.report.interval_reference_fallbacks == 1 &&
+                flagged.report.interval_kernel_intervals == 0, "below-range admitted, overflow-range keeps the reference fallback");
+        }
+        // Roundoff-level transverse momentum decays far below binary64's
+        // normal range on a tall grid; it rounds (counted) without a
+        // reference fallback, a limiter fault or an audit failure.
+        {
+            auto w = owner(wave(32, 512));
+            bool fallback = false;
+            for (int n = 0; n < 3; ++n) { w = advance_mac_production(w, .1, 1024, {}).world; fallback = fallback || last_mac_production_report().reference_fallback; }
+            check(!fallback, "below-range transverse momentum stays on the production path");
         }
         // Interval audit report: every quantity audited and passed.
         {

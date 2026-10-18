@@ -34,74 +34,90 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto& e = ws.eos;
     const auto occupied = [&](std::size_t i) { return e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell; };
     std::vector<double> k(N, 0);
-    bool mixed = false;
-    for (std::size_t i = 0; i < N; ++i) {
-        if (!occupied(i)) continue;
-        if (e.kind[i] == mixed_cell) mixed = true;
-        double moles = 0;
-        for (const auto s : model.gases) { const double m = f.m[s * N + i]; if (m != 0) moles += m / model.species[s].molar_mass; }
-        double num = 0, den = 0;
-        for (std::size_t s = 0; s < model.K(); ++s) {
-            const double m = f.m[s * N + i]; if (!(m > 0)) continue;
-            const auto& sp = model.species[s];
-            const double w = sp.gas ? e.Vg[i] * (m / sp.molar_mass) / moles : m / sp.rho0 / (1 + e.p[i] / sp.bulk);
-            num += w * sp.conductivity; den += w;
+    auto any_mixed = c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        int found = 0;
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (!occupied(i)) continue;
+            if (e.kind[i] == mixed_cell) found = 1;
+            double moles = 0;
+            for (const auto s : model.gases) { const double m = f.m[s * N + i]; if (m != 0) moles += m / model.species[s].molar_mass; }
+            double num = 0, den = 0;
+            for (std::size_t s = 0; s < model.K(); ++s) {
+                const double m = f.m[s * N + i]; if (!(m > 0)) continue;
+                const auto& sp = model.species[s];
+                const double w = sp.gas ? e.Vg[i] * (m / sp.molar_mass) / moles : m / sp.rho0 / (1 + e.p[i] / sp.bulk);
+                num += w * sp.conductivity; den += w;
+            }
+            k[i] = num / den;
+            if (!std::isfinite(k[i]) || k[i] < 0) throw std::invalid_argument("Production mixture conductivity is unrepresentable");
         }
-        k[i] = num / den;
-        if (!std::isfinite(k[i]) || k[i] < 0) throw std::invalid_argument("Production mixture conductivity is unrepresentable");
-    }
+        return found;
+    });
+    bool mixed = false; for (const int v : any_mixed) mixed = mixed || v != 0;
     const double area = g.h * g.depth;
     std::vector<double> gx(g.NX, 0), gy(g.NY, 0);
-    for (std::size_t fidx = 0; fidx < g.NX; ++fidx) {
-        const auto l = g.xl[fidx], r = g.xr[fidx];
-        if (l != none && r != none && l != r && occupied(l) && occupied(r)) gx[fidx] = conductance(k[l], k[r], g.h, area);
-    }
-    for (std::size_t fidx = 0; fidx < g.NY; ++fidx) {
-        const auto l = g.yl[fidx], r = g.yr[fidx];
-        if (l != none && r != none && l != r && occupied(l) && occupied(r)) gy[fidx] = conductance(k[l], k[r], g.h, area);
-    }
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+        for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) {
+            const auto l = g.xl[fidx], r = g.xr[fidx];
+            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gx[fidx] = conductance(k[l], k[r], g.h, area);
+        }
+        for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) {
+            const auto l = g.yl[fidx], r = g.yr[fidx];
+            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gy[fidx] = conductance(k[l], k[r], g.h, area);
+        }
+    });
     ++c.counters.conduction_stages;
     double ops = 0, moved = 0;
     if (!mixed) {
         LinearSystem sys; sys.g = &g; sys.active.assign(N, 0); sys.diag.assign(N, 0);
         sys.wx.resize(g.NX); sys.wy.resize(g.NY);
-        for (std::size_t fidx = 0; fidx < g.NX; ++fidx) sys.wx[fidx] = dt * gx[fidx];
-        for (std::size_t fidx = 0; fidx < g.NY; ++fidx) sys.wy[fidx] = dt * gy[fidx];
-        std::vector<double> rhs(N, 0), dT;
-        for (std::size_t i = 0; i < N; ++i) {
-            if (!occupied(i)) continue;
-            sys.active[i] = 1; sys.diag[i] = e.Ceq[i];
-            const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-            double r = 0;
-            if (sys.wx[lf] != 0) r += sys.wx[lf] * (e.T[g.xl[lf]] - e.T[i]);
-            if (sys.wx[rf] != 0) r += sys.wx[rf] * (e.T[g.xr[rf]] - e.T[i]);
-            if (sys.wy[bf] != 0) r += sys.wy[bf] * (e.T[g.yl[bf]] - e.T[i]);
-            if (sys.wy[tf] != 0) r += sys.wy[tf] * (e.T[g.yr[tf]] - e.T[i]);
-            rhs[i] = r;
-        }
+        std::vector<double> rhs(N, 0), dT, qx(g.NX, 0), qy(g.NY, 0); // q: heat into the left cell
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) sys.wx[fidx] = dt * gx[fidx];
+            for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) sys.wy[fidx] = dt * gy[fidx];
+        });
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (!occupied(i)) continue;
+                sys.active[i] = 1; sys.diag[i] = e.Ceq[i];
+                const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                double r = 0;
+                if (sys.wx[lf] != 0) r += sys.wx[lf] * (e.T[g.xl[lf]] - e.T[i]);
+                if (sys.wx[rf] != 0) r += sys.wx[rf] * (e.T[g.xr[rf]] - e.T[i]);
+                if (sys.wy[bf] != 0) r += sys.wy[bf] * (e.T[g.yl[bf]] - e.T[i]);
+                if (sys.wy[tf] != 0) r += sys.wy[tf] * (e.T[g.yr[tf]] - e.T[i]);
+                rhs[i] = r;
+            }
+        });
         const auto solved = solve_linear(c, sys, rhs, dT, 1e-13, 0, 4000);
         c.counters.linear += solved.iterations;
         if (!solved.converged) reject("Production conductive solve did not converge");
-        std::vector<double> qx(g.NX, 0), qy(g.NY, 0); // heat into the left cell
-        for (std::size_t fidx = 0; fidx < g.NX; ++fidx) if (sys.wx[fidx] != 0) {
-            const auto l = g.xl[fidx], r = g.xr[fidx];
-            qx[fidx] = sys.wx[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
-        }
-        for (std::size_t fidx = 0; fidx < g.NY; ++fidx) if (sys.wy[fidx] != 0) {
-            const auto l = g.yl[fidx], r = g.yr[fidx];
-            qy[fidx] = sys.wy[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
-        }
-        for (std::size_t i = 0; i < N; ++i) {
-            if (!occupied(i)) continue;
-            // Heat into i: +q of faces where i is left, -q where i is right.
-            DD q; q.add(qx[g.right_face(i)]); q.add(-qx[g.left_face(i)]); q.add(qy[g.top_face(i)]); q.add(-qy[g.bottom_face(i)]);
-            const double h = q.value();
-            if (h == 0) continue;
-            const double before = f.U[i];
-            f.U[i] = before + h;
-            if (f.U[i] == before) ++acc.unresolved;
-            ops += std::abs(before) + std::abs(h); moved += std::abs(h);
-        }
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) if (sys.wx[fidx] != 0) {
+                const auto l = g.xl[fidx], r = g.xr[fidx];
+                qx[fidx] = sys.wx[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
+            }
+            for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) if (sys.wy[fidx] != 0) {
+                const auto l = g.yl[fidx], r = g.yr[fidx];
+                qy[fidx] = sys.wy[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
+            }
+        });
+        struct Heat { double ops = 0, moved = 0; std::size_t unresolved = 0; };
+        for (const auto& o : c.exec.partials<Heat>([&](std::size_t y0, std::size_t y1, std::size_t) {
+            Heat o;
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (!occupied(i)) continue;
+                // Heat into i: +q of faces where i is left, -q where i is right.
+                DD q; q.add(qx[g.right_face(i)]); q.add(-qx[g.left_face(i)]); q.add(qy[g.top_face(i)]); q.add(-qy[g.bottom_face(i)]);
+                const double h = q.value();
+                if (h == 0) continue;
+                const double before = f.U[i];
+                f.U[i] = before + h;
+                if (f.U[i] == before) ++o.unresolved;
+                o.ops += std::abs(before) + std::abs(h); o.moved += std::abs(h);
+            }
+            return o;
+        })) { ops += o.ops; moved += o.moved; acc.unresolved += o.unresolved; }
     } else {
         // Complete-EOS pairwise contact solves in the reference order (cell
         // order, right contact then top contact), forward then reverse halves.
@@ -258,7 +274,12 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
     }
     acc.wall_x += wall_x; acc.wall_y += wall_y; acc.unresolved += unresolved;
     acc.operands[c.q_jx()] += ops; acc.operands[c.q_jy()] += ops;
-    double u_ops = 0; for (std::size_t i = 0; i < N; ++i) if (!g.wall[i]) u_ops += std::abs(f.U[i]);
+    double u_ops = 0;
+    for (const double v : c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        double sum = 0; for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (!g.wall[i]) sum += std::abs(f.U[i]);
+        return sum;
+    })) u_ops += v;
+    (void)N;
     acc.operands[c.q_energy()] += u_ops + 2 * heat_total;
     c.counters.viscosity_modes += modes;
 }

@@ -20,6 +20,11 @@ enum class MacKernelPreconditioner : std::uint32_t { jacobi = 0, multigrid = 1 }
 struct MacKernelOptions {
     // Worker threads; the result never depends on it.
     unsigned threads = 1;
+    // At most one thread per this many fixed row blocks (about 1,024 cells
+    // each). The default never runs more threads than blocks: idle workers
+    // woken for every parallel region only cost time (4,096 cells, four
+    // blocks: 2.0 times one thread with four threads, 1.6 with twelve).
+    std::size_t minimum_blocks_per_thread = 1;
     // Newton-correction preconditioner. The multigrid option is an untuned
     // aggregation V-cycle; Jacobi-PCG is the default.
     MacKernelPreconditioner preconditioner = MacKernelPreconditioner::jacobi;
@@ -33,10 +38,10 @@ struct MacKernelOptions {
     bool collect_stage_timing = false;
     void validate() const;
 };
-// Normal-range production admission (MAC_KERNEL.md, "Coverage and
-// admission"): supported selectors, no full-range canonical momentum and every
-// nonzero stored value within 2^-450..2^450. Without a reason pointer this
-// only answers; the explicit production entry rejects unsupported selectors.
+// Production admission (MAC_KERNEL.md, "Coverage and admission"): supported
+// selectors, and every stored value finite and at most 2^450 in magnitude.
+// Below-range values and full-range canonical momentum are admitted; their
+// binary64 rounding is counted in the interval audit.
 [[nodiscard]] bool mac_kernel_supports(const MacClosedSettings&);
 [[nodiscard]] bool mac_kernel_normal_range(const MacTransportState&);
 // Process-wide default for MacExecutionPolicy::production (execution only).
@@ -66,6 +71,11 @@ struct MacKernelReport {
     std::size_t compression_events = 0, shock_heat_events = 0, conduction_stages = 0, viscosity_modes = 0;
     std::size_t rounded_range_inputs = 0, unresolved_updates = 0;
     std::uint64_t cell_substeps = 0;
+    // Threads that executed the interval (MacKernelOptions::threads capped
+    // by the grid's row-block count).
+    unsigned threads_used = 1;
+    // Retained kernel workspace (field banks and scratch) after the interval.
+    std::size_t workspace_bytes = 0;
     // The interval ran through the reference implementation because an input
     // or endpoint value was outside the normal binary64 range.
     bool reference_fallback = false;
