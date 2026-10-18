@@ -144,6 +144,7 @@ struct MacTransportReport {
     std::size_t physical_admission_backtracks = 0;
     MacEnergy remap_work_wide_j, entropy_change_j_per_k, entropy_allowance_j_per_k;
     std::vector<MacEnergy> nodal_source_cell_work, nodal_advected_work;
+    std::size_t constituent_accumulators = 0;
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };

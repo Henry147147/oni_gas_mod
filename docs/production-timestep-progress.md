@@ -213,3 +213,44 @@ velocity L1 from 0.18507 to 0.13251 but worsens density/pressure to 0.08597/0.07
 The full sequence stops on the existing range restriction in coupled compression.
 This repairs a component defect, not the strong-flow gate or the full overhaul.
 Captures are under `local/nodal-conversion/`.
+
+## Follow-up: sparse constituent accumulation
+
+Transport now uses contiguous, ordered sparse rows for actual positive constituents
+and their incoming donor union. It preserves contribution order, full-range amounts
+and exact-zero semantics. The arbitrary 16-million cell/parcel-times-species limits
+are removed; grid coverage and donor-outflow checks remain. Parcel validation also
+avoids allocating and checking conservation accounts for absent species, while
+rejecting any introduced positive trace. Primary cell vectors, reconstructed
+prototypes and reconstruction fields remain dense; reusable sparse production
+blocks and candidate reuse are still open.
+
+The new control transports 4,097 catalogue entries through 4,096 cells and actual
+EOS reconstructed parcels, exceeding the former product cap. With two positive
+constituents per cell it allocates 8,192 full-range accumulators (1 MiB), rather
+than 16,781,312 (about 2 GiB). This counts accumulator objects only. Separate controls
+keep all 4,097 species positive, verify analytic two-axis trace transfers and reject
+invented traces without changing the source. Existing primary-parcel controls retain
+quarter-denormal recombination. There is no trace cutoff or species-count cap.
+
+These are capacity, conservation and continuation controls. Uniform identity
+transport does not establish active-cell performance. Five consecutive default
+256-cell wave intervals still match the original checkpoint SHA256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+A bounded 250,000-cell wave again completed no sample within 45 seconds. Its
+999,780 KiB observed peak is from an incomplete invocation and cannot establish
+the full memory budget or a peak-memory improvement at equivalent completion.
+Captures are under `local/sparse-constituents/`.
+
+Linux Release CTest: 25/25 pass. The new capacity/trace controls pass with fatal
+ASan/UBSan diagnostics and leak detection, and as static Windows-target MinGW
+binaries under Wine. Saved primary-parcel and nodal-conversion reviews pass
+unchanged. The complete standalone capacity/EOS test uses 677,836 KiB peak resident
+memory in its recorded Release invocation; this includes dense test inventories
+and temporary parcel plans. No new Unity or actual Windows OS evidence is claimed.
+
+```sh
+cmake --build build-production --target ma_mac_sparse_constituent_tests -j 8
+build-production/ma_mac_sparse_constituent_tests
+ctest --test-dir build-production --output-on-failure
+```

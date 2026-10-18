@@ -165,7 +165,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
     for (std::size_t y = 0; y < g.y_height(); ++y) for (std::size_t x = 0; x < g.width; ++x)
         add(1, g.y_face(x, y), y > 0 || g.periodic_y ? x + ((y + g.height - 1) % g.height) * g.width : none,
             y < g.height ? x + y * g.width : none, qy[g.y_face(x, y)]);
-    require(edges.size() <= 16000000 / species, "MAC reconstructed parcel capacity exceeded");
+    require(edges.size() <= q.x.size()+q.y.size(), "MAC reconstructed parcel face coverage exceeded");
     std::vector<std::optional<MacPrimalParcel>> prepared(edges.size());
     for (std::size_t i = 0; i < count; ++i) {
         if (g.walls[i]) continue;

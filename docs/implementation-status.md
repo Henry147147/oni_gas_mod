@@ -20,6 +20,10 @@ deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
 The next slice retains full-range vertical gravity work and potential flux, with
 10,000-step and checkpoint controls. Primary-U rounding remainders still need
 persistent storage; these standalone controls do not close the physics gate.
+Sparse transport accumulation now allocates full-range accounts only for present
+constituents and incoming donors, removing the former 16-million-slot product cap.
+A 4,097-species/4,096-cell EOS parcel control passes; primary inventories and
+reconstruction fields remain dense ([transport contract](../native/MAC_TRANSPORT.md#sparse-constituent-workspace)).
 Its 256-cell wave is about 1.7× faster with exact baseline continuation, but a
 4,096-cell wave still takes about 11.9 seconds per 0.1 simulated seconds and a
 250,000-cell sample timed out at 45 seconds. The accepted 250,000-cell/32-duplicant

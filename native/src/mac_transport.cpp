@@ -73,8 +73,7 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
     const FluidThermodynamics* model = nullptr, std::span<const double> volumes = {}, bool evaluate_eos = true) {
     const auto& g = state.grid; require(state.cells.size() == g.walls.size(), "MAC material shape differs");
     require(volumes.empty() || volumes.size() == state.cells.size(), "MAC source-volume shape differs");
-    require(registry.size() > 0 && registry.size() <= 16000000 && state.cells.size() <= 16000000 / registry.size(),
-        "MAC constituent storage capacity exceeded");
+    require(registry.size() > 0, "MAC transport requires a nonempty constituent registry");
     std::vector<double> result; result.reserve(state.cells.size());
     for (std::size_t i = 0; i < state.cells.size(); ++i) {
         const auto& cell = state.cells[i];
@@ -388,7 +387,7 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
     const Geometry& geometry, const MacParcelPlan& plan) {
     const auto count = source.cells.size(), species = registry.size();
     require(plan.retained.size() == count && plan.retained_volumes_m3.size() == count && plan.limiter.size() == count &&
-        plan.source_volumes_m3.size() == count && plan.parcels.size() <= 16000000 / species, "MAC parcel storage shape/capacity differs");
+        plan.source_volumes_m3.size() == count && plan.parcels.size() <= 4 * count, "MAC parcel storage shape/capacity differs");
     std::vector<MacScaled> flux_x(geometry.x.size()), flux_y(geometry.y.size());
     std::vector<std::uint8_t> seen_x(geometry.x.size()), seen_y(geometry.y.size());
     std::vector<std::array<const MacPrimalParcel*, 4>> outgoing(count);
@@ -429,20 +428,23 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
         physical(plan.retained[i], plan.retained_volumes_m3[i], plan.source_volumes_m3[i]);
         MacScaledAccount volume; volume.add(plan.retained_volumes_m3[i]);
         MacScaledAccount energy; energy.add(plan.retained[i].mixture.energy);
-        std::vector<MacScaledAccount> mass(species); std::map<std::uint64_t, MacScaledAccount> metadata;
-        for (std::size_t s = 0; s < species; ++s) mass[s].add(plan.retained[i].mixture.masses[s]);
+        std::map<std::uint64_t, MacScaledAccount> metadata;
         for (const auto& p : plan.retained[i].passive_quantities) metadata[p.identity].add(p.quantity);
         for (const auto* parcel : outgoing[i]) if (parcel) {
             volume.add(mac_parcel_volume(*parcel)); energy.add(mac_parcel_quantity(*parcel, parcel->contents.mixture.energy));
-            for (std::size_t s = 0; s < species; ++s) mass[s].add(mac_parcel_quantity(*parcel, parcel->contents.mixture.masses[s]));
             for (const auto& p : parcel->contents.passive_quantities) metadata[p.identity].add(mac_parcel_quantity(*parcel, p.quantity));
         }
         volume.add(-plan.source_volumes_m3[i]); if (!volume.within_bound()) precision("MAC full donor volume account exceeds its operand bound");
         energy.add(-source.cells[i].mixture.energy);
         if (!energy.within_bound()) precision("MAC parcel donor energy account exceeds its operand bound");
         for (std::size_t s = 0; s < species; ++s) {
-            mass[s].add(-source.cells[i].mixture.masses[s]);
-            if (!mass[s].within_bound()) precision("MAC parcel donor constituent account exceeds its operand bound");
+            bool present=source.cells[i].mixture.masses[s]!=0 || plan.retained[i].mixture.masses[s]!=0;
+            for (const auto* parcel:outgoing[i]) if(parcel && parcel->contents.mixture.masses[s]!=0)present=true;
+            if(!present)continue;
+            MacScaledAccount mass;mass.add(plan.retained[i].mixture.masses[s]);
+            for (const auto* parcel:outgoing[i]) if(parcel)mass.add(mac_parcel_quantity(*parcel,parcel->contents.mixture.masses[s]));
+            mass.add(-source.cells[i].mixture.masses[s]);
+            if (!mass.within_bound()) precision("MAC parcel donor constituent account exceeds its operand bound");
         }
         for (const auto& p : source.cells[i].passive_quantities) metadata[p.identity].add(-p.quantity);
         for (const auto& [id, value] : metadata) {
@@ -455,6 +457,52 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
     }
     return mac_fluxes(flux_x, flux_y);
 }
+// Sparse rows share contiguous ID/accumulator blocks. Each target row is the
+// sorted union of its source and incoming donors; exact zeros allocate no slot.
+// No species-count cap, trace threshold, hash iteration or species reordering.
+struct ConstituentWorkspace {
+    std::vector<std::size_t> source_offsets,source_ids,offsets,ids;
+    std::vector<MacScaledSum> amounts;
+    ConstituentWorkspace(const MacTransportState& source,const std::vector<MacDualFlux>& primal) {
+        const auto count=source.cells.size();source_offsets.reserve(count+1);source_offsets.push_back(0);
+        for (const auto& cell:source.cells) {
+            for (std::size_t s=0;s<cell.mixture.masses.size();++s) if (cell.mixture.masses[s]!=0) source_ids.push_back(s);
+            source_offsets.push_back(source_ids.size());
+        }
+        std::vector<std::array<std::size_t,5>> origins(count);
+        for (std::size_t i=0;i<count;++i) {origins[i].fill(absent);origins[i][0]=i;}
+        for (const auto& edge:primal) {
+            const auto amount=mac_dual_mass(edge);if(amount.is_zero())continue;
+            const auto donor=amount.mantissa()>0?edge.left:edge.right,target=amount.mantissa()>0?edge.right:edge.left;
+            auto& row=origins[target];const auto slot=std::find(row.begin()+1,row.end(),absent);
+            require(slot!=row.end(),"MAC cell has more than four incoming constituent donors");*slot=donor;
+        }
+        offsets.reserve(count+1);offsets.push_back(0);ids.reserve(source_ids.size());
+        for (const auto& row:origins) {
+            std::array<std::size_t,5> at{},end{};
+            for (std::size_t k=0;k<row.size();++k) if(row[k]!=absent) {at[k]=source_offsets[row[k]];end[k]=source_offsets[row[k]+1];}
+            while(true) {
+                auto next=absent;
+                for (std::size_t k=0;k<row.size();++k) if(at[k]<end[k])next=std::min(next,source_ids[at[k]]);
+                if(next==absent)break;
+                ids.push_back(next);
+                for (std::size_t k=0;k<row.size();++k) if(at[k]<end[k] && source_ids[at[k]]==next)++at[k];
+            }
+            offsets.push_back(ids.size());
+        }
+        amounts.resize(ids.size());
+    }
+    [[nodiscard]] std::span<const std::size_t> source_species(std::size_t cell) const {
+        return std::span<const std::size_t>(source_ids).subspan(source_offsets[cell],source_offsets[cell+1]-source_offsets[cell]);
+    }
+    void add(std::size_t cell,std::size_t species,MacScaled amount) {
+        if(amount.is_zero())return;
+        const auto first=ids.begin()+static_cast<std::ptrdiff_t>(offsets[cell]),last=ids.begin()+static_cast<std::ptrdiff_t>(offsets[cell+1]);
+        const auto found=std::lower_bound(first,last,species);
+        if(found==last || *found!=species)throw std::invalid_argument("MAC parcel introduced a constituent absent from its validated donor");
+        amounts[static_cast<std::size_t>(found-ids.begin())].add(amount);
+    }
+};
 MacTransportAdvance transport_candidate(const SpeciesRegistry& registry, const MacTransportState& source, const MacMassFluxes& flux,
     const FluidThermodynamics* model, std::span<const double> source_volumes, const MacParcelPlan* plan,
     MacMomentumReconstruction reconstruction, double theta) {
@@ -499,27 +547,28 @@ MacTransportAdvance transport_candidate(const SpeciesRegistry& registry, const M
         volume_sweeps = mac_fluxes(x, y);
     }
     const auto keep = retained(m0, primal); const auto count = source.cells.size(), species = registry.size();
-    MacTransportAdvance result{source, {}}; std::vector<MacScaledSum> mass(count * species), energy(count);
+    MacTransportAdvance result{source, {}}; ConstituentWorkspace mass(source,primal);std::vector<MacScaledSum> energy(count);
+    result.report.constituent_accumulators=mass.amounts.size();
     std::vector<MacEnergySum> cell_heat(count);
     std::vector<std::map<std::uint64_t, MacScaledSum>> metadata(count);
     const auto transfer = [&](std::size_t donor, std::size_t target, MacScaled amount) {
         if (amount.is_zero()) return;
         const auto total = MacScaled::from_double(m0[donor]);
-        for (std::size_t s = 0; s < species; ++s) mass[target * species + s].add(MacScaled::from_double(source.cells[donor].mixture.masses[s]).shared(amount, total));
+        for (const auto s:mass.source_species(donor)) mass.add(target,s,MacScaled::from_double(source.cells[donor].mixture.masses[s]).shared(amount,total));
         energy[target].add(MacScaled::from_double(source.cells[donor].mixture.energy).shared(amount, total));
         for (const auto& entry : source.cells[donor].passive_quantities) metadata[target][entry.identity].add(MacScaled::from_double(entry.quantity).shared(amount, total));
         require(metadata[target].size() <= 65537, "MAC target passive identity capacity exceeded");
     };
     if (plan) {
         const auto add = [&](std::size_t target, const MacMaterialCell& cell) {
-            for (std::size_t s = 0; s < species; ++s) mass[target * species + s].add(cell.mixture.masses[s]);
+            for (const auto s:mass.source_species(target)) mass.add(target,s,MacScaled::from_double(cell.mixture.masses[s]));
             energy[target].add(cell.mixture.energy);
             for (const auto& p : cell.passive_quantities) metadata[target][p.identity].add(p.quantity);
             require(metadata[target].size() <= 65537, "MAC parcel target passive capacity exceeded");
         };
         for (std::size_t i = 0; i < count; ++i) add(i, plan->retained[i]);
         for (const auto& parcel : plan->parcels) {
-            for (std::size_t s = 0; s < species; ++s) mass[parcel.target * species + s].add(mac_parcel_quantity(parcel, parcel.contents.mixture.masses[s]));
+            for (const auto s:mass.source_species(parcel.donor)) mass.add(parcel.target,s,mac_parcel_quantity(parcel,parcel.contents.mixture.masses[s]));
             energy[parcel.target].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy));
             for (const auto& p : parcel.contents.passive_quantities) metadata[parcel.target][p.identity].add(mac_parcel_quantity(parcel, p.quantity));
             require(metadata[parcel.target].size() <= 65537, "MAC scaled parcel target passive capacity exceeded");
@@ -535,7 +584,9 @@ MacTransportAdvance transport_candidate(const SpeciesRegistry& registry, const M
     }
     for (std::size_t i = 0; i < count; ++i) {
         auto& next = result.state.cells[i];
-        for (std::size_t s = 0; s < species; ++s) next.mixture.masses[s] = store_mac_primary(mass[i * species + s], true);
+        std::fill(next.mixture.masses.begin(),next.mixture.masses.end(),0.0);
+        for (std::size_t k=mass.offsets[i];k<mass.offsets[i+1];++k)
+            next.mixture.masses[mass.ids[k]]=store_mac_primary(mass.amounts[k],true);
         next.mixture.energy = store_mac_primary(energy[i], false); next.passive_quantities.clear();
         for (const auto& [identity, value] : metadata[i]) {
             const double stored = store_mac_primary(value, true);

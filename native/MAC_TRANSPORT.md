@@ -35,7 +35,8 @@ Stored-U rounding is explicit in the energy residual and the unresolved-heat cou
 This is finite conservation, not an entropy proof for arbitrary caller fluxes.
 
 Inputs and candidates own their arrays; failure changes no input. Grids are limited to
-one million cells and sixteen million constituent slots. Periodicity is explicit and
+one million cells. Constituent accumulation has no species-count/product cap.
+Periodicity is explicit and
 needs at least two cells along a periodic axis; solids and the exterior are
 impermeable; every fluid cell must stay occupied. A zero-flux step preserves every
 stored value bit for bit.
@@ -62,6 +63,37 @@ geometry. The actual parcel masses define the primal fluxes that drive dual J/K
 transport and the nonnegative mixing heat. The API validates a plan; it does not
 certify how a caller built it. Parcels whose amounts would lose binary64 range carry a
 normalized prototype and scale ([range arithmetic](MAC_RANGE.md#primary-parcels)).
+
+## Sparse constituent workspace
+
+Transport accumulates mass in contiguous compressed rows containing only exact
+nonzero source species and their incoming donor union. Source and target IDs stay
+in registry order; a bounded five-way merge covers the retained source and four
+possible incoming primal faces. An absent species has no accumulator. There is no
+trace threshold, fixed species limit, hash traversal or change in the contribution
+order. Full-range parcel amounts retain the original accumulation and storage rules.
+
+The old cell-count-times-registry-size and parcel-count-times-registry-size guards
+are removed. Parcel coverage remains bounded by actual grid faces and four outflows
+per donor. Primary cell inventories, parcel prototypes and reconstruction fields
+still use dense registry vectors; reusable sparse production blocks remain open.
+Donor validation creates one conservation account at a time for present species;
+it also checks any positive species introduced by a retained or outgoing parcel,
+even when that species was absent in the donor. Exact-zero accounts need no work.
+
+`MacTransportReport::constituent_accumulators` reports the actual workspace slots.
+The capacity test uses 4,097 registered species and 4,096 cells, with two positive
+species per cell: 8,192 accumulators replace 16,781,312 dense slots. In the Linux
+build these require 1 MiB of accumulator objects rather than about 2 GiB. This is a
+workspace measurement, not the total solver or additional in-game memory budget.
+
+`ma_mac_sparse_constituent_tests` also admits actual reconstructed EOS parcels beyond
+the old product cap, every registered species simultaneously positive, analytic
+two-axis trace transfers with distinct high-index donor identities, and a mapped-EOS
+parcel identity. Invented positive traces reject atomically in both retained and
+outgoing parcels. Existing primary-parcel controls retain quarter-denormal
+recombination. Uniform identity/capacity controls do not satisfy active-cell timing
+acceptance.
 
 ## Material reconstruction selectors
 
