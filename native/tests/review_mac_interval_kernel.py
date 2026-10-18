@@ -37,7 +37,7 @@ def unique(target, key, value):
 
 
 def parse(raw):
-    data = {k: {} for k in ('cases', 'models', 'cells', 'mass', 'passive', 'faces', 'comparisons', 'controls')}
+    data = {k: {} for k in ('cases', 'models', 'cells', 'mass', 'passive', 'faces', 'comparisons', 'multigrid', 'controls')}
     for line in raw.decode('ascii').splitlines():
         row = line.split(); check(bool(row), 'Empty record'); kind = row[0]
         if kind == 'ICASE':
@@ -56,6 +56,9 @@ def parse(raw):
         elif kind == 'ICOMPARISON':
             check(len(row) == 4, 'Comparison shape')
             unique(data['comparisons'], int(row[1]), (number(row[2]), int(row[3])))
+        elif kind == 'IMG':
+            check(len(row) == 10, 'Multigrid/cache shape')
+            unique(data['multigrid'], int(row[1]), (*map(int, row[2:8]), number(row[8]), int(row[9])))
         elif kind in ('IAUDITS', 'IFALLBACK', 'IENDURANCE', 'ISAVEGUARDS', 'IEOSGUARD', 'IPOSTFALLBACK'):
             check(len(row) == 3, 'Control shape'); unique(data['controls'], kind, tuple(map(int, row[1:])))
         elif kind == 'PASS':
@@ -66,7 +69,7 @@ def parse(raw):
 
 
 def review(data):
-    check(set(data['cases']) == set(range(5)), 'Missing interval/endurance/catalogue case')
+    check(set(data['cases']) == set(range(7)), 'Missing interval/endurance/catalogue/multigrid case')
     for case, endpoint, i in data['cells']:
         check(case in data['cases'] and endpoint in (0, 1) and 0 <= i < data['cases'][case][0][0] * data['cases'][case][0][1],
               'Out-of-domain cell record')
@@ -79,7 +82,7 @@ def review(data):
         check(case in data['cases'] and endpoint in (0, 1) and axis in (0, 1) and face >= 0, 'Out-of-domain face record')
     for case, species in data['models']:
         check(case in data['cases'] and species >= 0, 'Out-of-domain model record')
-    check(set(data['comparisons']) == {0, 1, 2}, 'Missing reference comparison')
+    check(set(data['comparisons']) == {0, 1, 2, 5, 6}, 'Missing reference comparison')
     for error, continuation in data['comparisons'].values():
         check(0 <= error < F(1, 10**8) and continuation == 1, 'Reference/continuation native control failed')
     controls = data['controls']
@@ -88,10 +91,14 @@ def review(data):
     check(controls['ISAVEGUARDS'] == (3, 1), 'Missing version-4 setting admission controls')
     check(controls['IEOSGUARD'] == (1, 1), 'Missing material temperature boundary refinement')
     check(controls['IPOSTFALLBACK'] == (2, 1), 'Missing shared budget and atomic mid-step fallback control')
+    check(set(data['multigrid']) == {5, 6}, 'Missing periodic/disconnected multigrid owner')
+    for solves, cycles, levels, built, warm, cold, difference, continuation in data['multigrid'].values():
+        check(solves > 0 and cycles >= solves and levels >= 2 and (built, warm, cold) == (1, 0, 1) and 0 <= difference < F(1, 10**8) and continuation == 1,
+              'Multigrid, exact cache continuation or selected Jacobi comparison failed')
     for case, values in data['cases'].items():
         (w, h, px, py), volume, steps, rejected, kernel, residual, bound, ds, ds_bound, wx, wy = values
         check(w > 0 and h > 0 and px in (0, 1) and py in (0, 1) and volume > 0 and kernel == 1, 'Invalid case topology/kernel')
-        check(steps == (10000 if case == 3 else 5) and rejected == 0, 'Unexpected interval steps/rejections')
+        check(steps == (10000 if case == 3 else 2 if case >= 5 else 5) and rejected == 0, 'Unexpected interval steps/rejections')
         n = w * h
         check({key for key in data['cells'] if key[0] == case} == {(case, e, i) for e in (0, 1) for i in range(n)}, 'Incomplete cells')
         all_masses, all_passive, momentum = [{}, {}], [{}, {}], [[], []]

@@ -664,3 +664,42 @@ ASan/UBSan with leak detection and three static MinGW Windows-target suites pass
 under Wine, including the saved pressure review on both. The standalone
 thermodynamic suite and five benchmark-runner Python tests also pass. No actual
 Windows OS or new Unity evidence is claimed.
+
+## Interval pressure multigrid and deterministic reductions
+
+The [interval kernel](../native/MAC_INTERVAL_KERNEL.md) now has a geometric
+multigrid preconditioner for automatic large-grid pressure solves. It keeps the
+existing fine pressure equation, 1e-12 PCG relative residual, 16-epsilon
+geometric closure and interval accounting bounds. Positive coarse operators,
+transpose restriction, fixed symmetric smoothing and exact bounded coarse
+solves preserve the preconditioner's symmetry and positivity. Disconnected
+pores are aggregated separately, including periodic and odd grid boundaries.
+Explicit Jacobi remains available.
+
+Immutable topology is shared across owner continuation and actual heat/fluid
+edits. Every Newton solve replaces its numerical coefficients; checkpoint
+restoration reconstructs the cache. Four double-double lanes in fixed
+256-cell reduction blocks remove the original long dependency chain without
+making the reduction order depend on task scheduling. Execution remains serial.
+
+The five fully evolving 250,000-cell intervals take 6,626.66 ms median and
+6,738.52 ms maximum per 0.1 simulated seconds, versus the first port's
+10,161.31 ms median. All 250,000 cells change on every frame; 55 accepted
+substeps incur no retries. Peak standalone RSS is about 461 MiB. This remains
+about 106 times over the 62.5 ms budget before adapters/rendering, so no
+performance configuration is promoted. Higher-order physical selectors,
+regularization, gravity/liquid ports, accurate larger calm steps and
+parallelism remain open.
+
+The new independent saved-data hierarchy/V-cycle review passes 40,216 checks
+and rejects eight corruptions. The expanded interval review passes 105,931
+checks and rejects five. Native, fatal ASan/UBSan and MinGW/Wine suites and
+reviews pass. Checkpoints exercising multigrid continue byte for byte in both
+Linux/Wine directions, inspecting 2,560 numeric fields per source. Actual
+Windows OS and game evidence remain separate. Details, limitations and commands
+are in [MAC_MULTIGRID.md](../native/MAC_MULTIGRID.md); private captures live under
+`local/interval-multigrid/`.
+
+The 34 registered Linux tests pass. All 48 retained MAC captures remain
+byte-identical with their prior exit statuses, including the known original
+strong-flow failure.

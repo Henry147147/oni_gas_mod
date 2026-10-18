@@ -492,6 +492,7 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
+    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) interval_cache_ = std::make_shared<MacIntervalCache>();
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits) const {
     require_mac_energy_environment();
@@ -515,6 +516,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.interval_cache_ = interval_cache_;
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return candidate;
 }
@@ -536,6 +538,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     MA_ADD(substeps);MA_ADD(attempts);MA_ADD(rejected_attempts);MA_ADD(exact_equilibrium_intervals);
     MA_ADD(interval_kernel_intervals);MA_ADD(interval_reference_fallbacks);MA_ADD(interval_audit_exact_fallbacks);
     MA_ADD(interval_audit_retries);MA_ADD(interval_rounded_updates);MA_ADD(interval_unresolved_updates);
+    MA_ADD(interval_multigrid_solves);MA_ADD(interval_multigrid_cycles);MA_ADD(interval_multigrid_fallbacks);MA_ADD(interval_topology_builds);
     MA_ADD(pressure_iterations);MA_ADD(nonlinear_iterations);MA_ADD(pressure_increment_restarts);MA_ADD(unresolved_heat_updates);MA_ADD(unresolved_momentum_updates);
     MA_ADD(unresolved_gravity_internal_updates);MA_ADD(compression_events);MA_ADD(unresolved_compression_heat_updates);MA_ADD(unresolved_compression_momentum_updates);
     MA_ADD(unresolved_compressive_work_updates);
@@ -553,6 +556,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     MA_ADD(absolute_shock_heat_transfer_wide_j);MA_ADD(absolute_shock_heat_transfer_j);
 #undef MA_ADD
     a.maximum_geometric_residual_m3=std::max(a.maximum_geometric_residual_m3,b.maximum_geometric_residual_m3);
+    a.interval_multigrid_levels=std::max(a.interval_multigrid_levels,b.interval_multigrid_levels);
 }
 void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
     a.substeps+=b.substeps;a.rejected_attempts+=b.rejected_attempts;a.faces+=b.faces;a.unresolved_updates+=b.unresolved_updates;
@@ -625,7 +629,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     }
     std::size_t discarded_interval_attempts = 0;
     if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
-        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts);
+        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts, interval_cache_.get());
         if (candidate) {
             MacClosedAdvance result{*this, candidate->report}; result.world.state_ = std::move(candidate->state);
             result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1; return result;

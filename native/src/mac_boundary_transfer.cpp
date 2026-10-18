@@ -157,6 +157,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         parcels.push_back(std::move(packet));
     }
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.interval_cache_ = interval_cache_;
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return {std::move(candidate),std::move(parcels),unresolved};
 }

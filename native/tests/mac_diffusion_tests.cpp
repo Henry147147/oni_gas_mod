@@ -461,6 +461,20 @@ void checkpoint_version_controls() {
     const MacClosedWorld interval(setup.registry,setup.eos,setup.state(3,2),reference);check(interval.checkpoint()[8]==4,"Interval owner left version 4");
     std::cout<<"PASS checkpoint versions 2/4/5, diffusion with both kernels, unreleased v4 diffusion layouts rejected\n";
 }
+// The composed report must also keep the interval kernel's multigrid
+// counters. 256 occupied cells at 0.01 s are coupled enough to select it.
+void multigrid_composition_control() {
+    Setup setup;MacClosedSettings settings;settings.maximum_timestep_s=.01;settings.diffusion=mode_setting(1);
+    settings.numerical_kernel=MacNumericalKernel::interval_audited;
+    settings.reconstruction=MacMaterialReconstruction::donor_cell;settings.momentum_reconstruction=MacMomentumReconstruction::donor_cell;
+    settings.compression_viscosity=MacCompressionViscosity::none;settings.shock_heat=MacShockHeatRegularization::none;
+    const MacClosedWorld owner(setup.registry,setup.eos,setup.state(16,16),settings);
+    const auto r=owner.advanced(.05).report;
+    check(r.diffusion.substeps>0 && r.interval_kernel_intervals>0,"Interval kernel did not run under diffusion at 256 cells");
+    check(r.interval_multigrid_solves>0 && r.interval_multigrid_cycles>0 && r.interval_multigrid_levels>1,
+        "Diffusion composition dropped the interval kernel's multigrid counters");
+    std::cout<<"PASS composed reports keep interval multigrid counters\n";
+}
 void benchmark(std::size_t cells) {
     Setup setup;const auto profile=GasTransportProfile::standard();std::vector<double> samples;
     for(const bool uniform:{true,false}) {
@@ -523,6 +537,6 @@ void reference_cases() {
 }
 }
 int main(int argc,char** argv) {
-    try { if(argc==3 && std::string(argv[1])=="--benchmark")benchmark(std::stoull(argv[2]));else if(argc==2 && std::string(argv[1])=="--reference")reference_cases();else { analytic();controls();general_range_controls();vacuum_controls();entropy_controls();range_controls();checkpoint_version_controls();report_composition_control(); }return 0; }
+    try { if(argc==3 && std::string(argv[1])=="--benchmark")benchmark(std::stoull(argv[2]));else if(argc==2 && std::string(argv[1])=="--reference")reference_cases();else { analytic();controls();general_range_controls();vacuum_controls();entropy_controls();range_controls();checkpoint_version_controls();report_composition_control();multigrid_composition_control(); }return 0; }
     catch(const std::exception& error) { std::cerr<<"FAIL "<<error.what()<<'\n';return 1; }
 }

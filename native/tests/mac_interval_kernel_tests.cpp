@@ -65,11 +65,21 @@ void export_interval(int id, const MacClosedWorld& before, const MacClosedAdvanc
     export_models(id, before); export_state(id, 0, before); export_state(id, 1, after.world);
 }
 void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
-    const auto& fixture = ma::testing::setup(); const auto input = scene(w, h, periodic, walls);
-    auto s = settings(); const MacClosedWorld owner(fixture.registry, fixture.eos, input, s); const auto held = owner.checkpoint();
-    auto next = owner.advanced(.005); check(next.report.interval_kernel_intervals == 1 && next.report.interval_reference_fallbacks == 0, "Supported scene declined interval kernel");
+    const auto& fixture = ma::testing::setup(); auto input = scene(w, h, periodic, walls);
+    if (id == 6) {
+        for (std::size_t y = 0; y < h; ++y) {
+            const auto i = w / 2 + y * w; input.grid.walls[i] = 1;
+            input.cells[i].mixture = MixtureInventory(fixture.registry.size()); input.cells[i].passive_quantities.clear();
+            input.momentum_x[input.grid.x_face(w / 2, y)] = input.momentum_x[input.grid.x_face(w / 2 + 1, y)] = 0;
+            input.momentum_y[input.grid.y_face(w / 2, y)] = input.momentum_y[input.grid.y_face(w / 2, y + 1)] = 0;
+        }
+    }
+    auto s = settings(); if (id >= 5) s.maximum_timestep_s = .01;
+    const double duration = id >= 5 ? .02 : .005, continuation = id >= 5 ? .01 : .003;
+    const MacClosedWorld owner(fixture.registry, fixture.eos, input, s); const auto held = owner.checkpoint();
+    auto next = owner.advanced(duration); check(next.report.interval_kernel_intervals == 1 && next.report.interval_reference_fallbacks == 0, "Supported scene declined interval kernel");
     s.numerical_kernel = MacNumericalKernel::reference; const MacClosedWorld reference(fixture.registry, fixture.eos, input, s);
-    const auto expected = reference.advanced(.005);
+    const auto expected = reference.advanced(duration);
     double maximum = 0;
     for (std::size_t i = 0; i < input.cells.size(); ++i) if (!input.grid.walls[i]) {
         const auto a = fixture.eos->evaluate(next.world.state().cells[i].mixture, 1), b = fixture.eos->evaluate(expected.world.state().cells[i].mixture, 1);
@@ -82,7 +92,43 @@ void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
     const auto bytes = next.world.checkpoint(); check(bytes[8] == 4, "Interval kernel checkpoint lacks versioned setting");
     const auto restored = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, bytes);
     check(restored.settings().numerical_kernel == MacNumericalKernel::interval_audited && restored.checkpoint() == bytes, "Interval checkpoint lost kernel or state");
-    check(next.world.advanced(.003).world.checkpoint() == restored.advanced(.003).world.checkpoint(), "Restored interval continuation differs");
+    const auto warm = next.world.advanced(continuation), cold = restored.advanced(continuation);
+    check(warm.world.checkpoint() == cold.world.checkpoint(), "Restored interval continuation differs");
+    if (id >= 5) {
+        check(next.report.interval_multigrid_solves > 0 && next.report.interval_multigrid_levels >= 2 && next.report.interval_multigrid_fallbacks == 0 &&
+            next.report.interval_topology_builds == 1 && warm.report.interval_topology_builds == 0 && cold.report.interval_topology_builds == 1,
+            "Automatic multigrid or immutable topology reuse was not exercised");
+        bool failed = false;
+        try { static_cast<void>(owner.advanced(duration, 1)); } catch (const std::runtime_error&) { failed = true; }
+        check(failed && owner.checkpoint() == held && owner.advanced(duration).world.checkpoint() == bytes,
+            "Failed interval changed cached-topology continuation or published a partial state");
+        auto js = owner.settings(); js.preconditioner = PressurePreconditioner::jacobi;
+        const auto jacobi = MacClosedWorld(fixture.registry, fixture.eos, input, js).advanced(duration);
+        check(jacobi.report.interval_multigrid_solves == 0 && jacobi.report.substeps == next.report.substeps && jacobi.report.rejected_attempts == 0,
+            "Multigrid changed nominal timestep admission or ignored explicit Jacobi");
+        double difference = 0;
+        for (std::size_t i = 0; i < input.cells.size(); ++i) if (!input.grid.walls[i]) {
+            const auto a = fixture.eos->evaluate(next.world.state().cells[i].mixture, 1), b = fixture.eos->evaluate(jacobi.world.state().cells[i].mixture, 1);
+            difference = std::max({difference, std::abs(a.mechanical_pressure_pa - b.mechanical_pressure_pa) / 20, std::abs(a.temperature_k - b.temperature_k) / 300});
+            for (std::size_t k = 0; k < fixture.registry.size(); ++k) if (input.cells[i].mixture.masses[k] > 0)
+                difference = std::max(difference, std::abs(next.world.state().cells[i].mixture.masses[k] - jacobi.world.state().cells[i].mixture.masses[k]) / input.cells[i].mixture.masses[k]);
+        }
+        check(difference < 1e-8, "Automatic multigrid changed the resolved selected physics");
+        const std::array<MacCellHeat, 1> edits{{{0, .01, 1e6}}}; const auto heated = next.world.with_cell_heat(edits);
+        const auto hot = heated.advanced(continuation); const auto hot_cold = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, heated.checkpoint()).advanced(continuation);
+        check(hot.report.interval_topology_builds == 0 && hot.world.checkpoint() == hot_cold.world.checkpoint(), "Heat edit retained stale coefficients or lost topology reuse");
+        if (id == 5) {
+            auto bare = input; for (auto& cell : bare.cells) cell.passive_quantities.clear();
+            auto active = MacClosedWorld(fixture.registry, fixture.eos, bare, owner.settings()).advanced(duration).world;
+            const std::array<MacGasTransfer, 1> transfer{{{0, fixture.registry.index("oxygen"), true, .0001, 300}}};
+            const auto changed = active.with_gas_transfers(transfer).world;
+            const auto after = changed.advanced(continuation), fresh = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, changed.checkpoint()).advanced(continuation);
+            check(after.report.interval_topology_builds == 0 && after.world.checkpoint() == fresh.world.checkpoint(), "Mass edit retained stale pressure coefficients or lost topology reuse");
+        }
+        std::cout << "IMG " << id << ' ' << next.report.interval_multigrid_solves << ' ' << next.report.interval_multigrid_cycles << ' '
+            << next.report.interval_multigrid_levels << ' ' << next.report.interval_topology_builds << ' ' << warm.report.interval_topology_builds << ' '
+            << cold.report.interval_topology_builds << ' ' << difference << " 1\n";
+    }
     export_interval(id, owner, next); std::cout << "ICOMPARISON " << id << ' ' << maximum << " 1\n";
 }
 void audit_boundaries() {
@@ -229,11 +275,13 @@ void catalogue() {
     check(next.world.advanced(.001).world.checkpoint() == restored.advanced(.001).world.checkpoint(), "Large catalogue continuation differs");
     export_interval(4, owner, next);
 }
-void benchmark(std::size_t w, std::size_t h, int count, double maximum_dt, bool reference) {
+void benchmark(std::size_t w, std::size_t h, int count, double maximum_dt, bool reference, bool jacobi) {
     const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = maximum_dt;
     if (reference) s.numerical_kernel = MacNumericalKernel::reference;
+    if (jacobi) s.preconditioner = PressurePreconditioner::jacobi;
     MacClosedWorld world(fixture.registry, fixture.eos, scene(w, h, true), s); std::vector<double> milliseconds;
     std::size_t substeps = 0, rejected = 0, minimum_changed = w * h;
+    std::size_t pressure_iterations = 0, nonlinear_iterations = 0, multigrid_solves = 0, multigrid_cycles = 0, topology_builds = 0;
     for (int interval = -1; interval < count; ++interval) {
         const auto start = std::chrono::steady_clock::now(); auto next = world.advanced(.1);
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -243,12 +291,18 @@ void benchmark(std::size_t w, std::size_t h, int count, double maximum_dt, bool 
             if (world.state().cells[i].mixture.masses != next.world.state().cells[i].mixture.masses ||
                 world.state().cells[i].mixture.energy != next.world.state().cells[i].mixture.energy) ++changed;
         minimum_changed = std::min(minimum_changed, changed);
-        if (interval >= 0) { milliseconds.push_back(ms); substeps += next.report.substeps; rejected += next.report.rejected_attempts; }
+        if (interval >= 0) {
+            milliseconds.push_back(ms); substeps += next.report.substeps; rejected += next.report.rejected_attempts;
+            pressure_iterations += next.report.pressure_iterations; nonlinear_iterations += next.report.nonlinear_iterations;
+            multigrid_solves += next.report.interval_multigrid_solves; multigrid_cycles += next.report.interval_multigrid_cycles;
+            topology_builds += next.report.interval_topology_builds;
+        }
         world = std::move(next.world);
     }
     std::sort(milliseconds.begin(), milliseconds.end());
     std::cout << "IBENCHMARK " << w * h << ' ' << count << ' ' << milliseconds[milliseconds.size() / 2] << ' '
-        << milliseconds.back() << ' ' << substeps << ' ' << rejected << ' ' << maximum_dt << ' ' << reference << ' ' << minimum_changed << '\n';
+        << milliseconds.back() << ' ' << substeps << ' ' << rejected << ' ' << maximum_dt << ' ' << reference << ' ' << minimum_changed << ' '
+        << jacobi << ' ' << pressure_iterations << ' ' << nonlinear_iterations << ' ' << multigrid_solves << ' ' << multigrid_cycles << ' ' << topology_builds << '\n';
 }
 void write_image(const MacClosedWorld& world, const char* path) {
     const auto bytes = world.checkpoint(); std::ofstream file(path, std::ios::binary);
@@ -259,27 +313,34 @@ void write_image(const MacClosedWorld& world, const char* path) {
 int main(int argc, char** argv) {
     try {
         require_mac_energy_environment(); std::cout << std::setprecision(17);
-        if (argc == 3 && std::string_view(argv[1]) == "--write-checkpoint") {
-            const auto& fixture = ma::testing::setup(); const MacClosedWorld owner(fixture.registry, fixture.eos, scene(12, 4, true), settings());
-            write_image(owner.advanced(.005).world, argv[2]); return 0;
+        if (argc == 3 && (std::string_view(argv[1]) == "--write-checkpoint" || std::string_view(argv[1]) == "--write-multigrid-checkpoint")) {
+            const bool mg = std::string_view(argv[1]) == "--write-multigrid-checkpoint";
+            const auto& fixture = ma::testing::setup(); auto s = settings(); if (mg) s.maximum_timestep_s = .01;
+            const MacClosedWorld owner(fixture.registry, fixture.eos, scene(mg ? 16U : 12U, mg ? 16U : 4U, true), s);
+            const auto next = owner.advanced(mg ? .02 : .005);
+            check(!mg || next.report.interval_multigrid_solves > 0, "Checkpoint source did not use multigrid");
+            write_image(next.world, argv[2]); return 0;
         }
-        if (argc == 4 && std::string_view(argv[1]) == "--continue-checkpoint") {
+        if (argc == 4 && (std::string_view(argv[1]) == "--continue-checkpoint" || std::string_view(argv[1]) == "--continue-multigrid-checkpoint")) {
+            const bool mg = std::string_view(argv[1]) == "--continue-multigrid-checkpoint";
             const auto& fixture = ma::testing::setup(); std::ifstream file(argv[2], std::ios::binary);
             check(static_cast<bool>(file), "Cannot read test checkpoint");
             const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
             const auto owner = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, bytes);
             check(owner.settings().numerical_kernel == MacNumericalKernel::interval_audited, "Continuation lost interval setting");
-            const auto next = owner.advanced(.003); check(next.report.interval_kernel_intervals == 1, "Continuation left interval kernel");
+            const auto next = owner.advanced(mg ? .01 : .003); check(next.report.interval_kernel_intervals == 1, "Continuation left interval kernel");
+            check(!mg || next.report.interval_multigrid_solves > 0, "Checkpoint continuation did not use multigrid");
             write_image(next.world, argv[3]); export_state(9, 1, next.world); return 0;
         }
-        if ((argc == 5 || argc == 6) && (std::string_view(argv[1]) == "--benchmark" || std::string_view(argv[1]) == "--reference-benchmark")) {
+        if ((argc == 5 || argc == 6) && (std::string_view(argv[1]) == "--benchmark" || std::string_view(argv[1]) == "--reference-benchmark" || std::string_view(argv[1]) == "--jacobi-benchmark")) {
             const auto w = static_cast<std::size_t>(std::stoull(argv[2])), h = static_cast<std::size_t>(std::stoull(argv[3]));
             const int count = std::stoi(argv[4]); check(w > 1 && h > 1 && w <= 1000000 / h && count > 0 && count <= 1000, "Invalid benchmark dimensions/count");
             const double dt = argc == 6 ? std::stod(argv[5]) : .01;
-            benchmark(w, h, count, dt, std::string_view(argv[1]) == "--reference-benchmark"); return 0;
+            benchmark(w, h, count, dt, std::string_view(argv[1]) == "--reference-benchmark", std::string_view(argv[1]) == "--jacobi-benchmark"); return 0;
         }
         check(argc == 1, "Unknown interval kernel test arguments"); audit_boundaries();
         compare(0, 12, 4, true, false); compare(1, 9, 5, false, true); compare(2, 7, 1, false, false);
+        compare(5, 16, 16, true, false); compare(6, 19, 17, false, true);
         fallback_and_rollback(); endurance(); catalogue(); std::cout << "PASS interval kernel, reference comparisons, audited accounts and continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }
