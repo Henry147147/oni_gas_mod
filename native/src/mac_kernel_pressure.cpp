@@ -12,6 +12,26 @@
 
 namespace ma::experimental::mac_kernel {
 namespace {
+struct Sweep { double value = 0; MacEnergy full; };
+Sweep midpoint_sweep(double j0, double j1, double inertia, double dt, double area) {
+    // Preserve the ordinary operation order. Only a flagged intermediate
+    // constructs a range value; its sign must survive even if q projects to 0.
+    const double middle = .5 * (j0 + j1), velocity = middle / inertia;
+    const double timed = velocity * dt, value = timed * area;
+    if ((j0 == 0 && j1 == 0) || (std::isnormal(middle) && std::isnormal(velocity) &&
+        std::isnormal(timed) && std::isnormal(value))) return {value, {}};
+    MacEnergySum sum; sum.add(j0); sum.add(j1);
+    const auto full = sum.value().shifted(-1).shared(1, inertia).multiplied(dt).multiplied(area);
+    if (full.exponent() > 1024) throw ArithmeticRefinement{};
+    const auto stored = full.project();
+    // A representable sweep lost before the final product can affect the
+    // pressure root itself: replay that interval with the strict arithmetic.
+    if (std::isnormal(stored.value)) {
+        if (stored.value != value) throw ArithmeticRefinement{};
+        return {value, {}};
+    }
+    return {stored.value, full};
+}
 double combine(const std::vector<double>& part) { DD s; for (const double v : part) s.add(v); return s.value(); }
 // q = z + beta p computed on the fly (for the cell and its neighbours) and
 // stored for the cell, fused with A q and q.Aq: one pass per PCG direction.
@@ -268,6 +288,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     for (auto* v : {&ws.res, &ws.tdV, &ws.tdW, &ws.tcc, &ws.tres, &ws.Vmat, &ws.tdU}) v->resize(N);
     for (auto* v : {&ws.dp0x, &ws.wx, &ws.qx}) v->assign(g.NX, 0);
     for (auto* v : {&ws.dp0y, &ws.wy, &ws.qy, &ws.body_work_y}) v->assign(g.NY, 0);
+    ws.full_qx.reset(g.NX); ws.full_qy.reset(g.NY);
     ws.sx.resize(g.NX); ws.sy.resize(g.NY);
     const auto occupied = [&](Index i) { return i != none && (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell); };
     const auto p0 = [&](Index i) { return occupied(i) ? e.p[i] : 0.; };
@@ -426,7 +447,12 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     c.counters.newton += newton;
     // Publish the root: canonical J, midpoint sweeps, U and material volume.
     const auto dWfinal = [&](Index i) { return occupied(i) ? ws.dW[i] : 0.; };
-    struct Publish { DD pressure_wall_x, pressure_wall_y, fixed_body; double body = 0, energy = 0, jx = 0, jy = 0, closure = 0; std::size_t unresolved = 0; int failed = 0; };
+    struct Publish {
+        DD pressure_wall_x, pressure_wall_y, fixed_body;
+        double body = 0, energy = 0, jx = 0, jy = 0, closure = 0;
+        std::size_t unresolved = 0; int failed = 0;
+        std::vector<std::pair<Index, MacEnergy>> tiny_x, tiny_y;
+    };
     auto published = c.exec.partials<Publish>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Publish o;
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
@@ -446,7 +472,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             const double J1 = J0 + impulse;
             f.jx[fidx] = J1; o.jx += std::abs(J1);
-            ws.qx[fidx] = .5 * (J0 + J1) / I * dt * A;
+            const auto sweep = midpoint_sweep(J0, J1, I, dt, A); ws.qx[fidx] = sweep.value;
+            if (!sweep.full.is_zero()) o.tiny_x.emplace_back(fidx, sweep.full);
             o.energy += .5 * J0 * (J0 / I) + .5 * J1 * (J1 / I);
         }
         for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
@@ -466,7 +493,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             const double J1 = J0 + impulse;
             f.jy[fidx] = J1; o.jy += std::abs(J1);
-            ws.qy[fidx] = .5 * (J0 + J1) / I * dt * A;
+            const auto sweep = midpoint_sweep(J0, J1, I, dt, A); ws.qy[fidx] = sweep.value;
+            if (!sweep.full.is_zero()) o.tiny_y.emplace_back(fidx, sweep.full);
             if (gravity != 0) ws.body_work_y[fidx] = gimp * (.5 * (J0 + J1) / I);
             o.energy += .5 * J0 * (J0 / I) + .5 * J1 * (J1 / I) + std::abs(ws.body_work_y[fidx]);
         }
@@ -499,6 +527,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     double energy_ops = 0, jx_ops = 0, jy_ops = 0, closure = 0;
     DD pressure_wall_x, pressure_wall_y, fixed_body;
     for (const auto& o : published) {
+        for (const auto& [face, value] : o.tiny_x) ws.full_qx.set(g.NX, face, value);
+        for (const auto& [face, value] : o.tiny_y) ws.full_qy.set(g.NY, face, value);
         pressure_wall_x.add(o.pressure_wall_x); pressure_wall_y.add(o.pressure_wall_y); fixed_body.add(o.fixed_body);
         acc.body_y += o.body; energy_ops += o.energy; jx_ops += o.jx; jy_ops += o.jy;
     }

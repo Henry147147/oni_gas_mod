@@ -266,6 +266,7 @@ std::size_t retained_bytes(const Workspaces& w) {
     if (ws.pressure_multigrid) total += ws.pressure_multigrid->storage_bytes();
     for (const auto* v : {&e.M, &e.Cv, &e.off, &e.nR, &e.Nl, &e.T, &e.p, &e.Vg, &e.Eel, &e.Ceq, &e.comp, &e.lcomp}) add(*v);
     add(e.kind); add(ws.anchor);
+    add(ws.full_qx.values); add(ws.full_qx.faces); add(ws.full_qy.values); add(ws.full_qy.faces);
     for (const auto* v : {&ws.cell_mass, &ws.mass_after, &ws.ix, &ws.iy, &ws.ix1, &ws.iy1, &ws.inv_ix, &ws.inv_iy, &ws.dp0x, &ws.dp0y,
         &ws.wx, &ws.wy, &ws.bdiag, &ws.dV, &ws.dW, &ws.cc, &ws.res, &ws.sx, &ws.sy, &ws.tdV, &ws.tdW, &ws.tcc, &ws.tres, &ws.sol,
         &ws.Vmat, &ws.dU, &ws.tdU, &ws.qx, &ws.qy, &ws.body_work_y, &ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag, &ws.px, &ws.py,
@@ -295,6 +296,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     require(settings.gravity_m_per_s2 == 0 || !source.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     const auto conversion_start = Clock::now();
     const Grid g(source.grid);
+    if (!std::isnormal(g.V) || !std::isnormal(g.A)) throw RangeFlag{0};
     require(source.cells.size() == g.N, "Production kernel cell shape differs");
     const Model model = build_model(registry, eos, source);
     auto& w = workspaces();
@@ -342,6 +344,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     report.maximum_timestep_s = std::max(report.maximum_timestep_s, dt);
                     next_dt = std::min(maximum_dt, 2 * dt); accepted = true;
                 } catch (const EosRefinement&) {
+                    throw RangeFlag{report.attempts};
+                } catch (const ArithmeticRefinement&) {
                     throw RangeFlag{report.attempts};
                 } catch (const std::domain_error& error) {
                     if (kernel_debug()) std::fprintf(stderr, "reject t=%.17g dt=%.17g: %s\n", time, dt, error.what());

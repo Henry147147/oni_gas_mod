@@ -53,9 +53,9 @@ struct MacKernelAudit {
     // Saved-data reviewers recompute the bound from independent endpoints
     // and this counted stage magnitude (entered as a cancelling pair).
     double stage_operand_magnitude = 0, below_range_allowance = 0;
-    // Accepted shared parcel products only. Their exact additive error is
+    // Accepted parcel and dual J/K products, including retained K. Their additive error is
     // checked against one half of the smallest binary64 quantum per actual
-    // rounding; these antisymmetric flux errors add no endpoint allowance.
+    // rounding; shared parcel errors add no endpoint allowance.
     std::size_t rounded_transfers = 0;
     MacEnergy transfer_roundoff, transfer_roundoff_bound;
     bool passed = false, escalated = false;
@@ -80,7 +80,7 @@ struct MacKernelReport {
     // Retained kernel workspace (field banks and scratch) after the interval.
     std::size_t workspace_bytes = 0;
     // The interval ran through the reference implementation because an input
-    // or endpoint required full-range or material-boundary refinement.
+    // or intermediate/endpoint required full-range or material-boundary refinement.
     bool reference_fallback = false;
     double maximum_volume_closure = 0, minimum_timestep_s = 0, maximum_timestep_s = 0;
     double mixing_heat_j = 0, wall_heat_j = 0, compression_heat_j = 0, shock_heat_transfer_j = 0;

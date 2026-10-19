@@ -222,16 +222,25 @@ trace completes 160 intervals: 44,420 rounded products, helium in 7,028 cells,
 and the original aggregate inventory bound. A 33,389-cell control retains exact
 one/twelve-worker state and ledger results, ordinary checkpoint continuation
 and budget rollback. Other transient momentum/energy rounding ledgers remain
-open. A large-inertia control underflows a derived velocity and exhausts the
-production budget, while the strict reference advances; flagged dual transport
-still needs refinement. The in-game reference owner is unchanged pending step f.
+open. Flagged sweeps now retain their range through parcel formation, and dual
+J/K products use canonical momentum when a derived velocity or kinetic factor
+underflows. The former large-inertia fault now advances in one attempt and
+matches the strict reference, including a representable tracer arrival.
+Signed x/y, zero/one/two-quantum arrivals, twelve-worker/cache/continuation and
+shared-budget refinement controls pass; their saved exact-fraction reader
+passes 916 checks and rejects seven altered captures on all four routes. A
+cross-block tracer uses the same shared transfer with one/twelve workers.
+A normal sweep divided by a very large material volume can still underflow
+its share and lose a representable arrival; that follow-up remains open.
+The in-game reference owner is unchanged pending step f.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 46 Release CTests pass; eight suites pass
-Debug ASan/UBSan, ten pass MinGW/Wine, and six production/range suites pass
-ThreadSanitizer. Of 61 preceding MAC executable outputs, 59 are byte-identical
-and two differ only in timing; all exits and physical outputs agree.
+checkpoints remain unchanged. All 47 Release CTests pass; eight suites pass
+Debug ASan/UBSan and MinGW/Wine, and seven production/range suites pass
+ThreadSanitizer. Of 62 preceding MAC executable outputs, 59 are byte-identical,
+two differ only in timing and one adds intended dual-projection counts; all
+exits and physical output records agree.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;

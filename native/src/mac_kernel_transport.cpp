@@ -16,6 +16,12 @@ double limited_slope(double a, double b) {
 }
 double kinetic(double inertia, double j) { return j == 0 ? 0 : .5 * j * (j / inertia); }
 double variance(double mass, double du) { return mass == 0 || du == 0 ? 0 : .5 * mass * du * du; }
+double projected_transfer(MacEnergy value, TransferRounding& ledger) {
+    if (value.exponent() > 1024) throw ArithmeticRefinement{};
+    const auto result = value.project();
+    if (result.rounded) ledger.projection(value, result.value);
+    return result.value;
+}
 // Three-term sum rounded once (the reference's exact correction predictor).
 double sum3(double a, double b, double c) { DD s; s.add(a); s.add(b); s.add(c); return s.value(); }
 
@@ -64,6 +70,13 @@ bool limit_pair(double il, double ir, Pair& p, double requested) {
 void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     (void)dt;
     auto& ws = c.ws; const auto& g = c.g; const auto& model = c.model; const auto N = g.N;
+    const auto* full_x = ws.full_qx.data(); const auto* full_y = ws.full_qy.data();
+    const auto qsign = [&](bool x, Index face) {
+        const double q = (x ? ws.qx : ws.qy)[face];
+        if (q != 0) return q > 0 ? 1 : -1;
+        const auto* full = x ? full_x : full_y;
+        return full == nullptr || full[face].is_zero() ? 0 : full[face].mantissa() > 0 ? 1 : -1;
+    };
     const std::size_t K = model.K(), P = model.P(), F = K + 1 + P; // transported fields
     const std::size_t L = F + 1;                                  // + positive energy proxy
     // Parcel entries are written by the donor of every face with outgoing
@@ -88,27 +101,29 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     struct Reconstruction { std::size_t backtracks = 0; std::vector<TransferRounding> rounding; };
     auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Reconstruction result; result.rounding.resize(c.quantities());
-        struct Product { std::size_t field; double a, b, stored; };
+        struct Product { std::size_t field; double a, b, stored; MacEnergy scaled; };
         std::vector<Product> products; // At most four parcels per donor; reused across trials.
         std::vector<double> centre(L), sx(L), sy(L), lo(L), hi(L), proto(4 * F), keep(F);
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.W; ++col) {
             const auto i = col + row * g.W;
             if (g.wall[i]) continue;
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-            struct Edge { int axis; Index face; int dir; double volume, cx, cy, share; };
+            struct Edge { int axis; Index face; int dir; double volume, cx, cy, share; MacEnergy full_share; };
             Edge edges[4]; int count = 0;
             const double Vi = ws.Vmat[i];
             const double midx = .5 * (ws.qx[lf] + ws.qx[rf]), midy = .5 * (ws.qy[bf] + ws.qy[tf]);
             const auto add = [&](int axis, Index face, int dir, double q) {
-                const double volume = std::abs(q), share = volume / Vi;
+                const auto* full = axis == 0 ? full_x : full_y;
+                const auto full_share = full == nullptr ? MacEnergy{} : full[face].magnitude().shared(1, Vi);
+                const double volume = std::abs(q), share = full_share.is_zero() ? volume / Vi : full_share.project().value;
                 const double normal = .5 * dir * (1 - share);
                 const double transverse = (axis == 0 ? midy : midx) / Vi * -.5;
-                edges[count++] = {axis, face, dir, volume, axis == 0 ? normal : transverse, axis == 0 ? transverse : normal, share};
+                edges[count++] = {axis, face, dir, volume, axis == 0 ? normal : transverse, axis == 0 ? transverse : normal, share, full_share};
             };
-            if (ws.qx[lf] < 0) add(0, lf, -1, ws.qx[lf]);
-            if (ws.qx[rf] > 0) add(0, rf, 1, ws.qx[rf]);
-            if (ws.qy[bf] < 0) add(1, bf, -1, ws.qy[bf]);
-            if (ws.qy[tf] > 0) add(1, tf, 1, ws.qy[tf]);
+            if (qsign(true, lf) < 0) add(0, lf, -1, ws.qx[lf]);
+            if (qsign(true, rf) > 0) add(0, rf, 1, ws.qx[rf]);
+            if (qsign(false, bf) < 0) add(1, bf, -1, ws.qy[bf]);
+            if (qsign(false, tf) > 0) add(1, tf, 1, ws.qy[tf]);
             if (count == 0 || e.kind[i] == empty) {
                 for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = source[fld][i];
                 for (int n = 0; n < count; ++n) {
@@ -215,9 +230,15 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     if (!admissible(pr, Vi)) { ok = false; break; }
                     for (std::size_t fld = 0; fld < F; ++fld) {
                         const double value = pr[fld], share = edges[n].share;
-                        pr[fld] = value * share;
-                        if (value != 0 && share != 0 && std::abs(pr[fld]) <= std::numeric_limits<double>::min())
-                            products.push_back({fld, value, share, pr[fld]});
+                        if (!edges[n].full_share.is_zero()) {
+                            const auto amount = edges[n].full_share.multiplied(value);
+                            const auto projection = amount.project(); pr[fld] = projection.value;
+                            if (projection.rounded) products.push_back({fld, 0, 0, pr[fld], amount});
+                        } else {
+                            pr[fld] = value * share;
+                            if (value != 0 && share != 0 && std::abs(pr[fld]) <= std::numeric_limits<double>::min())
+                                products.push_back({fld, value, share, pr[fld], {}});
+                        }
                         keep[fld] -= pr[fld];
                     }
                 }
@@ -242,7 +263,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (!accepted) reject("Production reconstruction EOS backtracking exhausted");
             for (const auto& p : products) {
                 const auto q = p.field < K ? p.field : p.field == K ? c.q_energy() : p.field - 1;
-                result.rounding[q].product(p.a, p.b, p.stored);
+                if (p.scaled.is_zero()) result.rounding[q].product(p.a, p.b, p.stored);
+                else result.rounding[q].projection(p.scaled, p.stored);
             }
             ws.theta[i] = theta;
             for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = keep[fld];
@@ -273,7 +295,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-            const bool in_l = ws.qx[lf] > 0, in_r = ws.qx[rf] < 0, in_b = ws.qy[bf] > 0, in_t = ws.qy[tf] < 0;
+            const bool in_l = qsign(true, lf) > 0, in_r = qsign(true, rf) < 0, in_b = qsign(false, bf) > 0, in_t = qsign(false, tf) < 0;
             double M = 0;
             for (std::size_t fld = 0; fld < F; ++fld) {
                 double v = ws.retained[fld * N + i];
@@ -378,9 +400,22 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         const auto is_free = [&](std::size_t fidx) { return fidx != NF && fl[fidx] != none && fr[fidx] != none && m0[fidx] > 0; };
         auto& s0 = ws.slope0; auto& s1 = ws.slope1; auto& c0 = ws.cour0; auto& c1 = ws.cour1;
         for (auto* v : {&s0, &s1, &c0, &c1}) v->resize(NF);
-        struct GatherOut { int failed = 0; double wall = 0; };
+        struct GatherOut { int failed = 0; double wall = 0; TransferRounding momentum, energy; };
         auto gathered = c.exec.partials<GatherOut>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
             GatherOut o;
+            const auto momentum_share = [&](std::size_t donor, double part) {
+                const double velocity = v0[donor];
+                if (J[donor] != 0 && !std::isnormal(velocity))
+                    return projected_transfer(MacEnergy::from_double(J[donor]).shared(part, m0[donor]), o.momentum);
+                const double value = velocity * part;
+                o.momentum.product(velocity, part, value); return value;
+            };
+            const auto kinetic_share = [&](std::size_t donor, double part) {
+                const double velocity = v0[donor], specific = .5 * velocity * velocity, value = specific * part;
+                if (J[donor] != 0 && part != 0 && (!std::isnormal(specific) || !std::isnormal(value)))
+                    return projected_transfer(MacEnergy::kinetic(m0[donor], J[donor]).shared(part, m0[donor]), o.energy);
+                return value;
+            };
             const std::size_t r1 = xc ? y1 : g.block_yrow_end(blk);
             for (std::size_t row = y0; row < r1; ++row) for (std::size_t col = 0; col < cw; ++col) {
                 const auto fidx = col + row * cw;
@@ -401,16 +436,16 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     const auto d = touches[k].other;
                     if (!(m0[d] > 0)) { o.failed = 1; continue; }
                     // Donor velocity and kinetic energy per unit mass.
-                    jin += v0[d] * std::abs(a);
-                    kin += .5 * v0[d] * v0[d] * std::abs(a);
+                    jin += momentum_share(d, std::abs(a));
+                    kin += kinetic_share(d, std::abs(a));
                 }
                 const double kp = m0[fidx] - out;
                 if (kp < 0 && kp < -4 * eps * m0[fidx]) o.failed = 2;
                 const double kf = std::max(kp, 0.);
                 keep[fidx] = kf;
-                const double js = v0[fidx] * kf + jin;
+                const double js = momentum_share(fidx, kf) + jin;
                 jsum[fidx] = js;
-                ktr[fidx] = .5 * v0[fidx] * v0[fidx] * kf + kin;
+                ktr[fidx] = kinetic_share(fidx, kf) + kin;
                 const double vp = m1[fidx] > 0 ? js / m1[fidx] : 0;
                 double heat = variance(kf, v0[fidx] - vp);
                 for (int k = 0; k < n; ++k) {
@@ -446,6 +481,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (o.failed == 1) reject("Production dual flux has no occupied donor");
             if (o.failed == 3) reject("Production fixed face retains momentum without inertia");
             (xc ? wall_x : wall_y) += o.wall;
+            acc.transfers[xc ? c.q_jx() : c.q_jy()].merge(o.momentum);
+            acc.transfers[c.q_energy()].merge(o.energy);
         }
         if (corrected) {
             const auto apply_edge = [&](std::size_t fidx, std::size_t col, std::size_t row, bool normal_edges, std::size_t& local_limited) {

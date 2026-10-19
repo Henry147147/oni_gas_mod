@@ -67,7 +67,10 @@ at the interval endpoint runs the whole interval through the reference
 implementation, so full-range arithmetic is used only for flagged values.
 Uncertain material-temperature or caloric boundaries also request the strict
 reference, retaining consumed attempts. A certified static state can advance
-unchanged at such a boundary. Below-range values are admitted. Roundoff-level transverse momentum on large
+unchanged at such a boundary. A flagged intermediate that loses a representable
+final pressure sweep also refines through the strict interval, retaining consumed
+attempts. Subnormal cell-volume/face-area geometry uses that reference directly.
+Below-range values are admitted. Roundoff-level transverse momentum on large
 grids decays far below binary64's normal range within a few intervals;
 falling back for it made the 160x160 wave about 100 times slower than
 necessary. Full-range canonical momentum is projected, subnormal results
@@ -139,6 +142,23 @@ allowance; the original interval bound is unchanged.
 The saved Wine review rejected an explicit libm-FMA error transform near the
 smallest-normal boundary. The split-product transform avoids that dependency.
 
+A below-range velocity or swept volume is not itself a material transfer:
+subsequent multiplication can produce a representable parcel. Flagged pressure
+sweeps therefore retain their full value and sign until parcel formation. A
+derived lookup is allocated only when a flagged face appears, and only its
+previously flagged entries are cleared. It has no saved continuation state.
+Each donor forms the full parcel before one explicit storage projection; the
+receiver reads that same parcel. Ordinary sweep/product operation order stays
+unchanged. If a subnormal intermediate has instead erased a normal final sweep,
+the coupled pressure root refines through the strict reference.
+
+Dual momentum uses canonical `J * part / inertia` when its velocity is flagged,
+so a zero projected velocity cannot erase representable J. Flagged kinetic
+products normalize `J^2 / (2 inertia)` before sharing, rather than underflowing
+the specific kinetic energy first. Their transferred and retained projections
+use the same counted half-quantum ledger. This intentionally fixes the former
+large-inertia production fault and preserves representable trace arrivals.
+
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
 complete-EOS contacts when mixtures are present) and viscosity (rank-one
@@ -182,7 +202,8 @@ the same interval audit.
 - **Rounding.** Primary storage is binary64; updates that leave a stored value
   unchanged are counted (`unresolved_updates`). Accepted below-range primal
   parcel products have per-quantity counts and exact error ledgers, independently
-  checked against their counted half-quantum allowance.
+  checked against their counted half-quantum allowance. Flagged dual J/K
+  products use the same ledgers, including retained K projections.
 - **Entropy.** The interval rejects a decrease of total stored-state entropy
   beyond `128 eps sum(|U|/T)` over both endpoints.
 - **Unchanged.** Atomicity (a failed interval publishes nothing), checkpoint
@@ -289,14 +310,15 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-46 CTests pass. Eight suites (the six production-kernel controls, composed
-diffusion rounding and the legacy checkpoint) pass Debug ASan/UBSan; ten pass
-MinGW 13 under Wine 10. Six production/range suites (checkpoint, contract,
-multigrid, saved accounts, diffusion rounding and parcel rounding) pass
-ThreadSanitizer. The
+47 CTests pass. Eight suites (the seven production-kernel controls and composed
+diffusion rounding) pass Debug ASan/UBSan and MinGW 13 under Wine 10. Seven
+production/range suites (checkpoint, contract, multigrid, saved accounts,
+diffusion rounding, parcel rounding and flagged transport) pass ThreadSanitizer. The
 independent production review passes on Release, ASan/UBSan, TSan and Wine.
-Against `5595de2`, all 61 preceding MAC executable exits and physical outputs
-agree: 59 output streams are byte-identical and two differ only in timing.
+Against `513a0e2`, all 62 preceding MAC executable exits and physical output
+records agree: 59 output streams are byte-identical, two differ only in timing,
+and one adds the intended dual-projection counts (`TTHREAD`: `4/8/10` becomes
+`4/554/88`). Its product and endpoint mass records remain byte-identical.
 The new diffusion-rounding suite independently checks quantized Heun transfers,
 shared-budget rollback, tiny ternary retry and spreading-front continuation.
 Its saved reader passes 2,690 checks/six corruptions on all four routes; the
@@ -323,12 +345,30 @@ build-production/ma_mac_kernel_rounding_tests > /tmp/mac-parcel-rounding.txt
 python3 native/tests/review_mac_kernel_rounding.py /tmp/mac-parcel-rounding.txt
 ```
 
+`ma_mac_kernel_range_tests` (CTest `mac_production_flagged_transport`) scales
+inventories by `2^420` and uses canonical J `±2^-700`. The former production
+implementation exhausted 32 attempts after its derived velocity rounded to
+zero; the strict reference advanced in one. The flagged path now advances in
+one attempt and matches the reference endpoint, including a
+`3.5355459982430231e-205` tracer arrival. Signed x/y, zero/one/two-quantum
+arrivals and per-quantity J/K error ledgers pass. A 33,389-cell control retains
+exact one/twelve-worker state and counts (100,167 projections), clears the
+cache before ordinary owners, and restores ordinary production continuation.
+The saved-only `review_mac_kernel_range.py` derives the physical transfer and
+J/K projection errors from independent exact fractions: 916 checks and seven
+altered captures rejected. A wide-area control requires a strict interval
+restart and proves one discarded attempt remains charged; concurrent owners
+retain separate caches. A flagged tracer also crosses a fixed row-block boundary
+with the same shared transfer on one and twelve workers. All four saved reviewers
+pass on Release, ASan/UBSan, TSan and Wine. These controls do not certify
+active-cell performance.
+
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
 Five-interval 256- and 4,096-cell production wave checkpoints also retain every
 version-6 byte against the preceding binary. Fresh-process gas and multigrid
 images from Linux and Wine continue byte-identically on both, in both source
-directions. The new subnormal helium/passive trace images also continue exactly
+directions. Subnormal helium/passive and flagged-sweep images also continue exactly
 in fresh Linux/Wine processes, in both source directions. These are Wine controls,
 separate from actual Windows OS evidence.
 Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
@@ -473,8 +513,12 @@ do not certify current automatic-multigrid active-cell performance.
 - Diffusion inside the kernel (the stage slot above), swept reconstruction,
   momentum selectors 2–5 and coupled compressive pressure are not ported.
 - Below-range primal parcel products and composed diffusion transfers are counted
-  and audited. Other transient momentum/energy operations still lack per-value
-  rounding ledgers; interval endpoints and inputs retain range checks. A control
-  with inventories scaled by `2^420` and representable face J `2^-700` underflows
-  its derived velocity: production exhausts 32 attempts, while the strict
-  reference advances in one. Derived-velocity/dual-transport refinement is open.
+  and audited. Flagged sweeps preserve range until parcel formation, and dual
+  J/K products retain canonical momentum and count their projections. Other
+  pressure, regularization and heat-deposition transients still lack complete
+  per-value rounding ledgers; interval endpoints and inputs retain range checks.
+- A normal sweep divided by a very large material volume can still underflow
+  its parcel share before a representable transfer is formed. With cell volume
+  `2^450` and J `2^-200`, production loses a `3.9806709100596318e-190` tracer
+  arrival that the strict reference retains. Extending flag handling to that
+  ratio remains open before calm/local stepping.

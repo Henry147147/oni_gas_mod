@@ -1,6 +1,18 @@
 #include "mac_kernel_detail.hpp"
 
 namespace ma::experimental::mac_kernel {
+namespace {
+void record_error(TransferRounding& ledger, const MacEnergySum& difference) {
+    const int sign = difference.sign();
+    if (sign == 0) return;
+    if (ledger.count == std::numeric_limits<std::size_t>::max()) precision("Production parcel rounding counter overflow");
+    ++ledger.count;
+    for (std::size_t j = 0; j < difference.size(); ++j) {
+        const auto term = difference.component(j);
+        ledger.error.add(sign < 0 ? term.negated() : term);
+    }
+}
+}
 void TransferRounding::product(double a, double b, double stored) {
     if (a == 0 || b == 0 || std::abs(stored) > std::numeric_limits<double>::min()) return;
     require(std::isfinite(a) && std::isfinite(b) && std::isfinite(stored), "Nonfinite production parcel product");
@@ -24,14 +36,11 @@ void TransferRounding::product(double a, double b, double stored) {
     difference.add(MacEnergy::from_double(high).shifted(ea + eb));
     difference.add(MacEnergy::from_double(low).shifted(ea + eb));
     difference.add(-stored);
-    const int sign = difference.sign();
-    if (sign == 0) return; // An exactly representable subnormal is not a rounding.
-    if (count == std::numeric_limits<std::size_t>::max()) precision("Production parcel rounding counter overflow");
-    ++count;
-    for (std::size_t j = 0; j < difference.size(); ++j) {
-        const auto term = difference.component(j);
-        error.add(sign < 0 ? term.negated() : term);
-    }
+    record_error(*this, difference); // Exactly representable subnormals do not count.
+}
+void TransferRounding::projection(MacEnergy value, double stored) {
+    MacEnergySum difference; difference.add(value); difference.add(-stored);
+    record_error(*this, difference);
 }
 void TransferRounding::merge(const TransferRounding& other) {
     if (other.count > std::numeric_limits<std::size_t>::max() - count) precision("Production parcel rounding counter overflow");

@@ -36,6 +36,9 @@ inline void require(bool ok, const char* why) { if (!ok) throw std::invalid_argu
 // An ordinary EOS calculation cannot decide a material/caloric boundary.
 // The driver restarts through the strict reference and retains consumed attempts.
 struct EosRefinement {};
+// A flagged intermediate cannot be rounded without changing a representable
+// result needed by the coupled solve. Restart through the validation oracle.
+struct ArithmeticRefinement {};
 
 // Error-free double-double accumulator for audits and reductions.
 struct DD {
@@ -200,16 +203,35 @@ struct Exec {
 };
 
 // ---------------------------------------------------------------- stages
-// Exact errors of flagged binary64 parcel products. Ordinary products never
-// enter range arithmetic. Accepted shared parcels have one ledger entry,
-// independent of the number of endpoints that use them.
+// Exact additive errors of flagged products/projections. Ordinary products
+// never enter range arithmetic. Accepted shared parcels have one ledger entry,
+// independent of the number of endpoints that use them; retained K is separate.
 struct TransferRounding {
     std::size_t count = 0;
     MacEnergySum error;
     void product(double a, double b, double stored);
+    void projection(MacEnergy value, double stored);
     void merge(const TransferRounding&);
     [[nodiscard]] MacEnergy bound() const;
     [[nodiscard]] bool within_bound() const;
+};
+// Dense lookup is allocated only after a flagged face appears. Clearing only
+// those faces avoids a range-object pass on subsequent ordinary substeps.
+// No physical state or continuation history is kept here.
+struct FlaggedSweeps {
+    std::vector<MacEnergy> values;
+    std::vector<Index> faces;
+    void reset(std::size_t size) {
+        if (values.size() != size) values.clear();
+        else for (const auto face : faces) values[face] = {};
+        faces.clear();
+    }
+    void set(std::size_t size, Index face, MacEnergy value) {
+        if (value.is_zero()) return;
+        if (values.empty()) values.resize(size);
+        values[face] = value; faces.push_back(face);
+    }
+    [[nodiscard]] const MacEnergy* data() const { return faces.empty() ? nullptr : values.data(); }
 };
 struct Accounts {
     // Operand magnitudes for the 128-epsilon interval bound and counted
@@ -242,6 +264,7 @@ struct Workspace {
     std::vector<double> cell_mass, mass_after, ix, iy, ix1, iy1, inv_ix, inv_iy, dp0x, dp0y, wx, wy, bdiag;
     std::vector<double> dV, dW, cc, res, sx, sy, tdV, tdW, tcc, tres, sol, Vmat, dU, tdU;
     std::vector<double> qx, qy, body_work_y;
+    FlaggedSweeps full_qx, full_qy;
     std::vector<double> lr, lz, lp, lq, lAp, ldiag;
     // Transport: per-face parcel contents (F fields: K species, U, P
     // passives), per-cell retained contents, primal mass fluxes.
