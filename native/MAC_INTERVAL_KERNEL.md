@@ -50,6 +50,15 @@ Discarded third components remain tagged even if later additions cancel the
 surviving double-double tail.
 The first port does not yet use the permission to round below-range transfers.
 
+Pressure differences, geometric residuals and primary-field gathers seed their
+accumulators directly from an already checked finite first operand. This removes
+the error-free addition against zero; subsequent two-sum operations and discarded
+component flags are unchanged. Native and ASan output remains byte-identical to
+the preceding binary, as does the Windows-target output on Wine. A 33,153-cell
+continuation with one, four and twelve workers and the Windows-target four-worker
+continuation retain the preceding checkpoint bytes. These arithmetic controls
+do not establish the colony timing gate.
+
 Every constituent and passive quantity, both momentum components with wall
 impulses, and actual endpoint U+K must reconcile within `128 epsilon` times
 their absolute endpoint operands. Normal accounts use double-double sums. An

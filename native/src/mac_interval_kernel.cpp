@@ -251,8 +251,14 @@ struct Kernel {
     }
     double pressure_gradient(const Face& f) const {
         Sum d;
-        if (f.left != none) { d.add(current[f.left].pressure); d.add(increment[f.left]); }
-        if (f.right != none) { d.add(-current[f.right].pressure); d.add(-increment[f.right]); }
+        // Readings already checked these finite pressures. The first exact
+        // operand needs no two-sum against zero and cannot discard a limb.
+        if (f.left != none) { d.hi = current[f.left].pressure; d.add(increment[f.left]); }
+        if (f.right != none) {
+            if (f.left == none) d.hi = -current[f.right].pressure;
+            else d.add(-current[f.right].pressure);
+            d.add(-increment[f.right]);
+        }
         return normal(d.value());
     }
     double evaluate(const Fields& fields, std::span<const double> volumes, double dt) {
@@ -267,8 +273,8 @@ struct Kernel {
             double norm = 0;
             const auto begin = 256 * block, end = std::min(begin + 256, current.size());
             for (auto i = begin; i < end; ++i) if (!source.grid.walls[i]) {
-                const auto& f = topology.cell_faces[i]; Sum value;
-                value.add(volumes[i]); value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
+                const auto& f = topology.cell_faces[i]; Sum value{volumes[i] + 0., 0};
+                value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
                 value.add(sweep[1][f[2]]); value.add(-sweep[1][f[3]]);
                 residual[i] = normal(value.value()); norm = std::max(norm, std::abs(residual[i]) / source.grid.volume_m3());
             }
@@ -408,7 +414,7 @@ struct Kernel {
                 std::max(0., -sweep[1][f[2]]) + std::max(0., sweep[1][f[3]]);
             if (!(material_volume[i] > 0) || outgoing > settings.maximum_outgoing_volume_fraction * material_volume[i])
                 throw std::domain_error("Interval pressure material-volume CFL exceeded");
-            StoredSum energy; energy.add(from.u()[i]); energy.add(-product(pressure[i], swept));
+            StoredSum energy; energy.hi = from.u()[i] + 0.; energy.add(-product(pressure[i], swept));
             pressure_u[i] = primary(energy, from.u()[i], rounding);
             step.maximum_geometric_residual_m3 = std::max(step.maximum_geometric_residual_m3, std::abs(dv[i] - swept));
         }
@@ -429,7 +435,7 @@ struct Kernel {
             }
             for (std::size_t i = 0; i < values.size(); ++i) {
                 if (source.grid.walls[i]) { to.q[k][i] = 0; continue; }
-                const auto& f = topology.cell_faces[i]; StoredSum value; value.add(values[i]);
+                const auto& f = topology.cell_faces[i]; StoredSum value; value.hi = values[i] + 0.;
                 value.add(scalar_flux[0][f[0]]); value.add(-scalar_flux[0][f[1]]);
                 value.add(scalar_flux[1][f[2]]); value.add(-scalar_flux[1][f[3]]);
                 const double v = primary(value, values[i], rounding);
