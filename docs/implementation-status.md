@@ -318,13 +318,14 @@ helper tests also run independently. The authorized `3fbccfb` gravity entropy
 credit is recorded in the central numerical contract. Production Linux/Proton
 game validation remains open.
 
-The last measured automatic-multigrid baseline fails the real-time targets: two pinned
-21-interval evolving-wave runs with the pressure-storage ledger, before persisted
-primary U, measure p95
-467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000, before
-adapters, on the shared Ryzen 9 5900X (sampled loads 16.01–20.83). Every cell
-changes. Workspace is about 1.6 KiB/cell; standalone peak RSS is 753.3 MiB
-at 250,000 (3,159 B/cell). Additional game/adapter memory and colony FPS remain
+The current `06e88fd` automatic-multigrid baseline with persisted U fails the
+real-time targets: two pinned 21-interval evolving-wave runs measure p95
+516–546 ms at 100,000 active cells and 1,388–1,391 ms at 250,000, before
+adapters, on the shared Ryzen 9 5900X (sampled loads 2.35–8.69). Every cell
+changes, all intervals pass conservation, and paired endpoint checkpoints match
+at all four measured sizes (4,096 / 65,536 / 100,000 / 250,000). Workspace is
+about 1.6 KiB/cell; standalone peak RSS is 805.6 MiB at 250,000 (3,379 B/cell).
+Additional game/adapter memory, colony FPS and the 32-duplicant workload remain
 unmeasured. See the
 [measured baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
 The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)

@@ -505,22 +505,23 @@ consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
 
 ## Current active-cell baseline
 
-At `a118fe9`, including the pressure-storage rounding ledger, the production
-kernel with automatic geometric multigrid, limited-linear material/momentum
-reconstruction and the unchanged 0.01 s maximum step remains over budget.
-Each capture advances 21 consecutive 0.1-second intervals of the 20 Pa wave;
-every cell changes, no equilibrium certificate is used, and there are no
-retries. Two captures per size use GNU 15.2 Release/IPO on the shared Ryzen
-9 5900X, pinned to logical CPUs 0–11 (one per physical core). Sampled endpoint
-1-minute loads are 16.01–20.83. Shared-host timing variance is substantial. These
-captures predate persisted primary U and do not certify its current cost.
+At `06e88fd`, including persisted primary U and the pressure-storage rounding
+ledger, the production kernel with automatic geometric multigrid, limited-linear
+material/momentum reconstruction and the unchanged 0.01 s maximum step remains
+over budget. Each capture advances 21 consecutive 0.1-second intervals of the
+20 Pa wave; every cell changes, no equilibrium certificate is used, and there
+are 212 substeps with no retries. Two captures per size use GNU 15.2 Release/IPO
+on the shared Ryzen 9 5900X, pinned to logical CPUs 0–11 (one per physical core).
+One-minute host loads sampled every five seconds range from 2.35 to 8.69.
+These are current-kernel measurements, not a controlled comparison with earlier
+commits under different host load.
 
 | Active cells (shape) | Workers used | p50 ms, runs 1 / 2 | p95 ms, runs 1 / 2 | Workspace B/cell | Peak process RSS B/cell, runs 1 / 2 |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 4,096 (64×64) | 4 | 38.80 / 37.44 | 46.17 / 40.80 | 1,594 | 5,840 / 5,777 |
-| 65,536 (256×256) | 12 | 317.61 / 298.99 | 373.37 / 379.00 | 1,617 | 3,270 / 3,262 |
-| 100,000 (400×250) | 12 | 433.88 / 429.74 | 467.38 / 533.14 | 1,656 | 3,220 / 3,216 |
-| 250,000 (500×500) | 12 | 1,503.61 / 1,824.78 | 1,721.04 / 3,196.87 | 1,603 | 3,159 / 3,159 |
+| 4,096 (64×64) | 4 | 28.75 / 35.55 | 36.70 / 41.03 | 1,642 | 5,765 / 5,959 |
+| 65,536 (256×256) | 12 | 261.58 / 303.61 | 277.89 / 329.49 | 1,665 | 3,466 / 3,457 |
+| 100,000 (400×250) | 12 | 489.69 / 469.06 | 545.72 / 516.42 | 1,704 | 3,410 / 3,408 |
+| 250,000 (500×500) | 12 | 1,312.20 / 1,334.42 | 1,390.68 / 1,388.24 | 1,651 | 3,375 / 3,379 |
 
 Reproduce each shape twice with:
 
@@ -534,11 +535,11 @@ taskset -c 0-11 python3 tools/run_mac_playtest_benchmark.py \
 
 The paired endpoint checkpoints are byte-identical. Captures, executable/source
 hashes, sampled loads and `/usr/bin/time` peak-RSS receipts are in
-`local/active-scaling-a118-v1/`.
+`local/active-scaling-primary-u-v1/`.
 These are solver-only timings: neither 25 ms at 100,000 cells nor 62.5 ms at
-250,000 passes, before adapter cost. Workspace is 382.2 MiB at 250,000;
+250,000 passes, before adapter cost. Workspace is 393.7 MiB at 250,000;
 it includes cached multigrid/topology. Peak command-process RSS at 250,000 is
-753.3 MiB, including standalone owner copies and the benchmark wrapper. Neither
+805.6 MiB, including standalone owner copies and the benchmark wrapper. Neither
 measurement establishes additional game/adapter memory. Resolved-reference accuracy, colony
 rendering and the 32-duplicant workload are not measured by these captures.
 
@@ -690,10 +691,10 @@ do not certify current automatic-multigrid active-cell performance.
 ## Remaining work
 
 - Real-time target: open. The last measured automatic-multigrid baseline has p95
-  1,721–3,197 ms per 0.1 s at 250,000 active cells and 467–533 ms at
-  100,000, against 62.5/25 ms, before adapter cost. This `a118fe9` baseline
-  includes the pressure-storage ledger but predates persisted primary U;
-  current active-cell timing remains unmeasured.
+  1,388–1,391 ms per 0.1 s at 250,000 active cells and 516–546 ms at
+  100,000, against 62.5/25 ms, before adapter cost. This `06e88fd` baseline
+  includes persisted primary U and the pressure-storage ledger. Colony FPS,
+  additional game/adapter memory and the 32-duplicant workload remain unmeasured.
 - Persisted production selection and automatic geometric multigrid are
   implemented; measured active-cell timing with these defaults fails the targets.
   The saved reviewers are ported and the narrower interval kernel is retired.

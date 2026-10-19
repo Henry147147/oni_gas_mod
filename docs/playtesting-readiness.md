@@ -138,17 +138,17 @@ also pass collision.
   U-enabled LinuxPlayer and WindowsPlayer/Proton water-heat save/reload pass
   paused frame-zero saving and 120 exact continued frames. Actual Windows OS,
   the remaining current-package game cohort and volume remainders remain open.
-- Active-cell performance is open. The consolidated
-  [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
-  baseline with automatic multigrid and the pressure-storage ledger, before
-  persisted primary U, measures p95
-  467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000 per 0.1
+- Active-cell performance is open. The `06e88fd`
+  [production-kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline)
+  with automatic multigrid, persisted U and the pressure-storage ledger measures
+  p95 516–546 ms at 100,000 active cells and 1,388–1,391 ms at 250,000 per 0.1
   simulated seconds on twelve workers, against 25/62.5 ms before adapters.
   Each shape has two pinned 21-interval evolving-wave captures on the shared
-  Ryzen 9 5900X (sampled loads 16.01–20.83). All cells change; no equilibrium
-  certificate is used. Workspace is about 1.6 KiB/cell; standalone peak RSS
-  is 753.3 MiB at 250,000 (3,159 B/cell). Additional game/adapter memory, FPS
-  and the 32-duplicant workload remain unmeasured. The user has relaxed per-stage numerical
+  Ryzen 9 5900X, with loads sampled every five seconds (2.35–8.69). Every cell
+  changes; all conservation checks pass and paired checkpoints match at all four
+  measured sizes. Standalone peak RSS is 805.6 MiB at 250,000 (3,379 B/cell).
+  Additional game/adapter memory, 32 duplicants and colony FPS remain unmeasured.
+  The user has relaxed per-stage numerical
   contracts to interval audits (2026-10-18).
   Geometric multigrid now uses the production pool, with cached geometry and
   pressure-active masks.
