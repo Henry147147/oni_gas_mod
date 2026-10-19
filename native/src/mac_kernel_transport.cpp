@@ -85,8 +85,11 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     source[F] = ws.proxy.data();
     const bool gas_only = model.liquids.empty();
     // ---- reconstruction: each donor writes its outgoing face parcels.
-    auto bt = c.exec.partials<std::size_t>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        std::size_t local_backtracks = 0;
+    struct Reconstruction { std::size_t backtracks = 0; std::vector<TransferRounding> rounding; };
+    auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        Reconstruction result; result.rounding.resize(c.quantities());
+        struct Product { std::size_t field; double a, b, stored; };
+        std::vector<Product> products; // At most four parcels per donor; reused across trials.
         std::vector<double> centre(L), sx(L), sy(L), lo(L), hi(L), proto(4 * F), keep(F);
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.W; ++col) {
             const auto i = col + row * g.W;
@@ -201,6 +204,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             // Parcels with EOS admission backtracking.
             bool accepted = false;
             for (int attempt = 0; attempt <= 33; ++attempt) {
+                products.clear();
                 bool ok = true;
                 for (std::size_t fld = 0; fld < F; ++fld) keep[fld] = source[fld][i];
                 for (int n = 0; n < count && ok; ++n) {
@@ -210,7 +214,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                         pr[fld] = theta == 0 ? source[fld][i] : source[fld][i] + (tx * sx[fld] + ty * sy[fld]);
                     if (!admissible(pr, Vi)) { ok = false; break; }
                     for (std::size_t fld = 0; fld < F; ++fld) {
-                        pr[fld] = pr[fld] * edges[n].share;
+                        const double value = pr[fld], share = edges[n].share;
+                        pr[fld] = value * share;
+                        if (value != 0 && share != 0 && std::abs(pr[fld]) <= std::numeric_limits<double>::min())
+                            products.push_back({fld, value, share, pr[fld]});
                         keep[fld] -= pr[fld];
                     }
                 }
@@ -230,9 +237,13 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 if (ok && !admissible(keep.data(), retained_volume)) ok = false;
                 if (ok) { accepted = true; break; }
                 if (theta == 0) break;
-                ++local_backtracks; theta = attempt < 32 ? theta * .5 : 0;
+                ++result.backtracks; theta = attempt < 32 ? theta * .5 : 0;
             }
             if (!accepted) reject("Production reconstruction EOS backtracking exhausted");
+            for (const auto& p : products) {
+                const auto q = p.field < K ? p.field : p.field == K ? c.q_energy() : p.field - 1;
+                result.rounding[q].product(p.a, p.b, p.stored);
+            }
             ws.theta[i] = theta;
             for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = keep[fld];
             for (int n = 0; n < count; ++n) {
@@ -246,9 +257,12 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 (edges[n].axis == 0 ? ws.fx : ws.fy)[edges[n].face] = edges[n].dir > 0 ? mass : -mass;
             }
         }
-        return local_backtracks;
+        return result;
     });
-    for (const auto b : bt) backtracks += b;
+    for (const auto& b : bt) {
+        backtracks += b.backtracks;
+        for (std::size_t q = 0; q < c.quantities(); ++q) acc.transfers[q].merge(b.rounding[q]);
+    }
     c.counters.reconstruction_backtracks += backtracks;
     if (c.options.collect_stage_timing) c.timing.reconstruction_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_reconstruction).count();
     // ---- primal gather: retained + incoming parcels; masses before/after.

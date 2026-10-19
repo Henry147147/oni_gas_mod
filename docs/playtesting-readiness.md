@@ -142,9 +142,15 @@ also pass collision.
   budget and row continuation controls pass. All four direct/composed physical/100×
   8,192-cell cases complete 400 frames with the original aggregate helium bound
   and unchanged bulk metrics. The saved reviews pass 2,690/131,154 checks,
-  rejecting six/three altered captures. All 45 Release CTests, nine ASan/UBSan
-  and MinGW/Wine suites, and five production/range ThreadSanitizer suites pass.
-  Active-advection transfer counts remain open. The in-game owner remains
+  rejecting six/three altered captures. All 46 Release CTests, eight ASan/UBSan,
+  ten MinGW/Wine and six production/range ThreadSanitizer suites pass.
+  Accepted below-range primal advection products now have exact error ledgers
+  and counts, with unchanged parcel values and endpoint bounds. An 8,192-cell
+  advected front completes 160 intervals with 44,420 rounded products and the
+  original aggregate tracer bound. The saved reader passes 50,825 checks/seven
+  altered captures; a 33,389-cell control preserves exact state/ledger results
+  with one/twelve workers, checkpoint continuation and rollback. Other transient
+  momentum/energy rounding ledgers remain open. The in-game owner remains
   reference pending step f. Supported
   legacy reference images retain their bytes and continuation. Calm-region/local
   steps, open physics gates,

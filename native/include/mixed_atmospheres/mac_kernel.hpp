@@ -53,6 +53,11 @@ struct MacKernelAudit {
     // Saved-data reviewers recompute the bound from independent endpoints
     // and this counted stage magnitude (entered as a cancelling pair).
     double stage_operand_magnitude = 0, below_range_allowance = 0;
+    // Accepted shared parcel products only. Their exact additive error is
+    // checked against one half of the smallest binary64 quantum per actual
+    // rounding; these antisymmetric flux errors add no endpoint allowance.
+    std::size_t rounded_transfers = 0;
+    MacEnergy transfer_roundoff, transfer_roundoff_bound;
     bool passed = false, escalated = false;
 };
 struct MacKernelStageTiming {
@@ -67,7 +72,7 @@ struct MacKernelReport {
     std::size_t eos_evaluations = 0, isentropic_evaluations = 0;
     std::size_t reconstruction_backtracks = 0, limited_momentum_corrections = 0;
     std::size_t compression_events = 0, shock_heat_events = 0, conduction_stages = 0, viscosity_modes = 0;
-    std::size_t rounded_range_inputs = 0, unresolved_updates = 0;
+    std::size_t rounded_range_inputs = 0, rounded_transfers = 0, unresolved_updates = 0;
     std::uint64_t cell_substeps = 0;
     // Threads that executed the interval (MacKernelOptions::threads capped
     // by the grid's row-block count).

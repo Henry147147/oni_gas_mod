@@ -125,6 +125,20 @@ limited-linear corrections with the reference pair limiter. Heat goes to cells
 by new half-mass shares; gravity adds the reference body-work/potential-flux
 adjustment.
 
+Below-range primal parcel products retain their existing binary64 values.
+`mac_kernel_rounding.cpp` measures each flagged product's exact error from
+normalized significands and a strict split-product transform, then sums
+its magnitude in full-range expansions. Exactly representable subnormals do
+not count. Only the accepted reconstruction trial contributes; discarded
+substeps and interval retries discard their ledgers. Fixed block reductions
+give the same counts/errors for every worker count. The interval checks each
+quantity's error against `rounded_transfers * 2^-1075`, publishes its full-range
+error/bound in `MacKernelAudit` and includes the count in the owner's
+`interval_rounded_updates`. Shared parcels add no endpoint conservation
+allowance; the original interval bound is unchanged.
+The saved Wine review rejected an explicit libm-FMA error transform near the
+smallest-normal boundary. The split-product transform avoids that dependency.
+
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
 complete-EOS contacts when mixtures are present) and viscosity (rank-one
@@ -166,7 +180,9 @@ the same interval audit.
   fixed row-block partials. A failed audit discards the interval and retries
   it with half the maximum step, then faults.
 - **Rounding.** Primary storage is binary64; updates that leave a stored value
-  unchanged are counted (`unresolved_updates`).
+  unchanged are counted (`unresolved_updates`). Accepted below-range primal
+  parcel products have per-quantity counts and exact error ledgers, independently
+  checked against their counted half-quantum allowance.
 - **Entropy.** The interval rejects a decrease of total stored-state entropy
   beyond `128 eps sum(|U|/T)` over both endpoints.
 - **Unchanged.** Atomicity (a failed interval publishes nothing), checkpoint
@@ -273,24 +289,48 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-45 CTests pass. Nine touched/owner suites pass Debug ASan/UBSan and MinGW 13
-under Wine 10. Five production/range suites (checkpoint, contract, multigrid,
-saved accounts and diffusion rounding) pass ThreadSanitizer. The
+46 CTests pass. Eight suites (the six production-kernel controls, composed
+diffusion rounding and the legacy checkpoint) pass Debug ASan/UBSan; ten pass
+MinGW 13 under Wine 10. Six production/range suites (checkpoint, contract,
+multigrid, saved accounts, diffusion rounding and parcel rounding) pass
+ThreadSanitizer. The
 independent production review passes on Release, ASan/UBSan, TSan and Wine.
-Against `c23bc36`, all 60 preceding MAC executable exits and physical outputs
-agree: 58 output streams are byte-identical and two differ only in timing.
+Against `5595de2`, all 61 preceding MAC executable exits and physical outputs
+agree: 59 output streams are byte-identical and two differ only in timing.
 The new diffusion-rounding suite independently checks quantized Heun transfers,
 shared-budget rollback, tiny ternary retry and spreading-front continuation.
 Its saved reader passes 2,690 checks/six corruptions on all four routes; the
 four 400-frame 8,192-cell captures pass 131,154 checks/three corruptions. Bulk
 metrics remain unchanged and the strict aggregate helium bound is retained.
 
+`ma_mac_kernel_rounding_tests` (CTest `mac_production_transfer_rounding`)
+exports 1,080 exact product controls, including zero, exact subnormals,
+ties, signs and the smallest-normal boundary. The saved-only
+`review_mac_kernel_rounding.py` checks their errors and merged expansion with
+exact fractions, then checks an 8,192-cell advected trace front against the
+original 128-epsilon aggregate inventory bound. It passes 50,825 checks and
+rejects seven altered captures on Release, ASan/UBSan, TSan and MinGW/Wine.
+The front completes 160 intervals with 44,420
+rounded products and helium in 7,028 cells. A 33,389-cell control executes twelve
+workers, preserves counts and bytes against one worker, restores ordinary
+production continuation and proves budget exhaustion publishes neither state
+nor a partial ledger. These are functional controls, not performance acceptance.
+
+Reproduce the saved review:
+
+```sh
+build-production/ma_mac_kernel_rounding_tests > /tmp/mac-parcel-rounding.txt
+python3 native/tests/review_mac_kernel_rounding.py /tmp/mac-parcel-rounding.txt
+```
+
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
 Five-interval 256- and 4,096-cell production wave checkpoints also retain every
 version-6 byte against the preceding binary. Fresh-process gas and multigrid
 images from Linux and Wine continue byte-identically on both, in both source
-directions. These are Wine controls, separate from actual Windows OS evidence.
+directions. The new subnormal helium/passive trace images also continue exactly
+in fresh Linux/Wine processes, in both source directions. These are Wine controls,
+separate from actual Windows OS evidence.
 Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
 reference images restore unchanged and selector-1 images explicitly reject.
 The original strong-flow, curved-nodal and vacuum-front failures remain open.
@@ -432,5 +472,9 @@ do not certify current automatic-multigrid active-cell performance.
   steps.
 - Diffusion inside the kernel (the stage slot above), swept reconstruction,
   momentum selectors 2–5 and coupled compressive pressure are not ported.
-- Below-range transients inside an interval round without per-value counting;
-  only interval endpoints and inputs are range-checked.
+- Below-range primal parcel products and composed diffusion transfers are counted
+  and audited. Other transient momentum/energy operations still lack per-value
+  rounding ledgers; interval endpoints and inputs retain range checks. A control
+  with inventories scaled by `2^420` and representable face J `2^-700` underflows
+  its derived velocity: production exhausts 32 attempts, while the strict
+  reference advances in one. Derived-velocity/dual-transport refinement is open.

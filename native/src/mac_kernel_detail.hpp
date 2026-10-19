@@ -200,14 +200,29 @@ struct Exec {
 };
 
 // ---------------------------------------------------------------- stages
+// Exact errors of flagged binary64 parcel products. Ordinary products never
+// enter range arithmetic. Accepted shared parcels have one ledger entry,
+// independent of the number of endpoints that use them.
+struct TransferRounding {
+    std::size_t count = 0;
+    MacEnergySum error;
+    void product(double a, double b, double stored);
+    void merge(const TransferRounding&);
+    [[nodiscard]] MacEnergy bound() const;
+    [[nodiscard]] bool within_bound() const;
+};
 struct Accounts {
     // Operand magnitudes for the 128-epsilon interval bound and counted
     // rounding allowances (per quantity: species, passives, jx, jy, energy).
     std::vector<double> operands, rounding;
+    std::vector<TransferRounding> transfers;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
     std::size_t unresolved = 0;
-    void resize(std::size_t quantities) { operands.assign(quantities, 0); rounding.assign(quantities, 0); }
+    void resize(std::size_t quantities) {
+        operands.assign(quantities, 0); rounding.assign(quantities, 0);
+        transfers.assign(quantities, {});
+    }
 };
 struct Counters {
     std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;

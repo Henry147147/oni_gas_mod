@@ -138,7 +138,7 @@ else()
     target_compile_options(ma_mac_compressive_eos_reuse_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
 endif()
 # Production substep kernel (native/MAC_KERNEL.md), built into the owner library.
-set(MA_MAC_KERNEL_SOURCES native/src/mac_kernel.cpp native/src/mac_kernel_eos.cpp native/src/mac_kernel_parallel.cpp
+set(MA_MAC_KERNEL_SOURCES native/src/mac_kernel.cpp native/src/mac_kernel_rounding.cpp native/src/mac_kernel_eos.cpp native/src/mac_kernel_parallel.cpp
     native/src/mac_kernel_pressure.cpp native/src/mac_kernel_transport.cpp native/src/mac_kernel_regularization.cpp
     native/src/mac_kernel_physical.cpp)
 add_library(ma_mac_reconstruction STATIC EXCLUDE_FROM_ALL native/src/mac_reconstruction.cpp)
@@ -275,7 +275,7 @@ add_executable(ma_mac_closed_world_tests EXCLUDE_FROM_ALL native/tests/mac_close
 target_link_libraries(ma_mac_closed_world_tests PRIVATE ma_mac_closed_world)
 add_executable(ma_mac_equilibrium_tests EXCLUDE_FROM_ALL native/tests/mac_equilibrium_tests.cpp)
 target_link_libraries(ma_mac_equilibrium_tests PRIVATE ma_mac_closed_world)
-foreach(kernel_test ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests ma_mac_kernel_multigrid_tests ma_mac_kernel_checkpoint_tests ma_mac_kernel_saved_tests)
+foreach(kernel_test ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests ma_mac_kernel_multigrid_tests ma_mac_kernel_checkpoint_tests ma_mac_kernel_saved_tests ma_mac_kernel_rounding_tests)
     string(REPLACE "ma_mac_kernel_" "mac_kernel_" kernel_source "${kernel_test}")
     add_executable(${kernel_test} EXCLUDE_FROM_ALL native/tests/${kernel_source}.cpp)
     target_link_libraries(${kernel_test} PRIVATE ma_mac_closed_world)
