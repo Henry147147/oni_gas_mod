@@ -23,7 +23,9 @@ persistent storage. Checked [normal and flagged-range arithmetic primitives](../
 retain otherwise lost heat increments and resolve composed-sum ties from all
 retained terms, with independent saved checks and
 ASan/UBSan, ThreadSanitizer and MinGW/Wine controls. They have no solver-state
-or checkpoint binding; these controls do not close the physics gate.
+or checkpoint binding. Checkpoint version 10 is reserved for the staged U
+remainder integration; it is not yet accepted or written by the current solver.
+These controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present
 constituents and incoming donors, removing the former 16-million-slot product cap.
 A 4,097-species/4,096-cell EOS parcel control passes; primary inventories and

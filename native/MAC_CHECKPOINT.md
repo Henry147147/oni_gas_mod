@@ -75,6 +75,10 @@ current binary has.
 
 ### Version assignment
 
+Version **10 is reserved for Codex's persistent primary-U remainder work**.
+That integration is staged and unselected: the current reader and writer still
+stop at version 9. Other checkpoint extensions must use a later free version.
+
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. Any void-phase owner writes
 version 9. Retired layouts remain listed for explicit rejection:

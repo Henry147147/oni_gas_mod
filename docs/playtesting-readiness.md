@@ -131,7 +131,8 @@ also pass collision.
   [two-part arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md) pass
   independent saved checks including composed-sum ties, ASan/UBSan,
   ThreadSanitizer and MinGW/Wine controls,
-  but have no solver-state or checkpoint binding.
+  but have no solver-state or checkpoint binding. Checkpoint version 10 is
+  reserved for the staged U integration and is not yet selected by the solver.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
   with automatic multigrid and the pressure-storage ledger measures p95

@@ -22,8 +22,8 @@ caller's unchanged operand audit. Range rounding compares the retained exact
 expansion with adjacent significands, resolving composed-sum ties before storage;
 `MacEnergySum::value()` alone is only an estimate. Malformed range projections and overflowing
 high parts reject. Both kernels' U writes, energy audits, checkpoint continuation
-and owner save framing remain to be connected. The new format version has not
-been allocated. Existing reference trajectories and checkpoint bytes stay intact.
+and owner save framing remain to be connected. Checkpoint version 10 is reserved for this integration, but is not yet accepted
+or written by the current solver. Existing reference trajectories and checkpoint bytes stay intact.
 
 ## Component controls
 
