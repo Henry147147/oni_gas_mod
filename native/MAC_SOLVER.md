@@ -157,7 +157,9 @@ kernel is checked once per completed interval instead of in every stage:
   resolution, and transfers below binary64 range, may round. Each rounding is
   counted and included in the audited bound. Fields are still never clipped,
   floored or renormalized to close an account, and a positive constituent is
-  never removed by repair.
+  never removed by repair. A positive transfer below binary64 range may round
+  instead of rejecting the step (user decision, 2026-10-19); only such counted
+  rounding can take a positive inventory to zero.
 - **Entropy.** The interval rejects a decrease in total stored-state entropy
   beyond `128 ε Σ(|U|/T)` over its endpoints. Per-stage entropy admission is no
   longer required.

@@ -50,6 +50,22 @@ Amendments:
   approximations, for the production kernel. Fluxes stay shared between
   differently stepped regions, so conservation holds by construction. Accuracy
   is still judged against resolved references with the tolerances below.
+- **Kernel consolidation, 2026-10-19 (user decision):** consolidate on the
+  production kernel (`MacExecutionPolicy::production`, `native/MAC_KERNEL.md`).
+  Port the interval kernel's multigrid preconditioner and saved-data reviewers
+  into it, persist the kernel selection in checkpoints so saves continue
+  exactly, then retire the interval kernel. The reference implementation stays
+  as the validation oracle.
+- **Below-range transfers, 2026-10-19 (user decision):** a positive transfer
+  too small to store in binary64 may round, with every such rounding counted
+  in the interval audit, instead of rejecting the step. This removes the
+  trace-front faults of diffusion and transport in large rooms.
+- **Playtest scope, 2026-10-19 (user decision):** the first ten-cycle playtest
+  covers the base game and Spaced Out!. The gameplay packs follow later.
+- **Workflow, 2026-10-19 (user decision):** one Codex session works milestone
+  by milestone in the execution order below and stops at each milestone exit
+  with an evidence report for review. Windows evidence comes from
+  WindowsPlayer under Proton for now; actual Windows OS runs remain open.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;

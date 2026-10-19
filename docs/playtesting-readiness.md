@@ -80,9 +80,9 @@ saves, fresh-process loads and natural autosaves
 - Fluid/solid heat exchange at interior faces, and solids that melt, fall or
   are dug inside the owner.
 - More than one owner, and Spaced Out! worlds.
-- Vacuum and free surfaces. Both the in-game owner and the MAC solver reject
-  empty cells. The separate `FluidWorld`
-  [gas/vacuum front gate](../native/GAS_VACUUM.md) also fails.
+- Vacuum and free surfaces. `MacClosedWorld` admits exact empty cells
+  ([vacuum](../native/MAC_VACUUM.md)), but its vacuum-front accuracy gate fails
+  and the in-game owner still rejects empty cells. Free surfaces are open.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
 - Whole-world import. The Windows import staged 50,368 fluid cells, then
@@ -122,8 +122,11 @@ also pass collision.
 - Active-cell performance; see [measurements](#reproduce-measurements). The
   [scaling analysis](solver-scaling-analysis.md) measures the current substep
   at about 6,500–8,900× over the 250,000-cell budget. The user has relaxed the
-  per-stage numerical contracts to interval-level audits (2026-10-18), so the
-  substep kernel can be replaced; that kernel is not yet written.
+  per-stage numerical contracts to interval-level audits (2026-10-18). The
+  [production kernel](../native/MAC_KERNEL.md), chosen for consolidation on
+  2026-10-19, matches the reference to roundoff and takes about 1.16 s per
+  0.1 s at 250,000 cells on 12 threads, about 19× over the budget. Multigrid,
+  calm-region steps and in-game use are still open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without
@@ -240,11 +243,8 @@ behind `ma_oni_domain_*`.
    replaces and is not used. The managed `FluidWorld`/coupled path
    ([coupled ABI](../native/COUPLED_ABI.md)), which has no game frame hook, is
    not the production route.
-3. **Open:** define the playtest coverage subset by configuration (base game,
-   Spaced Out!) or by reachable gameplay systems.
-
-The work plan proceeds with items that hold under either answer to the open
-decisions.
+3. **Decided 2026-10-19:** the first ten-cycle playtest covers the base game
+   and Spaced Out!. The gameplay packs follow later.
 
 ## Work plan
 
