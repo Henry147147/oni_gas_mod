@@ -494,3 +494,16 @@ pass, as do two Windows-target tests under Wine, all 40 frozen Ubuntu 22.04
 tests and 297 Python tests with four skips. Private evidence is under
 `local/solid-heat-startup-v1/`; these startup controls are separate from the
 earlier Unity publication evidence above and from actual Windows OS acceptance.
+
+Fresh Unity checks of the atomic-startup package also pass on Linux and in
+WindowsPlayer under official Proton 10.0-4b. Each source/save run has 121
+contact-bearing frames and each fresh-process reload has 120, with zero
+published-temperature heat residual, a paused frame-zero resave and 120 exact
+resumed input replays. The represented heat remains 87.51526116611785 J and
+86.79199454491027 J respectively; the unchanged endpoint bounds are about
+1.688e-7 J on Linux and 1.678e-7 J under Proton. Reports and package hashes
+are in `unity-linux-matrix-v2/` and `unity-proton-matrix/` under the private
+startup evidence directory. The first Linux launch attempt was rejected by
+the shared runner operation lock before starting the game; it is retained
+separately. These bounded controls do not establish whole-colony heat or
+Windows OS/MSVC acceptance.

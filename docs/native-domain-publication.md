@@ -110,3 +110,8 @@ input replays. The first attempt failed before launching ONI because the
 selected Proton tool was nested under the sandbox's read-only Steam mount;
 the successful run uses the separately staged installation. The private
 Windows host still refuses SSH, so this does not add Windows OS/MSVC evidence.
+
+The later [atomic solid-boundary startup repair](native-domain-physics.md#native-solid-cell-heat)
+passes fresh Linux and Proton source/save/reload matrices too, with 121/120
+contact frames, zero endpoint residual and 120 exact resumed input replays.
+Both source and restore completion paths wait for the final released lease.
