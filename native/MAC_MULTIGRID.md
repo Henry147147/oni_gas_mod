@@ -41,10 +41,23 @@ and range decisions remain unchanged.
 
 An immutable topology is built once and shared across unchanged owner geometry.
 Heat and fluid transfers keep it; all numerical coefficients are replaced for
-every Newton solve. Mutable workspaces belong to one advance and are reused
-within its interval. A geometry-changing operation must replace the cache.
+every Newton solve. Related owners retain one mutable pressure workspace and
+lease it exclusively for an advance. Concurrent branches can use different
+inventories and timesteps without sharing coefficients during a solve. Rejected
+attempts release the lease too. Each application starts its downward correction
+from zero, so previous vectors never supply continuation history. A
+geometry-changing operation must replace the cache.
 Checkpoint restoration rebuilds it. Cache state never changes the continued
 physical result, so no derived cache bytes are serialized.
+
+The interval control compares concurrent heated/unheated branches, subsequent
+reuses and fresh checkpoint restores. It passes fatal ASan/UBSan and
+ThreadSanitizer, and its Windows executable passes under Wine. Output remains
+identical to the preceding binary on each tested platform. Full native output and a 33,153-cell
+continuation remain byte-identical with one, four and twelve workers. This
+retains the hierarchy's vectors and coarse factorization storage between
+intervals; the remaining candidate field buffers are still constructed per
+interval. It does not establish real-time performance acceptance.
 
 The first downward correction is computed directly from its exactly zero
 initial value. Remaining smoothing stages gather each residual and write the

@@ -115,7 +115,8 @@ struct Kernel {
     MacClosedAdvanceReport report;
     std::size_t selected = 0;
     std::size_t active_cells = 0, topology_builds = 0;
-    std::unique_ptr<interval_detail::PressureMultigrid> multigrid;
+    std::unique_lock<std::mutex> multigrid_lock;
+    interval_detail::PressureMultigrid* multigrid = nullptr;
 
     static std::vector<Gas> gas_models(const SpeciesRegistry& registry, const FluidThermodynamics& model,
         const MacTransportState& input) {
@@ -346,7 +347,10 @@ struct Kernel {
                 std::call_once(cache.multigrid_once, [&] {
                     cache.multigrid = std::make_shared<const interval_detail::PressureMultigridTopology>(source.grid); ++topology_builds;
                 });
-                multigrid = std::make_unique<interval_detail::PressureMultigrid>(cache.multigrid);
+                multigrid_lock = std::unique_lock(cache.multigrid_workspace_mutex);
+                if (!cache.multigrid_workspace)
+                    cache.multigrid_workspace = std::make_unique<interval_detail::PressureMultigrid>(cache.multigrid);
+                multigrid = cache.multigrid_workspace.get();
             }
             use_multigrid = multigrid->prepare(compliance, conductance[0], conductance[1]);
             if (use_multigrid) {

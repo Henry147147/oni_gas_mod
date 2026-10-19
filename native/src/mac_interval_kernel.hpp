@@ -8,6 +8,10 @@ struct MacIntervalCandidate { MacTransportState state; MacClosedAdvanceReport re
 struct MacIntervalCache {
     std::once_flag multigrid_once;
     std::shared_ptr<const interval_detail::PressureMultigridTopology> multigrid;
+    // Related immutable owners share one reusable numerical workspace. A
+    // solver leases it exclusively; coefficients are replaced before use.
+    std::mutex multigrid_workspace_mutex;
+    std::unique_ptr<interval_detail::PressureMultigrid> multigrid_workspace;
 };
 // An absent result requests the unchanged reference interval from its original
 // source. No partial state or numerical history escapes a declined fast path.
