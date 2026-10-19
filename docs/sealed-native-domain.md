@@ -55,9 +55,11 @@ there is no managed advance timer.
 rooms. Supported reference saves retain their exact idle image and migrate on
 the first live frame; its journal records production flag 4. Historical
 unflagged replay and stateless continuation preserve the saved selection.
-Native regression evidence covers this transition. The existing Linux and
-Proton Unity scene/save evidence predates it; production game revalidation is
-still open.
+Native regression evidence covers this transition. Production gas saves and
+fresh-process reloads pass Linux Unity, including paused frame-zero saving
+and 120 exact continued frames. The managed save wrapper admits physical
+version 6 without changing its outer payload framing. The remaining Linux
+scenes and Proton production runs remain open.
 
 **Native exclusions.** The validation scenes queue ONI's gas/liquid
 impermeability flags and verify them in the original native snapshot. Native

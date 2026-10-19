@@ -320,8 +320,10 @@ payload's geometry, bitwise physics and mask, and the image is checked with
 `ma_oni_domain_configured_checkpoint_validate` before the pair is written.
 `NativeConfiguredDomainImage.cs` reads the wrapper back: SHA-256, geometry and
 physics against the native admission rules (disabled values exactly +0), a
-binary mask with at least one fluid cell, and an enclosed `MACCLS01` that is
-version 3 exactly when viscosity is on. The `MAONID01` header geometry must
+binary mask with at least one fluid cell, and an enclosed `MACCLS01`. Legacy
+solver versions 2/3 follow the viscosity setting; versions 5 (diffusion) and
+6 (production) retain the metadata prefix and pass the same native settings
+validation. The `MAONID01` header geometry must
 equal the wrapper's, and saved actors and CO2 origins must be on fluid cells.
 
 **Native-world admission.** Before ONI's loader runs, the mask is recomputed

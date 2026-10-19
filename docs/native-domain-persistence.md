@@ -34,6 +34,14 @@ sessions. Empty particle data keeps the exact version 1, 2 or 4 framing. Native 
 admission and the outer paired-save checksum apply before the original native
 loader runs.
 
+The managed metadata check admits the scenario's legacy solver version 2 or
+3, version 5 diffusion images and version 6 production images. These solver
+versions share the identity, clock and grid prefix; they do not change the
+`MAONID01` framing above. The complete native image and scenario settings
+still require native validation. The standalone checkpoint evidence reader
+accepts version 2 reference and version 6 production controls with the same
+exact-next-frame requirements.
+
 ## Durable point actors
 
 A saved consumer or emitter needs its remaining timing and a stable game

@@ -177,8 +177,11 @@ also pass collision.
   saves retain idle bytes; the first live frame migrates to version 6 with
   journal flag 4. Historical unflagged replay and stateless continuation keep
   their saved kernel. Fourteen historical owner images pass native restore,
-  continuation and migration checks on Linux and MinGW/Wine; production Linux/Proton
-  game scenes, saves and fresh-process reloads remain open. The latest Ubuntu
+  continuation and migration checks on Linux and MinGW/Wine. The managed wrapper
+  admits production physical version 6 without changing outer payload bytes.
+  A Linux production gas source saves, reloads in a fresh process, resaves at
+  paused frame zero and matches 120 continued frames. The remaining Linux
+  scenes and Proton production runs remain open. The latest Ubuntu
   production-owner/pressure-ledger build passes 55 tests and both shared
   libraries meet the glibc 2.34 ceiling after the shared interface geometry
   replaces `std::hypot`. The builder and package provenance check enforce that

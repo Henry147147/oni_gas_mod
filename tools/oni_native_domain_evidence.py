@@ -1128,7 +1128,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
             return False
     if checkpoint or paired:
         physical_checkpoint = report.get("PhysicalCheckpoint")
-        if (not isinstance(physical_checkpoint, dict) or physical_checkpoint.get("Verified") is not True or physical_checkpoint.get("FormatVersion") != 2
+        if (not isinstance(physical_checkpoint, dict) or physical_checkpoint.get("Verified") is not True or physical_checkpoint.get("FormatVersion") not in (2, 6)
                 or physical_checkpoint.get("OrdinaryGameSaveIntegrated") is not False
                 or any(type(physical_checkpoint.get(key)) is not int or physical_checkpoint[key] <= 0 for key in ("ImageBytes", "SourceFrame", "ResumedFrame"))
                 or not 32 < physical_checkpoint["ImageBytes"] <= 1024**3

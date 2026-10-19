@@ -1020,12 +1020,16 @@ class NativeDomainEvidenceTests(unittest.TestCase):
     def test_checkpoint_requires_identical_actual_next_worker_image_and_retains_save_denial(self):
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True))
         self.add_checkpoint()
-        self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True))
-        for field,value in (("FormatVersion",1), ("ImageBytes",0), ("SourceFrame",6), ("ResumedFrame",31), ("ActualSha256","3"*64),
-                ("SourceSha256","2"*64), ("ExpectedSha256","x"*64), ("ResumedPhysicalTime",float("nan")),
-                ("OrdinaryGameSaveIntegrated",True)):
-            bad=copy.deepcopy(self.report);bad["PhysicalCheckpoint"][field]=value
-            self.assertFalse(runner.native_domain_passed(bad,self.observation,30,checkpoint=True),field)
+        faults=[("FormatVersion",v) for v in (1,3,4,5,7,8,2**32-1)]+[
+            ("ImageBytes",0), ("SourceFrame",6), ("ResumedFrame",31), ("ActualSha256","3"*64),
+            ("SourceSha256","2"*64), ("ExpectedSha256","x"*64), ("ResumedPhysicalTime",float("nan")),
+            ("OrdinaryGameSaveIntegrated",True)]
+        for version in (2,6):
+            self.report["PhysicalCheckpoint"]["FormatVersion"]=version
+            self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True),version)
+            for field,value in faults:
+                bad=copy.deepcopy(self.report);bad["PhysicalCheckpoint"][field]=value
+                self.assertFalse(runner.native_domain_passed(bad,self.observation,30,checkpoint=True),(version,field,value))
 
     def test_paired_capture_requires_completed_native_epoch_geometry_and_both_images(self):
         self.add_checkpoint(); self.report.update(X=10,Y=20,Width=3,Height=2)

@@ -60,9 +60,10 @@ production on each live frame, requesting twelve workers (small rooms are
 capped by fixed block count). Loading a supported reference save preserves
 its idle bytes; its first live frame migrates to selection 2/version 6. Frame
 journals record this request in flag 4. Historical unflagged journals and
-stateless checkpoint continuation retain the saved selection. Existing Unity
-scene, save and fresh-process evidence predates this adoption; production game
-revalidation remains open. Fourteen historical owner images retain idle bytes
+stateless checkpoint continuation retain the saved selection. Production gas
+saves and fresh-process reloads pass Linux Unity, including paused frame-zero
+resaving and 120 exact continued frames. Remaining Linux scenes and Proton
+production validation are open. Fourteen historical owner images retain idle bytes
 and pass same-platform continuation and migration on Linux and MinGW/Wine.
 Viscous trajectories retain a pre-existing last-bit difference between compilers;
 cross-platform trajectory byte identity is not claimed.

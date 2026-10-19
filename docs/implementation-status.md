@@ -246,9 +246,11 @@ with twelve requested workers. Accepted physical heat/work diagnostics are
 published without rejected-attempt leakage. Supported reference saves retain
 idle bytes; the first live frame migrates to version 6 and journal flag 4
 records the request. Historical unflagged replay and stateless continuation
-retain the saved kernel. Native transition and publication controls pass;
-production Linux/Proton game scenes, saves and fresh-process reloads remain
-open.
+retain the saved kernel. Native transition and publication controls pass.
+Managed save framing now admits physical version 6; historical outer payload
+bytes remain unchanged. A Linux production gas source saves and reloads in a
+fresh process, resaves at paused frame zero and matches 120 continued frames.
+The remaining Linux scenes and Proton production runs remain open.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production

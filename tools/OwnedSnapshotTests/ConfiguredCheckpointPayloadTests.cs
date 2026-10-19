@@ -41,18 +41,25 @@ internal static class ConfiguredCheckpointPayloadTests
                 check(parsed.Configured==null && parsed.FormatVersion==version && parsed.CopyEncodedData().AsSpan().SequenceEqual(bytes));
             }
         });
-        test("diffusion solver version five survives paired-save framing with legacy configured and actor wrappers",()=> {
+        test("diffusion and production solver images survive paired-save framing with legacy configured actor and particle wrappers",()=> {
             foreach(var scenario in new[]{0U,6U,7U}) foreach(var withActor in new[]{false,true}) {
                 var geometry=scenario==7 ? ConfiguredGeometry() : LegacyGeometry(scenario);
-                foreach(var version in new[]{4U,5U,6U}) {
+                foreach(var version in new[]{4U,5U,6U,7U,8U,uint.MaxValue}) {
                     var solver=Solver(geometry.Width,geometry.Height,version);
                     var image=scenario==7 ? Wrapper(ConfiguredDomainLayout.PillaredRoom().Mask,ConfiguredDomainLayout.ScenePhysics(false),solverVersion:version) : solver;
                     if(withActor) image=ActorImage(image,geometry,10+10*64);
                     var pair=Pair(image,geometry);
-                    if(version!=5) {reject(()=>NativeDomainCheckpointPayload.Create(pair,image));continue;}
-                    var payload=NativeDomainCheckpointPayload.Create(pair,image);
-                    var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
-                    check(restored.Geometry.Scenario==scenario && restored.PhysicalImage.SequenceEqual(image));
+                    if(version!=5 && version!=6) {reject(()=>NativeDomainCheckpointPayload.Create(pair,image));continue;}
+                    foreach(var withParticle in new[]{false,true}) {
+                        var particle=new NativeTransientParticle(9,10+10*64,0,new[]{10.5f,10.5f,-.5f,0f,-1f,0f,.03125f,333.25f,3f,0f});
+                        var particles=withParticle ? NativeTransientParticleImage.Create(new[]{particle},geometry) : null;
+                        var payload=NativeDomainCheckpointPayload.Create(pair,image,particles);
+                        var encoded=payload.CopyEncodedData();var restored=NativeDomainCheckpointPayload.Parse(encoded);
+                        var expectedVersion=scenario==7 ? withParticle ? 5 : 4 : withParticle ? 3 : withActor ? 2 : 1;
+                        check(restored.Geometry.Scenario==scenario && restored.FormatVersion==expectedVersion &&
+                            restored.PhysicalImage.SequenceEqual(image) && restored.CopyEncodedData().AsSpan().SequenceEqual(encoded) &&
+                            (withParticle ? restored.TransientParticles!.Particles.Count==1 : restored.TransientParticles==null));
+                    }
                 }
             }
         });
