@@ -19,7 +19,9 @@ checked IPO, exact arithmetic fast paths, fused pressure thermodynamics,
 deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
 The next slice retains full-range vertical gravity work and potential flux, with
 10,000-step and checkpoint controls. Primary-U rounding remainders still need
-persistent storage; these standalone controls do not close the physics gate.
+persistent storage. A checked [normal two-part arithmetic primitive](../native/MAC_PRIMARY_REMAINDERS.md)
+retains otherwise lost heat increments, but has no solver-state or checkpoint
+binding; these standalone controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present
 constituents and incoming donors, removing the former 16-million-slot product cap.
 A 4,097-species/4,096-cell EOS parcel control passes; primary inventories and

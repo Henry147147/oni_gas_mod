@@ -202,7 +202,9 @@ stored values and refinement counters are unchanged. Accepted counts reach the
 owner's rounded-update report. Incoming constituent/passive gathers now also
 have [inventory-write ledgers](MAC_INVENTORY_ROUNDING.md), with unchanged stored
 values and interval bounds. Retained-parcel subtractions, ordinary products,
-primary U and momentum writes outside pressure remain open.
+primary U and momentum writes outside pressure remain open. The unselected
+[primary-remainder primitive](MAC_PRIMARY_REMAINDERS.md) is arithmetic support
+for that work, without a saved field or new owner path.
 
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
