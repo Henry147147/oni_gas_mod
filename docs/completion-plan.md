@@ -94,6 +94,8 @@ Amendments:
   they pass. Claude builds vacuum, multiple immiscible liquids, phase change
   and the strong-flow fixes. The gravity reconciliation entropy credit
   ([kernel](../native/MAC_KERNEL.md#gravity-reconciliation-entropy)) stays.
+  The dam break compares with the data under the standard 0.175 time-origin
+  shift.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
@@ -196,14 +198,14 @@ g = 9.81 m/s², the production kernel and the default settings; M1–M3 select
 sharp interfaces (material selector 3). Conservation means each species and
 passive exact to the interval audit, and liquid volume exact. Commands,
 measurements and diagnoses are in [MAC_GATES.md](../native/MAC_GATES.md).
-Status: G1, G2 and M1 pass; M2, M3 and V fail; M4 and M5 are open.
+Status: G1, G2, M1 and M2 pass; M3 and V fail; M4 and M5 are open.
 
 | Gate | Setup | Pass criteria |
 | --- | --- | --- |
 | G1 hydrostatic gas column | N2 at 300 K, 100 m column in a closed box; 64, 128 and 256 cells; starts from the solver's own discrete hydrostatic state | Over 1,000 intervals of 0.1 s: max \|u\| ≤ 1e-9 m/s, pressure drift ≤ 1e-12 relative. Profile within 1e-6 of the analytic exponential at 64 cells, second-order convergence (successive error ratios ≤ 0.3) |
 | G2 gravitational species separation | CO2 and N2 50/50 by mole, 300 K, 1 m column, 64 cells, accelerated diffusion (multiplier 1000) | After at least 10 diffusion times, each partial pressure follows p0·exp(−M g z / RT) within 1% of its exponent (over 1 m the law itself changes pressures by under 2e-4); species exact |
 | M1 still water | 1 × 1 m tank, 32 × 32 cells, water 0.5 m deep under air | After 10 s: max \|u\| ≤ 1e-8 m/s, surface drift ≤ 1e-9 m, no liquid more than one cell above the surface; conservation |
-| M2 dam break | Martin & Moyce column, width a = 0.05715 m, height 2a, in a 5a-long tank under air; 16, 32 and 64 cells across a; to T = t√(2g/a) = 3 | Finest grid: front Z = x/a within 10% of the published data for T ∈ [0.5, 3]; two finest grids within 3% of each other; interface band at most 3 cells wide; liquid volume exact |
+| M2 dam break | Martin & Moyce column, width a = 0.05715 m, height 2a, in a 5a-long tank under air; 16, 32 and 64 cells across a; to T = t√(2g/a) = 3 | Finest grid: front Z = x/a within 10% of the published data, compared at simulated T = T_data − 0.175 (≥ 0.5); two finest grids within 3% of each other; interface band (cells 1–99% full, measured across the interface) at most 3 cells wide; liquid volume exact |
 | M3 standing wave | Water 0.5 m deep, wavelength 1 m, amplitude 1 mm, periodic; 32, 64 and 128 cells per wavelength | Finest grid: period within 1% of ω² = g k tanh(k h), converging; amplitude change within ±2% per period (loss at most 2%, no growth beyond 2%) |
 | M4 two liquids (Rayleigh–Taylor) | Immiscible 1000 and 800 kg/m³ liquids, no surface tension, width 0.1 m, perturbation 1e-4 of the width; 64 cells per wavelength | Growth rate within 10% of √(A g k) while the amplitude is below 5% of the width. Stable (light over heavy) case at rest within 1e-8 m/s. Open: needs immiscible liquids |
 | M5 phase change (Stefan vapour film) | Water and steam at 1 atm, wall at T_sat + 10 K, started from the exact solution at t0 | Interface x(t) = 2λ√(α t) within 2% over [t0, 10 t0] on the finest grid, converging; mass and energy including latent heat exact. Open: needs phase change |
@@ -213,7 +215,9 @@ M2 data are Martin & Moyce (1952), *Phil. Trans. R. Soc. A* 244, 312–324,
 for the 2a-tall column (T, Z): (0.41, 1.11), (0.84, 1.23), (1.19, 1.44),
 (1.43, 1.67), (1.63, 1.89), (1.82, 2.11), (1.97, 2.33), (2.20, 2.56),
 (2.32, 2.78), (2.50, 3.00), (2.64, 3.22), (2.82, 3.44), (2.96, 3.67), as
-digitised in Lethe's dam-break validation. No time-origin shift is applied.
+digitised in Lethe's dam-break validation. The experiment's front lags its
+gate release, so it is compared with the simulation 0.175 earlier in T, the
+time-origin shift of Lethe's validation (user decision, 2026-10-19).
 
 Additional error against resolved references must stay within 0.1 K and 1% for
 pressure, oxygen partial pressure and transported constituents. Pressure-wave

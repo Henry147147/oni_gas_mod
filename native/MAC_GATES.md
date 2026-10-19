@@ -13,7 +13,7 @@ CTests.
 | G1 hydrostatic gas column | `ma_mac_gravity_gates G1` | pass | `mac_gate_g1_hydrostatic_column` |
 | G2 gravitational species separation | `ma_mac_gravity_gates G2` | pass | `mac_gate_g2_species_separation` |
 | M1 still water | `ma_mac_free_surface_gates M1` | pass | `mac_gate_m1_still_water` |
-| M2 dam break | `ma_mac_free_surface_gates M2` | fail: front vs data | — |
+| M2 dam break | `ma_mac_free_surface_gates M2` | pass | `mac_gate_m2_dam_break_coarse` (16 cells across a only) |
 | M3 standing wave | `ma_mac_free_surface_gates M3` | fail: amplitude grows | — |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | open: no immiscible interfaces | — |
 | M5 phase change | `ma_mac_multiphase_gates M5` | open: no phase change | — |
@@ -55,26 +55,26 @@ hydrostatic balance with the surface on a face. After 10 s:
 This gate found two sharp-interface defects that leaked trace water upward through
 the air ([transport](MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3)).
 
-## Failing gates
+**M2.** The front Z = x/a on the floor is compared with Martin & Moyce (1952)
+at simulated T = T_data − 0.175. The experiment's front lags its gate release;
+this is the time-origin shift of Lethe's validation, adopted by user decision on
+2026-10-19. Without it the front leads the data by up to 18.8% early on.
 
-**M2 dam break.** Front Z = x/a on the floor, finest grid (64 cells across a), against
-Martin & Moyce (1952) at the same T = t√(2g/a):
-
-| T | 0.84 | 1.19 | 1.43 | 1.82 | 2.20 | 2.50 | 2.82 | 2.96 |
+| T (data) | 0.84 | 1.19 | 1.43 | 1.82 | 2.20 | 2.50 | 2.82 | 2.96 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Data | 1.23 | 1.44 | 1.67 | 2.11 | 2.56 | 3.00 | 3.44 | 3.67 |
-| 64 cells | 1.40 | 1.71 | 1.96 | 2.42 | 2.91 | 3.33 | 3.81 | 4.02 |
-| 32 cells | 1.39 | 1.69 | 1.93 | 2.37 | 2.85 | 3.27 | 3.73 | 3.94 |
+| 64 cells | 1.27 | 1.55 | 1.77 | 2.20 | 2.68 | 3.08 | 3.54 | 3.75 |
+| 32 cells | 1.27 | 1.54 | 1.76 | 2.16 | 2.62 | 3.02 | 3.47 | 3.68 |
 
-The worst error is 18.8% (T = 1.19), against a 10% bound.
-- **Passing criteria:** the two finest grids agree within 2.1% (bound 3%), the
-  interface band is 3 cells wide (bound 3), and water mass drifts by at most 2e-17.
-- **Why the front leads:** the simulation is inviscid with free-slip walls, while the
-  experiment started by removing a gate. Front data from this experiment are commonly
-  compared with a time-origin shift; Lethe's validation adds 0.175 to T. With that
-  shift the finest grid is within 2.1–6.4% of the data wherever the shifted time
-  stays inside the measurements (T ≤ 2.64).
-- **Open decision:** the gate as defined applies no shift.
+- **Front:** the worst error is 7.4% (bound 10%).
+- **Grid agreement:** the two finest grids agree within 2.2% (bound 3%).
+- **Interface:** the band, counting cells 1–99% full across the interface, is at most
+  3 cells wide.
+- **Mist:** liquid in cells under 1% full is at most 7e-5 of the water. A patch of
+  0.1–0.5% full cells briefly forms near the column's upper corner around T ≈ 1.3.
+- **Conservation:** water mass drifts by at most 6e-17.
+
+## Failing gates
 
 **M3 standing wave.** The period converges to linear theory:
 

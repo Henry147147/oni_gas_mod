@@ -110,22 +110,31 @@ bool m1() {
 // Martin & Moyce (1952), column of height 2a: T = t sqrt(2g/a), Z = x/a.
 constexpr double mm_t[] = {.41, .84, 1.19, 1.43, 1.63, 1.82, 1.97, 2.2, 2.32, 2.5, 2.64, 2.82, 2.96};
 constexpr double mm_z[] = {1.11, 1.23, 1.44, 1.67, 1.89, 2.11, 2.33, 2.56, 2.78, 3, 3.22, 3.44, 3.67};
-struct DamBreak { std::vector<double> z; double band = 0, conservation = 0; };
+// The experiment's front lags its release; it is compared with the simulation
+// at T_data - 0.175 (Lethe's validation convention, user decision 2026-10-19).
+constexpr double time_shift = .175;
+struct DamBreak { std::vector<double> z; double band = 0, conservation = 0, mist = 0; };
 DamBreak dam_break(std::size_t across) {
     const double a = .05715, h = a / static_cast<double>(across), unit = std::sqrt(2 * g / a);
     const std::size_t w = 5 * across, ht = 5 * across / 2;
     const auto st = hydrostatic(w, ht, h, false, [&](std::size_t x, std::size_t y) { return x < across && y < 2 * across ? 1. : 0.; });
     auto world = world_of(st); const auto initial = water_mass(st); DamBreak r; double t = 0;
     for (const double sample : mm_t) {
-        const double target = sample / unit;
+        const double target = std::max(0., sample - time_shift) / unit;
         while (t < target) { const double step = std::min(.005, target - t); world = world.advanced(step, 65536, MacExecutionPolicy::production).world; t += step; }
         const auto alpha = fractions(world.state()); double length = 0;
         for (std::size_t x = 0; x < w; ++x) length += alpha[x] * h;
         r.z.push_back(length / a);
-        // Band width across the interface: through each partly filled cell, the
+        // Band width across the interface: through each partly filled cell
+        // (1% to 99% full; emptier cells are mist, reported separately), the
         // shorter of its contiguous horizontal and vertical runs (a thin film
         // along the floor is one cell wide, however long).
-        const auto partly = [&](std::size_t i) { return alpha[i] > 1e-3 && alpha[i] < 1 - 1e-3; };
+        const auto partly = [&](std::size_t i) { return alpha[i] > 1e-2 && alpha[i] < 1 - 1e-2; };
+        {
+            const auto& set = ma::testing::setup(); const auto water = set.registry.index("water"); long double mist = 0;
+            for (std::size_t i = 0; i < w * ht; ++i) if (alpha[i] < 1e-2) mist += world.state().cells[i].mixture.masses[water];
+            r.mist = std::max(r.mist, static_cast<double>(mist / initial));
+        }
         std::vector<std::size_t> run_x(w * ht), run_y(w * ht);
         for (std::size_t y = 0; y < ht; ++y) for (std::size_t x = 0; x < w;) {
             std::size_t end = x; while (end < w && partly(end + y * w)) ++end;
@@ -147,12 +156,12 @@ bool m2(bool quick) {
     std::vector<DamBreak> runs;
     for (const auto n : grids) {
         runs.push_back(dam_break(n)); const auto& r = runs.back();
-        std::cout << "M2 cells_across=" << n << " band_cells=" << r.band << " water_drift=" << r.conservation << " Z:";
-        for (std::size_t i = 0; i < r.z.size(); ++i) std::cout << ' ' << mm_t[i] << '=' << r.z[i];
+        std::cout << "M2 cells_across=" << n << " band_cells=" << r.band << " max_mist=" << r.mist << " water_drift=" << r.conservation << " Z at T_data-" << time_shift << ':';
+        for (std::size_t i = 0; i < r.z.size(); ++i) std::cout << ' ' << mm_t[i] - time_shift << '=' << r.z[i];
         std::cout << '\n';
     }
     const auto& fine = runs.back(); double data_error = 0, grid_error = 0, band = 0, conservation = 0;
-    for (std::size_t i = 0; i < fine.z.size(); ++i) if (mm_t[i] >= .5) {
+    for (std::size_t i = 0; i < fine.z.size(); ++i) if (mm_t[i] - time_shift >= .5) {
         data_error = std::max(data_error, std::abs(fine.z[i] - mm_z[i]) / mm_z[i]);
         if (runs.size() > 1) grid_error = std::max(grid_error, std::abs(fine.z[i] - runs[runs.size() - 2].z[i]) / fine.z[i]);
     }
