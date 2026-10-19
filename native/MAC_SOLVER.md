@@ -132,8 +132,8 @@ in checkpoints and never change meaning; new methods get new values.
 | `gravity_m_per_s2` | 0 | ≥ 0, constant and downward; requires nonperiodic y |
 | `reconstruction` (material) | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `swept_first_moment`, 3 `interface_plic` (sharp gas/liquid interfaces) |
 | `momentum_reconstruction` | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux`, 5 `swept_nodal_1d` (1-D only) |
-| `compression_viscosity` | 2 `acoustic_quadratic` (pressure-sensed) | 0 `none`, 1 `quadratic`, 3 `coupled_pressure` |
-| `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
+| `compression_viscosity` | 2 `acoustic_quadratic` (pressure-sensed) | 0 `none`, 1 `quadratic`, 3 `coupled_pressure`, 4 `monotone_acoustic_quadratic` |
+| `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series`, 4 `monotone_pressure_sensed` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
 | `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
@@ -145,8 +145,9 @@ Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the g
 scenarios and viscosity 0.5/0.25 Pa·s in scenario 6. Configured sessions take
 conduction, viscosity and gravity from their physics flags.
 
-Selectors 2 (material), 2–4 (momentum), 3 (compression) and 3 (heat) are opt-in
-experiments. Material 2 with momentum 4 and compression 3 is the most accurate
+Selectors 2 (material), 2–4 (momentum), 3–4 (compression) and 3–4 (heat) are opt-in
+experiments. Compression 4 and heat 4 have no production-kernel port: an owner that
+selects either always takes the audited reference interval. Material 2 with momentum 4 and compression 3 is the most accurate
 tracked combination on the strong-flow benchmark, but it does not pass that gate
 either and is not the default.
 
@@ -259,9 +260,10 @@ accounts. The [first interval port](MAC_INTERVAL_KERNEL.md) is retired.
   transport, scalar advection and constant-pressure/temperature contacts (see the
   topic documents).
 - The [strong-flow gate](MAC_STRONG_FLOW.md) fails. The defaults fail collision
-  density refinement (0.856 against 0.85). The best opt-in combination passes Sod and
-  collision but fails the separation finest-grid velocity and central density/pressure
-  bounds.
+  density refinement (0.856 against 0.85). Separation is judged against a resting-slab
+  reference of its own start (2026-10-19); every tested combination fails its N256
+  velocity bound (defaults 0.0759 against 0.06), and opt-in combinations that pass Sod
+  and collision do not change that.
 - Production gates and the playtest plan are tracked in
   [playtesting readiness](../docs/playtesting-readiness.md) (gate 2) and the
   [completion plan](../docs/completion-plan.md).
@@ -331,7 +333,10 @@ With `-DMA_BUILD_ONI_NATIVE_BACKEND=ON`, CTest also runs `mac_gas_boundary_trans
 | `ma_mac_canonical_range_tests` | | `review_mac_canonical_range.py` | [Range](MAC_RANGE.md) |
 | `ma_mac_exponent_tests` | | `review_mac_exponent.py` | [Range](MAC_RANGE.md) |
 | `ma_mac_checkpoint_tests` | `--write-checkpoint[-no-heat\|-quadratic]`/`--read-checkpoint <file>` | (CTest) | [Checkpoints](MAC_CHECKPOINT.md) |
-| `ma_mac_riemann_tests` | | `review_mac_riemann.py [--partial]` | [Strong flow](MAC_STRONG_FLOW.md) |
+| `ma_mac_riemann_tests` | `--selectors M,P,C,H` | `review_mac_riemann.py [--partial]` | [Strong flow](MAC_STRONG_FLOW.md) |
+| `ma_mac_riemann_probe` | `control n [mat= mom= comp= heat= profile= chunks= slab= shift=]` | (diagnostic; never stops on a criterion) | [Strong flow](MAC_STRONG_FLOW.md) |
+| `ma_mac_monotone_compression_tests` | | (CTest `mac_monotone_compression`) | [Pressure](MAC_PRESSURE.md) |
+| `ma_riemann_slab_reference` | `N refine...` | (convergence study of the separation reference, not MAC code) | [Strong flow](MAC_STRONG_FLOW.md#resting-slab-separation-reference) |
 | `ma_mac_curved_nodal_diagnostic` | | `review_mac_curved_nodal.py` | [Strong flow](MAC_STRONG_FLOW.md) |
 | `ma_mac_equilibrium_tests`, `ma_mac_playtest_benchmark` | | (CTest; `tools/run_mac_playtest_benchmark.py`) | [Readiness](../docs/playtesting-readiness.md#reproduce-measurements) |
 

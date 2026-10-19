@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_compression.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -63,6 +64,22 @@ MacScaled mac_compression_pressure_sensor(double left, double centre, double rig
     const auto d = denominator.value();
     return d.is_zero() ? MacScaled{} : numerator.value().magnitude().shared(MacScaled::from_double(1), d);
 }
+double mac_compression_monotone_limiter(MacScaled d, MacScaled dl, MacScaled dr) {
+    require_mac_energy_environment();
+    if (d.mantissa() >= 0) return 0;
+    const auto one = MacScaled::from_double(1), two = MacScaled::from_double(2);
+    // neighbour / d with d < 0, clamped to [-2, 2] before projection.
+    const auto ratio = [&](MacScaled neighbour) {
+        if (neighbour.is_zero()) return 0.;
+        const auto r = neighbour.negated().shared(one, d.magnitude());
+        if (mac_scaled_difference(r, two).mantissa() > 0) return 2.;
+        if (mac_scaled_difference(r, two.negated()).mantissa() < 0) return -2.;
+        return r.project().value;
+    };
+    const double rl = ratio(dl), rr = ratio(dr);
+    const double phi = std::min({.5 * (rl + rr), 2 * rl, 2 * rr, 1.});
+    return phi > 0 ? phi : 0.;
+}
 MacCompressionPair relax_mac_compression_pair(double il, double ir, MacScaled jl, MacScaled jr,
     bool fl, bool fr, MacScaled integrated, MacScaled linear_speed) {
     require_mac_energy_environment();
@@ -113,12 +130,22 @@ MacScaled MacCompressionCoefficients::linear_speed(std::size_t axis, std::size_t
     require(cell < source_pressure_sensors[axis].size(), "Invalid MAC compression sensor shape");
     return speed.shared(source_pressure_sensors[axis][cell], MacScaled::from_double(1));
 }
+double MacCompressionCoefficients::monotone_limiter(std::size_t axis, std::size_t cell) const {
+    require(axis < 2, "Invalid MAC compression coefficient axis");
+    const auto& limiters = source_monotone_limiters[axis];
+    if (limiters.empty()) return 0;
+    require(cell < limiters.size(), "Invalid MAC compression limiter cell");
+    return limiters[cell];
+}
 MacCompressionCoefficients freeze_mac_compression_coefficients(const SpeciesRegistry& registry,
     const FluidThermodynamics& model, const MacTransportState& source, MacCompressionLaw law) {
     require_mac_energy_environment();
     require(law == MacCompressionLaw::quadratic || law == MacCompressionLaw::acoustic_quadratic ||
-        law == MacCompressionLaw::pressure_sensed_acoustic, "Invalid MAC compression law");
-    static_cast<void>(mac_face_inertias(registry, source, model));
+        law == MacCompressionLaw::pressure_sensed_acoustic || law == MacCompressionLaw::monotone_pressure_sensed_acoustic,
+        "Invalid MAC compression law");
+    const bool monotone = law == MacCompressionLaw::monotone_pressure_sensed_acoustic;
+    if (monotone) law = MacCompressionLaw::pressure_sensed_acoustic;
+    const auto inertia = mac_face_inertias(registry, source, model);
     const auto& g = source.grid; MacCompressionCoefficients result;
     if (law != MacCompressionLaw::quadratic) {
         result.source_linear_speeds.resize(source.cells.size());
@@ -163,6 +190,36 @@ MacCompressionCoefficients freeze_mac_compression_coefficients(const SpeciesRegi
             }
         }
     }
+    if (monotone) {
+        // Frozen from the incoming face velocities u = J/I. A wall, solid,
+        // empty cell or nonperiodic edge contributes a zero neighbour jump.
+        const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
+        const auto occupied = [&](std::size_t cell) { return !g.walls[cell] && source.cells[cell].mixture.mass() > 0; };
+        for (std::size_t axis = 0; axis < 2; ++axis) {
+            const auto& j = axis == 0 ? jx : jy; const auto& m = axis == 0 ? inertia.x : inertia.y;
+            require(j.size() == m.size(), "MAC compression limiter momentum shape differs");
+            const auto velocity = [&](std::size_t f) { return m[f] > 0 ? j[f].shared(1, m[f]) : MacScaled{}; };
+            std::vector<MacScaled> jump(source.cells.size());
+            for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (occupied(cell)) {
+                const auto x = cell % g.width, y = cell / g.width;
+                const auto l = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
+                const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
+                jump[cell] = mac_scaled_difference(velocity(r), velocity(l));
+            }
+            const auto neighbour = [&](std::size_t cell, bool forward) {
+                const auto coordinate = axis == 0 ? cell % g.width : cell / g.width;
+                const auto extent = axis == 0 ? g.width : g.height;
+                const bool periodic = axis == 0 ? g.periodic_x : g.periodic_y;
+                if (!periodic && (forward ? coordinate + 1 == extent : coordinate == 0)) return MacScaled{};
+                const auto next = forward ? (coordinate + 1) % extent : (coordinate + extent - 1) % extent;
+                const auto index = axis == 0 ? next + (cell / g.width) * g.width : cell % g.width + next * g.width;
+                return index != cell && occupied(index) ? jump[index] : MacScaled{};
+            };
+            auto& limiters = result.source_monotone_limiters[axis]; limiters.assign(source.cells.size(), 0);
+            for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (occupied(cell))
+                limiters[cell] = mac_compression_monotone_limiter(jump[cell], neighbour(cell, false), neighbour(cell, true));
+        }
+    }
     return result;
 }
 MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, const FluidThermodynamics& model,
@@ -170,7 +227,8 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     require_mac_energy_environment();
     require(std::isfinite(dt) && dt > 0 && dt <= 1, "Invalid MAC compression timestep");
     require(law == MacCompressionLaw::quadratic || law == MacCompressionLaw::acoustic_quadratic ||
-        law == MacCompressionLaw::pressure_sensed_acoustic, "Invalid MAC compression law");
+        law == MacCompressionLaw::pressure_sensed_acoustic || law == MacCompressionLaw::monotone_pressure_sensed_acoustic,
+        "Invalid MAC compression law");
     if (.5 * dt == 0) precision("MAC compression half timestep cannot be represented");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
@@ -195,8 +253,13 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
             auto& j = axis == 0 ? jx : jy; const auto& m = axis == 0 ? inertia.x : inertia.y;
             const auto& fixed = axis == 0 ? fixed_x : fixed_y;
-            const auto integrated = MacScaled::from_double(source.cells[cell].mixture.mass()).multiplied(.5 * dt).shared(1, g.spacing_m);
-            const auto linear_speed = result.report.linear_speed(static_cast<std::size_t>(axis), cell);
+            auto integrated = MacScaled::from_double(source.cells[cell].mixture.mass()).multiplied(.5 * dt).shared(1, g.spacing_m);
+            auto linear_speed = result.report.linear_speed(static_cast<std::size_t>(axis), cell);
+            if (const double phi = result.report.monotone_limiter(static_cast<std::size_t>(axis), cell); phi > 0) {
+                // q = rho v ((1 - phi^2) v + (1 - phi) c) = (1 - phi^2) rho v (v + c / (1 + phi)).
+                if (phi >= 1) continue;
+                integrated = integrated.multiplied(1 - phi * phi); linear_speed = linear_speed.multiplied(1 / (1 + phi));
+            }
             auto pair = relax_mac_compression_pair(m[l], m[r], j[l], j[r], fixed[l], fixed[r], integrated, linear_speed);
             if (pair.impulse.is_zero()) continue;
             j[l] = pair.after_left; j[r] = pair.after_right; heat.add(pair.heat);

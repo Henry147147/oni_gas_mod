@@ -96,6 +96,14 @@ Amendments:
   ([kernel](../native/MAC_KERNEL.md#gravity-reconciliation-entropy)) stays.
   The dam break compares with the data under the standard 0.175 time-origin
   shift.
+- **Strong-flow separation reference, 2026-10-19 (user decision):** separation
+  keeps its staggered start, whose centre face starts at rest and so holds a
+  one-cell slab at rest. It is judged against a fully specified fine-grid
+  MUSCL-Hancock reference of that same start, not against the textbook
+  near-vacuum core. A 16× finer solve of the slab start itself misses the
+  original velocity and central bounds, and the central-density bound is
+  ill-conditioned in a ~3e-4 kg/m³ core
+  ([criteria](../native/MAC_STRONG_FLOW.md#acceptance-criteria)).
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;

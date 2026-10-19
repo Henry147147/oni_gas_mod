@@ -1,7 +1,11 @@
 #include "mac_fixture.hpp"
+#include "mac_riemann_reference.hpp"
 #include <array>
 #include <iomanip>
 #include <numeric>
+#include <optional>
+#include <sstream>
+#include <string>
 
 namespace {
 using namespace ma;
@@ -59,89 +63,33 @@ struct Riemann {
         return value;
     }
 };
-// Classical baseline for the separation core (user decision 2026-10-19): binary64
-// primitive MUSCL-Hancock with minmod slopes, mirrored rigid-wall ghosts and
-// exact-Riemann Godunov fluxes sampled at x/t=0, on one row of the same grid,
-// timestep and duration. review_mac_riemann.py repeats it operation for operation.
-Primitive reference_face(const Primitive& l, const Primitive& r, double g) {
-    const double cl=std::sqrt(g*l.p/l.rho), cr=std::sqrt(g*r.p/r.rho);
-    const auto fan=[&](const Primitive& s, double c, double side, double xi) -> Primitive {
-        const double f=2/(g+1)*(c+side*.5*(g-1)*(s.u-xi))/c;
-        return {s.rho*std::pow(f,2/(g-1)),2/(g+1)*(side*c+.5*(g-1)*s.u+xi),s.p*std::pow(f,2*g/(g-1))};
-    };
-    if(r.u-l.u>=2*(cl+cr)/(g-1)) {
-        if(0<=l.u-cl) return l;
-        if(0<l.u+2*cl/(g-1)) return fan(l,cl,1,0);
-        if(0<=r.u-2*cr/(g-1)) return {0,0,0};
-        if(0>=r.u+cr) return r;
-        return fan(r,cr,-1,0);
-    }
-    const auto curve=[&](const Primitive& s, double c, double p) {
-        return p>s.p ? (p-s.p)*std::sqrt(2/((g+1)*s.rho)/(p+(g-1)/(g+1)*s.p)) : 2*c/(g-1)*(std::pow(p/s.p,(g-1)/(2*g))-1);
-    };
-    const auto residual=[&](double p) { return curve(l,cl,p)+curve(r,cr,p)+r.u-l.u; };
-    double lo=0, hi=std::max(l.p,r.p);
-    for(int i=0;residual(hi)<0;++i) { check(i<128,"Reference Riemann bracket exhausted"); hi*=2; }
-    for(int i=0;i<200;++i) { const double mid=.5*(lo+hi); if(mid==lo||mid==hi) break; if(residual(mid)>0) hi=mid; else lo=mid; }
-    const double p=.5*(lo+hi), u=.5*(l.u+r.u+curve(r,cr,p)-curve(l,cl,p)), beta=(g-1)/(g+1);
-    if(0<=u) {
-        if(p>l.p) return 0<=l.u-cl*std::sqrt((g+1)/(2*g)*p/l.p+(g-1)/(2*g)) ? l : Primitive{l.rho*(p/l.p+beta)/(beta*p/l.p+1),u,p};
-        const double d=l.rho*std::pow(p/l.p,1/g);
-        if(0<=l.u-cl) return l;
-        if(0>=u-std::sqrt(g*p/d)) return {d,u,p};
-        return fan(l,cl,1,0);
-    }
-    if(p>r.p) return 0>=r.u+cr*std::sqrt((g+1)/(2*g)*p/r.p+(g-1)/(2*g)) ? r : Primitive{r.rho*(p/r.p+beta)/(beta*p/r.p+1),u,p};
-    const double d=r.rho*std::pow(p/r.p,1/g);
-    if(0>=r.u+cr) return r;
-    if(0<=u+std::sqrt(g*p/d)) return {d,u,p};
-    return fan(r,cr,-1,0);
-}
+// Classical baseline for the separation central-pressure bound (user decision
+// 2026-10-19): binary64 primitive MUSCL-Hancock (mac_riemann_reference.hpp) on one
+// row of the same grid, timestep and duration from the Riemann data, compared with
+// the exact solution. review_mac_riemann.py repeats it operation for operation.
 std::array<double,2> reference_central_errors(const Riemann& exact, double g, std::size_t n, double duration, double dt) {
+    namespace reference=ma::testing::riemann_reference;
     const double h=1/static_cast<double>(n);
-    std::vector<std::array<double,3>> cells(n);
+    std::vector<reference::Cell> cells(n);
     for(std::size_t x=0;x<n;++x) {
-        const auto& s=x<n/2 ? exact.left : exact.right; cells[x]={s.rho,s.rho*s.u,s.p/(g-1)+.5*s.rho*s.u*s.u};
+        const auto& s=x<n/2 ? exact.left : exact.right; cells[x]=reference::conserved({s.rho,s.u,s.p},g);
     }
-    const auto primitive=[&](const std::array<double,3>& c) {
-        const double u=c[1]/c[0], p=(g-1)*(c[2]-.5*c[0]*u*u);
-        check(c[0]>0&&p>0&&std::isfinite(p),"Separation reference left its physical domain");
-        return Primitive{c[0],u,p};
-    };
-    const auto minmod=[](double a, double b) { return a*b<=0 ? 0. : std::abs(a)<std::abs(b) ? a : b; };
-    std::vector<Primitive> w(n), lface(n), rface(n);
-    std::vector<std::array<double,3>> flux(n+1);
-    for(double t=0;t<duration;) {
-        const double step=std::min(dt,duration-t);
-        for(std::size_t x=0;x<n;++x) w[x]=primitive(cells[x]);
-        for(std::size_t x=0;x<n;++x) {
-            const Primitive wl=x>0 ? w[x-1] : Primitive{w[0].rho,-w[0].u,w[0].p};
-            const Primitive wr=x+1<n ? w[x+1] : Primitive{w[n-1].rho,-w[n-1].u,w[n-1].p};
-            const double d0=minmod(w[x].rho-wl.rho,wr.rho-w[x].rho), d1=minmod(w[x].u-wl.u,wr.u-w[x].u), d2=minmod(w[x].p-wl.p,wr.p-w[x].p);
-            const double rho=w[x].rho, u=w[x].u, p=w[x].p;
-            const double drho=-.5*step/h*(u*d0+rho*d1), du=-.5*step/h*(u*d1+d2/rho), dp=-.5*step/h*(g*p*d1+u*d2);
-            lface[x]={rho-.5*d0+drho,u-.5*d1+du,p-.5*d2+dp}; rface[x]={rho+.5*d0+drho,u+.5*d1+du,p+.5*d2+dp};
-        }
-        for(std::size_t f=0;f<=n;++f) {
-            Primitive s;
-            if(f==0) s=reference_face({lface[0].rho,-lface[0].u,lface[0].p},lface[0],g);
-            else if(f==n) s=reference_face(rface[n-1],{rface[n-1].rho,-rface[n-1].u,rface[n-1].p},g);
-            else s=reference_face(rface[f-1],lface[f],g);
-            if(s.rho>0) { const double e=s.p/(g-1)+.5*s.rho*s.u*s.u; flux[f]={s.rho*s.u,s.rho*s.u*s.u+s.p,s.u*(e+s.p)}; }
-            else flux[f]={0,s.p,0};
-        }
-        for(std::size_t x=0;x<n;++x) for(int k=0;k<3;++k) cells[x][k]-=step/h*(flux[x+1][k]-flux[x][k]);
-        t+=step;
-    }
+    reference::advance(cells,g,h,duration,dt);
     std::array<double,2> central{0,0};
     for(std::size_t x:{n/2-1,n/2}) {
-        const auto final=primitive(cells[x]); const auto expected=exact.average(static_cast<double>(x)*h,static_cast<double>(x+1)*h,duration);
+        const auto final=reference::primitive(cells[x],g); const auto expected=exact.average(static_cast<double>(x)*h,static_cast<double>(x+1)*h,duration);
         central[0]=std::max(central[0],std::abs(final.rho-expected.rho)/expected.rho);
         central[1]=std::max(central[1],std::abs(final.p-expected.p)/expected.p);
     }
     return central;
 }
+// Separation is judged against a fine reference solution of its own discrete start
+// (user decision 2026-10-19): the J = 0 centre face is a slab of one gate cell at rest.
+constexpr std::size_t slab_refinement=8;
 struct Errors { double rho=0, p=0, u=0; };
+// Optional opt-in selectors (material, momentum, compression, heat) from
+// --selectors M,P,C,H. Without it the gate uses the default MacClosedSettings.
+std::optional<std::array<int,4>> selectors;
 Errors run(int control,std::size_t n) {
     const auto& set=ma::testing::setup(); const auto ni=set.registry.index("nitrogen"), he=set.registry.index("helium");
     const auto& nitrogen=set.registry[ni]; const auto& helium=set.registry[he];
@@ -167,6 +115,12 @@ Errors run(int control,std::size_t n) {
     for(std::size_t y=0;y<2;++y) for(std::size_t x=1;x<n;++x) source.momentum_x[source.grid.x_face(x,y)]=
         initial_inertia.x[source.grid.x_face(x,y)]*(x==n/2 ? .5*(left.u+right.u) : x<n/2 ? left.u : right.u);
     const auto held=ma::testing::fingerprint(source); MacClosedSettings settings;
+    if(selectors) {
+        settings.reconstruction=static_cast<MacMaterialReconstruction>((*selectors)[0]);
+        settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>((*selectors)[1]);
+        settings.compression_viscosity=static_cast<MacCompressionViscosity>((*selectors)[2]);
+        settings.shock_heat=static_cast<MacShockHeatRegularization>((*selectors)[3]);
+    }
     settings.maximum_timestep_s=.25*h/((control==0 ? 2 : 1+mach)*sound);
     const MacClosedWorld world(set.registry,set.eos,source,settings); const auto result=world.advanced(duration,16384);
     const auto& final=result.world.state(); const auto final_inertia=mac_face_inertias(set.registry,final,*set.eos);
@@ -209,13 +163,34 @@ Errors run(int control,std::size_t n) {
     check(ma::testing::fingerprint(source)==held&&world.time_s()==0&&result.world.time_s()==duration,"Strong-flow advance changed source or clock");
     check(report.rejected_attempts==0&&report.substeps<=static_cast<std::size_t>(std::ceil(duration/settings.maximum_timestep_s))+2,"Strong-flow nominal timestep path changed");
     check(entropy>=-entropy_bound,"Strong flow reduced total thermodynamic entropy beyond stored-U allowance");
-    if(n==256) check(std::max({error.rho,error.p,error.u})<.06,"Finest strong-flow error exceeds .06");
+    if(n==256&&control!=2) check(std::max({error.rho,error.p,error.u})<.06,"Finest strong-flow error exceeds .06");
     if(control==2&&n==256) {
-        // Central density stays within half its exact cell average. Central
-        // pressure may not exceed the classical MUSCL-Hancock reference error.
+        // The central pressure bound remains the classical MUSCL-Hancock error.
         const auto reference=reference_central_errors(exact,gamma,n,duration,settings.maximum_timestep_s);
         std::cout<<"RREFERENCE "<<control<<' '<<n<<' '<<reference[0]<<' '<<reference[1]<<'\n';
-        check(centre_rho<.5&&centre_p<=reference[1],"Fine near-vacuum central gas exceeds its density or classical pressure bound");
+        // The N256 L1, central density and central pressure criteria compare with
+        // the resting-slab reference of the same start, using the same metrics.
+        const auto slab=ma::testing::riemann_reference::resting_slab({left.rho,left.u,left.p},{right.rho,right.u,right.p},gamma,n,
+            slab_refinement,duration,settings.maximum_timestep_s);
+        for(std::size_t x=0;x<n;++x) std::cout<<"RSLAB "<<control<<' '<<n<<' '<<slab_refinement<<' '<<x<<' '<<slab.rho[x]<<' '<<slab.p[x]<<' '<<slab.u[x]<<'\n';
+        Errors against; double slab_rho=0, slab_p=0;
+        for(std::size_t i=0;i<final.cells.size();++i) {
+            const auto x=i%n; const double a=static_cast<double>(x)*h,b=a+h;
+            const double rho=final.cells[i].mixture.mass()/volume, p=set.eos->evaluate(final.cells[i].mixture,volume).mechanical_pressure_pa;
+            if(a>=window_lo&&b<=window_hi) {
+                against.rho+=.5*h*std::abs(rho-slab.rho[x])/(window_hi-window_lo);
+                against.p+=.5*h*std::abs(p-slab.p[x])/(100000*(window_hi-window_lo));
+            }
+            if(x==n/2||x+1==n/2) { slab_rho=std::max(slab_rho,std::abs(rho-slab.rho[x])/slab.rho[x]); slab_p=std::max(slab_p,std::abs(p-slab.p[x])/slab.p[x]); }
+        }
+        for(std::size_t y=0;y<2;++y) for(std::size_t x=0;x<n;++x) {
+            const double position=static_cast<double>(x)*h;
+            if(position>=window_lo&&position<window_hi) against.u+=.5*h*std::abs(final.momentum_x[final.grid.x_face(x,y)]/
+                final_inertia.x[final.grid.x_face(x,y)]-slab.u[x])/(sound*(window_hi-window_lo));
+        }
+        std::cout<<"RSLABERROR "<<control<<' '<<n<<' '<<against.rho<<' '<<against.p<<' '<<against.u<<' '<<slab_rho<<' '<<slab_p<<'\n';
+        check(std::max({against.rho,against.p,against.u})<.06,"Finest separation error against its resting-slab reference exceeds .06");
+        check(slab_rho<.5&&slab_p<=reference[1],"Central gas exceeds its resting-slab density or classical pressure bound");
     }
     return error;
 }
@@ -228,8 +203,14 @@ void refinement(int control) {
     }
 }
 }
-int main() {
+int main(int argc,char** argv) {
     try {
+        if(argc==3&&std::string(argv[1])=="--selectors") {
+            std::array<int,4> values{}; char separator[3]{}; std::istringstream text(argv[2]);
+            text>>values[0]>>separator[0]>>values[1]>>separator[1]>>values[2]>>separator[2]>>values[3];
+            check(text&&text.peek()==std::char_traits<char>::eof()&&separator[0]==','&&separator[1]==','&&separator[2]==',',"Usage: --selectors material,momentum,compression,heat");
+            selectors=values; std::cerr<<"SELECTORS "<<values[0]<<' '<<values[1]<<' '<<values[2]<<' '<<values[3]<<'\n';
+        } else check(argc==1,"Usage: ma_mac_riemann_tests [--selectors material,momentum,compression,heat]");
         std::cout<<std::setprecision(17);
         for(const auto& m:ma::testing::setup().eos->reference().materials()) std::cout<<"MATERIAL "<<ma::testing::setup().registry.index(m.id)<<' '<<
             (m.phase==ReferencePhase::ideal_gas ? 0 : 1)<<' '<<m.molar_mass_kg_per_mol<<' '<<m.cv_j_per_kg_k<<' '<<m.energy_offset_j_per_kg<<' '<<

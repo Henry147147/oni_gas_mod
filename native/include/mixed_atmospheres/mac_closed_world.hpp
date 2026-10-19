@@ -15,11 +15,15 @@ namespace ma::experimental {
 // Value 3 reconstructs a piecewise-linear gas/liquid interface (PLIC) in cells
 // holding both phases, so swept parcels carry each phase only where it is.
 enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2, interface_plic = 3 };
-enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic = 2, coupled_pressure = 3 };
+// Value 4 is the split pressure-sensed acoustic law with the monotonic
+// (Christensen/LULESH) limiter: linear term * (1 - phi), quadratic * (1 - phi^2).
+// Reference path only; the production kernel falls back to the reference.
+enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic = 2, coupled_pressure = 3, monotone_acoustic_quadratic = 4 };
 // Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
-// 3 matched Cp with two half-cell resistances. Older values keep their laws.
+// 3 matched Cp with two half-cell resistances, 4 value 2 matched to the
+// monotone compression law (reference path only). Older values keep their laws.
 enum class MacShockHeatRegularization {
-    none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3
+    none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3, monotone_pressure_sensed = 4
 };
 // Persisted numerical implementation. Values never change meaning. Production
 // keeps selected physical laws through audited reference fallback for unported

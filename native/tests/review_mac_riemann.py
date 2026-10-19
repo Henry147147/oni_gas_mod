@@ -21,7 +21,7 @@ EPS=base.EPS;R=F(float('8.31446261815324'))
 def dec(v): return D(v.numerator)/D(v.denominator)
 
 def parse(raw):
-    materials={};problems={};states={};faces={};modes={};references={};ids=None;passes=0
+    materials={};problems={};states={};faces={};modes={};references={};slabs={};slab_errors={};ids=None;passes=0
     for line in raw.decode('ascii').splitlines():
         row=line.split();check(bool(row),'Empty Riemann record');kind=row[0]
         if kind=='MATERIAL':
@@ -36,11 +36,15 @@ def parse(raw):
             check(len(row)==7,'Face shape');unique(faces,tuple(map(int,row[1:5])),tuple(map(number,row[5:])))
         elif kind=='RREFERENCE':
             check(len(row)==5,'Reference shape');unique(references,tuple(map(int,row[1:3])),tuple(map(number,row[3:])))
+        elif kind=='RSLAB':
+            check(len(row)==8,'Slab reference shape');unique(slabs,tuple(map(int,row[1:3]))+(int(row[4]),),(int(row[3]),)+tuple(map(number,row[5:])))
+        elif kind=='RSLABERROR':
+            check(len(row)==8,'Slab error shape');unique(slab_errors,tuple(map(int,row[1:3])),tuple(map(number,row[3:])))
         elif kind=='RMODE':
             check(len(row)==19,'Mode shape');unique(modes,tuple(map(int,row[1:3])),tuple(map(number,row[3:])))
         else:check(kind=='PASS','Unknown Riemann record');passes+=1
     check(ids is not None and len(set(ids))==2 and all(i in materials for i in ids),'Missing constituent identities')
-    return materials,ids,problems,states,faces,modes,passes,references
+    return materials,ids,problems,states,faces,modes,passes,references,slabs,slab_errors
 
 class Exact:
     def __init__(self,left,right,gamma):
@@ -129,45 +133,85 @@ def reference_face(l,r,g):
     if 0<=u+math.sqrt(g*q/d):return (d,u,q)
     return fan(r,cr,-1)
 
-@functools.lru_cache(maxsize=None)
-def reference_central_errors(left,right,g,n,duration,dt):
-    """Binary64 primitive MUSCL-Hancock (minmod, mirrored walls, exact-Riemann fluxes).
-    Central relative errors use a binary64 exact oracle; only the pressure gates."""
-    h=1/n;cells=[]
-    for x in range(n):
-        rho,u,q=left if x<n//2 else right;cells.append([rho,rho*u,q/(g-1)+.5*rho*u*u])
-    def primitive(c):
-        u=c[1]/c[0];q=(g-1)*(c[2]-.5*c[0]*u*u)
-        check(c[0]>0 and q>0 and math.isfinite(q),'Separation reference left its physical domain')
-        return (c[0],u,q)
+def reference_primitive(c,g):
+    u=c[1]/c[0];q=(g-1)*(c[2]-.5*c[0]*u*u)
+    check(c[0]>0 and q>0 and math.isfinite(q),'Separation reference left its physical domain')
+    return (c[0],u,q)
+
+def muscl_advance(cells,g,h,duration,dt):
+    """Binary64 primitive MUSCL-Hancock (minmod, mirrored walls, exact-Riemann fluxes), in
+    the operation order of mac_riemann_reference.hpp. A face state is reused only for a
+    bit-equal (left, right) pair of the same or previous step, which cannot change it."""
+    n=len(cells)
     def minmod(a,b):return 0. if a*b<=0 else (a if abs(a)<abs(b) else b)
-    t=0.
+    t=0.;previous={}
     while t<duration:
-        step=min(dt,duration-t);w=[primitive(c) for c in cells];lf=[];rf=[]
+        step=min(dt,duration-t);w=[reference_primitive(c,g) for c in cells];lf=[];rf=[]
         for x in range(n):
             wl=w[x-1] if x>0 else (w[0][0],-w[0][1],w[0][2]);wr=w[x+1] if x+1<n else (w[-1][0],-w[-1][1],w[-1][2])
             d=[minmod(w[x][k]-wl[k],wr[k]-w[x][k]) for k in range(3)];rho,u,q=w[x]
             drho=-.5*step/h*(u*d[0]+rho*d[1]);du=-.5*step/h*(u*d[1]+d[2]/rho);dq=-.5*step/h*(g*q*d[1]+u*d[2])
             lf.append((rho-.5*d[0]+drho,u-.5*d[1]+du,q-.5*d[2]+dq));rf.append((rho+.5*d[0]+drho,u+.5*d[1]+du,q+.5*d[2]+dq))
-        flux=[]
+        flux=[];current={}
         for f in range(n+1):
-            if f==0:s=reference_face((lf[0][0],-lf[0][1],lf[0][2]),lf[0],g)
-            elif f==n:s=reference_face(rf[-1],(rf[-1][0],-rf[-1][1],rf[-1][2]),g)
-            else:s=reference_face(rf[f-1],lf[f],g)
+            if f==0:key=((lf[0][0],-lf[0][1],lf[0][2]),lf[0])
+            elif f==n:key=(rf[-1],(rf[-1][0],-rf[-1][1],rf[-1][2]))
+            else:key=(rf[f-1],lf[f])
+            s=current.get(key)
+            if s is None:
+                s=previous.get(key)
+                if s is None:s=reference_face(key[0],key[1],g)
+                current[key]=s
             if s[0]>0:
                 e=s[2]/(g-1)+.5*s[0]*s[1]*s[1];flux.append((s[0]*s[1],s[0]*s[1]*s[1]+s[2],s[1]*(e+s[2])))
             else:flux.append((0.,s[2],0.))
+        previous=current
         for x in range(n):
             for k in range(3):cells[x][k]-=step/h*(flux[x+1][k]-flux[x][k])
         t+=step
+    return cells
+
+@functools.lru_cache(maxsize=None)
+def reference_central_errors(left,right,g,n,duration,dt):
+    """Classical MUSCL-Hancock from the Riemann data on the gate grid. Central relative
+    errors use a binary64 exact oracle; only the pressure gates."""
+    h=1/n;cells=[]
+    for x in range(n):
+        rho,u,q=left if x<n//2 else right;cells.append([rho,rho*u,q/(g-1)+.5*rho*u*u])
+    muscl_advance(cells,g,h,duration,dt)
     exact=Exact(tuple(map(D,left)),tuple(map(D,right)),D(g));central=[0.,0.]
     for x in (n//2-1,n//2):
-        rho,_,q=primitive(cells[x]);rho_exact,q_exact=map(float,exact.average(D(x)/D(n),D(x+1)/D(n),D(duration)))
+        rho,_,q=reference_primitive(cells[x],g);rho_exact,q_exact=map(float,exact.average(D(x)/D(n),D(x+1)/D(n),D(duration)))
         central[0]=max(central[0],abs(rho-rho_exact)/rho_exact);central[1]=max(central[1],abs(q-q_exact)/q_exact)
     return tuple(central)
 
+SLAB_REFINEMENT=8
+
+@functools.lru_cache(maxsize=None)
+def slab_reference(left,right,g,n,refine,duration,dt):
+    """Resting-slab reference of the gate's discrete start (mac_riemann_reference.hpp):
+    refine fine cells per gate cell, the refine fine cells of the centre face's dual at rest,
+    fine step dt/refine. Returns gate-cell mean density and pressure and gate-face velocity
+    (momentum over mass of the two adjacent fine cells; zero at the rigid ends)."""
+    check(n>=2 and n%2==0 and refine>=2 and refine%2==0,'Invalid resting-slab reference grid')
+    m=n*refine;h=1/m;cells=[]
+    for x in range(m):
+        rho,u,q=left if x<m//2 else right
+        if m//2-refine//2<=x<m//2+refine//2:u=0.
+        cells.append([rho,rho*u,q/(g-1)+.5*rho*u*u])
+    muscl_advance(cells,g,h,duration,dt/refine)
+    rhos=[];pressures=[];velocities=[0.]*(n+1)
+    for i in range(n):
+        rho=0.;q=0.
+        for k in range(refine):
+            s=reference_primitive(cells[i*refine+k],g);rho+=s[0];q+=s[2]
+        rhos.append(rho/refine);pressures.append(q/refine)
+    for f in range(1,n):
+        a=cells[f*refine-1];b=cells[f*refine];velocities[f]=(a[1]+b[1])/(a[0]+b[0])
+    return tuple(rhos),tuple(pressures),tuple(velocities)
+
 def review(data,complete=True):
-    materials,ids,problems,states,faces,modes,passes,references=data;ni,he=ids
+    materials,ids,problems,states,faces,modes,passes,references,slabs,slab_errors=data;ni,he=ids
     if complete:check(set(modes)=={(c,n) for c in range(3) for n in (64,128,256)} and passes==3,'Incomplete Riemann gate')
     check(bool(modes),'No completed Riemann profile')
     check(set(states)=={(c,n,e,i) for c,n in modes for e in (0,1) for i in range(2*n)},'Missing/extra saved cells')
@@ -179,6 +223,10 @@ def review(data,complete=True):
     gamma64=1+float(R)*(1/fmn+1e-28/fmh)/(1+1e-28)/((fcvn+1e-28*fcvh)/(1+1e-28))
     check(set(references)<={(2,256)},'Unexpected classical reference record')
     if complete:check((2,256) in references,'Missing separation classical reference')
+    check({k[:2] for k in slabs}<={(2,256)} and set(slab_errors)<={(2,256)},'Unexpected slab reference record')
+    if slab_errors or slabs or complete:
+        check(set(slab_errors)=={(2,256)} and set(slabs)=={(2,256,x) for x in range(256)},'Missing/extra slab reference records')
+        check(all(v[0]==SLAB_REFINEMENT for v in slabs.values()),'Slab reference refinement changed')
     results={};oracles={}
     for control,p in problems.items():
         check(control in (0,1,2),'Unknown scientific problem')
@@ -257,11 +305,42 @@ def review(data,complete=True):
             reference=reference_central_errors(left,right,gamma64,n,float(time),float(dt))
             for recorded,independent in zip(references[control,n],reference):
                 check(abs(float(recorded)-independent)<=1e-9*max(1.,independent),'Independent classical separation reference')
-        if n==256:scientific=scientific and max(errors)<D('.06') and (control!=2 or
-            (reference is not None and central[0]<D('.5') and central[1]<=D(reference[1])))
+        slab=None
+        if control==2 and n==256 and (control,n) in slab_errors:
+            # Resting-slab reference of the same discrete start, recomputed in binary64.
+            check(reference is not None,'Slab criteria need the classical pressure bound')
+            rhos,pressures,velocities=slab_reference(left,right,gamma64,n,SLAB_REFINEMENT,float(time),float(dt))
+            for x in range(n):
+                _,rho_r,p_r,u_r=slabs[control,n,x]
+                for recorded,independent,floor in ((rho_r,rhos[x],1e-6),(p_r,pressures[x],1.),(u_r,velocities[x],float(sound))):
+                    check(abs(float(recorded)-independent)<=1e-9*max(abs(independent),floor),'Independent resting-slab reference')
+            slab=[D(0)]*3;slab_central=[D(0),D(0)]
+            for i in range(2*n):
+                x=i%n;a=dec(h)*x;b=a+dec(h);rho=dec(mass[1,i]/v);rho_r=D(rhos[x]);p_r=D(pressures[x])
+                nitrogen,helium,u=states[control,n,1,i][:3]
+                temp=(dec(u)-dec(nitrogen)*offn-dec(helium)*offh)/(dec(nitrogen)*cvn+dec(helium)*cvh)
+                pressure=(dec(nitrogen)/mn+dec(helium)/mh)*dec(R)*temp/dec(v)
+                if a>=lo and b<=hi:
+                    slab[0]+=dec(h)/2*abs(rho-rho_r)/(hi-lo);slab[1]+=dec(h)/2*abs(pressure-p_r)/(D(100000)*(hi-lo))
+                if x in (n//2-1,n//2):
+                    slab_central[0]=max(slab_central[0],abs(rho-rho_r)/rho_r);slab_central[1]=max(slab_central[1],abs(pressure-p_r)/p_r)
+            for y in range(2):
+                for x in range(n):
+                    if lo<=dec(h)*x<hi:
+                        f=x+y*(n+1);adj=([x-1+y*n] if x else [])+[x+y*n];inertia=sum((mass[1,i] for i in adj),F(0))/2
+                        slab[2]+=dec(h)/2*abs(dec(faces[control,n,0,f][1]/inertia)-D(velocities[x]))/(sound*(hi-lo))
+            recorded=slab_errors[control,n]
+            for reported,expected in zip(recorded[:3],slab):check(abs(dec(reported)-expected)<D('2e-7'),'Independent resting-slab L1 error')
+            for reported,expected in zip(recorded[3:],slab_central):check(abs(dec(reported)-expected)<D('2e-7')*max(D(1),expected),'Independent resting-slab central error')
+            slab_passed=dict(DensityL1=slab[0]<D('.06'),PressureL1=slab[1]<D('.06'),VelocityL1=slab[2]<D('.06'),
+                CentralDensity=slab_central[0]<D('.5'),CentralPressure=slab_central[1]<=D(reference[1]))
+        if n==256:scientific=scientific and (max(errors)<D('.06') if control!=2 else slab is not None and all(slab_passed.values()))
         if complete:check(scientific,'Strong-flow timestep/entropy/absolute gate')
         results[control,n]=dict(Errors=list(map(str,errors)),Central=list(map(str,central)),Momentum=momentum_witness,ProfilePhysicalCriteriaPassed=bool(scientific))
         if reference is not None:results[control,n]['ClassicalReferenceCentral']=list(map(repr,reference))
+        if slab is not None:
+            results[control,n].update(SlabReferenceRefinement=SLAB_REFINEMENT,SlabReferenceErrors=list(map(str,slab)),
+                SlabReferenceCentral=list(map(str,slab_central)),SlabCriteriaPassed=slab_passed)
     for c in range(3):
         for a,b in ((64,128),(128,256)):
             if (c,a) in results and (c,b) in results:
@@ -275,7 +354,7 @@ def main():
     with localcontext() as context:
         context.prec=80;data=parse(raw);results=review(data,complete=not partial);checks=base.CHECKS
         if not partial:
-            for corruption in ('trace','wall','profile','reference'):
+            for corruption in ('trace','wall','profile','reference','slab'):
                 bad=copy.deepcopy(data)
                 if corruption=='trace':
                     k=(0,64,1,0);v=list(bad[3][k]);v[1]*=F(101,100);bad[3][k]=tuple(v)
@@ -283,14 +362,16 @@ def main():
                     k=(0,64,0,0);old,new=bad[4][k];bad[4][k]=(old,new+1)
                 elif corruption=='profile':
                     k=(0,64);v=list(bad[5][k]);v[10]/=2;bad[5][k]=tuple(v)
-                else:
+                elif corruption=='reference':
                     k=(2,256);v=list(bad[7][k]);v[1]*=F(101,100);bad[7][k]=tuple(v)
+                else:
+                    k=(2,256,128);v=list(bad[8][k]);v[1]*=F(101,100);bad[8][k]=tuple(v)
                 caught=False
                 try:review(bad)
                 except ValueError:caught=True
                 check(caught,'Altered Riemann profile accepted')
     print(json.dumps(dict(Passed=not partial,PartialDataReview=partial,SavedSha256=hashlib.sha256(raw).hexdigest(),SavedChecks=checks,
-        CorruptionsRejected=0 if partial else 4,NativeProcessLaunched=False,IndependentAgentReview=False,
+        CorruptionsRejected=0 if partial else 5,NativeProcessLaunched=False,IndependentAgentReview=False,
         Profiles={str(k):v for k,v in results.items()},Scope='Closed occupied ideal-gas Riemann controls; no vacuum interface, production or game acceptance')))
 
 if __name__=='__main__':main()

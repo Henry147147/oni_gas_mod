@@ -181,7 +181,8 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     const MacTransportState& source, double dt, MacShockHeatLaw law) {
     require_mac_energy_environment(); require(std::isfinite(dt) && dt > 0 && dt <= 1 && .5 * dt > 0, "Invalid shock-heat timestep");
     require(law == MacShockHeatLaw::closing_velocity || law == MacShockHeatLaw::pressure_sensed_viscosity ||
-        law == MacShockHeatLaw::pressure_sensed_series, "Invalid shock-heat law");
+        law == MacShockHeatLaw::pressure_sensed_series || law == MacShockHeatLaw::monotone_pressure_sensed, "Invalid shock-heat law");
+    const bool monotone = law == MacShockHeatLaw::monotone_pressure_sensed;
     const bool sensed = law != MacShockHeatLaw::closing_velocity;
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid;
     const auto jx = mac_field_values(source.momentum_x, source.full_momentum_x), jy = mac_field_values(source.momentum_y, source.full_momentum_y);
@@ -194,7 +195,8 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     std::vector<std::size_t> current_index(source.cells.size(),none);
     result.report.law = law;
     if (sensed) {
-        result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source, MacCompressionLaw::pressure_sensed_acoustic);
+        result.report.compression_coefficients = freeze_mac_compression_coefficients(registry, model, source,
+            monotone ? MacCompressionLaw::monotone_pressure_sensed_acoustic : MacCompressionLaw::pressure_sensed_acoustic);
         result.report.frozen_conductance_capacity_j_per_k.resize(source.cells.size());
     }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
@@ -223,7 +225,12 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             const auto r = axis == 0 ? g.x_face((x + 1) % g.x_width(), y) : g.y_face(x, (y + 1) % g.y_height());
             const auto jump = mac_scaled_difference(velocity[l], velocity[r]); if (jump.mantissa() > 0) closing[i] = jump;
             diffusion[i] = closing[i];
-            if (sensed && !closing[i].is_zero())
+            if (monotone && !closing[i].is_zero()) {
+                // Matched to q = rho v ((1 - phi^2) v + (1 - phi) a).
+                const double phi = result.report.compression_coefficients.monotone_limiter(axis, i);
+                diffusion[i] = phi >= 1 ? MacScaled{} : phi == 0 ? sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i)) :
+                    sum(closing[i].multiplied(1 - phi * phi), result.report.compression_coefficients.linear_speed(axis, i).multiplied(1 - phi));
+            } else if (sensed && !closing[i].is_zero())
                 diffusion[i] = sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i));
         }
         for (std::size_t y = 0; y < height; ++y) for (std::size_t x = 0; x < width; ++x) {

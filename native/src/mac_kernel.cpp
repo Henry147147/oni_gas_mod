@@ -58,6 +58,9 @@ void require_supported(const MacClosedSettings& s) {
     require(s.compression_viscosity != MacCompressionViscosity::coupled_pressure,
         "Production kernel does not support coupled compressive pressure (compression selector 3)");
     require(!sharp_gravity_moments(s), "Sharp-interface gravity weights require midpoint pressure integration");
+    require(s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
+        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed,
+        "Production kernel does not support monotone regularization (compression/heat selector 4)");
 }
 Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state) {
     eos.validate_registry(registry);
@@ -500,7 +503,9 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
     return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
         s.reconstruction == MacMaterialReconstruction::interface_plic) &&
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
-        s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s);
+        s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s) &&
+        s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
+        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed;
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
     // Below-range values (and full-range canonical momentum, whose binary64

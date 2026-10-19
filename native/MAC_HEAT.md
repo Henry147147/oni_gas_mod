@@ -25,6 +25,7 @@ quantity, canonical J and the geometry are unchanged, and no heat crosses a wall
 | `compression_activated` | 1 | `closing_velocity` | max adjacent closing speed × harmonic equilibrium capacity / h |
 | `pressure_sensed_acoustic` (default) | 2 | `pressure_sensed_viscosity` | max adjacent (v + a) × harmonic Cp / h |
 | `pressure_sensed_series` | 3 | `pressure_sensed_series` | series of half-cell Cp·d/h conductances |
+| `monotone_pressure_sensed` | 4 | `monotone_pressure_sensed` | mode 2 with diffusion speed `(1 − φ²) v + (1 − φ) a` |
 
 The persisted owner enum and the component enum have different meanings and are never
 cast into each other.
@@ -82,6 +83,11 @@ composition is second order in time.
 - **Mode 3** assigns each cell `G_i = Cp_i d_i / h` and combines the two half-cell
   resistances, `G_face = 2 G_L G_R / (G_L + G_R)`; an inactive cell gives zero flux.
   `diffusion_speed` then reports the equivalent face speed `G_face h / harmonic(Cp)`.
+
+- **Mode 4** is mode 2 matched to [compression mode 4](MAC_PRESSURE.md#monotone-limited-acoustic-compression-mode-4):
+  each active cell's diffusion speed is `(1 − φ²) v + (1 − φ) a` with the same frozen
+  monotonic limiter φ, so fully limited (uniformly compressing) cells conduct nothing
+  and φ = 0 reproduces mode 2 bit for bit. Reference path only.
 
 None of these coefficients was fitted to a benchmark. Mode 3 made the strong-flow
 collision result worse than mode 2 (density/pressure ratios 0.919/0.898 against

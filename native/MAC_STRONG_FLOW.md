@@ -2,11 +2,15 @@
 
 This is the accuracy gate for [`MacClosedWorld`](MAC_SOLVER.md) on strong ideal-gas
 shocks and rarefactions. It is **failed**. With the production defaults, collision
-density refinement fails only from N64 to N128 (0.856 against 0.85). Separation
-fails the finest-grid velocity bound and both central-core bounds. The central
-pressure bound was re-baselined on 2026-10-19 against a
-[classical reference](#acceptance-criteria). The best opt-in selector combination
-passes Sod and collision, but its separation still fails. The latest diagnosis localizes a convention mismatch between
+density refinement fails only from N64 to N128 (0.856 against 0.85). Since the
+2026-10-19 user decision, separation is judged against a fine
+[resting-slab reference](#resting-slab-separation-reference) of the gate's own
+discrete start rather than the textbook Riemann core; against it the defaults fail
+only the N256 velocity bound (0.0759 against 0.06). The central pressure bound remains
+the [classical reference](#acceptance-criteria) error. The opt-in monotone
+regularization (compression 4, heat 4) lowers every Sod and collision error and passes
+both, with a phase-sensitive collision margin; separation is unchanged, so it fails
+the same velocity bound. The latest diagnosis localizes a convention mismatch between
 the pressure step and the momentum remap under curved deformation; its share of the
 separation error is not yet quantified. Gate 2 in
 [playtesting readiness](../docs/playtesting-readiness.md) requires this gate and the
@@ -64,17 +68,23 @@ q = 2 (Sod), 2.5 (collision) and 5 (separation).
   accepted steps; source state and clock are unchanged.
 - Each successive density, pressure and velocity L1 error is less than 0.85 of its
   predecessor (joint refinement).
-- At N256 every normalized error is below 0.06.
-- Separation at N256: both central cells' density errors are below half their exact
-  cell averages, and their pressure errors are no larger than those of the classical
-  reference below, so the low-pressure core cannot hide inside a small
+- Joint refinement compares every case, separation included, with the exact
+  solution.
+- At N256 every Sod and collision normalized error is below 0.06.
+- Separation at N256 (user decision, 2026-10-19), against the
+  [resting-slab reference](#resting-slab-separation-reference) with the same metrics:
+  every normalized density, pressure and velocity error is below 0.06; both central
+  cells' density errors are below half their reference cell averages; and their
+  relative pressure errors are no larger than the classical reference's central
+  pressure error below, so the low-pressure core cannot hide inside a small
   domain-averaged error.
 - Every nitrogen, helium and passive inventory stays positive. Total entropy may
   decrease only within 128 binary64 epsilons of Σ|U|/T over the initial and final
   states.
 
-**Classical separation reference** (user decision, 2026-10-19). The original central
-pressure bound, half the exact cell average, is beyond textbook methods. With these
+**Classical separation reference** (user decision, 2026-10-19). This record supplies
+only the central pressure bound value. The original central pressure bound, half the
+exact cell average, is beyond textbook methods. With these
 inputs and metrics at N256, first-order Godunov misses it by 5.49× and MUSCL-Hancock
 by 26.5×, both with exact Riemann fluxes. Both pass collision refinement easily.
 The bound is the reference's own central pressure error, currently 26.530350009 at N256.
@@ -88,9 +98,55 @@ The reference is binary64 primitive MUSCL-Hancock on one row of the same grid:
 
 `mac_riemann_tests` records it as `RREFERENCE`. `review_mac_riemann.py` repeats the
 algorithm in the same operation order and requires the recorded value to agree within
-1e-9 relative. It also rejects a tampered reference record. Central density keeps its
-original bound; the reference gets central density within 0.004 of exact, so that
-bound is achievable.
+1e-9 relative. It also rejects a tampered reference record. The algorithm is shared
+with the resting-slab reference in `native/tests/mac_riemann_reference.hpp`.
+
+### Resting-slab separation reference
+
+The gate starts the centre face at J = 0 (the review checks this as "Source face
+momentum"). Read with the solver's own dual-cell kinetic energy, that is the Riemann
+data plus a slab of one gate cell at rest ([analysis](#initialization-the-resting-centre-face)).
+The user decided on 2026-10-19 to keep this start and to judge separation against a
+fine solution of it:
+
+- the classical algorithm above (`mac_riemann_reference.hpp`) on R = 8 fine cells per
+  gate cell, N = 256, rigid mirrored ends, one row;
+- every fine cell at its side's Riemann state, except the R fine cells of the centre
+  face's dual, [1/2 − 1/(2N), 1/2 + 1/(2N)], which are at rest (density 1 kg/m³ and
+  100000 Pa everywhere);
+- fine timestep `dt_gate / R` and the gate's duration, with a final partial step;
+- on the gate grid: density and pressure are the means of the R fine-cell values,
+  and face velocity is momentum over mass of the two fine cells beside each gate face.
+
+The gate then forms exactly the metrics it uses against the exact solution, with
+these values as the expected ones. `mac_riemann_tests` prints every gate-cell
+reference value as `RSLAB control N R cell density pressure face-velocity` and the
+five separation measures as `RSLABERROR control N density-L1 pressure-L1
+velocity-L1 central-density central-pressure`. `review_mac_riemann.py` recomputes the
+reference in binary64 Python in the same operation order (each of the 768 values must
+agree within 1e-9 relative; on Linux all are bit-equal), recomputes the five measures
+from the saved state with its independent EOS, and rejects a tampered `RSLAB` record.
+A face state is reused only for a bit-equal left/right pair; the Python reference
+takes about 35 s, and a partial review about 40 s.
+
+R = 8 is the finest refinement the review can repeat within its 180 s bound. Its
+convergence was measured with `ma_riemann_slab_reference 256 2 4 8 16 32`, as
+gate-metric differences between successive refinements:
+
+| Refinements | Density L1 | Pressure L1 | Velocity L1 | Central density | Central pressure |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 2 vs 4 | 0.00345 | 0.00449 | 0.01536 | 0.0679 | 0.0039 |
+| 4 vs 8 | 0.00231 | 0.00233 | 0.00973 | 0.0226 | 0.0146 |
+| 8 vs 16 | 0.00148 | 0.00118 | 0.00537 | 0.0091 | 0.0088 |
+| 16 vs 32 | 0.00087 | 0.00060 | 0.00301 | 0.0042 | 0.0049 |
+| 8 vs 32 | 0.00233 | 0.00178 | 0.00830 | 0.0132 | 0.0137 |
+
+Differences fall by about 0.55–0.6 per doubling, so the R = 8 values are within about
+0.003 (density and pressure L1), 0.012 (velocity L1) and 2–3% (central cells) of the
+converged slab solution. Every bound is achievable by the reference itself at coarser
+refinement: R = 2 differs from R = 8 by 0.0056 / 0.0068 / 0.0235 in L1 and
+0.089 / 0.011 at the centre. The slab's converged central density is
+0.0247 kg/m³ (R = 32), about 76 times the Riemann star density.
 
 Density and pressure compare cell averages; velocity compares the normal face
 reading. Errors are normalized by the initial left density, 100000 Pa and c₀, and by
@@ -110,7 +166,33 @@ can only get a `--partial` review; a partial review cannot certify the gate. Bou
 Selectors are listed as material / momentum / compression / heat
 ([settings](MAC_SOLVER.md#settings-production-defaults-and-opt-in-selectors)).
 Ratios are collision N128/N64 density / pressure / velocity; failing values are in
-bold. Sod passed in every row.
+bold. Sod passed in every row. Separation N256 and central figures in this section
+before the [resting-slab results](#separation-against-the-resting-slab-reference) are
+against the exact Riemann solution, the criterion before the 2026-10-19 decision.
+
+### Separation against the resting-slab reference
+
+Linux GNU Release; refinement ratios are unchanged (against the exact solution) and
+pass in every row. Bounds: L1 below 0.06, central density below 0.5, central pressure
+at most 26.530350009 (`RREFERENCE`).
+
+| Configuration | Density L1 | Pressure L1 | Velocity L1 | Central density | Central pressure | Source |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 / 1 / 2 / 2 (defaults) | 0.0119 | 0.0220 | **0.0759** | 0.049 | 0.742 | probe; the gate stops at collision first |
+| 1 / 1 / 4 / 4 | 0.0119 | 0.0220 | **0.0759** | 0.049 | 0.742 | gate `--selectors 1,1,4,4`, reviewed |
+| 2 / 4 / 3 / 2 | 0.0185 | 0.0209 | **0.0658** | **0.656** | 0.863 | probe |
+| 2 / 3 / 3 / 2 | 0.0121 | 0.0204 | **0.0666** | 0.107 | 0.714 | probe |
+| 0 / 0 / 2 / 2 | 0.0308 | 0.0518 | **0.1545** | 0.239 | 0.522 | probe |
+
+Against finer references the defaults' velocity error grows slightly (0.0811 at
+R = 16, 0.0841 at R = 32; 2 / 4 / 3 / 2: 0.0741 at R = 32), so R = 8 is, if anything,
+lenient. For the defaults about 0.029 of the velocity error lies within 0.05 of the
+centre, 0.023 between 0.05 and 0.1, 0.021 between 0.1 and 0.18 and 0.003 beyond. Sod
+and collision are unchanged by this decision. With 1 / 1 / 4 / 4 the gate passes Sod
+and collision and stops at the separation velocity bound; the saved capture passes
+`review_mac_riemann.py --partial` and its independent resting-slab check, and every
+corruption control (trace, wall, profile, classical reference, resting-slab reference)
+rejects when applied to it.
 
 | Configuration | Collision ratios | Outcome |
 | --- | --- | --- |
@@ -127,6 +209,8 @@ bold. Sod passed in every row.
 | · / 3 / 2 / 2 (material selector not recorded) | **0.856** / 0.796 / 0.613 | No change |
 | 2 / 3 / 3 / 2 | 0.848 / 0.819 / 0.613 | Collision passes; separation fails (below) |
 | **2 / 4 / 3 / 2 (best opt-in)** | passes | Separation fails (below) |
+| 1 / 1 / 4 / 4 (monotone, Linux) | 0.840 / 0.802 / 0.674 | Sod and collision pass; separation unchanged from the defaults ([below](#monotone-regularization-modes-4)) |
+| 2 / 4 / 4 / 4 (Linux) | 0.842 / 0.800 / 0.676 | Sod and collision pass; separation as 2 / 4 / 3 / 2 |
 
 Between the first two rows, Linux runs also stopped on transfers below binary64
 range (a 9.12e-436 J kinetic parcel, an 8.59e-325 kg helium parcel, a 3.6e-585 kg m/s
@@ -180,6 +264,97 @@ Separation at N256 fails:
 | Central cells (left / right) | 0.008384 / 0.008782 kg/m³ at 30.551 / 29.368 K | Exact 0.00032616 kg/m³ at 13.650 K |
 
 The run takes about 110 s on Windows, within the 180 s bound.
+
+### Monotone regularization (modes 4)
+
+Compression 4 and heat 4 add the Christensen/LULESH monotonic limiter to the
+pressure-sensed laws ([compression](MAC_PRESSURE.md#monotone-limited-acoustic-compression-mode-4),
+[heat](MAC_HEAT.md#face-conductance-laws)). Coefficients are unchanged. Single GNU
+Release runs on Linux, `ma_mac_riemann_tests --selectors 1,1,4,4`:
+
+| Case | Grid | Density L1 | Pressure L1 | Velocity L1 | Defaults (same grid) |
+| --- | --- | --- | --- | --- | --- |
+| Sod | 64 / 128 / 256 | 0.01101 / 0.00647 / 0.00346 | 0.00785 / 0.00448 / 0.00224 | 0.01729 / 0.00993 / 0.00484 | 0.01125 / 0.00673 / 0.00352, 0.00814 / 0.00465 / 0.00233, 0.01859 / 0.01053 / 0.00516 |
+| Collision | 64 / 128 / 256 | 0.04178 / 0.03510 / 0.01340 | 0.09096 / 0.07298 / 0.02454 | 0.06267 / 0.04221 / 0.01927 | 0.04286 / 0.03669 / 0.01513, 0.10182 / 0.08109 / 0.03144, 0.07385 / 0.04512 / 0.02165 |
+
+Every Sod and collision error is lower than with the defaults on every grid.
+Collision refines by 0.840 / 0.802 / 0.674 and 0.382 / 0.336 / 0.456; Sod and
+collision pass. Separation has no compression in its window and reproduces the
+defaults, so the gate still stops at the separation N256 velocity bound (against the
+exact solution then; 0.0759 against the resting-slab reference now). The saved capture passes
+`review_mac_riemann.py --partial` (124,191 checks). The collision margin is small and
+phase-dependent (next paragraph); the same law with donor-cell momentum gives 0.866.
+
+Variants tried before choosing this form (probe runs, not tracked), N64→N128
+collision density ratio and N64 / N128 / N256 density L1:
+
+| Variant | Ratio | Density L1 |
+| --- | --- | --- |
+| Limiter × both terms (`1 − φ`), heat 2 | 0.746 | 0.0498 / 0.0372 / 0.0150 |
+| Limiter × both terms, matched heat `(1 − φ)(v + a)` | 0.890 | 0.0364 / 0.0324 / 0.0119 |
+| Limiter × linear term only, heat 2 | 0.828 | 0.0440 / 0.0364 / 0.0150 |
+| Limiter × linear term only, heat linear term limited | 0.849 | 0.0420 / 0.0357 / 0.0144 |
+| LULESH form (`1 − φ`, `1 − φ²`), heat 2 | 0.750 | 0.0510 / 0.0383 / 0.0152 |
+| **LULESH form, matched heat (modes 4/4)** | **0.840** | **0.0418 / 0.0351 / 0.0134** |
+| Quadratic coefficient 0.3, limiter × both, matched heat (coefficient change, not adopted) | 1.102 | 0.0206 / 0.0227 / 0.0111 |
+
+**Collision ratio phase sensitivity.** The collision is self-similar in grid units
+(dt ∝ h), so N64, N128 and N256 are the same discrete problem after k = 46, 91 and
+182 steps, and the density L1 is `S(k) / (N · window)` with S the summed cell error in
+density × cells. A probe that advances N256 in 182 chunks (this perturbs the final
+partial steps) shows S oscillating with a period of about 13.6 steps, one cell of
+shock travel: for the defaults it swings between about 0.7 and 1.6 per shock with
+minima near k = 32, 46, 59, …; k = 46 lies on a minimum and k = 91 on a rising flank.
+The N64→N128 ratio is `S(91) / (2 S(46))`, so a ratio below 0.85 needs
+`S(91)/S(46) < 1.7` while every tested MAC regularization has a late max/min of 1.9–3.1
+(defaults 2.1, 2 / 4 / 3 / 2 2.1, modes 4 2.5, quadratic coefficient 0.3 3.1). Sharper
+shocks lower S everywhere but oscillate more, so pass or fail flips with small
+perturbations (modes 4: 0.840 in the gate, 0.935 in the chunked run). The classical
+MUSCL-Hancock reference has an almost phase-independent S (0.47 / 0.49 / 0.57).
+A robust pass needs a shock capture whose cut-cell average tracks the exact one.
+
+### Initialization: the resting centre face
+
+This analysis preceded the 2026-10-19 decision to judge separation against the
+[resting-slab reference](#resting-slab-separation-reference). The gate (and `review_mac_riemann.py`, "Source face momentum") fixes the centre face at
+J = 0 and every other interior face at its side's velocity. Read with the MAC's own
+dual-cell kinetic energy, that state is the Riemann data plus a slab of width h at
+rest at the centre, with ½ m (4 c₀)² less kinetic energy than the Riemann data per
+cell of slab mass m (4.5 cells' worth of internal energy). An independent
+binary64 MUSCL-Hancock solver (minmod, exact Riemann fluxes, the gate's γ, timestep
+ratio and metrics) solved both readings 8–16 times finer than each gate grid. On the
+gate grid itself it reproduces `RREFERENCE` (0.003848 / 26.53). These readings used a
+scratch version of the solver with Riemann and slab starts and pressure from mean
+conserved variables; the tracked `ma_riemann_slab_reference` runs only the slab start
+with the gate reference's metrics.
+
+| Initial data, N256 metrics | Velocity L1 | Density / pressure L1 | Central density / pressure error |
+| --- | ---: | ---: | ---: |
+| Riemann data, 16× finer | 0.0160 | 0.0012 / 0.0011 | 1.10 / 22.2 (still converging) |
+| Resting slab of width h, 8× finer | 0.1153 | 0.0134 / 0.0098 | 73.8 / 421 |
+| Resting slab of width h, 16× finer | 0.1197 | 0.0138 / 0.0098 | 74.5 / 425 |
+| Production defaults (MAC) | 0.0741 | 0.0179 / 0.0233 | 77.52 / 732.98 |
+
+The slab's converged central-cell density, 0.02463 kg/m³, matches the defaults'
+0.02458 kg/m³ in cell 127 (0.02561 in cell 128, which carries the defaults' small
+left/right drift). The slab's N64 / N128 velocity L1 are 0.211 / 0.164. Because the
+slab width is h, the problem is the same in grid units on every grid and refinement
+cannot remove it. An exact solution of the gate's own initial data therefore fails the
+N256 velocity bound and both central bounds; a scheme can pass them only by not
+following its initial data. The collision slab error refines normally (density L1
+0.0198 / 0.0103 / 0.0051).
+
+The classical reference itself meets the central density bound only on the gated grid:
+with the review script's own `reference_central_errors`, its central density / pressure
+errors are 0.866 / 34.5 (N64), 0.781 / 3.27 (N128), 0.0038 / 26.53 (N256) and
+1.173 / 62.2 (N512). Its N256 core over-empties to about 6.8e-5 kg/m³ near step 100 and
+refills by back-flow, crossing the exact 3.26e-4 kg/m³ near step 182 at 377 K. Its
+velocity L1 is 0.525 / 0.148 / 0.115 on N64 / N128 / N256, so it fails the 0.06 bound too.
+
+With the discontinuity instead at the centre of cell n/2 (probe `shift=1`, compared with
+the shifted exact solution; not a gate input) the MAC core empties: central relative
+errors are 0.99–1.00 on all grids and velocity L1 is 0.825 / 0.467 / 0.122 (defaults),
+which is the [vacuum-front](MAC_VACUUM.md) problem.
 
 ## Diagnosed causes
 
@@ -374,14 +549,22 @@ velocity and central criteria failing.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release --target ma_mac_riemann_tests ma_mac_curved_nodal_diagnostic
 build/ma_mac_riemann_tests > riemann.stdout 2> riemann.stderr
-python3 native/tests/review_mac_riemann.py riemann.stdout            # add --partial if it stopped early
+python3 native/tests/review_mac_riemann.py riemann.stdout            # add --partial if it stopped early (about 40 s with separation N256)
 build/ma_mac_curved_nodal_diagnostic > curved.stdout 2> curved.stderr
 python3 native/tests/review_mac_curved_nodal.py curved.stdout
+# Opt-in selectors (material,momentum,compression,heat); review with --partial if it stops
+build/ma_mac_riemann_tests --selectors 1,1,4,4 > monotone.stdout 2> monotone.stderr
+# Diagnostics: per-case errors without stopping, profiles, chunked histories
+cmake --build build --config Release --target ma_mac_riemann_probe ma_riemann_slab_reference
+build/ma_mac_riemann_probe 1 256 comp=4 heat=4 chunks=182   # collision S(k) (SK lines)
+build/ma_mac_riemann_probe 2 256 profile=1                  # separation profile
+build/ma_mac_riemann_probe 2 256 slab=8                      # separation against the reference
+build/ma_riemann_slab_reference 256 2 4 8 16 32               # reference convergence study
 ```
 
-Visual Studio places executables under `build/Release/`. The tracked Riemann test
-uses the default `MacClosedSettings`; to test an opt-in combination, change only the
-selector assignments in `run()` in a local build. The curved-nodal reader exits 2 for
+Visual Studio places executables under `build/Release/`. Without `--selectors` the
+tracked Riemann test uses the default `MacClosedSettings`; the option changes only
+the four selectors, never inputs, schedules or bounds. The curved-nodal reader exits 2 for
 invalid data and reports `evidence_valid` separately from `nodal_gate_passed`. It
 checks geometry, reference momenta, stored operands, match flags and completeness,
 and rejects five saved-data corruptions; its energy evidence uses the native guard.

@@ -111,6 +111,7 @@ physical viscosity:
 | 1 | `quadratic` | Split half steps around pressure/transport | `q = ρ v²` |
 | 2 | `acoustic_quadratic` (default) | Split half steps | `q = ρ (v² + c v)`, pressure-sensed |
 | 3 | `coupled_pressure` | Inside the material pressure root | Same stress, coupled to volume and U |
+| 4 | `monotone_acoustic_quadratic` | Split half steps | `q = ρ ((1 − φ²) v² + (1 − φ) c v)`, pressure-sensed, monotonic limiter φ |
 
 Here `v` is the positive closing speed `u_left − u_right` across a cell's two normal
 faces. Expansion, uniform normal velocity and tangential shear produce no force.
@@ -183,6 +184,32 @@ full-range arithmetic, so a large pressure is never projected and a curvature be
 binary64 range stays positive. With c = 0 the quadratic arithmetic is reproduced
 exactly. Sound speeds, pressures and sensors are frozen from each call's incoming
 state, a first-order treatment of their thermal dependence.
+
+### Monotone-limited acoustic compression (mode 4)
+
+Mode 4 is mode 2 with the monotonic limiter of Christensen (1990, *Godunov methods on
+a staggered mesh: an improved artificial viscosity*) in the form used by
+[LULESH](https://github.com/LLNL/LULESH/blob/master/lulesh.cc)
+(`CalcMonotonicQRegionForElems`): the linear term is multiplied by `1 − φ` and the
+quadratic term by `1 − φ²`. For each cell and axis, with normal velocity jump
+`d = u_right − u_left < 0` and neighbour jumps `dl`, `dr`,
+
+`φ = clamp(min((rl + rr)/2, 2 rl, 2 rr), 0, 1)`, `r = neighbour jump / d`.
+
+A wall, solid, empty cell or nonperiodic edge gives a zero neighbour jump, so φ = 0
+there. Uniform (affine) compression gives φ = 1 and no regularization; an isolated
+jump, a jump much larger than both neighbours or an alternating pattern gives φ = 0
+and exactly the mode-2 pair. Ratios use full significand/exponent arithmetic and are
+clamped to ±2 before projection. φ is frozen once per half step from the incoming
+`J/I`, like the sound speeds and pressure sensors, and enters the same exact pair
+relaxation as `B (1 − φ²)` and linear speed `c / (1 + φ)`. The coefficients (one
+grid spacing, half sound speed) are unchanged. Heat mode 4 is the matched thermal
+regularization ([heat](MAC_HEAT.md#face-conductance-laws)). Mode 4 has no
+production-kernel port; owners selecting it take the audited reference interval.
+`ma_mac_monotone_compression_tests` (CTest `mac_monotone_compression`) checks the
+limiter values, bit identity with mode 2 at an isolated jump, the unregularized
+interior of a uniform compression, owner reference fallback and checkpoint
+continuation. Strong-flow results are in [strong flow](MAC_STRONG_FLOW.md#monotone-regularization-modes-4).
 
 ### Coupled compressive pressure work (mode 3)
 

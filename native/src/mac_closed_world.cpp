@@ -19,11 +19,17 @@ void require_diffusion_scope(const SpeciesRegistry& registry,const MacTransportS
         for(std::size_t s=0;s<registry.size();++s)
             require(state.cells[i].mixture.masses[s]==0 || registry[s].phase==Phase::gas,"Gas diffusion requires gas-only occupied cells");
 }
+MacCompressionLaw split_compression_law(MacCompressionViscosity setting) {
+    return setting == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic :
+        setting == MacCompressionViscosity::monotone_acoustic_quadratic ? MacCompressionLaw::monotone_pressure_sensed_acoustic :
+        MacCompressionLaw::pressure_sensed_acoustic;
+}
 MacShockHeatLaw heat_law(MacShockHeatRegularization setting) {
     switch (setting) {
     case MacShockHeatRegularization::compression_activated: return MacShockHeatLaw::closing_velocity;
     case MacShockHeatRegularization::pressure_sensed_acoustic: return MacShockHeatLaw::pressure_sensed_viscosity;
     case MacShockHeatRegularization::pressure_sensed_series: return MacShockHeatLaw::pressure_sensed_series;
+    case MacShockHeatRegularization::monotone_pressure_sensed: return MacShockHeatLaw::monotone_pressure_sensed;
     case MacShockHeatRegularization::none: break;
     }
     throw std::invalid_argument("Disabled or invalid MAC shock-heat law selection");
@@ -195,10 +201,12 @@ void MacClosedSettings::validate() const {
             momentum_reconstruction == MacMomentumReconstruction::swept_nodal_1d) &&
         (compression_viscosity == MacCompressionViscosity::none || compression_viscosity == MacCompressionViscosity::quadratic ||
          compression_viscosity == MacCompressionViscosity::acoustic_quadratic ||
-         compression_viscosity == MacCompressionViscosity::coupled_pressure) &&
+         compression_viscosity == MacCompressionViscosity::coupled_pressure ||
+         compression_viscosity == MacCompressionViscosity::monotone_acoustic_quadratic) &&
         (shock_heat == MacShockHeatRegularization::none || shock_heat == MacShockHeatRegularization::compression_activated ||
          shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ||
-         shock_heat == MacShockHeatRegularization::pressure_sensed_series), "Invalid MAC closed settings");
+         shock_heat == MacShockHeatRegularization::pressure_sensed_series ||
+         shock_heat == MacShockHeatRegularization::monotone_pressure_sensed), "Invalid MAC closed settings");
 }
 MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
@@ -751,14 +759,14 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 if (settings_.compression_viscosity != MacCompressionViscosity::none &&
                     settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, *pressure_source, .5 * dt,
-                        settings_.compression_viscosity == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic : MacCompressionLaw::pressure_sensed_acoustic);
+                        split_compression_law(settings_.compression_viscosity));
                     before_compression = std::move(damped.report); prepared = std::move(damped.state); pressure_source = &prepared;
                 }
                 auto candidate = advance_mac_closed_substep(registry_, *thermodynamics_, *pressure_source, dt, settings_);
                 if (settings_.compression_viscosity != MacCompressionViscosity::none &&
                     settings_.compression_viscosity != MacCompressionViscosity::coupled_pressure) {
                     auto damped = advance_mac_compression(registry_, *thermodynamics_, candidate.state, .5 * dt,
-                        settings_.compression_viscosity == MacCompressionViscosity::quadratic ? MacCompressionLaw::quadratic : MacCompressionLaw::pressure_sensed_acoustic);
+                        split_compression_law(settings_.compression_viscosity));
                     after_compression = std::move(damped.report); candidate.state = std::move(damped.state);
                 }
                 if (settings_.shock_heat != MacShockHeatRegularization::none) {

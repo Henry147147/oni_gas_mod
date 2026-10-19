@@ -115,7 +115,8 @@ void checkpoints(){
 void rejection(){
     const auto& set=ma::testing::setup();auto s=source();auto options=settings();int count=0;
     const auto reject=[&](auto call){bool failed=false;try{call();}catch(const std::exception&){failed=true;}check(failed,"Unsupported coupled owner request accepted");++count;};
-    options.compression_viscosity=static_cast<MacCompressionViscosity>(4);
+    // Value 4 is now the monotone opt-in law; 99 remains an unknown selector.
+    options.compression_viscosity=static_cast<MacCompressionViscosity>(99);
     reject([&]{static_cast<void>(MacClosedWorld(set.registry,set.eos,s,options));});options=settings();
     auto full=mac_field_values(s.momentum_x,s.full_momentum_x);full[s.grid.x_face(1,0)]=MacScaled::from_parts(.5,MacExponent(-2000));
     store_mac_field(s.momentum_x,s.full_momentum_x,full);s.momentum_x[s.grid.x_face(1,0)]=1;

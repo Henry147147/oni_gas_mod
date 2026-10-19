@@ -2,7 +2,9 @@
 #include "mac_compression.hpp"
 
 namespace ma::experimental {
-enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity, pressure_sensed_series };
+// monotone_pressure_sensed matches the monotone compression law: each cell's
+// diffusion speed is (1 - phi^2) v + (1 - phi) a with the same frozen phi.
+enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity, pressure_sensed_series, monotone_pressure_sensed };
 struct MacShockHeatPair {
     double before_left_j = 0, before_right_j = 0, after_left_j = 0, after_right_j = 0;
     double temperature_left_k = 0, temperature_right_k = 0;
