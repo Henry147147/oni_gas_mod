@@ -540,6 +540,9 @@ namespace MixedAtmospheres.Oni
             if(LiveBreathingRequired && !LiveBreathingDrained) {WriteReport();return;}
             if(rendererWaitFrame<0) {rendererWaitFrame=Time.frameCount;SpeedControlScreen.Instance.Pause(false);return;}
             if(Time.frameCount-rendererWaitFrame<3) return;
+            // Match the source scene: drain zero-time exports until the final
+            // paused owner frame has a released publication lease.
+            if(!NativeSolidHeatReadyToComplete) {WriteReport();return;}
             var frame=MixturePresentationRuntime.AcquireFrame();
             restoredRendererVerified=frame!=null && !frame.IsFixture && frame.TryGetCell(target,out var reading) &&
                 reading!.Revision==(long)latest.CompletedFrames && MixtureWorldRendering.TextureWrites>textureWriteBaseline &&
