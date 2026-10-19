@@ -56,8 +56,9 @@ ThreadSanitizer, and its Windows executable passes under Wine. Output remains
 identical to the preceding binary on each tested platform. Full native output and a 33,153-cell
 continuation remain byte-identical with one, four and twelve workers. This
 retains the hierarchy's vectors and coarse factorization storage between
-intervals; the remaining candidate field buffers are still constructed per
-interval. It does not establish real-time performance acceptance.
+intervals. The [candidate field buffers](MAC_INTERVAL_KERNEL.md#implemented-path)
+now have a separate bounded idle pool. This does not establish real-time
+performance acceptance.
 
 The first downward correction is computed directly from its exactly zero
 initial value. Remaining smoothing stages gather each residual and write the

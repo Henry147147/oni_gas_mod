@@ -776,3 +776,40 @@ uses at most four participants by default, with a fixed explicit override for
 profiling; worker count does not affect the saved continuation. Details,
 measurements and open ports are in
 [deterministic interval pressure workers](interval-parallel-pressure.md).
+
+## Retained storage and startup validation, 2026-10-19
+
+The interval kernel now retains owned primal/dual connectivity, a leased
+pressure workspace and a bounded idle pool of candidate/thermodynamic/transport
+buffers. Each field workspace is reset and repacked from its actual source;
+changed constituent, passive or material-property schemas rebuild it. Concurrent
+heated/unheated continuations on an odd 33,153-cell grid with a solid corner
+match fresh checkpoint restores. The numerical output, original 10,000-step
+accounts and one/four/twelve-worker continuation bytes remain unchanged.
+Native, fatal ASan/UBSan, ThreadSanitizer and Windows-target Wine controls pass;
+the final frozen Ubuntu 22.04 build passes all 40 registered tests. Saved-only
+interval review passes 105,931 checks and five corruption rejects, and Python
+passes 297 tests with four skips.
+
+A private allocation interposer reproduces 393 versus 234 allocations of at
+least 64 KiB over a warm-up and three changing 33,153-cell intervals: 60,471,072
+fewer requested bytes. This measures allocation traffic, not resident-memory
+savings. A separate changing 250,000-cell run takes 5,523.22 ms median and
+5,557.24 ms maximum per 0.1 simulated seconds over three measured intervals,
+with 33 substeps, no retries, 480 linear and 60 nonlinear iterations. Peak
+standalone RSS is 533,248 KiB, including benchmark owners and scratch storage.
+Concurrent host/build work makes these diagnostic timings; they establish
+neither a controlled p95 improvement nor additional in-game mod memory. The
+62.5 ms and sustained-1× performance gates remain false. Captures, source and
+binary hashes, allocation instrumentation and resources are retained under
+`local/interval-field-buffers-v1/`.
+
+The [native solid-heat bridge](native-domain-physics.md#native-solid-cell-heat)
+also admits initial boundary bindings atomically with their fluid owner,
+removing a reproduced activation/registration race. Fresh Linux Unity and
+WindowsPlayer/Proton source/save/reload matrices each pass 121/120 contact
+frames, zero endpoint heat residual, a paused frame-zero resave and 120 exact
+resumed input replays. These bounded game controls remain separate from the
+standalone interval optimization tests. Actual Windows OS/MSVC acceptance,
+the remaining physical model, whole-colony ownership and the complete gameplay
+and persistence gates are still open; normal colony activation stays disabled.
