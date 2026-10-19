@@ -317,9 +317,10 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const auto eos = model.evaluate(cell.mixture, volume);
             if (eos.vacuum_volume_m3 > 32 * eps * volume) throw std::domain_error("Reconstructed MAC state has internal void");
         };
-        // Each outgoing strip's liquid fraction from the PLIC line. Without a
-        // defined normal the strip carries the donor's average composition.
-        std::array<double, 4> strip_liquid{};
+        // Each outgoing strip's share of the donor's liquid and gas, per unit
+        // swept width, from the PLIC line. Without a defined normal the strip
+        // carries the donor's average composition (both scales one).
+        std::array<double, 4> liquid_scale{1, 1, 1, 1}, gas_scale{1, 1, 1, 1};
         if (sharp_donor) {
             const auto fraction = [&](std::size_t cell) { return cell == none ? alpha[i] : alpha[cell]; };
             const auto diagonal = [&](std::size_t cell, int dy) { return cell == none ? none : neighbor(cell, 1, dy); };
@@ -327,25 +328,31 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 {fraction(adjacent[2]), alpha[i], fraction(adjacent[3])},
                 {fraction(diagonal(adjacent[1], -1)), fraction(adjacent[1]), fraction(diagonal(adjacent[1], 1))}};
             double nx = 0, ny = 0; const bool oriented = interface_geometry::youngs_normal(a, nx, ny);
-            const auto region = oriented ? interface_geometry::liquid_region(nx, ny, alpha[i]) : interface_geometry::Polygon{};
-            for (std::size_t k = 0; k < by_donor[i].size(); ++k) {
-                strip_liquid[k] = alpha[i];
-                if (!oriented || by_donor[i][k] == none) continue;
-                const auto& e = edges[by_donor[i][k]];
-                const double width = e.volume.shared(1, volumes[i]).project().value;
-                if (!(width > 0) || !std::isfinite(width)) continue;
-                strip_liquid[k] = interface_geometry::strip_liquid(region, static_cast<int>(e.axis), (e.axis == 0 ? e.cx : e.cy) > 0, width);
+            if (oriented) {
+                const double c = interface_geometry::line_offset(nx, ny, alpha[i]);
+                std::array<double, 4> width{}, estimated{}, liquid_volume{}, gas_volume{}; std::array<std::size_t, 4> slot{}; std::size_t strips = 0;
+                for (std::size_t k = 0; k < by_donor[i].size(); ++k) {
+                    if (by_donor[i][k] == none) continue;
+                    const auto& e = edges[by_donor[i][k]];
+                    const double w = e.volume.shared(1, volumes[i]).project().value;
+                    if (!(w > 0) || !std::isfinite(w)) continue;
+                    width[strips] = w; slot[strips] = k;
+                    estimated[strips++] = interface_geometry::strip_liquid_area(nx, ny, c, static_cast<int>(e.axis), (e.axis == 0 ? e.cx : e.cy) > 0, w);
+                }
+                interface_geometry::allocate_strips(estimated, width, strips, alpha[i], gas_fraction[i], liquid_volume, gas_volume);
+                for (std::size_t n = 0; n < strips; ++n) {
+                    liquid_scale[slot[n]] = liquid_volume[n] / (width[n] * alpha[i]); gas_scale[slot[n]] = gas_volume[n] / (width[n] * gas_fraction[i]);
+                }
             }
         }
         // A strip prototype at the donor volume: liquid at the donor's liquid
         // density, gas at its headspace density, both at the donor's EOS state.
-        const auto phase_prototype = [&](double strip) {
+        const auto phase_prototype = [&](std::size_t slot) {
             MacMaterialCell cell{MixtureInventory(species), {}};
             const auto& from = source.cells[i];
-            const double liquid_scale = strip / alpha[i], gas_scale = (1 - strip) / gas_fraction[i];
             Sum energy, total;
             for (std::size_t s = 0; s < species; ++s) {
-                const double amount = from.mixture.masses[s] * (liquid[s] ? liquid_scale : gas_scale);
+                const double amount = from.mixture.masses[s] * (liquid[s] ? liquid_scale[slot] : gas_scale[slot]);
                 cell.mixture.masses[s] = amount; energy.add(amount * specific[i][s]); total.add(amount);
             }
             cell.mixture.energy = energy.value();
@@ -363,7 +370,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             try {
                 for (std::size_t slot = 0; slot < by_donor[i].size(); ++slot) if (const auto edge = by_donor[i][slot]; edge != none) {
                     const auto& e = edges[edge];
-                    auto prototype = !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(strip_liquid[slot]);
+                    auto prototype = !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(slot);
                     admitted(prototype, volumes[i]);
                     const auto volume_projection = e.volume.project();
                     MacPrimalParcel parcel{e.axis, e.face, i, e.target, volume_projection.value, std::move(prototype), volumes[i], volume_projection.rounded ? e.volume : MacScaled{}};

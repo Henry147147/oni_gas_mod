@@ -126,13 +126,11 @@ int main() {
         const auto smooth = translate(MacMaterialReconstruction::limited_linear, 12);
         print("interface_plic", sharp); print("limited_linear", smooth);
         check(std::abs(sharp.liquid) <= 1e-14, "Interface reconstruction lost or created liquid");
-        // Measured: 85-91 / 229 mixed cells and 1.6-1.8e-3 / 5.3e-3 mist; the
-        // range is the spread under last-bit changes of the interface normal,
-        // which move threshold decisions (accepted splits, two-phase donors). A
-        // perfect representation of the shifted square has 24 mixed cells; the
-        // remainder is diagonal (corner) transport, which face parcels cannot route.
-        check(2 * sharp.mixed <= smooth.mixed && 2 * sharp.mist <= smooth.mist, "Interface reconstruction is not sharper than limited-linear");
-        check(sharp.mixed <= 100 && sharp.mist <= 2e-3, "Interface reconstruction smeared the liquid square");
+        // Measured: 35 / 229 mixed cells and 2.7e-4 / 5.3e-3 mist. A perfect
+        // representation of the shifted square has 24 mixed cells; the remainder
+        // is diagonal (corner) transport, which face parcels cannot route.
+        check(4 * sharp.mixed <= smooth.mixed && 10 * sharp.mist <= smooth.mist, "Interface reconstruction is not sharper than limited-linear");
+        check(sharp.mixed <= 45 && sharp.mist <= 5e-4, "Interface reconstruction smeared the liquid square");
         check(sharp.velocity_error <= 1e-9, "Uniform translation accelerated at the gas/liquid interface");
         std::cout << "PASS translating liquid square stays sharp, conservative and uniform\n";
         // The production kernel runs the same selector. Per-cell relative
@@ -157,7 +155,8 @@ int main() {
         const double centroid = static_cast<double>(std::max(std::abs(cxa - cxb), std::abs(cya - cyb)) / total);
         std::cout << "IFACEPROD liquid_L1=" << placement << " centroid_cells=" << centroid << " dT_K=" << temperature << " gas_dp_rel=" << gas_pressure << '\n';
         check(production.world->settings().numerical_kernel == MacNumericalKernel::production, "Production interface run did not select kernel 2");
-        check(std::abs(production.liquid) <= 1e-14 && production.mixed <= 100 && production.mist <= 2e-3 && production.velocity_error <= 1e-9,
+        // Measured: 25 mixed cells, 1.5e-19 mist.
+        check(std::abs(production.liquid) <= 1e-14 && production.mixed <= 45 && production.mist <= 5e-4 && production.velocity_error <= 1e-9,
             "Production interface reconstruction lost its sharpness, conservation or uniform motion");
         check(placement <= .01 && centroid <= .01 && temperature <= .1 && gas_pressure <= .01,
             "Production interface reconstruction departs from the reference");

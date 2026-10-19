@@ -141,11 +141,15 @@ acceptance.
 A donor that holds both gas and liquid places its liquid behind a straight line, a
 piecewise-linear interface (PLIC).
 - **Line:** its normal is Youngs' 3×3 gradient of the neighbouring EOS liquid
-  fractions. Its offset encloses the donor's liquid fraction, found by polygon
-  clipping and bisection.
+  fractions (each from the liquid's own volume, never V − V_gas). Its offset
+  encloses the donor's liquid fraction, found by bisection.
 - **Strip parcels:** each outgoing strip, the band of its face's swept width, carries
   liquid and gas in the proportion the line gives it, at the donor's liquid density,
-  headspace density and EOS temperature.
+  headspace density and EOS temperature. A strip's liquid area is integrated
+  exactly as a clamped linear length along the coordinate with the smaller normal
+  component, so a strip wholly beyond the line holds exactly no liquid. The strips
+  are then filled in order (left, right, bottom, top) so that each holds exactly its
+  swept width and together they take no more of a phase than the donor holds.
 - **Single-phase donors:** these keep limited-linear slopes away from an interface.
   Beside an interface or a change in liquid presence they keep donor order, so no
   slope exports a phase the donor does not hold.
@@ -161,15 +165,23 @@ water square through air at (0.3, 0.2) m/s in a 16×16 periodic box for 3.6 cell
 
 | Selector | Partly filled cells | Liquid in cells under 1% full | Liquid mass error | Velocity deviation |
 | --- | ---: | ---: | ---: | ---: |
-| 3 `interface_plic` | 89 | 0.17% | 6e-18 | 4e-11 |
-| 3 `interface_plic`, production kernel | 91 | 0.15% | 5e-18 | 5e-12 |
+| 3 `interface_plic` | 35 | 0.027% | 2e-18 | 8e-11 |
+| 3 `interface_plic`, production kernel | 25 | 1.5e-17% | 2e-17 | 2e-10 |
 | 1 `limited_linear` | 229 | 0.53% | 8e-18 | 8e-11 |
 
-Selector 3's counts move by a few cells under last-bit changes of the interface
-normal (85–91 measured), because such changes flip threshold decisions such as
-accepted splits and two-phase donors. The normal is scaled by its larger
-component, so axis-aligned normals are exactly ±1. It does not use `std::hypot`,
-which is not correctly rounded across C libraries and imports `GLIBC_2.35`.
+The normal is scaled by its larger component, so axis-aligned normals are exactly
+±1. It does not use `std::hypot`, which is not correctly rounded across C libraries
+and imports `GLIBC_2.35`.
+
+**Trace phases.** Clipped polygon areas carry absolute roundoff near 1e-17 of the
+cell, and strips near rest are only 1e-14 of a cell wide. Dividing such areas by a
+trace phase's fraction once made strips claim more of the phase than the donor held.
+The split then failed admission, and its donor-order fallback lifted trace water
+through the air, about 1e-13 of it per interval until it reached subnormal amounts
+the reference EOS rejects. Exact strip integration and the inventory-limited filling
+above remove that path. Still water (the [M1 gate](MAC_GATES.md)) keeps exactly no
+liquid above its surface cell, and the translation square above keeps 25 partly filled
+cells in production (35 in the reference) instead of 85–91.
 
 An exact representation of the shifted square has 24 partly filled cells. The
 remainder comes from diagonal motion: a donor's corner liquid should reach its
@@ -182,10 +194,10 @@ conserving liquid mass to 1e-16:
 
 | At T = 3.08 | Kernel | Front Z = x/a | Partly filled cells | Liquid reach | Mist | Wall time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `interface_plic` | reference | 3.875 | 94 | 4 a | 0.016% | 352 s |
-| `interface_plic` | production | 3.875 | 79 | 6 a | 0.005% | 7 s |
+| `interface_plic` | reference | 3.625 | 58 | 3.75 a | 0.006% | 210 s |
+| `interface_plic` | production | 3.625 | 51 | 3.75 a | 0.013% | 1 s |
 | `limited_linear` | reference | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
-| `limited_linear` | production | 4.0 | 435 | 6 a (whole tank) | 0.18% | 10 s |
+| `limited_linear` | production | 4.0 | 435 | 6 a (whole tank) | 0.18% | 13 s |
 
 Wall times are single-threaded on a shared machine, so they indicate scale only.
 Before the [gravity reconciliation credit](MAC_KERNEL.md#gravity-reconciliation-entropy),
@@ -194,14 +206,14 @@ entropy audit failed" for both selectors.
 
 The production kernel runs this selector with the same line, strips and fallback.
 Its phase fractions and energies come from each cell's post-pressure EOS state.
-In the translation test it matches the reference to 0.3% liquid placement (L1),
-4e-4 cells of centroid and 3e-11 K. Free-surface gravity intervals pass its entropy
+In the translation test it matches the reference to 0.5% liquid placement (L1),
+8e-4 cells of centroid and 2e-10 K. Free-surface gravity intervals pass its entropy
 audit through the gravity reconciliation credit
 ([kernel](MAC_KERNEL.md#gravity-reconciliation-entropy)).
 
 One liquid region is placed per donor, so immiscible liquids are not separated from
-each other. Gas/vacuum fronts are not covered. The free-surface gates are being
-defined and are not claimed.
+each other. Gas/vacuum fronts are not covered. Gate status (still water passes; the
+dam break and standing wave do not yet) is in [MAC_GATES.md](MAC_GATES.md).
 
 ### Limited linear reconstruction (selector 1)
 

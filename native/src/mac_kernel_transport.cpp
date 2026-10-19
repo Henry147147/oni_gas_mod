@@ -116,7 +116,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 const auto stats = cell_stats(model, f, N, i); State st;
                 // An unevaluable mixed state keeps its nominal fraction and donor order.
                 if (!evaluate_state(model, f, N, i, stats, f.U[i], ws.Vmat[i], st)) { alpha[i] = std::min(1., stats.Nl / ws.Vmat[i]); continue; }
-                alpha[i] = (ws.Vmat[i] - st.Vg) / ws.Vmat[i]; gas_fraction[i] = st.Vg / ws.Vmat[i];
+                // The liquid's own volume, not V - Vg: the gas root's volume
+                // tolerance would swamp a trace liquid fraction.
+                alpha[i] = std::min(1., liquid_at(model, f, N, i, st.p).volume / ws.Vmat[i]); gas_fraction[i] = st.Vg / ws.Vmat[i];
                 DD liquid, gas; liquid.add(st.Eel);
                 for (std::size_t k = 0; k < K; ++k) {
                     const double m = f.m[k * N + i]; if (m == 0) continue;
@@ -190,7 +192,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             bool forced_flat = sharp_donor;
             if (phases && !sharp_donor) for (int n = 0; n < 4; ++n)
                 if (nb[n] != none && (two_phase[nb[n]] || (alpha[nb[n]] > 0) != (alpha[i] > 0))) forced_flat = true;
-            double strip[4] = {0, 0, 0, 0};
+            // Each strip's share of the donor's liquid and gas per unit swept
+            // width; one for both without a defined normal (average composition).
+            double liquid_scale[4] = {1, 1, 1, 1}, gas_scale[4] = {1, 1, 1, 1};
             if (sharp_donor) {
                 const auto vertical = [&](Index cell, int dy) -> Index {
                     if (cell == none) return none;
@@ -203,9 +207,18 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 const double a[3][3] = {{at(vertical(nb[0], -1)), at(nb[0]), at(vertical(nb[0], 1))}, {at(nb[2]), alpha[i], at(nb[3])},
                     {at(vertical(nb[1], -1)), at(nb[1]), at(vertical(nb[1], 1))}};
                 double nx = 0, ny = 0; const bool oriented = interface_geometry::youngs_normal(a, nx, ny);
-                const auto region = oriented ? interface_geometry::liquid_region(nx, ny, alpha[i]) : interface_geometry::Polygon{};
-                for (int n = 0; n < count; ++n) strip[n] = oriented && edges[n].share > 0 && std::isfinite(edges[n].share) ?
-                    interface_geometry::strip_liquid(region, edges[n].axis, edges[n].dir > 0, edges[n].share) : alpha[i];
+                if (oriented) {
+                    const double offset = interface_geometry::line_offset(nx, ny, alpha[i]);
+                    std::array<double, 4> width{}, estimated{}, liquid_volume{}, gas_volume{}; std::array<int, 4> slot{}; std::size_t strips = 0;
+                    for (int n = 0; n < count; ++n) if (edges[n].share > 0 && std::isfinite(edges[n].share)) {
+                        width[strips] = edges[n].share; slot[strips] = n;
+                        estimated[strips++] = interface_geometry::strip_liquid_area(nx, ny, offset, edges[n].axis, edges[n].dir > 0, edges[n].share);
+                    }
+                    interface_geometry::allocate_strips(estimated, width, strips, alpha[i], gas_fraction[i], liquid_volume, gas_volume);
+                    for (std::size_t n = 0; n < strips; ++n) {
+                        liquid_scale[slot[n]] = liquid_volume[n] / (width[n] * alpha[i]); gas_scale[slot[n]] = gas_volume[n] / (width[n] * gas_fraction[i]);
+                    }
+                }
             }
             bool homogeneous = !sharp_donor;
             double theta = linear ? 1 : 0;
@@ -292,7 +305,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     if (!homogeneous) {
                         // Strip prototype at the donor volume: liquid at its density,
                         // gas at the headspace density, both at the donor's EOS state.
-                        const double ls = strip[n] / alpha[i], gs = (1 - strip[n]) / gas_fraction[i];
+                        const double ls = liquid_scale[n], gs = gas_scale[n];
                         DD total;
                         for (std::size_t k = 0; k < K; ++k) { pr[k] = source[k][i] * (model.species[k].gas ? gs : ls); total.add(pr[k]); }
                         pr[K] = ls * liquid_energy[i] + gs * gas_energy[i];
