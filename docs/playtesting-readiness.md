@@ -179,9 +179,11 @@ also pass collision.
   their saved kernel. Fourteen historical owner images pass native restore,
   continuation and migration checks on Linux and MinGW/Wine; production Linux/Proton
   game scenes, saves and fresh-process reloads remain open. The latest Ubuntu
-  build passes 54 tests but imports `GLIBC_2.35` through sharp-interface
-  `std::hypot`; the 2.34 packaging ceiling is unmet and enforced by both the
-  builder and package provenance check, whose helper tests run independently. Calm-region/local
+  production-owner/pressure-ledger build passes 55 tests and both shared
+  libraries meet the glibc 2.34 ceiling after the shared interface geometry
+  replaces `std::hypot`. The builder and package provenance check enforce that
+  ceiling; their helper tests run independently. The user-authorized `3fbccfb`
+  gravity entropy credit is recorded in the central contract. Calm-region/local
   steps and local subcycling remain open. The opt-in
   [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes
   selected larger-step resolved waves with the original error bounds and

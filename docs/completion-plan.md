@@ -60,6 +60,13 @@ Amendments:
   too small to store in binary64 may round, with every such rounding counted
   in the interval audit, instead of rejecting the step. This removes the
   trace-front faults of diffusion and transport in large rooms.
+- **Gravity reconciliation entropy, 2026-10-19 (user decision):** authorize
+  the reversible gravity reconciliation credit implemented in `3fbccfb`.
+  Subtract its concavity bound `Σ(dU/T_pre)` from the interval entropy change
+  and include its `128 ε Σ(|dU|/T_pre)` rounding allowance. The remaining
+  entropy change must pass the original gate; conservation and all other
+  contracts remain unchanged. The precise contract is in
+  [MAC_SOLVER.md](../native/MAC_SOLVER.md#numerical-contracts).
 - **Playtest scope, 2026-10-19 (user decision):** the first ten-cycle playtest
   covers the base game and Spaced Out!. The gameplay packs follow later.
 - **Workflow, 2026-10-19 (user decision):** one Codex session works milestone

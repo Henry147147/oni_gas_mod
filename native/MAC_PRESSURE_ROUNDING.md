@@ -48,7 +48,8 @@ Schur method's existing first-interval refinement is retained.
 
 These GNU Release counts are diagnostics, not cross-compiler trajectory
 identity. Six version-6/7/8 endpoint and continuation images and all refinement
-counters match a Release build of `fc4dab0` byte-for-byte.
+counters match a Release build of `3fbccfb` byte-for-byte, after integration
+of its user-authorized gravity entropy credit.
 
 `review_mac_kernel_pressure_rounding.py` independently checks exact fractions
 of the saved operands, nearest-even storage, counts, half-ulp charges,

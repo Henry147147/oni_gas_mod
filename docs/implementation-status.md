@@ -226,7 +226,7 @@ and budget rollback. Pressure momentum additions now have counted half-ulp
 charges inside the original interval bound. Midpoint and both moment methods
 preserve one/twelve-worker fields, accepted ledgers, rollback and checkpoint
 continuation; six endpoint/continuation images and refinement counters match
-`fc4dab0`. Their saved reader passes 10,974 checks/eighteen corruptions on
+`3fbccfb`. Their saved reader passes 10,974 checks/eighteen corruptions on
 Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. Pressure
 products and other transient momentum/energy rounding ledgers remain open. Flagged sweeps now retain their range through parcel formation, and dual
 J/K products use canonical momentum when a derived velocity or kinetic factor
@@ -257,16 +257,17 @@ native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
 MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
 ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
 also pass those instrumented and Windows-target routes.
-Against `025a804`, all 68 MAC component executables retain their physical
+Against `3fbccfb`, all 68 preceding MAC component executables retain their physical
 records and exits: 66 outputs are byte-identical and two differ only in timing.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
-Linux and Wine in both source directions. The latest
-production-owner Ubuntu 22.04 snapshot passes 54 CTests, but sharp-interface
-`std::hypot` imports `GLIBC_2.35` in the observer and fails the project 2.34
-ceiling. The builder and supplied-provenance package check now enforce 2.34;
-the packaging helper tests also run independently.
-Its game package is blocked; production game validation remains open.
-The preceding 53-test snapshot requires at most 2.34.
+Linux and Wine in both source directions. The latest production-owner and
+pressure-storage-ledger Ubuntu 22.04 snapshot passes 55 CTests; both shared
+libraries require at most glibc 2.34. The shared sharp-interface geometry
+replaces the `std::hypot` call that made the preceding observer require 2.35.
+The builder and supplied-provenance package check enforce 2.34; the packaging
+helper tests also run independently. The authorized `3fbccfb` gravity entropy
+credit is recorded in the central numerical contract. Production Linux/Proton
+game validation remains open.
 
 The last measured automatic-multigrid baseline fails the real-time targets: two pinned
 21-interval evolving-wave runs measure p95 819–865 ms at 100,000 active

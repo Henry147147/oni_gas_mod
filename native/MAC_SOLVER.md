@@ -178,8 +178,16 @@ kernel is checked once per completed interval instead of in every stage:
   instead of rejecting the step (user decision, 2026-10-19); only such counted
   rounding can take a positive inventory to zero.
 - **Entropy.** The interval rejects a decrease in total stored-state entropy
-  beyond `128 ε Σ(|U|/T)` over its endpoints. Per-stage entropy admission is no
-  longer required.
+  beyond `128 ε Σ(|U|/T)` over its endpoints, with the gravity reconciliation
+  credit authorized by the user on 2026-10-19 (`3fbccfb`). For that reversible
+  reconciliation alone, subtract `Σ(dU/T_pre)` from the interval entropy change
+  and add `128 ε Σ(|dU|/T_pre)` to the allowance. `T_pre` is evaluated at the
+  same masses and volume before the reconciliation. Concavity makes the credit
+  an upper bound on that stage's actual entropy change; the remaining change
+  must pass the original interval gate. This applies to the production kernel
+  and its audited reference fallback; it does not relax other stages or
+  conservation. See [the derivation and controls](MAC_KERNEL.md#gravity-reconciliation-entropy).
+  Per-stage entropy admission is no longer required.
 - **Range.** Full-range arithmetic is used only where a cheap check flags a
   value outside the normal binary64 range during the interval.
 - **Unchanged.** Determinism: results are bit-identical for the same build and

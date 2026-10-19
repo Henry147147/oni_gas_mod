@@ -39,11 +39,12 @@ supplied native binaries against that report and includes it as
 package assembly's current Git revision, and its `actual_game_test: false`
 describes the build command only.
 
-Current status: the production-owner snapshot passes all 54 default CTests,
-but the opt-in sharp-interface reconstruction calls `std::hypot`, introducing
-`hypot@GLIBC_2.35` in the observer library. This fails the project ceiling and
-blocks its game package. The preceding owner snapshot passes 53 tests and
-requires at most 2.34. Earlier reference-owner packages pass actual Linux Unity
+Current status: the production-owner and pressure-storage-ledger snapshot,
+including the sharp-interface geometry repair and authorized gravity entropy
+credit, passes all 55 default CTests in Ubuntu 22.04. Both packaged shared
+libraries require at most glibc 2.34. The shared geometry's scaled square root
+replaces the `std::hypot` call that made the preceding observer require 2.35.
+Earlier reference-owner packages pass actual Linux Unity
 colonies, saves, fresh-process loads, paused autosaves and exact continuation;
 production-owner game validation remains open.
 No Unity run on an Ubuntu 22.04 host has been made. Real-game ownership,
