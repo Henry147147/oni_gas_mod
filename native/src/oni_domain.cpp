@@ -803,6 +803,9 @@ void stop_domain() noexcept {
 }
 void shutdown_domain() noexcept {
     std::lock_guard lock(state_mutex);
+    // A later simulator can reuse a GameData address. Unacquired bindings and
+    // cached sources end with this owner; acquired leases remain valid.
+    try { published_frames::reset(); } catch (...) {}
     enabled.store(false,std::memory_order_release);
     if (status.state == 1) status.state=2;
     world.reset();

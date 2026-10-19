@@ -10,7 +10,8 @@ extern "C" {
  * native message returns, on that same thread and before its next native
  * publication query. An update predating ownership returns MA_ONI_BUSY.
  * Leases retain immutable copies through future frames, stop and restart.
- * At most 16 leases may be outstanding; release each exactly once. */
+ * At most 16 leases may be outstanding; release each exactly once. An
+ * exhausted lease table returns MA_ONI_INTERNAL_ERROR, never MA_ONI_BUSY. */
 #define MA_ONI_DOMAIN_PUBLICATION_ABI_VERSION 1U
 typedef struct MAOniDomainPublicationInfo {
     uint32_t struct_size, abi_version, state, reserved;

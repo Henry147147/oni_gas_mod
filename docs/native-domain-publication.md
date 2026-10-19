@@ -24,7 +24,10 @@ Two separately fingerprinted native procedures identify the actual source:
 | `PrepareGameDataUpdate` | `0x32530` | `0x67c0` | Bind the returned packet to the retained source on the calling thread. |
 
 Both signatures come from the licensed build-744825 Linux symbols and the
-matching Windows PDB. The copy runs under the existing fluid frame fence.
+matching Windows PDB. Both builds call the copy on the native worker after
+`EndFrameProcessing`, inside SimDLL's own frame-sync lock. The worker fence
+has been released by then, so the hook takes the domain frame mutex itself
+around the original copy and the capture.
 The mod forwards both native calls and reads no private `GameData` or native
 STL layout. No solid temperature, native copy, heat command or numerical
 tolerance changes.
@@ -54,9 +57,10 @@ must retain the token while reading and release it exactly once.
 
 The source cache holds at most eight native buffer identities. At most sixteen
 leases may be outstanding. Replacing a source, eviction, owner restart and
-future simulation steps leave acquired leases intact. Restart invalidates
-unacquired bindings, including bindings on other threads. Tokens are never
-reused. Released or unknown tokens reject without changing caller outputs.
+future simulation steps leave acquired leases intact. Restart and simulator
+shutdown invalidate unacquired bindings, including bindings on other threads.
+Tokens are never reused. Released or unknown tokens reject without changing
+caller outputs.
 
 This reader retains the development domain's 4096-cell and five-constituent
 bounds. It is an intermediate reader for existing native integration, not the
