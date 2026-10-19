@@ -37,14 +37,16 @@ double primary(const StoredSum& s, double before, Rounding& rounding) {
     }
     return after;
 }
+} // namespace
+namespace interval_detail {
 struct Face { std::size_t left = none, right = none; bool free() const { return left != none && right != none; } };
 struct DualEdge { std::size_t left, right, axis, a, b; }; // absent primal operand is exact zero
-struct Geometry {
-    const MacGrid& g;
+struct TransportTopology {
+    const MacGrid g;
     std::array<std::vector<Face>, 2> faces;
     std::array<std::vector<DualEdge>, 2> dual;
     std::vector<std::array<std::size_t, 4>> cell_faces;
-    explicit Geometry(const MacGrid& grid) : g(grid), cell_faces(g.walls.size()) {
+    explicit TransportTopology(const MacGrid& grid) : g(grid), cell_faces(g.walls.size()) {
         const auto fluid = [&](std::size_t i) { return g.walls[i] ? none : i; };
         faces[0].resize(g.x_width() * g.height); faces[1].resize(g.width * g.y_height());
         for (std::size_t y = 0; y < g.height; ++y) for (std::size_t x = 0; x < g.x_width(); ++x) {
@@ -79,6 +81,10 @@ struct Geometry {
                     y < g.height ? g.x_face(x, y) : none});
     }
 };
+} // namespace interval_detail
+namespace {
+using Face = interval_detail::Face;
+using Geometry = interval_detail::TransportTopology;
 struct Gas { std::size_t species; double cv, offset, molar, low, high; };
 struct Fields {
     std::vector<std::vector<double>> q; // present species, present passive IDs, U
@@ -97,7 +103,7 @@ struct Kernel {
     const MacTransportState& source;
     const MacClosedSettings& settings;
     MacIntervalCache& cache;
-    Geometry topology;
+    const Geometry& topology;
     std::vector<Gas> gases;
     std::vector<std::uint64_t> passive_ids;
     std::array<Fields, 2> banks;
@@ -118,6 +124,18 @@ struct Kernel {
     std::unique_lock<std::mutex> multigrid_lock;
     interval_detail::PressureMultigrid* multigrid = nullptr;
 
+    static const Geometry& transport_topology(MacIntervalCache& cached, const MacGrid& grid) {
+        std::call_once(cached.transport_once, [&] {
+            cached.transport = std::make_shared<const Geometry>(grid);
+        });
+        const auto& held = cached.transport->g;
+        // An owner with changed geometry needs a fresh cache. Refuse a stale
+        // internal cache rather than applying its faces to another grid.
+        if (held.width != grid.width || held.height != grid.height || held.spacing_m != grid.spacing_m ||
+            held.depth_m != grid.depth_m || held.periodic_x != grid.periodic_x || held.periodic_y != grid.periodic_y ||
+            held.walls != grid.walls) throw Decline{};
+        return *cached.transport;
+    }
     static std::vector<Gas> gas_models(const SpeciesRegistry& registry, const FluidThermodynamics& model,
         const MacTransportState& input) {
         std::vector<Gas> result;
@@ -142,7 +160,7 @@ struct Kernel {
         return result;
     }
     Kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model, const MacTransportState& input,
-        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(input.grid),
+        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(transport_topology(cached, input.grid)),
         gases(gas_models(registry, model, input)), passive_ids(ids(input)),
         banks{Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology),
               Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology)} {

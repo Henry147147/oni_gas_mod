@@ -4,8 +4,12 @@
 #include <mutex>
 
 namespace ma::experimental {
+namespace interval_detail { struct TransportTopology; }
 struct MacIntervalCandidate { MacTransportState state; MacClosedAdvanceReport report; };
 struct MacIntervalCache {
+    // The grid is owned with its immutable primal/dual face connectivity.
+    std::once_flag transport_once;
+    std::shared_ptr<const interval_detail::TransportTopology> transport;
     std::once_flag multigrid_once;
     std::shared_ptr<const interval_detail::PressureMultigridTopology> multigrid;
     // Related immutable owners share one reusable numerical workspace. A
