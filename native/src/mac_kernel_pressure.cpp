@@ -104,7 +104,7 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     for (auto* v : {&ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag}) v->resize(N);
     x.assign(N, 0);
-    const bool multigrid = c.options.preconditioner == MacKernelPreconditioner::multigrid && g.N >= 256 && prepare_multigrid(c, sys);
+    const bool multigrid = c.settings.preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
     // Jacobi: inverse of the full operator diagonal.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -395,7 +395,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.active[i] = occupied(static_cast<Index>(i)) ? 1 : 0;
     });
     std::size_t newton = 0;
-    const std::size_t linear_limit = c.options.preconditioner == MacKernelPreconditioner::multigrid ? 400 : 4000;
+    const std::size_t linear_limit = 4000;
     while (norm > tolerance) {
         if (newton == 80) reject("Production pressure root did not converge; retry smaller timestep");
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {

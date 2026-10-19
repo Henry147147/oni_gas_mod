@@ -11,10 +11,11 @@ namespace {
 constexpr std::size_t maximum_bytes=1024ULL*1024*1024;
 constexpr std::string_view magic="MACCLS01";
 // Version history: 2 reference kernel; 3 adds viscosity; 4 interval kernel
-// (diffusion disabled); 5 gas diffusion enabled, with either kernel. Each owner
-// writes the lowest version that represents it, so 2/3/4 bytes are unchanged.
+// (diffusion disabled); 5 diffusion with kernels 0/1; 6 production kernel 2
+// with explicit diffusion mode/multiplier even when disabled. Each owner writes
+// its lowest representing version; every version-2/3/4/5 byte stays unchanged.
 constexpr std::uint32_t legacy_format_version=2,viscous_format_version=3;
-constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5;
+constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5,production_format_version=6;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -93,9 +94,10 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
-    const bool interval=settings_.numerical_kernel!=MacNumericalKernel::reference;
+    const bool interval=settings_.numerical_kernel==MacNumericalKernel::interval_audited;
+    const bool production=settings_.numerical_kernel==MacNumericalKernel::production;
     const bool diffusive=settings_.diffusion.mode!=MacDiffusionMode::disabled;
-    out.u32(diffusive ? diffusion_format_version : interval ? interval_format_version : viscous ? viscous_format_version : legacy_format_version);
+    out.u32(production ? production_format_version : diffusive ? diffusion_format_version : interval ? interval_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -106,11 +108,13 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     out.u32(static_cast<std::uint32_t>(settings_.reconstruction)); out.u32(static_cast<std::uint32_t>(settings_.compression_viscosity));
     out.u32(static_cast<std::uint32_t>(settings_.momentum_reconstruction)); out.byte(settings_.thermal_conduction ? 1 : 0);
     out.u32(static_cast<std::uint32_t>(settings_.shock_heat));
-    if (viscous || interval || diffusive) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
-    // Version 5 stores the kernel selector even for the reference kernel (0).
-    if (interval || diffusive) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
-    if(diffusive) {
+    if (viscous || interval || diffusive || production) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
+    // Versions 5/6 always store the kernel selector; version 4 requires value 1.
+    if (interval || diffusive || production) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
+    if (diffusive || production) {
         out.u32(static_cast<std::uint32_t>(settings_.diffusion.mode));out.number(settings_.diffusion.multiplier);
+    }
+    if(diffusive) {
         // Discrete flux formulation. Diffusion images were never released; the
         // earlier version-4 diffusion layouts no longer parse and reject.
         out.u32(mac_diffusion_formulation);
@@ -140,7 +144,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
     check(version==legacy_format_version || version==viscous_format_version || version==interval_format_version ||
-        version==diffusion_format_version,"Unsupported MAC checkpoint version");
+        version==diffusion_format_version || version==production_format_version,"Unsupported MAC checkpoint version");
     const auto model=identity(registry,*eos);
     check(in.u32()==model.size() && model.size()<=in.remaining(),"Saved MAC model size differs");
     for (auto value : model) check(in.byte()==value,"Saved MAC registry/EOS identity differs");
@@ -152,7 +156,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     settings.reconstruction=static_cast<MacMaterialReconstruction>(in.u32()); settings.compression_viscosity=static_cast<MacCompressionViscosity>(in.u32());
     settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>(in.u32()); settings.thermal_conduction=in.flag();
     settings.shock_heat=static_cast<MacShockHeatRegularization>(in.u32());
-    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version) {
+    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version || version==production_format_version) {
         settings.viscosity.shear_pa_s=in.number();settings.viscosity.bulk_pa_s=in.number();
         if (version==viscous_format_version)
             check(settings.viscosity.shear_pa_s>0 || settings.viscosity.bulk_pa_s>0,"Noncanonical viscosity-disabled checkpoint version");
@@ -161,12 +165,16 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
         settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
         check(settings.numerical_kernel==MacNumericalKernel::interval_audited,"Noncanonical saved MAC numerical kernel");
     }
-    if(version==diffusion_format_version) {
+    if(version==diffusion_format_version || version==production_format_version) {
         settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
-        check(settings.numerical_kernel==MacNumericalKernel::reference || settings.numerical_kernel==MacNumericalKernel::interval_audited,
+        if (version==production_format_version)
+            check(settings.numerical_kernel==MacNumericalKernel::production,"Noncanonical saved MAC production kernel");
+        else check(settings.numerical_kernel==MacNumericalKernel::reference || settings.numerical_kernel==MacNumericalKernel::interval_audited,
             "Unsupported saved MAC numerical kernel");
         settings.diffusion.mode=static_cast<MacDiffusionMode>(in.u32());settings.diffusion.multiplier=in.number();
-        check(settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
+        check(version==production_format_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
+    }
+    if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");
         check(transport!=nullptr && in.string(256)==transport->identity(),"Saved transport profile identity differs");
         check(in.u32()==transport->pairs().size(),"Saved transport pair count differs");

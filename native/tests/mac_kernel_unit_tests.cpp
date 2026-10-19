@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
             options.extend_interval_admission = false; set_mac_kernel_default_options(options);
             const auto m = compare(off.world, on.world, sc.disturbance_pa);
             check(off.report.interval_reference_fallbacks == 1 && on.report.interval_kernel_intervals == 1 &&
-                m.pressure_over_disturbance < 1e-6 && m.temperature_k < 1e-6 && on.world.settings().numerical_kernel == MacNumericalKernel::interval_audited,
+                m.pressure_over_disturbance < 1e-6 && m.temperature_k < 1e-6 && on.world.settings().numerical_kernel == MacNumericalKernel::production,
                 "interval admission extension takes production selectors");
             check(subnormal.report.interval_kernel_intervals == 1 && flagged.report.interval_reference_fallbacks == 1 &&
                 flagged.report.interval_kernel_intervals == 0, "below-range admitted, overflow-range keeps the reference fallback");

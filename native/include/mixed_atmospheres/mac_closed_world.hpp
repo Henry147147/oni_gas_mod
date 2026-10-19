@@ -19,9 +19,10 @@ enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic
 enum class MacShockHeatRegularization {
     none = 0, compression_activated = 1, pressure_sensed_acoustic = 2, pressure_sensed_series = 3
 };
-// Persisted numerical implementation. The interval kernel retains the selected
-// physical laws and falls back to the reference for unsupported/range cases.
-enum class MacNumericalKernel { reference = 0, interval_audited = 1 };
+// Persisted numerical implementation. Values never change meaning. Production
+// keeps selected physical laws through audited reference fallback for unported
+// selectors/range flags; value 1 is the narrower legacy interval port.
+enum class MacNumericalKernel { reference = 0, interval_audited = 1, production = 2 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -151,10 +152,10 @@ struct MacClosedAdvanceReport {
     double absolute_shock_heat_transfer_j = 0;
 };
 struct MacClosedAdvance;
-// Execution-only choice. No physical settings, tolerances or checkpoint bytes
-// change. Reference execution remains available for comparisons and diagnostics.
-// production: exact_equilibrium's certificate, then the production substep
-// kernel (mac_kernel.hpp, native/MAC_KERNEL.md) under the interval contract.
+// Reference/exact_equilibrium retain the saved numerical selection. An
+// explicit production request selects and persists numerical kernel 2, with
+// exact_equilibrium's certificate and the production substep kernel under the
+// interval contract. Restored production owners need no execution-policy flag.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
 struct MacIntervalCache;
@@ -219,7 +220,7 @@ public:
         std::shared_ptr<const FluidThermodynamics>,std::span<const std::uint8_t>,
         std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
 private:
-    [[nodiscard]] MacClosedAdvance advanced_flow(double,std::size_t,MacExecutionPolicy) const;
+    [[nodiscard]] MacClosedAdvance advanced_flow(double,std::size_t,MacExecutionPolicy,bool validation_reference = false) const;
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;

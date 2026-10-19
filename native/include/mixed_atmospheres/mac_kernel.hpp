@@ -13,10 +13,10 @@ namespace ma::experimental {
 // construction through shared face fluxes, one interval audit, counted
 // rounding, interval entropy check. Selected explicitly with
 // MacExecutionPolicy::production or advance_mac_production(); the reference
-// path and every checkpoint byte are unchanged. Execution options never
+// path and legacy checkpoint bytes are unchanged; production selection is
+// persisted in version 6. Execution options never
 // change results: the thread count only distributes fixed blocks, and every
 // reduction combines fixed block partials in block order.
-enum class MacKernelPreconditioner : std::uint32_t { jacobi = 0, multigrid = 1 };
 struct MacKernelOptions {
     // Worker threads; the result never depends on it.
     unsigned threads = 1;
@@ -25,9 +25,9 @@ struct MacKernelOptions {
     // woken for every parallel region only cost time (4,096 cells, four
     // blocks: 2.0 times one thread with four threads, 1.6 with twelve).
     std::size_t minimum_blocks_per_thread = 1;
-    // Newton-correction preconditioner. The multigrid option is the symmetric
-    // geometric V-cycle shared with the saved-data component controls; Jacobi-PCG is the default.
-    MacKernelPreconditioner preconditioner = MacKernelPreconditioner::jacobi;
+    // Numerical choices belong to MacClosedSettings and its checkpoint.
+    // Automatic preconditioning uses geometric multigrid on large systems;
+    // explicit Jacobi remains available through the saved pressure setting.
     // Execution-only, process default off: when the persisted
     // MacNumericalKernel::interval_audited port declines a configuration it
     // has not ported (before consuming attempts), the production kernel takes

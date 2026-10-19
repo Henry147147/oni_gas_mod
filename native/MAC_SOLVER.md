@@ -60,6 +60,12 @@ Declared in `mac_closed_world.hpp`:
   gravity, every discrete interior pressure/body force must cancel exactly and
   enabled conduction must have no temperature difference; gravity and wall
   impulse are still accounted. Nonzero force residuals take the full solver path.
+- `MacExecutionPolicy::production` selects and persists numerical kernel 2
+  (checkpoint version 6), including the certificate path. Ordinary restored
+  advances select the same kernel without a caller flag. Its saved automatic
+  pressure setting uses geometric multigrid on grids of at least 256 cells;
+  explicit Jacobi is retained. Unported settings take an audited reference
+  interval without changing their physical selectors or saved kernel.
 - `with_cell_heat`, `with_gas_transfers` and `with_fluid_transfers` are immutable,
   atomically checked edits (heat batches of 1–4096 edits; point sources and sinks
   with complete parcel accounting). Mixed gas/liquid transfers need the explicit
@@ -119,7 +125,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
-| `numerical_kernel` | 0 `reference` | 1 `interval_audited` (first gas port; unsupported selections use the retained reference) |
+| `numerical_kernel` | 0 `reference` | 1 `interval_audited` (legacy gas port), 2 `production`; unported selections use the audited reference |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 
 The native domain builds its settings from these defaults, keeping the selectors.

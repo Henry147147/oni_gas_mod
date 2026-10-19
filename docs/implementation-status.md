@@ -180,13 +180,20 @@ The [production kernel](../native/MAC_KERNEL.md) implements the in-game
 selectors with interval audits and deterministic workers. Its previously
 untuned aggregation preconditioner is replaced by the independently reviewed
 [geometric multigrid](../native/MAC_MULTIGRID.md), using the production pool
-and cached geometry/active masks. Nine new controls pass Release,
-Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine; all 43 Release CTests pass,
-and all 56 previous MAC executables retain their physical output and exits.
-The default 256-cell wave checkpoint SHA is unchanged. Jacobi remains its default during
-consolidation; there is no new timing or in-game acceptance claim.
-Persisted production selection, production saved-endpoint reviews and
-retirement of the narrower interval kernel remain in milestone B step a.
+and cached geometry/active masks. All 44 Release CTests pass. Seven touched
+suites pass Debug ASan/UBSan and MinGW/Wine; production checkpoint, contract
+and multigrid controls pass ThreadSanitizer. The default reference 256-cell
+wave checkpoint SHA is unchanged. Of 59 preceding MAC executable outputs,
+56 stay byte-identical, one differs only in timing and two production
+diagnostics change intentionally with automatic preconditioning.
+Production selection 2 is persisted in version 6, including exact ordinary
+restore/advance, saved automatic/Jacobi preconditioning and diffusion mode.
+Six version-2/3/4/5 images retain the earlier writer's bytes. Execution options
+no longer contain an unsaved preconditioner override. The preconditioner-port
+Ubuntu 22.04 snapshot passes 43 tests with glibc requirements at most 2.34;
+it predates version 6 and no new game package is claimed. Current-default
+timing, production endpoint saved-data reviews, interval-kernel retirement
+and in-game production-kernel adoption remain open.
 The reference path stays the validation oracle.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,

@@ -124,14 +124,17 @@ also pass collision.
   at about 6,500–8,900× over the 250,000-cell budget. The user has relaxed the
   per-stage numerical contracts to interval-level audits (2026-10-18). The
   [production kernel](../native/MAC_KERNEL.md), chosen for consolidation on
-  2026-10-19, matches the reference to roundoff and takes about 1.16 s per
-  0.1 s at 250,000 cells on 12 threads, about 19× over the budget. The geometric multigrid preconditioner is now an explicit production
-  option using the same pool, with cached geometry and pressure-active masks.
+  2026-10-19, matches the reference to roundoff. Earlier Jacobi measurements
+  take about 1.16 s per 0.1 s at 250,000 cells on 12 threads, about 19× over
+  the budget; timing with current automatic geometric preconditioning is open.
+  Geometric multigrid now uses the production pool, with cached geometry and
+  pressure-active masks.
   The new multigrid controls pass Release, Debug ASan/UBSan,
-  ThreadSanitizer and MinGW/Wine, and the 43 Release CTests pass. Jacobi
-  remains the default during consolidation. Persisted production
-  selection, saved-endpoint reviews, interval-kernel retirement, calm-region
-  steps and in-game production-kernel use are still open.
+  ThreadSanitizer and MinGW/Wine; all 44 Release CTests pass. Production
+  selection is persisted in checkpoint version 6; ordinary restore/advance
+  keeps the kernel, saved automatic/Jacobi setting and diffusion mode. Versions
+  2–5 retain their bytes. Saved-endpoint reviews, interval-kernel retirement,
+  calm-region steps and in-game production-kernel use are still open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

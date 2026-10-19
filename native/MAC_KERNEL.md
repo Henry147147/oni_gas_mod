@@ -18,21 +18,29 @@ and [remaining work](#remaining-work).
 
 ## Selection
 
-- `MacExecutionPolicy::production` on `MacClosedWorld::advanced()`: the
-  exact-equilibrium certificate first, then the production kernel for each
-  flow interval. With gas diffusion enabled, the owner's
-  [diffusion](MAC_DIFFUSION.md) half steps wrap each flow interval exactly as
-  for the reference policy. This is an execution choice only: no setting or
-  checkpoint byte changes.
-- `advance_mac_production(world, seconds, budget, options)`: the kernel alone
-  (no certificate), with explicit `MacKernelOptions` (thread count). It
-  advances flow only and rejects an owner with diffusion enabled.
-- `MacNumericalKernel::interval_audited` (the persisted selection added in
-  de805b7, [interval kernel](MAC_INTERVAL_KERNEL.md)): with
-  `MacKernelOptions::extend_interval_admission` set (default off), when that
-  first port declines a configuration it does not cover, the production
-  kernel takes it if its own admission passes, before falling back to the
-  reference.
+- `MacClosedSettings::numerical_kernel = MacNumericalKernel::production`:
+  persisted selection 2, checkpoint version 6. It includes the exact-equilibrium
+  certificate and the production kernel for each flow interval. The owner's
+  diffusion half steps compose with it. Ordinary restore/advance needs no
+  caller policy to continue this selection.
+- `MacExecutionPolicy::production`: explicitly opts the returned owner into
+  that saved selection, including certified equilibrium intervals.
+- `advance_mac_production(world, seconds, budget, options)`: flow only, without
+  a certificate; also persists selection 2. It rejects enabled diffusion and
+  unported selectors. The selected owner route uses an audited reference for
+  unported selectors/range flags without changing the physical settings.
+- Legacy `MacNumericalKernel::interval_audited` (1) remains temporarily
+  available; its optional admission extension explicitly upgrades a completed
+  production result to selection 2. Retirement remains open.
+
+Numerical preconditioning belongs to the saved `MacClosedSettings`:
+`automatic` uses geometric multigrid for grids of at least 256 cells, otherwise
+Jacobi; explicit `jacobi` stays Jacobi. Explicit incomplete Cholesky is
+unported. `MacKernelOptions` contains thread scheduling, diagnostics and the
+legacy admission bridge, with no unsaved preconditioner override. Versions
+2–5 keep their existing bytes and meanings; version 6 rejects every kernel
+value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
+enabled diffusion metadata.
 
 The thread count never changes a result (see [determinism](#determinism)).
 `set_mac_kernel_default_options()` sets the process-wide options used by the
@@ -49,9 +57,10 @@ policy paths.
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 
-Swept material reconstruction (2), momentum selectors 2–5 and coupled
-compressive pressure (3) are rejected with `std::invalid_argument` on the
-explicit production path; the interval-kernel path then uses the reference.
+Swept material reconstruction (2), momentum selectors 2–5, coupled
+compressive pressure (3) and explicit incomplete Cholesky are rejected by the
+flow-only helper. A selected production owner uses the audited reference for
+these settings, retaining their selectors and selection 2 in its next image.
 
 Range: a nonfinite or overflow-range value (above `2^450`) in the input or
 at the interval endpoint runs the whole interval through the reference
@@ -87,8 +96,8 @@ midpoint sweeps, solved for per-cell volume changes in the increment form
 mixtures the reference divided differences. Node pressure differences gather
 `(p0_l - p0_r) + (dW_l - dW_r)`, so there is no absolute-pressure roundoff
 floor; the root reaches the reference 16-epsilon closure. Each Newton
-correction is a matrix-free PCG solve (Jacobi by default; explicit
-`MacKernelPreconditioner::multigrid` selects the shared geometric V-cycle) with an inexact-Newton tolerance
+correction is a matrix-free PCG solve honoring the saved pressure setting
+(automatic geometric multigrid, or explicit Jacobi) with an inexact-Newton tolerance
 (`0.1 * residual`). Canonical J, wall and body impulses and midpoint sweeps
 use the reference formulas.
 
@@ -191,16 +200,16 @@ every constituent including the 1e-28 helium trace.
 
 | Scene (cells, intervals) | Substeps | max dT (K) | max dp / disturbance | max dp / p | O2 pp | constituents |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Wave 16x16, 20 Pa (256, 2) | 21 | 1.6e-12 | 6.0e-11 | 1.2e-14 | 1.1e-14 | 1.0e-14 |
-| Wave 32x32 (1,024, 2) | 21 | 1.5e-12 | 5.8e-11 | 1.2e-14 | 1.2e-14 | 1.1e-14 |
+| Wave 16x16, 20 Pa (256, 2) | 21 | 1.7053e-12 | 5.09317e-11 | 1.01858e-14 | 1.08385e-14 | 1.00957e-14 |
+| Wave 32x32 (1,024, 2) | 21 | 1.53477e-12 | 5.96629e-11 | 1.19324e-14 | 1.21248e-14 | 1.04868e-14 |
 | Uniform translation 1 / 0.5 m/s (256, 2) | 21 | 0 | 0 | 0 | 0 | 0 |
-| Hydrostatic gas, gravity 9.81, 5 Pa mode (128, 2) | 21 | 1.3e-12 | 2.5e-10 | 1.3e-14 | 1.4e-14 | 1.0e-14 |
-| Conduction, 30 K hot block (256, 2) | 21 | 1.8e-12 | — | 1.2e-14 | 1.2e-14 | 9.9e-15 |
-| Gas/water mixture, solid corner, conduction (144, 2) | 21 | 3.4e-12 | — | 0 | 9.2e-16 | 1.9e-14 |
-| Filled water, gravity, 200 Pa mode (64, 2) | 21 | 5.2e-12 | 3.6e-8 | 3.2e-11 | — | 3.3e-15 |
-| Wave with viscosity 0.5/0.25 Pa s and flow (256, 2) | 21 | 5.2e-10 | 3.0e-8 | 6.0e-12 | 6.0e-12 | 4.3e-12 |
-| Room: interior wall, 1 kPa / 10 K step, conduction (384, 2) | 21 | 1.4e-12 | 1.1e-12 | 1.1e-14 | 2.8e-14 | 2.3e-14 |
-| Gas into exact empty cells, dt 1/4096 s (128, 1) | 410 | 1.0e-11 | 1.7e-14 | 1.8e-14 | 1.8e-14 | 3.2e-14 |
+| Hydrostatic gas, gravity 9.81, 5 Pa mode (128, 2) | 21 | 1.25056e-12 | 2.53203e-10 | 1.26811e-14 | 1.41693e-14 | 1.02873e-14 |
+| Conduction, 30 K hot block (256, 2) | 21 | 1.7053e-12 | — | 1.46974e-14 | 1.43296e-14 | 1.06008e-14 |
+| Gas/water mixture, solid corner, conduction (144, 2) | 21 | 3.41061e-12 | — | 0 | 9.18564e-16 | 1.91379e-14 |
+| Filled water, gravity, 200 Pa mode (64, 2) | 21 | 5.17275e-12 | 3.61794e-08 | 3.22068e-11 | — | 3.29658e-15 |
+| Wave with viscosity 0.5/0.25 Pa s and flow (256, 2) | 21 | 5.15286e-10 | 3.0041e-08 | 6.00786e-12 | 6.00781e-12 | 4.29144e-12 |
+| Room: interior wall, 1 kPa / 10 K step, conduction (384, 2) | 21 | 1.53477e-12 | 1.1496e-12 | 1.14251e-14 | 3.2265e-14 | 2.67967e-14 |
+| Gas into exact empty cells, dt 1/4096 s (128, 1) | 410 | 1.0175e-11 | 1.73168e-14 | 1.75277e-14 | 1.84091e-14 | 3.19285e-14 |
 
 Every scene passes with at least five orders of margin. The empty-cell scene
 uses a fixed small step: at the default step both implementations reject and
@@ -228,24 +237,49 @@ atomically and compares concurrent heated/unheated branches. The largest
 temperature difference is 9.36e-8 K. These controls pass GNU 15.2 Release,
 Debug ASan/UBSan, Debug ThreadSanitizer and MinGW 13 under Wine 10.
 
-The Release build enables tests, the ONI backend and
-`CMAKE_COMPILE_WARNING_AS_ERROR=ON`; all 43 CTests pass. All 56 previous MAC
-executables retain their exits and physical output against a build of
-`138fa03`: 54 outputs are byte-identical and two differ only in their timing
-fields. The five-interval default 256-cell wave checkpoint remains SHA-256
+`ma_mac_kernel_checkpoint_tests` checks fifteen saved-setting continuation
+combinations (gas, liquid, mixtures, empty cells; automatic/Jacobi; diffusion
+off/physical/100× where admitted), including ordinary restore/advance with
+changed worker counts. It checks the equilibrium certificate, resealed wrong
+versions/selectors, malformed diffusion settings, every truncation and an
+explicit-IC reference fallback. A mid-interval range flag must retain selection
+2, consume its discarded attempt, pass exact interval accounts and leave the
+source unchanged when its budget is exhausted.
+
+The current Release build enables tests, the ONI backend and
+`CMAKE_COMPILE_WARNING_AS_ERROR=ON`; all 44 CTests pass. Seven touched suites
+pass Debug ASan/UBSan and MinGW 13 under Wine 10. Production checkpoint,
+contract and multigrid suites pass Debug ThreadSanitizer. The extended
+checkpoint controls pass on all three instrumented/Windows-target routes.
+
+All 59 preceding MAC executables retain their exits against `db7b555`: 56
+outputs are byte-identical, the benchmark differs only in timing fields, and
+two production diagnostics change intentionally with automatic multigrid.
+All reference streams and the default five-interval 256-cell wave retain their
+previous values; checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+Six synthetic version-2/3/4/5 images retain every byte of the earlier writer.
 The original strong-flow, curved-nodal and vacuum-front failures are unchanged.
-The geometric saved-data review passes 40,216 checks and rejects eight altered
-captures on native Linux, ASan/UBSan and Wine. Production endpoint saved-data
-reviews remain part of consolidation. There is no new game, Windows OS or
-performance acceptance evidence.
+
+The preconditioner-port source snapshot also passes all 43 tests in the
+Ubuntu 22.04 compatibility build; both libraries require glibc at most 2.34.
+That snapshot predates version 6; the next game package needs a fresh build.
+The geometric saved-data review passes 40,216 checks/eight corruptions, and
+the legacy interval review passes 105,931 checks/five corruptions. Production
+endpoint saved-data reviews and interval-kernel retirement remain open.
+There is no new game, actual Windows OS or performance acceptance evidence.
 
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
 --scene wave --continuation` gave 8.2e-11 of the disturbance after three
 consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
 
-## Performance
+## Earlier Jacobi performance
+
+These measurements precede persisted selection 2 and automatic geometric
+multigrid. They remain historical diagnostics; current active-cell acceptance
+is open.
+
 
 Method: `ma_mac_playtest_benchmark WIDTH HEIGHT 3 reference wave --continuation
 --no-reference --kernel production --threads N` (what
@@ -371,7 +405,7 @@ did not change from 66f9d11 to 7adfd63.
 | Phases | occupied constant-property ideal gas | gas, filled liquid, mixtures, exact empty cells, solids |
 | Range | flags any nonzero value outside `2^-450..2^450` (reference fallback) | admits below-range values (counted rounding); only nonfinite or `>2^450` falls back |
 | Gas diffusion | composed by the owner | composed by the owner (production policy) |
-| Preconditioner | automatic geometric multigrid (default) or Jacobi | Jacobi default; shared geometric multigrid opt-in |
+| Preconditioner | automatic geometric multigrid (default) or Jacobi | Saved automatic geometric multigrid or Jacobi (measurements below used Jacobi) |
 | Threads | pressure and thermodynamic passes on deterministic workers; transport serial | every stage on the deterministic pool, bit-identical for 1–12 threads |
 | Substep schedule | restarts its clock each interval (11 substeps per 0.1 s here) | reference absolute-clock schedule (10) |
 
@@ -452,29 +486,25 @@ with Jacobi 1,260–1,460 bytes; production 1,570–1,830 bytes (kernel workspac
 970 bytes per cell with donor selectors, 1,060 with the default selectors);
 any configuration that takes the reference fallback about 4,400 bytes.
 
-**Checkpoint and selection.** The interval kernel is a persisted physical-
-contract setting (checkpoint version 4, `numerical_kernel`). The production
-kernel is an execution policy (`MacExecutionPolicy::production`), so it adds
-no checkpoint bytes, and it reaches the persisted setting only through
-`extend_interval_admission`. Both continue checkpoints byte for byte on the
-same build. Because both kernels' trajectories differ from the reference at
-roundoff, byte continuation of a saved game needs the same kernel after
-restore, which argues for a persisted selection.
+**Checkpoint and selection.** The earlier comparison used an execution-only
+production policy, so its images did not retain that choice. Selection 2 is
+now persisted in version 6; ordinary restore/advance retains production and
+its saved preconditioner. Legacy selection 1 remains in versions 4/5 until
+retirement. No earlier version's bytes or selector meaning is changed.
 
 The accepted consolidation keeps the production coverage and pool. The
-geometric preconditioner is now ported; persisted selection, production
+geometric preconditioner and persisted selection are implemented; production
 saved-endpoint reviewers and interval-kernel retirement remain in step a.
 
 ## Remaining work
 
-- Real-time target: not met. At 250,000 cells 12 threads take about 1.16 s
-  per 0.1 s (3.6 s on one thread) against 62.5 ms, a factor of about 19; at
-  100,000 cells about 0.40 s against 25 ms, a factor of about 16 (wave scene,
-  shared host).
-- Geometric multigrid is opt-in and has no new performance measurement.
-  Persist the production selection, wire automatic selection to the saved
-  pressure setting, port saved-endpoint reviewers, then retire the narrower
-  interval kernel. Larger calm-region steps with local subcycling remain open.
+- Real-time target: open. Earlier Jacobi runs take 1.16 s per 0.1 s at
+  250,000 cells on twelve threads and 0.40 s at 100,000 cells, against 62.5/25 ms.
+  Current automatic-multigrid active-cell timing is not yet measured.
+- Persisted production selection and automatic geometric multigrid are
+  implemented; active-cell timing with these defaults is not yet measured.
+  Port saved-endpoint reviewers, then retire the narrower interval kernel.
+  Larger calm-region steps with local subcycling remain open.
 - Thread scaling stops near 3–3.7 times on 12 threads on the shared host.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
   reduction per iteration) and a measurement on an idle host are the next

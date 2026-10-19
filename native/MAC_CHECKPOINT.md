@@ -31,7 +31,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 
 1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
    reference-kernel viscosity is enabled; 4 for the interval kernel; 5 with gas
-   diffusion, for either kernel), and a length-prefixed binary model identity.
+   diffusion, for kernels 0/1; 6 for production kernel 2), and a length-prefixed
+   binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -42,7 +43,10 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    viscosity coefficients, the numerical-kernel enum (0 or 1), then the diffusion
    mode, multiplier, the unsigned 32-bit discrete diffusion formulation (2) and the
    complete immutable transport profile (identity, pair coefficients, validated
-   ranges, estimated flags and sources).
+   ranges, estimated flags and sources). Version 6 stores both viscosity
+   coefficients, requires numerical kernel 2, and always stores the diffusion
+   mode and multiplier, including canonical disabled mode 0/multiplier 1.
+   Enabled diffusion then stores the same formulation and complete profile.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -68,6 +72,7 @@ Each owner writes the lowest version that represents its settings:
 | 3 | reference | on | off |
 | 4 | interval audited (1) | either | off |
 | 5 | reference (0) or interval audited (1) | either | physical or accelerated |
+| 6 | production (2) | either | disabled, physical or accelerated |
 
 Version 4 requires numerical kernel 1 (`interval_audited`). It restores that
 selection before advancing, including when an unsupported state takes the retained
@@ -80,6 +85,25 @@ properties and provenance under the same identity. A version 5 image with
 diffusion disabled is noncanonical and rejects. Versions 2–4 explicitly restore
 with diffusion disabled. Mode changes require explicit opt-in at a completed
 simulation boundary; loading a save cannot enable diffusion.
+
+Version 6 is canonical only for production kernel 2. Unknown or other
+selectors reject even with a valid checksum; versions 4/5 cannot carry value 2.
+An explicit production execution request persists this selection, including an
+exact-equilibrium certificate and a range/selector fallback. An ordinary
+`from_checkpoint(...).advanced(...)` then selects production with the saved
+pressure preconditioner, without a policy flag. Execution options now contain
+no preconditioner: automatic uses geometric multigrid on grids of at least
+256 cells; explicit Jacobi stays Jacobi. Explicit incomplete Cholesky and
+unported physical selectors use the audited reference through the owner.
+Thread counts and derived hierarchy/workspaces are not saved.
+
+Six synthetic images spanning versions 2, 3, 4 and 5 (including both diffusion
+modes, viscosity and the legacy kernel) remain byte-identical to the earlier
+writer. Their fields and meanings are unchanged. Version-6 gas, liquid,
+mixture and empty-cell images continue exactly after restore, with all three
+diffusion modes where admitted and both automatic/Jacobi choices. The native
+game owner and managed paired-save reader still use/admit their existing
+reference images; game adoption of version 6 remains milestone B step f.
 
 Neither the interval-kernel version 4 nor diffusion images had been released
 when the two were merged, so diffusion moved from the version 4 it used on its
@@ -115,7 +139,7 @@ older reader rejects a value it does not know):
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic/quadratic, 3 coupled compressive pressure |
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
-| Numerical kernel (versions 4, 5) | 0 reference (version 5 only; implicit in versions 2/3), 1 interval audited |
+| Numerical kernel (versions 4–6) | 0 reference (version 5 only; implicit in versions 2/3), 1 interval audited (versions 4/5), 2 production (version 6 only) |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must
@@ -278,6 +302,17 @@ remains open.
 
 ## Verification
 
+- `ma_mac_kernel_checkpoint_tests` checks fifteen ordinary continuation
+  combinations across gas, liquid, mixtures and exact empty cells, automatic
+  and Jacobi preconditioning, and diffusion off/physical/100× where admitted.
+  Interrupted/restored runs match uninterrupted production requests byte for
+  byte; the 33,389-cell case requires a twelve-member pool on
+  the ordinary restored advance. Certified equilibrium persists selection
+  too. Resealed wrong versions/kernels, malformed diffusion settings, trailing
+  bytes and every truncation reject. The retained-reference fallback preserves
+  explicit incomplete Cholesky and the saved production selection. A mid-interval
+  range flag retains selection 2, charges discarded work to the shared budget,
+  audits the reference result and leaves an exhausted source unchanged.
 - `ma_mac_checkpoint_tests` (CTest `mac_physical_checkpoint`) checks exact restored
   state and resumed continuation for moving gas and wet material with gravity,
   conduction, traces, passives and a solid corner. Every heat and compression setting

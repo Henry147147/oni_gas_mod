@@ -13,7 +13,6 @@ MacClosedWorld owner(const Scene& scene) {
 }
 MacClosedAdvance advance(const MacClosedWorld& w, unsigned threads, double seconds) {
     MacKernelOptions options; options.threads = threads;
-    options.preconditioner = MacKernelPreconditioner::multigrid;
     return advance_mac_production(w, seconds, 4096, options);
 }
 void run(Scene scene) {
@@ -46,7 +45,7 @@ void run(Scene scene) {
     check(source.checkpoint() == held, "Multigrid mutated its source");
     bool rejected = false;
     try { static_cast<void>(advance_mac_production(source, seconds, 1,
-        MacKernelOptions{1, 1, MacKernelPreconditioner::multigrid})); }
+        MacKernelOptions{})); }
     catch (const std::runtime_error&) { rejected = true; }
     check(rejected && source.checkpoint() == held && advance(source, 1, seconds).world.checkpoint() == bytes,
         "Rejected multigrid advance changed continuation");

@@ -2,10 +2,10 @@
 
 The [production kernel](MAC_KERNEL.md) and the occupied ideal-gas
 [interval kernel](MAC_INTERVAL_KERNEL.md) share this geometric multigrid
-preconditioner for their matrix-free PCG solves. Production selects it
-explicitly with `MacKernelOptions::preconditioner = multigrid`; its default
-remains Jacobi during consolidation. The following automatic-selection and
-serial performance measurements describe the interval kernel.
+preconditioner for their matrix-free PCG solves. Production honors its saved
+pressure setting: automatic uses multigrid for grids of at least 256 cells,
+explicit Jacobi stays Jacobi. The following coupling-ratio threshold and
+serial performance measurements describe the legacy interval kernel.
 `automatic` selects it for at least 256 active cells when the maximum ratio of
 off-diagonal coupling to compliance is at least two. Explicit `jacobi` keeps
 Jacobi. No pressure equation, root tolerance, physical selector or timestep
@@ -116,13 +116,14 @@ Wine continues byte for byte on both (2,560 inspected numeric fields per
 source). This is separate from actual Windows OS evidence and from the open
 liquid continuation failure.
 
-The production consolidation passes all 43 Release CTests and compares all
-56 earlier MAC executables against `138fa03`: unchanged exits and physical
-output, with only timing fields differing in two streams. The new production
-controls cover occupied gas, liquids, mixtures, vacuum masks and concurrent
-branches under Release, Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
-No original physical gate is weakened; actual Windows OS and in-game
-production-kernel acceptance remain open.
+Persisted production selection passes all 44 Release CTests. Of 59 earlier
+MAC executable captures, 56 remain byte-identical, one differs only in timing
+and two production diagnostics change intentionally with automatic multigrid.
+Reference streams, exits, original gate bounds and the default wave checkpoint
+SHA are unchanged. Production controls cover gas, liquids, mixtures, vacuum
+masks, concurrent branches and ordinary restore/advance on twelve workers;
+Release, Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine pass. Actual Windows
+OS, in-game production-kernel adoption and current-default timing remain open.
 
 The GNU 15.2 Release/IPO 5900X run takes 6,626.66 ms median and 6,738.52 ms maximum
 for five fully changing 250,000-cell intervals of 0.1 simulated seconds. It

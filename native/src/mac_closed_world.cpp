@@ -170,7 +170,8 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportStat
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
-    require((numerical_kernel == MacNumericalKernel::reference || numerical_kernel == MacNumericalKernel::interval_audited) &&
+    require((numerical_kernel == MacNumericalKernel::reference || numerical_kernel == MacNumericalKernel::interval_audited ||
+        numerical_kernel == MacNumericalKernel::production) &&
         std::isfinite(maximum_timestep_s) && maximum_timestep_s > 0 && maximum_timestep_s <= 1 &&
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
         (preconditioner == PressurePreconditioner::automatic || preconditioner == PressurePreconditioner::jacobi ||
@@ -569,6 +570,12 @@ void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
 }
 }
 MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacExecutionPolicy policy) const {
+    // Persist an explicit production request before any diffusion/certificate
+    // path. Restoring then advances the same kernel without a caller policy.
+    if (policy == MacExecutionPolicy::production && settings_.numerical_kernel != MacNumericalKernel::production) {
+        auto selected = *this; selected.settings_.numerical_kernel = MacNumericalKernel::production;
+        return selected.advanced(seconds, budget, policy);
+    }
     if(settings_.diffusion.mode==MacDiffusionMode::disabled)return advanced_flow(seconds,budget,policy);
     require_mac_energy_environment();settings_.validate();
     require(std::isfinite(seconds) && seconds>0 && seconds<=10 && budget>0 && budget<=65536,"Invalid MAC diffusion interval/budget");
@@ -606,7 +613,7 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacE
     if(!within_energy_budget(balance.terms(),allowance))throw std::runtime_error("Diffusion/flow composed energy account failed");
     return result;
 }
-MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budget, MacExecutionPolicy policy) const {
+MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budget, MacExecutionPolicy policy, bool validation_reference) const {
     require_mac_energy_environment();
     require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 && budget > 0 && budget <= 65536, "Invalid MAC interval or attempt budget");
     require(policy == MacExecutionPolicy::reference || policy == MacExecutionPolicy::exact_equilibrium ||
@@ -614,7 +621,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     const double endpoint = time_s_ + seconds;
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
-    auto equilibrium=policy!=MacExecutionPolicy::reference &&
+    auto equilibrium=!validation_reference &&
+        (policy!=MacExecutionPolicy::reference || settings_.numerical_kernel==MacNumericalKernel::production) &&
         (settings_.diffusion.mode==MacDiffusionMode::disabled || mac_diffusion_stationary(registry_,state_)) ?
         exact_static_equilibrium(state_,settings_,*thermodynamics_) : std::nullopt;
     MacScaled equilibrium_body;
@@ -631,7 +639,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     }
     // An explicit production execution request takes the production kernel;
     // otherwise the persisted numerical-kernel setting applies.
-    if (policy == MacExecutionPolicy::production) return advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
+    if (!validation_reference && (policy == MacExecutionPolicy::production || settings_.numerical_kernel == MacNumericalKernel::production) &&
+        mac_kernel_supports(settings_)) return advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
     std::size_t discarded_interval_attempts = 0;
     if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
         auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts, interval_cache_.get());
@@ -651,7 +660,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     }
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     result.report.attempts = discarded_interval_attempts; result.report.rejected_attempts = discarded_interval_attempts;
-    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) result.report.interval_reference_fallbacks = 1;
+    if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;
     MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change;
@@ -823,7 +832,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         }
     }
     result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
-    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
+    if (settings_.numerical_kernel != MacNumericalKernel::reference) {
         if (!total.within_bound()) throw std::domain_error("MAC reference fallback failed its interval energy audit");
         result.report.energy_bound_wide_j = total.bound();
         result.report.energy_bound_j = projected_energy(total.bound(), result.report.rounded_energy_projections);

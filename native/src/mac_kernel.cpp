@@ -19,16 +19,16 @@ struct MacKernelAccess {
     static const MacClosedSettings& settings(const MacClosedWorld& w) { return w.settings_; }
     static double time(const MacClosedWorld& w) { return w.time_s_; }
     static std::uint64_t revision(const MacClosedWorld& w) { return w.revision_; }
-    static void stamp(MacClosedWorld& w, double time, std::uint64_t revision) { w.time_s_ = time; w.revision_ = revision; }
+    static void stamp(MacClosedWorld& w, double time, std::uint64_t revision) {
+        w.time_s_ = time; w.revision_ = revision; w.settings_.numerical_kernel = MacNumericalKernel::production;
+    }
+    static void select_production(MacClosedWorld& w) { w.settings_.numerical_kernel = MacNumericalKernel::production; }
     // The retained reference implementation for the same flow interval
-    // (range flags): a copy that selects no fast path, published with the
+    // (range flags): bypass dispatch but retain interval auditing and the
     // caller's numerical-kernel setting. Flow only, like the kernel: gas
     // diffusion half steps belong to the owner's composition around it.
     static MacClosedAdvance reference(const MacClosedWorld& w, double seconds, std::size_t budget) {
-        auto copy = w; copy.settings_.numerical_kernel = MacNumericalKernel::reference;
-        auto result = copy.advanced_flow(seconds, budget, MacExecutionPolicy::reference);
-        result.world.settings_.numerical_kernel = w.settings_.numerical_kernel;
-        return result;
+        return w.advanced_flow(seconds, budget, MacExecutionPolicy::reference, true);
     }
 };
 }
@@ -47,6 +47,8 @@ void require_supported(const MacClosedSettings& s) {
         "Production kernel supports material reconstruction selectors 0 and 1");
     require(s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear,
         "Production kernel supports momentum reconstruction selectors 0 and 1");
+    require(s.preconditioner != PressurePreconditioner::incomplete_cholesky,
+        "Production kernel does not support explicit incomplete Cholesky");
     require(s.compression_viscosity != MacCompressionViscosity::coupled_pressure,
         "Production kernel does not support coupled compressive pressure (compression selector 3)");
 }
@@ -428,11 +430,9 @@ void MacKernelOptions::validate() const {
     mac_kernel::require(threads >= 1 && threads <= 256, "Production kernel thread count must be 1..256");
     mac_kernel::require(minimum_blocks_per_thread >= 1 && minimum_blocks_per_thread <= 65536,
         "Production kernel minimum blocks per thread must be 1..65536");
-    mac_kernel::require(preconditioner == MacKernelPreconditioner::jacobi || preconditioner == MacKernelPreconditioner::multigrid,
-        "Invalid production preconditioner");
 }
 bool mac_kernel_supports(const MacClosedSettings& s) {
-    return (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear) &&
+    return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear) &&
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure;
 }
@@ -477,7 +477,10 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
         // Flagged range: the complete interval through the reference, with
         // the attempts already consumed charged to the shared budget.
         if (consumed >= budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");
-        auto r = MacKernelAccess::reference(world, seconds, budget - consumed);
+        auto selected = world;
+        MacKernelAccess::select_production(selected);
+        auto r = MacKernelAccess::reference(selected, seconds, budget - consumed);
+        r.report.interval_reference_fallbacks = 1;
         r.report.attempts += consumed; r.report.rejected_attempts += consumed;
         mac_kernel::last_report() = {}; mac_kernel::last_report().reference_fallback = true;
         return r;
@@ -492,6 +495,10 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     } catch (const mac_kernel::RangeFlag& flag) { return fallback(flag.consumed_attempts); }
     MacKernelAccess::stamp(result.world, start + seconds, revision + 1);
     auto& r = result.report;
+    r.interval_kernel_intervals = 1;
+    r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
+    r.interval_rounded_updates = k.rounded_range_inputs;
+    for (const auto& audit : k.audits) r.interval_audit_exact_fallbacks += audit.escalated ? 1U : 0U;
     r.substeps = k.substeps; r.attempts = k.attempts; r.rejected_attempts = k.rejected_attempts;
     r.interval_multigrid_solves = k.multigrid_solves; r.interval_multigrid_cycles = k.multigrid_cycles;
     r.interval_multigrid_fallbacks = k.multigrid_fallbacks; r.interval_multigrid_levels = k.multigrid_levels;
