@@ -64,7 +64,7 @@ namespace MixedAtmospheres.Oni
             {
                 // Existing actor fixtures may refresh an unchanged binding.
                 // The old exact image comparison still checks its physics.
-                Require(journal.Flags==1 && journal.HeatCommands==0 && journal.TransferCommands==0 && restoredActorImage!=null,
+                Require((journal.Flags&~NativeFrameInputJournal.ProductionAdvance)==1 && journal.HeatCommands==0 && journal.TransferCommands==0 && restoredActorImage!=null,
                     "Saved continuation contains actor changes that cannot yet be replayed with external inputs.");
                 result=ResumePhysicalCheckpoint(source,latest.LastTimestepSeconds);++replayActorRefreshFrames;
             }

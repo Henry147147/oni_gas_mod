@@ -593,7 +593,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     if (c.options.collect_stage_timing) c.timing.momentum_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_dual).count();
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
-    struct Deposit { std::size_t unresolved = 0; double gravity = 0; };
+    struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; };
     auto deposited = c.exec.partials<Deposit>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Deposit d;
         if (gravity != 0) for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx)
@@ -616,7 +616,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     const double potential = ws.fy[face] * gravity * g.h;
                     return -(ws.body_work_y[face] + potential);
                 };
-                heat.add(share(work(bf), g.yl[bf], g.yr[bf])); heat.add(share(work(tf), g.yl[tf], g.yr[tf]));
+                const double bottom_work = share(work(bf), g.yl[bf], g.yr[bf]);
+                heat.add(bottom_work); d.gravity_change.add(bottom_work);
+                const double top_work = share(work(tf), g.yl[tf], g.yr[tf]);
+                heat.add(top_work); d.gravity_change.add(top_work);
             }
             const double h = heat.value();
             if (h == 0) continue;
@@ -627,7 +630,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         return d;
     });
     double gravity_ops = 0;
-    for (const auto& d : deposited) { acc.unresolved += d.unresolved; gravity_ops += d.gravity; }
+    for (const auto& d : deposited) {
+        acc.unresolved += d.unresolved; gravity_ops += d.gravity;
+        for (std::size_t j = 0; j < d.gravity_change.size(); ++j) acc.physical.gravity_internal.add(d.gravity_change.component(j));
+    }
     acc.operands[c.q_energy()] += energy_ops + 2 * gravity_ops;
 }
 }

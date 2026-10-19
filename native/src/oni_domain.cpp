@@ -2,6 +2,7 @@
 #include "mac_block_execution.hpp"
 #include "oni_radial_consumption.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_native_heat.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include "oni_actor_checkpoint.hpp"
@@ -285,10 +286,22 @@ std::vector<std::uint8_t> audit_image(const MacClosedWorld& owner,const MAOniDom
 MacClosedSettings configured_settings(const MAOniDomainPhysics& physics) {
     // Same construction as the legacy scenarios: disabled values stay +0.
     MacClosedSettings settings; settings.maximum_timestep_s=.01;
+    settings.numerical_kernel=MacNumericalKernel::production;
     settings.thermal_conduction=(physics.flags&MA_ONI_DOMAIN_PHYSICS_CONDUCTION)!=0;
     if (physics.flags&MA_ONI_DOMAIN_PHYSICS_VISCOSITY) settings.viscosity={physics.shear_viscosity_pa_s,physics.bulk_viscosity_pa_s};
     settings.gravity_m_per_s2=physics.gravity_m_per_s2;
     return settings;
+}
+MacClosedAdvance advance_owned_world(const MacClosedWorld& source,double seconds,
+    MacExecutionPolicy policy=MacExecutionPolicy::exact_equilibrium) {
+    // Application execution policy only: fixed blocks cap small rooms, and
+    // worker count never changes physical results or checkpoint continuation.
+    static const bool executor_configured=[] {
+        auto options=mac_kernel_default_options();options.threads=12;
+        set_mac_kernel_default_options(options);return true;
+    }();
+    (void)executor_configured;
+    return source.advanced(seconds,4096,policy);
 }
 void fault(const char* error) noexcept {
     status.state=3;
@@ -791,6 +804,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
         for (std::uint32_t y=0;y<config.height;++y) for (std::uint32_t x=1;x<config.width;++x)
             state.momentum_x[state.grid.x_face(x,y)]=inertia.x[state.grid.x_face(x,y)]*(y%2==0 ? .5 : -.5);
     MacClosedSettings settings; settings.maximum_timestep_s=.01; settings.thermal_conduction=config.scenario!=4;
+    settings.numerical_kernel=MacNumericalKernel::production;
     if (config.scenario==6) settings.viscosity={.5,.25};
     settings.gravity_m_per_s2=gravity_scenario(config.scenario) ? 9.81 : 0;
     auto candidate=std::make_unique<MacClosedWorld>(registry,eos,std::move(state),settings);
@@ -906,7 +920,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         GasWork work; auto next_actors=actors;
         auto next_steps=actor_steps,next_consumed=consumer_samples,next_emitted=emitter_samples;
         prepare_actors(work,next_actors,seconds,next_steps,next_consumed,next_emitted);
-        auto result=work.owner->advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium);
+        auto result=advance_owned_world(*work.owner,seconds,MacExecutionPolicy::production);
         auto cells=project(result.world,geometry,physics_settings); auto next=status;
         const auto reported=reported_cell(result.world);
         const auto totals=masses(result.world);
@@ -961,7 +975,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         // frames do not serialize/hash either world. Capture readers build
         // the exact legacy images on demand under the publication lock.
         DeferredFrameAudit next_audit;next_audit.source=world;next_audit.physics=physics_settings;
-        auto input_flags=pending_input_flags;
+        auto input_flags=pending_input_flags|frame_inputs::production_advance;
         if (!actors.empty()) {
             if (std::any_of(actors.begin(),actors.end(),[](const auto& item) {return !item.second.identity.owner;})) input_flags|=2U;
             else {
@@ -1440,7 +1454,7 @@ std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t
         const auto registry=domain_registry(0);
         const auto time=MacClosedWorld::from_checkpoint(registry,model(registry,0),saved.physical).time_s();
         const auto owner=restored_configured_owner(saved.geometry,saved.physics,saved.mask,image,time);
-        saved.physical=seconds == 0 ? owner->checkpoint() : owner->advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium).world.checkpoint();
+        saved.physical=seconds == 0 ? owner->checkpoint() : advance_owned_world(*owner,seconds).world.checkpoint();
         return configured_domain::encode(saved);
     }
     auto registry=SpeciesRegistry::standard();
@@ -1451,7 +1465,7 @@ std::vector<std::uint8_t> advance_domain_checkpoint(std::span<const std::uint8_t
             return MacClosedWorld::from_checkpoint(shifted,model(shifted,3),image);
         }
     }();
-    return seconds == 0 ? restored.checkpoint() : restored.advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium).world.checkpoint();
+    return seconds == 0 ? restored.checkpoint() : advance_owned_world(restored,seconds).world.checkpoint();
 }
 std::vector<std::uint8_t> copy_completed_domain_snapshot(std::uint64_t session,std::uint64_t frame) {
     std::lock_guard lock(state_mutex);
@@ -1512,7 +1526,7 @@ std::vector<std::uint8_t> advance_domain_snapshot(std::span<const std::uint8_t> 
     if (seconds>0) {
         GasWork work(*owner,saved.geometry,physics);std::uint64_t steps=0,consumed=0,emitted=0;
         prepare_actors(work,restored,seconds,steps,consumed,emitted);
-        auto advanced=work.owner->advanced(seconds,4096,MacExecutionPolicy::exact_equilibrium);owner=std::make_unique<MacClosedWorld>(std::move(advanced.world));
+        auto advanced=advance_owned_world(*work.owner,seconds);owner=std::make_unique<MacClosedWorld>(std::move(advanced.world));
     }
     saved.actors.clear();for (const auto& [key,actor] : restored) { (void)key;saved.actors.push_back(saved_actor(actor)); }
     saved.physical=physical_image(*owner,saved.geometry,physics);return actor_checkpoint::encode(saved);
@@ -1542,7 +1556,7 @@ std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const st
     const ArithmeticScope arithmetic;const auto journal=frame_inputs::decode(inputs);
     const bool configured=configured_scenario(journal.geometry.scenario);
     if (!configured) validate_domain_geometry(journal.geometry);
-    frame_inputs::require(journal.flags==0,"Frame input replay does not support actor reconfiguration or non-durable actors");
+    frame_inputs::require((journal.flags&3U)==0,"Frame input replay does not support actor reconfiguration or non-durable actors");
     frame_inputs::require(hash_memory(source.data(),source.size())==journal.source_sha256,"Frame inputs belong to another source snapshot");
     const bool durable=actor_checkpoint::has_magic(source);
     actor_checkpoint::Image saved;
@@ -1576,7 +1590,11 @@ std::vector<std::uint8_t> advance_domain_snapshot_with_inputs(std::span<const st
         }
     }
     std::uint64_t steps=0,consumed=0,emitted=0;prepare_actors(work,restored,journal.seconds,steps,consumed,emitted);
-    auto result=physical_image(work.owner->advanced(journal.seconds,4096,MacExecutionPolicy::exact_equilibrium).world,journal.geometry,physics);
+    // Old journals retain their saved selection. New live frames explicitly
+    // record production, including the first frame after loading a reference save.
+    const auto policy=(journal.flags&frame_inputs::production_advance) ?
+        MacExecutionPolicy::production : MacExecutionPolicy::exact_equilibrium;
+    auto result=physical_image(advance_owned_world(*work.owner,journal.seconds,policy).world,journal.geometry,physics);
     if (!durable) return result;
     saved.actors.clear();for (const auto& [key,actor]:restored) {(void)key;saved.actors.push_back(saved_actor(actor));}
     saved.physical=std::move(result);return actor_checkpoint::encode(saved);

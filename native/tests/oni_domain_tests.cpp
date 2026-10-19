@@ -381,6 +381,9 @@ int main(int argc,char** argv) {
         ma::oni::start_domain(config,1);
         require(ma::oni::domain_active(),"domain did not activate");
         auto initial=capture(cells);
+        const auto initial_image=ma::oni::checkpoint_domain(initial.session,0);
+        require(initial_image.size()>12 && initial_image[8]==6 && initial_image[9]==0 && initial_image[10]==0 && initial_image[11]==0,
+            "New native owner did not persist the production kernel with midpoint pressure");
         require(!ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,-1) && !ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,0),"native exterior was claimed");
         const auto native_cell=[](int x,int y) { return x+1+(y+1)*66; };
         require(ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,native_cell(10,10)),"domain cell not excluded from native pressure");

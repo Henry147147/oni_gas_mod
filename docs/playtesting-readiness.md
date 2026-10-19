@@ -148,7 +148,7 @@ also pass collision.
   budget and row continuation controls pass. All four direct/composed physical/100×
   8,192-cell cases complete 400 frames with the original aggregate helium bound
   and unchanged bulk metrics. The saved reviews pass 2,690/131,154 checks,
-  rejecting six/three altered captures. All 48 Release CTests, ten ASan/UBSan,
+  rejecting six/three altered captures. All 54 Release CTests, ten ASan/UBSan,
   ten MinGW/Wine and nine ThreadSanitizer suites pass.
   Accepted below-range primal advection products now have exact error ledgers
   and counts, with unchanged parcel values and endpoint bounds. An 8,192-cell
@@ -165,8 +165,15 @@ also pass collision.
   volume and counted unresolved primal writes. It retains representable and
   zero/one/two-quantum arrivals without changing conservation bounds. A
   cross-block tracer uses the same shared transfer with one/twelve workers.
-  The in-game owner remains reference pending step f. Supported legacy
-  reference images retain their bytes and continuation. Calm-region/local
+  Step f now selects production in the native owner, with twelve requested
+  workers and committed physical heat/work diagnostics. Supported reference
+  saves retain idle bytes; the first live frame migrates to version 6 with
+  journal flag 4. Historical unflagged replay and stateless continuation keep
+  their saved kernel. Fourteen historical owner images pass native restore,
+  continuation and migration checks on Linux and MinGW/Wine; production Linux/Proton
+  game scenes, saves and fresh-process reloads remain open. The latest Ubuntu
+  build passes 54 tests but imports `GLIBC_2.35` through sharp-interface
+  `std::hypot`; the 2.34 packaging ceiling is unmet. Calm-region/local
   steps and local subcycling remain open. The opt-in
   [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes
   selected larger-step resolved waves with the original error bounds and
@@ -192,7 +199,7 @@ also pass collision.
   26.83–28.90; these fixed-source samples do not certify evolving owner speed.
   This is a normal-range pressure component without owner selection,
   interval audits or local transport. Automatic selection, full local subcycling, open
-  physics gates, real-time acceptance and in-game production use remain open.
+  physics gates, real-time acceptance and in-game production validation remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

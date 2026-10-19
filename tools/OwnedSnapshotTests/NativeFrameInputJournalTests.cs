@@ -30,7 +30,13 @@ internal static class NativeFrameInputJournalTests
             var bytes=Journal(true);var held=(byte[])bytes.Clone();var j=Parse(bytes);
             check(j.ReplaySupported && j.HeatBatches==1 && j.TransferBatches==1 && j.HeatCommands==1 && j.TransferCommands==1);
             check(bytes.AsSpan().SequenceEqual(held));var empty=Parse(Journal(false));check(empty.ReplaySupported && empty.HeatCommands==0 && empty.TransferCommands==0);
-            for(uint flags=1;flags<=3;++flags) check(!Parse(Journal(false,flags)).ReplaySupported);
+            check(Parse(Journal(true,NativeFrameInputJournal.ProductionAdvance)).ReplaySupported);
+            for(uint flags=1;flags<=3;++flags) {
+                check(!Parse(Journal(false,flags)).ReplaySupported);
+                check(!Parse(Journal(false,flags|NativeFrameInputJournal.ProductionAdvance)).ReplaySupported);
+            }
+            reject(()=>Parse(Journal(false,8)));
+            check(Parse(Journal(true,NativeFrameInputJournal.ProductionAdvance)).PhysicalInputsSha256!=j.PhysicalInputsSha256);
         });
         test("valid-checksum input journals reject wrong epoch, geometry, source, reserved fields and command ABI",()=> {
             foreach(var offset in new[]{0,8,12,16,24,32,40,48,56,64,68,72,76,80,84,88,92,96,100,104,168,172,176,180,184,192,224,228,232,236,240,248})

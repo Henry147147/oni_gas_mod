@@ -105,7 +105,7 @@ int main() {
         const auto saved=checkpoint_domain(status.session,1);
         advance_domain(2,.2,2);copy_domain(status,cells,6);
         const auto inputs=copy_domain_frame_inputs(status.session,2);
-        check(frame_inputs::decode(inputs).flags==0,"Diffusion settings were misreported as an unsupported actor change");
+        check(frame_inputs::decode(inputs).flags==frame_inputs::production_advance,"Diffusion settings were misreported as an unsupported actor change");
         check(advance_domain_snapshot_with_inputs(saved,inputs)==copy_completed_domain_snapshot(status.session,2),
             "A mode change did not replay from its configured boundary image");
         const auto saved_time=frame_inputs::decode(inputs).source_time;

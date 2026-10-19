@@ -124,7 +124,7 @@ unregistered border solid.
 ## Size bound
 
 Configured rectangles are 2–256 cells per side with at most 4096 cells.
-Legacy scenarios keep 2–16. One 0.2 s frame of a 64×64 room with gravity,
+Legacy scenarios keep 2–16. In the historical reference measurement, one 0.2 s frame of a 64×64 room with gravity,
 conduction and viscosity raised peak RSS from 8.9 to 94.3 MiB, about 21 KiB
 per cell; a 1024-cell frame without viscosity measured 13 KiB per cell. The
 retained owner, pending candidate, 96-byte publication and roughly 159-byte
@@ -138,9 +138,12 @@ wraps the uint64 product to zero. The legacy validator lacks the pitch bound:
 an internal legacy start admits that geometry, while the exported start rejects
 the pitch separately. Legacy behaviour is left unchanged.
 
-The bound limits memory and indices; it is not a performance claim. The same
-64×64 frame takes 48.3 s in a Linux Release build (20 substeps). The production
-timestep gate remains open.
+The bound limits memory and indices; it is not a performance claim. The historical reference
+64×64 frame took 48.3 s in a Linux Release build (20 substeps). A production
+native-suite diagnostic with 256 solids (3,840 active cells) measures 209.851–222.867 ms
+per 0.2 s, twenty substeps and peak RSS 9,712–9,724 → 22,076–22,096 KiB (GNU
+Release, twelve requested workers, two taskset 0–11 runs, host load 11.07–11.51).
+These small-room samples do not certify active-cell acceptance; the production timestep gate remains open.
 
 ## Checkpoints
 

@@ -5,7 +5,8 @@ matrix-free PCG pressure solve. Saved `automatic` selects it on grids of at
 least 256 cells; explicit `jacobi` keeps Jacobi. The former interval solver is
 [retired](MAC_INTERVAL_KERNEL.md). Its hierarchy implementation and independent
 saved-data reviewer are retained. No physical selector or timestep is changed.
-The default numerical selection remains the strict reference pending game adoption.
+The generic settings default remains the strict reference. The native ONI owner
+explicitly selects production; its game validation remains open.
 
 ## Operator and transfers
 

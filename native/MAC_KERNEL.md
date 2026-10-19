@@ -55,6 +55,18 @@ bytes and continuation; selector-1 images explicitly reject. Version 6 rejects e
 value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
 enabled diffusion metadata.
 
+The native ONI domain now creates selection-2 owners and explicitly selects
+production on each live frame, requesting twelve workers (small rooms are
+capped by fixed block count). Loading a supported reference save preserves
+its idle bytes; its first live frame migrates to selection 2/version 6. Frame
+journals record this request in flag 4. Historical unflagged journals and
+stateless checkpoint continuation retain the saved selection. Existing Unity
+scene, save and fresh-process evidence predates this adoption; production game
+revalidation remains open. Fourteen historical owner images retain idle bytes
+and pass same-platform continuation and migration on Linux and MinGW/Wine.
+Viscous trajectories retain a pre-existing last-bit difference between compilers;
+cross-platform trajectory byte identity is not claimed.
+
 The thread count never changes a result (see [determinism](#determinism)).
 `set_mac_kernel_default_options()` sets the process-wide options used by the
 policy paths.
@@ -70,7 +82,7 @@ policy paths.
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 
-Swept material reconstruction (2), momentum selectors 2–5, coupled
+Swept (2) and sharp-interface (3) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3) and explicit incomplete Cholesky are rejected by the
 flow-only helper. A selected production owner uses the audited reference for
 these settings, retaining their selectors and selection 2 in its next image.
@@ -186,6 +198,16 @@ large-inertia production fault and preserves representable trace arrivals.
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
 complete-EOS contacts when mixtures are present) and viscosity (rank-one
 modes) use the reference pair/mode laws.
+
+`MacKernelReport::physical` carries committed substeps, conduction contacts,
+iterations, stored redistribution and entropy, viscosity modes, requested and
+stored heat, wall impulse, unresolved-update counts and gravity internal work.
+Published accounts contain only the audited interval's committed substeps,
+so retries cannot publish rejected heat or work. These observations preserve physical
+updates and the single interval entropy admission. Mixed-material conduction
+uses the reference pair's diagnostic entropy quadrature. Silent validation
+controls compare heat/work reports with the oracle, reject a constrained
+budget without leakage, and require identical one/twelve-worker reports.
 
 **Exact reference order.** Every reference Gauss–Seidel sweep (compression,
 shock heat, momentum corrections) chains only along grid rows or columns, and
@@ -418,10 +440,11 @@ separate from actual Windows OS evidence.
 Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
 reference images restore unchanged and selector-1 images explicitly reject.
 The original strong-flow, curved-nodal and vacuum-front failures remain open.
-The preconditioner-port Ubuntu 22.04 snapshot passed 43 tests with library glibc
-requirements at most 2.34; it predates version 6, so the next game package needs
-a fresh compatibility build. No new game, actual Windows OS or active-cell
-performance acceptance is claimed here.
+The latest production-owner Ubuntu 22.04 snapshot passes 54 CTests, but the
+sharp-interface `std::hypot` call introduces `GLIBC_2.35` in the observer. This
+fails the project 2.34 ceiling and blocks its game package; the preceding
+53-test snapshot requires at most 2.34. Production game revalidation remains
+open. No actual Windows OS or active-cell acceptance is claimed here.
 
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
@@ -619,7 +642,7 @@ do not certify current automatic-multigrid active-cell performance.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
   reduction per iteration) and a measurement on an idle host are the next
   steps.
-- Diffusion inside the kernel (the stage slot above), swept reconstruction,
+- Diffusion inside the kernel (the stage slot above), swept and sharp-interface reconstruction,
   momentum selectors 2–5 and coupled compressive pressure are not ported.
 - Below-range primal parcel products and composed diffusion transfers are counted
   and audited. Flagged sweeps preserve range until parcel formation, and dual

@@ -65,6 +65,21 @@ struct MacKernelStageTiming {
         eos_ms = 0, pressure_ms = 0, reconstruction_ms = 0, transport_ms = 0, momentum_ms = 0,
         gravity_ms = 0, audit_ms = 0, conversion_ms = 0;
 };
+// Accepted physical-stage diagnostics consumed by the native owner. These
+// describe the committed stages; discarded substeps contribute no entries.
+struct MacKernelPhysicalReport {
+    std::size_t accepted_substeps = 0;
+    std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0,
+        unresolved_conduction_updates = 0;
+    MacEnergy conductive_redistribution_j;
+    double conductive_entropy_j_per_k = 0;
+    std::size_t viscosity_stages = 0, viscosity_modes = 0,
+        unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
+    MacEnergy viscous_heat, viscous_stored_heat;
+    MacScaled viscous_wall_impulse_x, viscous_wall_impulse_y;
+    double viscous_entropy_lower_bound_j_per_k = 0;
+    MacEnergy gravity_internal_change_wide_j;
+};
 struct MacKernelReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0, audit_retries = 0;
     std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
@@ -92,6 +107,7 @@ struct MacKernelReport {
     double entropy_change_j_per_k = 0, entropy_allowance_j_per_k = 0;
     std::vector<MacKernelAudit> audits;
     MacKernelStageTiming timing;
+    MacKernelPhysicalReport physical;
 };
 struct MacKernelAdvance { MacTransportState state; MacKernelReport report; };
 // Interval advance on a validated owner state. start_time_s reproduces the

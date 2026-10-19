@@ -234,6 +234,18 @@ struct FlaggedSweeps {
     }
     [[nodiscard]] const MacEnergy* data() const { return faces.empty() ? nullptr : values.data(); }
 };
+struct PhysicalAccounts {
+    std::size_t accepted_substeps = 0;
+    std::size_t conduction_stages = 0, conduction_contacts = 0, conduction_iterations = 0,
+        unresolved_conduction_updates = 0;
+    MacEnergySum conductive_redistribution;
+    DD conductive_entropy;
+    std::size_t viscosity_stages = 0, viscosity_modes = 0,
+        unresolved_viscous_heat_updates = 0, unresolved_viscous_momentum_updates = 0;
+    MacEnergySum viscous_heat, viscous_stored_heat, viscous_wall_x, viscous_wall_y, gravity_internal, viscous_entropy;
+    void merge(const PhysicalAccounts&);
+    [[nodiscard]] MacKernelPhysicalReport report() const;
+};
 struct Accounts {
     // Operand magnitudes for the 128-epsilon interval bound and counted
     // rounding allowances (per quantity: species, passives, jx, jy, energy).
@@ -242,6 +254,7 @@ struct Accounts {
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
     std::size_t unresolved = 0; // Accepted primary/parcel and existing pressure/heat writes.
+    PhysicalAccounts physical;
     void resize(std::size_t quantities) {
         operands.assign(quantities, 0); rounding.assign(quantities, 0);
         transfers.assign(quantities, {});

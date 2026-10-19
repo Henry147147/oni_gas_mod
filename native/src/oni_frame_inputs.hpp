@@ -10,13 +10,14 @@ struct Batch {
     std::vector<MAOniDomainTransfer> transfers;
 };
 struct Image {
-    std::uint32_t flags{}; // 1: owner/actor configuration changed, 2: non-durable actors
+    std::uint32_t flags{}; // 1: owner/actor configuration changed, 2: non-durable actors, 4: production advance
     std::uint64_t session{},source_frame{},completed_frame{};
     double source_time{},seconds{};
     MAOniDomainConfig geometry{};
     std::string source_sha256;
     std::vector<Batch> batches;
 };
+constexpr std::uint32_t production_advance=4U;
 constexpr std::array<std::uint8_t,8> magic{'M','A','F','R','I','N','0','1'};
 constexpr std::size_t header_bytes=168,digest_bytes=64,maximum_bytes=1U<<20,maximum_batches=2048;
 using actor_checkpoint::require;
@@ -27,7 +28,7 @@ inline std::size_t batch_size(const Batch& batch) {
     return 8+count*(batch.heat.empty() ? 64 : 48);
 }
 inline void validate(const Image& image) {
-    require((image.flags&~3U)==0 && image.session && image.source_frame<UINT64_MAX &&
+    require((image.flags&~7U)==0 && image.session && image.source_frame<UINT64_MAX &&
         image.completed_frame==image.source_frame+1 && std::isfinite(image.source_time) && image.source_time>=0 &&
         std::isfinite(image.seconds) && image.seconds>0 && image.seconds<=1,"Invalid frame input epoch, flags or clock");
     require(image.source_sha256.size()==64 && std::all_of(image.source_sha256.begin(),image.source_sha256.end(),

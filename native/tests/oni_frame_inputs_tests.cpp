@@ -1,5 +1,6 @@
 #include "../src/oni_domain.hpp"
 #include "../src/oni_frame_inputs.hpp"
+#include "mixed_atmospheres/mac_closed_world.hpp"
 #include <iostream>
 #include <limits>
 
@@ -55,7 +56,7 @@ void live_inputs() {
             require(with_receipts==actual,"Callback acknowledgement changed the completed physical image");
             const auto parsed=frame_inputs::decode(journal);
             require(copy_completed_domain_snapshot(status.session,frame+1)==actual,"Completed frame image differs from a drained full checkpoint");
-            require(parsed.flags==0 && parsed.source_frame==frame && parsed.completed_frame==frame+1 && parsed.source_time==time && parsed.seconds==(double).02F &&
+            require(parsed.flags==frame_inputs::production_advance && parsed.source_frame==frame && parsed.completed_frame==frame+1 && parsed.source_time==time && parsed.seconds==(double).02F &&
                 parsed.batches.size()==4 && parsed.batches[0].heat.size()==1 && parsed.batches[1].transfers.size()==1 && parsed.batches[2].heat.size()==2 &&
                 parsed.batches[3].transfers.size()==1 && parsed.batches[3].transfers[0].flags==(1U|(3U<<8)),"Frame journal lost order, batch boundaries, radius or epoch");
             require(advance_domain_snapshot_with_inputs(source,journal)==actual,"Accepted game inputs do not reproduce the complete native worker image");
@@ -91,6 +92,45 @@ void durable_actors() {
     auto flagged=frame_inputs::decode(inputs);flagged.flags=1;rejects([&] {(void)advance_domain_snapshot_with_inputs(source,frame_inputs::encode(flagged));});
     flagged.flags=2;rejects([&] {(void)advance_domain_snapshot_with_inputs(source,frame_inputs::encode(flagged));});
     shutdown_domain();std::cout<<"PASS durable actors with external inputs; explicit rejection of actor reconfiguration and non-durable actor replay\n";
+}
+void saved_kernel_transition() {
+    const MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
+    // Build the historical reference image from public material definitions;
+    // no game-derived fixture or checkpoint byte editing is involved.
+    auto registry=ma::SpeciesRegistry::standard();std::vector<ma::experimental::ReferenceMaterial> materials;
+    for (const auto* id:{"nitrogen","oxygen","helium","water","carbon_dioxide"}) {
+        const auto& species=registry[registry.index(id)];
+        ma::experimental::ReferenceMaterial material;material.id=species.id;
+        const bool gas=species.phase==ma::Phase::gas;
+        material.phase=gas ? ma::experimental::ReferencePhase::ideal_gas : ma::experimental::ReferencePhase::elastic_liquid;
+        material.molar_mass_kg_per_mol=species.molar_mass;material.cv_j_per_kg_k=species.cv();
+        material.energy_offset_j_per_kg=species.internal_energy(0);material.minimum_temperature_k=1;material.maximum_temperature_k=1e6;
+        material.zero_pressure_density_kg_per_m3=gas ? 0 : 1000;material.reference_bulk_modulus_pa=gas ? 0 : 2.2e9;
+        material.maximum_density_ratio=gas ? 1 : 2;
+        material.provenance="Sealed ONI development domain: explicit constant-capacity reference, not a complete game catalogue";
+        materials.push_back(std::move(material));
+    }
+    const auto eos=std::make_shared<const ma::FluidThermodynamics>(registry,"oni-sealed-domain-v2",std::move(materials));
+    start_domain(config,1);auto status=capture();
+    const auto initial=ma::experimental::MacClosedWorld::from_checkpoint(registry,eos,snapshot_domain(status.session,0));shutdown_domain();
+    auto settings=initial.settings();settings.numerical_kernel=ma::experimental::MacNumericalKernel::reference;
+    const ma::experimental::MacClosedWorld reference(registry,eos,initial.state(),settings);const auto source=reference.checkpoint();
+    require(source[8]==2 && advance_domain_checkpoint(source,0)==source,"Historical source image did not remain version 2");
+    const auto expected=reference.advanced(.002,4096,ma::experimental::MacExecutionPolicy::exact_equilibrium).world.checkpoint();
+    frame_inputs::Image old{0,1,0,1,0,.002,config,hash_memory(source.data(),source.size()),{}};
+    require(advance_domain_snapshot_with_inputs(source,frame_inputs::encode(old))==expected &&
+        advance_domain_snapshot(source,.002)==expected,"Historical journal or stateless continuation changed its saved kernel");
+    start_domain(config,1,source,0);status=capture();
+    require(snapshot_domain(status.session,0)==source,"Loading a historical image changed it before the first live frame");
+    advance_domain(1,.002,2);status=capture();
+    const auto actual=snapshot_domain(status.session,1),journal=copy_domain_frame_inputs(status.session,1);
+    require(actual[8]==6 && actual!=expected && frame_inputs::decode(journal).flags==frame_inputs::production_advance &&
+        advance_domain_snapshot_with_inputs(source,journal)==actual,"Live migration to production did not replay exactly");
+    auto missing=frame_inputs::decode(journal);missing.flags=0;
+    require(advance_domain_snapshot_with_inputs(source,frame_inputs::encode(missing))==expected,
+        "A missing production flag silently migrated a historical journal");
+    shutdown_domain();
+    std::cout<<"PASS historical unflagged reference replay, unchanged idle restore and explicit production migration on the first live frame\n";
 }
 void framing() {
     frame_inputs::Image image{0,1,0,1,0,.02F,{40,2,1,64,10,10,3,2,0,0},std::string(64,'a'),{}};
@@ -177,6 +217,6 @@ void chunk_contacts() {
 }
 }
 int main() {
-    try {framing();live_inputs();durable_actors();chunk_contacts();deferred_capture();return 0;}
+    try {framing();saved_kernel_transition();live_inputs();durable_actors();chunk_contacts();deferred_capture();return 0;}
     catch (const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

@@ -50,6 +50,15 @@ completed native frame. `BeginFrame` may wait for main-thread work and stays
 outside the fence. Synchronization-only passes never advance custom time, and
 there is no managed advance timer.
 
+**Solver selection.** New owners and live advances use the production kernel
+(selection 2), with twelve requested workers and fixed-block caps for small
+rooms. Supported reference saves retain their exact idle image and migrate on
+the first live frame; its journal records production flag 4. Historical
+unflagged replay and stateless continuation preserve the saved selection.
+Native regression evidence covers this transition. The existing Linux and
+Proton Unity scene/save evidence predates it; production game revalidation is
+still open.
+
 **Native exclusions.** The validation scenes queue ONI's gas/liquid
 impermeability flags and verify them in the original native snapshot. Native
 per-cell post-processing and pressure, gas, liquid, thermal and transition

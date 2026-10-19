@@ -10,6 +10,7 @@ namespace MixedAtmospheres.Oni
     // Independently check framing and source identity before native replay.
     internal sealed class NativeFrameInputJournal
     {
+        internal const uint ProductionAdvance=4;
         internal const uint MaximumBytes=1024*1024;
         internal uint Flags { get; private set; }
         internal int HeatBatches { get; private set; }
@@ -17,7 +18,7 @@ namespace MixedAtmospheres.Oni
         internal int HeatCommands { get; private set; }
         internal int TransferCommands { get; private set; }
         internal string PhysicalInputsSha256 { get; private set; }="";
-        internal bool ReplaySupported=>Flags==0;
+        internal bool ReplaySupported=>(Flags&3U)==0;
         private static void Require(bool valid,string message) {if(!valid) throw new InvalidDataException(message);}
         private static uint U(ReadOnlySpan<byte> b,int p)=>BinaryPrimitives.ReadUInt32LittleEndian(b.Slice(p,4));
         private static ulong L(ReadOnlySpan<byte> b,int p)=>BinaryPrimitives.ReadUInt64LittleEndian(b.Slice(p,8));
@@ -32,7 +33,7 @@ namespace MixedAtmospheres.Oni
             Require(bytes.Length>=232 && bytes.Length<=MaximumBytes && bytes.Slice(0,8).SequenceEqual(Encoding.ASCII.GetBytes("MAFRIN01")),"Invalid frame input journal framing.");
             var body=bytes.Slice(0,bytes.Length-64);
             Require(bytes.Slice(bytes.Length-64).SequenceEqual(Digest(body)),"Frame input journal checksum differs.");
-            Require(U(body,8)==1 && (U(body,12)&~3U)==0 && session>0 && sourceFrame<ulong.MaxValue &&
+            Require(U(body,8)==1 && (U(body,12)&~7U)==0 && session>0 && sourceFrame<ulong.MaxValue &&
                 L(body,16)==session && L(body,24)==sourceFrame && L(body,32)==sourceFrame+1 &&
                 !double.IsNaN(sourceTime) && !double.IsInfinity(sourceTime) && sourceTime>=0 &&
                 !double.IsNaN(seconds) && !double.IsInfinity(seconds) && seconds>0 && seconds<=1 &&

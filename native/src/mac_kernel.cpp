@@ -236,6 +236,7 @@ void merge(Accounts& a, const Accounts& b) {
     a.wall_x += b.wall_x; a.wall_y += b.wall_y; a.body_y += b.body_y;
     a.mixing_heat += b.mixing_heat; a.wall_heat += b.wall_heat; a.compression_heat += b.compression_heat; a.shock_heat += b.shock_heat;
     a.unresolved += b.unresolved;
+    a.physical.merge(b.physical);
 }
 std::string quantity_name(const Context& c, std::size_t q) {
     if (q < c.model.K()) return "mass:" + std::to_string(c.model.species[q].registry);
@@ -344,6 +345,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                 Accounts stage; stage.resize(c.quantities());
                 try {
                     substep(c, w.trial, dt, stage);
+                    stage.physical.accepted_substeps = 1;
                     std::swap(w.current, w.trial);
                     merge(acc, stage);
                     time += dt; ++report.substeps; report.cell_substeps += g.N;
@@ -422,6 +424,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     precision("Production interval parcel rounding counter overflow");
                 report.rounded_transfers += transfers.count;
             }
+            report.physical = acc.physical.report();
             break;
         }
         // A failed audit is never published: retry the interval smaller.
@@ -530,14 +533,30 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
     r.interval_rounded_updates = k.rounded_range_inputs + k.rounded_transfers;
     for (const auto& audit : k.audits) r.interval_audit_exact_fallbacks += audit.escalated ? 1U : 0U;
-    r.substeps = k.substeps; r.attempts = k.attempts; r.rejected_attempts = k.rejected_attempts;
+    r.substeps = k.physical.accepted_substeps; r.attempts = k.attempts;
+    r.rejected_attempts = k.rejected_attempts + (k.substeps - k.physical.accepted_substeps);
     r.interval_multigrid_solves = k.multigrid_solves; r.interval_multigrid_cycles = k.multigrid_cycles;
     r.interval_multigrid_fallbacks = k.multigrid_fallbacks; r.interval_multigrid_levels = k.multigrid_levels;
     r.interval_topology_builds = k.topology_builds;
     r.pressure_iterations = k.linear_iterations; r.nonlinear_iterations = k.newton_iterations;
     r.unresolved_heat_updates = k.unresolved_updates;
     r.compression_events = k.compression_events; r.shock_heat_events = k.shock_heat_events;
-    r.conduction_stages = k.conduction_stages; r.viscosity_modes = k.viscosity_modes;
+    const auto& physical = k.physical;
+    r.conduction_stages = physical.conduction_stages; r.conduction_contacts = physical.conduction_contacts;
+    r.conduction_iterations = physical.conduction_iterations;
+    r.unresolved_conduction_updates = physical.unresolved_conduction_updates;
+    r.conductive_redistribution_j = physical.conductive_redistribution_j;
+    r.conductive_entropy_j_per_k = physical.conductive_entropy_j_per_k;
+    r.viscosity_stages = physical.viscosity_stages; r.viscosity_modes = physical.viscosity_modes;
+    r.unresolved_viscous_heat_updates = physical.unresolved_viscous_heat_updates;
+    r.unresolved_viscous_momentum_updates = physical.unresolved_viscous_momentum_updates;
+    r.viscous_heat = physical.viscous_heat; r.viscous_stored_heat = physical.viscous_stored_heat;
+    r.viscous_wall_impulse_x = physical.viscous_wall_impulse_x; r.viscous_wall_impulse_y = physical.viscous_wall_impulse_y;
+    r.viscous_entropy_lower_bound_j_per_k = physical.viscous_entropy_lower_bound_j_per_k;
+    r.gravity_internal_change_wide_j = physical.gravity_internal_change_wide_j;
+    const auto gravity_projection = physical.gravity_internal_change_wide_j.project();
+    r.gravity_internal_change_j = gravity_projection.value;
+    r.rounded_gravity_projections += gravity_projection.rounded ? 1U : 0U;
     r.energy_residual_j = k.energy_residual_j; r.energy_bound_j = k.energy_bound_j;
     r.energy_residual_wide_j = MacEnergy::from_double(k.energy_residual_j); r.energy_bound_wide_j = MacEnergy::from_double(k.energy_bound_j);
     r.mixing_heat_j = k.mixing_heat_j; r.wall_heat_j = k.wall_heat_j;

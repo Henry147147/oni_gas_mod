@@ -54,8 +54,8 @@ Declared in `mac_closed_world.hpp`:
   retries; after an accepted step the next try is `min(maximum, 2 dt)`. Exhausting the
   shared attempt budget throws and publishes no state, clock or counters.
   `FluidFatalError` (topology or precision) propagates unchanged.
-- `MacExecutionPolicy::exact_equilibrium` (used by the native worker, checkpoint
-  advance and journal replay) returns one certified interval with no stages when
+- `MacExecutionPolicy::exact_equilibrium` (used by stateless checkpoint
+  continuation and historical unflagged journal replay) returns one certified interval with no stages when
   all canonical momentum is exactly zero and connected inventories are identical
   at zero gravity. Disconnected regions may have different inventories. With
   gravity, every discrete interior pressure/body force must cancel exactly and
@@ -67,6 +67,8 @@ Declared in `mac_closed_world.hpp`:
   pressure setting uses geometric multigrid on grids of at least 256 cells;
   explicit Jacobi is retained. With midpoint pressure, unported settings take an
   audited reference interval without changing physical selectors or saved kernel.
+  New native ONI owners and each live worker frame explicitly select production;
+  journal flag 4 records migration from a supported reference save.
 - `MacPressureIntegration::two_moment` is an opt-in pressure time scheme for
   numerical kernel 2. It persists in version 7; `two_moment_coupled` uses the
   same temporal equations with a coupled linear solve and version 8. Both preserve prior midpoint
@@ -136,7 +138,8 @@ in checkpoints and never change meaning; new methods get new values.
 | `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 
-The native domain builds its settings from these defaults, keeping the selectors.
+The native domain keeps these physical selectors and explicitly selects numerical
+kernel 2.
 Legacy scenarios enable conduction except in scenario 4, use 9.81 m/s² in the gravity
 scenarios and viscosity 0.5/0.25 Pa·s in scenario 6. Configured sessions take
 conduction, viscosity and gravity from their physics flags.
@@ -324,4 +327,6 @@ With `-DMA_BUILD_ONI_NATIVE_BACKEND=ON`, CTest also runs `mac_gas_boundary_trans
 | `ma_mac_equilibrium_tests`, `ma_mac_playtest_benchmark` | | (CTest; `tools/run_mac_playtest_benchmark.py`) | [Readiness](../docs/playtesting-readiness.md#reproduce-measurements) |
 
 The checkpoint flags write a fixture image on one platform and read it on another;
-the reader must reserialize the original bytes exactly and continue identically.
+the reader must reserialize the original bytes exactly. Continuation must match
+on the reading platform and binary; trajectories from different compilers need
+not be bit-identical (see [checkpoint controls](MAC_CHECKPOINT.md#verification)).

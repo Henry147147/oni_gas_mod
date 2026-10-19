@@ -11,6 +11,95 @@
 using namespace ma::testing;
 using namespace ma::testing::kernel;
 
+namespace {
+void report_check(bool value, const char* why) { if (!value) throw std::runtime_error(why); }
+void close_report(double actual, double expected, double allowance, const char* why) {
+    report_check(std::isfinite(actual) && std::isfinite(expected) &&
+        std::abs(actual - expected) <= .01 * (std::abs(actual) + std::abs(expected)) + allowance, why);
+}
+Scene diagnostic_shear(std::size_t w, std::size_t h) {
+    auto scene = viscous_wave(w, h);
+    const auto inertia = mac_face_inertias(setup().registry, scene.state, *setup().eos);
+    for (std::size_t i = 0; i < scene.state.momentum_x.size(); ++i)
+        scene.state.momentum_x[i] = inertia.x[i] * (i / scene.state.grid.x_width() % 2 == 0 ? .5 : -.5);
+    return scene;
+}
+void same_report(const MacKernelPhysicalReport& a, const MacKernelPhysicalReport& b) {
+    report_check(a.accepted_substeps == b.accepted_substeps && a.conduction_stages == b.conduction_stages && a.conduction_contacts == b.conduction_contacts &&
+        a.conduction_iterations == b.conduction_iterations && a.unresolved_conduction_updates == b.unresolved_conduction_updates &&
+        a.viscosity_stages == b.viscosity_stages && a.viscosity_modes == b.viscosity_modes &&
+        a.unresolved_viscous_heat_updates == b.unresolved_viscous_heat_updates &&
+        a.unresolved_viscous_momentum_updates == b.unresolved_viscous_momentum_updates &&
+        a.conductive_entropy_j_per_k == b.conductive_entropy_j_per_k &&
+        a.viscous_entropy_lower_bound_j_per_k == b.viscous_entropy_lower_bound_j_per_k,
+        "Physical report counters or entropy depend on workers/cache/rejected work");
+    const std::array left{a.conductive_redistribution_j, a.viscous_heat, a.viscous_stored_heat,
+        a.viscous_wall_impulse_x, a.viscous_wall_impulse_y, a.gravity_internal_change_wide_j};
+    const std::array right{b.conductive_redistribution_j, b.viscous_heat, b.viscous_stored_heat,
+        b.viscous_wall_impulse_x, b.viscous_wall_impulse_y, b.gravity_internal_change_wide_j};
+    for (std::size_t i = 0; i < left.size(); ++i)
+        report_check(left[i].mantissa() == right[i].mantissa() && left[i].exponent() == right[i].exponent(),
+            "Physical energy/impulse report depends on workers/cache/rejected work");
+}
+void physical_report_controls() {
+    const auto& s = setup(); MacKernelOptions options;
+    auto gravity = wave(2, 2); gravity.state = s.state(2, 2, false);
+    gravity.settings.gravity_m_per_s2 = 9.81;
+    for (std::size_t i = 0; i < 4; ++i) gravity.state.cells[i].mixture = s.mixture(1, 100000, i < 2 ? 300 : 600);
+    reset_passives(s, gravity.state);
+    for (const auto& scene : {conduction(16, 16), diagnostic_shear(16, 16), gravity}) {
+        const MacClosedWorld source(s.registry, s.eos, scene.state, scene.settings);
+        const auto reference = source.advanced(.002), production = advance_mac_production(source, .002, 64, options);
+        const auto& a = production.report; const auto& b = reference.report;
+        if (scene.settings.thermal_conduction) {
+            report_check(a.conduction_stages == 2 * a.substeps && a.conduction_contacts > 0,
+                "Production omitted accepted conduction stages/contacts");
+            close_report(a.conductive_redistribution_j.require_representable(), b.conductive_redistribution_j.require_representable(),
+                a.energy_bound_j + b.energy_bound_j, "Production conductive redistribution differs from the oracle");
+            close_report(a.conductive_entropy_j_per_k, b.conductive_entropy_j_per_k,
+                a.entropy_roundoff_j_per_k + b.entropy_roundoff_j_per_k, "Production conductive entropy differs from the oracle");
+        }
+        if (scene.settings.viscosity.shear_pa_s > 0) {
+            report_check(a.viscosity_stages == 2 * a.substeps && a.viscosity_modes > 0 && b.viscous_heat.mantissa() > 0,
+                "Production omitted accepted viscosity stages/modes or shear control has no heat");
+            close_report(a.viscous_heat.require_representable(), b.viscous_heat.require_representable(),
+                a.energy_bound_j + b.energy_bound_j, "Production viscous dissipation differs from the oracle");
+            close_report(a.viscous_stored_heat.require_representable(), b.viscous_stored_heat.require_representable(),
+                a.energy_bound_j + b.energy_bound_j, "Production stored viscous heat differs from the oracle");
+            close_report(a.viscous_entropy_lower_bound_j_per_k, b.viscous_entropy_lower_bound_j_per_k,
+                a.entropy_roundoff_j_per_k + b.entropy_roundoff_j_per_k, "Production viscous entropy differs from the oracle");
+        }
+        if (scene.settings.gravity_m_per_s2 != 0) {
+            report_check(std::abs(b.gravity_internal_change_j) > b.energy_bound_j, "Gravity report control lost its signal");
+            close_report(a.gravity_internal_change_j, b.gravity_internal_change_j, a.energy_bound_j + b.energy_bound_j,
+                "Production omitted or changed gravity reconciliation work");
+        }
+    }
+    for (const auto& scene : {conduction(193, 173), diagnostic_shear(193, 173)}) {
+        const MacClosedWorld source(s.registry, s.eos, scene.state, scene.settings); const auto held = source.checkpoint();
+        options.threads = 1; const auto one = advance_mac_production(source, .002, 64, options);
+        const auto report = last_mac_production_report().physical;
+        options.threads = 12; const auto twelve = advance_mac_production(source, .002, 64, options);
+        report_check(last_mac_production_report().threads_used == 12 && one.world.checkpoint() == twelve.world.checkpoint(),
+            "Physical report control did not use twelve workers or changed physical state");
+        same_report(report, last_mac_production_report().physical);
+        bool failed = false;
+        try { static_cast<void>(advance_mac_production(source, .02, 1, options)); } catch (const std::runtime_error&) { failed = true; }
+        report_check(failed && source.checkpoint() == held, "Failed diagnostic interval changed its source");
+        const auto repeated = advance_mac_production(source, .002, 64, options);
+        report_check(repeated.world.checkpoint() == one.world.checkpoint(), "Rejected work changed physical continuation");
+        same_report(report, last_mac_production_report().physical);
+    }
+    auto scene = uniform_translation(16, 16, 10); scene.settings.maximum_timestep_s = .1;
+    scene.settings.thermal_conduction = true; scene.settings.viscosity = {.5, .25};
+    const MacClosedWorld source(s.registry, s.eos, scene.state, scene.settings);
+    const auto refined = advance_mac_production(source, .1, 64, options);
+    report_check(refined.report.rejected_attempts > 0 && refined.report.conduction_stages == 2 * refined.report.substeps &&
+        refined.report.viscosity_stages == 2 * refined.report.substeps,
+        "Rejected substeps leaked physical-stage diagnostics into the accepted interval");
+}
+}
+
 int main(int argc, char** argv) {
     try {
         unsigned threads = 1; std::string only;
@@ -67,6 +156,7 @@ int main(int argc, char** argv) {
                 << " closure=" << k.maximum_volume_closure << " entropy=" << k.entropy_change_j_per_k << "/" << -k.entropy_allowance_j_per_k
                 << (pass ? " PASS" : " FAIL") << '\n';
         }
+        if (only.empty()) physical_report_controls();
         std::cout << (all ? "ALL PASS" : "SOME FAILED") << '\n';
         return all ? 0 : 1;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }

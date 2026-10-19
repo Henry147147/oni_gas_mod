@@ -191,6 +191,12 @@ physical time, actual timestep, domain geometry, SHA-256 of the complete
 source snapshot and the ordered heat and transfer batches, including callback
 identifiers and radius/rectangle flags. Batch boundaries are kept because one
 heat batch makes one physical revision. Failed reservations add nothing.
+Flags 1 and 2 retain actor-reconfiguration and non-durable-actor meanings.
+Flag 4 explicitly requests production for the physical advance. New live
+frames always set it, including the first frame after restoring a reference
+save. Historical unflagged journals retain the saved numerical selection;
+unknown bits reject. The version-1 layout and all earlier journal bytes stay
+unchanged, and older readers fail closed on flag 4.
 Limits: 1 MiB, 2,048 batches, and the live per-frame limits of 4,096 heat and
 4,096 transfer commands.
 

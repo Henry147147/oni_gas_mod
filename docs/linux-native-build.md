@@ -2,7 +2,8 @@
 
 The inspected ONI Linux player requires glibc 2.35. Native libraries built on
 the current development host require 2.38, so host builds do not cover the
-game's Linux baseline.
+game's Linux baseline. The project requires a stricter glibc 2.34 ceiling
+for packaged native libraries.
 
 `tools/build_linux_compat.py` freezes the native sources and builds them in a
 digest-pinned Ubuntu 22.04 image using GCC 11. It mounts the source snapshot
@@ -28,15 +29,20 @@ directory for every native build. The image can be reused with
 `compatibility-build.json` records every frozen source hash, the source revision
 and working-tree status (tracked files deleted in the working tree are skipped
 and listed as `deleted_in_working_tree`), the exact container image ID, native binary hashes,
-required glibc versions and test completion. The package builder verifies the
+required glibc versions and test completion. The current builder permits 2.35, so the stricter project ceiling needs an
+explicit check of every actual library requirement before packaging.
+The package builder verifies the
 supplied native binaries against that report and includes it as
 `native-build-provenance.json`. This native build record is separate from the
 package assembly's current Git revision, and its `actual_game_test: false`
 describes the build command only.
 
-Current status: compatibility builds pass the complete default native suite,
-and both libraries require at most glibc 2.34, within the 2.35 target. Packages
-built from them pass actual Linux Unity colonies on the development host,
-including save, fresh-process load, paused autosave and exact continuation.
+Current status: the production-owner snapshot passes all 54 default CTests,
+but the opt-in sharp-interface reconstruction calls `std::hypot`, introducing
+`hypot@GLIBC_2.35` in the observer library. This fails the project ceiling and
+blocks its game package. The preceding owner snapshot passes 53 tests and
+requires at most 2.34. Earlier reference-owner packages pass actual Linux Unity
+colonies, saves, fresh-process loads, paused autosaves and exact continuation;
+production-owner game validation remains open.
 No Unity run on an Ubuntu 22.04 host has been made. Real-game ownership,
 persistence and release gates still apply.

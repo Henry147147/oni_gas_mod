@@ -22,7 +22,7 @@ def decode(data: bytes) -> dict:
     require(hashlib.sha256(body).hexdigest().encode()==data[-64:],'Journal checksum differs')
     version,flags=struct.unpack_from('<II',body,8)
     session,source,completed,time,seconds=struct.unpack_from('<QQQdd',body,16)
-    require(version==1 and flags&~3==0 and session>0 and source<2**64-1 and completed==source+1,'Invalid journal version, flags or epoch')
+    require(version==1 and flags&~7==0 and session>0 and source<2**64-1 and completed==source+1,'Invalid journal version, flags or epoch')
     require(math.isfinite(time) and time>=0 and math.isfinite(seconds) and 0<seconds<=1,'Invalid journal clock')
     geometry=struct.unpack_from('<10I',body,56)
     size,abi,mode,pitch,x,y,width,height,scenario,reserved=geometry
@@ -95,7 +95,7 @@ def review(report: dict, directory: Path) -> dict:
         commands_digest=physical_inputs_digest(data);physical_inputs.append(commands_digest)
         if 'PhysicalInputsSha256' in row:require(row['PhysicalInputsSha256']==commands_digest,'Physical input digest differs from captured commands')
         require(len(data)==row['Bytes'] and hashlib.sha256(data).hexdigest()==row['Sha256'],'Captured bytes differ from their receipt')
-        require(decoded['flags']==row['Flags']==0 and row['ReplaySupported'] is True and
+        require(decoded['flags']==row['Flags'] and decoded['flags'] in (0,4) and row['ReplaySupported'] is True and
             decoded['session']==row['Session']==session and decoded['source_frame']==row['SourceFrame']==i and
             decoded['completed_frame']==row['CompletedFrame']==i+1 and decoded['source_sha256']==row['SourceSha256'] and
             decoded['source_time']==row['SourceTime']==time and decoded['seconds']==row['Seconds']==physical['LastTimestepSeconds'],

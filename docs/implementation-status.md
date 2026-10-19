@@ -236,21 +236,30 @@ share until parcel formation. The range controls preserve the reference
 arrival and zero/one/two-quantum transfers. Accepted primal writes blocked by
 storage resolution are counted for species, passives and U (48/49 in six cells;
 267,113 in the 33,389-cell controls), without changing the conservation bound.
-The in-game reference owner is unchanged pending step f.
+Step f now selects production for new native owners and every live frame,
+with twelve requested workers. Accepted physical heat/work diagnostics are
+published without rejected-attempt leakage. Supported reference saves retain
+idle bytes; the first live frame migrates to version 6 and journal flag 4
+records the request. Historical unflagged replay and stateless continuation
+retain the saved kernel. Native transition and publication controls pass;
+production Linux/Proton game scenes, saves and fresh-process reloads remain
+open.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 52 Release CTests pass; twelve suites pass
-Debug ASan/UBSan and MinGW/Wine, and eleven pass ThreadSanitizer (targeted
-threaded checkpoint controls for the moment suites). The pressure-window and
-affected moment/multigrid controls also pass those instrumented routes.
-Against `5737fb6`, all 66 preceding MAC component executables retain their
-physical records and exits: 64 outputs are byte-identical and two differ only
-in timing. The pressure-window test makes 67 components.
+checkpoints remain unchanged. All 54 Release CTests pass. Production-kernel,
+native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
+MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
+ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
+also pass those instrumented and Windows-target routes.
+Against `025a804`, all 68 MAC component executables retain their physical
+records and exits: 66 outputs are byte-identical and two differ only in timing.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
-Linux and Wine in both source directions. The preconditioner-port
-Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
-it predates version 6 and no new game package is claimed.
+Linux and Wine in both source directions. The latest
+production-owner Ubuntu 22.04 snapshot passes 54 CTests, but sharp-interface
+`std::hypot` imports `GLIBC_2.35` in the observer and fails the project 2.34
+ceiling. Its game package is blocked; production game validation remains open.
+The preceding 53-test snapshot requires at most 2.34.
 
 Current automatic-multigrid timings fail the real-time targets: two pinned
 21-interval evolving-wave runs measure p95 819–865 ms at 100,000 active
@@ -290,7 +299,7 @@ between samples and is not evolving owner acceptance.
 It is pressure-only, with normal-range coefficient admission and no saved
 selection. Its interval audits and owner binding remain unfinished. Automatic
 calm selection, full local transport/remap, open physics gates and in-game
-production-kernel adoption remain open.
+production-kernel validation remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

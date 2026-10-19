@@ -9,6 +9,16 @@ sys.path.insert(0,str(Path(__file__).parents[1]))
 from oni_frame_input_evidence import decode,review,physical_inputs_digest
 
 class FrameInputEvidenceTests(unittest.TestCase):
+    def test_production_selection_is_retained_and_unknown_flags_reject(self):
+        original=self.journal()
+        for flags in range(8):
+            body=bytearray(original[:-64]);struct.pack_into('<I',body,12,flags)
+            encoded=bytes(body)+hashlib.sha256(body).hexdigest().encode()
+            self.assertEqual(decode(encoded)['flags'],flags)
+            if flags:self.assertNotEqual(physical_inputs_digest(encoded),physical_inputs_digest(original))
+        body=bytearray(original[:-64]);struct.pack_into('<I',body,12,8)
+        with self.assertRaises(ValueError):decode(bytes(body)+hashlib.sha256(body).hexdigest().encode())
+
     def test_native_solid_heat_has_its_own_binary_command_source_and_completed_account(self):
         source=b'opaque completed solid-control source';digest=hashlib.sha256(source).hexdigest()
         body=bytearray(self.journal()[:-64]);struct.pack_into('<QQdd',body,24,0,1,0.,.2);body[104:168]=digest.encode()
