@@ -194,6 +194,13 @@ the specific kinetic energy first. Their transferred and retained projections
 use the same counted half-quantum ledger. This intentionally fixes the former
 large-inertia production fault and preserves representable trace arrivals.
 
+**Pressure storage rounding.** Midpoint and both moment methods now observe
+inexact canonical-J additions with deterministic [primary-write ledgers](MAC_PRESSURE_ROUNDING.md).
+Their outward half-ulp charges fit inside the original interval operand bound;
+stored values and refinement counters are unchanged. Accepted counts reach the
+owner's rounded-update report. Other pressure products and normal storage
+ledgers outside pressure remain open.
+
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
 complete-EOS contacts when mixtures are present) and viscosity (rank-one
@@ -664,9 +671,10 @@ do not certify current automatic-multigrid active-cell performance.
 
 ## Remaining work
 
-- Real-time target: open. Current automatic-multigrid runs measure p95
+- Real-time target: open. The last measured automatic-multigrid baseline has p95
   2,210–2,329 ms per 0.1 s at 250,000 active cells and 819–865 ms at
-  100,000, against 62.5/25 ms, before adapter cost.
+  100,000, against 62.5/25 ms, before adapter cost. This baseline predates
+  the pressure-storage ledger; its timing impact remains unmeasured.
 - Persisted production selection and automatic geometric multigrid are
   implemented; measured active-cell timing with these defaults fails the targets.
   The saved reviewers are ported and the narrower interval kernel is retired.

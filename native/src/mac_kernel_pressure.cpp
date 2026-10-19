@@ -545,6 +545,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto dWfinal = [&](Index i) { return occupied(i) ? ws.dW[i] : 0.; };
     struct Publish {
         DD pressure_wall_x, pressure_wall_y, fixed_body;
+        PrimaryRounding primary_x, primary_y;
         double body = 0, energy = 0, jx = 0, jy = 0, closure = 0;
         std::size_t unresolved = 0; int failed = 0;
         std::vector<std::pair<Index, MacEnergy>> tiny_x, tiny_y;
@@ -567,6 +568,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 continue;
             }
             const double J1 = J0 + impulse;
+            o.primary_x.addition(J0, impulse, J1);
             f.jx[fidx] = J1; o.jx += std::abs(J1);
             const auto sweep = midpoint_sweep(J0, J1, I, dt, A); ws.qx[fidx] = sweep.value;
             if (!sweep.full.is_zero()) o.tiny_x.emplace_back(fidx, sweep.full);
@@ -588,6 +590,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 continue;
             }
             const double J1 = J0 + impulse;
+            o.primary_y.addition(J0, impulse, J1);
             f.jy[fidx] = J1; o.jy += std::abs(J1);
             const auto sweep = midpoint_sweep(J0, J1, I, dt, A); ws.qy[fidx] = sweep.value;
             if (!sweep.full.is_zero()) o.tiny_y.emplace_back(fidx, sweep.full);
@@ -627,6 +630,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         for (const auto& [face, value] : o.tiny_y) ws.full_qy.set(g.NY, face, value);
         pressure_wall_x.add(o.pressure_wall_x); pressure_wall_y.add(o.pressure_wall_y); fixed_body.add(o.fixed_body);
         acc.body_y += o.body; energy_ops += o.energy; jx_ops += o.jx; jy_ops += o.jy;
+        acc.primary[c.q_jx()].merge(o.primary_x); acc.primary[c.q_jy()].merge(o.primary_y);
     }
     acc.wall_x += pressure_wall_x.value() * dt * A;
     DD wall_y; wall_y.add(pressure_wall_y.value() * dt * A); wall_y.add(fixed_body);

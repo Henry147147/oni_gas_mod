@@ -240,6 +240,7 @@ void merge(Accounts& a, const Accounts& b) {
     for (std::size_t q = 0; q < a.operands.size(); ++q) {
         a.operands[q] += b.operands[q]; a.rounding[q] += b.rounding[q];
         a.transfers[q].merge(b.transfers[q]);
+        a.primary[q].merge(b.primary[q]);
     }
     a.wall_x += b.wall_x; a.wall_y += b.wall_y; a.body_y += b.body_y;
     a.mixing_heat += b.mixing_heat; a.wall_heat += b.wall_heat; a.compression_heat += b.compression_heat; a.shock_heat += b.shock_heat;
@@ -397,7 +398,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             const double residual = total.sum.value(), scale = total.scale.value(), bound = 128 * e * scale + tiny_allowance;
             const double error = 64 * e * e * (static_cast<double>(total.count) + 1) * scale + 16 * e * (std::abs(residual) + bound);
             const double margin = bound - std::abs(residual);
-            MacKernelAudit a; a.quantity = quantity_name(c, q); a.residual = residual; a.bound = bound; a.rounding_allowance = acc.rounding[q];
+            MacKernelAudit a; a.quantity = quantity_name(c, q); a.residual = residual; a.bound = bound;
+            a.rounding_allowance = acc.rounding[q] + acc.primary[q].allowance();
+            a.rounded_primary_writes = acc.primary[q].count;
             a.stage_operand_magnitude = acc.operands[q]; a.below_range_allowance = tiny_allowance;
             const auto& transfers = acc.transfers[q];
             a.rounded_transfers = transfers.count; a.transfer_roundoff = transfers.error.value();
@@ -411,7 +414,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                 MacEnergyAccount exact; exact_replay(c, q, w.start, w.current, external, acc.operands[q] + std::ldexp(tiny_allowance, 44), exact);
                 a.passed = exact.within_bound();
             }
-            a.passed = a.passed && transfers.within_bound();
+            a.passed = a.passed && transfers.within_bound() && acc.primary[q].within_bound(bound);
             passed = passed && a.passed;
             if (q == c.q_energy()) { report.energy_residual_j = residual; report.energy_bound_j = bound; }
             report.audits.push_back(std::move(a));
@@ -433,10 +436,16 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             report.wall_impulse_x = acc.wall_x; report.wall_impulse_y = acc.wall_y; report.body_impulse_y = acc.body_y;
             report.unresolved_updates = acc.unresolved;
             report.rounded_transfers = 0;
+            report.rounded_primary_writes = 0;
             for (const auto& transfers : acc.transfers) {
                 if (transfers.count > std::numeric_limits<std::size_t>::max() - report.rounded_transfers)
                     precision("Production interval parcel rounding counter overflow");
                 report.rounded_transfers += transfers.count;
+            }
+            for (const auto& primary : acc.primary) {
+                if (primary.count > std::numeric_limits<std::size_t>::max() - report.rounded_primary_writes)
+                    precision("Production primary rounding counter overflow");
+                report.rounded_primary_writes += primary.count;
             }
             report.physical = acc.physical.report();
             break;
@@ -548,7 +557,7 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     auto& r = result.report;
     r.interval_kernel_intervals = 1;
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
-    r.interval_rounded_updates = k.rounded_range_inputs + k.rounded_transfers;
+    r.interval_rounded_updates = k.rounded_range_inputs + k.rounded_transfers + k.rounded_primary_writes;
     for (const auto& audit : k.audits) r.interval_audit_exact_fallbacks += audit.escalated ? 1U : 0U;
     r.substeps = k.physical.accepted_substeps; r.attempts = k.attempts;
     r.rejected_attempts = k.rejected_attempts + (k.substeps - k.physical.accepted_substeps);

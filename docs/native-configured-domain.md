@@ -139,7 +139,7 @@ an internal legacy start admits that geometry, while the exported start rejects
 the pitch separately. Legacy behaviour is left unchanged.
 
 The bound limits memory and indices; it is not a performance claim. The historical reference
-64×64 frame took 48.3 s in a Linux Release build (20 substeps). A production
+64×64 frame took 48.3 s in a Linux Release build (20 substeps). At `825c56c`, a production
 native-suite diagnostic with 256 solids (3,840 active cells) measures 209.851–222.867 ms
 per 0.2 s, twenty substeps and peak RSS 9,712–9,724 → 22,076–22,096 KiB (GNU
 Release, twelve requested workers, two taskset 0–11 runs, host load 11.07–11.51).

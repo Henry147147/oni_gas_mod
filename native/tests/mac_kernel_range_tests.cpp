@@ -30,7 +30,7 @@ void audited(const MacClosedAdvance& next, const MacKernelReport& report) {
         next.report.interval_kernel_intervals == 1, "Flagged transport unnecessarily left production");
     std::size_t rounded = 0;
     for (const auto& a : report.audits) { check(a.passed, "Flagged transport failed its interval audit"); rounded += a.rounded_transfers; }
-    check(rounded == report.rounded_transfers && next.report.interval_rounded_updates == rounded + report.rounded_range_inputs,
+    check(rounded == report.rounded_transfers && next.report.interval_rounded_updates == rounded + report.rounded_range_inputs + report.rounded_primary_writes,
         "Flagged product counts did not reach the owner");
     check(next.report.interval_unresolved_updates == report.unresolved_updates, "Accepted write counts did not reach the owner");
 }

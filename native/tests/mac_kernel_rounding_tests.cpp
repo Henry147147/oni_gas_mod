@@ -66,7 +66,7 @@ void audit(const MacClosedAdvance& after, const MacKernelReport& report) {
     for (const auto& entry : report.audits) {
         check(entry.passed, "Trace transport failed its interval audit"); total += entry.rounded_transfers;
     }
-    check(total == report.rounded_transfers && after.report.interval_rounded_updates == total + report.rounded_range_inputs,
+    check(total == report.rounded_transfers && after.report.interval_rounded_updates == total + report.rounded_range_inputs + report.rounded_primary_writes,
         "Accepted parcel ledger did not reach the owner report");
 }
 void balance(const MacClosedWorld& world, double amount) {

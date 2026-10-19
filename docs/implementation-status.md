@@ -222,8 +222,13 @@ rejects seven altered captures. An 8,192-cell wave carrying helium and a passive
 trace completes 160 intervals: 44,420 rounded products, helium in 7,028 cells,
 and the original aggregate inventory bound. A 33,389-cell control retains exact
 one/twelve-worker state and ledger results, ordinary checkpoint continuation
-and budget rollback. Other transient momentum/energy rounding ledgers remain
-open. Flagged sweeps now retain their range through parcel formation, and dual
+and budget rollback. Pressure momentum additions now have counted half-ulp
+charges inside the original interval bound. Midpoint and both moment methods
+preserve one/twelve-worker fields, accepted ledgers, rollback and checkpoint
+continuation; six endpoint/continuation images and refinement counters match
+`fc4dab0`. Their saved reader passes 10,974 checks/eighteen corruptions on
+Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. Pressure
+products and other transient momentum/energy rounding ledgers remain open. Flagged sweeps now retain their range through parcel formation, and dual
 J/K products use canonical momentum when a derived velocity or kinetic factor
 underflows. The former large-inertia fault now advances in one attempt and
 matches the strict reference, including a representable tracer arrival.
@@ -247,7 +252,7 @@ open.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 54 Release CTests pass. Production-kernel,
+checkpoints remain unchanged. All 55 Release CTests pass. Production-kernel,
 native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
 MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
 ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
@@ -262,12 +267,13 @@ ceiling. The builder and supplied-provenance package check now enforce 2.34.
 Its game package is blocked; production game validation remains open.
 The preceding 53-test snapshot requires at most 2.34.
 
-Current automatic-multigrid timings fail the real-time targets: two pinned
+The last measured automatic-multigrid baseline fails the real-time targets: two pinned
 21-interval evolving-wave runs measure p95 819–865 ms at 100,000 active
 cells and 2,210–2,329 ms at 250,000, before adapters, on the shared Ryzen
 9 5900X. Every cell changes. Retained workspace is about 1.6 KiB/cell; total
 additional memory and colony FPS remain unmeasured. See the
-[current baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
+[measured baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
+The pressure-storage ledger's timing impact has not yet been measured.
 The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)
 passes selected larger-step wave schedules against resolved midpoint references:
 16×16 at .004 s and 256×2/512×2 at .1 s retain the original 0.1 K/1% bounds.

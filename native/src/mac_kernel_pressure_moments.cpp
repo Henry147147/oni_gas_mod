@@ -197,6 +197,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     }
     struct Published {
         DD wall_x, wall_y, fixed_body;
+        PrimaryRounding primary_x, primary_y;
         double body = 0, energy = 0, jx = 0, jy = 0;
         bool corrected = false;
         std::vector<std::pair<Index, MacEnergy>> tiny_x, tiny_y;
@@ -216,6 +217,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
                 return;
             }
             const double J0 = J[j], J1 = J0 + impulse; J[j] = J1; ops += std::abs(J1);
+            (vertical ? out.primary_y : out.primary_x).addition(J0, impulse, J1);
             const auto sweep = moment_sweep(J0, J1, f1, I, dt, g.A,
                 c.settings.pressure_integration == MacPressureIntegration::two_moment_coupled); q[j] = sweep.value;
             out.corrected = out.corrected || sweep.corrected;
@@ -230,6 +232,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     DD wall_x, wall_y, fixed_body; bool corrected = false;
     for (const auto& out : published) {
         wall_x.add(out.wall_x); wall_y.add(out.wall_y); fixed_body.add(out.fixed_body);
+        acc.primary[c.q_jx()].merge(out.primary_x); acc.primary[c.q_jy()].merge(out.primary_y);
         corrected = corrected || out.corrected;
         acc.body_y += out.body; acc.operands[c.q_jx()] += out.jx; acc.operands[c.q_jy()] += out.jy; acc.operands[c.q_energy()] += out.energy;
         for (const auto& [j, value] : out.tiny_x) ws.full_qx.set(g.NX, j, value);

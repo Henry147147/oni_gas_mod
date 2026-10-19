@@ -53,6 +53,19 @@ struct DD {
     [[nodiscard]] double value() const { return hi + lo; }
 };
 
+// Observe primary binary64 additions without changing the stored result.
+// Each inexact write charges a half-ulp allowance to the interval; normal
+// storage rounding remains inside its existing 128-epsilon operand bound.
+struct PrimaryRounding {
+    std::size_t count = 0;
+    DD error, half_ulps;
+    bool invalid = false;
+    void addition(double before, double increment, double stored);
+    void merge(const PrimaryRounding&);
+    [[nodiscard]] double allowance() const;
+    [[nodiscard]] bool within_bound(double audited_bound) const;
+};
+
 // ---------------------------------------------------------------- grid
 struct Grid {
     std::size_t W = 0, H = 0, N = 0, XW = 0, YH = 0, NX = 0, NY = 0;
@@ -251,6 +264,7 @@ struct Accounts {
     // rounding allowances (per quantity: species, passives, jx, jy, energy).
     std::vector<double> operands, rounding;
     std::vector<TransferRounding> transfers;
+    std::vector<PrimaryRounding> primary;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
     // Concavity bound on the gravity reconciliation's entropy change, and its
@@ -261,6 +275,7 @@ struct Accounts {
     void resize(std::size_t quantities) {
         operands.assign(quantities, 0); rounding.assign(quantities, 0);
         transfers.assign(quantities, {});
+        primary.assign(quantities, {});
     }
 };
 struct Counters {
