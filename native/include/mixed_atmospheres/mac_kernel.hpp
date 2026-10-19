@@ -105,6 +105,9 @@ struct MacKernelReport {
     double wall_impulse_x = 0, wall_impulse_y = 0, body_impulse_y = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     double entropy_change_j_per_k = 0, entropy_allowance_j_per_k = 0;
+    // Upper bound on the gravity reconciliation's share of the entropy change;
+    // the audit requires change - bound >= -allowance.
+    double gravity_entropy_bound_j_per_k = 0;
     std::vector<MacKernelAudit> audits;
     MacKernelStageTiming timing;
     MacKernelPhysicalReport physical;

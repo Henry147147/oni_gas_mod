@@ -250,7 +250,40 @@ the same interval audit.
   checked against their counted half-quantum allowance. Flagged dual J/K
   products use the same ledgers, including retained K projections.
 - **Entropy.** The interval rejects a decrease of total stored-state entropy
-  beyond `128 eps sum(|U|/T)` over both endpoints.
+  beyond `128 eps sum(|U|/T)` over both endpoints, after crediting the
+  gravity reconciliation by its concavity bound (below).
+
+### Gravity reconciliation entropy
+
+Gravity work is reconciled against the potential energy carried by actual mass
+flux, and the difference goes into U. For a face with mean face mass
+`(m_l + m_r) / 2` and transported strip density `rho_s`, that change is
+`g h^2 v dt ((m_l + m_r) / (2 h^2) - rho_s)`. It vanishes for uniform density.
+At a free surface it does not. The potential is cell-centred, so it cannot see
+liquid lying below the centre of a partly filled cell. For a level surface at
+fill `alpha` the reconciliation tracks the change of that hidden offset,
+`-rho_l g h^3 alpha (1 - alpha) / 2` per surface cell. U falls while a surface
+cell drains its upper half and returns while it drains the lower half. The
+change is reversible and bounded, and it is first order in `h`. It still
+lowers stored entropy over an interval. A collapsing water column at
+`h = 1.25 cm` loses about `9e-6 J/K` per 0.01 s against a `6e-8 J/K`
+allowance. Before this credit, every free-surface flow failed the production
+audit.
+
+Each cell with a gravity change `dU` evaluates `T` at its pre-gravity state
+(same masses, `U - dU`). The kernel accumulates `sum(dU / T)`, and the reference
+substep records the same sum. Entropy is concave in U, so this sum is an upper
+bound on the reconciliation's actual entropy change. Subtracting it therefore
+never credits more than the reconciliation itself changed. Both audits
+(production interval and reference fallback) require
+`change - gravity_entropy_bound >= -allowance`, where the allowance also covers
+`128 eps sum(|dU| / T)`. Every other stage must still produce entropy.
+`gravity_entropy_bound_j_per_k` is reported by `MacKernelReport` and
+`MacClosedAdvanceReport`. `ma_mac_interface_tests` checks the bound against
+the exact gravity-stage entropy change. They agree to `1e-6` of the bound;
+the measured gap is EOS evaluation noise. The test also checks that the interval change alone would fail, that the
+remainder passes, and that the production and reference bounds agree to `1e-6`
+for limited-linear and sharp-interface reconstruction.
 - **Unchanged.** Atomicity (a failed interval publishes nothing), checkpoint
   continuation, fail-closed admission and the arithmetic environment check on
   every executing thread.

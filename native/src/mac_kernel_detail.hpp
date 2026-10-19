@@ -253,6 +253,9 @@ struct Accounts {
     std::vector<TransferRounding> transfers;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
+    // Concavity bound on the gravity reconciliation's entropy change, and its
+    // operand magnitude sum |dU| / T for the audit allowance.
+    DD gravity_entropy; double gravity_entropy_operands = 0;
     std::size_t unresolved = 0; // Accepted primary/parcel and existing pressure/heat writes.
     PhysicalAccounts physical;
     void resize(std::size_t quantities) {

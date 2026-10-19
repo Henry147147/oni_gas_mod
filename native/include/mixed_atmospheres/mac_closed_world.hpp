@@ -91,6 +91,9 @@ struct MacClosedSubstep {
     MacEnergy gravity_internal_change_wide_j;
     std::size_t rounded_gravity_projections = 0;
     double gravity_internal_change_j = 0, entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
+    // Concavity upper bound on the gravity internal change's entropy (sum of
+    // dU / T at the pre-gravity state) and its operand sum |dU| / T.
+    double gravity_entropy_bound_j_per_k = 0, gravity_entropy_operands_j_per_k = 0;
     std::size_t unresolved_momentum_updates = 0;
     std::size_t rounded_pressure_velocity_inputs = 0;
     // Actual full midpoint sweeps, distinct from the binary64 pressure-root
@@ -147,6 +150,9 @@ struct MacClosedAdvanceReport {
     MacScaled full_body_impulse_y{};
     std::size_t rounded_gravity_projections = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
+    // Accepted gravity reconciliations' entropy bound. Interval audits require
+    // entropy_change - gravity_entropy_bound >= -entropy_roundoff.
+    double gravity_entropy_bound_j_per_k = 0;
     MacEnergy energy_residual_wide_j, energy_bound_wide_j, mixing_heat_wide_j, wall_heat_wide_j;
     MacEnergy remap_work_wide_j;
     std::size_t physical_admission_backtracks = 0;

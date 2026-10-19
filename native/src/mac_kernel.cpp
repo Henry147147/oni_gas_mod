@@ -243,6 +243,7 @@ void merge(Accounts& a, const Accounts& b) {
     }
     a.wall_x += b.wall_x; a.wall_y += b.wall_y; a.body_y += b.body_y;
     a.mixing_heat += b.mixing_heat; a.wall_heat += b.wall_heat; a.compression_heat += b.compression_heat; a.shock_heat += b.shock_heat;
+    a.gravity_entropy.add(b.gravity_entropy); a.gravity_entropy_operands += b.gravity_entropy_operands;
     a.unresolved += b.unresolved;
     a.physical.merge(b.physical);
 }
@@ -419,8 +420,12 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         try { entropy(c, w.current, s1, allowance1); } catch (const EosRefinement&) { throw RangeFlag{report.attempts}; }
         DD change = s1; change.add(-s0.hi); change.add(-s0.lo);
         report.entropy_change_j_per_k = change.value();
-        report.entropy_allowance_j_per_k = 128 * eps * (allowance0 + allowance1);
-        const bool entropy_ok = report.entropy_change_j_per_k >= -report.entropy_allowance_j_per_k;
+        // Every stage except the gravity reconciliation must produce entropy;
+        // that reconciliation is credited by its concavity bound.
+        report.gravity_entropy_bound_j_per_k = acc.gravity_entropy.value();
+        change.add(-acc.gravity_entropy.hi); change.add(-acc.gravity_entropy.lo);
+        report.entropy_allowance_j_per_k = 128 * eps * (allowance0 + allowance1 + acc.gravity_entropy_operands);
+        const bool entropy_ok = change.value() >= -report.entropy_allowance_j_per_k;
         report.timing.audit_ms += since(audit_time);
         if (passed && entropy_ok) {
             report.mixing_heat_j = acc.mixing_heat; report.wall_heat_j = acc.wall_heat;
@@ -437,6 +442,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             break;
         }
         // A failed audit is never published: retry the interval smaller.
+        if (kernel_debug()) std::fprintf(stderr, "audit passed %d entropy change %.17g gravity bound %.17g allowance %.17g\n", passed ? 1 : 0,
+            report.entropy_change_j_per_k, report.gravity_entropy_bound_j_per_k, report.entropy_allowance_j_per_k);
         ++report.audit_retries; maximum_dt *= .5;
         if (report.attempts >= budget || audit_attempt >= 8)
             throw FluidFatalError(FluidFatalCode::numerical_precision, passed ? "Production interval entropy audit failed" : "Production interval conservation audit failed");
@@ -578,6 +585,7 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     r.body_impulse_y = k.body_impulse_y; r.full_body_impulse_y = MacScaled::from_double(k.body_impulse_y);
     r.maximum_geometric_residual_m3 = k.maximum_volume_closure * world.state().grid.volume_m3();
     r.entropy_change_j_per_k = k.entropy_change_j_per_k; r.entropy_roundoff_j_per_k = k.entropy_allowance_j_per_k;
+    r.gravity_entropy_bound_j_per_k = k.gravity_entropy_bound_j_per_k;
     mac_kernel::last_report() = std::move(k);
     return result;
 }

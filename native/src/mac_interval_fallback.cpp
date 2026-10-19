@@ -32,7 +32,9 @@ void validate_mac_interval_fallback(const MacTransportState& before, const MacTr
             if (a == 1) account.add(report.full_body_impulse_y.negated());
         });
     }
-    if (report.entropy_change_j_per_k < -report.entropy_roundoff_j_per_k)
+    // The gravity reconciliation is credited by its concavity bound; every
+    // other stage must produce entropy.
+    if (report.entropy_change_j_per_k - report.gravity_entropy_bound_j_per_k < -report.entropy_roundoff_j_per_k)
         throw std::domain_error("MAC reference fallback failed its interval entropy audit");
 }
 }

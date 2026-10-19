@@ -659,7 +659,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     if (c.options.collect_stage_timing) c.timing.momentum_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_dual).count();
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
-    struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; };
+    struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; DD gravity_entropy; double gravity_entropy_operands = 0; };
     auto deposited = c.exec.partials<Deposit>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Deposit d;
         if (gravity != 0) for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx)
@@ -674,7 +674,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 return total > 0 ? heat * mi / total : 0.;
             };
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-            DD heat;
+            DD heat; double gravity_share = 0;
             heat.add(share(ws.face_heat_x[lf], g.xl[lf], g.xr[lf])); heat.add(share(ws.face_heat_x[rf], g.xl[rf], g.xr[rf]));
             heat.add(share(ws.face_heat_y[bf], g.yl[bf], g.yr[bf])); heat.add(share(ws.face_heat_y[tf], g.yl[tf], g.yr[tf]));
             if (gravity != 0) {
@@ -686,12 +686,22 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 heat.add(bottom_work); d.gravity_change.add(bottom_work);
                 const double top_work = share(work(tf), g.yl[tf], g.yr[tf]);
                 heat.add(top_work); d.gravity_change.add(top_work);
+                gravity_share = bottom_work + top_work;
             }
             const double h = heat.value();
             if (h == 0) continue;
             const double before = f.U[i];
             f.U[i] = before + h;
             if (f.U[i] == before) ++local;
+            // The gravity reconciliation's entropy change, bounded above by
+            // concavity at the pre-gravity pivot: S(U) - S(pivot) <= dU / T(pivot)
+            // (MAC_KERNEL.md, "Gravity reconciliation entropy").
+            if (gravity_share != 0) {
+                const double pivot = f.U[i] - gravity_share, change = f.U[i] - pivot; State st;
+                if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, g.V, st))
+                    reject("Production gravity reconciliation left its EOS domain");
+                d.gravity_entropy.add(change / st.T); d.gravity_entropy_operands += std::abs(change) / st.T;
+            }
         }
         return d;
     });
@@ -699,6 +709,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     for (const auto& d : deposited) {
         acc.unresolved += d.unresolved; gravity_ops += d.gravity;
         for (std::size_t j = 0; j < d.gravity_change.size(); ++j) acc.physical.gravity_internal.add(d.gravity_change.component(j));
+        acc.gravity_entropy.add(d.gravity_entropy); acc.gravity_entropy_operands += d.gravity_entropy_operands;
     }
     acc.operands[c.q_energy()] += energy_ops + 2 * gravity_ops;
 }

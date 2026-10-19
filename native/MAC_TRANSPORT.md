@@ -180,19 +180,28 @@ A diagnostic dam break (48×24 cells of 12.5 mm; water column a = 0.1 m by 2a un
 air at 1 atm, 300 K; defaults otherwise) reaches T = t√(2g/a) = 3 with both selectors,
 conserving liquid mass to 1e-16:
 
-| At T = 3.08 | Front Z = x/a | Partly filled cells | Liquid reach | Mist | Wall time |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| `interface_plic` | 3.75 | 99 | 4.0 a | 0.017% | 566 s |
-| `limited_linear` | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
+| At T = 3.08 | Kernel | Front Z = x/a | Partly filled cells | Liquid reach | Mist | Wall time |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `interface_plic` | reference | 3.875 | 94 | 4 a | 0.016% | 352 s |
+| `interface_plic` | production | 3.875 | 79 | 6 a | 0.005% | 7 s |
+| `limited_linear` | reference | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
+| `limited_linear` | production | 4.0 | 435 | 6 a (whole tank) | 0.18% | 10 s |
+
+Wall times are single-threaded on a shared machine, so they indicate scale only.
+Before the [gravity reconciliation credit](MAC_KERNEL.md#gravity-reconciliation-entropy),
+the production kernel failed this run's first interval with "Production interval
+entropy audit failed" for both selectors.
 
 The production kernel runs this selector with the same line, strips and fallback.
 Its phase fractions and energies come from each cell's post-pressure EOS state.
 In the translation test it matches the reference to 0.3% liquid placement (L1),
-4e-4 cells of centroid and 3e-11 K.
+4e-4 cells of centroid and 3e-11 K. Free-surface gravity intervals pass its entropy
+audit through the gravity reconciliation credit
+([kernel](MAC_KERNEL.md#gravity-reconciliation-entropy)).
 
 One liquid region is placed per donor, so immiscible liquids are not separated from
-each other. Gas/vacuum fronts are not covered. The
-free-surface gates are being defined and are not claimed.
+each other. Gas/vacuum fronts are not covered. The free-surface gates are being
+defined and are not claimed.
 
 ### Limited linear reconstruction (selector 1)
 

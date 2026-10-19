@@ -417,7 +417,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     if (settings.gravity_m_per_s2 != 0) {
         MacEnergyAccount potential, gravity_internal;
         MacEnergySum change;
-        Account entropy, entropy_roundoff;
+        Account entropy, entropy_roundoff, gravity_entropy;
         std::vector<MacEnergySum> correction(source.cells.size());
         const auto flux = mac_field_values(result.mass_fluxes_kg.y, result.mass_fluxes_kg.full_y);
         for (std::size_t f = 0; f < topology.y.size(); ++f) {
@@ -458,6 +458,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 const auto old_eos = model.evaluate(source.cells[i].mixture, g.volume_m3());
                 const auto next_eos = model.evaluate(cell.mixture, g.volume_m3());
                 entropy.add(next_eos.entropy_j_per_k); entropy.add(-old_eos.entropy_j_per_k);
+                if (cell.mixture.energy != before && cell.mixture.mass() > 0) {
+                    // Entropy is concave in U: S(U) - S(before) <= (U - before) / T(before).
+                    auto pivot = cell.mixture; pivot.energy = before;
+                    const double t = model.evaluate(pivot, g.volume_m3()).temperature_k;
+                    gravity_entropy.add((cell.mixture.energy - before) / t);
+                }
                 if (source.cells[i].mixture.mass() > 0 && cell.mixture.mass() > 0)
                     entropy_roundoff.add(128 * eps * (std::abs(source.cells[i].mixture.energy) + std::abs(before) + std::abs(cell.mixture.energy)) /
                         std::min(old_eos.temperature_k, next_eos.temperature_k));
@@ -480,6 +486,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         result.gravity_internal_change_wide_j = change.value();
         result.gravity_internal_change_j = projected_energy(change.value(), result.rounded_gravity_projections);
         result.entropy_change_j_per_k = entropy.value(); result.entropy_roundoff_j_per_k = entropy_roundoff.value();
+        result.gravity_entropy_bound_j_per_k = gravity_entropy.value(); result.gravity_entropy_operands_j_per_k = gravity_entropy.scale;
     }
     const auto total = energy_difference(source, result.state, inertia, mac_face_inertias(registry, result.state, model), settings.gravity_m_per_s2);
     MacEnergySum budget; budget.add(result.pressure_energy_bound_wide_j); budget.add(result.transport.energy_bound_wide_j);
@@ -557,6 +564,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     MA_ADD(energy_residual_j);MA_ADD(energy_bound_j);MA_ADD(mixing_heat_j);MA_ADD(wall_heat_j);MA_ADD(wall_impulse_x);MA_ADD(wall_impulse_y);
     MA_ADD(full_wall_impulse_x);MA_ADD(full_wall_impulse_y);MA_ADD(gravity_internal_change_j);MA_ADD(body_impulse_y);
     MA_ADD(gravity_internal_change_wide_j);MA_ADD(full_body_impulse_y);MA_ADD(rounded_gravity_projections);MA_ADD(entropy_change_j_per_k);MA_ADD(entropy_roundoff_j_per_k);
+    MA_ADD(gravity_entropy_bound_j_per_k);
     MA_ADD(energy_residual_wide_j);MA_ADD(energy_bound_wide_j);MA_ADD(mixing_heat_wide_j);MA_ADD(wall_heat_wide_j);MA_ADD(remap_work_wide_j);
     MA_ADD(physical_admission_backtracks);MA_ADD(compression_heat_wide_j);MA_ADD(compression_heat_j);MA_ADD(rounded_energy_projections);
     MA_ADD(shock_heat_stages);MA_ADD(shock_heat_events);MA_ADD(shock_heat_root_iterations);MA_ADD(rejected_shock_heat_trials);MA_ADD(unresolved_shock_heat_updates);
@@ -659,7 +667,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;
-    MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change;
+    MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change; Account gravity_entropy, gravity_entropy_operands;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
     double next_dt = settings_.maximum_timestep_s;
     while (result.world.time_s_ < endpoint) {
@@ -779,6 +787,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 }
                 result.report.unresolved_gravity_internal_updates += candidate.unresolved_gravity_internal_updates;
                 gravity_change.add(candidate.gravity_internal_change_wide_j); body_impulse.add(candidate.full_body_impulse_y);
+                gravity_entropy.add(candidate.gravity_entropy_bound_j_per_k); gravity_entropy_operands.add(candidate.gravity_entropy_operands_j_per_k);
                 result.report.rounded_gravity_projections += candidate.rounded_gravity_projections;
                 for (const auto residual : candidate.geometric_residuals_m3)
                     result.report.maximum_geometric_residual_m3 = std::max(result.report.maximum_geometric_residual_m3, std::abs(residual));
@@ -827,7 +836,9 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
             if (next.mass() > 0) entropy_roundoff.add(128 * eps * std::abs(next.energy) / b.temperature_k);
         }
     }
-    result.report.entropy_change_j_per_k = entropy.value(); result.report.entropy_roundoff_j_per_k = entropy_roundoff.value();
+    result.report.entropy_change_j_per_k = entropy.value();
+    result.report.entropy_roundoff_j_per_k = entropy_roundoff.value() + 128 * eps * gravity_entropy_operands.value();
+    result.report.gravity_entropy_bound_j_per_k = gravity_entropy.value();
     if (settings_.numerical_kernel != MacNumericalKernel::reference) {
         if (!total.within_bound()) throw std::domain_error("MAC reference fallback failed its interval energy audit");
         result.report.energy_bound_wide_j = total.bound();
