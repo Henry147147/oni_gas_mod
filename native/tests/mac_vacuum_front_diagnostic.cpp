@@ -44,11 +44,12 @@ struct Setup {
     }
 };
 
-}
-int main(int argc,char**argv){try{
+// One grid: prints the diagnostic records; returns 2 when the front or its
+// recent speed misses the exact fan by more than a cell. front/speed receive
+// the measured front position and recent speed.
+int run(std::size_t n,double& measured_front,double& measured_speed){
  using namespace ma;using namespace ma::experimental;
- require(argc==1 || argc==2,"Expected an optional grid count");
- Setup set;const auto& p=set.problem;const std::size_t n=argc>1?std::stoul(argv[1]):32;
+ Setup set;const auto& p=set.problem;
  require(n>=16 && n<=2048 && n%4==0,"Invalid vacuum front grid");
  std::cout<<std::setprecision(17);
  for(const auto& m:set.eos->reference().materials())std::cout<<"VFMATERIAL "<<set.registry.index(m.id)<<' '<<m.molar_mass_kg_per_mol<<' '<<m.cv_j_per_kg_k<<'\n';
@@ -67,7 +68,31 @@ int main(int argc,char**argv){try{
  for(std::size_t i=0;i<n;++i){const auto mass=world.state().cells[i].mixture.mass();std::cout<<"VFOCCUPIED "<<endpoint+1<<' '<<i<<' '<<mass<<'\n';if(mass>0){front=(static_cast<double>(i)+1)*h;++occupied;}}
  std::cout<<std::setprecision(17)<<"VFRONT "<<n<<' '<<world.time_s()<<' '<<front<<' '<<p.front(world.time_s())<<' '<<occupied<<' '<<r.report.substeps<<' '<<r.report.rejected_attempts<<' '<<r.report.energy_residual_j<<' '<<r.report.energy_bound_j<<'\n';
  if(endpoint==1){const auto speed=(front-last)/(.2*p.time());std::cout<<"VSPEED "<<speed/p.sound_speed<<' '<<p.front_speed()/p.sound_speed<<'\n';
+ measured_front=front;measured_speed=speed;
  if(std::abs(front-p.front(p.time()))>h || std::abs(speed-p.front_speed())*.2*p.time()>h)return 2;}
  last=front;}
  return 0;
+}
+// Gate V (docs/completion-plan.md): at N512 the front within 5% of the exact
+// travel and the recent speed within 10% of exact, both errors decreasing over
+// N128, N256 and N512.
+int gate(){
+ const Problem p=Setup{}.problem;const double travel=p.front(p.time())-p.interface_x;
+ std::vector<double> front_errors,speed_errors;
+ for(const std::size_t n:{128,256,512}){
+  double front=0,speed=0;
+  try{(void)run(n,front,speed);}
+  catch(const std::exception& e){std::cout<<"VGATE n="<<n<<" stopped: "<<e.what()<<"\nGATE V FAIL\n";return 1;}
+  front_errors.push_back(std::abs(front-p.front(p.time()))/travel);speed_errors.push_back(std::abs(speed-p.front_speed())/p.front_speed());
+  std::cout<<"VGATE n="<<n<<" front_error="<<front_errors.back()<<" speed_error="<<speed_errors.back()<<'\n';
+ }
+ const bool decreasing=front_errors[1]<front_errors[0]&&front_errors[2]<front_errors[1]&&speed_errors[1]<speed_errors[0]&&speed_errors[2]<speed_errors[1];
+ const bool pass=front_errors[2]<=.05&&speed_errors[2]<=.1&&decreasing;
+ std::cout<<"GATE V "<<(pass?"PASS":"FAIL")<<'\n';return pass?0:1;
+}
+}
+int main(int argc,char**argv){try{
+ require(argc==1 || argc==2,"Expected an optional grid count or --gate");
+ if(argc==2 && std::string(argv[1])=="--gate")return gate();
+ double front=0,speed=0;return run(argc>1?std::stoul(argv[1]):32,front,speed);
 }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}}

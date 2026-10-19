@@ -32,6 +32,7 @@ Topic documents:
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
+| [Gravity and multiphase gates](MAC_GATES.md) | Milestone B's eight gates: commands, results and diagnoses |
 
 Separate documents cover [physical viscosity](../docs/native-domain-physics.md#physical-viscosity),
 [gas/liquid conduction](../docs/native-domain-physics.md#mixed-cell-conduction),

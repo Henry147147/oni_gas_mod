@@ -84,12 +84,14 @@ saves, fresh-process loads and natural autosaves
   ([vacuum](../native/MAC_VACUUM.md)), but its vacuum-front accuracy gate fails
   and the in-game owner still rejects empty cells. Opt-in material selector 3
   ([sharp interfaces](../native/MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3))
-  keeps liquid in its own cells. In a diagnostic dam break it leaves a fifth of
+  keeps liquid in its own cells. In a diagnostic dam break it leaves an eighth of
   limited-linear's partly filled cells and under a tenth of its mist. The production
   kernel runs it. Production free-surface intervals pass their entropy audit
   through the [gravity reconciliation credit](../native/MAC_KERNEL.md#gravity-reconciliation-entropy);
-  before it, any moving free surface faulted the production owner. The free-surface
-  gates are not yet defined or passed.
+  before it, any moving free surface faulted the production owner. Of the
+  [gravity and multiphase gates](../native/MAC_GATES.md), hydrostatic gas, CO2
+  settling and still water pass. The dam break (front vs data) and standing wave
+  (amplitude grows) fail; two liquids, phase change and the vacuum front are open.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
 - Whole-world import. The Windows import staged 50,368 fluid cells, then

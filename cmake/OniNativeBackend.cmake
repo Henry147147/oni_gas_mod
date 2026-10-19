@@ -233,6 +233,12 @@ if(MA_BUILD_TESTS)
     set_target_properties(ma_mac_vacuum_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     add_test(NAME mac_sharp_interface_translation COMMAND ma_mac_interface_tests)
     set_target_properties(ma_mac_interface_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    # Milestone B gravity/multiphase gates that pass (native/MAC_GATES.md). The
+    # failing and open gates run as diagnostics.
+    add_test(NAME mac_gate_g1_hydrostatic_column COMMAND ma_mac_gravity_gates G1)
+    add_test(NAME mac_gate_g2_species_separation COMMAND ma_mac_gravity_gates G2)
+    add_test(NAME mac_gate_m1_still_water COMMAND ma_mac_free_surface_gates M1)
+    set_target_properties(ma_mac_gravity_gates ma_mac_free_surface_gates ma_mac_multiphase_gates PROPERTIES EXCLUDE_FROM_ALL FALSE)
     set_target_properties(ma_mac_compressive_eos_reuse_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     # Production substep kernel (native/MAC_KERNEL.md).
     add_test(NAME mac_production_kernel_oracle COMMAND ma_mac_kernel_validation_tests)
