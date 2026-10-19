@@ -45,7 +45,13 @@ public:
     [[nodiscard]] bool prepare(std::span<const double> compliance, std::span<const double> diagonal,
         std::span<const double> conductance_x, std::span<const double> conductance_y);
     [[nodiscard]] SolveResult solve(std::span<const double> ra, std::span<const double> rb,
-        std::span<double> da, std::span<double> db, double rtol, double atol, std::size_t maximum = 512);
+        std::span<double> da, std::span<double> db, double rtol, double atol, std::size_t maximum = 512,
+        bool clear_inactive = true);
+    // One fixed inverse application for an outer Krylov solver. It makes no
+    // convergence claim and never publishes a nonfinite correction. A local
+    // pressure window can leave unrelated output entries untouched.
+    [[nodiscard]] bool precondition_pair(std::span<const double> ra, std::span<const double> rb,
+        std::span<double> da, std::span<double> db, bool clear_inactive = true);
     [[nodiscard]] std::size_t storage_bytes() const noexcept;
 private:
     struct Values {

@@ -2,8 +2,10 @@
 
 `mac_kernel_time.*` supplies dyadic time coordinates and one shared quadratic
 face-momentum integral. This is a pressure-stage primitive. The production
-owner still uses its existing steps; automatic calm classification, the
-multirate pressure root and local transport/remap are unfinished.
+owner still uses its existing steps. A separate
+[pressure-window component](MAC_PRESSURE_WINDOWS.md) uses it for conditional
+fine-cell pressure evolution. Automatic calm classification, production
+binding and local transport/remap are unfinished.
 
 ## Time coordinates and moments
 
@@ -63,7 +65,7 @@ retains every exact accumulator component instead of rounding an aggregate.
 polynomial integrals, both cell projections and kinetic work with exact
 fractions of the saved binary64 inputs. Scientific inputs and the 128-epsilon
 bounds are pinned. It passes 1,057 checks and rejects fourteen altered captures.
-All 51 Release CTests pass with the ONI backend and warnings as errors. This
+All 52 Release CTests pass with the ONI backend and warnings as errors. This
 suite and its reader also pass Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
 The preceding pressure/kernel sources and checkpoint formats are unchanged.
 These are Windows-target Wine controls; actual Windows OS runs remain open.

@@ -175,7 +175,15 @@ also pass collision.
   the original collision density refinement (0.861766 against 0.85). A
   [shared-face time primitive](../native/MAC_TIME_MORTAR.md) passes
   1,057 saved checks/fourteen corruptions on all four native routes. It is not
-  connected to the owner. Automatic selection, full local subcycling, open
+  connected to the owner. A
+  [pressure-window component](../native/MAC_PRESSURE_WINDOWS.md) now streams
+  prescribed fine pressure roots with shared face fluxes. Synthetic 1:4/1:8
+  controls pass resolved references and the original energy bound; the mixed
+  1:8 case uses 88 physical cell intervals against 256 uniform-fine intervals.
+  Its independent endpoint review passes 3,307 checks/nineteen corruptions.
+  Wall/body/empty-cell accounts, cache, rollback and twelve-worker controls
+  pass. This is a normal-range pressure component without owner selection,
+  interval audits or local transport. Automatic selection, full local subcycling, open
   physics gates, real-time acceptance and in-game production use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production

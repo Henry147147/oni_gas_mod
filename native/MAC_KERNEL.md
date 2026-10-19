@@ -13,9 +13,10 @@ results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
 pressure formulation and the shared geometric multigrid preconditioner
 (`mac_pressure_multigrid.*`) are in. The opt-in
 [two-moment pressure method](MAC_PRESSURE_MOMENTS.md) passes selected resolved
-wave schedules. A [shared-face time primitive](MAC_TIME_MORTAR.md) supplies
-dyadic time coordinates and range-aware face moments; it is not connected to
-the owner. Automatic calm-region selection and local subcycling remain
+wave schedules. A [pressure-window component](MAC_PRESSURE_WINDOWS.md) now
+streams prescribed fine-cell pressure roots through a coarse interval using
+[shared physical face paths](MAC_TIME_MORTAR.md). It is not connected to the
+owner. Automatic calm-region selection and full local subcycling remain
 open. The midpoint path covers every selector the ONI domain uses. The
 real-time gate is not met; see [performance](#current-active-cell-baseline), the
 [historical comparison](#historical-comparison-with-the-retired-interval-port)
@@ -332,7 +333,7 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-51 CTests pass. Twelve pressure/kernel suites pass Debug ASan/UBSan and MinGW 13 under
+52 CTests pass. Twelve pressure/kernel suites pass Debug ASan/UBSan and MinGW 13 under
 Wine 10; eleven pass ThreadSanitizer, using the moment suites’ threaded checkpoint
 controls there. All 22 saved reviews pass: both temporal formats on Release,
 ASan/UBSan and Wine, and the other four reviewers on all four routes. The temporal
@@ -340,6 +341,14 @@ controls and endpoint review are described in [pressure moments](MAC_PRESSURE_MO
 The shared-face time suite additionally passes all four routes, with 1,057
 independent saved checks and fourteen altered captures; see
 [time integration](MAC_TIME_MORTAR.md).
+The pressure-window and affected moment/multigrid controls also pass
+ASan/UBSan, ThreadSanitizer and MinGW/Wine, with targeted threaded checkpoint
+controls for the older moment methods. Its four saved reviews pass 3,307
+checks/nineteen altered captures. All 66 preceding component executables retain
+their physical records and exits against `5737fb6`; 64 outputs are byte-identical
+and two differ only in timing. Prior checkpoint bytes and continuation remain
+unchanged. See [pressure windows](MAC_PRESSURE_WINDOWS.md) for the component's
+normal-range, fixed-mass scope and open production work.
 Current accepted dual-projection counts (`TTHREAD`: `4/554/88`) include
 flagged J/K work; product and endpoint mass records are unchanged.
 The new diffusion-rounding suite independently checks quantized Heun transfers,

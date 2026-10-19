@@ -240,12 +240,13 @@ The in-game reference owner is unchanged pending step f.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 51 Release CTests pass; twelve suites pass
+checkpoints remain unchanged. All 52 Release CTests pass; twelve suites pass
 Debug ASan/UBSan and MinGW/Wine, and eleven pass ThreadSanitizer (targeted
-threaded checkpoint controls for the moment suites). Against `cb8ecb1`, all
-65 preceding MAC component executables retain their physical records and exits:
-63 outputs are byte-identical and two differ only in timing. The shared-face
-time test makes 66 components.
+threaded checkpoint controls for the moment suites). The pressure-window and
+affected moment/multigrid controls also pass those instrumented routes.
+Against `5737fb6`, all 66 preceding MAC component executables retain their
+physical records and exits: 64 outputs are byte-identical and two differ only
+in timing. The pressure-window test makes 67 components.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
@@ -274,8 +275,17 @@ The [shared-face time primitive](../native/MAC_TIME_MORTAR.md) now supplies
 dyadic local time coordinates and one shared momentum/volume path for both
 cells, including flagged range products. Its saved review passes 1,057 checks
 and fourteen altered captures on Release, ASan/UBSan, ThreadSanitizer and Wine.
-Owner integration, automatic calm selection, local subcycling, open physics
-gates and in-game production-kernel adoption remain open.
+A separate [pressure-window component](../native/MAC_PRESSURE_WINDOWS.md)
+streams fine-cell pressure roots through a coarse interval with shared face
+fluxes and actual primary U updates. Prescribed 1:4/1:8 synthetic gas controls
+pass resolved references and the original energy bound; the mixed 1:8 case
+uses 88 physical cell intervals instead of 256 uniform-fine intervals.
+Its independent endpoint reader passes 3,307 checks/nineteen altered captures.
+Wall/body/empty-cell accounts, rejection, cache and twelve-worker controls pass.
+It is pressure-only, with normal-range coefficient admission and no saved
+selection. Its interval audits and owner binding remain unfinished. Automatic
+calm selection, full local transport/remap, open physics gates and in-game
+production-kernel adoption remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

@@ -3,7 +3,10 @@
 `MacPressureIntegration::two_moment` (saved selector 1) and
 `two_moment_coupled` (2) are opt-in pressure integrations in the production
 kernel. They share the same temporal work and flux equations and provide a
-building block for larger calm steps. Automatic accuracy selection and local subcycling remain open. Existing owners
+building block for larger calm steps. A separate
+[pressure-window component](MAC_PRESSURE_WINDOWS.md) streams prescribed fine
+pressure histories with the same local constitutive work. Automatic accuracy
+selection and full local subcycling remain open. Existing owners
 keep `discrete_gradient_midpoint`, their original schedule and checkpoint bytes.
 The benchmark `balanced` profile is unchanged.
 
@@ -138,7 +141,7 @@ concurrent heated owners and same-size geometry changes. A flagged intermediate
 with a normal final sweep retains the strict endpoint in one attempt, with the
 original geometric closure.
 
-All 51 Release CTests pass with the ONI backend and warnings as errors. Twelve
+All 52 Release CTests pass with the ONI backend and warnings as errors. Twelve
 suites pass Debug ASan/UBSan and MinGW 13/Wine 10; eleven pass ThreadSanitizer,
 using the moment suites’ twelve-worker checkpoint controls there. The saved endpoint reader
 passes 80,709 checks for version 7 and 114,726 for version 8, rejecting fourteen
@@ -166,7 +169,7 @@ captures are under `local/coupled-moment-solver-v1/`.
 The original strong-flow inputs still fail collision density refinement with
 this method: 0.86176589 against 0.85. Its five completed profiles receive only a
 partial saved account review. Strong flow, the vacuum front, free surfaces and
-other release physics remain open. Automatic calm-step selection, genuine local
+other release physics remain open. Automatic calm-step selection, full fluid
 subcycling and in-game adoption are unimplemented.
 
 ```sh

@@ -142,6 +142,7 @@ set(MA_MAC_KERNEL_SOURCES native/src/mac_kernel.cpp native/src/mac_kernel_roundi
     native/src/mac_kernel_pressure.cpp native/src/mac_kernel_pressure_moments.cpp native/src/mac_kernel_transport.cpp native/src/mac_kernel_regularization.cpp
     native/src/mac_pressure_moment_multigrid.cpp
     native/src/mac_kernel_time.cpp
+    native/src/mac_kernel_pressure_window.cpp
     native/src/mac_kernel_physical.cpp)
 add_library(ma_mac_reconstruction STATIC EXCLUDE_FROM_ALL native/src/mac_reconstruction.cpp)
 add_executable(ma_mac_shock_heat_cache_tests EXCLUDE_FROM_ALL native/tests/mac_shock_heat_cache_tests.cpp)
@@ -277,7 +278,7 @@ add_executable(ma_mac_closed_world_tests EXCLUDE_FROM_ALL native/tests/mac_close
 target_link_libraries(ma_mac_closed_world_tests PRIVATE ma_mac_closed_world)
 add_executable(ma_mac_equilibrium_tests EXCLUDE_FROM_ALL native/tests/mac_equilibrium_tests.cpp)
 target_link_libraries(ma_mac_equilibrium_tests PRIVATE ma_mac_closed_world)
-foreach(kernel_test ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests ma_mac_kernel_multigrid_tests ma_mac_kernel_checkpoint_tests ma_mac_kernel_saved_tests ma_mac_kernel_rounding_tests ma_mac_kernel_range_tests ma_mac_kernel_moment_tests ma_mac_kernel_moment_multigrid_tests ma_mac_kernel_time_tests)
+foreach(kernel_test ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests ma_mac_kernel_multigrid_tests ma_mac_kernel_checkpoint_tests ma_mac_kernel_saved_tests ma_mac_kernel_rounding_tests ma_mac_kernel_range_tests ma_mac_kernel_moment_tests ma_mac_kernel_moment_multigrid_tests ma_mac_kernel_time_tests ma_mac_kernel_pressure_window_tests)
     string(REPLACE "ma_mac_kernel_" "mac_kernel_" kernel_source "${kernel_test}")
     add_executable(${kernel_test} EXCLUDE_FROM_ALL native/tests/${kernel_source}.cpp)
     target_link_libraries(${kernel_test} PRIVATE ma_mac_closed_world)

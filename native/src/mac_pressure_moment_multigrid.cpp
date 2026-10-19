@@ -182,7 +182,7 @@ double PressureMomentMultigrid::norm(std::span<const MomentComplex> v) {
     return std::sqrt(d.value.re);
 }
 PressureMomentMultigrid::SolveResult PressureMomentMultigrid::solve(std::span<const double> ra, std::span<const double> rb,
-    std::span<double> da, std::span<double> db, double rtol, double atol, std::size_t maximum) {
+    std::span<double> da, std::span<double> db, double rtol, double atol, std::size_t maximum, bool clear_inactive) {
     const auto total = topology_->grid().walls.size(); const auto& active = topology_->active_cells(); const auto n = active.size();
     require(ra.size() == total && rb.size() == total && da.size() == total && db.size() == total && maximum > 0 &&
         std::isfinite(rtol) && rtol >= 0 && std::isfinite(atol) && atol >= 0, "Invalid coupled moment linear request");
@@ -224,9 +224,27 @@ PressureMomentMultigrid::SolveResult PressureMomentMultigrid::solve(std::span<co
         z_[i] = {compliance_[i] * (x_[i].re + root3 * x_[i].im), (2 * compliance_[i]) * x_[i].im};
     });
     for (const auto value : z_) if (!value.finite()) { result.flagged = true; result.converged = false; return result; }
-    rows(total, [&](std::size_t i) { da[i] = 0; db[i] = 0; });
+    if (clear_inactive) rows(total, [&](std::size_t i) { da[i] = 0; db[i] = 0; });
     rows(n, [&](std::size_t i) { da[active[i]] = z_[i].re; db[active[i]] = z_[i].im; });
     return result;
+}
+
+bool PressureMomentMultigrid::precondition_pair(std::span<const double> ra, std::span<const double> rb,
+    std::span<double> da, std::span<double> db, bool clear_inactive) {
+    const auto total = topology_->grid().walls.size(); const auto& active = topology_->active_cells(); const auto n = active.size();
+    require(ra.size() == total && rb.size() == total && da.size() == total && db.size() == total,
+        "Invalid coupled inverse request");
+    if (!prepared_) return false;
+    const double root3 = std::sqrt(3.); const MomentComplex beta{-root3 / 2, .5};
+    rows(n, [&](std::size_t i) { r_[i] = MomentComplex{ra[active[i]], 0} + rb[active[i]] * beta; });
+    SolveResult counter; precondition(counter);
+    rows(n, [&](std::size_t i) {
+        x_[i] = {compliance_[i] * (z_[i].re + root3 * z_[i].im), (2 * compliance_[i]) * z_[i].im};
+    });
+    for (const auto value : x_) if (!value.finite()) return false;
+    if (clear_inactive) rows(total, [&](std::size_t i) { da[i] = 0; db[i] = 0; });
+    rows(n, [&](std::size_t i) { da[active[i]] = x_[i].re; db[active[i]] = x_[i].im; });
+    return true;
 }
 
 void solve_pressure_moments_coupled(Context& c, const LinearSystem& sys, const std::vector<double>& compliance,
