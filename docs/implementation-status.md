@@ -52,7 +52,8 @@ real-time target and every first-playable gate remain open.
 Conservative [gas diffusion](../native/MAC_DIFFUSION.md) is merged into main as
 formulation 2. It supplies species-specific exchange with carried enthalpy,
 physical and accelerated modes, completed-frame configuration and versioned
-checkpoints (`MACCLS01` version 5, beside the interval kernel's version 4).
+checkpoints (`MACCLS01` version 5 for reference; version 6 for production).
+Historical selector-1 version-4/5 images explicitly reject after retirement.
 
 The Maxwell–Stefan driving force includes pressure diffusion, in a symmetric
 positive-semidefinite discrete form, so its first-order entropy production
@@ -177,24 +178,40 @@ atomically with receipts and deliver original game callbacks once.
 ## Solver development (milestone B)
 
 The [production kernel](../native/MAC_KERNEL.md) implements the in-game
-selectors with interval audits and deterministic workers. Its previously
-untuned aggregation preconditioner is replaced by the independently reviewed
-[geometric multigrid](../native/MAC_MULTIGRID.md), using the production pool
-and cached geometry/active masks. All 44 Release CTests pass. Seven touched
-suites pass Debug ASan/UBSan and MinGW/Wine; production checkpoint, contract
-and multigrid controls pass ThreadSanitizer. The default reference 256-cell
-wave checkpoint SHA is unchanged. Of 59 preceding MAC executable outputs,
-56 stay byte-identical, one differs only in timing and two production
-diagnostics change intentionally with automatic preconditioning.
-Production selection 2 is persisted in version 6, including exact ordinary
-restore/advance, saved automatic/Jacobi preconditioning and diffusion mode.
-Six version-2/3/4/5 images retain the earlier writer's bytes. Execution options
-no longer contain an unsaved preconditioner override. The preconditioner-port
-Ubuntu 22.04 snapshot passes 43 tests with glibc requirements at most 2.34;
-it predates version 6 and no new game package is claimed. Current-default
-timing, production endpoint saved-data reviews, interval-kernel retirement
-and in-game production-kernel adoption remain open.
-The reference path stays the validation oracle.
+physical selectors with interval audits and deterministic workers. Its geometric
+[multigrid](../native/MAC_MULTIGRID.md) uses the production pool, with exact
+geometry/pressure-active mask keys and fresh coefficients. Selection 2 persists
+in checkpoint version 6, including ordinary restore/advance, saved
+preconditioning and diffusion. Execution options contain no numerical override.
+The old interval solver, owner cache and admission bridge are removed.
+Selector-1 owners and version-4/5 selector-1 images explicitly reject as retired;
+supported reference images retain their bytes and continuation.
+
+The seven original saved-review scenes now run through production. The reader
+retains the strict endpoint inventory, impulse, U+K and entropy bounds, plus
+checks of production stage magnitudes and below-range operand counts: 105,985
+checks and seven rejected corruptions on Linux and MinGW/Wine. They include
+10,000 closed steps, 81 species/82 passives and periodic/disconnected multigrid.
+The review exposed wall-reaction cancellation; pressure components now gather
+before the common timestep/area product, preserving the small net reaction.
+Material-temperature/caloric uncertainty refines through the strict reference,
+while exact static states can keep their certificate. Changed geometry/schema,
+heat/mass edits, source lifetime, concurrent owners and atomic range fallback
+are covered. The strict reference remains the validation oracle.
+
+Six historical version-2/3/4/5 images retain every byte of the earlier writer.
+The default reference wave checkpoint SHA and sampled version-6 production
+checkpoints remain unchanged. All 44 Release CTests pass; nine suites pass
+Debug ASan/UBSan and MinGW/Wine, and four production suites pass ThreadSanitizer.
+Of 59 retained MAC
+executable outputs, 54 are byte-identical, two differ only in timing and three
+intentionally change saved-selection/retirement messages and wall-impulse
+residuals. Fresh-process gas/multigrid continuation agrees exactly between
+Linux and Wine in both source directions. The preconditioner-port
+Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
+it predates version 6 and no new game package is claimed. Current active-cell
+performance, calm-region/local stepping, the open physics gates and in-game
+production-kernel adoption remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

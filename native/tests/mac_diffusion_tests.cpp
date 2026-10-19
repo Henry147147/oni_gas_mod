@@ -422,21 +422,21 @@ bool rejects(const Setup& setup,const std::vector<std::uint8_t>& bytes) {
     try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,bytes); }catch(const std::invalid_argument&) { return true; }
     return false;
 }
-// Checkpoint versions: 2/3 reference, 4 interval kernel (main), 5 diffusion
-// with either kernel. Unreleased version-4 diffusion layouts must reject.
+// Reference versions 2/3/5 retain their bytes; production uses version 6.
+// Retired kernel 1 and unreleased version-4 diffusion layouts reject.
 void checkpoint_version_controls() {
     Setup setup;
-    for(int mode:{1,2})for(const auto kernel:{MacNumericalKernel::reference,MacNumericalKernel::interval_audited}) {
+    for(int mode:{1,2})for(const auto kernel:{MacNumericalKernel::reference,MacNumericalKernel::production}) {
         MacClosedSettings settings;settings.diffusion=mode_setting(mode);settings.numerical_kernel=kernel;settings.maximum_timestep_s=.01;
         const MacClosedWorld owner(setup.registry,setup.eos,setup.state(3,2),settings);const auto image=owner.checkpoint();
-        check(image[8]==5,"Diffusion checkpoint is not version 5");
+        check(image[8]==(kernel==MacNumericalKernel::production ? 6 : 5),"Diffusion checkpoint version differs");
         const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
         check(restored.checkpoint()==image && restored.settings().numerical_kernel==kernel && restored.settings().diffusion.mode==settings.diffusion.mode,
             "Version-5 checkpoint lost its kernel or diffusion setting");
         // Diffusion wraps either kernel's flow interval; restore continues exactly.
         const auto a=owner.advanced(.2,4096,MacExecutionPolicy::exact_equilibrium),b=restored.advanced(.2,4096,MacExecutionPolicy::exact_equilibrium);
         check(a.world.checkpoint()==b.world.checkpoint() && a.report.diffusion.substeps>0,"Diffusion/kernel continuation differs after restore");
-        if(kernel==MacNumericalKernel::interval_audited)
+        if(kernel==MacNumericalKernel::production)
             check(a.report.interval_kernel_intervals+a.report.interval_reference_fallbacks>0,"Interval kernel did not run under diffusion");
         // Rebuild both unreleased version-4 diffusion layouts: formulation 1
         // (no kernel or formulation fields) and the first fix (no kernel field).
@@ -451,21 +451,22 @@ void checkpoint_version_controls() {
             old.insert(old.end(),image.begin()+static_cast<std::ptrdiff_t>(keep_formulation ? formulation : formulation+4),image.end());
             old[8]=4;check(rejects(setup,resealed(old)),"Unreleased version-4 diffusion checkpoint was admitted");
         }
-        auto bad_kernel=image;bad_kernel[kernel_field]=2;check(rejects(setup,resealed(bad_kernel)),"Unknown kernel admitted in version 5");
+        auto bad_kernel=image;bad_kernel[kernel_field]=kernel==MacNumericalKernel::production ? 0 : 2;check(rejects(setup,resealed(bad_kernel)),"Noncanonical saved kernel admitted");
+        auto retired=image;retired[8]=5;retired[kernel_field]=1;check(rejects(setup,resealed(retired)),"Retired kernel-1 diffusion image admitted");
         auto bad_formulation=image;bad_formulation[formulation]=1;check(rejects(setup,resealed(bad_formulation)),"Formulation 1 admitted in version 5");
         auto disabled=image;disabled[kernel_field+4]=0;check(rejects(setup,resealed(disabled)),"Diffusion-disabled version 5 admitted");
     }
-    // Diffusion-disabled owners keep main's versions: 2 reference, 4 interval.
+    // Diffusion-disabled owners keep version 2 reference or version 6 production.
     MacClosedSettings reference;const MacClosedWorld plain(setup.registry,setup.eos,setup.state(3,2),reference);check(plain.checkpoint()[8]==2,"Reference owner left version 2");
-    reference.numerical_kernel=MacNumericalKernel::interval_audited;
-    const MacClosedWorld interval(setup.registry,setup.eos,setup.state(3,2),reference);check(interval.checkpoint()[8]==4,"Interval owner left version 4");
-    std::cout<<"PASS checkpoint versions 2/4/5, diffusion with both kernels, unreleased v4 diffusion layouts rejected\n";
+    reference.numerical_kernel=MacNumericalKernel::production;
+    const MacClosedWorld interval(setup.registry,setup.eos,setup.state(3,2),reference);check(interval.checkpoint()[8]==6,"Production owner left version 6");
+    std::cout<<"PASS checkpoint versions 2/5/6, diffusion with both kernels, retired kernel and unreleased v4 layouts rejected\n";
 }
 // The composed report must also keep the interval kernel's multigrid
 // counters. 256 occupied cells at 0.01 s are coupled enough to select it.
 void multigrid_composition_control() {
     Setup setup;MacClosedSettings settings;settings.maximum_timestep_s=.01;settings.diffusion=mode_setting(1);
-    settings.numerical_kernel=MacNumericalKernel::interval_audited;
+    settings.numerical_kernel=MacNumericalKernel::production;
     settings.reconstruction=MacMaterialReconstruction::donor_cell;settings.momentum_reconstruction=MacMomentumReconstruction::donor_cell;
     settings.compression_viscosity=MacCompressionViscosity::none;settings.shock_heat=MacShockHeatRegularization::none;
     const MacClosedWorld owner(setup.registry,setup.eos,setup.state(16,16),settings);

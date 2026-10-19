@@ -26,8 +26,9 @@ Topic documents:
 | [Heat and entropy](MAC_HEAT.md) | Shock-heat regularization modes 0–3, physical conduction, entropy checks |
 | [Gas diffusion](MAC_DIFFUSION.md) | Conservative mixture-averaged fluxes, physical/accelerated modes, transport data and validation |
 | [Range arithmetic](MAC_RANGE.md) | `MacEnergy`/`MacScaled`/`MacExponent` and where full-range values are used |
-| [Interval kernel](MAC_INTERVAL_KERNEL.md) | First normal-range pressure/transport port, interval audits and retained-reference fallback |
-| [Pressure multigrid](MAC_MULTIGRID.md) | Shared geometric preconditioning in the production and interval kernels |
+| [Production kernel](MAC_KERNEL.md) | Consolidated interval-audited implementation, geometric pressure solve and deterministic workers |
+| [Retired interval kernel](MAC_INTERVAL_KERNEL.md) | Selector-1 retirement and explicit rejection of its old checkpoints |
+| [Pressure multigrid](MAC_MULTIGRID.md) | Geometric preconditioning in the production kernel and independent component controls |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
 | [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
@@ -125,7 +126,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
 | `thermal_conduction` | false | true |
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
-| `numerical_kernel` | 0 `reference` | 1 `interval_audited` (legacy gas port), 2 `production`; unported selections use the audited reference |
+| `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 
 The native domain builds its settings from these defaults, keeping the selectors.
@@ -181,10 +182,11 @@ kernel is checked once per completed interval instead of in every stage:
   below, stays buildable and tested. The production kernel is validated
   against it on shared scenes within the completion plan's accuracy tolerances.
 
-The [first interval kernel](MAC_INTERVAL_KERNEL.md) implements a bounded set of
-existing physical selectors. The default and retained fallback still enforce
-the reference stage rules; opting into the interval kernel also requires its
-interval audits on a fallback result. **Reference rules:**
+The [production kernel](MAC_KERNEL.md) implements the production physical selectors
+and interval contract. The default reference and retained fallback enforce the
+reference stage rules; a production fallback also reconciles its interval
+accounts. The [first interval port](MAC_INTERVAL_KERNEL.md) is retired.
+**Reference rules:**
 
 - **Accounts.** Each stage checks its species, passive, momentum and energy
   balances against 128 binary64 epsilons of the actual operands: the residual is

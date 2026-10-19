@@ -150,6 +150,15 @@ bool evaluate_state(const Model& model, const Fields& f, std::size_t N, std::siz
         r.Ceq = s.Cv + p * l.compliance * r.Vg / (r.T * (l.compliance + r.Vg / p));
     }
     if (!(r.T > 0) || !std::isfinite(r.T) || !std::isfinite(r.p) || !(r.comp > 0)) return false;
+    // Port the interval kernel's conservative caloric/temperature admission.
+    // A boundary uncertainty requests reference evaluation; it never enlarges
+    // a material's physical domain or changes a stored state.
+    if (A - r.Eel < 0x1p-30 * (std::abs(U) + std::abs(s.off) + std::abs(r.Eel))) throw EosRefinement{};
+    for (std::size_t k = 0; k < model.K(); ++k) if (f.m[k * N + i] != 0) {
+        const auto& sp = model.species[k];
+        if (r.T - sp.tmin <= 64 * eps * std::max(r.T, sp.tmin) ||
+            sp.tmax - r.T <= 64 * eps * std::max(r.T, sp.tmax)) throw EosRefinement{};
+    }
     out = r;
     return true;
 }

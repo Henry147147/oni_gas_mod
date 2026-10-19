@@ -190,7 +190,7 @@ The two decisions this path needed:
   audits;
 - accepting the completion plan's larger calm-region step approximation.
 
-Both decisions are now recorded in the production contract. The first
+Both decisions are now recorded in the production contract. The now-retired
 [interval-kernel port](../native/MAC_INTERVAL_KERNEL.md) implements the existing
 donor-cell gas pressure/transport laws, reusable fields and interval audits. Its
 initial 250,000-cell result is about 10.2 s per 0.1 simulated seconds on one core.
@@ -200,5 +200,7 @@ double-double reductions. Its five fully changing 250,000-cell intervals take
 6.63 s median, with no retries. The earlier pressure-cost percentage does not
 describe this port: profiling its initial large-grid implementation finds about
 70% in the linear solves and nearly half of the frame in dot products. Both
-costs motivated this follow-up. Parallel execution and accurate larger calm
-steps remain unimplemented; no active-colony performance gate passes.
+costs motivated this follow-up. The consolidated [production kernel](../native/MAC_KERNEL.md) now supplies
+deterministic parallel execution and geometric multigrid. These serial figures
+describe the retired port. Accurate larger calm steps and current-default
+active-cell performance acceptance remain open.

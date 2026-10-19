@@ -33,6 +33,10 @@ inline bool kernel_debug() { static const bool on = std::getenv("MA_KERNEL_DEBUG
 [[noreturn]] inline void precision(const char* why) { throw FluidFatalError(FluidFatalCode::numerical_precision, why); }
 inline void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(why); }
 
+// An ordinary EOS calculation cannot decide a material/caloric boundary.
+// The driver restarts through the strict reference and retains consumed attempts.
+struct EosRefinement {};
+
 // Error-free double-double accumulator for audits and reductions.
 struct DD {
     double hi = 0, lo = 0;

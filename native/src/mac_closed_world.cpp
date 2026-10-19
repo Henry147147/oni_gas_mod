@@ -1,7 +1,7 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
-#include "mac_interval_kernel.hpp"
+#include "mac_interval_fallback.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -170,7 +170,8 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportStat
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
-    require((numerical_kernel == MacNumericalKernel::reference || numerical_kernel == MacNumericalKernel::interval_audited ||
+    require(numerical_kernel != MacNumericalKernel::retired_interval_audited, "MAC interval kernel 1 is retired; its checkpoints cannot continue under a different kernel");
+    require((numerical_kernel == MacNumericalKernel::reference ||
         numerical_kernel == MacNumericalKernel::production) &&
         std::isfinite(maximum_timestep_s) && maximum_timestep_s > 0 && maximum_timestep_s <= 1 &&
         std::isfinite(maximum_outgoing_volume_fraction) && maximum_outgoing_volume_fraction > 0 && maximum_outgoing_volume_fraction <= .45 &&
@@ -494,7 +495,6 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
-    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) interval_cache_ = std::make_shared<MacIntervalCache>();
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits) const {
     require_mac_energy_environment();
@@ -518,7 +518,6 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.interval_cache_ = interval_cache_;
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return candidate;
 }
@@ -641,25 +640,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     // otherwise the persisted numerical-kernel setting applies.
     if (!validation_reference && (policy == MacExecutionPolicy::production || settings_.numerical_kernel == MacNumericalKernel::production) &&
         mac_kernel_supports(settings_)) return advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
-    std::size_t discarded_interval_attempts = 0;
-    if (settings_.numerical_kernel == MacNumericalKernel::interval_audited) {
-        auto candidate = advance_mac_interval_kernel(registry_, *thermodynamics_, state_, settings_, seconds, budget, discarded_interval_attempts, interval_cache_.get());
-        if (candidate) {
-            MacClosedAdvance result{*this, candidate->report}; result.world.state_ = std::move(candidate->state);
-            result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1; return result;
-        }
-        // Production-default selectors beyond the first port: the production
-        // substep kernel under the same interval contract (mac_kernel.cpp).
-        if (discarded_interval_attempts == 0 && mac_kernel_default_options().extend_interval_admission &&
-            mac_kernel_supports(settings_) && mac_kernel_normal_range(state_)) {
-            auto production = advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
-            if (!last_mac_production_report().reference_fallback) production.report.interval_kernel_intervals = 1;
-            else production.report.interval_reference_fallbacks = 1;
-            return production;
-        }
-    }
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
-    result.report.attempts = discarded_interval_attempts; result.report.rejected_attempts = discarded_interval_attempts;
     if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;

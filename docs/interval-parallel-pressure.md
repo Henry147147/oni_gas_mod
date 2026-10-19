@@ -1,10 +1,11 @@
 # Deterministic interval pressure workers
 
-The opt-in [interval kernel](../native/MAC_INTERVAL_KERNEL.md) can distribute
-independent pressure rows across a reusable worker pool. The production
-numerical default remains the reference kernel. This is an implementation
-change to the admitted donor-cell ideal-gas equations; it does not port the
-remaining material models or establish real-time colony acceptance.
+This document describes the retained component/reference block executor and
+historical controls of the [retired interval kernel](../native/MAC_INTERVAL_KERNEL.md).
+The consolidated [production kernel](../native/MAC_KERNEL.md#determinism) uses its
+own fixed-block pool, including geometric multigrid; `MA_MAC_WORKERS` configures
+this retained executor, not production's `MacKernelOptions::threads`.
+The measurements below do not certify current production performance.
 
 ## Work and ordering
 

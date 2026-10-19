@@ -245,7 +245,7 @@ configuration invalidates replay across that boundary until a new checkpoint.
 The option file selects new regions; a restored owner uses its saved mode.
 Liquid and mixed gas/liquid regions reject enabling gas diffusion.
 
-Enabled checkpoints use `MACCLS01` version 5 with either numerical kernel (see
+Enabled checkpoints use `MACCLS01` version 5 for reference or version 6 for production (see
 [version assignment](MAC_CHECKPOINT.md#version-assignment)). After the kernel
 selector they store the mode and multiplier, then the discrete formulation
 number (`mac_diffusion_formulation`, 2), the profile identity and every
@@ -257,13 +257,14 @@ with the formulation field. Those images were never released. Main's interval
 kernel took version 4, and diffusion moved to version 5. Both earlier diffusion
 layouts now reject instead of restoring under different physics.
 
-Disabled owners keep their version 2/3 (reference kernel) or 4 (interval
-kernel) bytes. Old checkpoints restore with diffusion disabled until explicitly
+Disabled reference owners keep version 2/3 bytes; production uses version 6.
+Retired version-4 and version-5 selector-1 images explicitly reject. Supported
+old checkpoints restore with diffusion disabled until explicitly
 upgraded through the mode control. The managed paired-save wrapper reads only
 the unchanged metadata prefix of version 5.
 
 Diffusion composes with either numerical kernel: it wraps each flow interval,
-whether the interval kernel publishes it or falls back to the reference.
+whether production publishes it or takes an audited reference fallback.
 Composed reports accumulate every flow counter, including main's interval and
 pressure-restart counters.
 
@@ -311,10 +312,11 @@ Formulation-2 controls cover:
   in-range 300 K room records no out-of-range evaluations. The diffusion stage
   alone runs at 1e-4 and 1e-9 Pa. The controls check counts, recorded
   extremes, conservation and Knudsen-bounded substep counts.
-- **Persistence.** Version 5 round-trips and continues exactly with both
-  kernels in both modes. Rebuilt version-4 diffusion layouts, an unknown kernel,
-  formulation 1 and a diffusion-disabled version 5 reject. Diffusion-disabled
-  owners still write version 2 (reference) or 4 (interval).
+- **Persistence.** Version 5 reference and version 6 production images round-trip
+  and continue exactly in both modes. Retired selector-1 images, rebuilt
+  version-4 diffusion layouts, noncanonical kernels, formulation 1 and
+  diffusion-disabled version 5 reject. Disabled owners write version 2/3
+  (reference) or 6 (production).
 - **Composed reports.** A zero-flux single-gas wave reports exactly the flow
   counters of the diffusion-off owner, including a pressure-increment restart.
 

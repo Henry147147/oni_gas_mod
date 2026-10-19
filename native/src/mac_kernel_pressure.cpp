@@ -426,7 +426,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     c.counters.newton += newton;
     // Publish the root: canonical J, midpoint sweeps, U and material volume.
     const auto dWfinal = [&](Index i) { return occupied(i) ? ws.dW[i] : 0.; };
-    struct Publish { double wall_x = 0, wall_y = 0, body = 0, energy = 0, jx = 0, jy = 0, closure = 0; std::size_t unresolved = 0; int failed = 0; };
+    struct Publish { DD pressure_wall_x, pressure_wall_y, fixed_body; double body = 0, energy = 0, jx = 0, jy = 0, closure = 0; std::size_t unresolved = 0; int failed = 0; };
     auto published = c.exec.partials<Publish>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Publish o;
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
@@ -436,7 +436,14 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             const double dp = ws.dp0x[fidx] + (dWfinal(g.xl[fidx]) - dWfinal(g.xr[fidx]));
             const double impulse = dt * A * dp;
             o.jx += std::abs(J0) + std::abs(impulse);
-            if (!movable_x(fidx)) { o.wall_x -= impulse; continue; }
+            if (!movable_x(fidx)) {
+                // Sum pressure components before the common dt*A product.
+                // Opposite wall pressures can cancel exactly even when each
+                // large absolute pressure would round away its increment.
+                o.pressure_wall_x.add(-ws.dp0x[fidx]);
+                o.pressure_wall_x.add(-dWfinal(g.xl[fidx])); o.pressure_wall_x.add(dWfinal(g.xr[fidx]));
+                continue;
+            }
             const double J1 = J0 + impulse;
             f.jx[fidx] = J1; o.jx += std::abs(J1);
             ws.qx[fidx] = .5 * (J0 + J1) / I * dt * A;
@@ -451,7 +458,12 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             const double impulse = gravity == 0 ? dt * A * dp : dt * (A * dp + (-I * gravity));
             o.body += gimp;
             o.jy += std::abs(J0) + std::abs(impulse) + std::abs(gimp);
-            if (!movable_y(fidx)) { o.wall_y -= impulse; continue; }
+            if (!movable_y(fidx)) {
+                o.pressure_wall_y.add(-ws.dp0y[fidx]);
+                o.pressure_wall_y.add(-dWfinal(g.yl[fidx])); o.pressure_wall_y.add(dWfinal(g.yr[fidx]));
+                o.fixed_body.add(-gimp);
+                continue;
+            }
             const double J1 = J0 + impulse;
             f.jy[fidx] = J1; o.jy += std::abs(J1);
             ws.qy[fidx] = .5 * (J0 + J1) / I * dt * A;
@@ -485,7 +497,14 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         return o;
     });
     double energy_ops = 0, jx_ops = 0, jy_ops = 0, closure = 0;
-    for (const auto& o : published) { acc.wall_x += o.wall_x; acc.wall_y += o.wall_y; acc.body_y += o.body; energy_ops += o.energy; jx_ops += o.jx; jy_ops += o.jy; }
+    DD pressure_wall_x, pressure_wall_y, fixed_body;
+    for (const auto& o : published) {
+        pressure_wall_x.add(o.pressure_wall_x); pressure_wall_y.add(o.pressure_wall_y); fixed_body.add(o.fixed_body);
+        acc.body_y += o.body; energy_ops += o.energy; jx_ops += o.jx; jy_ops += o.jy;
+    }
+    acc.wall_x += pressure_wall_x.value() * dt * A;
+    DD wall_y; wall_y.add(pressure_wall_y.value() * dt * A); wall_y.add(fixed_body);
+    acc.wall_y += wall_y.value();
     for (const auto& o : volumes) {
         if (o.failed) reject("Production swept vacuum volume exhausted");
         energy_ops += o.energy; acc.unresolved += o.unresolved; closure = std::max(closure, o.closure);

@@ -12,8 +12,8 @@ benchmark option) and phase 3 (deterministic multithreading: bit-identical
 results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
 pressure formulation and the shared geometric multigrid preconditioner
 (`mac_pressure_multigrid.*`) are in. Larger calm steps remain open. It covers every selector the ONI domain uses. The
-real-time gate is not met; see [performance](#performance), the
-[comparison with the interval kernel](#earlier-jacobi-comparison-with-the-interval-kernel-7adfd63)
+real-time gate is not met; see [performance](#earlier-jacobi-performance), the
+[historical comparison](#historical-comparison-with-the-retired-interval-port)
 and [remaining work](#remaining-work).
 
 ## Selection
@@ -29,16 +29,16 @@ and [remaining work](#remaining-work).
   a certificate; also persists selection 2. It rejects enabled diffusion and
   unported selectors. The selected owner route uses an audited reference for
   unported selectors/range flags without changing the physical settings.
-- Legacy `MacNumericalKernel::interval_audited` (1) remains temporarily
-  available; its optional admission extension explicitly upgrades a completed
-  production result to selection 2. Retirement remains open.
+- The former interval solver and admission bridge are removed. Selector 1 is
+  reserved and rejects; version-4 and version-5 selector-1 images explicitly
+  reject as retired. They are never restored under a different kernel.
 
 Numerical preconditioning belongs to the saved `MacClosedSettings`:
 `automatic` uses geometric multigrid for grids of at least 256 cells, otherwise
 Jacobi; explicit `jacobi` stays Jacobi. Explicit incomplete Cholesky is
-unported. `MacKernelOptions` contains thread scheduling, diagnostics and the
-legacy admission bridge, with no unsaved preconditioner override. Versions
-2–5 keep their existing bytes and meanings; version 6 rejects every kernel
+unported. `MacKernelOptions` contains thread scheduling and diagnostics, with no
+unsaved preconditioner override. Supported legacy reference images keep their
+bytes and continuation; selector-1 images explicitly reject. Version 6 rejects every kernel
 value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
 enabled diffusion metadata.
 
@@ -65,7 +65,9 @@ these settings, retaining their selectors and selection 2 in its next image.
 Range: a nonfinite or overflow-range value (above `2^450`) in the input or
 at the interval endpoint runs the whole interval through the reference
 implementation, so full-range arithmetic is used only for flagged values.
-Below-range values are admitted. Roundoff-level transverse momentum on large
+Uncertain material-temperature or caloric boundaries also request the strict
+reference, retaining consumed attempts. A certified static state can advance
+unchanged at such a boundary. Below-range values are admitted. Roundoff-level transverse momentum on large
 grids decays far below binary64's normal range within a few intervals;
 falling back for it made the 160x160 wave about 100 times slower than
 necessary. Full-range canonical momentum is projected, subnormal results
@@ -99,7 +101,9 @@ floor; the root reaches the reference 16-epsilon closure. Each Newton
 correction is a matrix-free PCG solve honoring the saved pressure setting
 (automatic geometric multigrid, or explicit Jacobi) with an inexact-Newton tolerance
 (`0.1 * residual`). Canonical J, wall and body impulses and midpoint sweeps
-use the reference formulas.
+use the reference formulas. Wall-reaction pressure components gather in
+double-double before the common timestep/area product; rounding each large
+opposing wall impulse separately can erase a small net reaction.
 
 The geometric preconditioner uses [the independently reviewed hierarchy](MAC_MULTIGRID.md).
 Its topology and mutable workspace are retained on the calling thread, keyed
@@ -222,7 +226,7 @@ byte-identical checkpoint continuation (wave, room, liquid, mixture, empty
 cells), bit-identical results for 1, 2, 4, 8 and 12 threads (odd grid sizes,
 walls, gravity, conduction, viscosity), atomic budget exhaustion, rejection of
 swept/coupled selectors, the production policy's equilibrium certificate, the
-opt-in interval-admission extension and range fallback, and that every audit
+persisted production admission and range fallback, and that every audit
 quantity passes. Both suites are run under ASan/UBSan (Debug, `-O1
 -D_GLIBCXX_ASSERTIONS`, fatal findings) and ThreadSanitizer; see the commit
 messages for the exact coverage of each run.
@@ -246,28 +250,49 @@ explicit-IC reference fallback. A mid-interval range flag must retain selection
 2, consume its discarded attempt, pass exact interval accounts and leave the
 source unchanged when its budget is exhausted.
 
-The current Release build enables tests, the ONI backend and
-`CMAKE_COMPILE_WARNING_AS_ERROR=ON`; all 44 CTests pass. Seven touched suites
-pass Debug ASan/UBSan and MinGW 13 under Wine 10. Production checkpoint,
-contract and multigrid suites pass Debug ThreadSanitizer. The extended
-checkpoint controls pass on all three instrumented/Windows-target routes.
+`ma_mac_kernel_saved_tests` (CTest `mac_production_saved_accounts`) carries
+all seven original interval-port scientific scenes into production: periodic gas,
+walls, a one-dimensional strip, 10,000 steps, 81 species/82 passives, periodic
+multigrid and disconnected multigrid. `review_mac_kernel.py` independently
+recomputes their original strict endpoint mass, passive, impulse, U+K and entropy
+bounds, then checks the production report's stage magnitudes and below-range
+operand allowance. It passes 105,985 checks and rejects seven altered captures.
+The reviewer exposed wall-reaction cancellation errors; the pressure-component
+gather fixes them without changing physical state or gate bounds.
 
-All 59 preceding MAC executables retain their exits against `db7b555`: 56
-outputs are byte-identical, the benchmark differs only in timing fields, and
-two production diagnostics change intentionally with automatic multigrid.
-All reference streams and the default five-interval 256-cell wave retain their
-previous values; checkpoint SHA-256 remains
+The saved controls also cover changed geometry, heat/mass edits, changed
+constituent/passive schemas and caloric models, source lifetime and concurrent
+owners. Four formerly declined inputs retain their scientific setup and now
+exercise production admission; unported selectors use the audited reference.
+Material-boundary uncertainty refines through the reference, while exact static
+states can take their certificate. Mid-interval range flags retain consumed
+attempts and atomic rollback. The former interval solver/cache is removed;
+selector-1 construction and its historical checkpoints explicitly reject.
+
+The Release build enables tests, the ONI backend and warnings as errors; all
+44 CTests pass. Nine touched/owner suites pass Debug ASan/UBSan and MinGW 13
+under Wine 10. Four production suites (checkpoint, contract, multigrid
+and saved accounts) pass ThreadSanitizer. The
+independent production review passes on Release, ASan/UBSan, TSan and Wine.
+Against `8315172`, all 59 retained MAC executable exits agree:
+54 output streams are byte-identical, two differ only in timing, and three
+intentionally change retirement/selection controls and corrected wall-impulse
+residuals. The former interval executable is replaced by the saved production
+suite. The reference scientific streams remain unchanged.
+
+The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
-Six synthetic version-2/3/4/5 images retain every byte of the earlier writer.
-The original strong-flow, curved-nodal and vacuum-front failures are unchanged.
-
-The preconditioner-port source snapshot also passes all 43 tests in the
-Ubuntu 22.04 compatibility build; both libraries require glibc at most 2.34.
-That snapshot predates version 6; the next game package needs a fresh build.
-The geometric saved-data review passes 40,216 checks/eight corruptions, and
-the legacy interval review passes 105,931 checks/five corruptions. Production
-endpoint saved-data reviews and interval-kernel retirement remain open.
-There is no new game, actual Windows OS or performance acceptance evidence.
+Five-interval 256- and 4,096-cell production wave checkpoints also retain every
+version-6 byte against the preceding binary. Fresh-process gas and multigrid
+images from Linux and Wine continue byte-identically on both, in both source
+directions. These are Wine controls, separate from actual Windows OS evidence.
+Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
+reference images restore unchanged and selector-1 images explicitly reject.
+The original strong-flow, curved-nodal and vacuum-front failures remain open.
+The preconditioner-port Ubuntu 22.04 snapshot passed 43 tests with library glibc
+requirements at most 2.34; it predates version 6, so the next game package needs
+a fresh compatibility build. No new game, actual Windows OS or active-cell
+performance acceptance is claimed here.
 
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
@@ -374,127 +399,18 @@ cell-substep): pressure root and PCG 410, momentum transport 275, shock heat
 265, reconstruction 225, compression 215, primal gather/heat/gravity 70,
 EOS anchors 40, audit 28.
 
-## Earlier Jacobi comparison with the interval kernel (7adfd63)
+## Historical comparison with the retired interval port
 
-[`MAC_INTERVAL_KERNEL.md`](MAC_INTERVAL_KERNEL.md) describes the port
-selected by the persisted `MacNumericalKernel::interval_audited` setting, now
-with main's [multigrid preconditioner](MAC_MULTIGRID.md),
-[deterministic pressure workers](../docs/interval-parallel-pressure.md)
-(`MA_MAC_WORKERS`, default at most four participants), retained pressure
-workspaces and cached connectivity. Both kernels were measured on
-2026-10-18/19 from builds made the same way (GNU 15.2 Release/IPO; the
-interval kernel from builds of origin/main 66f9d11, fe31e7d and 7adfd63, the
-production kernel from this branch) with one scratch harness
-through the public API: the fixture wave (20 Pa sinusoid along x, periodic,
-300 K, O2 0.22, helium trace and two passives), one warm-up interval, then
-three consecutive 0.1 s intervals; median interval of each run, three runs,
-`taskset -c 0-11`. The host's video encoder used about 11 cores; the 1-minute
-load was 17–31 for the 66f9d11 sweep, 28–70 for fe31e7d and 23–64 for
-7adfd63, so the multi-thread figures in particular are noisy. The interval
-kernel built from this branch gives byte-identical endpoints to the
-origin/main build; its endpoints are identical for 1, 4 and 12 workers and
-did not change from 66f9d11 to 7adfd63.
+The narrower gas port used numerical selection 1 and a separate pool. Production
+covers the game's current physical selectors and deterministic fixed-block pool.
+The accepted consolidation now includes the same geometric multigrid, version-6
+saved selection and independent endpoint reviewers. Selector 1 is retired rather
+than silently migrated; the strict reference remains the oracle.
 
-**Coverage.**
-
-| | Interval kernel | Production kernel |
-| --- | --- | --- |
-| Material / momentum reconstruction | 0 | 0, 1 |
-| Compression / shock heat | 0 / 0 | 0, 1, 2 / 0–3 |
-| Gravity, conduction, viscosity | no | yes |
-| Phases | occupied constant-property ideal gas | gas, filled liquid, mixtures, exact empty cells, solids |
-| Range | flags any nonzero value outside `2^-450..2^450` (reference fallback) | admits below-range values (counted rounding); only nonfinite or `>2^450` falls back |
-| Gas diffusion | composed by the owner | composed by the owner (production policy) |
-| Preconditioner | automatic geometric multigrid (default) or Jacobi | Saved automatic geometric multigrid or Jacobi (measurements below used Jacobi) |
-| Threads | pressure and thermodynamic passes on deterministic workers; transport serial | every stage on the deterministic pool, bit-identical for 1–12 threads |
-| Substep schedule | restarts its clock each interval (11 substeps per 0.1 s here) | reference absolute-clock schedule (10) |
-
-With the production-default selectors the interval kernel declines every
-interval (reference fallback); only the production kernel runs them.
-
-**Accuracy against the reference oracle** (66f9d11 build; same owner, same
-selectors):
-
-| Scene | Kernel | max dT (K) | max dp / 20 Pa | O2 partial pressure | constituents |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 4,096 cells, donor, 3 intervals, automatic (interval kernel ran 2) | interval | 2.2e-12 | 7.0e-11 | 1.4e-14 | 1.2e-14 |
-| | production | 2.6e-12 | 7.9e-11 | 1.6e-14 | 1.4e-14 |
-| 4,096 cells, default selectors, 3 intervals | production | 2.2e-12 | 8.0e-11 | 1.7e-14 | 1.5e-14 |
-| 65,536 cells, donor, 2 intervals, Jacobi | interval | 6.8e-13 | 3.9e-11 | 8.6e-15 | 6.3e-15 |
-| | production | 6.3e-13 | 3.8e-11 | 8.3e-15 | 6.8e-15 |
-
-Both agree with the reference to roundoff where they run.
-
-**Speed, interval kernel's admitted selectors** (donor cell, no
-regularization; 7adfd63 sweep, both kernels in the same hour). ms per 0.1 s
-(wall, median of three runs), with ns per cell-substep of process CPU and the
-kernel's own substep count in parentheses for one thread:
-
-| Cells | Interval, Jacobi, 1 worker | Interval, Jacobi, 4 (default) / 12 workers | Production, 1 thread | Production, 12 threads |
-| ---: | --- | --- | --- | --- |
-| 4,096 | 82 (1,809 ns) | 87 / 93 | 22 (541 ns) | 17 (4 threads used) |
-| 65,536 | 1,328 (1,827 ns) | 975 / 1,489 | 399 (606 ns) | 137 |
-| 250,000 | 5,754 (2,084 ns) | 4,402 / 4,051 | 1,699 (675 ns) | 585 |
-
-Process CPU per 0.1 s at 250,000 cells: interval 5,730 (1 worker), 7,498 (4),
-7,586 (12); production 1,687 (1 thread), 4,328 (12). The same table at
-fe31e7d gave 7,058 / 5,432 / 6,257 ms for the interval kernel and 1,938 / 701
-ms for the production kernel at 250,000 cells (load 28–70), and at 66f9d11
-(serial interval kernel) 7,069 against 2,255 / 786 ms. The interval kernel's
-automatic preconditioner (its default) is not in this table: on this scene it
-falls back to the reference for most intervals. At 65,536 cells it took
-36,979 ms (66f9d11), 38,770 ms (fe31e7d) and 37,203 ms (7adfd63, default
-workers) per 0.1 s, with 2 of 3 measured intervals on the reference; one
-250,000-cell interval took 120,752 ms (66f9d11, reference fallback). At
-4,096 cells it ran every measured interval (88 ms at 66f9d11; its multigrid
-cut PCG iterations per interval from 492 to 128 without reducing the time).
-
-With automatic preconditioning, multigrid roundoff gives the y-uniform wave
-nonzero transverse momentum (smallest nonzero face value 4e-28 after the
-first interval at 4,096 cells; with Jacobi it stays exactly zero), and the
-interval kernel then declines intervals to the reference. Its range checks
-also cover intermediate products (for example PCG dot-product terms below
-`2^-450`), which tiny transverse components reach; which check fires was not
-instrumented. It is the same class of fallback this kernel removed for itself
-in c0cb51d.
-
-**Production-default selectors** (production kernel only):
-
-| Cells | 1 thread | 12 threads |
-| ---: | --- | --- |
-| 4,096 | 71 (1,719 ns) | 44 wall (4 threads used) |
-| 65,536 | 1,134 (1,724 ns) | 285 wall |
-| 250,000 | 5,260 (2,091 ns; runs 4,411–6,008) | 1,426 wall |
-
-(The fixture keeps `MacClosedSettings` defaults, compression mode 1; the
-playtest benchmark above uses compression mode 2.)
-
-**Best configuration of each at 250,000 cells** (7adfd63 sweep): interval
-kernel with Jacobi and 12 workers, 4,051 ms per 0.1 s (3,969–5,300 over three
-runs; four workers 4,402, 3,562–16,561); production kernel with 12 threads,
-585 ms with the same selectors (554–636) and 1,426 ms with the
-production-default selectors (66f9d11 sweep).
-
-**Thread scaling** (wall speedup over one thread, 7adfd63 sweep). Interval
-kernel, Jacobi: 0.94 / 0.87 at 4,096 cells (4 / 12 workers), 1.36 / 0.89 at
-65,536, 1.31 / 1.42 at 250,000. Production, donor selectors: 1.3 (4,096,
-four threads used), 2.9 (65,536) and 2.9 (250,000) on 12 threads; with the
-default selectors 1.6, 4.0 and 3.7 (66f9d11 sweep).
-
-**Memory.** Peak RSS above a setup-only process, per cell: interval kernel
-with Jacobi 1,260–1,460 bytes; production 1,570–1,830 bytes (kernel workspace
-970 bytes per cell with donor selectors, 1,060 with the default selectors);
-any configuration that takes the reference fallback about 4,400 bytes.
-
-**Checkpoint and selection.** The earlier comparison used an execution-only
-production policy, so its images did not retain that choice. Selection 2 is
-now persisted in version 6; ordinary restore/advance retains production and
-its saved preconditioner. Legacy selection 1 remains in versions 4/5 until
-retirement. No earlier version's bytes or selector meaning is changed.
-
-The accepted consolidation keeps the production coverage and pool. The
-geometric preconditioner and persisted selection are implemented; production
-saved-endpoint reviewers and interval-kernel retirement remain in step a.
+Earlier Jacobi comparisons measured about 1.16 s per 0.1 s at 250,000 cells on
+twelve workers. Different physical selectors, pressure settings, host load and
+range fallbacks affected the retired port's figures. These historical comparisons
+do not certify current automatic-multigrid active-cell performance.
 
 ## Remaining work
 
@@ -503,7 +419,7 @@ saved-endpoint reviewers and interval-kernel retirement remain in step a.
   Current automatic-multigrid active-cell timing is not yet measured.
 - Persisted production selection and automatic geometric multigrid are
   implemented; active-cell timing with these defaults is not yet measured.
-  Port saved-endpoint reviewers, then retire the narrower interval kernel.
+  The saved reviewers are ported and the narrower interval kernel is retired.
   Larger calm-region steps with local subcycling remain open.
 - Thread scaling stops near 3–3.7 times on 12 threads on the shared host.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one

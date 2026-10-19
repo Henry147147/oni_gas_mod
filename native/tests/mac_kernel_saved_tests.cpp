@@ -1,6 +1,6 @@
 #include "mac_fixture.hpp"
 #include "../src/mac_interval_audit.hpp"
-#include "../src/mac_interval_kernel.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include "../src/mac_block_execution.hpp"
 #include <bit>
 #include <chrono>
@@ -16,7 +16,7 @@ using namespace ma;
 using namespace ma::experimental;
 void check(bool yes, const char* message) { if (!yes) throw std::runtime_error(message); }
 MacClosedSettings settings() {
-    MacClosedSettings s; s.numerical_kernel = MacNumericalKernel::interval_audited;
+    MacClosedSettings s; s.numerical_kernel = MacNumericalKernel::production;
     s.reconstruction = MacMaterialReconstruction::donor_cell; s.momentum_reconstruction = MacMomentumReconstruction::donor_cell;
     s.compression_viscosity = MacCompressionViscosity::none; s.shock_heat = MacShockHeatRegularization::none;
     s.maximum_timestep_s = .001; return s;
@@ -67,6 +67,11 @@ void export_interval(int id, const MacClosedWorld& before, const MacClosedAdvanc
         << r.entropy_change_j_per_k << ' ' << r.entropy_roundoff_j_per_k << ' ' << r.wall_impulse_x << ' ' << r.wall_impulse_y << '\n';
     export_models(id, before); export_state(id, 0, before); export_state(id, 1, after.world);
 }
+void export_audit(int id, const MacKernelReport& report) {
+    const auto it = std::find_if(report.audits.begin(), report.audits.end(), [](const auto& a) { return a.quantity == "energy_u_k_g"; });
+    check(it != report.audits.end(), "Missing saved production energy audit");
+    std::cout << "IOPERANDS " << id << ' ' << it->stage_operand_magnitude << ' ' << it->below_range_allowance << '\n';
+}
 void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
     const auto& fixture = ma::testing::setup(); auto input = scene(w, h, periodic, walls);
     if (id == 6) {
@@ -80,7 +85,7 @@ void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
     auto s = settings(); if (id >= 5) s.maximum_timestep_s = .01;
     const double duration = id >= 5 ? .02 : .005, continuation = id >= 5 ? .01 : .003;
     const MacClosedWorld owner(fixture.registry, fixture.eos, input, s); const auto held = owner.checkpoint();
-    auto next = owner.advanced(duration); check(next.report.interval_kernel_intervals == 1 && next.report.interval_reference_fallbacks == 0, "Supported scene declined interval kernel");
+    auto next = owner.advanced(duration); const auto saved_audit = last_mac_production_report(); check(next.report.interval_kernel_intervals == 1 && next.report.interval_reference_fallbacks == 0, "Supported scene declined interval kernel");
     s.numerical_kernel = MacNumericalKernel::reference; const MacClosedWorld reference(fixture.registry, fixture.eos, input, s);
     const auto expected = reference.advanced(duration);
     double maximum = 0;
@@ -92,10 +97,11 @@ void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
     }
     check(maximum < 1e-8, "Interval port differs from selected reference laws");
     check(owner.checkpoint() == held, "Interval kernel mutated source owner");
-    const auto bytes = next.world.checkpoint(); check(bytes[8] == 4, "Interval kernel checkpoint lacks versioned setting");
+    const auto bytes = next.world.checkpoint(); check(bytes[8] == 6, "Interval kernel checkpoint lacks versioned setting");
     const auto restored = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, bytes);
-    check(restored.settings().numerical_kernel == MacNumericalKernel::interval_audited && restored.checkpoint() == bytes, "Interval checkpoint lost kernel or state");
-    const auto warm = next.world.advanced(continuation), cold = restored.advanced(continuation);
+    check(restored.settings().numerical_kernel == MacNumericalKernel::production && restored.checkpoint() == bytes, "Interval checkpoint lost kernel or state");
+    const auto warm = next.world.advanced(continuation);
+    const auto cold = std::async(std::launch::async, [&] { return restored.advanced(continuation); }).get();
     check(warm.world.checkpoint() == cold.world.checkpoint(), "Restored interval continuation differs");
     if (id >= 5) {
         check(next.report.interval_multigrid_solves > 0 && next.report.interval_multigrid_levels >= 2 && next.report.interval_multigrid_fallbacks == 0 &&
@@ -132,7 +138,7 @@ void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
             << next.report.interval_multigrid_levels << ' ' << next.report.interval_topology_builds << ' ' << warm.report.interval_topology_builds << ' '
             << cold.report.interval_topology_builds << ' ' << difference << " 1\n";
     }
-    export_interval(id, owner, next); std::cout << "ICOMPARISON " << id << ' ' << maximum << " 1\n";
+    export_audit(id, saved_audit); export_interval(id, owner, next); std::cout << "ICOMPARISON " << id << ' ' << maximum << " 1\n";
 }
 void audit_boundaries() {
     using interval_detail::Account;
@@ -172,9 +178,29 @@ void fallback_and_rollback() {
         const MacClosedWorld owner(fixture.registry, fixture.eos, input, s); const auto held = owner.checkpoint(); const auto next = owner.advanced(.00001);
         s.numerical_kernel = MacNumericalKernel::reference; const MacClosedWorld reference(fixture.registry, fixture.eos, input, s);
         const auto expected = reference.advanced(.00001);
-        check(next.report.interval_reference_fallbacks == 1 && next.report.interval_kernel_intervals == 0 &&
-            ma::testing::fingerprint(next.world.state()) == ma::testing::fingerprint(expected.world.state()) && owner.checkpoint() == held,
-            "Interval fallback changed selected reference physics or source state");
+        double maximum = 0;
+        for (std::size_t i = 0; i < input.cells.size(); ++i) if (input.cells[i].mixture.mass() > 0) {
+            const auto a = fixture.eos->evaluate(next.world.state().cells[i].mixture, 1), b = fixture.eos->evaluate(expected.world.state().cells[i].mixture, 1);
+            maximum = std::max({maximum, std::abs(a.temperature_k - b.temperature_k) / 300, std::abs(a.mechanical_pressure_pa - b.mechanical_pressure_pa) / 20});
+            for (std::size_t k = 0; k < fixture.registry.size(); ++k) if (input.cells[i].mixture.masses[k] > 0)
+                maximum = std::max(maximum, std::abs(next.world.state().cells[i].mixture.masses[k] - expected.world.state().cells[i].mixture.masses[k]) / input.cells[i].mixture.masses[k]);
+        }
+        check(next.report.interval_reference_fallbacks == 0 && next.report.interval_kernel_intervals == 1 && maximum < 1e-8 && owner.checkpoint() == held,
+            "New production admission changed selected reference physics or source state");
+    }
+    std::cout << "IADMISSION 4 1\n";
+    for (int id = 0; id < 3; ++id) {
+        auto s = settings();
+        if (id == 0) s.reconstruction = MacMaterialReconstruction::swept_first_moment;
+        if (id == 1) s.momentum_reconstruction = MacMomentumReconstruction::quadratic_limited_linear;
+        if (id == 2) s.compression_viscosity = MacCompressionViscosity::coupled_pressure;
+        const auto input = scene(4, 3, true); const MacClosedWorld owner(fixture.registry, fixture.eos, input, s);
+        const auto held = owner.checkpoint(); const auto actual = owner.advanced(.00001);
+        s.numerical_kernel = MacNumericalKernel::reference;
+        const auto expected = MacClosedWorld(fixture.registry, fixture.eos, input, s).advanced(.00001);
+        check(actual.report.interval_reference_fallbacks == 1 && actual.report.interval_kernel_intervals == 0 &&
+            ma::testing::fingerprint(actual.world.state()) == ma::testing::fingerprint(expected.world.state()) && owner.checkpoint() == held,
+            "Unported production selector changed reference physics or source state");
     }
     auto input = scene(4, 3, true); for (auto& j : input.momentum_x) j *= 1e6;
     auto s = settings(); s.maximum_timestep_s = 1;
@@ -183,13 +209,13 @@ void fallback_and_rollback() {
     check(failed && owner.checkpoint() == held, "Exhausted interval published a partial candidate");
     auto bad = settings(); bad.numerical_kernel = static_cast<MacNumericalKernel>(99); failed = false;
     try { bad.validate(); } catch (const std::invalid_argument&) { failed = true; }
-    check(failed, "Invalid interval kernel setting admitted"); std::cout << "IFALLBACK 4 1\n";
+    check(failed, "Invalid interval kernel setting admitted"); std::cout << "IFALLBACK 3 1\n";
     const auto bytes = MacClosedWorld(fixture.registry, fixture.eos, scene(4, 3, true), settings()).checkpoint();
     std::size_t model_bytes = 0;
     for (std::size_t k = 0; k < 4; ++k) model_bytes |= static_cast<std::size_t>(bytes[12 + k]) << (8 * k);
     const auto kernel_offset = 16 + model_bytes + 103;
-    check(bytes.at(kernel_offset) == 1, "Checkpoint control missed version-4 kernel field");
-    for (const std::uint32_t value : {0U, 99U}) {
+    check(bytes.at(kernel_offset) == 2, "Checkpoint control missed version-6 kernel field");
+    for (const std::uint32_t value : {0U, 1U, 99U}) {
         auto corrupt = bytes;
         for (std::size_t k = 0; k < 4; ++k) corrupt[kernel_offset + k] = static_cast<std::uint8_t>(value >> (8 * k));
         std::uint64_t checksum = 14695981039346656037ULL;
@@ -202,18 +228,26 @@ void fallback_and_rollback() {
     auto viscous = settings(); viscous.viscosity = {.1, .2};
     const auto viscous_bytes = MacClosedWorld(fixture.registry, fixture.eos, scene(4, 3, true), viscous).checkpoint();
     check(MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, viscous_bytes).checkpoint() == viscous_bytes,
-        "Version-4 viscosity/settings continuation lost identity");
-    std::cout << "ISAVEGUARDS 3 1\n";
+        "Version-6 viscosity/settings continuation lost identity");
+    std::cout << "ISAVEGUARDS 4 1\n";
     auto models = fixture.eos->reference().materials();
     for (auto& model : models) if (model.phase == ReferencePhase::ideal_gas) model.minimum_temperature_k = 300 - 1e-12;
     const auto boundary_eos = std::make_shared<const FluidThermodynamics>(fixture.registry, "interval-thermal-boundary-v1", models);
     const MacClosedWorld boundary(fixture.registry, boundary_eos, fixture.state(4, 3, true), settings());
-    const auto boundary_before = boundary.checkpoint(); const auto boundary_after = boundary.advanced(.001);
+    const auto boundary_before = boundary.checkpoint();
+    const auto certified = boundary.advanced(.001);
+    check(certified.report.exact_equilibrium_intervals == 1, "Exact material boundary equilibrium was not certified");
+    const auto boundary_after = advance_mac_production(boundary, .001, 4096, {});
     check(boundary_after.report.interval_reference_fallbacks == 1 && boundary.checkpoint() == boundary_before,
         "Uncertain material temperature boundary did not refine through reference EOS");
     std::cout << "IEOSGUARD 1 1\n";
     auto ranged = scene(4, 3, true);
     for (auto& c : ranged.cells) c.mixture.masses[fixture.registry.index("helium")] = 0x1p-450;
+    const MacClosedWorld trace_owner(fixture.registry, fixture.eos, ranged, settings());
+    const auto trace_after = trace_owner.advanced(.00001);
+    check(trace_after.report.interval_kernel_intervals == 1 && trace_after.report.interval_reference_fallbacks == 0,
+        "Below-range transfers declined production admission");
+    for (auto& cell : ranged.cells) cell.passive_quantities.front().quantity = 0x1p450;
     const MacClosedWorld ranged_owner(fixture.registry, fixture.eos, ranged, settings()); const auto ranged_held = ranged_owner.checkpoint();
     failed = false;
     try { static_cast<void>(ranged_owner.advanced(.00001, 1)); } catch (const std::runtime_error&) { failed = true; }
@@ -252,7 +286,7 @@ void endurance() {
     check(energy.within_bound(), "10000-step endpoint energy account failed");
     final.report.energy_residual_j = energy.residual().project().value; final.report.energy_bound_j = energy.bound().project().value;
     final.report.entropy_change_j_per_k = entropy.value(); final.report.entropy_roundoff_j_per_k = allowance.value();
-    export_interval(3, initial, final); std::cout << "IENDURANCE 10000 1\n";
+    std::cout << "IOPERANDS 3 0 0\n"; export_interval(3, initial, final); std::cout << "IENDURANCE 10000 1\n";
 }
 void catalogue() {
     SpeciesRegistry registry; std::vector<ReferenceMaterial> models;
@@ -273,6 +307,7 @@ void catalogue() {
     }
     input.momentum_x.assign(80, .01); input.momentum_y.assign(80, -.02);
     const MacClosedWorld owner(registry, eos, input, settings()); const auto next = owner.advanced(.005);
+    export_audit(4, last_mac_production_report());
     check(next.report.interval_kernel_intervals == 1, "Catalogue-size scene declined interval kernel");
     const auto restored = MacClosedWorld::from_checkpoint(registry, eos, next.world.checkpoint());
     check(next.world.advanced(.001).world.checkpoint() == restored.advanced(.001).world.checkpoint(), "Large catalogue continuation differs");
@@ -289,31 +324,24 @@ void cache_reuse_controls() {
     definitions.push_back(extra);
     const auto model = std::make_shared<const FluidThermodynamics>(fixture.registry, "interval-cache-schema-v1", definitions);
     const auto input = scene(19, 17, true), changed = scene(18, 17, true);
-    MacIntervalCache cache; std::size_t attempts = 0;
-    const auto first = advance_mac_interval_kernel(fixture.registry, *model, input, s, .01, 4096, attempts, &cache);
-    check(first.has_value(), "Initial topology cache control declined");
-    const auto expected = MacClosedWorld(fixture.registry, model, first->state, s).checkpoint();
-    auto reject = [&](const MacTransportState& other) {
-        attempts = 123;
-        const auto candidate = advance_mac_interval_kernel(fixture.registry, *model, other, s, .01, 4096, attempts, &cache);
-        check(!candidate && attempts == 0, "A stale transport topology was reused for changed geometry");
+    const auto advance = [&](const SpeciesRegistry& registry, const auto& eos, const MacTransportState& state) {
+        return MacClosedWorld(registry, eos, state, s).advanced(.01).world.checkpoint();
     };
-    reject(changed);
-    auto rescaled = input; rescaled.grid.depth_m = 2; reject(rescaled);
-    reject(scene(19, 17, true, true));
+    const auto fresh = [&](const SpeciesRegistry& registry, const auto& eos, const MacTransportState& state) {
+        return std::async(std::launch::async, [&] { return advance(registry, eos, state); }).get();
+    };
+    const auto expected = advance(fixture.registry, model, input);
+    auto rescaled = input; rescaled.grid.depth_m = 2;
+    for (const auto& other : {changed, rescaled, scene(19, 17, true, true)})
+        check(advance(fixture.registry, model, other) == fresh(fixture.registry, model, other),
+            "Changed geometry reused stale production topology");
     auto expanded = input;
     auto masses = expanded.cells[7].mixture.masses;
     masses[fixture.registry.index("carbon_dioxide")] = .01;
     expanded.cells[7].mixture = model->initialize_at_temperature(masses, 300, 1).mixture;
     expanded.cells[7].passive_quantities.push_back({radiation_passive_identity, 1e-30});
-    MacIntervalCache fresh; std::size_t fresh_attempts = 0;
-    const auto expected_expanded = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, fresh_attempts, &fresh);
-    attempts = 0;
-    const auto reused_expanded = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, attempts, &cache);
-    check(expected_expanded && reused_expanded &&
-        MacClosedWorld(fixture.registry, model, reused_expanded->state, s).checkpoint() ==
-            MacClosedWorld(fixture.registry, model, expected_expanded->state, s).checkpoint(),
-        "Changed constituent/passive layout reused stale field columns");
+    const auto expected_expanded = fresh(fixture.registry, model, expanded);
+    check(advance(fixture.registry, model, expanded) == expected_expanded, "Changed inventory reused stale field columns");
     SpeciesRegistry replacement_registry;
     for (auto species : fixture.registry.all()) {
         if (species.id == "nitrogen") species.cp *= 1.01;
@@ -324,22 +352,10 @@ void cache_reuse_controls() {
         definition.cv_j_per_kg_k = species.cv(); definition.energy_offset_j_per_kg = species.internal_energy(0);
     }
     const auto replacement = std::make_shared<const FluidThermodynamics>(replacement_registry, "interval-cache-caloric-v1", definitions);
-    MacIntervalCache replacement_fresh; fresh_attempts = attempts = 0;
-    const auto expected_replacement = advance_mac_interval_kernel(replacement_registry, *replacement, expanded, s, .01, 4096, fresh_attempts, &replacement_fresh);
-    const auto reused_replacement = advance_mac_interval_kernel(replacement_registry, *replacement, expanded, s, .01, 4096, attempts, &cache);
-    check(expected_replacement && reused_replacement &&
-        MacClosedWorld(replacement_registry, replacement, reused_replacement->state, s).checkpoint() ==
-            MacClosedWorld(replacement_registry, replacement, expected_replacement->state, s).checkpoint(),
+    check(advance(replacement_registry, replacement, expanded) == fresh(replacement_registry, replacement, expanded),
         "Changed material properties reused stale caloric coefficients");
-    attempts = 0;
-    const auto restored_model = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, attempts, &cache);
-    check(restored_model && MacClosedWorld(fixture.registry, model, restored_model->state, s).checkpoint() ==
-        MacClosedWorld(fixture.registry, model, expected_expanded->state, s).checkpoint(),
-        "Restoring material properties retained another model's field mapping");
-    attempts = 0;
-    const auto again = advance_mac_interval_kernel(fixture.registry, *model, input, s, .01, 4096, attempts, &cache);
-    check(again && MacClosedWorld(fixture.registry, model, again->state, s).checkpoint() == expected,
-        "Declined geometry reuse contaminated the original cached continuation");
+    check(advance(fixture.registry, model, expanded) == expected_expanded && advance(fixture.registry, model, input) == expected,
+        "Restoring schema retained stale material properties or geometry");
 }
 void concurrent_continuation() {
     const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
@@ -428,7 +444,7 @@ int main(int argc, char** argv) {
             check(static_cast<bool>(file), "Cannot read test checkpoint");
             const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
             const auto owner = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, bytes);
-            check(owner.settings().numerical_kernel == MacNumericalKernel::interval_audited, "Continuation lost interval setting");
+            check(owner.settings().numerical_kernel == MacNumericalKernel::production, "Continuation lost interval setting");
             const auto next = owner.advanced(mg ? .01 : .003); check(next.report.interval_kernel_intervals == 1, "Continuation left interval kernel");
             check(!mg || next.report.interval_multigrid_solves > 0, "Checkpoint continuation did not use multigrid");
             write_image(next.world, argv[3]); export_state(9, 1, next.world); return 0;
@@ -439,10 +455,10 @@ int main(int argc, char** argv) {
             const double dt = argc == 6 ? std::stod(argv[5]) : .01;
             benchmark(w, h, count, dt, std::string_view(argv[1]) == "--reference-benchmark", std::string_view(argv[1]) == "--jacobi-benchmark"); return 0;
         }
-        check(argc == 1, "Unknown interval kernel test arguments"); audit_boundaries();
+        check(argc == 1, "Unknown production saved-test arguments"); audit_boundaries();
         compare(0, 12, 4, true, false); compare(1, 9, 5, false, true); compare(2, 7, 1, false, false);
         compare(5, 16, 16, true, false); compare(6, 19, 17, false, true);
         cache_reuse_controls(); concurrent_continuation();
-        fallback_and_rollback(); endurance(); catalogue(); std::cout << "PASS interval kernel, reference comparisons, audited accounts and continuation\n"; return 0;
+        fallback_and_rollback(); endurance(); catalogue(); std::cout << "PASS production kernel, saved accounts, reference comparisons and continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

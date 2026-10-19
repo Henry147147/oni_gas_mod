@@ -1,22 +1,13 @@
 # Production timestep implementation progress
 
-2026-10-18. This implements part of the first milestone in the accepted
-[real-time completion plan](completion-plan.md). The complete overhaul and
-milestone A's physics/scaling exit remain unfinished. Normal colony activation
-and release packaging have not been enabled.
+This document records the earlier timestep work and measurements. Current
+milestone B implementation and validation are in [MAC_KERNEL.md](../native/MAC_KERNEL.md).
+The first interval port is retired; production selection 2 uses its geometric
+multigrid and saved reviewers. Larger calm steps, local subcycling, physics
+acceptance, real-time colony execution and normal activation remain open.
 
-## Implemented
+## Earlier implementation and measurements
 
-- The opt-in [interval-audited kernel](../native/MAC_INTERVAL_KERNEL.md) now ports
-  the existing donor-cell ideal-gas pressure/transport laws to reusable field
-  buffers and a matrix-free pressure operator. It audits conserved inventories,
-  impulses, energy and entropy before publication, preserves every selected
-  physical law through explicit reference fallback, and persists its numerical
-  implementation in checkpoint version 4. Same-platform continuation, 81-species
-  and 82-passive controls, and 10,000 closed steps pass. Initial 250,000-cell
-  timing is about 10.2 s per 0.1 simulated seconds on one core, still 163 times
-  over the target. Default selectors, strong-flow acceptance and normal colony
-  activation remain open.
 - Compiler/linker-checked IPO defaults on for Release and RelWithDebInfo.
   `-DMA_ENABLE_IPO=OFF` retains a comparison build. Sanitizers disable IPO;
   sanitizer flags now precede every target, fixing missing runtime linkage in

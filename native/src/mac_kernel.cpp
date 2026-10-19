@@ -311,7 +311,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     const auto audit_start = Clock::now();
     const auto t0 = totals(c, w.start, -1);
     for (const auto& q : t0) if (!q.ordinary) throw RangeFlag{0};
-    DD s0; double allowance0 = 0; entropy(c, w.start, s0, allowance0);
+    DD s0; double allowance0 = 0;
+    try { entropy(c, w.start, s0, allowance0); } catch (const EosRefinement&) { throw RangeFlag{0}; }
     report.timing.audit_ms += since(audit_start);
     double maximum_dt = settings.maximum_timestep_s;
     for (std::size_t audit_attempt = 0;; ++audit_attempt) {
@@ -337,6 +338,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     report.minimum_timestep_s = std::min(report.minimum_timestep_s, dt);
                     report.maximum_timestep_s = std::max(report.maximum_timestep_s, dt);
                     next_dt = std::min(maximum_dt, 2 * dt); accepted = true;
+                } catch (const EosRefinement&) {
+                    throw RangeFlag{report.attempts};
                 } catch (const std::domain_error& error) {
                     if (kernel_debug()) std::fprintf(stderr, "reject t=%.17g dt=%.17g: %s\n", time, dt, error.what());
                     ++report.rejected_attempts; dt *= .5;
@@ -369,6 +372,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             const double error = 64 * e * e * (static_cast<double>(total.count) + 1) * scale + 16 * e * (std::abs(residual) + bound);
             const double margin = bound - std::abs(residual);
             MacKernelAudit a; a.quantity = quantity_name(c, q); a.residual = residual; a.bound = bound; a.rounding_allowance = acc.rounding[q];
+            a.stage_operand_magnitude = acc.operands[q]; a.below_range_allowance = tiny_allowance;
             if (total.ordinary && std::isfinite(scale) && std::isfinite(residual) && total.count < (std::size_t{1} << 26) &&
                 (margin > error || margin < -error)) a.passed = margin > error;
             else {
@@ -382,7 +386,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             if (q == c.q_energy()) { report.energy_residual_j = residual; report.energy_bound_j = bound; }
             report.audits.push_back(std::move(a));
         }
-        DD s1; double allowance1 = 0; entropy(c, w.current, s1, allowance1);
+        DD s1; double allowance1 = 0;
+        try { entropy(c, w.current, s1, allowance1); } catch (const EosRefinement&) { throw RangeFlag{report.attempts}; }
         DD change = s1; change.add(-s0.hi); change.add(-s0.lo);
         report.entropy_change_j_per_k = change.value();
         report.entropy_allowance_j_per_k = 128 * eps * (allowance0 + allowance1);

@@ -28,12 +28,6 @@ struct MacKernelOptions {
     // Numerical choices belong to MacClosedSettings and its checkpoint.
     // Automatic preconditioning uses geometric multigrid on large systems;
     // explicit Jacobi remains available through the saved pressure setting.
-    // Execution-only, process default off: when the persisted
-    // MacNumericalKernel::interval_audited port declines a configuration it
-    // has not ported (before consuming attempts), the production kernel takes
-    // it if mac_kernel_supports/mac_kernel_normal_range admit it, instead of
-    // the reference. Off keeps de805b7's fallback behaviour byte for byte.
-    bool extend_interval_admission = false;
     // Diagnostics only: wall-clock stage timing (does not affect results).
     bool collect_stage_timing = false;
     void validate() const;
@@ -56,6 +50,9 @@ struct MacKernelAudit {
     // could not decide and exact expansions decided instead.
     std::string quantity;
     double residual = 0, bound = 0, rounding_allowance = 0;
+    // Saved-data reviewers recompute the bound from independent endpoints
+    // and this counted stage magnitude (entered as a cancelling pair).
+    double stage_operand_magnitude = 0, below_range_allowance = 0;
     bool passed = false, escalated = false;
 };
 struct MacKernelStageTiming {
@@ -78,7 +75,7 @@ struct MacKernelReport {
     // Retained kernel workspace (field banks and scratch) after the interval.
     std::size_t workspace_bytes = 0;
     // The interval ran through the reference implementation because an input
-    // or endpoint value was outside the normal binary64 range.
+    // or endpoint required full-range or material-boundary refinement.
     bool reference_fallback = false;
     double maximum_volume_closure = 0, minimum_timestep_s = 0, maximum_timestep_s = 0;
     double mixing_heat_j = 0, wall_heat_j = 0, compression_heat_j = 0, shock_heat_transfer_j = 0;

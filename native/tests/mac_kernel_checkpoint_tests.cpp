@@ -32,9 +32,16 @@ void rejects(const std::vector<std::uint8_t>& bytes) {
 std::vector<std::uint8_t> legacy_image(int id) {
     const auto& s = setup(); auto settings = MacClosedSettings{};
     if (id == 1 || id == 5) settings.viscosity = {.1, .2};
-    if (id == 2 || id >= 4) settings.numerical_kernel = MacNumericalKernel::interval_audited;
     if (id >= 3) settings.diffusion = {id == 3 ? MacDiffusionMode::physical : MacDiffusionMode::accelerated, id == 3 ? 1. : 100.};
-    return MacClosedWorld(s.registry, s.eos, s.state(4, 3, false, false, true), settings).checkpoint();
+    auto bytes = MacClosedWorld(s.registry, s.eos, s.state(4, 3, false, false, true), settings).checkpoint();
+    // Synthesize the historical wire selector without constructing a retired
+    // owner. These six images must still match the pre-retirement writer.
+    if (id == 2) {
+        const auto viscosity_at = kernel_offset(bytes) - 16;
+        bytes.insert(bytes.begin() + static_cast<std::ptrdiff_t>(viscosity_at), 20, 0);
+        put(bytes, 8, 4, 4); put(bytes, kernel_offset(bytes), 1, 4); seal(bytes);
+    } else if (id >= 4) { put(bytes, kernel_offset(bytes), 1, 4); seal(bytes); }
+    return bytes;
 }
 void continuation(Scene scene, MacDiffusionSettings diffusion, PressurePreconditioner preconditioner) {
     const auto& s = setup();
@@ -69,8 +76,8 @@ void continuation(Scene scene, MacDiffusionSettings diffusion, PressurePrecondit
 int main(int argc, char** argv) {
     try {
         const auto& s = setup();
-        // A comparison harness also compiles legacy_image against the previous
-        // commit and compares every byte of these six version-2/3/4/5 images.
+        // The comparison harness checks every byte against images written by
+        // the pre-retirement version-2/3/4/5 writer.
         if (argc == 3 && std::string(argv[1]) == "--write-legacy") {
             const std::filesystem::path directory(argv[2]); std::filesystem::create_directories(directory);
             for (int id = 0; id < 6; ++id) {
@@ -99,6 +106,21 @@ int main(int argc, char** argv) {
         check(cert_image[8] == 6 && certified.report.exact_equilibrium_intervals == 1 &&
             cert_restore.advanced(.1).world.checkpoint() == certified.world.advanced(.1).world.checkpoint(),
             "Certified production checkpoint lost exact continuation");
+        for (int id = 0; id < 6; ++id) {
+            const auto legacy = legacy_image(id);
+            if (id == 2 || id >= 4) {
+                bool retired = false;
+                try { static_cast<void>(MacClosedWorld::from_checkpoint(s.registry, s.eos, legacy)); }
+                catch (const std::invalid_argument& e) { retired = std::string(e.what()).find("retired") != std::string::npos; }
+                check(retired, "Legacy kernel-1 image was not explicitly rejected as retired");
+            } else check(MacClosedWorld::from_checkpoint(s.registry, s.eos, legacy).checkpoint() == legacy,
+                "Supported legacy reference image changed bytes");
+        }
+        auto retired_settings = MacClosedSettings{}; retired_settings.numerical_kernel = MacNumericalKernel::retired_interval_audited;
+        bool retired = false;
+        try { retired_settings.validate(); } catch (const std::invalid_argument&) { retired = true; }
+        check(retired, "Retired kernel selection was admitted by the owner");
+        std::cout << "PASS legacy reference bytes and explicit retirement of version-4/5 kernel 1\n";
         // Well-checksummed malformed values must reach semantic admission.
         const auto offset = kernel_offset(cert_image);
         for (const auto value : {0U, 1U, 3U, 99U, UINT32_MAX}) {

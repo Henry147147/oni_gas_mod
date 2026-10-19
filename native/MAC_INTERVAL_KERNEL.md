@@ -1,177 +1,35 @@
-# Interval-audited kernel
+# Retired interval kernel
 
-`MacClosedSettings::numerical_kernel = MacNumericalKernel::interval_audited`
-selects the first port of the accepted production numerical contract inside
-`MacClosedWorld`. The default remains `reference`. This is an intermediate
-implementation; neither the strong-flow nor real-time colony gate is complete.
+The first donor-cell ideal-gas interval port (numerical selector 1) is retired.
+Its solver, owner cache and admission bridge have been removed. The consolidated
+[production kernel](MAC_KERNEL.md) uses the ported [geometric multigrid](MAC_MULTIGRID.md)
+and saved-data controls, with broader physical coverage and one production pool.
+The strict per-stage reference remains the validation oracle.
 
-## Implemented path
+Selector 1 is reserved as `MacNumericalKernel::retired_interval_audited` and
+rejects on construction. Native checkpoint version 4 and version-5 images carrying
+selector 1 reject explicitly as retired; they are never reinterpreted as selector
+2. Versions 2/3 and version-5 reference images retain their bytes and continuation.
+Production selection 2 uses [version 6](MAC_CHECKPOINT.md#version-assignment).
 
-The first admission is occupied, constant-property ideal-gas mixtures with
-material and momentum selectors 0, compression and shock-heat selectors 0,
-zero gravity, disabled physical viscosity/conduction, and automatic or Jacobi
-preconditioning. These are the existing donor-cell physical laws. Selecting
-this kernel never changes a physical selector to obtain a faster result.
-Adding a physical setting must extend the admission predicate and checkpoint
-schema; an unported enabled process must select the reference path.
+`ma_mac_kernel_saved_tests` preserves the original seven scientific scenes:
+periodic gas, walls, a one-dimensional strip, 10,000 closed steps, 81 species/82
+passives, periodic multigrid and disconnected multigrid. Its independent reader
+`review_mac_kernel.py` keeps the original strict endpoint inventory, impulse,
+U+K and entropy bounds, in addition to checking the production report's counted
+stage magnitudes and below-range operand allowance. It rejects seven altered
+captures. Cache controls compare fresh-thread storage with changed geometry,
+constituent/passive layouts and caloric models, plus concurrent related owners
+and continued execution after heat/mass edits.
 
-The port uses reusable contiguous field columns, two candidate banks, cached
-topology and analytic gas responses. Only present species and passive
-identities have columns. Their number is unbounded by a development catalogue
-limit, but each present column currently spans the grid. Spatial block sparsity
-and eliminating copies of the authoritative owner remain open.
+The former fallback scenes (limited reconstruction, subnormal traces, mixtures
+and empty cells) retain their inputs and now exercise production admission.
+Unported physical selectors still use the audited reference. Near temperature
+or caloric boundaries, ordinary EOS arithmetic requests reference refinement;
+a certified exact static state can advance unchanged. A genuine mid-interval
+range flag must charge discarded attempts and preserve rollback.
 
-Candidate banks, thermodynamic readings and pressure/transport scratch arrays
-are retained between intervals. Related owners keep at most one idle field
-workspace; concurrent branches borrow separate storage. Every borrow restores
-fresh-buffer values, including wall entries, and repacks the actual source.
-Present species, exact gas-property bits and passive identities form the field
-schema: changes rebuild storage before use. Rejected attempts can return scratch
-storage, but their values never become initial guesses or physical history.
-Failure to retain an idle block only loses a future allocation optimization.
-
-Primal/dual transport connectivity is retained across related owners, alongside
-the pressure hierarchy. Its immutable grid is owned by the cache, so destroying
-the source owner cannot leave a dangling grid reference. Heat and inventory
-changes retain this connectivity. Changed dimensions, spacing, depth, periodicity
-or wall masks require a fresh cache; an internal stale-cache request declines
-before consuming an attempt. Constructors and checkpoint restores create fresh
-caches. Neither topology nor numerical workspace state is physical save history.
-Source-lifetime, stale-geometry and continuation controls pass native Release,
-ASan/UBSan, ThreadSanitizer and Windows-target Wine runs. Saved output and the
-33,153-cell continuation with one, four and twelve workers remain unchanged.
-The concurrent heated/unheated branch comparison also uses this odd, periodic
-33,153-cell grid with a solid corner. Schema controls add CO₂ and passive
-metadata, use a different valid registry/EOS pair, restore the original mapping
-and compare each result against fresh storage. The 81-species/82-passive and
-10,000-step controls retain their original accounts and output.
-
-The nonlinear pressure equation uses continuous work-pressure increments and
-analytic isentropic secants/tangents. A matrix-free PCG operator solves
-each Newton correction, with an automatic [geometric multigrid preconditioner](MAC_MULTIGRID.md)
-for coupled large grids and retained explicit Jacobi. Midpoint sweeps define the material volumes; pressure
-work uses those actual sweeps. Material quantities use one shared flux per
-primal face. Normal momentum uses the original compatible primal-to-dual mass
-fluxes, including transverse edges. Positive mixing variance and fixed-wall
-kinetic removal heat the adjacent material inventory. U stays primary; it is
-never recovered by subtracting kinetic energy from a scalar total energy.
-
-Trials reuse their buffers. A failed trial cannot alter the accepted bank.
-CFL/domain rejection halves the timestep under the shared attempt budget. A
-failed interval audit discards the entire interval and retries from its original
-state with a smaller maximum step. Discarded attempts also consume the budget
-when a mid-interval range flag requests the reference implementation. No
-candidate is published before the audits.
-
-## Admission, auditing and continuation
-
-A conservative normal-range check flags operands outside `2^-450..2^450`,
-uncertain caloric cancellation, unsupported EOS/topology or an unported
-selector. A flag restarts the entire interval with the retained reference
-implementation. Full canonical fields and subnormal traces take this path.
-There is no trace cutoff, mass floor, clipping or renormalization. Rounding in
-primary gathers is counted; unresolved primary updates are counted separately.
-Discarded third components remain tagged even if later additions cancel the
-surviving double-double tail.
-The first port does not yet use the permission to round below-range transfers.
-
-Pressure differences, geometric residuals and primary-field gathers seed their
-accumulators directly from an already checked finite first operand. This removes
-the error-free addition against zero; subsequent two-sum operations and discarded
-component flags are unchanged. Native and ASan output remains byte-identical to
-the preceding binary, as does the Windows-target output on Wine. A 33,153-cell
-continuation with one, four and twelve workers and the Windows-target four-worker
-continuation retain the preceding checkpoint bytes. These arithmetic controls
-do not establish the colony timing gate.
-
-Every constituent and passive quantity, both momentum components with wall
-impulses, and actual endpoint U+K must reconcile within `128 epsilon` times
-their absolute endpoint operands. Normal accounts use double-double sums. An
-outward error envelope covers discarded components and the final comparison;
-an undecidable comparison replays the original operands into `MacEnergyAccount`.
-The reference fallback also checks the opted-in interval accounts, including
-gravity and body impulses, rather than relying only on its stage checks.
-
-The gas path computes relative ideal-mixture entropy from actual endpoint
-caloric increments and constituent changes, including newly arriving species.
-The interval rejects a decrease beyond `128 epsilon sum(|U|/T)`. This avoids
-subtracting nearly equal absolute entropies in the ordinary path. A separate
-numerical uncertainty estimate requests extended reference evaluation when it
-could change the entropy decision; it never enlarges the physical allowance.
-Pressure iterations also enforce the material temperature domain, refining near
-its boundaries.
-
-The kernel selection is persisted in checkpoint version 4, together with both
-viscosity coefficients and all existing settings. Versions 2 and 3 retain their
-previous bytes and meanings. Unsupported kernel/version values reject. There
-is no scheduling history beyond the saved physical state/settings in this
-initial serial kernel; checkpoint continuation is exact on the same build.
-
-## Verification and measurement
-
-`ma_mac_interval_kernel_tests` compares the port against identical reference
-selectors in periodic 2-D, closed 2-D with an interior solid, and closed 1-D
-scenes, including multigrid-sized periodic and disconnected domains. Native
-controls cover exact checkpoint continuation,
-failed-budget atomicity, invalid settings, reference fallback, 518 account
-boundary/range decisions, 81 present species, 82 passive identities and 10,000
-closed-system steps.
-
-`review_mac_interval_kernel.py` independently recomputes the saved inventories,
-EOS, entropy and U+K at 100 decimal digits or as exact fractions. It checks
-traces without an absolute allowance and rejects five altered captures. It
-does not run native code. This evidence covers the selected port, not the
-original strong-flow gate or a playable colony.
-
-Each saved-data interval review now passes 105,931 checks and rejects five altered captures.
-The native controls and saved-data reviews pass on GNU/Linux, fatal ASan/UBSan,
-and MinGW Windows binaries under Wine. Linux/Wine continuation from each
-platform's gas checkpoint agrees byte for byte (480 inspected numeric fields
-per source). This is distinct from Windows OS evidence and does not close the
-existing liquid cross-platform continuation failure. The separate
-[multigrid controls](MAC_MULTIGRID.md) verify periodic and disconnected
-hierarchies, coefficient replacement and cache-independent continuation.
-
-Build and review:
-
-```sh
-cmake --build build-production --target ma_mac_interval_kernel_tests
-build-production/ma_mac_interval_kernel_tests > interval.stdout
-python3 native/tests/review_mac_interval_kernel.py interval.stdout
-build-production/ma_mac_interval_kernel_tests --benchmark 500 500 5
-```
-
-Benchmark arguments are width, height and measured interval count, followed
-optionally by maximum timestep. One interval warms the solver before measured
-consecutive 0.1 s intervals. `--reference-benchmark` uses identical physical
-selectors through the strict kernel. The output records median/max wall time,
-steps, retries, timestep, implementation and the minimum count of changed cells.
-Packing, owner copies and interval audits are included; requested checkpoint
-serialization, game adapters and rendering are outside this timing.
-
-The GNU 15.2 Release/IPO run on the Ryzen 5900X took 9.51 ms median for
-256 cells and 10,161.31 ms for 250,000 cells, over five intervals at maximum
-dt=0.01 s (55 accepted substeps, no retries). Every cell changed in every
-interval. The identical donor-cell reference configuration took 108.54 ms median
-at 256 cells (50 accepted substeps); its absolute clock avoids the port's tiny
-remainder step on some intervals. The port is about 11 times faster in this
-small comparison; neither timing describes the original higher-order defaults.
-
-That initial 250,000-cell result was about 163 times over the 62.5 ms target. Peak
-standalone resident memory was about 329 MiB, including the test owner and
-buffers, rather than additional memory inside ONI. These samples are not
-performance acceptance: physical
-regularization, higher-order reconstruction, liquids, free surfaces, local
-subcycling, further parallel ports, machines and game rendering
-remain open.
-
-The subsequent [deterministic worker implementation](../docs/interval-parallel-pressure.md)
-parallelizes large pressure and thermodynamic passes while retaining the
-serial arithmetic order within each row and reduction block. It does not
-promote a new physical configuration or close the performance gate.
-
-The subsequent [multigrid and reduction follow-up](MAC_MULTIGRID.md) reduces
-the measured 250,000-cell median to 6,626.66 ms, with no retries or physical
-selector changes. The same fine operator, outer root and interval accounts
-remain in force. This remains about 106 times over the solver-plus-adapter
-budget, before adapters and rendering.
+The old saved reader `review_mac_interval_kernel.py` remains available for
+historical captures; it never launches a solver. Historical measurements of the
+removed port do not certify current active-cell performance. Current reproduction
+and evidence are in [MAC_KERNEL.md](MAC_KERNEL.md#validation).

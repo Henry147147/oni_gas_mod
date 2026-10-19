@@ -22,7 +22,8 @@ enum class MacShockHeatRegularization {
 // Persisted numerical implementation. Values never change meaning. Production
 // keeps selected physical laws through audited reference fallback for unported
 // selectors/range flags; value 1 is the narrower legacy interval port.
-enum class MacNumericalKernel { reference = 0, interval_audited = 1, production = 2 };
+// Value 1 is reserved for the retired interval port and always rejects.
+enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -158,7 +159,6 @@ struct MacClosedAdvance;
 // interval contract. Restored production owners need no execution-policy flag.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
-struct MacIntervalCache;
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
@@ -229,9 +229,6 @@ private:
     std::shared_ptr<const GasTransportProfile> transport_;
     double time_s_ = 0;
     std::uint64_t revision_ = 1;
-    // Derived immutable topology only; numerical workspaces/coefficients are
-    // local to an advance. A geometry-changing operation must replace this.
-    std::shared_ptr<MacIntervalCache> interval_cache_;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
 struct MacFluidTransferResult {

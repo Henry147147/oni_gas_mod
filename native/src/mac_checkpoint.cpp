@@ -94,10 +94,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
-    const bool interval=settings_.numerical_kernel==MacNumericalKernel::interval_audited;
     const bool production=settings_.numerical_kernel==MacNumericalKernel::production;
     const bool diffusive=settings_.diffusion.mode!=MacDiffusionMode::disabled;
-    out.u32(production ? production_format_version : diffusive ? diffusion_format_version : interval ? interval_format_version : viscous ? viscous_format_version : legacy_format_version);
+    out.u32(production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -108,9 +107,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     out.u32(static_cast<std::uint32_t>(settings_.reconstruction)); out.u32(static_cast<std::uint32_t>(settings_.compression_viscosity));
     out.u32(static_cast<std::uint32_t>(settings_.momentum_reconstruction)); out.byte(settings_.thermal_conduction ? 1 : 0);
     out.u32(static_cast<std::uint32_t>(settings_.shock_heat));
-    if (viscous || interval || diffusive || production) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
-    // Versions 5/6 always store the kernel selector; version 4 requires value 1.
-    if (interval || diffusive || production) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
+    if (viscous || diffusive || production) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
+    // Versions 5/6 store the kernel selector; retired version 4 is read-only rejection.
+    if (diffusive || production) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
     if (diffusive || production) {
         out.u32(static_cast<std::uint32_t>(settings_.diffusion.mode));out.number(settings_.diffusion.multiplier);
     }
@@ -161,16 +160,16 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
         if (version==viscous_format_version)
             check(settings.viscosity.shear_pa_s>0 || settings.viscosity.bulk_pa_s>0,"Noncanonical viscosity-disabled checkpoint version");
     }
-    if (version==interval_format_version) {
-        settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
-        check(settings.numerical_kernel==MacNumericalKernel::interval_audited,"Noncanonical saved MAC numerical kernel");
-    }
+    check(version!=interval_format_version,"Saved MAC interval kernel 1 is retired; refusing a changed continuation");
     if(version==diffusion_format_version || version==production_format_version) {
         settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
         if (version==production_format_version)
             check(settings.numerical_kernel==MacNumericalKernel::production,"Noncanonical saved MAC production kernel");
-        else check(settings.numerical_kernel==MacNumericalKernel::reference || settings.numerical_kernel==MacNumericalKernel::interval_audited,
-            "Unsupported saved MAC numerical kernel");
+        else {
+            check(settings.numerical_kernel!=MacNumericalKernel::retired_interval_audited,
+                "Saved MAC interval kernel 1 is retired; refusing a changed continuation");
+            check(settings.numerical_kernel==MacNumericalKernel::reference,"Unsupported saved MAC numerical kernel");
+        }
         settings.diffusion.mode=static_cast<MacDiffusionMode>(in.u32());settings.diffusion.multiplier=in.number();
         check(version==production_format_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
     }

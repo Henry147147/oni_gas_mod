@@ -94,28 +94,20 @@ int main(int argc, char** argv) {
                 m.temperature_k <= .1 && m.pressure_over_disturbance <= .01 && m.oxygen_relative <= .01 && m.constituent_relative <= .01,
                 "production policy composes gas diffusion");
         }
-        // Opt-in extension of the persisted interval kernel's admission: an
-        // unported selector set goes to the production kernel (not the
-        // reference), agreeing with the reference within the tolerances; a
-        // subnormal trace still takes the reference.
+        // Persisted production selection admits the production physical
+        // defaults and below-range traces; flagged large values refine.
         {
-            auto sc = wave(8, 8); sc.settings.numerical_kernel = MacNumericalKernel::interval_audited;
-            const auto source = owner(sc);
-            const auto off = source.advanced(.1);
-            auto options = mac_kernel_default_options(); options.extend_interval_admission = true;
-            set_mac_kernel_default_options(options);
-            const auto on = source.advanced(.1);
-            // Below-range traces are admitted (counted rounding); an
-            // overflow-range stored amount takes the reference.
+            auto sc = wave(8, 8);
+            const auto off = owner(sc).advanced(.1);
+            sc.settings.numerical_kernel = MacNumericalKernel::production;
+            const auto on = owner(sc).advanced(.1);
             auto trace = sc; for (auto& cell : trace.state.cells) cell.mixture.masses[s.registry.index("helium")] = 1e-310;
             auto huge = sc; huge.state.cells[0].passive_quantities.back().quantity = 1e200;
             const auto subnormal = owner(trace).advanced(.1);
             const auto flagged = owner(huge).advanced(.1);
-            options.extend_interval_admission = false; set_mac_kernel_default_options(options);
             const auto m = compare(off.world, on.world, sc.disturbance_pa);
-            check(off.report.interval_reference_fallbacks == 1 && on.report.interval_kernel_intervals == 1 &&
-                m.pressure_over_disturbance < 1e-6 && m.temperature_k < 1e-6 && on.world.settings().numerical_kernel == MacNumericalKernel::production,
-                "interval admission extension takes production selectors");
+            check(on.report.interval_kernel_intervals == 1 && m.pressure_over_disturbance < 1e-6 && m.temperature_k < 1e-6 &&
+                on.world.settings().numerical_kernel == MacNumericalKernel::production, "persisted production selects production physics");
             check(subnormal.report.interval_kernel_intervals == 1 && flagged.report.interval_reference_fallbacks == 1 &&
                 flagged.report.interval_kernel_intervals == 0, "below-range admitted, overflow-range keeps the reference fallback");
         }

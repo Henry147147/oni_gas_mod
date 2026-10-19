@@ -30,8 +30,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1 GiB and consists of:
 
 1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
-   reference-kernel viscosity is enabled; 4 for the interval kernel; 5 with gas
-   diffusion, for kernels 0/1; 6 for production kernel 2), and a length-prefixed
+   reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
+   diffusion, historically kernels 0/1; 6 for production kernel 2), and a length-prefixed
    binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -64,27 +64,26 @@ current binary has.
 
 ### Version assignment
 
-Each owner writes the lowest version that represents its settings:
+Reference owners write version 2, 3 or 5 according to their settings; production
+owners write version 6. Retired layouts remain listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
 | --- | --- | --- | --- |
 | 2 | reference | off | off |
 | 3 | reference | on | off |
-| 4 | interval audited (1) | either | off |
-| 5 | reference (0) or interval audited (1) | either | physical or accelerated |
+| 4 | retired interval (1), explicitly rejected | either | off |
+| 5 | reference (0); retired interval (1) explicitly rejected | either | physical or accelerated |
 | 6 | production (2) | either | disabled, physical or accelerated |
 
-Version 4 requires numerical kernel 1 (`interval_audited`). It restores that
-selection before advancing, including when an unsupported state takes the retained
-reference path. Kernel 0 continues to write versions 2/3; a version 4 image with
-kernel 0 or an unknown selector rejects as noncanonical/unsupported.
+Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
+The old wire layout and selector meaning are reserved, never remapped to
+production selection 2. Constructing a selector-1 owner also rejects.
 
-Version 5 requires enabled diffusion, a known kernel selector, the current
-diffusion formulation and an exact matching transport profile, including
-properties and provenance under the same identity. A version 5 image with
-diffusion disabled is noncanonical and rejects. Versions 2–4 explicitly restore
-with diffusion disabled. Mode changes require explicit opt-in at a completed
-simulation boundary; loading a save cannot enable diffusion.
+Version 5 accepts only reference selector 0, enabled diffusion, the current
+formulation and an exact matching transport profile, including properties and
+provenance. Disabled diffusion is noncanonical there. Versions 2/3 restore with
+diffusion disabled. A mode change requires explicit opt-in at a completed
+boundary; loading a supported legacy save never enables diffusion.
 
 Version 6 is canonical only for production kernel 2. Unknown or other
 selectors reject even with a valid checksum; versions 4/5 cannot carry value 2.
@@ -99,26 +98,21 @@ Thread counts and derived hierarchy/workspaces are not saved.
 
 Six synthetic images spanning versions 2, 3, 4 and 5 (including both diffusion
 modes, viscosity and the legacy kernel) remain byte-identical to the earlier
-writer. Their fields and meanings are unchanged. Version-6 gas, liquid,
+writer. Supported reference images restore unchanged; historical selector-1
+images are explicitly rejected instead of silently changing continuation. Version-6 gas, liquid,
 mixture and empty-cell images continue exactly after restore, with all three
 diffusion modes where admitted and both automatic/Jacobi choices. The native
 game owner and managed paired-save reader still use/admit their existing
 reference images; game adoption of version 6 remains milestone B step f.
 
-Neither the interval-kernel version 4 nor diffusion images had been released
-when the two were merged, so diffusion moved from the version 4 it used on its
-development branch to version 5. Main's version-4 bytes are unchanged. Both
-earlier diffusion-branch layouts (formulation 1, and the first formulation-2
-layout without a kernel field) now read as version 4. There their diffusion
-mode lands in the kernel field. An accelerated image (mode 2) rejects as an
-unknown kernel. A physical image (mode 1) passes that check but then reads its
-multiplier's low word (zero) as the cell count, and rejects with "Saved MAC
-geometry disagrees with its payload". Neither can restore under different
-physics. Versions 2 and 3 are unchanged byte for byte.
+Neither the interval-kernel version 4 nor the earlier diffusion-branch images
+had been publicly released. Both earlier diffusion layouts (formulation 1 and
+the first formulation-2 layout without a kernel field) reject as version 4.
+Retirement preserves that rejection. Versions 2 and 3 remain byte-identical.
 
 The managed paired-colony wrapper admits the version 5 metadata prefix for
 ordinary, actor and configured-domain images. Version 4 stays rejected there,
-because the game never selects the interval kernel. Full native admission still
+because the game never selected the retired kernel. Full native admission still
 validates the viscosity values, kernel, diffusion settings and exact transport
 profile against the saved domain before activation. The enclosing paired-payload
 versions and legacy bytes are unchanged, and unknown solver versions reject.

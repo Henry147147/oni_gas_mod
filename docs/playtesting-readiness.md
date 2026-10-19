@@ -129,12 +129,18 @@ also pass collision.
   the budget; timing with current automatic geometric preconditioning is open.
   Geometric multigrid now uses the production pool, with cached geometry and
   pressure-active masks.
-  The new multigrid controls pass Release, Debug ASan/UBSan,
-  ThreadSanitizer and MinGW/Wine; all 44 Release CTests pass. Production
-  selection is persisted in checkpoint version 6; ordinary restore/advance
-  keeps the kernel, saved automatic/Jacobi setting and diffusion mode. Versions
-  2–5 retain their bytes. Saved-endpoint reviews, interval-kernel retirement,
-  calm-region steps and in-game production-kernel use are still open.
+  Production selection persists in checkpoint version 6; ordinary restore keeps
+  the kernel, saved preconditioner and diffusion. The seven original saved-review
+  scenes pass production with unchanged strict endpoint bounds (105,985 checks,
+  seven corruptions rejected on Linux and MinGW/Wine). They exposed a wall-reaction
+  cancellation error, fixed by gathering pressure components before the common
+  timestep/area product. Material-boundary uncertainty requests strict-reference
+  refinement. The old interval solver/cache/bridge are removed; selector-1 owners
+  and saves explicitly reject as retired. All 44 Release CTests, nine ASan/UBSan
+  and MinGW/Wine suites, and four production ThreadSanitizer suites pass. Supported
+  legacy reference images retain their bytes and continuation. Calm-region/local
+  steps, open physics gates,
+  current active-cell timing and in-game production use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without
