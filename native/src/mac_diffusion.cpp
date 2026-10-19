@@ -70,6 +70,7 @@ void check_trial_entropy(const FluidThermodynamics& eos,const MacTransportState&
         const auto& a=before.cells[i].mixture;const auto& b=after.cells[i].mixture;
         const auto ta=eos.evaluate(a,before.grid.volume_m3());const auto tb=eos.evaluate(b,before.grid.volume_m3());
         change.add(tb.entropy_j_per_k);change.add(-ta.entropy_j_per_k);
+        account_mac_cell_entropy_remainder(change,after.cells[i],tb.temperature_k);account_mac_cell_entropy_remainder(change,before.cells[i],ta.temperature_k,-1);
         allowance.add(128*std::numeric_limits<double>::epsilon()*(std::abs(a.energy)/ta.temperature_k+std::abs(b.energy)/tb.temperature_k));
     }
     MacEnergySum balance;balance.add(change.value());balance.add(allowance.value());
@@ -88,7 +89,7 @@ Rates rates(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const
         for(std::size_t k=0;k<ng;++k)if(mixture.masses[gases[k]]>0) {
             c.gas_mass+=mixture.masses[gases[k]];c.moles+=mixture.masses[gases[k]]/registry[gases[k]].molar_mass;c.present.push_back(k);
         }
-        if(c.present.empty()) { require(mixture.energy==0,"Empty diffusion cell holds energy");continue; }
+        if(c.present.empty()) { require(mixture.energy==0 && state.cells[i].energy_remainder_j.is_zero(),"Empty diffusion cell holds energy");continue; }
         require(c.gas_mass>0 && c.moles>0,"Unrepresentable diffusion cell inventory");
         const auto reading=eos.evaluate(mixture,volume);c.temperature=reading.temperature_k;c.pressure=reading.mechanical_pressure_pa;
     }
@@ -260,9 +261,8 @@ MacTransportState apply(const SpeciesRegistry& registry,const FluidThermodynamic
             for(const auto s:gases) { total.add(target.cells[i].mixture.masses[s]);total.add(-source.cells[i].mixture.masses[s]); }
             if(!total.within_bound())throw std::domain_error("Rounded diffusion transfer violates zero net cell mass");
         }
-        MacScaledSum sum;sum.add(source.cells[i].mixture.energy);sum.add(heat[i].value());
-        target.cells[i].mixture.energy=sum.value().require_representable();
-        if(second && !heat[i].value().is_zero() && target.cells[i].mixture.energy==source.cells[i].mixture.energy)++report.unresolved_updates;
+        (void)add_mac_cell_internal_energy(target.cells[i],heat[i].value(),second ? &report.primary_energy : nullptr);
+        if(second && !heat[i].value().is_zero() && same_mac_cell_internal_energy(target.cells[i],source.cells[i]))++report.unresolved_updates;
         (void)eos.evaluate(target.cells[i].mixture,source.grid.volume_m3());
     }
     (void)registry;return target;
@@ -364,7 +364,7 @@ bool mac_diffusion_stationary(const SpeciesRegistry& registry,const MacTransport
         // touching an empty cell carries no flux. Emptiness is examined only
         // when inventories differ, keeping the uniform certificate cheap.
         for(std::size_t s=0;s<registry.size();++s)if(a.masses[s]!=b.masses[s])return a.mass()==0 || b.mass()==0;
-        return a.energy==b.energy;
+        return same_mac_cell_internal_energy(state.cells[l],state.cells[r]);
     };
     for(std::size_t y=0;y<g.height;++y)for(std::size_t x=0;x<g.width;++x) {
         const auto i=x+y*g.width;
@@ -385,7 +385,7 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
         source.grid.walls.size()==source.cells.size() && std::isfinite(source.grid.spacing_m) && std::isfinite(source.grid.depth_m) &&
         std::isfinite(source.grid.volume_m3()) && source.grid.volume_m3()>0 && source.grid.spacing_m>0 && source.grid.depth_m>0,"Invalid diffusion geometry");
     for(std::size_t i=0;i<source.cells.size();++i)require(source.grid.walls[i]<=1 &&
-        source.cells[i].mixture.masses.size()==registry.size(),"Invalid diffusion cell/species coverage");
+        source.cells[i].mixture.masses.size()==registry.size() && canonical_mac_primary(source.cells[i].mixture.energy,source.cells[i].energy_remainder_j),"Invalid diffusion cell/species coverage or primary-U remainder");
     if(settings.mode==MacDiffusionMode::disabled)return {source,{}};
     std::size_t consumed=0;
     if(auto normal=advance_mac_diffusion_normal(registry,eos,source,seconds,settings,profile,budget,rounding_policy,consumed)) {
@@ -415,7 +415,7 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
                 if(second.maximum_diffusivity*dt/(source.grid.spacing_m*source.grid.spacing_m)>.2)throw std::domain_error("Diffusion predictor violates stability bound");
                 auto corrected=apply(registry,eos,result.state,links,gases,first,&second,dt,attempt,rounding_policy,trial_rounding);
                 check_trial_entropy(eos,result.state,corrected);
-                result.state=std::move(corrected);rounding.merge(trial_rounding);result.report.exchanged_mass_kg+=attempt.exchanged_mass_kg;
+                result.state=std::move(corrected);rounding.merge(trial_rounding);result.report.primary_energy.merge(attempt.primary_energy);result.report.exchanged_mass_kg+=attempt.exchanged_mass_kg;
                 result.report.merge_out_of_range(first.range);result.report.merge_out_of_range(second.range);
                 result.report.unresolved_updates+=attempt.unresolved_updates;++result.report.substeps;result.report.faces+=links.size();break;
             }catch(const std::domain_error&) { dt*=.5;++result.report.rejected_attempts; }
@@ -445,7 +445,7 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
             total.add(result.state.cells[i].mixture.masses[s]);total.add(-source.cells[i].mixture.masses[s]);
         }
         if(!total.within_bound())throw std::runtime_error("Diffusion changed a cell's total mass");
-        energy.add(result.state.cells[i].mixture.energy);energy.add(-source.cells[i].mixture.energy);
+        account_mac_cell_internal_energy(energy,result.state.cells[i]);account_mac_cell_internal_energy(energy,source.cells[i],-1);
         // Empty cells have no faces and no defined temperature; they are unchanged.
         if(source.cells[i].mixture.mass()==0) {
             if(result.state.cells[i].mixture.mass()!=0 || result.state.cells[i].mixture.energy!=0)throw std::runtime_error("Diffusion changed an empty cell");
@@ -454,6 +454,7 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
         const auto a=eos.evaluate(source.cells[i].mixture,source.grid.volume_m3());
         const auto b=eos.evaluate(result.state.cells[i].mixture,source.grid.volume_m3());
         entropy_change.add(b.entropy_j_per_k);entropy_change.add(-a.entropy_j_per_k);
+        account_mac_cell_entropy_remainder(entropy_change,result.state.cells[i],b.temperature_k);account_mac_cell_entropy_remainder(entropy_change,source.cells[i],a.temperature_k,-1);
         entropy_bound.add(128*std::numeric_limits<double>::epsilon()*(std::abs(source.cells[i].mixture.energy)/a.temperature_k+
             std::abs(result.state.cells[i].mixture.energy)/b.temperature_k));
     }

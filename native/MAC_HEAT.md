@@ -120,6 +120,12 @@ input inventory. These are cache-correctness controls, not a strong-flow pass.
 
 ## Entropy measurement
 
+Every MAC U write retains the cell's [rounding correction](MAC_PRIMARY_REMAINDERS.md).
+Energy accounts use high U plus the correction; entropy includes its caloric
+contribution. Two-sum production writes and flagged-range reference writes audit
+any discarded third part. EOS cache reuse still keys on the nearest high U;
+carried corrections are passed separately into energy and entropy accounting.
+
 Heat and compressive-work stages admit a candidate only if actual stored-state entropy
 does not fall beyond 128 epsilons of the stored-U/temperature operands. The change is
 computed per fixed-mass, fixed-volume endpoint with the relative helper in

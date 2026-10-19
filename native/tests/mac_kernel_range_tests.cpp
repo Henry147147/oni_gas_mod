@@ -30,7 +30,7 @@ void audited(const MacClosedAdvance& next, const MacKernelReport& report) {
         next.report.interval_kernel_intervals == 1, "Flagged transport unnecessarily left production");
     std::size_t rounded = 0;
     for (const auto& a : report.audits) { check(a.passed, "Flagged transport failed its interval audit"); rounded += a.rounded_transfers; }
-    check(rounded == report.rounded_transfers && next.report.interval_rounded_updates == rounded + report.rounded_range_inputs + report.rounded_primary_writes + report.rounded_inventory_writes,
+    check(rounded == report.rounded_transfers && next.report.interval_rounded_updates == rounded + report.rounded_range_inputs + report.rounded_primary_writes + report.rounded_inventory_writes + report.rounded_energy_writes + report.discarded_energy_remainders,
         "Flagged product counts did not reach the owner");
     check(next.report.interval_unresolved_updates == report.unresolved_updates, "Accepted write counts did not reach the owner");
 }
@@ -160,7 +160,7 @@ int main(int argc, char** argv) {
         }
         if (argc == 3 && std::string(argv[1]) == "--write-checkpoint") { write(threaded(), argv[2]); return 0; }
         check(argc == 1, "Unknown flagged-transport argument");
-        std::cout << "RVERSION 2\n";
+        std::cout << "RVERSION 3\n";
         small(0, 0, 0x1p-700, 0); small(1, 0, 0x1p-700, 0x1p450); small(2, 0, -0x1p-700, 0x1p450);
         small(3, 1, 0x1p-700, 0x1p450); small(4, 1, -0x1p-700, 0x1p450); small(5, 0, 0x1p-700, 0x1p-600);
         small(6, 0, 0x1p-700, 0x1p54); small(7, 0, 0x1p-700, 0x1p55, std::numeric_limits<double>::denorm_min());

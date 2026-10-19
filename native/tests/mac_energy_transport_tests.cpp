@@ -22,7 +22,7 @@ void tiny_kinetic() {
     const auto plan=reconstruct_mac_parcels(set.registry,*set.eos,source,volumes,sweeps(source,.1,.05));
     const auto result=advance_mac_parcel_transport(set.registry,source,*set.eos,plan);
     check(ma::testing::fingerprint(source)==held,"Wide transport changed source");
-    check(result.report.rounded_energy_projections>0&&result.report.unresolved_heat_updates>0,"Tiny kinetic/heat projections were hidden");
+    check(result.report.rounded_energy_projections>0&&result.report.unresolved_heat_updates==0&&ma::testing::has_primary_energy_remainder(result.state),"Tiny kinetic/heat projections or primary remainders were hidden");
     check(!result.report.mixing_heat_wide_j.is_zero()&&result.report.mixing_heat_j==0,"Tiny mixing heat was not retained separately");
     for(const auto* report:{&result.report.x,&result.report.y})for(const auto& e:report->energies)
         check(!e.old_kinetic.is_zero()&&!e.new_kinetic.is_zero(),"Positive derived kinetic state was erased");
@@ -39,7 +39,7 @@ void tiny_parcel() {
     check(ma::testing::fingerprint(source)==held&&result.state.momentum_x[1]>0,"Tiny representable momentum was lost or source changed");
     check(result.report.x.energies[1].transported_kinetic.mantissa()>0&&result.report.x.transported_kinetic[1]==0,"Original derived parcel range failure remains");
     check(!result.report.energy_residual_wide_j.is_zero()&&result.report.energy_residual_j==0,"Below-range actual energy residual was hidden");
-    check(result.report.unresolved_heat_updates>0,"Below-range U update has no rounding count");
+    check(result.report.unresolved_heat_updates==0&&ma::testing::has_primary_energy_remainder(result.state),"Below-range U update was not retained");
     ma::testing::export_transport(1,source,result,plan);
 }
 void tiny_closed_reversal() {

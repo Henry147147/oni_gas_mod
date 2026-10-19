@@ -49,6 +49,27 @@ bool PrimaryRounding::within_bound(double audited_bound) const {
         std::isfinite(charged) && error.value() >= 0 && error.value() <= charged && charged <= audited_bound &&
         (count != 0 || (error.value() == 0 && charged == 0));
 }
+void EnergyRounding::observe(const MacPrimaryWrite& write) {
+    if (write.high_rounded) {
+        if (high_count == std::numeric_limits<std::size_t>::max()) precision("Production energy rounding counter overflow");
+        ++high_count;
+    }
+    if (write.discarded == 0) return;
+    if (discarded.count == std::numeric_limits<std::size_t>::max()) precision("Production energy tail counter overflow");
+    ++discarded.count; const double error = std::abs(write.discarded);
+    discarded.error.add(error);
+    const auto bits = std::bit_cast<std::uint64_t>(write.remainder);
+    const auto exponent = (bits >> 52) & UINT64_C(0x7ff);
+    if (exponent < 2 || exponent == UINT64_C(0x7ff) || !std::isfinite(error)) { discarded.invalid = true; return; }
+    const auto quantum_bits = exponent > 53 ? (exponent - 53) << 52 : UINT64_C(1) << (exponent - 2);
+    const double half = std::bit_cast<double>(quantum_bits);
+    discarded.half_ulps.add(half);
+    if (error > half) discarded.invalid = true;
+}
+void EnergyRounding::merge(const EnergyRounding& other) {
+    if (other.high_count > std::numeric_limits<std::size_t>::max() - high_count) precision("Production energy rounding counter overflow");
+    high_count += other.high_count; discarded.merge(other.discarded);
+}
 namespace {
 void record_error(TransferRounding& ledger, const MacEnergySum& difference) {
     const int sign = difference.sign();

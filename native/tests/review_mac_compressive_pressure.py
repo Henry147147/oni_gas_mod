@@ -28,7 +28,7 @@ def parse(raw):
     check(set(nodes)=={(s,i) for s,scene in scenes.items() for i in range(scene[1])},'Coupled node coverage differs')
     check(set(mapping)=={(s,i) for s,scene in scenes.items() for i in range(scene[0])},'Coupled material coverage differs')
     check(len(mapping)==15 and {m[0] for m in mapping.values()}==set(range(15)),'Constitutive responses are duplicated or orphaned')
-    constitutive=law.parse(('\n'.join(common)+'\n').encode('ascii'),case_ids=tuple(range(15)),profiles=(0,),groups=6,rejections=5)
+    constitutive=law.parse(('\n'.join(common)+'\n').encode('ascii'),case_ids=tuple(range(15)),profiles=(0,),groups=6,rejections=5,large_offset_control=False)
     return constitutive,scenes,nodes,mapping,full
 
 def review(data):

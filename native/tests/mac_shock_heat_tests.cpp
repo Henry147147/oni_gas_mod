@@ -40,7 +40,7 @@ void nonlinear_and_range() {
     check(mixed.equilibrium_iterations > 0 && mixed.transfer.mantissa() > 0, "Mixed EOS equilibrium was not solved");
     const auto a = gas(.2, 600), b = gas(.3, 250);
     const auto tiny = pair(9, a, b, MacEnergy::from_parts(.75, -1200));
-    check(tiny.transfer.mantissa() > 0 && tiny.transfer.project().rounded && tiny.unresolved_updates == 2 &&
+    check(tiny.transfer.mantissa() > 0 && tiny.transfer.project().rounded && tiny.unresolved_updates == 0 && !tiny.after_left_remainder_j.is_zero() && !tiny.after_right_remainder_j.is_zero() &&
         tiny.after_left_j == a.energy && tiny.after_right_j == b.energy, "Below-range heat or update flags disappeared");
     const auto stiff = pair(10, a, b, MacEnergy::from_parts(.5, 1200));
     check(stiff.fraction.require_representable() == 1, "Stiff full-range thermal relaxation overflowed");
@@ -63,7 +63,7 @@ void grid_case(std::size_t id, MacTransportState state, double dt, bool active, 
     check(ma::testing::fingerprint(state) == held && (!result.report.events.empty()) == active, "Heat grid changed source or activation differs");
     check((ma::testing::fingerprint(result.state) != held) == changes, "Heat grid state change differs");
     auto unchanged_fields = result.state;
-    for (std::size_t i = 0; i < state.cells.size(); ++i) unchanged_fields.cells[i].mixture.energy = state.cells[i].mixture.energy;
+    for (std::size_t i = 0; i < state.cells.size(); ++i) { unchanged_fields.cells[i].mixture.energy = state.cells[i].mixture.energy; unchanged_fields.cells[i].energy_remainder_j=state.cells[i].energy_remainder_j; }
     check(ma::testing::fingerprint(unchanged_fields) == held, "Heat grid changes mass, passives, J or geometry");
     ma::testing::export_shock_heat(id, state, result, dt);
 }
@@ -102,9 +102,9 @@ void temporal() {
 void range_and_invalid() {
     const auto& s = ma::testing::setup(); auto tiny = chain(); std::vector<MacScaled> j(tiny.momentum_x.size());
     j[1] = MacScaled::from_parts(.75, -1200); j[2] = j[1].negated(); store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j);
-    grid_case(5, tiny, .01, true, false);
+    grid_case(5, tiny, .01, true, true);
     const auto r = advance_mac_shock_heat(s.registry, *s.eos, tiny, .01);
-    check(r.report.absolute_transfer.mantissa() > 0 && r.report.unresolved_updates > 0, "Range heat disappeared without unresolved flags");
+    check(r.report.absolute_transfer.mantissa() > 0 && r.report.unresolved_updates == 0 && !r.state.cells[0].energy_remainder_j.is_zero(), "Range heat was not retained in primary-U remainders");
     std::size_t rejected = 0; const auto source = chain();
     for (int kind = 0; kind < 8; ++kind) {
         auto bad = source; double dt = .01;

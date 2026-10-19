@@ -81,6 +81,7 @@ struct MacDiffusionReport {
     void record_out_of_range(double temperature_k,double pressure_pa);
     // Accumulates counts and extremes of another report's out-of-range evaluations.
     void merge_out_of_range(const MacDiffusionReport&);
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacDiffusionAdvance { MacTransportState state; MacDiffusionReport report; };
 // Occupied, gas-only finite volumes. No liquid/disease/passive diffusion.

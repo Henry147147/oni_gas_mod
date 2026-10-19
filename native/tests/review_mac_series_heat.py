@@ -23,7 +23,7 @@ def review(data, extra):
     for gid in (9, 14):
         check(data['grids'][gid][7] == 2, 'Series two-body axes must retain one symmetric face')
     subrange = data['grids'][8]
-    check(subrange[9] > 0 and float(subrange[9]) == 0 and subrange[8] > 0, 'Missing series subrange heat/unresolved storage')
+    check(subrange[9] > 0 and float(subrange[9]) == 0 and matched.heat.retained_grid_heat(data,8,subrange[8]), 'Missing series subrange heat/unresolved storage')
     check(set(extra['weak']) == {10, 11, 12}, 'Missing series weak-wave controls')
     previous = None
     for gid, amplitude in ((10, number('1e-3')), (11, number('1e-5')), (12, number('1e-7'))):

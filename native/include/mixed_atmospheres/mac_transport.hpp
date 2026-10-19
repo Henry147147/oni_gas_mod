@@ -2,6 +2,7 @@
 #include "mixture.hpp"
 #include "passive_quantities.hpp"
 #include "mac_energy.hpp"
+#include "mac_primary.hpp"
 #include "mac_fields.hpp"
 #include "mac_momentum_limiter.hpp"
 #include <array>
@@ -28,7 +29,11 @@ struct MacGrid {
     [[nodiscard]] std::size_t y_face(std::size_t x, std::size_t y) const { return x + y * width; }
     [[nodiscard]] double volume_m3() const { return spacing_m * spacing_m * depth_m; }
 };
-struct MacMaterialCell { MixtureInventory mixture; PassiveQuantities passive_quantities; };
+struct MacMaterialCell {
+    MixtureInventory mixture;
+    PassiveQuantities passive_quantities;
+    MacStoredRemainder energy_remainder_j{};
+};
 struct MacTransportState {
     MacGrid grid;
     std::vector<MacMaterialCell> cells;
@@ -69,6 +74,7 @@ struct MacParcelPlan {
     std::vector<MacMaterialCell> retained;
     std::vector<double> source_volumes_m3, retained_volumes_m3, limiter;
     std::size_t eos_backtracks = 0, unresolved_stencil_cells = 0;
+    MacPrimaryRoundingCounts primary_energy{};
     // Void phase only (otherwise empty): each donor's material volume within
     // its source volume, and the material and void parts of every parcel
     // (aligned with parcels) and retained remainder.
@@ -155,11 +161,13 @@ struct MacTransportReport {
     MacMassFluxes primal_mass_fluxes_kg; // populated by the parcel overload
     std::size_t scaled_primary_parcels = 0;
     std::vector<double> advected_internal_energy_j; // populated before heat deposition in reconstructed momentum mode
+    std::vector<MacStoredRemainder> advected_energy_remainders_j;
     double physical_correction_fraction = 1;
     std::size_t physical_admission_backtracks = 0;
     MacEnergy remap_work_wide_j, entropy_change_j_per_k, entropy_allowance_j_per_k;
     std::vector<MacEnergy> nodal_source_cell_work, nodal_advected_work;
     std::size_t constituent_accumulators = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacTransportAdvance { MacTransportState state; MacTransportReport report; };
 struct MacFaceInertias { std::vector<double> x, y; };

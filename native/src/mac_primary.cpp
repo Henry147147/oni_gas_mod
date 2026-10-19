@@ -56,7 +56,8 @@ MacEnergy mac_stored_remainder_value(const MacStoredRemainder& remainder) {
 }
 bool canonical_mac_primary(double value, const MacStoredRemainder& remainder) {
     if (!std::isfinite(value)) return false;
-    if (remainder.full.is_zero()) return canonical_mac_primary(value, remainder.projected);
+    if (remainder.full.is_zero()) return canonical_mac_primary(value, remainder.projected) &&
+        (remainder.projected!=0 || !std::signbit(remainder.projected));
     const auto low = mac_stored_remainder_value(remainder);
     return nearest_high(value, low) == value;
 }
@@ -78,5 +79,20 @@ MacPrimaryFullWrite store_mac_primary_remainder(const MacEnergySum& total) {
     if (projection.rounded) result.remainder.full = low;
     result.discarded = total; result.discarded.add(-result.value); result.discarded.add(low.negated());
     return result;
+}
+void audit_mac_primary_write(const MacPrimaryFullWrite& write) {
+    const int sign = write.discarded.sign();
+    if (sign == 0) return;
+    const auto low = mac_stored_remainder_value(write.remainder);
+    if (low.is_zero()) throw std::domain_error("MAC primary discarded a representable low part");
+    MacEnergySum margin; margin.add(MacEnergy::from_parts(.5,low.exponent()-53));
+    for (std::size_t k=0;k<write.discarded.size();++k)
+        margin.add(sign<0 ? write.discarded.component(k) : write.discarded.component(k).negated());
+    if (margin.sign()<0) throw std::domain_error("MAC primary discarded error exceeds half a low-part quantum");
+}
+void MacPrimaryRoundingCounts::observe(const MacPrimaryFullWrite& write) {
+    audit_mac_primary_write(write);
+    merge({static_cast<std::size_t>(write.high_rounded),static_cast<std::size_t>(write.discarded.sign()!=0)});
+    for(std::size_t k=0;k<write.discarded.size();++k)error_j.add(write.discarded.component(k));
 }
 }

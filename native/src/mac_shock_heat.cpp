@@ -16,13 +16,6 @@ void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(wh
 [[noreturn]] void precision(const char* why) { throw FluidFatalError(FluidFatalCode::numerical_precision, why); }
 MacEnergy sum(MacEnergy a, MacEnergy b) { MacEnergySum s; s.add(a); s.add(b); return s.value(); }
 bool same(MacEnergy a, MacEnergy b) { return a.mantissa() == b.mantissa() && a.exponent() == b.exponent(); }
-bool resolved(double before, double after, MacEnergy requested) {
-    MacEnergySum residual; residual.add(after); residual.add(-before); residual.add(requested.negated());
-    MacEnergySum allowance; allowance.add(requested.magnitude().shifted(-47));
-    for (std::size_t i = 0; i < residual.size(); ++i)
-        allowance.add(residual.sign() < 0 ? residual.component(i) : residual.component(i).negated());
-    return allowance.sign() >= 0;
-}
 bool interval(double value, double lo, double hi) {
     MacEnergyAccount a;
     if (value < lo) { a.add(value); a.add(-lo); }
@@ -43,7 +36,6 @@ MacEnergy relaxation_fraction(MacEnergy x) {
     return MacEnergy::from_double(-std::expm1(-x.require_representable()));
 }
 bool constant_capacity(const ReferenceEquilibriumState& s) { return !s.has_gas || s.liquid_volume_m3 == 0; }
-double updated_energy(double u, MacEnergy q) { return sum(MacEnergy::from_double(u), q).project().value; }
 MacEnergy capacity_upper(const ReferenceEquilibriumState& s) {
     // At fixed V, Cv <= Ceff <= Cv+nR for this zero-expansion elastic EOS.
     // The outward allowance covers only construction of a root bracket.
@@ -65,7 +57,8 @@ MacEnergy root_temperature_bound(double uh, double uc, double nh, double nc, Mac
 MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureInventory& hot,
     const MixtureInventory& cold, double vh, double vc, const ReferenceEquilibriumState& a,
     const ReferenceEquilibriumState& b, std::size_t& iterations, std::size_t& rejected,
-    double& final_hot_t, double& final_cold_t, MacEnergy& final_bound) {
+    double& final_hot_t, double& final_cold_t, MacEnergy& final_bound,
+    const MacStoredRemainder& hot_remainder, const MacStoredRemainder& cold_remainder) {
     if (constant_capacity(a) && constant_capacity(b))
         return harmonic_capacity(a.equilibrium_heat_capacity_at_cell_volume_j_per_k,
             b.equilibrium_heat_capacity_at_cell_volume_j_per_k).shifted(-1).multiplied(a.temperature_k - b.temperature_k);
@@ -73,7 +66,9 @@ MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureIn
     MacEnergy lo, hi = (mac_scaled_difference(ch, cc).mantissa() < 0 ? ch : cc).multiplied(a.temperature_k - b.temperature_k);
     for (std::size_t i = 0; i < 128; ++i) {
         ++iterations; const auto mid = sum(lo, hi).shifted(-1);
-        auto h = hot, c = cold; h.energy = updated_energy(hot.energy, mid.negated()); c.energy = updated_energy(cold.energy, mid);
+        MacMaterialCell hc{hot,{},hot_remainder},ccell{cold,{},cold_remainder};
+        (void)add_mac_cell_internal_energy(hc,mid.negated());(void)add_mac_cell_internal_energy(ccell,mid);
+        const auto& h=hc.mixture;const auto& c=ccell.mixture;
         ReferenceEquilibriumState next_hot, next_cold;
         try { next_hot = model.evaluate(h, vh); next_cold = model.evaluate(c, vc); }
         catch (const ReferenceError& e) {
@@ -100,7 +95,7 @@ MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureIn
     }
     precision("Shock-heat equilibrium exhausted its bracket iterations");
 }
-struct EntropyCell { const MixtureInventory* source; const MixtureInventory* endpoint; double volume; };
+struct EntropyCell { const MixtureInventory* source; const MixtureInventory* endpoint; double volume; MacStoredRemainder source_remainder{},endpoint_remainder{}; };
 struct EntropyReading {
     double temperature_k,gas_volume_m3,liquid_volume_m3,elastic_energy_j;
     EntropyReading(const ReferenceEquilibriumState& state):temperature_k(state.temperature_k),gas_volume_m3(state.gas_volume_m3),
@@ -117,6 +112,8 @@ void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell
         // subtraction of nearly equal absolute EOS entropy readings.
         if (source.energy != endpoint.energy || source.masses != endpoint.masses)
             entropy.add(entropy_detail::change(model, source, cells[i].volume, before[i], endpoint, cells[i].volume, after[i]));
+        entropy.add(mac_stored_remainder_value(cells[i].endpoint_remainder).shared(1,after[i].temperature_k));
+        entropy.add(mac_stored_remainder_value(cells[i].source_remainder).shared(1,before[i].temperature_k).negated());
         bound.add(MacEnergy::from_double(std::abs(source.energy)).shared(1, before[i].temperature_k).shifted(-45));
         bound.add(MacEnergy::from_double(std::abs(endpoint.energy)).shared(1, after[i].temperature_k).shifted(-45));
     }
@@ -128,10 +125,14 @@ void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell
 struct Link { std::size_t axis, face, left, right; MacScaled closing; MacEnergy integrated; MacScaled diffusion; };
 MacShockHeatPair relax_pair(const FluidThermodynamics& model, const MixtureInventory& left,
     const MixtureInventory& right, double vl, double vr, MacEnergy gdt,
-    ReferenceEquilibriumState& a,ReferenceEquilibriumState& b) {
+    ReferenceEquilibriumState& a,ReferenceEquilibriumState& b,
+    const MacStoredRemainder& left_remainder={},const MacStoredRemainder& right_remainder={}) {
     require_mac_energy_environment();
+    require(canonical_mac_primary(left.energy,left_remainder) && canonical_mac_primary(right.energy,right_remainder),
+        "Noncanonical shock-heat primary-U input");
     require(std::isfinite(vl) && std::isfinite(vr) && vl > 0 && vr > 0 && gdt.mantissa() >= 0, "Invalid shock-heat geometry/conductance");
     MacShockHeatPair p; p.before_left_j = p.after_left_j = left.energy; p.before_right_j = p.after_right_j = right.energy;
+    p.after_left_remainder_j=left_remainder;p.after_right_remainder_j=right_remainder;
     p.temperature_left_k = p.after_temperature_left_k = a.temperature_k; p.temperature_right_k = p.after_temperature_right_k = b.temperature_k;
     p.capacity_left_j_per_k = a.equilibrium_heat_capacity_at_cell_volume_j_per_k;
     p.capacity_right_j_per_k = b.equilibrium_heat_capacity_at_cell_volume_j_per_k; p.integrated_conductance = gdt;
@@ -142,15 +143,19 @@ MacShockHeatPair relax_pair(const FluidThermodynamics& model, const MixtureInven
     p.fraction = relaxation_fraction(p.relaxation_number);
     const bool forward = a.temperature_k > b.temperature_k;
     p.equilibrium_transfer = forward ? equilibrium_transfer(model, left, right, vl, vr, a, b, p.equilibrium_iterations,
-        p.rejected_equilibrium_trials, p.equilibrium_temperature_left_k, p.equilibrium_temperature_right_k, p.equilibrium_temperature_bound) :
+        p.rejected_equilibrium_trials, p.equilibrium_temperature_left_k, p.equilibrium_temperature_right_k, p.equilibrium_temperature_bound,left_remainder,right_remainder) :
         equilibrium_transfer(model, right, left, vr, vl, b, a, p.equilibrium_iterations,
-        p.rejected_equilibrium_trials, p.equilibrium_temperature_right_k, p.equilibrium_temperature_left_k, p.equilibrium_temperature_bound).negated();
+        p.rejected_equilibrium_trials, p.equilibrium_temperature_right_k, p.equilibrium_temperature_left_k, p.equilibrium_temperature_bound,right_remainder,left_remainder).negated();
     p.equilibrium_temperature_residual = sum(MacEnergy::from_double(p.equilibrium_temperature_left_k),
         MacEnergy::from_double(p.equilibrium_temperature_right_k).negated());
     p.transfer = p.equilibrium_transfer.shared(p.fraction, MacEnergy::from_double(1));
     if (p.transfer.is_zero()) precision("Shock heat lost a positive full-range transfer");
-    p.after_left_j = updated_energy(left.energy, p.transfer.negated()); p.after_right_j = updated_energy(right.energy, p.transfer);
-    auto l = left, r = right; l.energy = p.after_left_j; r.energy = p.after_right_j;
+    const MacMaterialCell left_cell{left,{},left_remainder},right_cell{right,{},right_remainder};
+    auto lc=left_cell,rc=right_cell;
+    (void)add_mac_cell_internal_energy(lc,p.transfer.negated(),&p.primary_energy);(void)add_mac_cell_internal_energy(rc,p.transfer,&p.primary_energy);
+    p.after_left_j=lc.mixture.energy;p.after_right_j=rc.mixture.energy;
+    p.after_left_remainder_j=lc.energy_remainder_j;p.after_right_remainder_j=rc.energy_remainder_j;
+    const auto& l=lc.mixture;const auto& r=rc.mixture;
     auto nl = std::bit_cast<std::uint64_t>(l.energy)==std::bit_cast<std::uint64_t>(left.energy) ? a : model.evaluate(l, vl);
     auto nr = std::bit_cast<std::uint64_t>(r.energy)==std::bit_cast<std::uint64_t>(right.energy) ? b : model.evaluate(r, vr);
     p.after_temperature_left_k = nl.temperature_k; p.after_temperature_right_k = nr.temperature_k;
@@ -158,12 +163,12 @@ MacShockHeatPair relax_pair(const FluidThermodynamics& model, const MixtureInven
     if (!interval(nl.temperature_k, lo, hi) || !interval(nr.temperature_k, lo, hi) ||
         !interval(forward ? nl.temperature_k : nr.temperature_k, forward ? nr.temperature_k : nl.temperature_k, hi))
         precision("Shock heat exceeded its monotone thermal interval");
-    MacEnergyAccount balance; balance.add(p.after_left_j); balance.add(p.after_right_j); balance.add(-left.energy); balance.add(-right.energy);
+    MacEnergyAccount balance; account_mac_cell_internal_energy(balance,lc);account_mac_cell_internal_energy(balance,rc);account_mac_cell_internal_energy(balance,left_cell,-1);account_mac_cell_internal_energy(balance,right_cell,-1);
     if (!balance.within_bound()) precision("Shock-heat actual U account exceeds its operand bound");
     p.energy_residual = balance.residual(); p.energy_bound = balance.bound();
-    p.unresolved_updates = static_cast<std::size_t>(!resolved(left.energy, p.after_left_j, p.transfer.negated())) +
-        static_cast<std::size_t>(!resolved(right.energy, p.after_right_j, p.transfer));
-    const std::array<EntropyCell, 2> entropy_cells{{{&left, &l, vl}, {&right, &r, vr}}};
+    p.unresolved_updates = static_cast<std::size_t>(!mac_cell_internal_energy_resolved(left_cell,lc,p.transfer.negated())) +
+        static_cast<std::size_t>(!mac_cell_internal_energy_resolved(right_cell,rc,p.transfer));
+    const std::array<EntropyCell, 2> entropy_cells{{{&left, &l, vl,left_remainder,lc.energy_remainder_j}, {&right, &r, vr,right_remainder,rc.energy_remainder_j}}};
     entropy_check(model, entropy_cells, {a, b}, {nl, nr},
         p.entropy_change_j_per_k, p.entropy_roundoff_j_per_k);
     a=std::move(nl);b=std::move(nr);
@@ -171,11 +176,13 @@ MacShockHeatPair relax_pair(const FluidThermodynamics& model, const MixtureInven
 }
 }
 MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics& model,const MixtureInventory& left,
-    const MixtureInventory& right,double vl,double vr,MacEnergy gdt) {
+    const MixtureInventory& right,double vl,double vr,MacEnergy gdt,MacStoredRemainder left_remainder,MacStoredRemainder right_remainder) {
     require_mac_energy_environment();
+    require(canonical_mac_primary(left.energy,left_remainder) && canonical_mac_primary(right.energy,right_remainder),
+        "Noncanonical shock-heat primary-U input");
     require(std::isfinite(vl) && std::isfinite(vr) && vl>0 && vr>0 && gdt.mantissa()>=0,"Invalid shock-heat geometry/conductance");
     auto a=model.evaluate(left,vl),b=model.evaluate(right,vr);
-    return relax_pair(model,left,right,vl,vr,gdt,a,b);
+    return relax_pair(model,left,right,vl,vr,gdt,a,b,left_remainder,right_remainder);
 }
 MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, double dt, MacShockHeatLaw law) {
@@ -278,17 +285,19 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
         const auto& link = links[sweep == 0 ? n : links.size() - 1 - n];
         auto& left = result.state.cells[link.left].mixture; auto& right = result.state.cells[link.right].mixture;
         auto pair = relax_pair(model,left,right,mac_material_volume(source,link.left),mac_material_volume(source,link.right),link.integrated,
-            current[current_index[link.left]],current[current_index[link.right]]);
+            current[current_index[link.left]],current[current_index[link.right]],result.state.cells[link.left].energy_remainder_j,result.state.cells[link.right].energy_remainder_j);
         result.report.reused_pair_eos_readings+=2;
         left.energy = pair.after_left_j; right.energy = pair.after_right_j;
+        result.state.cells[link.left].energy_remainder_j=pair.after_left_remainder_j;result.state.cells[link.right].energy_remainder_j=pair.after_right_remainder_j;
+        result.report.primary_energy.merge(pair.primary_energy);
         transferred.add(pair.transfer.magnitude()); result.report.unresolved_updates += pair.unresolved_updates;
         result.report.events.push_back({link.axis, link.face, link.left, link.right, sweep, link.closing, std::move(pair), link.diffusion});
     }
     MacEnergyAccount balance; std::vector<EntropyReading> final; std::vector<EntropyCell> entropy_cells;
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
-        balance.add(result.state.cells[i].mixture.energy); balance.add(-source.cells[i].mixture.energy);
+        account_mac_cell_internal_energy(balance,result.state.cells[i]); account_mac_cell_internal_energy(balance,source.cells[i],-1);
         final.emplace_back(current[current_index[i]]);++result.report.reused_endpoint_eos_readings;
-        entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, mac_material_volume(source, i)});
+        entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, mac_material_volume(source, i),source.cells[i].energy_remainder_j,result.state.cells[i].energy_remainder_j});
     }
     if (!balance.within_bound()) precision("Shock-heat global actual U account exceeds its operand bound");
     result.report.absolute_transfer = transferred.value(); result.report.energy_residual = balance.residual(); result.report.energy_bound = balance.bound();

@@ -52,8 +52,8 @@ void signed_cancellation() {
     const auto result = run(2, source, .25);
     for (std::size_t i = 0; i < source.momentum_x.size(); ++i)
         check(result.state.momentum_x[i] == (i % 2 == 0 ? 0 : -2) * unit, "Signed subrange contributions failed exact cancellation");
-    check(result.report.mixing_heat_wide_j.mantissa() > 0 && result.report.mixing_heat_j == 0 && result.report.unresolved_heat_updates > 0,
-        "Subrange cancellation did not retain positive mixing heat and unresolved U accounting");
+    check(result.report.mixing_heat_wide_j.mantissa() > 0 && result.report.mixing_heat_j == 0 && result.report.unresolved_heat_updates == 0 && ma::testing::has_primary_energy_remainder(result.state),
+        "Subrange cancellation did not retain positive mixing heat in primary U");
 }
 void unresolved_destination() {
     const auto& set = ma::testing::setup(); auto source = gas(3.0517578125e-5, .000244140625); source.momentum_x[0] = 2.5697272365554806e-293;

@@ -265,9 +265,9 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
             if (pair.impulse.is_zero()) continue;
             j[l] = pair.after_left; j[r] = pair.after_right; heat.add(pair.heat);
             (axis == 0 ? wx : wy).add(pair.wall_impulse);
-            auto& u = result.state.cells[cell].mixture.energy; const double before = u;
-            MacEnergySum update; update.add(before); update.add(pair.heat); u = update.value().project().value;
-            if (!resolved_change(MacEnergy::from_double(before), MacEnergy::from_double(u), pair.heat)) ++result.report.unresolved_heat_updates;
+            auto& target = result.state.cells[cell]; const auto before = target;
+            (void)add_mac_cell_internal_energy(target,pair.heat,&result.report.primary_energy);
+            if (!mac_cell_internal_energy_resolved(before,target,pair.heat)) ++result.report.unresolved_heat_updates;
             result.report.unresolved_momentum_updates += pair.unresolved_momentum_updates;
             result.report.events.push_back({static_cast<std::size_t>(axis), cell, sweep, std::move(pair)});
         }
@@ -276,9 +276,11 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     MacEnergyAccount balance; MacEnergySum entropy, entropy_bound;
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         const auto& old = source.cells[i].mixture; const auto& next = result.state.cells[i].mixture;
-        balance.add(next.energy); balance.add(-old.energy);
+        account_mac_cell_internal_energy(balance,result.state.cells[i]); account_mac_cell_internal_energy(balance,source.cells[i],-1);
         const auto a = model.evaluate(old, mac_material_volume(source, i)), b = model.evaluate(next, mac_material_volume(source, i));
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
+        account_mac_cell_entropy_remainder(entropy,result.state.cells[i],b.temperature_k);
+        account_mac_cell_entropy_remainder(entropy,source.cells[i],a.temperature_k,-1);
         entropy_bound.add(MacEnergy::from_double(std::abs(old.energy)).shared(1, a.temperature_k).shifted(-45));
         entropy_bound.add(MacEnergy::from_double(std::abs(next.energy)).shared(1, b.temperature_k).shifted(-45));
     }

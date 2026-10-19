@@ -31,7 +31,7 @@ void frame(std::size_t gid, std::size_t id, const char* tag, const MacTransportS
         std::cout << "SHWALL " << gid << ' ' << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << '\n';
         if (g.walls[i]) continue;
         const auto& c = state.cells[i]; const auto e = s.eos->evaluate(c.mixture, g.volume_m3());
-        std::cout << "SHCELL " << gid << ' ' << id << ' ' << i << ' ' << c.mixture.energy << ' ' << e.mechanical_pressure_pa << ' ' << e.temperature_k << ' ' << e.entropy_j_per_k << '\n';
+        std::cout << "SHCELL " << gid << ' ' << id << ' ' << i << ' ' << ma::testing::observed_energy(c) << ' ' << e.mechanical_pressure_pa << ' ' << e.temperature_k << ' ' << e.entropy_j_per_k << '\n';
         for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
             std::cout << "SHMASS " << gid << ' ' << id << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
         for (const auto& v : c.passive_quantities) std::cout << "SHPASSIVE " << gid << ' ' << id << ' ' << i << ' ' << v.identity << ' ' << v.quantity << '\n';
@@ -79,8 +79,8 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
                 options.shock_heat == MacShockHeatRegularization::pressure_sensed_series ? MacShockHeatLaw::pressure_sensed_series :
                 options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic ? MacShockHeatLaw::pressure_sensed_viscosity : MacShockHeatLaw::closing_velocity); const auto& r = a.report;
             if (tiny && step == 0 && expected.stages == 0)
-                check(r.absolute_transfer.mantissa() > 0 && r.absolute_transfer.project().rounded && r.unresolved_updates > 0,
-                    "Default owner source heat did not exercise a full-range unresolved transfer");
+                check(r.absolute_transfer.mantissa() > 0 && r.absolute_transfer.project().rounded && r.unresolved_updates == 0 && ma::testing::has_primary_energy_remainder(a.state),
+                    "Default owner source heat did not retain a full-range transfer");
             ma::testing::export_shock_heat(id, manual, a, .5 * dt);
             ++expected.stages; expected.events += r.events.size(); expected.unresolved += r.unresolved_updates;
             for (const auto& e : r.events) { expected.roots += e.pair.equilibrium_iterations; expected.rejected += e.pair.rejected_equilibrium_trials; }
@@ -195,7 +195,7 @@ int main(int argc, char** argv) { try {
         for (std::size_t f = 1; f < 4; ++f) j[f] = MacScaled::from_parts(.75, -1200).multiplied(static_cast<double>(4 - f) * inertia.x[f]);
     } else for (std::size_t f = 0; f < j.size(); ++f) j[f] = MacScaled::from_parts(f % 3 == 1 ? -.75 : .75, -1200).multiplied(inertia.x[f]);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j); tiny.momentum_y.assign(tiny.momentum_y.size(), 0);
-    run_case(4, tiny, options, 1, true); std::cout << "PASS retained below-range source heat and unresolved owner updates\n";
+    run_case(4, tiny, options, 1, true); std::cout << "PASS retained below-range source heat in primary U remainders\n";
     if (baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || baseline.shock_heat == MacShockHeatRegularization::pressure_sensed_series)
         std::cout << "SHHEAT 5 0\n";
     options.shock_heat = MacShockHeatRegularization::none; run_case(5, source(true), options, 1); controls(baseline);

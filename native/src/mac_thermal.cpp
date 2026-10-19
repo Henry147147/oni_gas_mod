@@ -10,88 +10,32 @@
 
 namespace ma::experimental {
 namespace {
-// Jointly round a closed heat exchange. Independently rounding many tiny
-// signed changes can cool every hot cell while leaving every cold cell
-// unchanged. Choose only the two binary64 neighbors bracketing each exact
-// requested endpoint; their power-of-two quanta permit a deterministic
-// conservative choice without changing the physical solve or its tolerance.
+// Persist the low part of each endpoint rather than independently dropping
+// small heat changes or moving a high part away from its nearest value.
 void round_closed_heat_component(const MacTransportState& source,MacTransportState& target,
     const std::vector<std::size_t>& cells,const std::vector<double>& changes,MacThermalReport& report) {
-    struct Choice { std::size_t cell; double upper; MacEnergy quantum,fraction; };
-    std::vector<Choice> choices; std::vector<double> nearest; MacEnergySum remaining;
-    for (std::size_t n=0;n<cells.size();++n) {
-        const auto cell=cells[n]; const double before=source.cells[cell].mixture.energy;
-        MacEnergySum exact; exact.add(before); exact.add(changes[n]);
-        const double rounded=exact.value().project().value;
-        nearest.push_back(rounded);
-        auto residual=exact; residual.add(-rounded);
-        double lower=rounded,upper=rounded;
-        if (residual.sign()>0) upper=std::nextafter(rounded,std::numeric_limits<double>::infinity());
-        if (residual.sign()<0) lower=std::nextafter(rounded,-std::numeric_limits<double>::infinity());
-        if (!std::isfinite(lower) || !std::isfinite(upper))
-            throw FluidFatalError(FluidFatalCode::numerical_precision,"Conductive energy endpoint has no finite rounding bracket");
-        target.cells[cell].mixture.energy=lower;
-        remaining.add(before); remaining.add(-lower);
-        if (upper!=lower) {
-            const auto quantum=MacEnergy::from_double(upper-lower);
-            auto fraction=exact; fraction.add(-lower);
-            choices.push_back({cell,upper,quantum,fraction.value().shared(MacEnergy::from_double(1),quantum)});
-        }
-    }
-    std::sort(choices.begin(),choices.end(),[](const auto& a,const auto& b) {
-        if (a.quantum.exponent()!=b.quantum.exponent()) return a.quantum.exponent()>b.quantum.exponent();
-        // Equal quanta: minimize endpoint rounding error before the stable
-        // cell-index tie break. The fraction lies in (0,1).
-        if (a.fraction.exponent()!=b.fraction.exponent()) return a.fraction.exponent()>b.fraction.exponent();
-        if (a.fraction.mantissa()!=b.fraction.mantissa()) return a.fraction.mantissa()>b.fraction.mantissa();
-        return a.cell<b.cell;
-    });
-    const auto unavailable=[&] {
-        // Widely separated energy quanta need not admit an exactly closed
-        // sum inside one neighboring value per cell. Retain the original
-        // nearest projections and their existing explicit operand account.
-        // Do not move a cell beyond its bracket to hide that limitation.
-        for (std::size_t n=0;n<cells.size();++n) target.cells[cells[n]].mixture.energy=nearest[n];
-        ++report.unavailable_rounding_components;
-    };
-    if (remaining.sign()<0) {unavailable();return;}
-    for (const auto& choice : choices) {
-        auto next=remaining; next.add(choice.quantum.negated());
-        if (next.sign()<0) continue;
-        target.cells[choice.cell].mixture.energy=choice.upper; remaining=std::move(next);
-    }
-    if (remaining.sign()!=0) {unavailable();return;}
-    for (std::size_t n=0;n<cells.size();++n)
-        if (target.cells[cells[n]].mixture.energy!=nearest[n]) ++report.conservative_rounding_adjustments;
-}
-void round_closed_heat(const MacTransportState& source,MacTransportState& target,
-    const std::vector<std::size_t>& cells,const std::vector<double>& changes,const std::vector<ThermalContact>& contacts,
-    MacThermalReport& report) {
-    std::vector<std::size_t> parent(cells.size()); std::iota(parent.begin(),parent.end(),0);
-    const auto root=[&](std::size_t n) { while (parent[n]!=n) {parent[n]=parent[parent[n]];n=parent[n];} return n; };
-    for (const auto& contact : contacts) if (contact.conductance_w_per_k>0) parent[root(contact.second)]=root(contact.first);
-    std::vector<std::vector<std::size_t>> component_cells(cells.size());
-    std::vector<std::vector<double>> component_changes(cells.size());
-    for (std::size_t n=0;n<cells.size();++n) {
-        const auto component=root(n); component_cells[component].push_back(cells[n]); component_changes[component].push_back(changes[n]);
-    }
-    for (std::size_t n=0;n<cells.size();++n) if (!component_cells[n].empty())
-        round_closed_heat_component(source,target,component_cells[n],component_changes[n],report);
-}
 
+    for (std::size_t n=0;n<cells.size();++n) {
+        target.cells[cells[n]]=source.cells[cells[n]];
+        const auto write=add_mac_cell_internal_energy(target.cells[cells[n]],MacEnergy::from_double(changes[n]),&report.primary_energy);
+        if(report.storage_rounding_j.empty())report.storage_rounding_j.resize(source.cells.size());
+        for(std::size_t k=0;k<write.discarded.size();++k)report.storage_rounding_j[cells[n]].add(write.discarded.component(k));
+    }
+}
 long double mixed_pair_entropy(const FluidThermodynamics& eos,const MacTransportState& before,
     const MacTransportState& after,double volume,long double allowance) {
     std::array<double,2> changes{};
     for (std::size_t i=0;i<2;++i) {
-        MacEnergySum delta;delta.add(after.cells[i].mixture.energy);delta.add(-before.cells[i].mixture.energy);
+        const auto delta=mac_cell_internal_energy_change(before.cells[i],after.cells[i]);
         changes[i]=(i==0 ? 1 : -1)*delta.value().require_representable();
         if (changes[i]<0) throw FluidFatalError(FluidFatalCode::numerical_precision,"Closed conductive rounding reversed a heat exchange");
     }
     const auto common=std::min(changes[0],changes[1]);
     const auto temperature=[&](std::size_t cell,double shared,double extra) {
-        auto value=before.cells[cell].mixture;MacEnergySum energy;
-        energy.add(value.energy);energy.add(shared);energy.add(extra);value.energy=energy.value().require_representable();
-        return eos.evaluate(value,volume).temperature_k;
+        auto value=before.cells[cell];MacEnergySum energy;
+        account_mac_cell_internal_energy(energy,value);energy.add(shared);energy.add(extra);
+        (void)store_mac_cell_internal_energy(value,energy);
+        return eos.evaluate(value.mixture,volume).temperature_k;
     };
     const auto integrate=[&](const auto& integrand,double amount) -> long double {
         if (amount==0) return 0;
@@ -135,7 +79,7 @@ long double mixed_pair_entropy(const FluidThermodynamics& eos,const MacTransport
 // solve. Every contact retains the two physical energy endpoints together.
 MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const MacTransportState& source,
     const std::vector<std::size_t>& cells,const std::vector<ThermalContact>& contacts,double seconds) {
-    MacThermalAdvance result{source,{}};result.report.contacts=contacts.size();
+    MacThermalAdvance result{source,{}};result.report.contacts=contacts.size();result.report.storage_rounding_j.resize(source.cells.size());
     MacEnergySum redistributed,requested;long double entropy=0,entropy_bound=0;
     const auto volume=source.grid.volume_m3();
     const auto exchange=[&](const ThermalContact& contact,double duration) {
@@ -200,10 +144,10 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
             requested.add(initial_request);result.report.unresolved_heat_updates+=2;return;
         }
         const auto at=[&](double q) {
-            auto c=cold_initial,h=hot_initial;MacEnergySum ce,he;
-            ce.add(c.energy);ce.add(q);he.add(h.energy);he.add(-q);
-            c.energy=ce.value().require_representable();h.energy=he.value().require_representable();
-            return std::pair(eos.evaluate(c,volume),eos.evaluate(h,volume));
+            auto c=result.state.cells[cold],h=result.state.cells[hot];
+            (void)add_mac_cell_internal_energy(c,MacEnergy::from_double(q));
+            (void)add_mac_cell_internal_energy(h,MacEnergy::from_double(-q));
+            return std::pair(eos.evaluate(c.mixture,volume),eos.evaluate(h.mixture,volume));
         };
         double low=0,high=upper;
         double q=std::min(upper,initial_request);
@@ -236,7 +180,11 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
         if (!converged) throw std::domain_error("Mixed conductive contact root did not converge");
         MacTransportState before;before.cells={result.state.cells[cold],result.state.cells[hot]};
         auto after=before;const std::vector<std::size_t> pair_cells{0,1};const std::vector<double> changes{q,-q};
-        round_closed_heat_component(before,after,pair_cells,changes,result.report);
+        MacThermalReport pair_rounding;
+        round_closed_heat_component(before,after,pair_cells,changes,pair_rounding);
+        result.report.primary_energy.merge(pair_rounding.primary_energy);
+        for(std::size_t side=0;side<2;++side)for(std::size_t k=0;k<pair_rounding.storage_rounding_j[side].size();++k)
+            result.report.storage_rounding_j[side==0 ? cold : hot].add(pair_rounding.storage_rounding_j[side].component(k));
         requested.add(q);
         const std::array initial{cold_reading,hot_reading};long double pair_entropy_bound=0;
         for (std::size_t i=0;i<2;++i) {
@@ -246,17 +194,17 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
             if (reading.temperature_k<cold_reading.temperature_k-temperature_bound ||
                 reading.temperature_k>hot_reading.temperature_k+temperature_bound)
                 throw std::domain_error("Mixed conductive contact violated its maximum principle");
-            MacEnergyAccount local;local.add(old.energy);local.add(changes[i]);local.add(-next.energy);
+            MacEnergyAccount local;account_mac_cell_internal_energy(local,before.cells[i]);local.add(changes[i]);account_mac_cell_internal_energy(local,after.cells[i],-1);
             if (!local.within_bound()) throw FluidFatalError(FluidFatalCode::numerical_precision,"Mixed conductive cell energy account failed");
-            MacEnergySum change;change.add(next.energy);change.add(-old.energy);
+            const auto change=mac_cell_internal_energy_change(before.cells[i],after.cells[i]);
             redistributed.add(change.value().magnitude().multiplied(.5));
-            if (q!=0 && old.energy==next.energy) ++result.report.unresolved_heat_updates;
+            if (q!=0 && same_mac_cell_internal_energy(before.cells[i],after.cells[i])) ++result.report.unresolved_heat_updates;
             pair_entropy_bound+=128*std::numeric_limits<double>::epsilon()*(std::abs(old.energy)/anchor.temperature_k+
                 std::abs(next.energy)/reading.temperature_k+anchor.intrinsic_heat_capacity_j_per_k);
         }
         entropy+=mixed_pair_entropy(eos,before,after,volume,pair_entropy_bound);entropy_bound+=pair_entropy_bound;
-        result.state.cells[cold].mixture.energy=after.cells[0].mixture.energy;
-        result.state.cells[hot].mixture.energy=after.cells[1].mixture.energy;
+        result.state.cells[cold]=after.cells[0];
+        result.state.cells[hot]=after.cells[1];
     };
     if (contacts.size()==1) exchange(contacts.front(),seconds);
     else {
@@ -264,7 +212,7 @@ MacThermalAdvance conduct_mixture_contacts(const FluidThermodynamics& eos,const 
         for (auto it=contacts.rbegin();it!=contacts.rend();++it) exchange(*it,.5*seconds);
     }
     MacEnergyAccount balance;
-    for (const auto cell : cells) {balance.add(source.cells[cell].mixture.energy);balance.add(-result.state.cells[cell].mixture.energy);}
+    for (const auto cell : cells) {account_mac_cell_internal_energy(balance,source.cells[cell]);account_mac_cell_internal_energy(balance,result.state.cells[cell],-1);}
     if (!balance.within_bound() || entropy < -entropy_bound)
         throw FluidFatalError(FluidFatalCode::numerical_precision,"Mixed conduction energy/entropy account failed");
     result.report.energy_residual=balance.residual();result.report.energy_bound=balance.bound();
@@ -325,22 +273,37 @@ MacThermalAdvance advance_mac_conduction(const SpeciesRegistry& registry,const F
     try { solved=conduct_heat(bodies,contacts,seconds); }
     catch (const std::runtime_error& error) { throw std::domain_error(std::string("MAC conductive solve rejected: ")+error.what()); }
     MacThermalAdvance result{source,{}}; result.report.contacts=contacts.size(); result.report.iterations=solved.iterations;
-    round_closed_heat(source,result.state,cells,solved.energy_changes_j,contacts,result.report);
+    result.report.storage_rounding_j.resize(source.cells.size());
+    if(solved.shared_face_energy_j.size()!=contacts.size())throw std::runtime_error("Missing shared conductive face transfers");
+    std::vector<MacEnergySum> requested(cells.size());
+    for(std::size_t f=0;f<contacts.size();++f) {
+        int exponent=0;const long double mantissa=std::frexp(solved.shared_face_energy_j[f],&exponent);
+        const double high=static_cast<double>(mantissa),low=static_cast<double>(mantissa-static_cast<long double>(high));
+        for(double part:{high,low})if(part!=0) {
+            const auto q=MacEnergy::from_double(part).shifted(exponent);
+            requested[contacts[f].first].add(q);requested[contacts[f].second].add(q.negated());
+        }
+    }
+    for(std::size_t n=0;n<cells.size();++n) {
+        auto total=requested[n];account_mac_cell_internal_energy(total,source.cells[cells[n]]);
+        const auto write=store_mac_cell_internal_energy(result.state.cells[cells[n]],total,&result.report.primary_energy);
+        result.report.storage_rounding_j[cells[n]]=write.discarded;
+    }
     MacEnergyAccount balance; MacEnergySum redistributed,requested_redistribution;
     long double entropy=0,entropy_bound=0;
     for (std::size_t n=0;n<cells.size();++n) {
-        const auto cell=cells[n]; const auto before=source.cells[cell].mixture.energy; const auto change=solved.energy_changes_j[n];
+        const auto cell=cells[n]; const auto before=source.cells[cell].mixture.energy; const auto change=requested[n].value().project().value;
         const auto after=result.state.cells[cell].mixture.energy;
-        MacEnergyAccount local; local.add(before); local.add(change); local.add(-after);
+        MacEnergyAccount local; account_mac_cell_internal_energy(local,source.cells[cell]); for(std::size_t k=0;k<requested[n].size();++k)local.add(requested[n].component(k)); account_mac_cell_internal_energy(local,result.state.cells[cell],-1);
         if (!local.within_bound()) throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC conductive cell energy account failed");
-        balance.add(before); balance.add(-after);
+        account_mac_cell_internal_energy(balance,source.cells[cell]); account_mac_cell_internal_energy(balance,result.state.cells[cell],-1);
         requested_redistribution.add(MacEnergy::from_double(std::abs(change)).multiplied(.5));
-        if (change != 0 && after == before) ++result.report.unresolved_heat_updates;
+        if (change != 0 && same_mac_cell_internal_energy(source.cells[cell],result.state.cells[cell])) ++result.report.unresolved_heat_updates;
         const auto reading=eos.evaluate(result.state.cells[cell].mixture,grid.volume_m3());
         // Fixed mass/volume and constant Cv make deltaT=deltaU/C exact for
         // this operator. Subtracting two rounded EOS temperatures loses the
         // entropy of small, conservative heat transfers in dense liquids.
-        MacEnergySum represented; represented.add(after); represented.add(-before);
+        const auto represented=mac_cell_internal_energy_change(source.cells[cell],result.state.cells[cell]);
         redistributed.add(represented.value().magnitude().multiplied(.5));
         const long double relative=static_cast<long double>(represented.value().require_representable())/
             bodies[n].heat_capacity_j_per_k/bodies[n].temperature_k;

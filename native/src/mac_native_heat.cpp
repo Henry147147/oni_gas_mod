@@ -29,9 +29,9 @@ MacNativeHeatExchange exchange_mac_native_heat(const MacClosedWorld& source,std:
     if (!std::isfinite(duration_conductance)) throw std::overflow_error("Native heat interval/conductance exceeds its range");
     const double direction=body.temperature_k>initial.temperature_k ? 1 : -1;
     const auto temperature=[&](double magnitude) {
-        auto changed=mixture;MacEnergySum energy;energy.add(mixture.energy);energy.add(direction*magnitude);
-        changed.energy=energy.value().require_representable();
-        return source.thermodynamics().evaluate(changed,volume).temperature_k;
+        auto changed=source.state().cells[cell];
+        (void)add_mac_cell_internal_energy(changed,MacEnergy::from_double(direction*magnitude));
+        return source.thermodynamics().evaluate(changed.mixture,volume).temperature_k;
     };
     double lower=0,upper=2*std::min(capacity,duration_conductance)*std::abs(body.temperature_k-initial.temperature_k);
     if (!std::isfinite(upper)) throw std::overflow_error("Native heat bracket exceeds its range");
@@ -78,13 +78,13 @@ MacNativeHeatExchange exchange_mac_native_heat(const MacClosedWorld& source,std:
     }
     if (after==body.temperature_k || represented==0) {result.report.unresolved=true;return result;}
     const MacCellHeat input{cell,represented,1e6};
-    auto changed=source.with_cell_heat(std::span(&input,1));
-    const double stored=changed.state().cells[cell].mixture.energy-mixture.energy;
+    auto changed=source.with_cell_heat(std::span(&input,1),&result.report.primary_energy);
+    const double stored=mac_cell_internal_energy_change(source.state().cells[cell],changed.state().cells[cell]).value().project().value;
     if (stored==0) {result.report.unresolved=true;return result;}
     const auto final=source.thermodynamics().evaluate(changed.state().cells[cell].mixture,volume);
     const double ordering=direction*(static_cast<double>(after)-final.temperature_k);
     if (direction*stored<0 || ordering<0) {result.report.unresolved=true;return result;}
-    MacEnergyAccount balance;balance.add(mixture.energy);balance.add(-changed.state().cells[cell].mixture.energy);
+    MacEnergyAccount balance;account_mac_cell_internal_energy(balance,source.state().cells[cell]);account_mac_cell_internal_energy(balance,changed.state().cells[cell],-1);
     balance.add(MacEnergy::from_double(capacity).multiplied(static_cast<double>(body.temperature_k)-after));
     if (!balance.within_bound()) throw FluidFatalError(FluidFatalCode::numerical_precision,"Native body/fluid heat failed its closed energy account");
     result.report.body_heat_loss_j=represented;result.report.stored_fluid_heat_j=stored;

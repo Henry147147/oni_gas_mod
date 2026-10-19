@@ -44,7 +44,7 @@ void export_state(int id, int endpoint, const MacClosedWorld& world) {
     const auto& state = world.state();
     for (std::size_t i = 0; i < state.cells.size(); ++i) {
         const auto& c = state.cells[i]; const auto t = state.grid.walls[i] ? ReferenceEquilibriumState{} : world.thermodynamics().evaluate(c.mixture, state.grid.volume_m3());
-        std::cout << "ICELL " << id << ' ' << endpoint << ' ' << i << ' ' << static_cast<int>(state.grid.walls[i]) << ' ' << c.mixture.energy << ' '
+        std::cout << "ICELL " << id << ' ' << endpoint << ' ' << i << ' ' << static_cast<int>(state.grid.walls[i]) << ' ' << ma::testing::observed_energy(c) << ' '
             << t.temperature_k << ' ' << t.mechanical_pressure_pa << '\n';
         for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
             std::cout << "IMASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
@@ -97,7 +97,7 @@ void compare(int id, std::size_t w, std::size_t h, bool periodic, bool walls) {
     }
     check(maximum < 1e-8, "Interval port differs from selected reference laws");
     check(owner.checkpoint() == held, "Interval kernel mutated source owner");
-    const auto bytes = next.world.checkpoint(); check(bytes[8] == 6, "Interval kernel checkpoint lacks versioned setting");
+    const auto bytes = next.world.checkpoint(); check(bytes[8] == ma::testing::checkpoint_version(next.world,6), "Interval kernel checkpoint lacks versioned setting");
     const auto restored = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, bytes);
     check(restored.settings().numerical_kernel == MacNumericalKernel::production && restored.checkpoint() == bytes, "Interval checkpoint lost kernel or state");
     const auto warm = next.world.advanced(continuation);

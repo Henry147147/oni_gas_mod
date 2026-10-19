@@ -91,11 +91,11 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
 }
 std::size_t load(const Exec& exec, const Model& model, const Grid& g, const MacTransportState& state, Fields& f) {
     const auto N = g.N, K = model.K(), P = model.P();
-    f.m.resize(K * N); f.U.resize(N); f.q.assign(P * N, 0);
+    f.m.resize(K * N); f.U.resize(N); f.U_remainder.resize(N); f.q.assign(P * N, 0);
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         const auto& cell = state.cells[i];
         for (std::size_t k = 0; k < K; ++k) f.m[k * N + i] = cell.mixture.masses[model.species[k].registry];
-        f.U[i] = cell.mixture.energy;
+        f.U[i] = cell.mixture.energy; f.U_remainder[i] = cell.energy_remainder_j.projected;
         std::size_t p = 0;
         for (const auto& entry : cell.passive_quantities) {
             while (model.passive_ids[p] != entry.identity) ++p;
@@ -114,7 +114,7 @@ void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f,
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         auto& cell = out.cells[i];
         for (std::size_t k = 0; k < K; ++k) cell.mixture.masses[model.species[k].registry] = f.m[k * N + i];
-        cell.mixture.energy = f.U[i];
+        cell.mixture.energy = f.U[i]; cell.energy_remainder_j.projected = f.U_remainder[i]; cell.energy_remainder_j.full = {};
         cell.passive_quantities.clear();
         for (std::size_t p = 0; p < P; ++p) {
             const double v = f.q[p * N + i];
@@ -155,6 +155,7 @@ template<class F> void visit_operands(const Context& c, const Fields& f, const s
         for (std::size_t k = 0; k < K; ++k) add(k, f.m[k * N + i]);
         for (std::size_t p = 0; p < P; ++p) add(K + p, f.q[p * N + i]);
         add(c.q_energy(), f.U[i]);
+        if (f.U_remainder[i] != 0) add(c.q_energy(), f.U_remainder[i]);
         if (gravity != 0 && mass[i] != 0) add(c.q_energy(), gravity * (static_cast<double>(i / g.W) + .5) * g.h * mass[i]);
     }
     for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
@@ -223,7 +224,8 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
                 o.s.add(m * sp.cv * std::log(st.T / experimental::entropy_reference_temperature_k));
                 if (sp.gas) { const double n = m / sp.molar_mass; o.s.add(n * R * (std::log(headspace) - std::log(n))); }
             }
-            o.allowance += std::abs(f.U[i]) / st.T;
+            o.s.add(f.U_remainder[i] / st.T);
+            o.allowance += (std::abs(f.U[i]) + std::abs(f.U_remainder[i])) / st.T;
         }
         return o;
     });
@@ -258,7 +260,7 @@ void merge(Accounts& a, const Accounts& b) {
     a.mixing_heat += b.mixing_heat; a.wall_heat += b.wall_heat; a.compression_heat += b.compression_heat; a.shock_heat += b.shock_heat;
     a.gravity_entropy.add(b.gravity_entropy); a.gravity_entropy_operands += b.gravity_entropy_operands;
     a.unresolved += b.unresolved;
-    a.physical.merge(b.physical);
+    a.physical.merge(b.physical); a.energy.merge(b.energy);
 }
 std::string quantity_name(const Context& c, std::size_t q) {
     if (q < c.model.K()) return "mass:" + std::to_string(c.model.species[q].registry);
@@ -270,13 +272,14 @@ std::string quantity_name(const Context& c, std::size_t q) {
 // Parallel copy of the field state (fixed row blocks of every column).
 void copy_fields(const Exec& exec, const Grid& g, const Model& model, const Fields& from, Fields& to) {
     const auto N = g.N;
-    to.m.resize(from.m.size()); to.U.resize(from.U.size()); to.q.resize(from.q.size());
+    to.m.resize(from.m.size()); to.U.resize(from.U.size()); to.U_remainder.resize(from.U_remainder.size()); to.q.resize(from.q.size());
     to.jx.resize(from.jx.size()); to.jy.resize(from.jy.size());
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         const auto a = y0 * g.W, b = y1 * g.W;
         for (std::size_t k = 0; k < model.K(); ++k) std::copy(from.m.begin() + static_cast<std::ptrdiff_t>(k * N + a), from.m.begin() + static_cast<std::ptrdiff_t>(k * N + b), to.m.begin() + static_cast<std::ptrdiff_t>(k * N + a));
         for (std::size_t p = 0; p < model.P(); ++p) std::copy(from.q.begin() + static_cast<std::ptrdiff_t>(p * N + a), from.q.begin() + static_cast<std::ptrdiff_t>(p * N + b), to.q.begin() + static_cast<std::ptrdiff_t>(p * N + a));
         std::copy(from.U.begin() + static_cast<std::ptrdiff_t>(a), from.U.begin() + static_cast<std::ptrdiff_t>(b), to.U.begin() + static_cast<std::ptrdiff_t>(a));
+        std::copy(from.U_remainder.begin() + static_cast<std::ptrdiff_t>(a), from.U_remainder.begin() + static_cast<std::ptrdiff_t>(b), to.U_remainder.begin() + static_cast<std::ptrdiff_t>(a));
         std::copy(from.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW), from.jx.begin() + static_cast<std::ptrdiff_t>(y1 * g.XW), to.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW));
         std::copy(from.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W), from.jy.begin() + static_cast<std::ptrdiff_t>(g.block_yrow_end(blk) * g.W), to.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W));
     });
@@ -305,9 +308,9 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
         &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy, &ws.phase_total, &ws.phase_liquid_fraction,
         &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_total, &ws.gravity_lower, &ws.gravity_mass,
-        &ws.gravity_fraction}) add(*v);
+        &ws.gravity_fraction, &ws.px_energy_remainder, &ws.py_energy_remainder, &ws.retained_energy_remainder}) add(*v);
     add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase); add(ws.phase_liquids); add(ws.phase_heavy); add(ws.gravity_heavy);
-    for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->q); add(f->jx); add(f->jy); }
+    for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->U_remainder); add(f->q); add(f->jx); add(f->jy); }
     return total;
 }
 Workspaces& workspaces() { static thread_local Workspaces w; return w; }
@@ -416,6 +419,11 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             a.rounding_allowance = acc.rounding[q] + acc.primary[q].allowance() + acc.inventory[q].allowance();
             a.rounded_primary_writes = acc.primary[q].count;
             a.rounded_inventory_writes = acc.inventory[q].count;
+            if (q == c.q_energy()) {
+                a.rounding_allowance += acc.energy.discarded.allowance();
+                a.rounded_energy_writes = acc.energy.high_count;
+                a.discarded_energy_remainders = acc.energy.discarded.count;
+            }
             a.stage_operand_magnitude = acc.operands[q]; a.below_range_allowance = tiny_allowance;
             const auto& transfers = acc.transfers[q];
             a.rounded_transfers = transfers.count; a.transfer_roundoff = transfers.error.value();
@@ -430,7 +438,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                 a.passed = exact.within_bound();
             }
             a.passed = a.passed && transfers.within_bound() && acc.primary[q].within_bound(bound) &&
-                acc.inventory[q].within_bound(bound) && a.rounding_allowance <= bound;
+                acc.inventory[q].within_bound(bound) && a.rounding_allowance <= bound &&
+                (q != c.q_energy() || acc.energy.discarded.within_bound(bound));
             passed = passed && a.passed;
             if (q == c.q_energy()) { report.energy_residual_j = residual; report.energy_bound_j = bound; }
             report.audits.push_back(std::move(a));
@@ -454,6 +463,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             report.rounded_transfers = 0;
             report.rounded_primary_writes = 0;
             report.rounded_inventory_writes = 0;
+            report.rounded_energy_writes = acc.energy.high_count;
+            report.discarded_energy_remainders = acc.energy.discarded.count;
             for (const auto& transfers : acc.transfers) {
                 if (transfers.count > std::numeric_limits<std::size_t>::max() - report.rounded_transfers)
                     precision("Production interval parcel rounding counter overflow");
@@ -519,6 +530,7 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
         s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed && s.vacuum == MacVacuumRepresentation::empty_cells;
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
+    for (const auto& cell : state.cells) if (!cell.energy_remainder_j.full.is_zero()) return false;
     // Below-range values (and full-range canonical momentum, whose binary64
     // projection rounds below 2^-1074) are admitted and counted; only
     // nonfinite or overflow-range values need the reference.
@@ -580,8 +592,9 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     MacKernelAccess::stamp(result.world, start + seconds, revision + 1);
     auto& r = result.report;
     r.interval_kernel_intervals = 1;
+    r.primary_energy.merge({k.rounded_energy_writes,k.discarded_energy_remainders});
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
-    for (const auto count : {k.rounded_range_inputs, k.rounded_transfers, k.rounded_primary_writes, k.rounded_inventory_writes}) {
+    for (const auto count : {k.rounded_range_inputs, k.rounded_transfers, k.rounded_primary_writes, k.rounded_inventory_writes, k.rounded_energy_writes, k.discarded_energy_remainders}) {
         if (count > std::numeric_limits<std::size_t>::max() - r.interval_rounded_updates)
             mac_kernel::precision("Production owner rounding counter overflow");
         r.interval_rounded_updates += count;

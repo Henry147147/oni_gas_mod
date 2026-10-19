@@ -33,7 +33,7 @@ void account_state(MacEnergyAccount& energy,MacScaledAccount& px,MacScaledAccoun
     const auto inertias=mac_face_inertias(registry,state,eos);
     const auto sign=[&](MacEnergy value) { return negative ? value.negated() : value; };
     for (std::size_t i=0;i<state.cells.size();++i) {
-        energy.add(sign(MacEnergy::from_double(state.cells[i].mixture.energy)));
+        account_mac_cell_internal_energy(energy,state.cells[i],negative ? -1 : 1);
         energy.add(sign(potential(state.grid,i,state.cells[i].mixture.mass(),gravity)));
     }
     for (std::size_t axis=0;axis<2;++axis) {
@@ -66,7 +66,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     require(state_.occupied_volumes_m3.empty(),"Fluid point transfers do not yet support partly filled void-phase cells");
     auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
-    std::size_t unresolved=0;
+    std::size_t unresolved=0;MacPrimaryRoundingCounts rounding;
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.species_index < registry_.size() &&
             (registry_[edit.species_index].phase == Phase::gas || registry_[edit.species_index].phase == Phase::liquid) &&
@@ -111,7 +111,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         MacEnergyAccount mass_account; mass_account.add(old_mass); mass_account.add(signed_mass); mass_account.add(-cell.mixture.masses[edit.species_index]);
         require(mass_account.within_bound(),"Fluid transfer constituent account failed");
         const auto material_energy=edit.inject ? packet.internal_energy_j : -packet.internal_energy_j;
-        cell.mixture.energy+=material_energy;
+        (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(material_energy),&rounding);
         const auto inertia1=mac_face_inertias(registry_,next,*thermodynamics_);
         std::vector<MacEnergySum> heat(next.cells.size()); MacEnergySum carried_kinetic; MacScaledSum carried_px,carried_py;
         const auto x=edit.cell_index%next.grid.width,y=edit.cell_index/next.grid.width;
@@ -141,13 +141,13 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         packet.resolved_kinetic_energy=carried_kinetic.value(); packet.momentum_x=carried_px.value(); packet.momentum_y=carried_py.value();
         store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
         for (std::size_t i=0;i<heat.size();++i) if (heat[i].sign() != 0) {
-            const auto old=next.cells[i].mixture.energy; MacEnergySum value=heat[i]; value.add(old);
-            next.cells[i].mixture.energy=value.value().project().value;
-            MacEnergyAccount local; local.add(old);
+            const auto old=next.cells[i]; MacEnergySum value=heat[i]; account_mac_cell_internal_energy(value,old);
+            (void)store_mac_cell_internal_energy(next.cells[i],value,&rounding);
+            MacEnergyAccount local; account_mac_cell_internal_energy(local,old);
             for (std::size_t k=0;k<heat[i].size();++k) local.add(heat[i].component(k));
-            local.add(-next.cells[i].mixture.energy);
+            account_mac_cell_internal_energy(local,next.cells[i],-1);
             require(local.within_bound(),"Fluid transfer mixing heat account failed");
-            if (old == next.cells[i].mixture.energy) ++unresolved;
+            if (same_mac_cell_internal_energy(old,next.cells[i])) ++unresolved;
         }
         energy.add(material_energy); energy.add(edit.inject ? packet.potential_energy : packet.potential_energy.negated());
         if (!edit.inject) { energy.add(packet.resolved_kinetic_energy.negated()); px.add(packet.momentum_x.negated()); py.add(packet.momentum_y.negated()); }
@@ -159,6 +159,6 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     }
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
-    return {std::move(candidate),std::move(parcels),unresolved};
+    return {std::move(candidate),std::move(parcels),unresolved,rounding};
 }
 }

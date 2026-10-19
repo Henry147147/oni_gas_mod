@@ -68,7 +68,12 @@ These bounded fixtures do not certify a colony or actual Windows OS execution. P
 solver attempts. A standalone public-species reproducer matches the drift,
 conduction counters and entropy report; it is retained with the game evidence
 in `local/production-water-heat-drift-v1/` and `local/production-save-v6-v1/`.
-Persistent primary-U and volume remainders now belong to Codex.
+[Persisted U corrections](../native/MAC_PRIMARY_REMAINDERS.md) now pass that
+unchanged standalone control (+3.81470e-6 J against 0.00594585 J). A new Linux run
+reaches frame 121 with zero rejected attempts and maximum relative energy error
+7.12279e-20, then fails the conduction stage-clock check: certified idle intervals
+are included in substeps but execute no physical stages. The owner diagnostic and
+fresh save/reload validation remain open. Volume remainders remain open under Codex.
 
 **Native exclusions.** The validation scenes queue ONI's gas/liquid
 impermeability flags and verify them in the original native snapshot. Native

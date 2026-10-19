@@ -125,14 +125,15 @@ also pass collision.
   pressure/remap convention mismatch. The opt-in 1-D conversion now passes its
   interior point-velocity oracle; general 2-D conversion and strong-flow acceptance
   remain open ([component evidence](../native/MAC_NODAL_CONVERSION.md)).
-- Persistent primary-U rounding remainders. Full-range gravity work and potential
-  flux now pass standalone controls, including a 10,000-step continuation, but
-  unresolved U updates are reported rather than saved. The normal and flagged-range
-  [two-part arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md) pass
-  independent saved checks including composed-sum ties, ASan/UBSan,
-  ThreadSanitizer and MinGW/Wine controls,
-  but have no solver-state or checkpoint binding. Checkpoint version 10 is
-  reserved for the staged U integration and is not yet selected by the solver.
+- Primary-field remainders. [Persistent primary U](../native/MAC_PRIMARY_REMAINDERS.md)
+  now carries a normal or flagged-range correction through both kernels, accounts,
+  version-10 checkpoints and owner save framing. The unchanged standalone
+  production water-heat control passes (+3.81470e-6 J against 0.00594585 J at
+  123 frames). Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests;
+  ThreadSanitizer, MinGW/Wine and exact cross-platform continuation controls pass.
+  A fresh Linux run passes energy but fails the stage-clock validation, which
+  does not distinguish certified idle intervals. Volume remainders, that owner
+  diagnostic and fresh save/reload validation remain open.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
   with automatic multigrid and the pressure-storage ledger measures p95
@@ -175,7 +176,8 @@ also pass collision.
   passive gathers now have audited storage-write counts: 70 of 80 independent
   controlled additions, with 1,431 saved checks/fourteen altered captures rejected.
   The original bounds, stored values and six version-6/7/8 endpoint/continuation
-  images remain unchanged. Retained-parcel subtractions and primary U are outside
+  images remain unchanged. Primary U now has persisted corrections and audited
+  writes; retained constituent/passive subtractions are outside
   this ledger. Flagged pressure sweeps now
   survive until parcel formation; canonical dual J and normalized kinetic
   products fix the reproduced large-inertia fault. Signed and quantized arrivals,
@@ -199,8 +201,11 @@ also pass collision.
   checkpoints); all reloads verify paused frame-zero saving and 120 exact frames. Production water-heat fails its unchanged endpoint energy
   gate after 123 frames (−0.0177002 J against 0.00594580 J), with no rejected
   attempts; a public standalone reproducer matches the drift and conduction
-  counters. This feeds Codex's primary-U remainder work. These bounded runs
-  do not certify a colony or actual Windows OS execution. The latest Ubuntu
+  counters. With persisted U, the unchanged standalone control now passes
+  (+3.81470e-6 J against 0.00594585 J). A fresh Linux run reaches frame 121 with
+  zero rejected attempts and maximum relative energy error 7.12279e-20, then fails
+  conduction stage accounting because certified idle intervals are included in
+  substeps. The owner diagnostic and fresh save/reload validation remain open. These bounded runs do not certify a colony or actual Windows OS execution. The latest Ubuntu
   production-owner/pressure-ledger build passes 55 tests and both shared
   libraries meet the glibc 2.34 ceiling after the shared interface geometry
   replaces `std::hypot`. The builder and package provenance check enforce that
@@ -373,7 +378,7 @@ licensed game to verify.
 | 3 | 1 | Managed adoption of item 1 and in-game rooms with interior solids (done on Linux Unity, with saves, reloads and long runs; saves also pass under Proton. Actual Windows and occupied rooms remain) | M | Yes |
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
-| 6 | 2 | Range-extended vertical gravity (work/flux accounts done); persistent primary-field rounding remainders remain | M–L | Later |
+| 6 | 2 | Range-extended gravity and persisted U corrections; volume remainders and game verification remain | M–L | Later |
 | 7 | 1, 2 | Vacuum, free surfaces and multiple liquids in the MAC owner | XL | Later |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |

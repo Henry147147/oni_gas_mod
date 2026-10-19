@@ -77,7 +77,7 @@ def parse(raw):
 
 
 def review(data, legacy=False):
-    check(data['version'] == (None if legacy else 2), 'Wrong saved-evidence version')
+    check(data['version'] is None if legacy else data['version'] in (2, 3), 'Wrong saved-evidence version')
     check(data['passed'] and data['controls'] == (1, 1, 1), 'Missing native completion/continuation controls')
     check(set(data['cases']) == set(range(9)), 'Missing signed/quantized transport case')
     quantities = (F(0), F(2)**450, F(2)**450, F(2)**450, F(2)**450, F(2)**-600, F(2)**54, F(2)**55, F(2)**56)
@@ -107,10 +107,11 @@ def review(data, legacy=False):
             near(error, expected_error, 'Projection error differs from independent physical operands')
         check(count_sum == total, 'Owner/quantity rounding counts disagree')
         if not legacy:
-            # Each uniform donor/receiver loses four nonzero bulk writes (three
-            # species and U). Only the packet donor adds a lost passive write;
-            # a parcel rounded to zero has no subsequent primary write.
-            check(data['writes'].get(case) == 8 * cells + int(amount != 0 and arrival != 0), 'Accepted unresolved write count differs')
+            # Version 3 carries both U writes in their persistent low parts;
+            # the three constituent writes remain unresolved. Version 2 used
+            # high U only. A zero parcel produces no later primary write.
+            bulk_writes = 6 if data['version'] == 3 else 8
+            check(data['writes'].get(case) == bulk_writes * cells + int(amount != 0 and arrival != 0), 'Accepted unresolved write count differs')
 
     for case, (axis, inertia, j, dt, amount, actual, reference, total) in data['cases'].items():
         check(axis == (1 if case in (3, 4) else 0) and j == (-1 if case in (2, 4) else 1) * F(2)**-700 and

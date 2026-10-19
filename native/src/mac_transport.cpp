@@ -89,11 +89,12 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
                 "Invalid MAC occupied volume");
         }
         if (model) model->validate_inventory(cell.mixture); else cell.mixture.validate(registry);
+        require(canonical_mac_primary(cell.mixture.energy, cell.energy_remainder_j), "Noncanonical MAC cell energy remainder");
         validate_passive_quantities(cell.passive_quantities);
         const auto mass = cell.mixture.mass();
-        if (g.walls[i]) require(mass == 0 && cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC solid contains fluid");
+        if (g.walls[i]) require(mass == 0 && cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(), "MAC solid contains fluid");
         else if (mass == 0)
-            require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC vacuum contains energy or passive inventory");
+            require(cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(), "MAC vacuum contains energy or passive inventory");
         else {
             for (std::size_t s = 0; s < registry.size(); ++s)
                 require(cell.mixture.masses[s] == 0 || registry[s].phase != Phase::solid, "MAC transport cannot move solids");
@@ -410,16 +411,19 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
     const auto physical = [&](const MacMaterialCell& cell, double volume, double scale_volume) {
         model.validate_inventory(cell.mixture); validate_passive_quantities(cell.passive_quantities);
         require(std::isfinite(volume) && volume >= 0, "Invalid MAC parcel volume");
-        if (volume == 0) { require(cell.mixture.mass() == 0 && cell.mixture.energy == 0 && cell.passive_quantities.empty(), "Zero-volume MAC parcel is not empty"); return; }
+        if (volume == 0) { require(cell.mixture.mass() == 0 && cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(), "Zero-volume MAC parcel is not empty"); return; }
         if (cell.mixture.mass() == 0) {
-            require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "MAC vacuum parcel contains energy or passive inventory");
+            require(cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(), "MAC vacuum parcel contains energy or passive inventory");
             return;
         }
         require(scale_volume > 0, "MAC parcel has no reference volume");
-        auto normalized = cell.mixture;
-        for (auto& value : normalized.masses) value = share(value, scale_volume, volume);
-        normalized.energy = share(normalized.energy, scale_volume, volume);
-        const auto eos = model.evaluate(normalized, scale_volume);
+        auto normalized = cell;
+        for (auto& value : normalized.mixture.masses) value = share(value, scale_volume, volume);
+        MacEnergySum normalized_energy;
+        normalized_energy.add(MacEnergy::from_double(cell.mixture.energy).shared(scale_volume,volume));
+        normalized_energy.add(mac_stored_remainder_value(cell.energy_remainder_j).shared(scale_volume,volume));
+        (void)store_mac_cell_internal_energy(normalized,normalized_energy);
+        const auto eos = model.evaluate(normalized.mixture, scale_volume);
         if (eos.vacuum_volume_m3 > 32 * eps * scale_volume) throw std::domain_error("MAC parcel contains unsupported internal void");
     };
     for (const auto& parcel : plan.parcels) {
@@ -445,15 +449,16 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
         require(std::isfinite(plan.limiter[i]) && plan.limiter[i] >= 0 && plan.limiter[i] <= 1, "Invalid MAC reconstruction limiter");
         physical(plan.retained[i], plan.retained_volumes_m3[i], plan.source_volumes_m3[i]);
         MacScaledAccount volume; volume.add(plan.retained_volumes_m3[i]);
-        MacScaledAccount energy; energy.add(plan.retained[i].mixture.energy);
+        MacScaledAccount energy; account_mac_cell_internal_energy(energy,plan.retained[i]);
         std::map<std::uint64_t, MacScaledAccount> metadata;
         for (const auto& p : plan.retained[i].passive_quantities) metadata[p.identity].add(p.quantity);
         for (const auto* parcel : outgoing[i]) if (parcel) {
             volume.add(mac_parcel_volume(*parcel)); energy.add(mac_parcel_quantity(*parcel, parcel->contents.mixture.energy));
+            energy.add(mac_parcel_quantity(*parcel,mac_stored_remainder_value(parcel->contents.energy_remainder_j)));
             for (const auto& p : parcel->contents.passive_quantities) metadata[p.identity].add(mac_parcel_quantity(*parcel, p.quantity));
         }
         volume.add(-plan.source_volumes_m3[i]); if (!volume.within_bound()) precision("MAC full donor volume account exceeds its operand bound");
-        energy.add(-source.cells[i].mixture.energy);
+        account_mac_cell_internal_energy(energy,source.cells[i],-1);
         if (!energy.within_bound()) precision("MAC parcel donor energy account exceeds its operand bound");
         for (std::size_t s = 0; s < species; ++s) {
             bool present=source.cells[i].mixture.masses[s]!=0 || plan.retained[i].mixture.masses[s]!=0;
@@ -622,14 +627,13 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
         if (amount.is_zero()) return;
         const auto total = MacScaled::from_double(m0[donor]);
         for (const auto s:mass.source_species(donor)) mass.add(target,s,MacScaled::from_double(source.cells[donor].mixture.masses[s]).shared(amount,total));
-        energy[target].add(MacScaled::from_double(source.cells[donor].mixture.energy).shared(amount, total));
         for (const auto& entry : source.cells[donor].passive_quantities) metadata[target][entry.identity].add(MacScaled::from_double(entry.quantity).shared(amount, total));
         require(metadata[target].size() <= 65537, "MAC target passive identity capacity exceeded");
     };
     if (plan) {
         const auto add = [&](std::size_t target, const MacMaterialCell& cell) {
             for (const auto s:mass.source_species(target)) mass.add(target,s,MacScaled::from_double(cell.mixture.masses[s]));
-            energy[target].add(cell.mixture.energy);
+            account_mac_cell_internal_energy(energy[target],cell);
             for (const auto& p : cell.passive_quantities) metadata[target][p.identity].add(p.quantity);
             require(metadata[target].size() <= 65537, "MAC parcel target passive capacity exceeded");
         };
@@ -637,16 +641,30 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
         for (const auto& parcel : plan->parcels) {
             for (const auto s:mass.source_species(parcel.donor)) mass.add(parcel.target,s,mac_parcel_quantity(parcel,parcel.contents.mixture.masses[s]));
             energy[parcel.target].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy));
+            energy[parcel.target].add(mac_parcel_quantity(parcel,mac_stored_remainder_value(parcel.contents.energy_remainder_j)));
             for (const auto& p : parcel.contents.passive_quantities) metadata[parcel.target][p.identity].add(mac_parcel_quantity(parcel, p.quantity));
             require(metadata[parcel.target].size() <= 65537, "MAC scaled parcel target passive capacity exceeded");
             if (parcel.reference_volume_m3 != 0) ++result.report.scaled_primary_parcels;
         }
         result.report.primal_mass_fluxes_kg = actual_flux;
     } else {
-        for (std::size_t i = 0; i < count; ++i) if (!g.walls[i]) transfer(i, i, keep[i]);
+        for (std::size_t i = 0; i < count; ++i) if (!g.walls[i]) {
+            transfer(i, i, keep[i]);
+            account_mac_cell_internal_energy(energy[i],source.cells[i]);
+        }
         for (const auto& edge : primal) {
-            const auto amount = mac_dual_mass(edge); transfer(amount.mantissa() > 0 ? edge.left : edge.right,
-                amount.mantissa() > 0 ? edge.right : edge.left, amount.magnitude());
+            const auto amount = mac_dual_mass(edge);
+            const auto donor=amount.mantissa()>0 ? edge.left : edge.right;
+            const auto target=amount.mantissa()>0 ? edge.right : edge.left;
+            transfer(donor,target,amount.magnitude());
+            const auto total=MacScaled::from_double(m0[donor]);
+            // A transfer smaller than one retained-energy quantum still has
+            // one shared value, subtracted from the donor and added to its neighbour.
+            for(const auto& part:{MacEnergy::from_double(source.cells[donor].mixture.energy),
+                mac_stored_remainder_value(source.cells[donor].energy_remainder_j)}) {
+                const auto energy_flux=part.shared(amount.magnitude(),total);
+                energy[donor].add(energy_flux.negated());energy[target].add(energy_flux);
+            }
         }
     }
     for (std::size_t i = 0; i < count; ++i) {
@@ -654,7 +672,7 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
         std::fill(next.mixture.masses.begin(),next.mixture.masses.end(),0.0);
         for (std::size_t k=mass.offsets[i];k<mass.offsets[i+1];++k)
             next.mixture.masses[mass.ids[k]]=store_mac_primary(mass.amounts[k],true);
-        next.mixture.energy = store_mac_primary(energy[i], false); next.passive_quantities.clear();
+        (void)store_mac_cell_internal_energy(next,energy[i],&result.report.primary_energy); next.passive_quantities.clear();
         for (const auto& [identity, value] : metadata[i]) {
             const double stored = store_mac_primary(value, true);
             if (stored != 0) next.passive_quantities.push_back({identity, stored});
@@ -680,7 +698,10 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
     }
     if (reconstruction != MacMomentumReconstruction::donor_cell) {
         result.report.advected_internal_energy_j.reserve(count);
-        for (const auto& cell : result.state.cells) result.report.advected_internal_energy_j.push_back(cell.mixture.energy);
+        for (const auto& cell : result.state.cells) {
+            result.report.advected_internal_energy_j.push_back(cell.mixture.energy);
+            result.report.advected_energy_remainders_j.push_back(cell.energy_remainder_j);
+        }
     }
     auto m1 = masses(registry, result.state, model, {}, !physical);
     auto vx = physical ? inertias(geometry.x, std::vector<double>(source_volumes.begin(), source_volumes.end())) : std::vector<double>{};
@@ -707,8 +728,10 @@ void transport_candidate(const SpeciesRegistry& registry, const MacTransportStat
     const auto& keep = prepared.keep; const auto& primal = prepared.primal;
     const auto& volume_sweeps = prepared.volume_sweeps;
     result.report = prepared.advected.report;
-    if (physical) for (std::size_t i = 0; i < count; ++i)
+    if (physical) for (std::size_t i = 0; i < count; ++i) {
         result.state.cells[i].mixture.energy = result.report.advected_internal_energy_j[i];
+        result.state.cells[i].energy_remainder_j = result.report.advected_energy_remainders_j[i];
+    }
     std::vector<MacScaledSum> converted_energy;
     if (reconstruction == MacMomentumReconstruction::swept_nodal_1d) converted_energy = prepared.energy;
     const auto& energy = reconstruction == MacMomentumReconstruction::swept_nodal_1d ? converted_energy : prepared.energy;
@@ -782,20 +805,20 @@ void transport_candidate(const SpeciesRegistry& registry, const MacTransportStat
     account_faces(geometry.x, report.x, jx0, jx1, px);
     account_faces(geometry.y, report.y, jy0, jy1, py);
     for (std::size_t i = 0; i < count; ++i) {
-        const double old = result.state.cells[i].mixture.energy; const auto heat = cell_heat[i].value();
+        const auto old = result.state.cells[i]; const auto heat = cell_heat[i].value();
         const auto conversion_work=report.nodal_advected_work.empty()?MacEnergy{}:report.nodal_advected_work[i];
         if (!heat.is_zero() || !conversion_work.is_zero()) {
             MacEnergySum updated;
             for (std::size_t k = 0; k < energy[i].size(); ++k) updated.add(energy[i].component(k));
             updated.add(heat);
-            result.state.cells[i].mixture.energy = updated.value().project().value;
+            (void)store_mac_cell_internal_energy(result.state.cells[i],updated,&report.primary_energy);
             MacEnergySum requested;requested.add(heat);requested.add(conversion_work);
-            MacEnergySum difference; difference.add(result.state.cells[i].mixture.energy); difference.add(-old); difference.add(requested.value().negated());
+            auto difference=mac_cell_internal_energy_change(old,result.state.cells[i]); difference.add(requested.value().negated());
             MacEnergySum allowance; allowance.add((physical ? requested.value().magnitude() : requested.value()).shifted(-47)); const int polarity = difference.sign();
             for (std::size_t k = 0; k < difference.size(); ++k) allowance.add(polarity < 0 ? difference.component(k) : difference.component(k).negated());
             if (allowance.sign() < 0) ++report.unresolved_heat_updates;
         }
-        total_energy.add(result.state.cells[i].mixture.energy); total_energy.add(-source.cells[i].mixture.energy);
+        account_mac_cell_internal_energy(total_energy,result.state.cells[i]); account_mac_cell_internal_energy(total_energy,source.cells[i],-1);
         for (std::size_t s = 0; s < species; ++s) { species_balance[s].add(result.state.cells[i].mixture.masses[s]); species_balance[s].add(-source.cells[i].mixture.masses[s]); }
         for (const auto& entry : result.state.cells[i].passive_quantities) passive_balance[entry.identity].add(entry.quantity);
         for (const auto& entry : source.cells[i].passive_quantities) passive_balance[entry.identity].add(-entry.quantity);
@@ -812,6 +835,8 @@ void transport_candidate(const SpeciesRegistry& registry, const MacTransportStat
             const auto& a = prepared.source_thermal[i];
             const auto& b = completed_thermal[i];
             entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
+            if(m1[i]>0)account_mac_cell_entropy_remainder(entropy,result.state.cells[i],b.temperature_k);
+            if(m0[i]>0)account_mac_cell_entropy_remainder(entropy,source.cells[i],a.temperature_k,-1);
             if (m0[i] > 0) allowance.add(MacEnergy::from_double(std::abs(source.cells[i].mixture.energy)).shared(1, a.temperature_k).shifted(-45));
             if (m1[i] > 0) allowance.add(MacEnergy::from_double(std::abs(result.state.cells[i].mixture.energy)).shared(1, b.temperature_k).shifted(-45));
         }

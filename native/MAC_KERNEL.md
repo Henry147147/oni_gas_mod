@@ -202,10 +202,11 @@ Their outward half-ulp charges fit inside the original interval operand bound;
 stored values and refinement counters are unchanged. Accepted counts reach the
 owner's rounded-update report. Incoming constituent/passive gathers now also
 have [inventory-write ledgers](MAC_INVENTORY_ROUNDING.md), with unchanged stored
-values and interval bounds. Retained-parcel subtractions, ordinary products,
-primary U and momentum writes outside pressure remain open. The unselected
-[primary-remainder primitive](MAC_PRIMARY_REMAINDERS.md) is arithmetic support
-for that work, without a saved field or new owner path.
+values and interval bounds. [Persistent primary U](MAC_PRIMARY_REMAINDERS.md)
+now carries the low part through every stage, with accepted high-write and
+third-part counts in the interval audit and version-10 checkpoints. Retained
+constituent/passive subtractions, ordinary products and momentum writes outside
+pressure still need their remaining ledgers.
 
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
@@ -465,7 +466,7 @@ pass on Release, ASan/UBSan, TSan and Wine. These controls do not certify
 active-cell performance.
 The large-volume control retains the reference's `3.9806709100596318e-190`
 arrival and zero/one/two-quantum arrivals. The reader independently counts all
-accepted unresolved writes: 48/49 in six cells, and 267,113 in the 33,389-cell
+accepted unresolved writes: 36/37 in six cells, and 200,335 in the 33,389-cell
 controls. Saved format 2 requires these records; `--legacy` explicitly reviews
 the earlier format. Failed interval budgets publish neither count nor state.
 
@@ -491,10 +492,11 @@ CTests; both shared libraries meet the glibc 2.34 ceiling after the shared
 interface geometry replaces `std::hypot`. Production Linux source/save and
 fresh-process reload cases pass in the partial game cohort. Water-heat fails
 its unchanged endpoint energy gate (−0.0177002 J against 0.00594580 J after
-123 frames); a public standalone reproducer matches the drift. The latest
-merged sharp-interface control separately fails MinGW/Wine (mist 0.000568570
-against 0.0005). Remaining Linux scenes and Proton production validation are
-open. No actual Windows OS or active-cell acceptance is claimed here.
+123 frames). With [persisted U](MAC_PRIMARY_REMAINDERS.md), the unchanged standalone
+reproducer passes (+3.81470e-6 J against 0.00594585 J). The sharp-interface control
+passes MinGW/Wine with the authorized translation amendment and the U-inclusive
+gravity observation. Fresh U-enabled Linux/Proton game packages and active-cell
+acceptance remain open; no actual Windows OS evidence is claimed here.
 
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference

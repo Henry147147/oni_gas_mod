@@ -9,7 +9,15 @@ import sys
 
 spec=importlib.util.spec_from_file_location('pair_reference',Path(__file__).with_name('review_mac_momentum_limiter.py'))
 ref=importlib.util.module_from_spec(spec);spec.loader.exec_module(ref)
-EPS=ref.EPS;number=ref.number;check=ref.check
+EPS=ref.EPS;check=ref.check
+def number(token):
+    if '~' not in token:return ref.number(token)
+    fields=token.split('~');check(len(fields)==3,'Primary-U token shape')
+    high=ref.number(fields[0]);mantissa=ref.number(fields[1]);exponent=int(fields[2])
+    check(-16384<exponent<16384 and F(1,2)<=abs(mantissa)<1,'Primary-U correction shape')
+    low=mantissa*F(2)**exponent
+    check(F(float(high+low))==high,'Noncanonical primary-U pair')
+    return high+low
 def encoded(row,index):
     m=number(row[index]);e=int(row[index+1])
     check(-16384<e<16384 and ((m==0 and e==0) or F(1,2)<=abs(m)<1),'Scaled field shape/range')
@@ -273,7 +281,9 @@ def review(d):
                     actual=d[field][case,1,i,s];close(actual,expected,(actual,expected),'Individual trace/species/passive transport')
             energy_change+=v[3]-v[1];energy_terms.extend((v[3],v[1]))
         check(definitely_unresolved<=unresolved<=possibly_unresolved,'Material heat precision diagnostics')
-        if case==3:check(unresolved>0 and d['reports'][case,0][0]>0,'Missing full-range correction/unresolved-heat control')
+        if case==3:
+            carried=any(v[3]!=F(float(v[3])) for v in cells.values())
+            check((unresolved==0 if carried else unresolved>0) and d['reports'][case,0][0]>0,'Missing full-range correction/storage control')
         close(energy_change,0,energy_terms,'Closed actual material U plus canonical K')
         close(bound,128*EPS*sum(map(abs,energy_terms)),(bound,128*EPS*sum(map(abs,energy_terms))),'Original endpoint energy operand bound')
         close(residual,energy_change,energy_terms,'Reported actual energy residual')

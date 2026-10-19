@@ -126,9 +126,12 @@ void free_surface_gravity(MacMaterialReconstruction reconstruction, const char* 
     long double exact = 0;
     for (std::size_t i = 0; i < st.cells.size(); ++i) {
         const auto& after = step.state.cells[i].mixture;
-        if (!(after.mass() > 0) || after.energy == step.pre_gravity_internal_energy_j[i]) continue;
+        if (!(after.mass() > 0)) continue;
         auto pivot = after; pivot.energy = step.pre_gravity_internal_energy_j[i];
-        exact += s.eos->evaluate(after, volume).entropy_j_per_k - s.eos->evaluate(pivot, volume).entropy_j_per_k;
+        const auto next=s.eos->evaluate(after,volume),previous=s.eos->evaluate(pivot,volume);
+        exact += next.entropy_j_per_k-previous.entropy_j_per_k;
+        exact += mac_energy_long_double(mac_stored_remainder_value(step.state.cells[i].energy_remainder_j))/next.temperature_k;
+        exact -= mac_energy_long_double(mac_stored_remainder_value(step.pre_gravity_energy_remainders_j[i]))/previous.temperature_k;
     }
     const double bound = step.gravity_entropy_bound_j_per_k, gap = bound - static_cast<double>(exact);
     std::cout << "GRAVITY " << name << " substep_bound=" << bound << " exact=" << static_cast<double>(exact) << " gap=" << gap << '\n';

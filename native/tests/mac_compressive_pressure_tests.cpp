@@ -71,7 +71,7 @@ MacCompressivePressureStep scene(int id,std::vector<MaterialCell> source,std::ve
         const int identifier=next_response++;
         std::cout<<"CPMAP "<<id<<' '<<i<<' '<<identifier<<' '<<p.volume_residuals_m3[i]<<'\n';
         ma::testing::export_compressive_response(identifier,0,source[i].mixture,set.eos->evaluate(source[i].mixture,source[i].volume_m3),
-            source[i].volume_m3,p.volume_changes_m3[i],1,dt,linear[i],step.responses[i]);
+            source[i].volume_m3,p.volume_changes_m3[i],1,dt,linear[i],step.responses[i],source[i].energy_remainder_j);
     }
     return step;
 }

@@ -143,7 +143,7 @@ MacClosedWorld threaded() {
         "Moment state or rounding depends on thread count");
     const auto image = first.world.checkpoint(); const auto& s = setup();
     const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
-    check(image.at(8) == wire_version() && restored.checkpoint() == image && restored.settings().pressure_integration == selection,
+    check(image.at(8) == ma::testing::checkpoint_version(first.world,wire_version()) && restored.checkpoint() == image && restored.settings().pressure_integration == selection,
         "Moment checkpoint lost its persisted temporal selection");
     const auto resumed = restored.advanced(.002, 256); audit();
     options.threads = 1; set_mac_kernel_default_options(options);
@@ -192,7 +192,7 @@ void checkpoint_modes() {
             const auto source = owner(scene, .002, true); const auto held = source.checkpoint();
             const auto first = source.advanced(.002, 4096); const auto image = first.world.checkpoint();
             const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
-            check(first.report.diffusion.exchanged_mass_kg > 0 && image.at(8) == wire_version() && restored.checkpoint() == image && restored.settings().preconditioner == pressure &&
+            check(first.report.diffusion.exchanged_mass_kg > 0 && image.at(8) == ma::testing::checkpoint_version(first.world,wire_version()) && restored.checkpoint() == image && restored.settings().preconditioner == pressure &&
                 restored.settings().diffusion.mode == diffusion.mode && restored.settings().diffusion.multiplier == diffusion.multiplier &&
                 restored.advanced(.002, 4096).world.checkpoint() == first.world.advanced(.002, 4096).world.checkpoint() &&
                 source.checkpoint() == held, "Moment checkpoint lost composed diffusion/preconditioner continuation");

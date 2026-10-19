@@ -11,6 +11,7 @@ namespace ma::experimental {
 // linear_speed is an explicitly frozen, nonnegative incoming coefficient.
 struct MacCompressiveWork {
     MixtureInventory mixture;
+    MacStoredRemainder energy_remainder_j{};
     ReferenceEquilibriumState state;
     ReferenceIsentropicResponse isentropic;
     MacEnergy stress_pa, stress_volume_derivative_pa_per_m3, dissipated_heat_j;
@@ -18,6 +19,7 @@ struct MacCompressiveWork {
     MacEnergy requested_energy_change_j, energy_residual_j, energy_bound_j;
     MacEnergy entropy_change_j_per_k, entropy_allowance_j_per_k;
     bool unresolved_energy_update = false;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 
 // s=max(-dV/V0,0), a=h/dt, rho=M/V0:
@@ -29,7 +31,8 @@ struct MacCompressiveWork {
 [[nodiscard]] MacCompressiveWork evaluate_mac_compressive_work(
     const FluidThermodynamics&, const MixtureInventory&, double source_volume_m3,
     double volume_change_m3, double spacing_m, double timestep_s,
-    MacEnergy linear_speed_m_per_s, ReferenceRootOptions isentropic_root_options = {});
+    MacEnergy linear_speed_m_per_s, ReferenceRootOptions isentropic_root_options = {},
+    const MacStoredRemainder& energy_remainder_j = {});
 
 struct MacCompressivePressureStep {
     OccupiedMaterialPressureStep pressure;

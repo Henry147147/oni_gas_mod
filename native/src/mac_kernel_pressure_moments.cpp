@@ -36,6 +36,7 @@ MomentSweep moment_sweep(double j0, double j1, double f1, double inertia, double
 }
 
 void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     const auto& g = c.g; auto& ws = c.ws; const auto N = g.N;
     auto mark = std::chrono::steady_clock::now();
     const auto lap = [&](double& slot) {
@@ -240,7 +241,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     }
     acc.wall_x += wall_x.value() * dt * g.A;
     DD wy; wy.add(wall_y.value() * dt * g.A); wy.add(fixed_body); acc.wall_y += wy.value();
-    struct Volumes { double energy = 0, closure = 0; std::size_t unresolved = 0; bool invalid = false; };
+    struct Volumes { double energy = 0, closure = 0; std::size_t unresolved = 0; bool invalid = false; EnergyRounding energy_rounding; };
     const auto volumes = c.exec.partials<Volumes>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Volumes out;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -248,8 +249,8 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
             const auto l = g.left_face(i), r = g.right_face(i), b = g.bottom_face(i), t = g.top_face(i);
             DD swept; swept.add(ws.qx[r]); swept.add(-ws.qx[l]); swept.add(ws.qy[t]); swept.add(-ws.qy[b]);
             if (occupied(static_cast<Index>(i))) {
-                const double before = f.U[i]; f.U[i] += current.du[i];
-                if (current.du[i] != 0 && f.U[i] == before) ++out.unresolved;
+                const double before = f.U[i];
+                if (add_internal_energy(f, i, current.du[i], out.energy_rounding)) ++out.unresolved;
                 out.energy += std::abs(before) + std::abs(current.du[i]); ws.Vmat[i] = g.V + current.a[i];
                 DD residual; residual.add(current.a[i]); residual.add(-swept.hi); residual.add(-swept.lo);
                 out.closure = std::max(out.closure, std::abs(residual.value()) / g.V);
@@ -263,7 +264,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
         if (out.invalid) reject("Two-moment material-volume CFL exceeded");
         if (corrected && out.closure > tolerance)
             reject("Corrected normal sweeps require pressure-root refinement");
-        acc.unresolved += out.unresolved; acc.operands[c.q_energy()] += out.energy;
+        acc.unresolved += out.unresolved; acc.operands[c.q_energy()] += out.energy; acc.energy.merge(out.energy_rounding);
         c.counters.maximum_volume_closure = std::max(c.counters.maximum_volume_closure, out.closure);
     }
     lap(c.timing.pressure_ms); transport_after_pressure(c, f, dt, acc); lap(c.timing.transport_ms);

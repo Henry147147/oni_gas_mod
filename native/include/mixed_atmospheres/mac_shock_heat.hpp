@@ -7,6 +7,7 @@ namespace ma::experimental {
 enum class MacShockHeatLaw { closing_velocity, pressure_sensed_viscosity, pressure_sensed_series, monotone_pressure_sensed };
 struct MacShockHeatPair {
     double before_left_j = 0, before_right_j = 0, after_left_j = 0, after_right_j = 0;
+    MacStoredRemainder after_left_remainder_j{}, after_right_remainder_j{};
     double temperature_left_k = 0, temperature_right_k = 0;
     double after_temperature_left_k = 0, after_temperature_right_k = 0;
     double capacity_left_j_per_k = 0, capacity_right_j_per_k = 0;
@@ -18,6 +19,7 @@ struct MacShockHeatPair {
     double equilibrium_temperature_left_k = 0, equilibrium_temperature_right_k = 0;
     MacEnergy equilibrium_temperature_residual, equilibrium_temperature_bound;
     std::size_t rejected_equilibrium_trials = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 // Conservative, monotone thermal relaxation at fixed masses and cell volumes.
 // Exact constant-capacity two-body conduction. For a mixed gas/elastic-liquid
@@ -26,7 +28,8 @@ struct MacShockHeatPair {
 // first-order regularization, not an exact nonlinear heat-equation solution.
 [[nodiscard]] MacShockHeatPair relax_mac_shock_heat_pair(const FluidThermodynamics&,
     const MixtureInventory& left, const MixtureInventory& right, double volume_left,
-    double volume_right, MacEnergy integrated_conductance_j_per_k);
+    double volume_right, MacEnergy integrated_conductance_j_per_k,
+    MacStoredRemainder left_remainder_j={},MacStoredRemainder right_remainder_j={});
 
 struct MacShockHeatEvent {
     std::size_t axis = 0, face = 0, left = 0, right = 0, sweep = 0;
@@ -44,6 +47,7 @@ struct MacShockHeatReport {
     std::vector<MacEnergy> frozen_conductance_capacity_j_per_k;
     MacCompressionCoefficients compression_coefficients;
     std::size_t reused_pair_eos_readings = 0, reused_endpoint_eos_readings = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacShockHeatAdvance { MacTransportState state; MacShockHeatReport report; };
 // Separate occupied-grid regularization. Its default is the retained reference

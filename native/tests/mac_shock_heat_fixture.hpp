@@ -4,9 +4,11 @@
 
 namespace ma::testing {
 inline void export_shock_heat_scaled(MacEnergy value) { ma::testing::export_compression_scaled(value); }
-inline void export_shock_heat_pair(std::size_t id, const MixtureInventory& l, const MixtureInventory& r, double vl, double vr, const MacShockHeatPair& p) {
+inline void export_shock_heat_pair(std::size_t id, const MixtureInventory& l, const MixtureInventory& r, double vl, double vr, const MacShockHeatPair& p, MacStoredRemainder before_left={}, MacStoredRemainder before_right={}) {
     std::cout << "HPAIR " << id << ' ' << vl << ' ' << vr << ' ' << p.equilibrium_iterations << ' ' << p.unresolved_updates;
-    for (auto v : {p.before_left_j, p.before_right_j, p.after_left_j, p.after_right_j, p.temperature_left_k, p.temperature_right_k,
+    std::cout<<' '<<observed_energy(p.before_left_j,before_left)<<' '<<observed_energy(p.before_right_j,before_right)
+        <<' '<<observed_energy(p.after_left_j,p.after_left_remainder_j)<<' '<<observed_energy(p.after_right_j,p.after_right_remainder_j);
+    for (auto v : {p.temperature_left_k, p.temperature_right_k,
         p.after_temperature_left_k, p.after_temperature_right_k, p.capacity_left_j_per_k, p.capacity_right_j_per_k}) std::cout << ' ' << v;
     for (auto v : {p.integrated_conductance, p.relaxation_number, p.fraction, p.equilibrium_transfer, p.transfer, p.energy_residual, p.energy_bound}) export_shock_heat_scaled(v);
     std::cout << ' ' << p.entropy_change_j_per_k << ' ' << p.entropy_roundoff_j_per_k << '\n';
@@ -38,10 +40,13 @@ inline void export_shock_heat(std::size_t id, const MacTransportState& source, c
             std::cout << "HMDIFFUSION " << id << ' ' << i; export_shock_heat_scaled(report.events[i].diffusion_speed); std::cout << '\n';
         }
     }
+    std::vector<MacStoredRemainder> current_remainders;
+    for(const auto& cell:source.cells)current_remainders.push_back(cell.energy_remainder_j);
     for (std::size_t i = 0; i < report.events.size(); ++i) {
         const auto& e = report.events[i]; const auto key = 1000 + id * 1000 + i;
         auto l = source.cells[e.left].mixture, r = source.cells[e.right].mixture; l.energy = e.pair.before_left_j; r.energy = e.pair.before_right_j;
-        export_shock_heat_pair(key, l, r, g.volume_m3(), g.volume_m3(), e.pair);
+        export_shock_heat_pair(key, l, r, g.volume_m3(), g.volume_m3(), e.pair,current_remainders[e.left],current_remainders[e.right]);
+        current_remainders[e.left]=e.pair.after_left_remainder_j;current_remainders[e.right]=e.pair.after_right_remainder_j;
         std::cout << "HEVENT " << id << ' ' << i << ' ' << e.axis << ' ' << e.face << ' ' << e.left << ' ' << e.right << ' ' << e.sweep << ' ' << key; export_shock_heat_scaled(e.closing_velocity); std::cout << '\n';
     }
     const auto inertia = mac_face_inertias(set.registry, source, *set.eos);
@@ -53,7 +58,7 @@ inline void export_shock_heat(std::size_t id, const MacTransportState& source, c
         const auto& state = endpoint == 0 ? source : result.state;
         for (std::size_t i = 0; i < state.cells.size(); ++i) if (!g.walls[i]) {
             const auto& c = state.cells[i]; const auto eos = set.eos->evaluate(c.mixture, g.volume_m3());
-            std::cout << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << c.mixture.energy << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
+            std::cout << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << observed_energy(c) << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
             for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
                 std::cout << "SMASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
             for (const auto& p : c.passive_quantities) std::cout << "SPASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';

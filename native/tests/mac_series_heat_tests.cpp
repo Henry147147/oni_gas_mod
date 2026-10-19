@@ -31,8 +31,9 @@ MacShockHeatAdvance grid(std::size_t id, const MacTransportState& state, double 
     const auto& s = ma::testing::setup(); const auto held = ma::testing::fingerprint(state);
     auto result = advance_mac_shock_heat(s.registry, *s.eos, state, dt, law);
     check(ma::testing::fingerprint(state) == held && (!result.report.events.empty()) == active, "Series heat changed source or activation differs");
-    check((ma::testing::fingerprint(result.state) != held) == changes, "Series heat state change differs");
     auto unchanged = result.state;
+    for (std::size_t i = 0; i < state.cells.size(); ++i) unchanged.cells[i].energy_remainder_j = state.cells[i].energy_remainder_j;
+    check((ma::testing::fingerprint(unchanged) != held) == changes, "Series heat high U state change differs");
     for (std::size_t i = 0; i < state.cells.size(); ++i) unchanged.cells[i].mixture.energy = state.cells[i].mixture.energy;
     check(ma::testing::fingerprint(unchanged) == held, "Series heat changes constituents, passives, momentum or geometry");
     ma::testing::export_shock_heat(id, state, result, dt); return result;
@@ -80,8 +81,8 @@ void subrange() {
     for (std::size_t i = 1; i < 4; ++i) j[i] = MacScaled::from_parts(.75, -1200).multiplied(static_cast<double>(4 - i) * mass.x[i]);
     store_mac_field(state.momentum_x, state.full_momentum_x, j);
     const auto result = grid(8, state, .001, true, false);
-    check(result.report.absolute_transfer.mantissa() > 0 && result.report.absolute_transfer.project().rounded && result.report.unresolved_updates > 0,
-        "Series heat lost a below-range transfer or unresolved storage flag");
+    check(result.report.absolute_transfer.mantissa() > 0 && result.report.absolute_transfer.project().rounded && result.report.unresolved_updates == 0 && ma::testing::has_primary_energy_remainder(result.state),
+        "Series heat lost a below-range transfer or primary remainder");
 }
 void two_body(std::size_t id, bool vertical) {
     const auto& s = ma::testing::setup(); auto state = s.state(vertical ? 1 : 3, vertical ? 3 : 1, false);

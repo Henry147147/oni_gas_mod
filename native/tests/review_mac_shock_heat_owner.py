@@ -198,7 +198,10 @@ def review(d):
                         keys=[event[5] for (gid,_),event in d['heat']['events'].items() if gid==identifier]
                         stats[2]+=sum(d['heat']['pairs'][k][2] for k in keys);stats[3]+=sum(d['heat']['certs'][k][0] for k in keys)
                         if g==4 and step==order==0:
-                            check(0<row[9]<F(2)**-1074 and row[8]>0 and before==after,'Below-range source heat lost/changed stored fields')
+                            carried=any(v[0]!=F(float(v[0])) for v in after['cells'].values())
+                            projected=copy.deepcopy(after)
+                            projected['cells']={key:(F(float(v[0])),*v[1:]) for key,v in projected['cells'].items()}
+                            check(0<row[9]<F(2)**-1074 and (row[8]==0 and projected==before if carried else row[8]>0 and before==after),'Below-range source heat lost/changed stored fields')
                     elif kind=='C':
                         row=d['compression']['grids'][identifier];stats[6]+=row[7];energy_bounds+=row[12];wall[0]+=row[13];wall[1]+=row[14]
                     else:

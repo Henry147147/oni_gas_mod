@@ -59,7 +59,10 @@ def review(data):
                     if c is not None:heats[c]+=(row[8]+row[9])*mass[1][c]/total
         for actual,terms in zip(summary[2:],(mix,wall)):
             close(actual,sum(terms,F(0)),abs(actual)+sum(map(abs,terms),F(0)),'Full derived heat summary')
-        check(unresolved==sum(h>0 for h in heats),'Tiny unrepresented U updates were not counted')
+        if case.get('carried_u',False):
+            expected=sum(abs(case['cells'][1,i]-case['cells'][0,i]-h)>32*EPS*abs(h) for i,h in enumerate(heats) if h)
+            check(unresolved==expected,'Carried tiny heat update count differs')
+        else:check(unresolved==sum(h>0 for h in heats),'Tiny unrepresented U updates were not counted')
         entropy=[D(0),D(0)];allow=D(0)
         for e in (0,1):
             for i in range(nc):
@@ -119,7 +122,7 @@ def main():
             else:
                 case=bad[0][1];v=list(case['wide_report'])
                 if corruption=='wide-heat':e=list(v[4]);e[2]*=F(101,100);v[4]=tuple(e)
-                else:v[1]=0
+                else:v[1]+=1
                 case['wide_report']=tuple(v)
             caught=False
             try:review(bad)

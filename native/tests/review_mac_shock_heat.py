@@ -159,6 +159,11 @@ def review_pair(data,key):
     close(sb,budget,budget,'Pair stored-U entropy allowance',8);check(ds>=-sb,'Pair entropy gate')
 
 
+def retained_grid_heat(data,gid,unresolved):
+    carried=any(row[0]!=F(float(row[0])) for (g,e,_),row in data['cells'].items() if g==gid and e==1)
+    return unresolved==0 if carried else unresolved>0
+
+
 def review_grid(data,gid,controls=True,conductance_model=None,activation_model=None):
     w,h,spacing,depth,px,py,dt,count,un,total,res,bound,ds,sb=data['grids'][gid]
     check(w>0 and h>0 and spacing>0 and depth>0 and dt>0 and px in (0,1) and py in (0,1),'Grid domain')
@@ -223,7 +228,9 @@ def review_grid(data,gid,controls=True,conductance_model=None,activation_model=N
     entropy_account(entropies[0],entropies[1],us[0],us[1],ts[0],ts[1],ds,sb)
     if controls and gid in (2,3):check(count==0 and total==0 and us[0]==us[1],'Rest/shear contact changes')
     if controls and gid==4:check(count>0 and total==0 and us[0]==us[1],'Uniform temperature changes')
-    if controls and gid==5:check(total>0 and un>0 and us[0]==us[1],'Full-range grid heat not retained/flagged')
+    if controls and gid==5:
+        carried=any(u!=F(float(u)) for u in us[1])
+        check(total>0 and retained_grid_heat(data,gid,un) and ([F(float(u)) for u in us[0]]==[F(float(u)) for u in us[1]] if carried else us[0]==us[1]),'Full-range grid heat not retained/flagged')
     if controls and gid==6:
         check(count==0 and total==0 and us[0]==us[1],'Stationary pressure contact changes')
         for i in fluid:check(abs(data['cells'][gid,0,i][2]-100000)<F(float('5e-10'))*100000,'Contact is not at its declared pressure')

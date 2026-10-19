@@ -42,7 +42,7 @@ def review(data,extra):
         check(any(v>F(1,10) for (g,_,_),v in extra['sensors'].items() if g==gid),'Shock grid has no active pressure sensor')
         check(any(extra['linear'][e[3]][0]>0 for (g,_),e in data['events'].items() if g==gid),'Shock grid has no acoustic impulse')
     check(all(v==0 for (g,_,_),v in extra['sensors'].items() if g==3),'Uniform pressure activated sensed linear damping')
-    tiny=data['grids'][4];check(tiny[10]>0 and float(tiny[10])==0 and tiny[8]>0,'Sensed grid lost below-range heat/unresolved flags')
+    tiny=data['grids'][4];check(tiny[10]>0 and float(tiny[10])==0 and ref.comp.retained_cell_heat(data,4,tiny[8]),'Sensed grid lost below-range heat/unresolved flags')
     initial=data['faces'][4,0,0,1][2];final=data['faces'][4,0,1,1][2]
     check(initial==0 and final!=0 and float(final)==0,'Sensed grid did not retain new below-range canonical momentum')
 

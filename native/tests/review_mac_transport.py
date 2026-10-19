@@ -35,7 +35,25 @@ def close(actual, expected, scale, reason, factor=128):
     check(abs(actual - expected) <= factor * EPS * scale, reason)
 
 
+def round_range(value):
+    if not value:return F(0)
+    exponent=abs(value.numerator).bit_length()-value.denominator.bit_length()
+    check(-16384<exponent<16384,'Primary observation exceeds saved range')
+    if abs(value)<F(2)**exponent:exponent-=1
+    return F(float(value/F(2)**(exponent+1)))*F(2)**(exponent+1)
+
+
+def round_primary(value):
+    high=F(float(value))
+    return high+round_range(value-high)
+
+
 def number(token):
+    if '~' in token:
+        fields=token.split('~');check(len(fields)==3,'Primary-U token shape')
+        high=number(fields[0]);low=scaled_energy(fields[1],fields[2])
+        check(low!=0 and F(float(high+low))==high,'Noncanonical saved primary-U pair')
+        return high+low
     value = float(token)
     check(math.isfinite(value), 'Nonfinite saved operand')
     return F(value)
@@ -114,7 +132,7 @@ def parse(raw, required_passes=7, required_cases=(0,1)):
             check(len(row) == 8, 'CASE shape')
             identifier, w, h, px, py = map(int, row[1:6])
             check(w > 0 and h > 0 and px in (0, 1) and py in (0, 1), 'CASE geometry')
-            unique(cases, identifier, dict(w=w, h=h, px=px, py=py,
+            unique(cases, identifier, dict(w=w, h=h, px=px, py=py, carried_u=b'~' in raw,
                 residual=number(row[6]), bound=number(row[7]), walls={}, cells={},
                 masses={}, passives={}, faces={}, duals={}, rplan=None, rcells={}, rmasses={}, rpassives={}, parcels={}, pmasses={}, ppassives={},
                 widefaces={},wide_report=None,owner_energy=None,scaled_parcels={},scaled_masses={},scaled_passives={},wide_momentum={},wide_duals={},wide_volumes={},

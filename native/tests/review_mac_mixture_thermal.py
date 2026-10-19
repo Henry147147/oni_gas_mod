@@ -10,6 +10,14 @@ from pathlib import Path
 
 
 def number(text):
+    if '~' in text:
+        fields=text.split('~')
+        if len(fields)!=3:raise ValueError('Primary-U token shape')
+        high=number(fields[0]);mantissa=number(fields[1]);exponent=int(fields[2])
+        if not (-16384<exponent<16384 and Decimal('.5')<=abs(mantissa)<1):raise ValueError('Primary-U correction shape')
+        low=mantissa*Decimal(2)**exponent
+        if Decimal.from_float(float(high+low))!=high:raise ValueError('Noncanonical primary-U pair')
+        return high+low
     value=Decimal.from_float(float(text))
     if not value.is_finite():raise ValueError('Nonfinite saved operand')
     return value

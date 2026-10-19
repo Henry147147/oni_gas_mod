@@ -1020,11 +1020,11 @@ class NativeDomainEvidenceTests(unittest.TestCase):
     def test_checkpoint_requires_identical_actual_next_worker_image_and_retains_save_denial(self):
         self.assertFalse(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True))
         self.add_checkpoint()
-        faults=[("FormatVersion",v) for v in (1,3,4,5,7,8,2**32-1)]+[
+        faults=[("FormatVersion",v) for v in (1,3,4,5,7,8,9,11,2**32-1)]+[
             ("ImageBytes",0), ("SourceFrame",6), ("ResumedFrame",31), ("ActualSha256","3"*64),
             ("SourceSha256","2"*64), ("ExpectedSha256","x"*64), ("ResumedPhysicalTime",float("nan")),
             ("OrdinaryGameSaveIntegrated",True)]
-        for version in (2,6):
+        for version in (2,6,10):
             self.report["PhysicalCheckpoint"]["FormatVersion"]=version
             self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,checkpoint=True),version)
             for field,value in faults:

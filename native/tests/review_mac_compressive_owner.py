@@ -35,7 +35,7 @@ def parse(raw):
     check(set(records['cases'])==set(range(4)) and rejected==3,'Missing scenes or atomicity controls')
     check(clock is not None and clock[0]==3 and clock[1]>0 and clock[2]>=0,'Missing actual owner heat/clock comparison')
     check(checkpoints=={(wet,material,heat) for wet in range(2) for material in range(3) for heat in range(4)},'Missing exact continuation setting')
-    records['cw']=cw.parse(('\n'.join(shared)+'\n').encode('ascii'),case_ids=tuple(range(29)),profiles=(0,),groups=7,rejections=None)
+    records['cw']=cw.parse(('\n'.join(shared)+'\n').encode('ascii'),case_ids=tuple(range(29)),profiles=(0,),groups=7,rejections=None,large_offset_control=False)
     return records
 
 def review(d):

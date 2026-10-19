@@ -12,12 +12,12 @@ inline void export_compressive_definitions(int profile,const FluidThermodynamics
 }
 inline void export_compressive_response(int id,int profile,const MixtureInventory& source,
     const experimental::ReferenceEquilibriumState& before,double v,double dv,double h,double dt,
-    experimental::MacEnergy linear,const experimental::MacCompressiveWork& r) {
+    experimental::MacEnergy linear,const experimental::MacCompressiveWork& r, experimental::MacStoredRemainder before_remainder={}) {
     const auto scaled=[](experimental::MacEnergy x) { std::cout<<' '<<x.mantissa()<<' '<<x.exponent(); };
     std::cout<<"CWCASE "<<id<<' '<<profile<<' '<<v<<' '<<dv<<' '<<h<<' '<<dt;scaled(linear);
     std::cout<<' '<<static_cast<int>(r.unresolved_energy_update)<<'\n';
-    std::cout<<"CWINIT "<<id<<' '<<source.energy<<' '<<before.mechanical_pressure_pa<<' '<<before.temperature_k<<' '<<before.entropy_j_per_k<<'\n';
-    std::cout<<"CWEND "<<id<<' '<<r.isentropic.endpoint.volume_m3<<' '<<r.mixture.energy<<' '<<r.state.mechanical_pressure_pa<<' '<<
+    std::cout<<"CWINIT "<<id<<' '<<observed_energy(source.energy,before_remainder)<<' '<<before.mechanical_pressure_pa<<' '<<before.temperature_k<<' '<<before.entropy_j_per_k<<'\n';
+    std::cout<<"CWEND "<<id<<' '<<r.isentropic.endpoint.volume_m3<<' '<<observed_energy(r.mixture.energy,r.energy_remainder_j)<<' '<<r.state.mechanical_pressure_pa<<' '<<
         r.state.temperature_k<<' '<<r.state.entropy_j_per_k<<'\n';
     std::cout<<"CWISO "<<id<<' '<<r.isentropic.internal_energy_change_j<<' '<<r.isentropic.work_pressure_pa<<' '<<
         static_cast<int>(r.isentropic.endpoint_volume_resolves_change)<<' '<<static_cast<int>(r.isentropic.endpoint_energy_resolves_change)<<'\n';

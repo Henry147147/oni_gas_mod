@@ -138,6 +138,7 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
     });
 }
 void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     (void)dt;
     auto& ws = c.ws; const auto& g = c.g; const auto& model = c.model; const auto N = g.N;
     const auto* full_x = ws.full_qx.data(); const auto* full_y = ws.full_qy.data();
@@ -152,6 +153,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // Parcel entries are written by the donor of every face with outgoing
     // volume and read only through such faces: no zeroing is needed.
     ws.px.resize(F * g.NX); ws.py.resize(F * g.NY); ws.retained.resize(F * N);
+    ws.px_energy_remainder.resize(g.NX); ws.py_energy_remainder.resize(g.NY); ws.retained_energy_remainder.resize(N);
     ws.fx.assign(g.NX, 0); ws.fy.assign(g.NY, 0); ws.theta.resize(N);
     const auto& e = ws.eos;
     // Selector 3 (MAC_TRANSPORT.md, sharp interfaces) keeps limited-linear
@@ -208,7 +210,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     const auto b = a == first ? second : first; heavy[i] = static_cast<Index>(a);
                     alpha[i] = fractions[a * N + i]; gas_fraction[i] = fractions[b * N + i];
                     DD heavy_energy, light_energy;
-                    for (const auto [l, sum] : {std::pair<std::size_t, DD*>{a, &heavy_energy}, {b, &light_energy}}) {
+                    for (const auto& [l, sum] : {std::pair<std::size_t, DD*>{a, &heavy_energy}, {b, &light_energy}}) {
                         const auto k = model.liquids[l]; const auto& sp = model.species[k]; const double m = f.m[k * N + i], q = st.p / sp.bulk;
                         sum->add(m * (sp.offset + sp.cv * st.T)); sum->add(m / sp.rho0 * sp.bulk * elastic_shape(q));
                     }
@@ -235,7 +237,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         });
     }
     // ---- reconstruction: each donor writes its outgoing face parcels.
-    struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; };
+    struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; EnergyRounding energy; };
     auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Reconstruction result; result.rounding.resize(c.quantities());
         struct Product { std::size_t field; double a, b, stored; MacEnergy scaled; };
@@ -270,10 +272,12 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (qsign(false, tf) > 0) add(1, tf, 1, ws.qy[tf]);
             if (count == 0 || e.kind[i] == empty) {
                 for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = source[fld][i];
+                ws.retained_energy_remainder[i] = f.U_remainder[i];
                 for (int n = 0; n < count; ++n) {
                     // Empty space moving out of an empty donor carries nothing.
                     auto& out = edges[n].axis == 0 ? ws.px : ws.py; const auto stride = edges[n].axis == 0 ? g.NX : g.NY;
                     for (std::size_t fld = 0; fld < F; ++fld) out[fld * stride + edges[n].face] = 0;
+                    (edges[n].axis == 0 ? ws.px_energy_remainder : ws.py_energy_remainder)[edges[n].face] = 0;
                 }
                 ws.theta[i] = 0;
                 continue;
@@ -402,9 +406,11 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             // Parcels with EOS admission backtracking.
             bool accepted = false;
             std::size_t candidate_unresolved = 0;
+            double kept_energy_remainder = 0; std::array<double, 4> parcel_energy_remainders{}; EnergyRounding candidate_energy;
             for (int attempt = 0; attempt <= 33; ++attempt) {
                 products.clear();
                 candidate_unresolved = 0;
+                kept_energy_remainder = f.U_remainder[i]; candidate_energy = {};
                 bool ok = true;
                 for (std::size_t fld = 0; fld < F; ++fld) keep[fld] = source[fld][i];
                 for (int n = 0; n < count && ok; ++n) {
@@ -437,8 +443,27 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                             if (value != 0 && share != 0 && std::abs(pr[fld]) <= std::numeric_limits<double>::min())
                                 products.push_back({fld, value, share, pr[fld], {}});
                         }
-                        const double before = keep[fld]; keep[fld] -= pr[fld];
-                        if (pr[fld] != 0 && keep[fld] == before) ++candidate_unresolved;
+                        if (fld == K) {
+                            double correction = f.U_remainder[i] * share;
+                            if (!edges[n].full_share.is_zero()) {
+                                const auto amount = edges[n].full_share.multiplied(f.U_remainder[i]);
+                                const auto projection = amount.project(); correction = projection.value;
+                                if (projection.rounded) products.push_back({fld, 0, 0, correction, amount});
+                            } else if (f.U_remainder[i] != 0 && share != 0 && std::abs(correction) <= std::numeric_limits<double>::min())
+                                products.push_back({fld, f.U_remainder[i], share, correction, {}});
+                            const auto parcel = add_mac_primary(pr[fld], 0, correction); candidate_energy.observe(parcel);
+                            pr[fld] = parcel.value; parcel_energy_remainders[static_cast<std::size_t>(n)] = parcel.remainder;
+                            const auto remove = [&](double amount) {
+                                const double before = keep[fld], low = kept_energy_remainder;
+                                const auto write = add_mac_primary(before, low, -amount); candidate_energy.observe(write);
+                                keep[fld] = write.value; kept_energy_remainder = write.remainder;
+                                if (amount != 0 && keep[fld] == before && kept_energy_remainder == low) ++candidate_unresolved;
+                            };
+                            remove(pr[fld]); remove(parcel.remainder);
+                        } else {
+                            const double before = keep[fld]; keep[fld] -= pr[fld];
+                            if (pr[fld] != 0 && keep[fld] == before) ++candidate_unresolved;
+                        }
                     }
                 }
                 if (ok) {
@@ -464,7 +489,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 ++result.backtracks; theta = attempt < 32 ? theta * .5 : 0;
             }
             if (!accepted) reject("Production reconstruction EOS backtracking exhausted");
-            result.unresolved += candidate_unresolved;
+            result.unresolved += candidate_unresolved; result.energy.merge(candidate_energy);
             for (const auto& p : products) {
                 const auto q = p.field < K ? p.field : p.field == K ? c.q_energy() : p.field - 1;
                 if (p.scaled.is_zero()) result.rounding[q].product(p.a, p.b, p.stored);
@@ -472,12 +497,14 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             ws.theta[i] = theta;
             for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = keep[fld];
+            ws.retained_energy_remainder[i] = kept_energy_remainder;
             for (int n = 0; n < count; ++n) {
                 const double* pr = &proto[static_cast<std::size_t>(n) * F];
                 auto& out = edges[n].axis == 0 ? ws.px : ws.py;
                 const auto stride = edges[n].axis == 0 ? g.NX : g.NY;
                 double mass = 0;
                 for (std::size_t fld = 0; fld < F; ++fld) out[fld * stride + edges[n].face] = pr[fld];
+                (edges[n].axis == 0 ? ws.px_energy_remainder : ws.py_energy_remainder)[edges[n].face] = parcel_energy_remainders[static_cast<std::size_t>(n)];
                 for (std::size_t k = 0; k < K; ++k) mass += pr[k];
                 // Donor on the left (dir +1) gives a positive flux.
                 (edges[n].axis == 0 ? ws.fx : ws.fy)[edges[n].face] = edges[n].dir > 0 ? mass : -mass;
@@ -487,7 +514,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     });
     for (const auto& b : bt) {
         backtracks += b.backtracks;
-        acc.unresolved += b.unresolved;
+        acc.unresolved += b.unresolved; acc.energy.merge(b.energy);
         for (std::size_t q = 0; q < c.quantities(); ++q) acc.transfers[q].merge(b.rounding[q]);
     }
     c.counters.reconstruction_backtracks += backtracks;
@@ -495,27 +522,38 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // ---- primal gather: retained + incoming parcels; masses before/after.
     ws.mass_after.assign(N, 0);
     std::vector<double> sum_ops(F, 0);
-    struct GatherOps { std::vector<double> operands; std::vector<PrimaryRounding> inventory; std::size_t unresolved = 0; };
+    struct GatherOps { std::vector<double> operands; std::vector<PrimaryRounding> inventory; EnergyRounding energy; std::size_t unresolved = 0; };
     auto ops = c.exec.partials<GatherOps>([&](std::size_t y0, std::size_t y1, std::size_t) {
         GatherOps local; local.operands.assign(F, 0); local.inventory.resize(K + P);
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
             const bool in_l = qsign(true, lf) > 0, in_r = qsign(true, rf) < 0, in_b = qsign(false, bf) > 0, in_t = qsign(false, tf) < 0;
-            double M = 0;
+            double M = 0, energy_low = ws.retained_energy_remainder[i];
             for (std::size_t fld = 0; fld < F; ++fld) {
                 double v = ws.retained[fld * N + i];
                 double magnitude = std::abs(v);
-                const auto incoming = [&](double amount) {
-                    const double before = v; v += amount;
-                    if (fld != K) local.inventory[fld < K ? fld : fld - 1].addition(before, amount, v);
-                    if (amount != 0 && v == before) ++local.unresolved;
+                const auto incoming = [&](double amount, double correction) {
+                    if (fld == K) {
+                        const auto add = [&](double delta) {
+                            const double before = v, low = energy_low;
+                            const auto write = add_mac_primary(v, energy_low, delta); local.energy.observe(write);
+                            v = write.value; energy_low = write.remainder;
+                            if (delta != 0 && v == before && energy_low == low) ++local.unresolved;
+                        };
+                        add(amount); add(correction);
+                    } else {
+                        const double before = v; v += amount;
+                        local.inventory[fld < K ? fld : fld - 1].addition(before, amount, v);
+                        if (amount != 0 && v == before) ++local.unresolved;
+                    }
                     magnitude += std::abs(amount);
                 };
-                if (in_l) incoming(ws.px[fld * g.NX + lf]);
-                if (in_r) incoming(ws.px[fld * g.NX + rf]);
-                if (in_b) incoming(ws.py[fld * g.NY + bf]);
-                if (in_t) incoming(ws.py[fld * g.NY + tf]);
+                if (in_l) incoming(ws.px[fld * g.NX + lf], fld == K ? ws.px_energy_remainder[lf] : 0);
+                if (in_r) incoming(ws.px[fld * g.NX + rf], fld == K ? ws.px_energy_remainder[rf] : 0);
+                if (in_b) incoming(ws.py[fld * g.NY + bf], fld == K ? ws.py_energy_remainder[bf] : 0);
+                if (in_t) incoming(ws.py[fld * g.NY + tf], fld == K ? ws.py_energy_remainder[tf] : 0);
+                if (fld == K) f.U_remainder[i] = energy_low;
                 if (fld != K && v < 0) reject("Production transport produced a negative inventory");
                 if (fld < K) { f.m[fld * N + i] = v; M += v; }
                 else if (fld == K) f.U[i] = v;
@@ -528,7 +566,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     });
     ws.stats_valid = false; // masses changed
     for (const auto& part : ops) {
-        acc.unresolved += part.unresolved;
+        acc.unresolved += part.unresolved; acc.energy.merge(part.energy);
         for (std::size_t fld = 0; fld < F; ++fld) sum_ops[fld] += part.operands[fld];
         for (std::size_t q = 0; q < K + P; ++q) acc.inventory[q].merge(part.inventory[q]);
     }
@@ -818,7 +856,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     }
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
-    struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; DD gravity_entropy; double gravity_entropy_operands = 0; };
+    struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; DD gravity_entropy; double gravity_entropy_operands = 0; EnergyRounding energy; };
     auto deposited = c.exec.partials<Deposit>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Deposit d;
         if (gravity != 0) for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx)
@@ -836,37 +874,35 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             DD heat; double gravity_share = 0;
             heat.add(share(ws.face_heat_x[lf], g.xl[lf], g.xr[lf])); heat.add(share(ws.face_heat_x[rf], g.xl[rf], g.xr[rf]));
             heat.add(share(ws.face_heat_y[bf], g.yl[bf], g.yr[bf])); heat.add(share(ws.face_heat_y[tf], g.yl[tf], g.yr[tf]));
+            const double mixing_increment = heat.value();
+            if (mixing_increment != 0 && add_internal_energy(f, i, mixing_increment, d.energy)) ++local;
             if (gravity != 0) {
                 const auto work = [&](Index face) {
                     const double potential = ws.fy[face] * gravity * g.h;
                     return -(ws.body_work_y[face] + potential);
                 };
                 const double bottom_work = share(work(bf), g.yl[bf], g.yr[bf]);
-                heat.add(bottom_work); d.gravity_change.add(bottom_work);
                 const double top_work = share(work(tf), g.yl[tf], g.yr[tf]);
-                heat.add(top_work); d.gravity_change.add(top_work);
                 gravity_share = bottom_work + top_work;
-            }
-            const double h = heat.value();
-            if (h == 0) continue;
-            const double before = f.U[i];
-            f.U[i] = before + h;
-            if (f.U[i] == before) ++local;
-            // The gravity reconciliation's entropy change, bounded above by
-            // concavity at the pre-gravity pivot: S(U) - S(pivot) <= dU / T(pivot)
-            // (MAC_KERNEL.md, "Gravity reconciliation entropy").
-            if (gravity_share != 0) {
-                const double pivot = f.U[i] - gravity_share, change = f.U[i] - pivot; State st;
-                if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, g.V, st))
-                    reject("Production gravity reconciliation left its EOS domain");
-                d.gravity_entropy.add(change / st.T); d.gravity_entropy_operands += std::abs(change) / st.T;
+                const double pivot = f.U[i], pivot_low = f.U_remainder[i];
+                if (bottom_work != 0 && add_internal_energy(f, i, bottom_work, d.energy)) ++local;
+                if (top_work != 0 && add_internal_energy(f, i, top_work, d.energy)) ++local;
+                DD actual; actual.add(f.U[i]); actual.add(-pivot); actual.add(f.U_remainder[i]); actual.add(-pivot_low);
+                d.gravity_change.add(actual.hi); d.gravity_change.add(actual.lo);
+                if (gravity_share != 0 || actual.value() != 0) {
+                    State st;
+                    if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, g.V, st))
+                        reject("Production gravity reconciliation left its EOS domain");
+                    d.gravity_entropy.add(actual.value() / st.T);
+                    d.gravity_entropy_operands += std::abs(actual.value()) / st.T;
+                }
             }
         }
         return d;
     });
     double gravity_ops = 0;
     for (const auto& d : deposited) {
-        acc.unresolved += d.unresolved; gravity_ops += d.gravity;
+        acc.unresolved += d.unresolved; gravity_ops += d.gravity; acc.energy.merge(d.energy);
         for (std::size_t j = 0; j < d.gravity_change.size(); ++j) acc.physical.gravity_internal.add(d.gravity_change.component(j));
         acc.gravity_entropy.add(d.gravity_entropy); acc.gravity_entropy_operands += d.gravity_entropy_operands;
     }

@@ -34,7 +34,7 @@ inline void export_compression(std::size_t id, const MacTransportState& source, 
         for (std::size_t i = 0; i < s.cells.size(); ++i) {
             if (g.walls[i]) continue;
             const auto& c = s.cells[i]; const auto eos = set.eos->evaluate(c.mixture, g.volume_m3());
-            std::cout << prefix << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << c.mixture.energy << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
+            std::cout << prefix << "SCELL " << id << ' ' << endpoint << ' ' << i << ' ' << observed_energy(c) << ' ' << eos.temperature_k << ' ' << eos.mechanical_pressure_pa << ' ' << eos.entropy_j_per_k << '\n';
             for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
                 std::cout << prefix << "SMASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
             for (const auto& p : c.passive_quantities) std::cout << prefix << "SPASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';

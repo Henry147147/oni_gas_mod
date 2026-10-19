@@ -52,7 +52,7 @@ void scene(int id,const MacTransportState& s,MacClosedSettings options,bool unif
             const auto& state=endpoint==0 ? s : endpoint==1 ? r.pressure_state : r.state;const auto& c=state.cells[i];
             const double v=endpoint==1 && !s.grid.walls[i] ? r.material_volumes_m3[i] : s.grid.volume_m3();
             ReferenceEquilibriumState reading;if(!s.grid.walls[i])reading=set.eos->evaluate(c.mixture,v);
-            std::cout<<"COINV "<<id<<' '<<endpoint<<' '<<i<<' '<<v<<' '<<c.mixture.energy<<' '<<reading.mechanical_pressure_pa<<' '<<
+            std::cout<<"COINV "<<id<<' '<<endpoint<<' '<<i<<' '<<v<<' '<<ma::testing::observed_energy(c)<<' '<<reading.mechanical_pressure_pa<<' '<<
                 reading.temperature_k<<' '<<reading.entropy_j_per_k<<'\n';
             for(std::size_t species=0;species<c.mixture.masses.size();++species)if(c.mixture.masses[species]!=0)
                 std::cout<<"COMASS "<<id<<' '<<endpoint<<' '<<i<<' '<<species<<' '<<c.mixture.masses[species]<<'\n';
@@ -67,7 +67,7 @@ void scene(int id,const MacTransportState& s,MacClosedSettings options,bool unif
         if(uniform)check(r.pressure.volume_changes_m3[at]==0 && response.dissipated_heat_j.is_zero(),"Uniform translation generated compressive heat");
         std::cout<<"COWORK "<<id<<' '<<cell<<' '<<identifier<<'\n';
         ma::testing::export_compressive_response(identifier,0,s.cells[cell].mixture,set.eos->evaluate(s.cells[cell].mixture,s.grid.volume_m3()),
-            s.grid.volume_m3(),r.pressure.volume_changes_m3[at],s.grid.spacing_m,dt,r.compressive_linear_speeds[at],response);
+            s.grid.volume_m3(),r.pressure.volume_changes_m3[at],s.grid.spacing_m,dt,r.compressive_linear_speeds[at],response,s.cells[cell].energy_remainder_j);
     }
     check(uniform || positive>0,"Owner fixture did not exercise positive coupled heat");
     for(int axis=0;axis<2;++axis){

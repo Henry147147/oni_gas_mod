@@ -70,13 +70,14 @@ bool unresolved_request(double before, double after, double requested) {
         remaining.add(sign < 0 ? residual.component(j) : residual.component(j).negated());
     return remaining.sign() < 0;
 }
-void redistribution(MacEnergySum& total, double before, double after) {
-    const double change = std::abs(after - before);
-    if (change == 0) return;
-    const double half = .5 * change;
-    if (std::isnormal(half)) total.add(half);
-    else total.add(MacEnergy::from_double(change).shifted(-1));
+
+void redistribution(MacEnergySum& total, double before, double old_low, double after, double new_low) {
+    DD change; change.add(after); change.add(-before); change.add(new_low); change.add(-old_low);
+    const double sign = change.value() < 0 ? -1. : 1.;
+    total.add(MacEnergy::from_double(sign * change.hi).shifted(-1));
+    total.add(MacEnergy::from_double(sign * change.lo).shifted(-1));
 }
+
 double caloric_entropy(double capacity, double temperature, double before, double after) {
     const double change = after - before;
     if (change == 0) return 0;
@@ -131,6 +132,7 @@ void stage_diffusion(Context&, Fields&, double, Accounts&) {
 }
 
 void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     if (!c.settings.thermal_conduction) return;
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N; const auto& model = c.model;
     evaluate_cells(c, f, ws.eos);
@@ -209,7 +211,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                 qy[fidx] = sys.wy[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
             }
         });
-        struct Heat { double ops = 0, moved = 0; std::size_t unresolved = 0; MacEnergySum redistributed; DD entropy; };
+        struct Heat { double ops = 0, moved = 0; std::size_t unresolved = 0; MacEnergySum redistributed; DD entropy; EnergyRounding energy; };
         for (const auto& o : c.exec.partials<Heat>([&](std::size_t y0, std::size_t y1, std::size_t) {
             Heat o;
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -218,19 +220,19 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                 DD q; q.add(qx[g.right_face(i)]); q.add(-qx[g.left_face(i)]); q.add(qy[g.top_face(i)]); q.add(-qy[g.bottom_face(i)]);
                 const double h = q.value();
                 if (h == 0) continue;
-                const double before = f.U[i];
-                f.U[i] = before + h;
-                if (f.U[i] == before) ++o.unresolved;
+                const double before = f.U[i], low = f.U_remainder[i];
+                if (add_internal_energy(f, i, h, o.energy)) ++o.unresolved;
                 o.ops += std::abs(before) + std::abs(h); o.moved += std::abs(h);
-                redistribution(o.redistributed, before, f.U[i]);
+                redistribution(o.redistributed, before, low, f.U[i], f.U_remainder[i]);
                 o.entropy.add(caloric_entropy(e.Cv[i], e.T[i], before, f.U[i]));
+                o.entropy.add(f.U_remainder[i] / (e.T[i] + (f.U[i] - before) / e.Cv[i]) - low / e.T[i]);
             }
             return o;
         })) {
             ops += o.ops; moved += o.moved; acc.unresolved += o.unresolved;
             acc.physical.unresolved_conduction_updates += o.unresolved;
             for (std::size_t j = 0; j < o.redistributed.size(); ++j) acc.physical.conductive_redistribution.add(o.redistributed.component(j));
-            acc.physical.conductive_entropy.add(o.entropy);
+            acc.physical.conductive_entropy.add(o.entropy); acc.energy.merge(o.energy);
         }
     } else {
         // Complete-EOS pairwise contact solves in the reference order (cell
@@ -266,14 +268,15 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                 if (std::abs(next - q) <= 4 * eps * std::abs(q)) { q = next; break; }
                 q = next;
             }
-            const double uc = f.U[cold], uh = f.U[hot];
-            f.U[cold] = uc + q; f.U[hot] = uh - q;
-            if (q != 0 && (f.U[cold] == uc || f.U[hot] == uh)) {
+            const double uc = f.U[cold], uh = f.U[hot], lc = f.U_remainder[cold], lh = f.U_remainder[hot];
+            const bool unresolved_cold = add_internal_energy(f, cold, q, acc.energy);
+            const bool unresolved_hot = add_internal_energy(f, hot, -q, acc.energy);
+            if (q != 0 && (unresolved_cold || unresolved_hot)) {
                 ++acc.unresolved; ++acc.physical.unresolved_conduction_updates;
             }
             ops += std::abs(uc) + std::abs(uh) + 2 * std::abs(q); moved += 2 * std::abs(q);
-            redistribution(acc.physical.conductive_redistribution, uc, f.U[cold]);
-            redistribution(acc.physical.conductive_redistribution, uh, f.U[hot]);
+            redistribution(acc.physical.conductive_redistribution, uc, lc, f.U[cold], f.U_remainder[cold]);
+            redistribution(acc.physical.conductive_redistribution, uh, lh, f.U[hot], f.U_remainder[hot]);
             const auto temperature = [&](unsigned side, double shared, double extra) {
                 const auto cell = side == 0 ? cold : hot;
                 DD energy; energy.add(side == 0 ? uc : uh); energy.add(shared); energy.add(extra);
@@ -286,6 +289,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                  std::abs(f.U[cold]) / temperature(0, f.U[cold] - uc, 0) +
                  std::abs(f.U[hot]) / temperature(1, f.U[hot] - uh, 0) + cache.Cv[cold] + cache.Cv[hot]);
             acc.physical.conductive_entropy.add(mixed_contact_entropy(temperature, f.U[cold] - uc, uh - f.U[hot], allowance));
+            acc.physical.conductive_entropy.add(f.U_remainder[cold] / temperature(0, f.U[cold] - uc, 0) - lc / cs.T);
+            acc.physical.conductive_entropy.add(f.U_remainder[hot] / temperature(1, f.U[hot] - uh, 0) - lh / hs.T);
         };
         if (contacts.size() == 1) exchange(contacts.front(), dt);
         else {
@@ -297,6 +302,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
 }
 
 void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
+    prepare_primary_remainders(f);
     const auto& visc = c.settings.viscosity;
     if (!(visc.shear_pa_s > 0) && !(visc.bulk_pa_s > 0)) return;
     ++acc.physical.viscosity_stages;
@@ -353,13 +359,14 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
         return heat;
     };
     const auto deposit = [&](std::size_t cell, double heat, std::size_t& unres, std::size_t& unresolved_resolution,
-        MacEnergySum& stored, MacEnergySum& entropy) {
-        const double before = f.U[cell]; f.U[cell] = before + heat;
-        if (heat != 0 && f.U[cell] == before) ++unres;
-        if (unresolved_request(before, f.U[cell], heat)) ++unresolved_resolution;
-        const double change = f.U[cell] - before;
+        MacEnergySum& stored, MacEnergySum& entropy, EnergyRounding& energy) {
+        const double before = f.U[cell], low = f.U_remainder[cell];
+        if (add_internal_energy(f, cell, heat, energy)) ++unres;
+        DD actual; actual.add(f.U[cell]); actual.add(-before); actual.add(f.U_remainder[cell]); actual.add(-low);
+        const double change = actual.value();
+        if (unresolved_request(0, change, heat)) ++unresolved_resolution;
         if (change == 0) return;
-        stored.add(change);
+        stored.add(actual.hi); stored.add(actual.lo);
         const auto& e = ws.eos;
         const Stats stats{e.M[cell], e.Cv[cell], e.off[cell], e.nR[cell], e.Nl[cell], e.kind[cell]};
         State after;
@@ -379,7 +386,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                 struct Out {
                     double heat = 0, wx = 0, wy = 0, ops = 0;
                     std::size_t modes = 0, unresolved = 0, unresolved_resolution = 0, unresolved_momentum = 0;
-                    MacEnergySum stored, entropy;
+                    MacEnergySum stored, entropy; EnergyRounding energy;
                 };
                 auto parts = c.exec.partials<Out>([&](std::size_t y0, std::size_t y1, std::size_t) {
                     Out o;
@@ -399,7 +406,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                                     Dof d[4] = {{0, l, -grad}, {0, r, grad}, {1, b, kind == 0 ? grad : -grad}, {1, t, kind == 0 ? -grad : grad}};
                                     ++o.modes;
                                     const double heat = relax(d, 4, weight, .5 * seconds, o.wx, o.wy, o.ops, o.unresolved_momentum);
-                                    if (heat != 0) { deposit(cell, heat, o.unresolved, o.unresolved_resolution, o.stored, o.entropy); o.heat += heat; }
+                                    if (heat != 0) { deposit(cell, heat, o.unresolved, o.unresolved_resolution, o.stored, o.entropy, o.energy); o.heat += heat; }
                                 }
                             } else {
                                 if (!((y > 0 || g.py) && (x > 0 || g.px))) continue;
@@ -412,7 +419,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                                 const double heat = relax(d, 4, shear_weight, .5 * seconds, o.wx, o.wy, o.ops, o.unresolved_momentum);
                                 if (heat != 0) {
                                     const double share = heat / 4;
-                                    for (const auto cc : cells) deposit(cc, share, o.unresolved, o.unresolved_resolution, o.stored, o.entropy);
+                                    for (const auto cc : cells) deposit(cc, share, o.unresolved, o.unresolved_resolution, o.stored, o.entropy, o.energy);
                                     o.heat += heat;
                                 }
                             }
@@ -423,7 +430,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                 for (const auto& o : parts) {
                     heat_total += o.heat; wall_x += o.wx; wall_y += o.wy; ops += o.ops; modes += o.modes; unresolved += o.unresolved;
                     acc.physical.unresolved_viscous_momentum_updates += o.unresolved_momentum;
-                    acc.physical.unresolved_viscous_heat_updates += o.unresolved_resolution;
+                    acc.physical.unresolved_viscous_heat_updates += o.unresolved_resolution; acc.energy.merge(o.energy);
                     for (std::size_t j = 0; j < o.stored.size(); ++j) acc.physical.viscous_stored_heat.add(o.stored.component(j));
                     for (std::size_t j = 0; j < o.entropy.size(); ++j) acc.physical.viscous_entropy.add(o.entropy.component(j));
                 }

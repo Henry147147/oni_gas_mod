@@ -16,11 +16,11 @@ MacClosedWorld owner(double water=0,double pressure=1e5,double temperature=300) 
     return {setup.registry,setup.eos,std::move(state),{}};
 }
 void check(const MacClosedWorld& source,const MacNativeHeatExchange& result,MacNativeHeatBody body) {
-    auto expected=source.state();expected.cells[0].mixture.energy=result.world.state().cells[0].mixture.energy;
+    auto expected=source.state();expected.cells[0].mixture.energy=result.world.state().cells[0].mixture.energy;expected.cells[0].energy_remainder_j=result.world.state().cells[0].energy_remainder_j;
     require(testing::fingerprint(expected)==testing::fingerprint(result.world.state()),"Native heat changed material, traces, passive metadata, another cell or canonical momentum");
     require(source.time_s()==result.world.time_s(),"Native heat changed the physical clock");
     const long double physical=static_cast<long double>(body.heat_capacity_kj_per_k)*1000*(static_cast<long double>(body.temperature_k)-result.body_temperature_k);
-    const long double stored=static_cast<long double>(result.world.state().cells[0].mixture.energy)-source.state().cells[0].mixture.energy;
+    const long double stored=mac_energy_long_double(mac_cell_internal_energy_change(source.state().cells[0],result.world.state().cells[0]).value());
     require(std::abs(stored-physical)<=result.report.energy_bound_j || (stored==0 && physical==0),"Native body/fluid closed energy differs from captured endpoints");
     require(result.report.entropy_lower_bound_j_per_k>=0 && std::isfinite(result.report.entropy_lower_bound_j_per_k),"Native heat entropy lower bound is invalid");
     require(std::abs(result.report.body_heat_loss_j)<=std::abs(result.report.requested_heat_j),"Rounded native body heat exceeded its implicit root");

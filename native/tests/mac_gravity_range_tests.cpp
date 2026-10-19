@@ -78,8 +78,8 @@ void run(int id, double mass, double gravity, bool layered, MacScaled initial) {
         std::cout << '\n';
     }
     for (std::size_t i = 0; i < step.state.cells.size(); ++i) {
-        std::cout << "GRAVITYCELL " << id << ' ' << i << ' ' << step.pre_gravity_internal_energy_j[i] << ' '
-            << step.state.cells[i].mixture.energy;
+        std::cout << "GRAVITYCELL " << id << ' ' << i << ' ' << ma::testing::observed_energy(step.pre_gravity_internal_energy_j[i],step.pre_gravity_energy_remainders_j[i]) << ' '
+            << ma::testing::observed_energy(step.state.cells[i]);
         scaled(step.full_gravity_internal_changes_j[i]); std::cout << '\n';
     }
     std::cout << "GRAVITYOWNER " << id << ' ' << first.report.substeps << ' ' << first.report.rejected_attempts << ' '

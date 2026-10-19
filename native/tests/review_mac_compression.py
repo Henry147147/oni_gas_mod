@@ -32,7 +32,7 @@ def round_scaled(value):
 
 def parse(raw, required_passes=6, required_grids=(0, 1, 2, 3), analytic=True):
     data = {key: {} for key in ('pairs', 'grids', 'events', 'cells', 'masses', 'passives', 'faces', 'walls', 'materials')}
-    passes = []; controls = {}
+    passes = []; controls = {}; data['carried_u'] = b'~' in raw
     for line in raw.decode('ascii').splitlines():
         r = line.split(); kind = r[0]
         if kind == 'PAIR':
@@ -106,6 +106,11 @@ def review_pair(p):
         check(min(ul, ur) - 128 * EPS * scale <= velocity <= max(ul, ur) + 128 * EPS * scale, 'Pair velocity outside initial interval')
 
 
+def retained_cell_heat(data,gid,unresolved):
+    carried=any(row[0]!=F(float(row[0])) for (g,e,_),row in data['cells'].items() if g==gid and e==1)
+    return unresolved==0 and carried if data.get('carried_u',False) else unresolved>0
+
+
 def review(data, analytic=True, pair_reviewer=None, equilibrium=None):
     if pair_reviewer is None:
         pair_reviewer = review_pair
@@ -159,7 +164,7 @@ def review(data, analytic=True, pair_reviewer=None, equilibrium=None):
                     coefficient = dt * cmass / (2 * spacing)
                     close(p[7], coefficient, coefficient, 'Integrated density/area/time coefficient', 8)
                     current[axis, l], current[axis, r] = p[12:14]
-                    u0 = cells[cell]; cells[cell] = F(float(u0 + p[11])); un_u += not resolved(u0, cells[cell], p[11]); un_j += p[4]
+                    u0 = cells[cell]; cells[cell] = base.round_primary(u0 + p[11]) if data.get('carried_u',False) else F(float(u0 + p[11])); un_u += not resolved(u0, cells[cell], p[11]); un_j += p[4]
                     total_heat += p[11]; total_wall[axis] += p[14]
         check(index == count and unresolved_u == un_u and unresolved_j == un_j, 'Event/unresolved counts differ')
         close(reported_heat, total_heat, total_heat, 'Reported full heat', 8)
@@ -197,7 +202,7 @@ def review(data, analytic=True, pair_reviewer=None, equilibrium=None):
         check(entropy >= -ref.dec(sb) and ds >= -sb, 'EOS entropy decreased')
         close(ds, F(entropy), entropy_scale, 'Reported entropy change', 128)
         if analytic and gid == 3:
-            check(reported_heat > 0 and float(reported_heat) == 0 and un_u > 0 and un_j > 0, 'Subrange heat/control missing')
+            check(reported_heat > 0 and float(reported_heat) == 0 and retained_cell_heat(data,gid,un_u) and un_j > 0, 'Subrange heat/control missing')
     check(referenced == set(data['pairs']), 'Missing/orphan pair')
     check(set(data['events']) == {(gid, k) for gid, grid in data['grids'].items() for k in range(grid[7])}, 'Extra event')
 

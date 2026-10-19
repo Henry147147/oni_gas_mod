@@ -9,7 +9,7 @@ thermal=importlib.util.module_from_spec(spec);spec.loader.exec_module(thermal)
 base=thermal.base;check,close,number,unique=base.check,base.close,base.number,base.unique
 dec=thermal.dec;EPS=base.EPS;R=thermal.ref.R
 
-def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=9):
+def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=9,large_offset_control=True):
     d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full','entropy_probes')};passes=[];rejected=None;large=None
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty compressive record');kind=r[0]
@@ -37,7 +37,7 @@ def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=9):
             check(len(r)==3 and large is None and r[2] in ('0','1') and number(r[1])>300,'Large-offset admission shape');large=number(r[1])
         else:
             check(kind=='PASS','Unknown compressive work record');passes.append(line)
-    check(len(set(passes))==len(passes)==groups and rejected==rejections and large is not None,'Missing compressive work groups or rejection controls')
+    check(len(set(passes))==len(passes)==groups and rejected==rejections and (large is not None)==large_offset_control,'Missing compressive work groups or rejection controls')
     check(all(set(d[k])==set(case_ids) for k in ('cases','initial','end','iso','full')),'Missing or extra complete compressive response')
     check(set(k[0] for k in d['definitions'])==set(profiles) and len(d['definitions'])==4*len(profiles),'Missing immutable material profiles')
     check(all(c in d['cases'] for c,_ in d['masses']),'Orphan constituent')
@@ -133,12 +133,13 @@ def review(d,fixture_controls=True):
         reading(tangent,exact_derivative+dec(expected_dq),'Complete work tangent')
         close(work,isop+q,abs(isop)+abs(q),'Pressure force omits stress')
         close(requested,isodu+heat,abs(isodu)+abs(heat),'Requested U increment differs')
-        check(u1==F(float(u0+isodu+heat)),'Canonical U does not contain the admitted pressure and stress work')
+        check(u1==base.round_primary(u0+isodu+heat),'Canonical U does not contain the admitted pressure and stress work')
         actual_residual=u1-u0+work*dv
         close(res,actual_residual,abs(u1)+abs(u0)+abs(work*dv),'Reported stored U/work residual')
         close(bound,128*EPS*(abs(u1)+abs(u0)+abs(work*dv)),bound,'Original work operand bound differs',8)
         check(abs(actual_residual)<=bound and abs(res)<=bound and bound>0,'Actual stored work exceeds original bound')
-        close(ds,s1-s0,abs(s1)+abs(s0),'Actual entropy difference')
+        entropy_correction=(u1-F(float(u1)))/t1-(u0-F(float(u0)))/t0
+        close(ds,s1-s0+entropy_correction,abs(s1)+abs(s0),'Actual entropy difference')
         allowance=128*EPS*(abs(u0)/t0+abs(u1)/t1)
         close(sb,allowance,allowance,'Original stored-U entropy allowance differs',8)
         check(ds>=-sb,'Actual stored entropy reduced beyond original allowance')
@@ -152,7 +153,7 @@ def review(d,fixture_controls=True):
         check(abs(dec(ds)-exact_ds)<=comparison,'Relative entropy does not describe actual conserved endpoints')
         expected_unresolved=abs(u1-u0-requested)>128*EPS*abs(requested)
         check(unresolved==int(expected_unresolved),'Unresolved canonical U flag differs')
-        if fixture_controls and c==15:check(unresolved==1 and rv==ru==0 and u1==u0 and v1==v,'Subrange canonical representability was hidden')
+        if fixture_controls and c==15:check(unresolved==0 and rv==ru==0 and u1!=u0 and F(float(u1))==u0 and v1==v,'Subrange U correction or unresolved volume observation differs')
     if fixture_controls:check(subrange==1 and negative>=1 and d['initial'][6][0]<0,'Missing subrange heat or negative-reference control')
     if fixture_controls:check(set(d['entropy_probes'])=={0,1},'Missing unchanged-state or genuine-cooling entropy probe')
     for probe,row in d['entropy_probes'].items():

@@ -23,8 +23,8 @@ void record(std::size_t id, const MacTransportState& before, const MacMassFluxes
     std::cout << "GRID " << id << ' ' << g.width << ' ' << g.height << ' ' << g.spacing_m << ' ' << g.depth_m << ' ' << g.periodic_x << ' ' << g.periodic_y
         << ' ' << r.unresolved_heat_updates; scaled(r.energy_residual_wide_j); scaled(r.energy_bound_wide_j); std::cout << '\n';
     for (std::size_t i = 0; i < g.walls.size(); ++i) {
-        std::cout << "CELL " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << ' ' << before.cells[i].mixture.energy << ' '
-            << r.advected_internal_energy_j[i] << ' ' << after.state.cells[i].mixture.energy << ' ' << before.cells[i].mixture.mass() << ' '
+        std::cout << "CELL " << id << ' ' << i << ' ' << static_cast<int>(g.walls[i]) << ' ' << ma::testing::observed_energy(before.cells[i]) << ' '
+            << ma::testing::observed_energy(r.advected_internal_energy_j[i],r.advected_energy_remainders_j[i]) << ' ' << ma::testing::observed_energy(after.state.cells[i]) << ' ' << before.cells[i].mixture.mass() << ' '
             << after.state.cells[i].mixture.mass();
         auto advected = after.state.cells[i].mixture; advected.energy = r.advected_internal_energy_j[i];
         for (const auto* mixture : std::array<const MixtureInventory*, 3>{&before.cells[i].mixture, &advected, &after.state.cells[i].mixture})
@@ -127,8 +127,8 @@ void tiny() {
     store_mac_field(s.momentum_x, s.full_momentum_x, j);
     MacMassFluxes q{std::vector<double>(j.size(), .125 * s.cells[0].mixture.mass()), std::vector<double>(s.momentum_y.size())};
     const auto result = advance_mac_transport(set.registry, s, q, mode);
-    check(!result.report.x.corrections.empty() && !result.state.full_momentum_x.empty() && result.report.unresolved_heat_updates > 0,
-        "Below-range reconstructed momentum/heat was discarded or unresolved heat unreported"); record(3, s, q, result);
+    check(!result.report.x.corrections.empty() && !result.state.full_momentum_x.empty() && result.report.unresolved_heat_updates == 0 && ma::testing::has_primary_energy_remainder(result.state),
+        "Below-range reconstructed momentum/heat was discarded or primary remainder missing"); record(3, s, q, result);
 }
 double wave(std::size_t n, bool transverse, bool corrected) {
     const auto& set = ma::testing::setup(); const std::size_t height = transverse ? n : 2;
@@ -144,7 +144,7 @@ double wave(std::size_t n, bool transverse, bool corrected) {
     }
     MacEnergyAccount account;
     const auto energy = [&](const MacTransportState& a, bool negative) {
-        for (const auto& cell : a.cells) account.add(negative ? -cell.mixture.energy : cell.mixture.energy);
+        for (const auto& cell : a.cells) account_mac_cell_internal_energy(account,cell,negative ? -1 : 1);
         const auto m = mac_face_inertias(set.registry, a, *set.eos);
         const auto jx = mac_field_values(a.momentum_x, a.full_momentum_x), jy = mac_field_values(a.momentum_y, a.full_momentum_y);
         for (std::size_t i = 0; i < jx.size(); ++i) { const auto k = MacEnergy::kinetic(m.x[i], jx[i]); account.add(negative ? k.negated() : k); }

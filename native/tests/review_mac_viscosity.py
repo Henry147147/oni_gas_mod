@@ -15,6 +15,14 @@ def require(value, message):
 
 
 def number(text):
+    if '~' in text:
+        fields=text.split('~')
+        require(len(fields)==3,'Primary-U token shape')
+        high=number(fields[0]);mantissa=number(fields[1]);exponent=int(fields[2])
+        require(-16384<exponent<16384 and Decimal('.5')<=abs(mantissa)<1,'Primary-U correction shape')
+        low=mantissa*Decimal(2)**exponent
+        require(Decimal.from_float(float(high+low))==high,'Noncanonical primary-U pair')
+        return high+low
     result = Decimal.from_float(float(text))
     require(result.is_finite(), 'Nonfinite saved viscous operand')
     return result

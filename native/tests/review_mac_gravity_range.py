@@ -106,7 +106,8 @@ def review(parsed):
             if abs(after - before - requested) > 32 * base.EPS * abs(requested):
                 actual_unresolved += 1
         check(unresolved == actual_unresolved, 'Unresolved primary-U changes were hidden')
-        check(projections == sum(F(float(value)) != value for value in projected_values),
+        energy_writes=sum(after!=F(float(after)) for (case_id,_),(_,after,_) in cells.items() if case_id==identifier) if case.get('carried_u',False) else 0
+        check(projections == energy_writes + sum(F(float(value)) != value for value in projected_values),
               'Gravity projection count differs from its full saved operands')
         if identifier == 1:
             check(unresolved > 0 and change != 0, 'Layered work fixture did not retain unresolved signed work')

@@ -66,6 +66,13 @@ struct PrimaryRounding {
     [[nodiscard]] bool within_bound(double audited_bound) const;
 };
 
+struct EnergyRounding {
+    std::size_t high_count = 0;
+    PrimaryRounding discarded;
+    void observe(const MacPrimaryWrite&);
+    void merge(const EnergyRounding&);
+};
+
 // ---------------------------------------------------------------- grid
 struct Grid {
     std::size_t W = 0, H = 0, N = 0, XW = 0, YH = 0, NX = 0, NY = 0;
@@ -115,10 +122,21 @@ struct Model {
 // Primary production state: species-major masses m[k*N+i], U, passives
 // q[p*N+i] and canonical face momentum.
 struct Fields {
-    std::vector<double> m, U, q, jx, jy;
+    std::vector<double> m, U, U_remainder, q, jx, jy;
     [[nodiscard]] double* mass(std::size_t k, std::size_t N) { return m.data() + k * N; }
     [[nodiscard]] const double* mass(std::size_t k, std::size_t N) const { return m.data() + k * N; }
 };
+
+inline void prepare_primary_remainders(Fields& fields) {
+    if (fields.U_remainder.empty()) fields.U_remainder.assign(fields.U.size(), 0);
+    require(fields.U_remainder.size() == fields.U.size(), "Production primary remainder shape differs");
+}
+inline bool add_internal_energy(Fields& fields, std::size_t i, double increment, EnergyRounding& rounding) {
+    const double before = fields.U[i], low = fields.U_remainder[i];
+    const auto write = add_mac_primary(before, low, increment);
+    rounding.observe(write); fields.U[i] = write.value; fields.U_remainder[i] = write.remainder;
+    return increment != 0 && fields.U[i] == before && fields.U_remainder[i] == low;
+}
 
 // ---------------------------------------------------------------- EOS
 enum Kind : std::uint8_t { empty = 0, gas_cell = 1, liquid_cell = 2, mixed_cell = 3, solid_cell = 4 };
@@ -266,6 +284,7 @@ struct Accounts {
     std::vector<TransferRounding> transfers;
     std::vector<PrimaryRounding> primary;
     std::vector<PrimaryRounding> inventory;
+    EnergyRounding energy;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
     // Concavity bound on the gravity reconciliation's entropy change, and its
@@ -277,7 +296,7 @@ struct Accounts {
         operands.assign(quantities, 0); rounding.assign(quantities, 0);
         transfers.assign(quantities, {});
         primary.assign(quantities, {});
-        inventory.assign(quantities, {});
+        inventory.assign(quantities, {}); energy = {};
     }
 };
 struct Counters {
@@ -333,6 +352,7 @@ struct Workspace {
     // and after transport, with their per-cell scratch.
     std::vector<double> gravity_weight_start, gravity_weight_end, gravity_alpha, gravity_total, gravity_lower, gravity_mass, gravity_fraction;
     std::vector<Index> gravity_heavy;
+    std::vector<double> px_energy_remainder, py_energy_remainder, retained_energy_remainder;
     std::vector<std::uint8_t> two_phase;
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.

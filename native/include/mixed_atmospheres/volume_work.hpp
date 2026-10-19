@@ -1,6 +1,7 @@
 #pragma once
 #include "acoustics.hpp"
 #include "mixture.hpp"
+#include "mac_primary.hpp"
 #include "pressure.hpp"
 #include "fluid_thermodynamics.hpp"
 #include <limits>
@@ -13,6 +14,7 @@ struct MaterialCell {
     // Used only for a completely filled incompressible liquid cell. Gas and
     // gas/liquid cells derive their pressure from the thermodynamic inventory.
     double incompressible_pressure_pa = 101325;
+    experimental::MacStoredRemainder energy_remainder_j{};
 };
 
 struct MaterialPressureStep {
@@ -28,6 +30,7 @@ struct MaterialPressureStep {
     double maximum_linear_residual_norm = 0;
     double maximum_linear_residual_ratio = 0;
     std::size_t incomplete_cholesky_solves = 0, jacobi_solves = 0, preconditioner_fallbacks = 0;
+    experimental::MacPrimaryRoundingCounts primary_energy{};
 };
 
 // Reversible pressure-work substep on material (moving-volume) cells, with
@@ -89,5 +92,6 @@ struct OccupiedMaterialPressureStep : MaterialPressureStep {
     PressurePreconditioner preconditioner = PressurePreconditioner::automatic,
     LiquidFillRoundoffPolicy liquid_fill_roundoff = LiquidFillRoundoffPolicy::strict_eos,
     double maximum_relative_volume_residual = 5e-13,
-    experimental::ReferenceRootOptions isentropic_root_options = {});
+    experimental::ReferenceRootOptions isentropic_root_options = {},
+    bool carry_primary_energy = false);
 }

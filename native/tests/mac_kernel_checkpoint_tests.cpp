@@ -50,7 +50,7 @@ void continuation(Scene scene, MacDiffusionSettings diffusion, PressurePrecondit
     const auto held = source.checkpoint();
     const auto first = source.advanced(.002, 4096, MacExecutionPolicy::production);
     const auto image = first.world.checkpoint();
-    check(image[8] == 6 && first.world.settings().numerical_kernel == MacNumericalKernel::production,
+    check(image[8] == ma::testing::checkpoint_version(first.world,6) && first.world.settings().numerical_kernel == MacNumericalKernel::production,
         "Production request did not persist the kernel selection");
     const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
     check(restored.checkpoint() == image && restored.settings().preconditioner == preconditioner &&

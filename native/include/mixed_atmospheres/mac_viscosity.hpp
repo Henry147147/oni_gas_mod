@@ -39,6 +39,7 @@ struct MacViscousReport {
     // Rigorous fixed-mass/volume positive-heating bound Q_stored/T_after,
     // not a subtraction of two rounded EOS entropies.
     double entropy_lower_bound_j_per_k = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacViscousAdvance { MacTransportState state; MacViscousReport report; };
 // Plane-strain Newtonian dissipation:

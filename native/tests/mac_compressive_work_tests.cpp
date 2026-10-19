@@ -87,8 +87,8 @@ void subrange() {
     const auto& set=ma::testing::setup();const auto source=set.mixture(1,100000,300);
     const auto r=record(15,0,*set.eos,source,1,-1e-200,1,.01,MacEnergy::from_double(50));
     check(!r.dissipated_heat_j.is_zero() && r.dissipated_heat_j.project().rounded && r.dissipated_heat_j.project().value==0 &&
-        r.unresolved_energy_update && !r.isentropic.endpoint_volume_resolves_change && r.mixture.energy==source.energy,
-        "Subrange compression heat or unresolved canonical update was discarded");
+        !r.unresolved_energy_update && !r.energy_remainder_j.is_zero() && r.primary_energy.discarded>0 && !r.isentropic.endpoint_volume_resolves_change && r.mixture.energy==source.energy,
+        "Subrange compression lost carried work or an audited discarded heat term");
 }
 void entropy_reference_precision() {
     // Exact input retained from the failed separation64 Newton trial. Its

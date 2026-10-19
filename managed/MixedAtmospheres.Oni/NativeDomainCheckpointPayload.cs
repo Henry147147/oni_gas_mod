@@ -71,12 +71,13 @@ namespace MixedAtmospheres.Oni
             var solverVersion=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(8));
             var legacyVersion=configured ? (image!.Physics.Flags&PhysicsViscosity)!=0 ? 3U : 2U : geometry.Scenario==6 ? 3U : 2U;
             // Versions 5 (gas diffusion) and 6 (production kernel) retain this
-            // metadata prefix. Version 5 stores
+            // metadata prefix. Version 10 also carries primary-U remainders; full
+            // native admission checks them before activation. Version 5 stores
             // both viscosity values, the numerical kernel, diffusion mode and the
             // transport profile. Native admission checks those complete settings
             // against the saved scenario/wrapper. Version 4 (interval kernel) is
             // never selected by the game and stays rejected here.
-            Require(solverVersion==legacyVersion || solverVersion==5U || solverVersion==6U,"Unsupported physical checkpoint format for this scenario.");
+            Require(solverVersion==legacyVersion || solverVersion==5U || solverVersion==6U || solverVersion==10U,"Unsupported physical checkpoint format for this scenario.");
             var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
             Require(clock+42<=physical.Length-8,"Physical checkpoint metadata is truncated.");
             var offset=checked((int)clock);

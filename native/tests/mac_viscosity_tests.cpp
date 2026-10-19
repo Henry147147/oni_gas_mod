@@ -219,7 +219,7 @@ void saved_controls() {
             const auto& state=endpoint==0 ? source : after.state;
             for (std::size_t i=0;i<state.cells.size();++i) {
                 const auto& cell=state.cells[i];const auto reading=setup.eos->evaluate(cell.mixture,1);
-                std::cout<<"VCELL "<<id<<' '<<endpoint<<' '<<i<<' '<<cell.mixture.energy<<' '<<reading.temperature_k<<' '
+                std::cout<<"VCELL "<<id<<' '<<endpoint<<' '<<i<<' '<<ma::testing::observed_energy(cell)<<' '<<reading.temperature_k<<' '
                     <<reading.mechanical_pressure_pa<<' '<<reading.gas_volume_m3<<' '<<reading.liquid_volume_m3<<'\n';
                 for (std::size_t k=0;k<cell.mixture.masses.size();++k) if (cell.mixture.masses[k]!=0)
                     std::cout<<"VMASS "<<id<<' '<<endpoint<<' '<<i<<' '<<setup.registry[k].id<<' '<<cell.mixture.masses[k]<<'\n';

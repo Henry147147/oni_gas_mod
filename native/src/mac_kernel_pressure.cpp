@@ -368,6 +368,7 @@ void evaluate_cells(Context& c, const Fields& f, EosCache& e) {
 }
 
 void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     const auto t_start = std::chrono::steady_clock::now();
     const auto lap = [&](double& slot, std::chrono::steady_clock::time_point& t) {
@@ -551,6 +552,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     struct Publish {
         DD pressure_wall_x, pressure_wall_y, fixed_body;
         PrimaryRounding primary_x, primary_y;
+        EnergyRounding energy_rounding;
         double body = 0, energy = 0, jx = 0, jy = 0, closure = 0;
         std::size_t unresolved = 0; int failed = 0;
         std::vector<std::pair<Index, MacEnergy>> tiny_x, tiny_y;
@@ -620,9 +622,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 continue;
             }
             const double before = f.U[i];
-            f.U[i] = before + ws.dU[i];
+            if (add_internal_energy(f, i, ws.dU[i], o.energy_rounding)) ++o.unresolved;
             o.energy += std::abs(before) + std::abs(ws.dU[i]);
-            if (ws.dU[i] != 0 && f.U[i] == before) ++o.unresolved;
+
             ws.Vmat[i] = g.V + ws.dV[i];
             DD r; r.add(ws.dV[i]); r.add(-sweeps.hi); r.add(-sweeps.lo);
             o.closure = std::max(o.closure, std::abs(r.value()) / g.V);
@@ -643,6 +645,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     acc.wall_y += wall_y.value();
     for (const auto& o : volumes) {
         if (o.failed) reject("Production swept vacuum volume exhausted");
+        acc.energy.merge(o.energy_rounding);
         energy_ops += o.energy; acc.unresolved += o.unresolved; closure = std::max(closure, o.closure);
     }
     acc.operands[c.q_jx()] += jx_ops; acc.operands[c.q_jy()] += jy_ops;

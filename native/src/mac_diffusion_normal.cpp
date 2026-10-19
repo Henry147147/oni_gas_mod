@@ -38,7 +38,7 @@ struct Reading { Row x{},y{},partial{};double mass=0,moles=0,temperature=0,press
 struct Flux { Row mass{};double heat=0,maximum_d=0,temperature=0,pressure=0;std::uint32_t range=0; };
 struct Workspace {
     std::vector<Row> masses,predictor,next;
-    std::vector<double> energy,predictor_energy,next_energy;
+    std::vector<double> energy,predictor_energy,next_energy,remainder,predictor_remainder,next_remainder;
     std::vector<Reading> reading;
     std::vector<Flux> first,second;
     std::vector<Link> links;
@@ -82,6 +82,8 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         }
     }
     w.masses.resize(n);w.predictor.resize(n);w.next.resize(n);w.energy.resize(n);w.predictor_energy.resize(n);w.next_energy.resize(n);w.reading.resize(n);
+    w.remainder.resize(n);w.predictor_remainder.resize(n);w.next_remainder.resize(n);
+    for(const auto& cell:source.cells)if(!cell.energy_remainder_j.full.is_zero())return {};
     w.links.clear();w.links.reserve(2*n);w.adjacent.assign(n,{});
     // Faces touching an exact empty cell carry no diffusive flux; zero net
     // face mass keeps every cell's emptiness fixed during the advance.
@@ -99,7 +101,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
     w.first.resize(w.links.size());w.second.resize(w.links.size());
     parallel(n,[&](std::size_t i) {
         w.masses[i]={};for(std::size_t k=0;k<ng;++k)w.masses[i][k]=source.cells[i].mixture.masses[gases[k]];
-        w.energy[i]=source.cells[i].mixture.energy;
+        w.energy[i]=source.cells[i].mixture.energy;w.remainder[i]=source.cells[i].energy_remainder_j.projected;
     });
     std::atomic<bool> ordinary=true;
     const auto read=[&](const std::vector<Row>& mass,const std::vector<double>& energy) {
@@ -236,12 +238,12 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         if(!out_of_range)return;
         for(const auto& f:flux)for(std::uint32_t k=0;k<f.range;++k)report.record_out_of_range(f.temperature,f.pressure);
     };
-    std::size_t trial_unresolved=0;
-    const auto apply=[&](double dt,bool corrected,std::vector<Row>& target,std::vector<double>& energy) {
-        std::atomic<bool> positive=true;std::atomic<std::size_t> unresolved_count=0;
+    std::size_t trial_unresolved=0,trial_rounded=0;
+    const auto apply=[&](double dt,bool corrected,std::vector<Row>& target,std::vector<double>& energy,std::vector<double>& remainder) {
+        std::atomic<bool> positive=true;std::atomic<std::size_t> unresolved_count=0,rounded_count=0;
         parallel(n,[&](std::size_t i) {
             if(g.walls[i])return;
-            Sum heat;const auto& adjacent=w.adjacent[i];
+            const auto& adjacent=w.adjacent[i];
             for(std::size_t k=0;k<ng;++k) {
                 Sum change,sum;sum.add(w.masses[i][k]);
                 for(std::size_t j=0;j<adjacent.count;++j) {
@@ -254,15 +256,18 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
                 if(target[i][k]>0 && target[i][k]<1e-150)ordinary=false;
                 if(corrected && change.value()!=0 && target[i][k]==w.masses[i][k])unresolved_count.fetch_add(1,std::memory_order_relaxed);
             }
-            Sum heat_change;heat.add(w.energy[i]);for(std::size_t j=0;j<adjacent.count;++j) {
+            Sum heat_change;auto primary=MacPrimaryWrite{w.energy[i],w.remainder[i],0,false};for(std::size_t j=0;j<adjacent.count;++j) {
                 const auto f=adjacent.face[j];const double amount=adjacent.sign[j]*dt*(corrected ? .5*w.first[f].heat+.5*w.second[f].heat:w.first[f].heat);
                 if(rounding_policy==MacDiffusionRounding::counted &&
                     (corrected ? .5*w.first[f].heat+.5*w.second[f].heat:w.first[f].heat)!=0 && !std::isnormal(amount))ordinary=false;
-                heat.add(amount);heat_change.add(amount);
+                primary=add_mac_primary(primary.value,primary.remainder,amount);
+                if(primary.high_rounded)rounded_count.fetch_add(1,std::memory_order_relaxed);
+                if(primary.discarded!=0)ordinary=false;
+                heat_change.add(amount);
             }
-            energy[i]=heat.value();
-            if(corrected && heat_change.value()!=0 && energy[i]==w.energy[i])unresolved_count.fetch_add(1,std::memory_order_relaxed);
-        });trial_unresolved=unresolved_count.load();return positive.load();
+            energy[i]=primary.value;remainder[i]=primary.remainder;
+            if(corrected && heat_change.value()!=0 && energy[i]==w.energy[i] && remainder[i]==w.remainder[i])unresolved_count.fetch_add(1,std::memory_order_relaxed);
+        });trial_unresolved=unresolved_count.load();trial_rounded=rounded_count.load();return positive.load();
     };
     MacDiffusionReport report;double elapsed=0,next=seconds;std::size_t attempts=0;
     while(elapsed<seconds) {
@@ -273,9 +278,9 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
             if(++attempts>budget)throw std::runtime_error("Diffusion exhausted its attempt budget");
             if(rounding_policy==MacDiffusionRounding::counted)consumed=attempts;
             if(!(dt>0) || elapsed+dt<=elapsed)throw std::runtime_error("Diffusion clock cannot advance");
-            if(apply(dt,false,w.predictor,w.predictor_energy)) {
+            if(apply(dt,false,w.predictor,w.predictor_energy,w.predictor_remainder)) {
                 const auto second_max=rates(w.predictor,w.predictor_energy,w.second);if(!ordinary)return {};
-                if(second_max*dt/(g.spacing_m*g.spacing_m)<=.2 && apply(dt,true,w.next,w.next_energy))break;
+                if(second_max*dt/(g.spacing_m*g.spacing_m)<=.2 && apply(dt,true,w.next,w.next_energy,w.next_remainder))break;
             }
             if(!ordinary)return {};
             dt*=.5;++report.rejected_attempts;
@@ -283,8 +288,8 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         if(!ordinary)return {};
         record_range(w.first,report);record_range(w.second,report);out_of_range=false;
         for(std::size_t f=0;f<w.first.size();++f)for(std::size_t k=0;k<ng;++k)report.exchanged_mass_kg+=.5*dt*std::abs(.5*w.first[f].mass[k]+.5*w.second[f].mass[k]);
-        report.unresolved_updates+=trial_unresolved;
-        w.masses.swap(w.next);w.energy.swap(w.next_energy);elapsed+=dt;next=std::min(2*dt,seconds-elapsed);++report.substeps;report.faces+=w.links.size();
+        report.unresolved_updates+=trial_unresolved;report.primary_energy.merge({trial_rounded,0});
+        w.masses.swap(w.next);w.energy.swap(w.next_energy);w.remainder.swap(w.next_remainder);elapsed+=dt;next=std::min(2*dt,seconds-elapsed);++report.substeps;report.faces+=w.links.size();
     }
     read(w.masses,w.energy);if(!ordinary)return {};
     std::array<Sum,4> balances;Sum energy,entropy,entropy_allowance;
@@ -302,7 +307,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
             old_capacity.add(a*cv[k]);old_thermal.add(-a*offset[k]);
         }
         if(std::abs(total.value())>total.bound())return {};
-        energy.add(w.energy[i]);energy.add(-source.cells[i].mixture.energy);
+        energy.add(w.energy[i]);energy.add(w.remainder[i]);energy.add(-source.cells[i].mixture.energy);energy.add(-source.cells[i].energy_remainder_j.projected);
         const double ta=old_thermal.value()/old_capacity.value(),tb=w.reading[i].temperature;
         for(std::size_t k=0;k<ng;++k) {
             const double a=source.cells[i].mixture.masses[gases[k]],b=w.masses[i][k],na=a/molecular[k],nb=b/molecular[k];
@@ -310,6 +315,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
             if(nb>0)entropy.add(nb*gas_constant*std::log(g.volume_m3()/nb));
             if(na>0)entropy.add(-na*gas_constant*std::log(g.volume_m3()/na));
         }
+        entropy.add(w.remainder[i]/tb);entropy.add(-source.cells[i].energy_remainder_j.projected/ta);
         entropy_allowance.add(std::abs(w.energy[i])/tb);entropy_allowance.add(std::abs(source.cells[i].mixture.energy)/ta);
     }
     if(!std::isfinite(energy.scale) || std::abs(energy.value())>energy.bound() || entropy.value() < -entropy_allowance.bound())return {};
@@ -321,7 +327,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
     report.energy_residual=MacEnergy::from_double(energy.value());report.energy_bound=MacEnergy::from_double(energy.bound());
     report.entropy_change_j_per_k=entropy.value();report.entropy_roundoff_j_per_k=entropy_allowance.bound();
     MacDiffusionAdvance result{source,std::move(report)};
-    parallel(n,[&](std::size_t i) { if(!g.walls[i]) { for(std::size_t k=0;k<ng;++k)result.state.cells[i].mixture.masses[gases[k]]=w.masses[i][k];result.state.cells[i].mixture.energy=w.energy[i]; } });
+    parallel(n,[&](std::size_t i) { if(!g.walls[i]) { for(std::size_t k=0;k<ng;++k)result.state.cells[i].mixture.masses[gases[k]]=w.masses[i][k];result.state.cells[i].mixture.energy=w.energy[i];result.state.cells[i].energy_remainder_j.projected=w.remainder[i]; } });
     result.report.elapsed_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();return result;
 }
 }

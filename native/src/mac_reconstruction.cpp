@@ -347,20 +347,21 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         }
         if (flat) ++result.unresolved_stencil_cells;
         require(std::isfinite(theta) && theta >= 0 && theta <= 1, "Invalid reconstructed MAC limiter calculation");
-        const auto values = [&](double coefficient, double x, double y) {
+        const auto values = [&](double coefficient, double x, double y, MacPrimaryRoundingCounts& rounding) {
             MacMaterialCell cell{MixtureInventory(species), {}};
             const auto value = [&](std::size_t index) {
                 return evaluated(fields[index], coefficient, x, y);
             };
             for (std::size_t s = 0; s < species; ++s) cell.mixture.masses[s] = value(s);
             cell.mixture.energy = value(species);
+            (void)add_mac_cell_internal_energy(cell,mac_stored_remainder_value(source.cells[i].energy_remainder_j),&rounding);
             for (std::size_t p = 0; p < ids.size(); ++p) { const auto v = value(species + 2 + p); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
             return cell;
         };
         const auto admitted = [&](const MacMaterialCell& cell, double volume) {
             model.validate_inventory(cell.mixture); validate_passive_quantities(cell.passive_quantities);
             if (cell.mixture.mass() == 0) {
-                require(cell.mixture.energy == 0 && cell.passive_quantities.empty(), "Reconstructed vacuum contains energy or passive inventory");
+                require(cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(), "Reconstructed vacuum contains energy or passive inventory");
                 return;
             }
             const auto eos = model.evaluate(cell.mixture, volume);
@@ -428,17 +429,21 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 material_area[slot[n]] = material[n]; void_area[slot[n]] = vacuum[n]; void_left = std::max(0., void_left - vacuum[n]);
             }
         }
-        const auto void_prototype = [&](std::size_t slot, double width) {
+        const auto void_prototype = [&](std::size_t slot, double width, MacPrimaryRoundingCounts& rounding) {
             MacMaterialCell cell = source.cells[i]; const double scale = material_area[slot] / (width * filled[i]);
             if (scale == 0) return MacMaterialCell{MixtureInventory(species), {}};
             for (auto& mass : cell.mixture.masses) mass *= scale;
-            cell.mixture.energy *= scale; cell.passive_quantities.clear();
+            cell.mixture.energy *= scale;
+            const auto remainder = mac_stored_remainder_value(cell.energy_remainder_j).multiplied(scale);
+            cell.energy_remainder_j = {};
+            (void)add_mac_cell_internal_energy(cell,remainder,&rounding);
+            cell.passive_quantities.clear();
             for (const auto& p : source.cells[i].passive_quantities) { const double v = p.quantity * scale; if (v != 0) cell.passive_quantities.push_back({p.identity, v}); }
             return cell;
         };
         // A strip prototype at the donor volume: liquid at the donor's liquid
         // density, gas at its headspace density, both at the donor's EOS state.
-        const auto phase_prototype = [&](std::size_t slot) {
+        const auto phase_prototype = [&](std::size_t slot, MacPrimaryRoundingCounts& rounding) {
             MacMaterialCell cell{MixtureInventory(species), {}};
             const auto& from = source.cells[i];
             Sum energy, total;
@@ -448,6 +453,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 cell.mixture.masses[s] = amount; energy.add(amount * specific[i][s]); total.add(amount);
             }
             cell.mixture.energy = energy.value();
+            (void)add_mac_cell_internal_energy(cell,mac_stored_remainder_value(from.energy_remainder_j),&rounding);
             const double ratio = total.value() / from.mixture.mass();
             for (const auto& p : from.passive_quantities) { const double v = p.quantity * ratio; if (v != 0) cell.passive_quantities.push_back({p.identity, v}); }
             return cell;
@@ -456,16 +462,18 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         const auto split_retry = [&] { if (!(sharp_donor || void_donor) || homogeneous) return false; homogeneous = true; return true; };
         bool accepted = false;
         for (std::size_t attempt = 0; attempt <= 33; ++attempt) {
+            MacPrimaryRoundingCounts rounding;
             std::vector<MacScaledSum> retained(species + 1 + ids.size());
             for (std::size_t f = 0; f < species + 1; ++f) retained[f].add(quantity(i, f));
+            retained[species].add(mac_stored_remainder_value(source.cells[i].energy_remainder_j));
             for (std::size_t p = 0; p < ids.size(); ++p) retained[species + 1 + p].add(quantity(i, species + 2 + p));
             try {
                 for (std::size_t slot = 0; slot < by_donor[i].size(); ++slot) if (const auto edge = by_donor[i][slot]; edge != none) {
                     const auto& e = edges[edge];
                     const auto volume_projection = e.volume.project();
                     const double width = volume_projection.value / volumes[i];
-                    auto prototype = void_donor ? (homogeneous || !(width > 0) ? source.cells[i] : void_prototype(slot, width)) :
-                        !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(slot);
+                    auto prototype = void_donor ? (homogeneous || !(width > 0) ? source.cells[i] : void_prototype(slot, width, rounding)) :
+                        !sharp_donor ? values(theta, e.cx, e.cy, rounding) : homogeneous ? source.cells[i] : phase_prototype(slot, rounding);
                     admitted(prototype, volumes[i]);
                     if (voids) {
                         // Material and void parts of this strip's volume.
@@ -481,17 +489,22 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                         const auto p = mac_parcel_quantity(parcel, value).project(); rounded = rounded || p.rounded; return p.value;
                     };
                     for (auto& mass : projected.mixture.masses) mass = projection(mass);
-                    projected.mixture.energy = projection(projected.mixture.energy);
+                    MacEnergySum projected_energy;
+                    projected_energy.add(mac_parcel_quantity(parcel,parcel.contents.mixture.energy));
+                    projected_energy.add(mac_parcel_quantity(parcel,mac_stored_remainder_value(parcel.contents.energy_remainder_j)));
+                    const auto energy_write=store_mac_cell_internal_energy(projected,projected_energy);
+                    rounded=rounded || energy_write.discarded.sign()!=0;
                     for (auto& p : projected.passive_quantities) p.quantity = projection(p.quantity);
                     // Preserve the original actual-amount representation whenever
                     // every field projects exactly. Otherwise retain the complete
                     // common-scale prototype, including every positive trace.
-                    if (!rounded && parcel.full_volume_m3.is_zero()) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; }
+                    if (!rounded && parcel.full_volume_m3.is_zero()) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; rounding.observe(energy_write); }
                     admitted(mac_parcel_contents_at(parcel, volumes[i]), volumes[i]);
                     // A strip whose material underflows to no mass is all void.
                     if (voids && mac_parcel_mass_scaled(parcel).is_zero()) { edge_void[edge] += edge_material[edge]; edge_material[edge] = 0; }
                     for (std::size_t s = 0; s < species; ++s) retained[s].add(mac_parcel_quantity(parcel, parcel.contents.mixture.masses[s]).negated());
                     retained[species].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy).negated());
+                    retained[species].add(mac_parcel_quantity(parcel,mac_stored_remainder_value(parcel.contents.energy_remainder_j)).negated());
                     for (const auto& p : parcel.contents.passive_quantities) {
                         const auto index = static_cast<std::size_t>(std::lower_bound(ids.begin(), ids.end(), p.identity) - ids.begin());
                         retained[species + 1 + index].add(mac_parcel_quantity(parcel, p.quantity).negated());
@@ -500,7 +513,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 }
                 auto& cell = result.retained[i];
                 for (std::size_t s = 0; s < species; ++s) cell.mixture.masses[s] = store_mac_primary(retained[s], true);
-                cell.mixture.energy = store_mac_primary(retained[species], false);
+                (void)store_mac_cell_internal_energy(cell,retained[species],&rounding);
                 cell.passive_quantities.clear();
                 for (std::size_t p = 0; p < ids.size(); ++p) { const double v = store_mac_primary(retained[species + 1 + p], true); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
                 admitted(cell, retained_volume);
@@ -519,7 +532,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                     (theta == 0 && !split_retry())) throw;
             } catch (const std::domain_error&) { if (theta == 0 && !split_retry()) throw; }
             catch (const std::invalid_argument&) { if (theta == 0 && !split_retry()) throw; }
-            if (accepted) break;
+            if (accepted) {result.primary_energy.merge(rounding);break;}
             ++result.eos_backtracks; theta = attempt < 32 ? theta * .5 : 0;
         }
         require(accepted, "MAC reconstruction EOS backtracking exhausted"); result.limiter[i] = theta;

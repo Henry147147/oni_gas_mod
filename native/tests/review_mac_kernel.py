@@ -22,6 +22,13 @@ def check(ok, why):
 
 
 def number(token):
+    if '~' in token:
+        fields=token.split('~');check(len(fields)==3,'Primary-U token shape')
+        high=number(fields[0]);mantissa=number(fields[1]);exponent=int(fields[2])
+        check(-16384<exponent<16384 and F(1,2)<=abs(mantissa)<1,'Primary-U correction shape')
+        low=mantissa*F(2)**exponent
+        check(F(float(high+low))==high,'Noncanonical primary-U pair')
+        return high+low
     value = float(token)
     check(math.isfinite(value), 'Nonfinite saved operand')
     return F(value)
@@ -181,6 +188,7 @@ def review(data):
         else:
             rows = max(1, (1024 + w // 2) // w); blocks = (h + rows - 1) // rows
             count = 2 * n + sum(v != 0 for k, v in data['faces'].items() if k[0] == case) + 8 * blocks + 7
+            count += sum(row[1]!=F(float(row[1])) for key,row in data['cells'].items() if key[0]==case)
             check(tiny == F(1, 2**1070) * count * (steps + 1), 'Below-range operand count differs')
         audit_bound = 128 * EPS * (energy_scale + 2 * stage) + tiny
         check(abs(bound - audit_bound) <= 8 * EPS * audit_bound, 'Reported production energy bound differs')

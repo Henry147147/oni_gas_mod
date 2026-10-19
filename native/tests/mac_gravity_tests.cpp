@@ -15,8 +15,8 @@ void exported(int id, const MacTransportState& s, const MacClosedSubstep& r, dou
         r.entropy_change_j_per_k << ' ' << r.entropy_roundoff_j_per_k << '\n';
     for (std::size_t f = 0; f < r.gravity_body_work_y.size(); ++f) std::cout << "GFACE " << id << ' ' << f << ' ' << r.gravity_body_work_y[f] << ' ' <<
         r.gravity_potential_flux_y[f] << ' ' << r.gravity_internal_work_y[f] << '\n';
-    for (std::size_t i = 0; i < s.cells.size(); ++i) std::cout << "GUCELL " << id << ' ' << i << ' ' << r.pre_gravity_internal_energy_j[i] << ' ' <<
-        r.state.cells[i].mixture.energy << ' ' << r.gravity_internal_changes_j[i] << '\n';
+    for (std::size_t i = 0; i < s.cells.size(); ++i) std::cout << "GUCELL " << id << ' ' << i << ' ' << ma::testing::observed_energy(r.pre_gravity_internal_energy_j[i],r.pre_gravity_energy_remainders_j[i]) << ' ' <<
+        ma::testing::observed_energy(r.state.cells[i]) << ' ' << r.gravity_internal_changes_j[i] << '\n';
 }
 void gravitational_cases() {
     const auto& set = setup();
@@ -98,8 +98,8 @@ std::pair<double, std::pair<double, double>> mode(std::size_t n) {
             uerr += .5 * h * std::abs(u) / amplitude; mass += s.cells[x + 2 * y].mixture.mass();
             if (x == 0) {
                 const auto& old = s.cells[2 * y]; const auto old_eos = set.eos->evaluate(old.mixture, h * h);
-                std::cout << "GSAMPLE " << n << ' ' << y << ' ' << old.mixture.masses[ni] << ' ' << old.mixture.masses[he] << ' ' << old.mixture.energy << ' ' <<
-                    cell.mixture.masses[ni] << ' ' << cell.mixture.masses[he] << ' ' << cell.mixture.energy << ' ' << s.momentum_y[s.grid.y_face(0, y)] << ' ' <<
+                std::cout << "GSAMPLE " << n << ' ' << y << ' ' << old.mixture.masses[ni] << ' ' << old.mixture.masses[he] << ' ' << ma::testing::observed_energy(old) << ' ' <<
+                    cell.mixture.masses[ni] << ' ' << cell.mixture.masses[he] << ' ' << ma::testing::observed_energy(cell) << ' ' << s.momentum_y[s.grid.y_face(0, y)] << ' ' <<
                     state.momentum_y[state.grid.y_face(0, y)] << ' ' << background[y] << ' ' << current.mechanical_pressure_pa << ' ' << current.temperature_k << ' ' <<
                     old_eos.entropy_j_per_k << ' ' << current.entropy_j_per_k << '\n';
             }

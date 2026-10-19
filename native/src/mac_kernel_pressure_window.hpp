@@ -17,6 +17,7 @@ struct PressureTimeReport {
     std::size_t coarse_newton = 0, fine_newton = 0, outer_linear = 0, fine_linear = 0, cycles = 0;
     std::size_t residual_evaluations = 0;
     std::size_t unresolved_updates = 0;
+    MacPrimaryRoundingCounts primary_energy{};
     double maximum_closure = 0;
 };
 // Development component for normal-range EOS/linear coefficients. Pressure
@@ -25,6 +26,7 @@ struct PressureTimeReport {
 // All state below is returned atomically after convergence.
 struct PressureTimeResult {
     std::vector<double> energy, volume, momentum_x, momentum_y, qx, qy, body_work_y;
+    std::vector<double> energy_remainders;
     std::vector<std::pair<std::uint32_t, MacEnergy>> full_qx, full_qy;
     MacEnergy wall_x, wall_y, body_y;
     PressureTimeReport report;

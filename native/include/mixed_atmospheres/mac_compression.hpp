@@ -67,6 +67,7 @@ struct MacCompressionReport : MacCompressionCoefficients {
     MacScaled wall_impulse_x, wall_impulse_y;
     std::size_t unresolved_heat_updates = 0, unresolved_momentum_updates = 0;
     double entropy_change_j_per_k = 0, entropy_roundoff_j_per_k = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacCompressionAdvance { MacTransportState state; MacCompressionReport report; };
 // Quadratic remains the default separate component law. Acoustic mode freezes

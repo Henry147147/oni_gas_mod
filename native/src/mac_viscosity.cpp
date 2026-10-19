@@ -145,11 +145,11 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
         result.report.unresolved_momentum_updates+=mode.unresolved_momentum_updates;
         const auto requested=mode.heat.shared(1,static_cast<double>(s.cells.size()));
         for (const auto cell:s.cells) {
-            auto& mixture=result.state.cells[cell].mixture;const double before=mixture.energy;
-            mixture.energy=add(MacEnergy::from_double(before),requested).project().value;
-            if (!resolved(MacEnergy::from_double(before),MacEnergy::from_double(mixture.energy),requested)) ++result.report.unresolved_heat_updates;
-            const auto after=eos.evaluate(mixture,g.volume_m3());
-            MacEnergySum stored;stored.add(mixture.energy);stored.add(-before);
+            auto& target=result.state.cells[cell]; const auto before=target;
+            (void)add_mac_cell_internal_energy(target,requested,&result.report.primary_energy);
+            if (!mac_cell_internal_energy_resolved(before,target,requested)) ++result.report.unresolved_heat_updates;
+            const auto after=eos.evaluate(target.mixture,g.volume_m3());
+            const auto stored=mac_cell_internal_energy_change(before,target);
             require(stored.sign()>=0,"Viscous heating decreased stored internal energy");
             entropy.add(stored.value().shared(1,after.temperature_k));
         }
@@ -159,8 +159,8 @@ MacViscousAdvance advance_mac_viscosity(const SpeciesRegistry& registry,const Fl
     store_mac_field(result.state.momentum_y,result.state.full_momentum_y,momentum[1]);
     MacEnergyAccount balance;MacEnergySum stored_heat;
     for (std::size_t cell=0;cell<source.cells.size();++cell) if (!g.walls[cell]) {
-        balance.add(result.state.cells[cell].mixture.energy);balance.add(-source.cells[cell].mixture.energy);
-        stored_heat.add(result.state.cells[cell].mixture.energy);stored_heat.add(-source.cells[cell].mixture.energy);
+        account_mac_cell_internal_energy(balance,result.state.cells[cell]);account_mac_cell_internal_energy(balance,source.cells[cell],-1);
+        account_mac_cell_internal_energy(stored_heat,result.state.cells[cell]);account_mac_cell_internal_energy(stored_heat,source.cells[cell],-1);
     }
     const std::array<std::vector<MacScaled>,2> old={mac_field_values(source.momentum_x,source.full_momentum_x),mac_field_values(source.momentum_y,source.full_momentum_y)};
     for (std::size_t axis=0;axis<2;++axis) {

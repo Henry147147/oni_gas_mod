@@ -16,8 +16,10 @@ MacScaled mac_parcel_volume(const MacPrimalParcel& parcel) {
     return volume;
 }
 MacScaled mac_parcel_quantity(const MacPrimalParcel& parcel, double quantity) {
+    return mac_parcel_quantity(parcel,MacScaled::from_double(quantity));
+}
+MacScaled mac_parcel_quantity(const MacPrimalParcel& parcel, MacScaled value) {
     const auto volume = mac_parcel_volume(parcel);
-    const auto value = MacScaled::from_double(quantity);
     if (parcel.reference_volume_m3 == 0 && !parcel.full_volume_m3.is_zero()) throw std::invalid_argument("Full MAC parcel needs a normalized prototype");
     return parcel.reference_volume_m3 == 0 ? value : value.shared(volume, MacScaled::from_double(parcel.reference_volume_m3));
 }
@@ -41,7 +43,11 @@ MacMaterialCell mac_parcel_contents_at(const MacPrimalParcel& parcel, double vol
         return store_mac_primary(sum, nonnegative);
     };
     for (auto& mass : result.mixture.masses) mass = normalized(mass, true);
-    result.mixture.energy = normalized(result.mixture.energy, false);
+    MacEnergySum energy;
+    const auto scale = MacScaled::from_double(volume);
+    energy.add(mac_parcel_quantity(parcel,result.mixture.energy).shared(scale,mac_parcel_volume(parcel)));
+    energy.add(mac_parcel_quantity(parcel,mac_stored_remainder_value(result.energy_remainder_j)).shared(scale,mac_parcel_volume(parcel)));
+    (void)store_mac_cell_internal_energy(result,energy);
     for (auto& passive : result.passive_quantities) passive.quantity = normalized(passive.quantity, true);
     return result;
 }
@@ -57,7 +63,7 @@ MacScaled mac_parcel_mass_scaled(const MacPrimalParcel& parcel) {
         total.add(parcel.reference_volume_m3 == 0 ? value : value.shared(volume, reference));
     }
     if (total.sign() == 0) {
-        if (parcel.contents.mixture.energy != 0 || !parcel.contents.passive_quantities.empty())
+        if (parcel.contents.mixture.energy != 0 || !parcel.contents.energy_remainder_j.is_zero() || !parcel.contents.passive_quantities.empty())
             throw std::invalid_argument("MAC vacuum parcel contains energy or passive inventory");
         return {};
     }

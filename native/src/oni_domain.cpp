@@ -190,8 +190,9 @@ MacEnergySum physical_reference_energy(const MacClosedWorld& owner,std::size_t s
     for (std::size_t k=0;k<offset.size();++k) result.add(offset.component(k).multiplied(mass));
     return result;
 }
-MacEnergySum physical_internal_energy(const MacClosedWorld& owner,const MixtureInventory& mixture) {
-    MacEnergySum result;result.add(mixture.energy);
+MacEnergySum physical_internal_energy(const MacClosedWorld& owner,const MacMaterialCell& cell) {
+    MacEnergySum result;account_mac_cell_internal_energy(result,cell);
+    const auto& mixture=cell.mixture;
     if (separated_reference_energy(owner)) for (std::size_t k=0;k<mixture.masses.size();++k) {
         const auto reference=physical_reference_energy(owner,k,mixture.masses[k]);
         for (std::size_t n=0;n<reference.size();++n) result.add(reference.component(n));
@@ -214,8 +215,8 @@ double potential(const MacClosedWorld& owner) {
 long double energy(const MacClosedWorld& owner) {
     const auto& state=owner.state(); long double value=0;
     for (const auto& cell : state.cells) {
-        const auto internal=physical_internal_energy(owner,cell.mixture);
-        for (std::size_t k=0;k<internal.size();++k) value+=internal.component(k).require_representable();
+        const auto internal=physical_internal_energy(owner,cell);
+        for (std::size_t k=0;k<internal.size();++k) value+=mac_energy_long_double(internal.component(k));
     }
     const auto inertia=mac_face_inertias(owner.registry(),state,owner.thermodynamics());
     const auto jx=mac_field_values(state.momentum_x,state.full_momentum_x);
@@ -239,7 +240,7 @@ std::vector<MAOniDomainCell> project(const MacClosedWorld& owner,const MAOniDoma
         const auto reading=owner.thermodynamics().evaluate(source.mixture,1);
         MAOniDomainCell cell{};
         for (std::size_t k=0;k<ids.size();++k) cell.masses[k]=source.mixture.masses[owner.registry().index(ids[k])];
-        cell.internal_energy=physical_internal_energy(owner,source.mixture).value().require_representable(); cell.pressure=reading.mechanical_pressure_pa;
+        cell.internal_energy=physical_internal_energy(owner,source).value().require_representable(); cell.pressure=reading.mechanical_pressure_pa;
         cell.temperature=reading.temperature_k;
         // Single-phase controls retain their declared filled phase. The
         // explicit mixed scenario publishes the actual elastic liquid volume.
@@ -548,6 +549,7 @@ std::unique_ptr<MacClosedWorld> restored_domain_owner(const MAOniDomainConfig& c
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || std::any_of(grid.walls.begin(),grid.walls.end(),[](auto value) { return value!=0; }) ||
         candidate->settings().gravity_m_per_s2!=(gravity_scenario(config.scenario) ? 9.81 : 0) ||
+        candidate->settings().vacuum!=MacVacuumRepresentation::empty_cells || !state.occupied_volumes_m3.empty() ||
         (mixed_scenario(config.scenario) && candidate->settings().thermal_conduction!=(config.scenario!=4)) ||
         candidate->settings().viscosity.shear_pa_s!=(config.scenario==6 ? .5 : 0) ||
         candidate->settings().viscosity.bulk_pa_s!=(config.scenario==6 ? .25 : 0))
@@ -627,6 +629,7 @@ std::unique_ptr<MacClosedWorld> restored_configured_owner(const MAOniDomainConfi
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || !std::equal(grid.walls.begin(),grid.walls.end(),mask.begin(),mask.end()) ||
         !same_bits(actual.gravity_m_per_s2,expected.gravity_m_per_s2) || actual.thermal_conduction!=expected.thermal_conduction ||
+        actual.vacuum!=MacVacuumRepresentation::empty_cells || !state.occupied_volumes_m3.empty() ||
         !same_bits(actual.viscosity.shear_pa_s,expected.viscosity.shear_pa_s) || !same_bits(actual.viscosity.bulk_pa_s,expected.viscosity.bulk_pa_s))
         throw std::invalid_argument("Configured physical checkpoint clock, grid, solid mask or physics differs from its native domain configuration");
     const auto water=registry.index("water");

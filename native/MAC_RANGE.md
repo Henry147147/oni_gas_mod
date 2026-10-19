@@ -104,11 +104,13 @@ the existing exact-fraction energy and large-exponent reviews.
 
 Every face keeps full old, new and transported K, mixing heat and wall heat. The
 legacy binary64 report fields are projections with a per-face rounding mask and an
-aggregate count; accounts use the full values. Cell heat is added to the U components
-before one explicit stored-U projection. A missed update counts as unresolved against
+aggregate count; accounts use the full values. Cell heat is added to high U and
+its [persisted correction](MAC_PRIMARY_REMAINDERS.md). A missed update across both
+parts counts as unresolved against
 32 epsilons of the requested heat; nonzero heat below binary64 range stays in the
 reports and global accounts. Pressure, composed and interval balances keep wide K and
-potential terms. Gravity source and internal-work fields remain binary64.
+potential terms. Gravity source and internal work retain full values alongside
+explicitly counted binary64 diagnostic projections.
 
 ### Primary parcels
 
@@ -157,10 +159,9 @@ and adds an actual per-cell pressure-work check at the original operand bound.
 The full requested work and unresolved update counts remain visible even when the
 root's binary64 volume parameter is zero ([coupled pressure](MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3)).
 
-Limits: full range does not make arbitrarily small velocities change stored U or
-volume. Unresolved gravity and coupled-pressure U changes are counted, but their
-remainders are not persisted in the physical checkpoint. Completing primary-field
-rounding remainder storage remains necessary for production acceptance.
+Limits: full range does not make arbitrarily small changes exact. U now retains a
+second part in physical version 10, with counted and audited third-part rounding.
+Persistent material-volume remainders remain necessary for production acceptance.
 
 ## Verification and reproduction
 

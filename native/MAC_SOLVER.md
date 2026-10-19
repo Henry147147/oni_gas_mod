@@ -64,7 +64,8 @@ Declared in `mac_closed_world.hpp`:
   enabled conduction must have no temperature difference; gravity and wall
   impulse are still accounted. Nonzero force residuals take the full solver path.
 - `MacExecutionPolicy::production` selects and persists numerical kernel 2
-  (checkpoint version 6, or 7/8 with opt-in two-moment pressure), including the certificate path. Ordinary restored
+  (version 6, or 7/8 with opt-in two-moment pressure, until a carried U correction
+  selects version 10), including the certificate path. Ordinary restored
   advances select the same kernel without a caller flag. Its saved automatic
   pressure setting uses geometric multigrid on grids of at least 256 cells;
   explicit Jacobi is retained. With midpoint pressure, unported settings take an
@@ -242,9 +243,10 @@ accounts. The [first interval port](MAC_INTERVAL_KERNEL.md) is retired.
   cells; the interval kernel uses the reference for this topology.
 - Walls and exterior faces are impermeable. Periodicity is explicit and needs at
   least two cells along the axis. Nonzero gravity rejects vertical periodicity.
-- Gravity work and potential flux retain full-range operands. Primary U and
-  material volume still round; unresolved U changes are counted, and persistent
-  rounding remainders remain unfinished.
+- Gravity work and potential flux retain full-range operands. Primary U carries
+  a [persisted rounding correction](MAC_PRIMARY_REMAINDERS.md) in both kernels and
+  energy accounts. Updates unresolved across both parts remain counted; persistent
+  material-volume remainders remain open.
 - Coupled compression (mode 3) rejects incoming face velocities or midpoint sweeps
   that need range projection.
 - There are no phase transitions, no passive diffusion and no topology-change

@@ -95,7 +95,7 @@ struct PressureTimeWorkspace::Impl::Run {
         const PressureTimeOptions& opt, Pool& workers)
         : workspace(cache), model(m), source(f), grid(g), options(opt), pool(workers), geometry(g) {
         const auto N = geometry.N;
-        require(mask.size() == N && source.U.size() == N && source.m.size() == model.K() * N &&
+        require(mask.size() == N && source.U.size() == N && (source.U_remainder.empty() || source.U_remainder.size()==N) && source.m.size() == model.K() * N &&
             source.jx.size() == geometry.NX && source.jy.size() == geometry.NY &&
             opt.seconds > 0 && std::isfinite(opt.seconds) && std::isfinite(opt.gravity) && opt.fine_level <= 20 &&
             opt.maximum_outgoing_fraction > 0 && opt.maximum_outgoing_fraction <= .45, "Invalid pressure time window");
@@ -108,15 +108,17 @@ struct PressureTimeWorkspace::Impl::Run {
         for (const auto* momentum : {&source.jx, &source.jy}) for (const auto value : *momentum)
             require(std::isfinite(value), "Invalid pressure time momentum");
         for (std::size_t i = 0; i < N; ++i) {
+            const double low=source.U_remainder.empty() ? 0 : source.U_remainder[i];
+            require(canonical_mac_primary(source.U[i],low),"Noncanonical pressure time U remainder");
             require(mask[i] <= 1, "Invalid pressure time class");
             if (geometry.wall[i]) {
-                require(source.U[i] == 0, "Pressure time solid contains energy");
+                require(source.U[i] == 0 && low == 0, "Pressure time solid contains energy");
                 for (std::size_t species = 0; species < model.K(); ++species)
                     require(source.m[species * N + i] == 0, "Pressure time solid contains fluid");
                 continue;
             }
             stats[i] = cell_stats(model, source, N, i); occupied[i] = stats[i].kind != empty ? 1 : 0;
-            if (!occupied[i]) { require(source.U[i] == 0, "Pressure time vacuum contains energy"); continue; }
+            if (!occupied[i]) { require(source.U[i] == 0 && low == 0, "Pressure time vacuum contains energy"); continue; }
             if (!anchor_at(model, source, N, i, stats[i], source.U[i], geometry.V, original[i]))
                 reject("Pressure time source is outside its normal EOS domain");
             pressure_cells.push_back(static_cast<Index>(i));
@@ -301,7 +303,8 @@ struct PressureTimeWorkspace::Impl::Run {
         [[nodiscard]] double value() const { return wide ? wide->value().project().value : sum.value(); }
     };
     struct Evaluation {
-        std::vector<double> residual, volume, energy, momentum;
+        std::vector<double> residual, volume, energy, energy_remainders, momentum;
+        EnergyRounding energy_rounding;
         std::vector<Register> flux;
         std::vector<DD> body_work;
         DD wall_x, wall_y, body;
@@ -314,6 +317,14 @@ struct PressureTimeWorkspace::Impl::Run {
         ++counters.residual_evaluations;
         const auto N = geometry.N, nc = coarse.size(), nf = fine.size();
         Evaluation state; state.volume.assign(N, geometry.V); state.energy = source.U;
+        require(source.U_remainder.empty() || source.U_remainder.size()==N,"Pressure window U remainder coverage differs");
+        state.energy_remainders=source.U_remainder.empty() ? std::vector<double>(N,0) : source.U_remainder;
+        const auto update_energy=[&](std::size_t i,double increment) {
+            const auto write=add_mac_primary(state.energy[i],state.energy_remainders[i],increment);
+            state.energy_rounding.observe(write);
+            if(increment!=0 && write.value==state.energy[i] && write.remainder==state.energy_remainders[i])++state.unresolved;
+            state.energy[i]=write.value;state.energy_remainders[i]=write.remainder;
+        };
         state.momentum = source.jx; state.momentum.insert(state.momentum.end(), source.jy.begin(), source.jy.end());
         state.flux.resize(faces.size()); state.body_work.resize(geometry.NY);
         std::vector<Trace> traces(N); std::vector<Anchor> anchors = original;
@@ -410,8 +421,7 @@ struct PressureTimeWorkspace::Impl::Run {
             for (std::size_t j = 0; j < nf; ++j) {
                 const auto i = fine[j];
                 if (!trace_at(model, source, N, i, anchors[i], z[j], z[nf + j], traces[i])) reject("Lost accepted fine pressure path");
-                const auto before = state.energy[i]; state.energy[i] += traces[i].du; state.volume[i] += z[j];
-                if (traces[i].du != 0 && state.energy[i] == before) ++state.unresolved;
+                update_energy(i,traces[i].du); state.volume[i] += z[j];
             }
             state.closure = std::max(state.closure, current.closure);
             WallPiece fine_wall;
@@ -426,8 +436,7 @@ struct PressureTimeWorkspace::Impl::Run {
         for (std::size_t j = 0; j < nc; ++j) {
             const auto i = coarse[j]; state.residual[j] = x[j] - coarse_a[j].value(); state.residual[nc + j] = x[nc + j] - coarse_b[j].value();
             state.closure = std::max({state.closure, std::abs(state.residual[j]) / geometry.V, std::abs(state.residual[nc + j]) / geometry.V});
-            const auto before = state.energy[i]; state.energy[i] += traces[i].du; state.volume[i] += x[j];
-            if (traces[i].du != 0 && state.energy[i] == before) ++state.unresolved;
+            update_energy(i,traces[i].du); state.volume[i] += x[j];
         }
         return state;
     }
@@ -546,6 +555,7 @@ struct PressureTimeWorkspace::Impl::Run {
         }
         PressureTimeResult result;
         result.energy = std::move(current.energy); result.volume = std::move(current.volume);
+        result.energy_remainders=std::move(current.energy_remainders);
         result.momentum_x.assign(current.momentum.begin(), current.momentum.begin() + static_cast<std::ptrdiff_t>(geometry.NX));
         result.momentum_y.assign(current.momentum.begin() + static_cast<std::ptrdiff_t>(geometry.NX), current.momentum.end());
         result.qx.resize(geometry.NX); result.qy.resize(geometry.NY); result.body_work_y.resize(geometry.NY);
@@ -557,7 +567,8 @@ struct PressureTimeWorkspace::Impl::Run {
         for (std::size_t j = 0; j < geometry.NY; ++j) result.body_work_y[j] = current.body_work[j].value();
         result.wall_x = MacEnergy::from_double(current.wall_x.value()); result.wall_y = MacEnergy::from_double(current.wall_y.value());
         result.body_y = MacEnergy::from_double(current.body.value());
-        counters.maximum_closure = current.closure; counters.unresolved_updates = current.unresolved; result.report = counters;
+        counters.maximum_closure = current.closure; counters.unresolved_updates = current.unresolved;
+        counters.primary_energy.merge({current.energy_rounding.high_count,current.energy_rounding.discarded.count});result.report = counters;
         return result;
     }
 };

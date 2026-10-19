@@ -66,13 +66,13 @@ void gravity_and_walls() {
         << r.entropy_change_j_per_k << ' ' << r.entropy_roundoff_j_per_k << '\n';
     for (std::size_t f = 0; f < r.gravity_body_work_y.size(); ++f) std::cout << "GFACE 1 " << f << ' ' << r.gravity_body_work_y[f] << ' '
         << r.gravity_potential_flux_y[f] << ' ' << r.gravity_internal_work_y[f] << '\n';
-    for (std::size_t i = 0; i < s.cells.size(); ++i) std::cout << "GUCELL 1 " << i << ' ' << r.pre_gravity_internal_energy_j[i] << ' '
-        << r.state.cells[i].mixture.energy << ' ' << r.gravity_internal_changes_j[i] << '\n';
+    for (std::size_t i = 0; i < s.cells.size(); ++i) std::cout << "GUCELL 1 " << i << ' ' << ma::testing::observed_energy(r.pre_gravity_internal_energy_j[i],r.pre_gravity_energy_remainders_j[i]) << ' '
+        << ma::testing::observed_energy(r.state.cells[i]) << ' ' << r.gravity_internal_changes_j[i] << '\n';
 }
 void owner_state(int endpoint, const MacTransportState& s) {
     const auto& set = ma::testing::setup(); const auto m = mac_face_inertias(set.registry, s, *set.eos);
     for (std::size_t i = 0; i < s.cells.size(); ++i) {
-        const auto& c = s.cells[i]; std::cout << "OSTATE " << endpoint << ' ' << i << ' ' << c.mixture.energy << '\n';
+        const auto& c = s.cells[i]; std::cout << "OSTATE " << endpoint << ' ' << i << ' ' << ma::testing::observed_energy(c) << '\n';
         for (std::size_t k = 0; k < c.mixture.masses.size(); ++k) if (c.mixture.masses[k] != 0)
             std::cout << "OMASS " << endpoint << ' ' << i << ' ' << k << ' ' << c.mixture.masses[k] << '\n';
         for (const auto& p : c.passive_quantities) std::cout << "OPASSIVE " << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';

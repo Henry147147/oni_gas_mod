@@ -89,6 +89,7 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
     result.cells.assign(cells.begin(), cells.end());
     for (std::size_t i = 0; i < count; ++i) {
         const auto& cell = cells[i];
+        if(!cell.energy_remainder_j.is_zero())throw std::invalid_argument("Legacy material closure cannot carry a primary-U remainder");
         cell.mixture.validate(registry);
         require_finite(cell.volume_m3, "material cell volume");
         require_finite(cell.incompressible_pressure_pa, "incompressible pressure");
@@ -271,14 +272,17 @@ MaterialPressureStep advance_material_pressure(const SpeciesRegistry& registry,
 OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_work(const FluidThermodynamics& model,
     std::span<const MaterialCell> cells, std::span<const OccupiedMaterialNode> nodes, double dt,
     PressurePreconditioner preconditioner, LiquidFillRoundoffPolicy roundoff_policy, double tolerance,
-    experimental::ReferenceRootOptions isentropic_root_options,const OccupiedWorkLaw& custom_work) {
+    experimental::ReferenceRootOptions isentropic_root_options,const OccupiedWorkLaw& custom_work,bool carry_primary_energy) {
     require_finite(dt, "occupied material timestep");
     if (dt <= 0 || cells.empty()) throw std::invalid_argument("Occupied material pressure requires cells and positive time");
     if (!std::isfinite(tolerance) || tolerance < 8 * std::numeric_limits<double>::epsilon() || tolerance > 5e-13)
         throw std::invalid_argument("Occupied pressure volume tolerance is outside the supported stricter range");
     if (roundoff_policy != LiquidFillRoundoffPolicy::strict_eos && roundoff_policy != LiquidFillRoundoffPolicy::balanced_local_roundoff)
         throw std::invalid_argument("Invalid liquid fill representability policy");
+    carry_primary_energy=carry_primary_energy || static_cast<bool>(custom_work);
     const auto count = cells.size();
+    if(!carry_primary_energy)for(const auto& cell:cells)
+        if(!cell.energy_remainder_j.is_zero())throw std::invalid_argument("Legacy occupied closure cannot carry a primary-U remainder");
     std::vector<experimental::ReferenceIsentrope> anchors;
     std::vector<bool> roundoff_anchor;
     anchors.reserve(count);
@@ -486,8 +490,15 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
                 derivative=-.5/model.compression_compliance(anchors[i]);
             const auto local=custom_work(i,changes[i],anchors[i],response,derivative,increment);
             if (local.pressure_pa!=work[i]) throw std::runtime_error("Accepted constitutive pressure work changed during publication");
-            energy_update=local.requested_energy_change_j;cell.mixture.energy=local.stored_energy_j;resolves_energy=!local.unresolved_energy_update;
-        } else cell.mixture.energy += energy_update;
+            result.primary_energy.merge(local.primary_energy);
+            energy_update=local.requested_energy_change_j;cell.mixture.energy=local.stored_energy_j;cell.energy_remainder_j=local.energy_remainder_j;resolves_energy=!local.unresolved_energy_update;
+        } else if (!carry_primary_energy) {
+            cell.mixture.energy += energy_update;
+        } else {
+            (void)experimental::add_mac_cell_internal_energy(cell, experimental::MacEnergy::from_double(energy_update),&result.primary_energy);
+            resolves_energy = energy_update == 0 || cell.mixture.energy != cells[i].mixture.energy ||
+                !experimental::same_mac_stored_remainder(cell.energy_remainder_j, cells[i].energy_remainder_j);
+        }
         if (substituted) {
             result.zero_work_substituted[i] = 1; ++result.zero_work_substitutions;
             result.maximum_omitted_pressure_pa = std::max(result.maximum_omitted_pressure_pa,
@@ -501,7 +512,14 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
         }
         const auto state = model.evaluate(cell.mixture, cell.volume_m3);
         result.endpoint_pressures_pa[i] = state.mechanical_pressure_pa;
-        const long double actual = static_cast<long double>(cell.mixture.energy) - cells[i].mixture.energy;
+        long double actual = static_cast<long double>(cell.mixture.energy) - cells[i].mixture.energy;
+        if(carry_primary_energy) {
+            experimental::MacEnergySum change;
+            experimental::account_mac_cell_internal_energy(change, cell);
+            experimental::account_mac_cell_internal_energy(change, cells[i], -1);
+            actual=0;
+            for (std::size_t term = 0; term < change.size(); ++term) actual += experimental::mac_energy_long_double(change.component(term));
+        }
         energy_change += actual; work_roundoff += actual - energy_update;
         if (!resolves_energy) ++result.unresolved_energy_updates;
         if (!response.endpoint_volume_resolves_change) ++result.unresolved_volume_updates;
@@ -551,7 +569,7 @@ OccupiedMaterialPressureStep detail::advance_occupied_material_pressure_with_wor
 OccupiedMaterialPressureStep advance_occupied_material_pressure(const FluidThermodynamics& model,
     std::span<const MaterialCell> cells,std::span<const OccupiedMaterialNode> nodes,double dt,
     PressurePreconditioner preconditioner,LiquidFillRoundoffPolicy roundoff_policy,double tolerance,
-    experimental::ReferenceRootOptions options) {
-    return detail::advance_occupied_material_pressure_with_work(model,cells,nodes,dt,preconditioner,roundoff_policy,tolerance,options,{});
+    experimental::ReferenceRootOptions options,bool carry_primary_energy) {
+    return detail::advance_occupied_material_pressure_with_work(model,cells,nodes,dt,preconditioner,roundoff_policy,tolerance,options,{},carry_primary_energy);
 }
 }

@@ -124,7 +124,7 @@ void saved_kernel_transition() {
     require(snapshot_domain(status.session,0)==source,"Loading a historical image changed it before the first live frame");
     advance_domain(1,.002,2);status=capture();
     const auto actual=snapshot_domain(status.session,1),journal=copy_domain_frame_inputs(status.session,1);
-    require(actual[8]==6 && actual!=expected && frame_inputs::decode(journal).flags==frame_inputs::production_advance &&
+    require((actual[8]==6 || actual[8]==10) && actual!=expected && frame_inputs::decode(journal).flags==frame_inputs::production_advance &&
         advance_domain_snapshot_with_inputs(source,journal)==actual,"Live migration to production did not replay exactly");
     auto missing=frame_inputs::decode(journal);missing.flags=0;
     require(advance_domain_snapshot_with_inputs(source,frame_inputs::encode(missing))==expected,

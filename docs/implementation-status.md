@@ -18,13 +18,17 @@ The [real-time timestep implementation](production-timestep-progress.md) adds
 checked IPO, exact arithmetic fast paths, fused pressure thermodynamics,
 deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
 The next slice retains full-range vertical gravity work and potential flux, with
-10,000-step and checkpoint controls. Primary-U rounding remainders still need
-persistent storage. Checked [normal and flagged-range arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md)
-retain otherwise lost heat increments and resolve composed-sum ties from all
-retained terms, with independent saved checks and
-ASan/UBSan, ThreadSanitizer and MinGW/Wine controls. They have no solver-state
-or checkpoint binding. Checkpoint version 10 is reserved for the staged U
-remainder integration; it is not yet accepted or written by the current solver.
+10,000-step and checkpoint controls. [Persistent primary U](../native/MAC_PRIMARY_REMAINDERS.md)
+now retains a normal or flagged-range rounding correction across every MAC stage,
+energy accounts and physical version-10 checkpoints. The zero-correction writers
+for versions 2/3/5/6/7/8/9 keep their bytes. The unchanged standalone production
+water-heat control passes (+3.81470e-6 J against 0.00594585 J after 123 frames).
+Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests. ThreadSanitizer,
+MinGW/Wine, saved data and cross-platform continuation controls pass; two baseline
+physics-reader failures remain open. A new Linux water-heat run passes energy but
+fails the conduction stage-clock equation because it counts certified idle
+intervals as physical stages. Volume remainders and the owner-diagnostic correction
+remain open.
 These controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present
 constituents and incoming donors, removing the former 16-million-slot product cap.
@@ -45,8 +49,8 @@ unchanged.
 The heat stage also reuses validated EOS readings with explicit per-pair updates;
 72 replay stages and the 27-test Linux suite pass, with the heat/compression saved
 outputs unchanged. Coupled pressure now retains full incoming motion and sweeps,
-checking actual per-cell work and exposing unresolved U updates; primary remainders
-remain unpersisted. Physics and real-time colony acceptance remain open.
+checking actual per-cell work and exposing updates unresolved across high U and
+its persisted correction. Physics and real-time colony acceptance remain open.
 The coupled constitutive callback now reuses completed isentropic queries; its
 saved work/pressure/owner/range outputs remain exact, and the Linux suite has 29
 passing tests. This reduces solver cost without changing a physical selector.
@@ -159,7 +163,7 @@ atomically with receipts and deliver original game callbacks once.
 | --- | --- | --- |
 | [Gas/liquid coexistence](native-domain-physics.md#occupied-gasliquid-cells) | Gas and liquid constituents share a cell with actual EOS partial volumes, one mechanical pressure and one stored U. Linux Unity and WindowsPlayer/Proton pass source and reload | Liquid interface rendering, free surfaces, phase change |
 | [Internal conduction](sealed-native-domain.md#internal-fluid-conduction), [mixed-cell conduction](native-domain-physics.md#mixed-cell-conduction), [stored-energy rounding](../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding) | Backward-Euler thermal network with closed energy and entropy checks; mixed cells use the full EOS. Linux Unity, Windows and WindowsPlayer/Proton pass | Variable properties, fluid/solid exchange inside owner, strict cross-player agreement |
-| Gravity: [gas](sealed-native-domain.md#gravity-and-carried-potential-energy), [filled water](native-domain-physics.md#filled-liquid-gravity) | Body work and carried potential in the U+K+G account. Linux Unity and Windows pass, including main-menu reloads. Standalone full-range gravity, hydrostatic and stratified refinement controls pass | Persistent primary-U rounding remainders, general hydrostatic certification, free surfaces; native adapter scalar projection limits and new full-range game evidence |
+| Gravity: [gas](sealed-native-domain.md#gravity-and-carried-potential-energy), [filled water](native-domain-physics.md#filled-liquid-gravity) | Body work and carried potential in the U+K+G account. Linux Unity and Windows pass, including main-menu reloads. Standalone full-range gravity, hydrostatic and stratified refinement controls pass | Persistent volume remainders, general hydrostatic certification, free surfaces; native adapter scalar projection limits and new carried-U game evidence |
 | [Viscosity](native-domain-physics.md#physical-viscosity) | Constant Newtonian shear/bulk surrogates, free-slip walls. Linux Unity and WindowsPlayer/Proton pass source and local/cross-player reloads | Material laws, no-slip and interface geometry |
 | [Exact equilibrium](playtesting-readiness.md#implemented-exact-equilibrium) | Certified whole-owner shortcut with no tolerance; MSVC and GNU pass | Sleeping regions inside an active colony |
 
@@ -240,7 +244,8 @@ count inexact additions without changing storage or the original interval bound:
 70 of 80 independently derived writes; the saved reviewer passes 1,431 checks
 and rejects fourteen altered captures. True one/twelve-worker pressure controls
 cover all three methods; six version-6/7/8 endpoint/continuation images match
-the preceding build. Retained-parcel subtractions, products and primary U are
+the preceding build. Primary U now has a persisted correction and audited
+writes. Retained constituent/passive subtractions and products are
 outside this ledger. Flagged sweeps retain their range through parcel formation, and dual
 J/K products use canonical momentum when a derived velocity or kinetic factor
 underflows. The former large-inertia fault now advances in one attempt and
@@ -252,8 +257,8 @@ ThreadSanitizer and MinGW/Wine. A cross-block tracer uses the same shared transf
 Normal sweeps divided by very large material volumes now retain their full
 share until parcel formation. The range controls preserve the reference
 arrival and zero/one/two-quantum transfers. Accepted primal writes blocked by
-storage resolution are counted for species, passives and U (48/49 in six cells;
-267,113 in the 33,389-cell controls), without changing the conservation bound.
+storage resolution are counted for species, passives and U (36/37 in six cells;
+200,335 in the 33,389-cell controls), without changing the conservation bound.
 Step f now selects production for new native owners and every live frame,
 with twelve requested workers. Accepted physical heat/work diagnostics are
 published without rejected-attempt leakage. Supported reference saves retain
@@ -269,19 +274,30 @@ WindowsPlayer/Proton pairs (solid heat, gas, water and paired checkpoints).
 Every reload verifies a paused frame-zero resave and 120 exact continued frames.
 Production water-heat fails the unchanged energy gate: −0.0177002 J residual
 against 0.00594580 J after 123 frames, with zero rejected attempts. A public
-standalone reproducer matches its drift and conduction counters. The primary-U
-investigation now belongs to Codex. These bounded runs do not certify a colony
-or actual Windows OS execution.
+standalone reproducer matches that frozen package's drift and conduction counters.
+With persisted U, the unchanged standalone control now passes (+3.81470e-6 J
+against 0.00594585 J). A fresh Linux run reaches frame 121 with zero rejected
+attempts and maximum relative energy error 7.12279e-20, but fails conduction stage
+accounting (4,872 stages versus 2 × 2,441 substeps). Certified idle intervals run
+no physical stages; the owner diagnostic needs to expose them. Fresh save/reload
+validation remains pending. These bounded runs do not certify a colony or actual
+Windows OS execution.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
-The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 62 merged Release CTests pass. Production-kernel,
+Zero-correction checkpoint controls keep their previous bytes. Persisted U
+intentionally changes the default reference wave SHA to
+`8be4350458bb702b838cb01b2320d51b81d7f40ee1676ac1023bb9a87ea4c87e`.
+All 69 working-tree Release CTests pass. Production-kernel,
 native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
 MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
 ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
-pass Linux instrumentation. The latest sharp-interface control fails MinGW/Wine:
-mist 0.000568570 against 0.0005; the other affected pressure/owner controls pass.
-This physics-port failure belongs to step d and remains open.
+pass Linux instrumentation. The sharp-interface control now passes MinGW/Wine
+with the user-authorized translation amendment and U-inclusive gravity observation;
+no other scene input or numerical bound changes. Current U checks pass all 17
+selected ThreadSanitizer runs and 34 selected Wine suites, followed by twenty
+updated-capture Wine runs. Full ASan/UBSan passes 69 tests. Of 47 standard saved
+readers, 45 pass; strong-flow and legacy vacuum entropy-allowance failures also
+occur in the baseline. Fresh U-enabled game save/reload validation remains open.
 Against the preceding pressure-ledger build, all 69 MAC executable exits match:
 66 outputs are byte-identical, two differ only in timing, and the sharp-interface
 output intentionally changes with Claude's geometry fix. The default wave SHA

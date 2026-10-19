@@ -39,7 +39,7 @@ std::size_t check_state(const MacTransportState& st) {
         require(occupied > 0 && occupied <= v, "Occupied void-phase cell has an invalid volume");
         if (occupied == v) continue;
         ++partial; const auto x = i % g.width, y = i / g.width; bool open = false;
-        for (const auto [dx, dy] : {std::pair<int, int>{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
+        for (const auto& [dx, dy] : {std::pair<int, int>{-1, 0}, {1, 0}, {0, -1}, {0, 1}}) {
             const long nx = static_cast<long>(x) + dx, ny = static_cast<long>(y) + dy;
             if (nx < 0 || ny < 0 || nx >= static_cast<long>(g.width) || ny >= static_cast<long>(g.height)) continue;
             const auto n = static_cast<std::size_t>(nx) + static_cast<std::size_t>(ny) * g.width;
@@ -118,7 +118,7 @@ void checkpoint_and_policy() {
     world = world.advanced(3e-3, 65536).world;
     require(!world.state().occupied_volumes_m3.empty(), "Checkpoint control has no partly filled cell");
     const auto bytes = world.checkpoint();
-    require(bytes.size() > 12 && bytes[8] == 9 && bytes[9] == 0, "Void-phase checkpoint is not version 9");
+    require(bytes.size() > 12 && bytes[8] == checkpoint_version(world,9) && bytes[9] == 0, "Void-phase checkpoint version does not represent all carried state");
     const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, bytes);
     require(fingerprint(restored.state()) == fingerprint(world.state()) && restored.state().occupied_volumes_m3 == world.state().occupied_volumes_m3,
         "Void-phase checkpoint changed the state");

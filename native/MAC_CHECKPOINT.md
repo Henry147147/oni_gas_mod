@@ -33,7 +33,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
    diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
    pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
-   [void phase](MAC_VACUUM.md#void-phase)), and a length-prefixed binary model identity.
+   [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U), and a
+   length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -54,17 +55,23 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    Version 9 stores both viscosity coefficients, the numerical-kernel enum (0 or 2),
    the diffusion mode and multiplier, the pressure-integration enum and the vacuum
    representation (canonical value 1, void phase), before any enabled diffusion
-   formulation and profile.
+   formulation and profile. Version 10 stores this complete settings prefix too,
+   retaining the supported pressure and vacuum selectors explicitly.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Version 9 only: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9/10: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
+9. Version 10: the cell count followed by each correction's projected binary64
+   value and boolean full-value flag. A flagged value adds its normalized binary64
+   significand and length-prefixed canonical decimal exponent. The full value is
+   required exactly when its projection rounds. High/low overlap, scalar negative
+   zero, incomplete coverage and an entirely zero correction vector reject.
+10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
 are zero and diffusion is disabled, so existing reference images retain their
@@ -75,13 +82,16 @@ current binary has.
 
 ### Version assignment
 
-Version **10 is reserved for Codex's persistent primary-U remainder work**.
-That integration is staged and unselected: the current reader and writer still
-stop at version 9. Other checkpoint extensions must use a later free version.
+Version **10 carries persistent primary-U corrections**. It stores complete
+physical settings (including pressure and vacuum selectors), the occupied-volume
+sidecar and one canonical correction per cell. Nonzero corrections select this
+version; all-zero corrections keep the previous version and bytes. Other
+checkpoint extensions must use a later free version.
 
 Reference owners write version 2, 3 or 5 according to their settings; production
-owners write version 6, or 7/8 with two-moment pressure. Any void-phase owner writes
-version 9. Retired layouts remain listed for explicit rejection:
+owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without
+U corrections writes version 9. Any owner with nonzero corrections writes version
+10. Retired layouts remain listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
 | --- | --- | --- | --- |
@@ -93,6 +103,7 @@ version 9. Retired layouts remain listed for explicit rejection:
 | 7 | production (2), two-moment pressure (1) | either | disabled, physical or accelerated |
 | 8 | production (2), coupled two-moment pressure (2) | either | disabled, physical or accelerated |
 | 9 | reference (0) or production (2), void phase; midpoint pressure | off (the void phase rejects viscosity) | disabled |
+| 10 | reference (0) or production (2), explicit pressure/vacuum selectors and carried U | according to physical settings | according to physical settings |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to
@@ -131,15 +142,16 @@ writer. Supported reference images restore unchanged; historical selector-1
 images are explicitly rejected instead of silently changing continuation. Version-6 gas, liquid,
 mixture and empty-cell images continue exactly after restore, with all three
 diffusion modes where admitted and both automatic/Jacobi choices. The native
-game owner and managed paired-save reader still use/admit their existing
-reference images; game adoption of version 6 remains milestone B step f.
+game owner now selects production; the managed paired-save reader admits the
+historical reference images and physical versions 6/10. Full native validation
+still checks the saved domain before activation.
 
 Neither the interval-kernel version 4 nor the earlier diffusion-branch images
 had been publicly released. Both earlier diffusion layouts (formulation 1 and
 the first formulation-2 layout without a kernel field) reject as version 4.
 Retirement preserves that rejection. Versions 2 and 3 remain byte-identical.
 
-The managed paired-colony wrapper admits the version 5 metadata prefix for
+The managed paired-colony wrapper admits physical versions 2/3/5/6/10 for
 ordinary, actor and configured-domain images. Version 4 stays rejected there,
 because the game never selected the retired kernel. Full native admission still
 validates the viscosity values, kernel, diffusion settings and exact transport

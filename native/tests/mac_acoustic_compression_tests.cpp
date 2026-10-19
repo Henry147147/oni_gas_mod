@@ -110,8 +110,8 @@ void geometry_and_range() {
     for (std::size_t i = 0; i < j.size(); ++i) j[i] = MacScaled::from_parts(i % 2 == 0 ? .75 : -.75, -1941);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j);
     const auto result = advance_mac_compression(set.registry, *set.eos, tiny, .001, acoustic);
-    check(result.report.heat.mantissa() > 0 && result.report.heat.project().rounded && result.report.unresolved_heat_updates > 0,
-        "Acoustic grid lost positive below-range heat or its unresolved storage flags");
+    check(result.report.heat.mantissa() > 0 && result.report.heat.project().rounded && result.report.unresolved_heat_updates == 0 && ma::testing::has_primary_energy_remainder(result.state),
+        "Acoustic grid lost positive below-range heat or its primary remainder");
     ma::testing::export_acoustic_compression(5, tiny, result, .001);
 }
 void tangents() {

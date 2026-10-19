@@ -49,7 +49,7 @@ void emit(int id,const MacTransportState& before,const MacThermalAdvance& after,
         const auto& state=endpoint==0 ? before : after.state;
         for (std::size_t i=0;i<state.cells.size();++i) {
             const auto& cell=state.cells[i];const auto reading=setup.eos->evaluate(cell.mixture,1);
-            std::cout<<"TCELL "<<id<<' '<<endpoint<<' '<<i<<' '<<cell.mixture.energy<<' '<<reading.temperature_k<<' '
+            std::cout<<"TCELL "<<id<<' '<<endpoint<<' '<<i<<' '<<testing::observed_energy(cell)<<' '<<reading.temperature_k<<' '
                 <<reading.mechanical_pressure_pa<<' '<<reading.gas_volume_m3<<' '<<reading.liquid_volume_m3<<' '
                 <<reading.intrinsic_heat_capacity_j_per_k<<' '<<reading.equilibrium_heat_capacity_at_cell_volume_j_per_k<<'\n';
             for (std::size_t k=0;k<cell.mixture.masses.size();++k) if (cell.mixture.masses[k]!=0)
@@ -153,8 +153,12 @@ void weak_heat_entropy() {
     source.cells[0].mixture=setup.mixture(1,1e5,300,.2);
     source.cells[1].mixture=setup.mixture(1,1e5,300.0016,.25);
     const auto result=advance_mac_conduction(setup.registry,*setup.eos,source,.005);identities(source,result.state);
-    const double q=result.state.cells[0].mixture.energy-source.cells[0].mixture.energy;
-    require(q>0 && q==source.cells[1].mixture.energy-result.state.cells[1].mixture.energy,"Weak entropy control needs an exactly closed represented exchange");
+    const auto first=experimental::mac_cell_internal_energy_change(source.cells[0],result.state.cells[0]);
+    const auto second=experimental::mac_cell_internal_energy_change(source.cells[1],result.state.cells[1]);
+    experimental::MacEnergySum closed=first;
+    for(std::size_t k=0;k<second.size();++k)closed.add(second.component(k));
+    const double q=first.value().require_representable();
+    require(q>0 && closed.sign()==0,"Weak entropy control needs an exactly closed represented exchange");
     const auto a=setup.eos->evaluate(source.cells[0].mixture,1),b=setup.eos->evaluate(source.cells[1].mixture,1);
     const auto c=setup.eos->evaluate(result.state.cells[0].mixture,1),d=setup.eos->evaluate(result.state.cells[1].mixture,1);
     const double lower=q*(d.temperature_k-c.temperature_k)/c.temperature_k/d.temperature_k;

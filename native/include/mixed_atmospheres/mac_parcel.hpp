@@ -7,6 +7,7 @@ namespace ma::experimental {
 // reference volume means contents is a normalized prototype, not a projection
 // of the smaller extensive parcel. All fields use the same volume ratio.
 [[nodiscard]] MacScaled mac_parcel_quantity(const MacPrimalParcel&, double prototype_quantity);
+[[nodiscard]] MacScaled mac_parcel_quantity(const MacPrimalParcel&, MacScaled prototype_quantity);
 [[nodiscard]] MacScaled mac_parcel_volume(const MacPrimalParcel&);
 [[nodiscard]] MacMaterialCell mac_parcel_contents_at(const MacPrimalParcel&, double volume_m3);
 [[nodiscard]] double mac_parcel_mass(const MacPrimalParcel&);

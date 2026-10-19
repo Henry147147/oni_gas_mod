@@ -73,6 +73,7 @@ double linear_speed(const Workspace& ws, int axis, std::size_t i) { return ws.sp
 }
 
 void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     const auto mode = c.settings.compression_viscosity;
     if (mode != MacCompressionViscosity::quadratic && mode != MacCompressionViscosity::acoustic_quadratic) return;
     auto& ws = c.ws; const auto& g = c.g;
@@ -84,7 +85,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
     // Reference order: per axis, a forward then a reverse sweep over cells in
     // index order. x pairs chain only along rows and y pairs only along
     // columns, so each line runs sequentially and lines run in parallel.
-    struct Out { double heat = 0, wall = 0, ops = 0, u = 0; std::size_t events = 0, unresolved = 0; };
+    struct Out { double heat = 0, wall = 0, ops = 0, u = 0; std::size_t events = 0, unresolved = 0; EnergyRounding energy; };
     const double half = .5 * dt;
     for (int axis = 0; axis < 2; ++axis) {
         auto& J = axis == 0 ? f.jx : f.jy;
@@ -121,8 +122,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
             if (!fixl) J[l] -= d; else o.wall += d;
             if (!fixr) J[r] += d; else o.wall -= d;
             const double before = f.U[i];
-            f.U[i] = before + Q;
-            if (Q != 0 && f.U[i] == before) ++o.unresolved;
+            if (add_internal_energy(f, i, Q, o.energy)) ++o.unresolved;
             o.heat += Q; o.u += std::abs(before); ++o.events;
         };
         for (int sweep = 0; sweep < 2; ++sweep) {
@@ -140,6 +140,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
                 return o;
             });
             for (const auto& o : parts) {
+                acc.energy.merge(o.energy);
                 heat_total += o.heat; (axis == 0 ? wall_x : wall_y) += o.wall; events += o.events; unresolved += o.unresolved;
                 acc.operands[axis == 0 ? c.q_jx() : c.q_jy()] += o.ops;
                 acc.operands[c.q_energy()] += 2 * o.u;
@@ -152,6 +153,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
 }
 
 void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
+    prepare_primary_remainders(f);
     const auto mode = c.settings.shock_heat;
     if (mode == MacShockHeatRegularization::none) return;
     const bool sensed = mode != MacShockHeatRegularization::compression_activated;
@@ -211,7 +213,7 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
         }
     });
     double transferred = 0; std::size_t events = 0, unresolved = 0;
-    const auto relax = [&](Index l, Index r, double gdt, double frac, double& moved, std::size_t& count, std::size_t& unres) {
+    const auto relax = [&](Index l, Index r, double gdt, double frac, double& moved, std::size_t& count, std::size_t& unres, EnergyRounding& energy) {
         const double Tl = e.T[l], Tr = e.T[r];
         if (gdt == 0 || Tl == Tr) return;
         const bool forward = Tl > Tr;
@@ -241,10 +243,8 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
         }
         const double q = qeq * frac;
         if (q == 0) return;
-        const double uh = f.U[hot], uc = f.U[cold];
-        f.U[hot] = uh - q; f.U[cold] = uc + q;
-        if (f.U[hot] == uh) ++unres;
-        if (f.U[cold] == uc) ++unres;
+        if (add_internal_energy(f, hot, -q, energy)) ++unres;
+        if (add_internal_energy(f, cold, q, energy)) ++unres;
         for (const Index i : {hot, cold}) {
             if (e.kind[i] != mixed_cell) {
                 // Constant capacity at fixed volume: only temperature moves.
@@ -262,16 +262,16 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
     // Reference order: x links in face order, then y links; the reverse sweep
     // reverses the whole list. x links chain along rows, y links along
     // columns: lines run sequentially, in parallel with each other.
-    struct Out { double moved = 0; std::size_t events = 0, unresolved = 0; };
+    struct Out { double moved = 0; std::size_t events = 0, unresolved = 0; EnergyRounding energy; };
     const auto collect = [&](const std::vector<Out>& parts) {
-        for (const auto& o : parts) { transferred += o.moved; events += o.events; unresolved += o.unresolved; }
+        for (const auto& o : parts) { transferred += o.moved; events += o.events; unresolved += o.unresolved; acc.energy.merge(o.energy); }
     };
     const auto x_links = [&](bool reverse) {
         collect(c.exec.partials<Out>([&](std::size_t y0, std::size_t y1, std::size_t) {
             Out o;
             for (std::size_t y = y0; y < y1; ++y) for (std::size_t n = 0; n < g.XW; ++n) {
                 const auto fidx = g.xface(reverse ? g.XW - 1 - n : n, y);
-                if (gx[fidx] != 0) relax(g.xl[fidx], g.xr[fidx], gx[fidx], fxr[fidx], o.moved, o.events, o.unresolved);
+                if (gx[fidx] != 0) relax(g.xl[fidx], g.xr[fidx], gx[fidx], fxr[fidx], o.moved, o.events, o.unresolved, o.energy);
             }
             return o;
         }));
@@ -281,7 +281,7 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
             Out o;
             for (std::size_t x = x0; x < x1; ++x) for (std::size_t n = 0; n < g.YH; ++n) {
                 const auto fidx = g.yface(x, reverse ? g.YH - 1 - n : n);
-                if (gy[fidx] != 0) relax(g.yl[fidx], g.yr[fidx], gy[fidx], fyr[fidx], o.moved, o.events, o.unresolved);
+                if (gy[fidx] != 0) relax(g.yl[fidx], g.yr[fidx], gy[fidx], fyr[fidx], o.moved, o.events, o.unresolved, o.energy);
             }
             return o;
         }));

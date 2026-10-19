@@ -15,7 +15,7 @@ bool above(MacEnergy a, MacEnergy b) { MacEnergySum s; s.add(a); s.add(b.negated
 }
 MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& model,
     const MixtureInventory& source, double volume, double delta, double spacing, double dt,
-    MacEnergy linear, ReferenceRootOptions options) {
+    MacEnergy linear, ReferenceRootOptions options, const MacStoredRemainder& energy_remainder_j) {
     require_mac_energy_environment();
     if (!std::isfinite(volume) || volume<=0 || !std::isfinite(delta) || !std::isfinite(spacing) || spacing<=0 ||
         !std::isfinite(dt) || dt<=0 || linear.mantissa()<0)
@@ -33,11 +33,11 @@ MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& mode
     if(iso.state.vacuum_volume_m3>32*std::numeric_limits<double>::epsilon()*iso.endpoint.volume_m3)
         throw FluidFatalError(FluidFatalCode::unsupported_topology,"Compressive pressure work cannot create a liquid void");
     if(delta==0 || (!iso.state.has_gas && iso.work_pressure_pa==0))derivative=-.5/model.compression_compliance(anchor);
-    return compression_detail::finish(model,source,anchor,iso,derivative,spacing,dt,linear);
+    return compression_detail::finish(model,source,anchor,iso,derivative,spacing,dt,linear,energy_remainder_j);
 }
 MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,const MixtureInventory& source,
     const ReferenceIsentrope& anchor,const ReferenceIsentropicResponse& isentropic,double derivative,
-    double spacing,double dt,MacEnergy linear) {
+    double spacing,double dt,MacEnergy linear,const MacStoredRemainder& energy_remainder_j) {
     const double mass=source.mass(),volume=anchor.reference_cell().volume_m3,delta=isentropic.volume_change_m3;
     MacCompressiveWork result;
     result.isentropic=isentropic;
@@ -60,15 +60,20 @@ MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,c
     if (result.work_pressure_volume_derivative_pa_per_m3.mantissa()>=0)
         precision("Compressive pressure work has no strictly negative tangent");
     result.requested_energy_change_j=sum(MacEnergy::from_double(iso.internal_energy_change_j),result.dissipated_heat_j);
-    MacEnergySum updated; updated.add(source.energy); updated.add(iso.internal_energy_change_j); updated.add(result.dissipated_heat_j);
-    result.mixture=source; result.mixture.energy=updated.value().project().value;
+    if (!canonical_mac_primary(source.energy, energy_remainder_j)) throw std::invalid_argument("Noncanonical compressive source U");
+    MacEnergySum updated; updated.add(source.energy); updated.add(mac_stored_remainder_value(energy_remainder_j));
+    updated.add(iso.internal_energy_change_j); updated.add(result.dissipated_heat_j);
+    const auto write = store_mac_primary_remainder(updated);result.primary_energy.observe(write);
+    result.mixture=source; result.mixture.energy=write.value; result.energy_remainder_j=write.remainder;
     result.state=model.evaluate(result.mixture,iso.endpoint.volume_m3);
 
     MacEnergySum represented; represented.add(result.mixture.energy); represented.add(-source.energy);
+    represented.add(mac_stored_remainder_value(result.energy_remainder_j)); represented.add(mac_stored_remainder_value(energy_remainder_j).negated());
     represented.add(result.requested_energy_change_j.negated());
     result.unresolved_energy_update=above(represented.value().magnitude(),result.requested_energy_change_j.magnitude().shifted(-45));
     MacEnergyAccount energy;
     energy.add(result.mixture.energy); energy.add(-source.energy);
+    energy.add(mac_stored_remainder_value(result.energy_remainder_j)); energy.add(mac_stored_remainder_value(energy_remainder_j).negated());
     energy.add(result.total_work_pressure_pa.multiplied(delta));
     if (!energy.within_bound()) precision("Compressive actual stored U and pressure work exceed the original operand bound");
     result.energy_residual_j=energy.residual(); result.energy_bound_j=energy.bound();
@@ -77,6 +82,10 @@ MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,c
     allowance.add(MacEnergy::from_double(std::abs(result.mixture.energy)).shared(1,result.state.temperature_k).shifted(-45));
     result.entropy_change_j_per_k=entropy_detail::change(model,source,volume,anchor.reference_state(),
         result.mixture,iso.endpoint.volume_m3,result.state);
+    MacEnergySum entropy; entropy.add(result.entropy_change_j_per_k);
+    entropy.add(mac_stored_remainder_value(result.energy_remainder_j).shared(1,result.state.temperature_k));
+    entropy.add(mac_stored_remainder_value(energy_remainder_j).shared(1,anchor.reference_state().temperature_k).negated());
+    result.entropy_change_j_per_k=entropy.value();
     result.entropy_allowance_j_per_k=allowance.value();
     if (above(result.entropy_change_j_per_k.negated(),result.entropy_allowance_j_per_k))
         precision("Compressive actual stored-state entropy falls below the original stored-U allowance");

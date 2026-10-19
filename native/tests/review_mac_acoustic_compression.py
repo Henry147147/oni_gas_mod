@@ -153,7 +153,7 @@ def review(data,extra):
     grid_extra=extra|{'linear':{key:v for key,v in extra['linear'].items() if key>=1000}}
     review_component(grid_data,grid_extra)
     tiny=data['grids'][5]
-    check(tiny[10]>0 and float(tiny[10])==0 and tiny[8]>0,'Missing grid subrange heat/unresolved storage')
+    check(tiny[10]>0 and float(tiny[10])==0 and comp.retained_cell_heat(data,5,tiny[8]),'Missing grid subrange heat/unresolved storage')
     check(data['grids'][6][7]==0,'Stationary composition contact has compression events')
 
 def main():

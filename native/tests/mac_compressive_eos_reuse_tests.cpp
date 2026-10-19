@@ -41,7 +41,8 @@ void run(int material,std::size_t& trials) {
         ++callbacks;
         return ma::detail::OccupiedWorkResponse{fresh.total_work_pressure_pa.project().value,
             fresh.work_pressure_volume_derivative_pa_per_m3.project().value,fresh.requested_energy_change_j.project().value,
-            fresh.mixture.energy,fresh.unresolved_energy_update,compression_detail::pressure_increment(fresh.stress_pa,increment)};
+            fresh.mixture.energy,fresh.unresolved_energy_update,compression_detail::pressure_increment(fresh.stress_pa,increment),
+            fresh.energy_remainder_j,fresh.primary_energy};
     };
     const auto fresh=ma::detail::advance_occupied_material_pressure_with_work(*set.eos,cells,nodes,dt,PressurePreconditioner::automatic,
         LiquidFillRoundoffPolicy::strict_eos,16*std::numeric_limits<double>::epsilon(),options,fresh_law);

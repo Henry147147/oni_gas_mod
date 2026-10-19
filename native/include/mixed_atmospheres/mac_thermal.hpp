@@ -7,6 +7,8 @@ struct MacThermalReport {
     std::size_t conservative_rounding_adjustments=0, unavailable_rounding_components=0;
     MacEnergy energy_residual, energy_bound, redistributed_energy, requested_redistributed_energy;
     double entropy_change_j_per_k=0;
+    MacPrimaryRoundingCounts primary_energy{};
+    std::vector<MacEnergySum> storage_rounding_j{};
 };
 struct MacThermalAdvance { MacTransportState state; MacThermalReport report; };
 // Closed finite-volume, backward-Euler conduction with harmonic face

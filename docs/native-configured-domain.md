@@ -322,8 +322,9 @@ payload's geometry, bitwise physics and mask, and the image is checked with
 physics against the native admission rules (disabled values exactly +0), a
 binary mask with at least one fluid cell, and an enclosed `MACCLS01`. Legacy
 solver versions 2/3 follow the viscosity setting; versions 5 (diffusion) and
-6 (production) retain the metadata prefix and pass the same native settings
-validation. The `MAONID01` header geometry must
+6 (production) and 10 (carried U) retain the metadata prefix and pass the same
+native settings validation. Full native admission rejects unsupported void
+settings and occupied-volume vectors. The `MAONID01` header geometry must
 equal the wrapper's, and saved actors and CO2 origins must be on fluid cells.
 
 **Native-world admission.** Before ONI's loader runs, the mask is recomputed

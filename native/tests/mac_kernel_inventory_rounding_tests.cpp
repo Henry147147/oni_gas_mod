@@ -54,7 +54,7 @@ void controlled_gather() {
             << audit.bound << ' ' << audit.stage_operand_magnitude << ' ' << audit.below_range_allowance << '\n';
     }
     check(total > 0 && total == report.rounded_inventory_writes && next.report.interval_rounded_updates ==
-        total + report.rounded_primary_writes + report.rounded_transfers + report.rounded_range_inputs, "Gather counts did not reach the owner");
+        total + report.rounded_primary_writes + report.rounded_transfers + report.rounded_range_inputs + report.rounded_energy_writes + report.discarded_energy_remainders, "Gather counts did not reach the owner");
     options.threads = 12;
     const auto repeated = advance_mac_production(source, dt, 64, options); const auto repeated_report = last_mac_production_report();
     check(next.world.checkpoint() == repeated.world.checkpoint() && repeated_report.rounded_inventory_writes == total, "Gather changed with execution/cache history");

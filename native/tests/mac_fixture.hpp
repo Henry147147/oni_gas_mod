@@ -54,12 +54,34 @@ struct Setup {
     }
 };
 inline const Setup& setup() { static const Setup value; return value; }
+struct PrimaryEnergyObservation {
+    double high;
+    MacStoredRemainder remainder;
+};
+inline PrimaryEnergyObservation observed_energy(double high,const MacStoredRemainder& remainder) { return {high,remainder}; }
+template<class Cell> PrimaryEnergyObservation observed_energy(const Cell& cell) { return {cell.mixture.energy,cell.energy_remainder_j}; }
+inline std::ostream& operator<<(std::ostream& out,const PrimaryEnergyObservation& value) {
+    out<<value.high;
+    if(!value.remainder.is_zero()) {
+        const auto low=mac_stored_remainder_value(value.remainder);
+        out<<'~'<<low.mantissa()<<'~'<<low.exponent();
+    }
+    return out;
+}
+inline bool has_primary_energy_remainder(const MacTransportState& state) {
+    return std::any_of(state.cells.begin(),state.cells.end(),
+        [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); });
+}
+inline unsigned checkpoint_version(const MacClosedWorld& world,unsigned legacy) {
+    return std::any_of(world.state().cells.begin(),world.state().cells.end(),
+        [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); }) ? 10U : legacy;
+}
 inline std::string fingerprint(const MacTransportState& s) {
     std::ostringstream t; t << std::hexfloat << s.grid.width << ' ' << s.grid.height << ' ' << s.grid.spacing_m << ' ' << s.grid.depth_m <<
         ' ' << s.grid.periodic_x << ' ' << s.grid.periodic_y;
     for (auto value : s.grid.walls) t << ' ' << static_cast<int>(value);
     for (const auto& c : s.cells) {
-        t << ' ' << c.mixture.energy; for (auto value : c.mixture.masses) t << ' ' << value;
+        t << ' ' << c.mixture.energy; const auto remainder=mac_stored_remainder_value(c.energy_remainder_j); t << " Urem " << remainder.mantissa() << ' ' << remainder.exponent(); for (auto value : c.mixture.masses) t << ' ' << value;
         t << ' ' << c.passive_quantities.size(); for (const auto& p : c.passive_quantities) t << ' ' << p.identity << ' ' << p.quantity;
     }
     for (auto value : s.momentum_x) t << ' ' << value;
@@ -101,7 +123,7 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
     std::cout << "RPLAN " << id << ' ' << nominal_volume << ' ' << plan.eos_backtracks << ' ' << plan.unresolved_stencil_cells << '\n';
     for (std::size_t i = 0; i < plan.retained.size(); ++i) {
         const auto& c = plan.retained[i];
-        std::cout << "RCELL " << id << ' ' << i << ' ' << plan.source_volumes_m3[i] << ' ' << plan.retained_volumes_m3[i] << ' ' << c.mixture.energy << ' ' << plan.limiter[i] << '\n';
+        std::cout << "RCELL " << id << ' ' << i << ' ' << plan.source_volumes_m3[i] << ' ' << plan.retained_volumes_m3[i] << ' ' << observed_energy(c) << ' ' << plan.limiter[i] << '\n';
         for (std::size_t s = 0; s < c.mixture.masses.size(); ++s) if (c.mixture.masses[s] != 0) std::cout << "RMASS " << id << ' ' << i << ' ' << s << ' ' << c.mixture.masses[s] << '\n';
         for (const auto& p : c.passive_quantities) std::cout << "RPASSIVE " << id << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
     }
@@ -110,7 +132,7 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
         if (p.reference_volume_m3 != 0) {
             const auto energy = mac_parcel_quantity(p, p.contents.mixture.energy);
             std::cout << "SPARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' <<
-                p.reference_volume_m3 << ' ' << p.contents.mixture.energy << ' ' << energy.mantissa() << ' ' << energy.exponent() << '\n';
+                p.reference_volume_m3 << ' ' << observed_energy(p.contents) << ' ' << energy.mantissa() << ' ' << energy.exponent() << '\n';
             const auto field = [&](const char* kind, std::uint64_t identity, double value) {
                 const auto actual = mac_parcel_quantity(p, value);
                 std::cout << kind << ' ' << id << ' ' << p.axis << ' ' << p.face << ' ' << identity << ' ' << value << ' ' << actual.mantissa() << ' ' << actual.exponent() << '\n';
@@ -119,7 +141,7 @@ inline void export_reconstruction(int id, double nominal_volume, const MacParcel
             for (const auto& v : p.contents.passive_quantities) field("SPPASSIVE", v.identity, v.quantity);
             continue;
         }
-        std::cout << "PARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' << p.contents.mixture.energy << '\n';
+        std::cout << "PARCEL " << id << ' ' << p.axis << ' ' << p.face << ' ' << p.donor << ' ' << p.target << ' ' << p.volume_m3 << ' ' << observed_energy(p.contents) << '\n';
         for (std::size_t s = 0; s < p.contents.mixture.masses.size(); ++s) if (p.contents.mixture.masses[s] != 0)
             std::cout << "PMASS " << id << ' ' << p.axis << ' ' << p.face << ' ' << s << ' ' << p.contents.mixture.masses[s] << '\n';
         for (const auto& v : p.contents.passive_quantities) std::cout << "PPASSIVE " << id << ' ' << p.axis << ' ' << p.face << ' ' << v.identity << ' ' << v.quantity << '\n';
@@ -132,7 +154,7 @@ inline void export_momentum_reconstruction(int id, const MacTransportReport& r) 
     if (!corrected) return;
     const auto scaled = [](MacScaled value) { std::cout << ' ' << value.mantissa() << ' ' << value.exponent(); };
     for (std::size_t i = 0; i < r.advected_internal_energy_j.size(); ++i)
-        std::cout << "MRCELL " << id << ' ' << i << ' ' << r.advected_internal_energy_j[i] << '\n';
+        std::cout << "MRCELL " << id << ' ' << i << ' ' << observed_energy(r.advected_internal_energy_j[i],r.advected_energy_remainders_j[i]) << '\n';
     if (r.x.reconstruction == MacMomentumReconstruction::swept_physical ||
         r.x.reconstruction == MacMomentumReconstruction::swept_energy_flux) {
         std::cout << "SWADMIT " << id << ' ' << r.physical_correction_fraction << ' ' << r.physical_admission_backtracks;
@@ -194,7 +216,7 @@ inline void export_transport(int id, const MacTransportState& before, const MacT
     for (int endpoint = 0; endpoint < 2; ++endpoint) {
         const auto& s = endpoint == 0 ? before : after.state;
         for (std::size_t i = 0; i < s.cells.size(); ++i) {
-            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << s.cells[i].mixture.energy << '\n';
+            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << observed_energy(s.cells[i]) << '\n';
             for (std::size_t k = 0; k < s.cells[i].mixture.masses.size(); ++k) if (s.cells[i].mixture.masses[k] != 0)
                 std::cout << "MASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << s.cells[i].mixture.masses[k] << '\n';
             for (const auto& p : s.cells[i].passive_quantities) std::cout << "PASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';
@@ -231,7 +253,7 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
             const auto at = static_cast<std::size_t>(std::find(result.active_cells.begin(), result.active_cells.end(), i) - result.active_cells.begin());
             const auto initial = set.eos->evaluate(before.cells[i].mixture, g.volume_m3());
             const auto final = set.eos->evaluate(result.state.cells[i].mixture, g.volume_m3());
-            std::cout << "PCELL " << id << ' ' << i << ' ' << before.cells[i].mixture.energy << ' ' << result.material_volumes_m3[i] << ' ' << result.pressure.volume_changes_m3[at] << ' ' <<
+            std::cout << "PCELL " << id << ' ' << i << ' ' << observed_energy(before.cells[i]) << ' ' << result.material_volumes_m3[i] << ' ' << result.pressure.volume_changes_m3[at] << ' ' <<
                 result.pressure.work_pressures_pa[at] << ' ' << result.pressure.endpoint_pressures_pa[at] << ' ' << final.mechanical_pressure_pa << ' ' <<
                 final.temperature_k << ' ' << initial.entropy_j_per_k << ' ' << final.entropy_j_per_k << ' ' << result.geometric_residuals_m3[i] << '\n';
         }
@@ -239,7 +261,7 @@ inline void export_case(int id, const MacTransportState& before, const MacClosed
     for (int endpoint = 0; endpoint < 2; ++endpoint) {
         const auto& s = endpoint == 0 ? result.pressure_state : result.state;
         for (std::size_t i = 0; i < s.cells.size(); ++i) {
-            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << (endpoint == 1 && !result.pre_gravity_internal_energy_j.empty() ? result.pre_gravity_internal_energy_j[i] : s.cells[i].mixture.energy) << '\n';
+            std::cout << "CELL " << id << ' ' << endpoint << ' ' << i << ' ' << (endpoint == 1 && !result.pre_gravity_internal_energy_j.empty() ? observed_energy(result.pre_gravity_internal_energy_j[i],result.pre_gravity_energy_remainders_j[i]) : observed_energy(s.cells[i])) << '\n';
             for (std::size_t k = 0; k < set.registry.size(); ++k) if (s.cells[i].mixture.masses[k] != 0)
                 std::cout << "MASS " << id << ' ' << endpoint << ' ' << i << ' ' << k << ' ' << s.cells[i].mixture.masses[k] << '\n';
             for (const auto& p : s.cells[i].passive_quantities) std::cout << "PASSIVE " << id << ' ' << endpoint << ' ' << i << ' ' << p.identity << ' ' << p.quantity << '\n';

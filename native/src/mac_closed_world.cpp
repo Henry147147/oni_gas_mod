@@ -106,7 +106,7 @@ MacEnergyAccount energy_difference(const MacTransportState& old, const MacTransp
     const MacFaceInertias& i0, const MacFaceInertias& i1, double gravity = 0) {
     MacEnergyAccount balance;
     for (std::size_t i = 0; i < old.cells.size(); ++i) {
-        balance.add(next.cells[i].mixture.energy); balance.add(-old.cells[i].mixture.energy);
+        account_mac_cell_internal_energy(balance, next.cells[i]); account_mac_cell_internal_energy(balance, old.cells[i], -1);
         if (gravity != 0) {
             const auto potential = MacEnergy::from_double(gravity).multiplied(static_cast<double>(i / old.grid.width) + .5).multiplied(old.grid.spacing_m);
             balance.add(potential.multiplied(next.cells[i].mixture.mass())); balance.add(potential.multiplied(old.cells[i].mixture.mass()).negated());
@@ -133,7 +133,7 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
     const auto identical = [&](const Pair& pair) {
         if (pair.left == none || pair.right == none) return true;
         const auto& a=state.cells[pair.left].mixture;const auto& b=state.cells[pair.right].mixture;
-        return a.energy==b.energy && a.masses==b.masses;
+        return same_mac_cell_internal_energy(state.cells[pair.left],state.cells[pair.right]) && a.masses==b.masses;
     };
     if (settings.gravity_m_per_s2 == 0) {
         // Compare only physically connected neighbours. Separate sealed
@@ -142,6 +142,7 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
             for (const auto& pair : *pairs) if (!identical(pair)) return {};
         return StaticEquilibrium{};
     }
+    for(const auto& cell:state.cells)if(!cell.energy_remainder_j.is_zero())return {};
     // A hydrostatic certificate requires the actual discrete forces to cancel
     // exactly. No tolerance may silently suppress a small evolving mode.
     std::vector<double> pressure(state.cells.size()),temperature(state.cells.size()),mass(state.cells.size());
@@ -231,12 +232,13 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         result.gravity_body_work_y.resize(topology.y.size()); result.gravity_potential_flux_y.resize(topology.y.size()); result.gravity_internal_work_y.resize(topology.y.size());
         result.full_gravity_body_work_y.resize(topology.y.size()); result.full_gravity_potential_flux_y.resize(topology.y.size()); result.full_gravity_internal_work_y.resize(topology.y.size());
         result.pre_gravity_internal_energy_j.resize(source.cells.size()); result.gravity_internal_changes_j.resize(source.cells.size());
+        result.pre_gravity_energy_remainders_j.resize(source.cells.size());
         result.full_gravity_internal_changes_j.resize(source.cells.size());
     }
     std::vector<MaterialCell> materials; materials.reserve(topology.active.size());
     const bool voids = settings.vacuum == MacVacuumRepresentation::void_phase;
     require(voids || source.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
-    for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, mac_material_volume(source, cell), 0});
+    for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, mac_material_volume(source, cell), 0, source.cells[cell].energy_remainder_j});
     // Sharp interfaces weigh each y face by the mass of its two half cells
     // (PLIC split) at the substep start; a kick after transport time-centres
     // that weight (MAC_PRESSURE.md, "Gravity with sharp interfaces").
@@ -276,7 +278,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 result.compressive_linear_speeds,settings.preconditioner,16*eps,work_root);
             result.pressure=std::move(coupled.pressure);result.compressive_responses=std::move(coupled.responses);
         } else result.pressure = advance_occupied_material_pressure(model, materials, nodes, dt, settings.preconditioner,
-            LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root);
+            LiquidFillRoundoffPolicy::strict_eos, 16 * eps, work_root,true);
     }
     result.root_output_velocities = result.pressure.velocities_m_per_s;
     result.root_input_velocities.reserve(nodes.size()); result.full_pressure_velocities.resize(nodes.size());
@@ -293,6 +295,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     }
     for (std::size_t i = 0; i < topology.active.size(); ++i) {
         const auto cell = topology.active[i]; result.pressure_state.cells[cell].mixture = result.pressure.cells[i].mixture;
+        result.pressure_state.cells[cell].energy_remainder_j = result.pressure.cells[i].energy_remainder_j;
         result.material_volumes_m3[cell] = result.pressure.cells[i].volume_m3;
     }
     std::vector<MacScaledSum> sweeps(source.cells.size()), outgoing(source.cells.size()); MacScaledSum body_impulse; MacScaledAccount px, py;
@@ -426,13 +429,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             result.full_compressive_volume_changes_m3[cell]=mac_scaled_primary(sweeps[cell]);
             result.full_compressive_internal_work_j[cell]=work;
             MacEnergyAccount local;
-            const auto before=source.cells[cell].mixture.energy,after=result.pressure_state.cells[cell].mixture.energy;
-            local.add(after);local.add(-before);
+            account_mac_cell_internal_energy(local,result.pressure_state.cells[cell]);account_mac_cell_internal_energy(local,source.cells[cell],-1);
             for(std::size_t k=0;k<requested.size();++k)local.add(requested.component(k).negated());
             if(!local.within_bound())throw std::domain_error("Coupled pressure actual full cell work exceeds its operand bound");
-            compressive_work.add(after);compressive_work.add(-before);
+            account_mac_cell_internal_energy(compressive_work,result.pressure_state.cells[cell]);account_mac_cell_internal_energy(compressive_work,source.cells[cell],-1);
             for(std::size_t k=0;k<requested.size();++k)compressive_work.add(requested.component(k).negated());
-            if(!work.is_zero() && !resolved_update(MacEnergy::from_double(before),MacEnergy::from_double(after),work))
+            if(!work.is_zero() && !mac_cell_internal_energy_resolved(source.cells[cell],result.pressure_state.cells[cell],work))
                 ++result.unresolved_compressive_work_updates;
         }
     }
@@ -522,17 +524,17 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                 correction[cell].add(work.shared(result.state.cells[cell].mixture.mass(), mass));
         }
         for (std::size_t i = 0; i < source.cells.size(); ++i) {
-            auto& cell = result.state.cells[i]; const double before = cell.mixture.energy;
+            auto& cell = result.state.cells[i]; const auto previous = cell; const double before = cell.mixture.energy;
             const auto update = mac_scaled_primary(correction[i]);
             result.pre_gravity_internal_energy_j[i] = before;
-            // Accumulate in full range before the single primary-U projection.
-            // U is still binary64; unresolved updates remain explicitly counted.
-            auto local = correction[i]; local.add(before);
-            cell.mixture.energy = projected_energy(local.value(), result.rounded_gravity_projections);
+            result.pre_gravity_energy_remainders_j[i] = previous.energy_remainder_j;
+            auto local = correction[i]; account_mac_cell_internal_energy(local, cell);
+            const auto write = store_mac_cell_internal_energy(cell, local,&result.primary_energy);
+            result.rounded_gravity_projections += static_cast<std::size_t>(write.high_rounded);
             result.full_gravity_internal_changes_j[i] = update;
             result.gravity_internal_changes_j[i] = projected_energy(update, result.rounded_gravity_projections);
-            change.add(update); gravity_internal.add(cell.mixture.energy); gravity_internal.add(-before);
-            if (!update.is_zero() && !resolved_update(MacEnergy::from_double(before), MacEnergy::from_double(cell.mixture.energy), update))
+            change.add(update); account_mac_cell_internal_energy(gravity_internal,cell); account_mac_cell_internal_energy(gravity_internal,previous,-1);
+            if (!update.is_zero() && !mac_cell_internal_energy_resolved(previous,cell,update))
                 ++result.unresolved_gravity_internal_updates;
             const auto phi = MacEnergy::from_double(settings.gravity_m_per_s2).multiplied(static_cast<double>(i / g.width) + .5).multiplied(g.spacing_m);
             potential.add(phi.multiplied(cell.mixture.mass())); potential.add(phi.multiplied(source.cells[i].mixture.mass()).negated());
@@ -541,11 +543,15 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
                     source.cells[i].mixture.mass() > 0 ? mac_material_volume(source, i) : g.volume_m3());
                 const auto next_eos = model.evaluate(cell.mixture, cell.mixture.mass() > 0 ? mac_material_volume(result.state, i) : g.volume_m3());
                 entropy.add(next_eos.entropy_j_per_k); entropy.add(-old_eos.entropy_j_per_k);
-                if (cell.mixture.energy != before && cell.mixture.mass() > 0) {
+                if(cell.mixture.mass()>0)
+                    entropy.add(mac_stored_remainder_value(cell.energy_remainder_j).shared(1,next_eos.temperature_k).project().value);
+                if(source.cells[i].mixture.mass()>0)
+                    entropy.add(mac_stored_remainder_value(source.cells[i].energy_remainder_j).shared(1,old_eos.temperature_k).negated().project().value);
+                if (!same_mac_cell_internal_energy(previous,cell) && cell.mixture.mass() > 0) {
                     // Entropy is concave in U: S(U) - S(before) <= (U - before) / T(before).
                     auto pivot = cell.mixture; pivot.energy = before;
                     const double t = model.evaluate(pivot, mac_material_volume(result.state, i)).temperature_k;
-                    gravity_entropy.add((cell.mixture.energy - before) / t);
+                    gravity_entropy.add(mac_cell_internal_energy_change(previous,cell).value().shared(1,t).project().value);
                 }
                 if (source.cells[i].mixture.mass() > 0 && cell.mixture.mass() > 0)
                     entropy_roundoff.add(128 * eps * (std::abs(source.cells[i].mixture.energy) + std::abs(before) + std::abs(cell.mixture.energy)) /
@@ -598,29 +604,28 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
 }
-MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits) const {
+MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto next=state_; MacEnergyAccount balance;
+    auto next=state_; MacEnergyAccount balance; MacPrimaryRoundingCounts rounding;
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] &&
             std::isfinite(edit.joules) && std::isfinite(edit.maximum_temperature_k) && edit.maximum_temperature_k > 0,
             "Invalid MAC fluid heat exchange");
-        auto& mixture=next.cells[edit.cell_index].mixture;
-        const auto before=mixture.energy; const double after=before+edit.joules;
-        require(std::isfinite(after), "MAC heat energy overflow");
-        if (edit.joules != 0 && before == after)
-            throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U");
-        mixture.energy=after;
-        const auto reading=thermodynamics_->evaluate(mixture,mixture.mass() > 0 ? mac_material_volume(next,edit.cell_index) : next.grid.volume_m3());
+        auto& cell=next.cells[edit.cell_index]; const auto before=cell;
+        (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(edit.joules),&rounding);
+        if (edit.joules != 0 && same_mac_cell_internal_energy(before,cell))
+            throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U and remainder");
+        const auto reading=thermodynamics_->evaluate(cell.mixture,cell.mixture.mass() > 0 ? mac_material_volume(next,edit.cell_index) : next.grid.volume_m3());
         require(edit.joules <= 0 || reading.temperature_k <= edit.maximum_temperature_k,
             "MAC heat exchange exceeds its reserved temperature limit");
-        balance.add(before); balance.add(edit.joules); balance.add(-after);
+        account_mac_cell_internal_energy(balance,before); balance.add(edit.joules); account_mac_cell_internal_energy(balance,cell,-1);
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    if(accepted_rounding)*accepted_rounding=rounding;
     return candidate;
 }
 MacClosedWorld MacClosedWorld::with_diffusion(MacDiffusionSettings setting) const {
@@ -634,6 +639,7 @@ void combine(double& a,double b) { a+=b; }
 void combine(std::size_t& a,std::size_t b) { a+=b; }
 void combine(MacEnergy& a,MacEnergy b) { MacEnergySum sum;sum.add(a);sum.add(b);a=sum.value(); }
 void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
+    a.primary_energy.merge(b.primary_energy);
     // Every MacClosedAdvanceReport field is accumulated here; a field added to
     // the report must be added to this list (main's pressure-root restarts were
     // initially missed when the diffusion composition was merged).
@@ -663,6 +669,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     a.interval_multigrid_levels=std::max(a.interval_multigrid_levels,b.interval_multigrid_levels);
 }
 void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
+    a.primary_energy.merge(b.primary_energy);
     a.substeps+=b.substeps;a.rejected_attempts+=b.rejected_attempts;a.faces+=b.faces;a.unresolved_updates+=b.unresolved_updates;
     a.exchanged_mass_kg+=b.exchanged_mass_kg;a.elapsed_ms+=b.elapsed_ms;combine(a.energy_residual,b.energy_residual);combine(a.energy_bound,b.energy_bound);
     a.rounded_mass_transfers+=b.rounded_mass_transfers;a.rounded_energy_transfers+=b.rounded_energy_transfers;
@@ -814,12 +821,17 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
                 remap_work.add(candidate.transport.remap_work_wide_j);
+                result.report.primary_energy.merge(candidate.primary_energy);
+                result.report.primary_energy.merge(candidate.pressure.primary_energy);
+                result.report.primary_energy.merge(candidate.transport.primary_energy);
+                if(candidate.reconstruction)result.report.primary_energy.merge(candidate.reconstruction->primary_energy);
                 result.report.physical_admission_backtracks += candidate.transport.physical_admission_backtracks;
                 result.report.rounded_energy_projections += candidate.rounded_energy_projections;
                 wx.add(candidate.full_pressure_wall_impulse_x); wy.add(candidate.full_pressure_wall_impulse_y);
                 for (const auto& reaction : candidate.transport.x.full_wall_impulse) wx.add(reaction);
                 for (const auto& reaction : candidate.transport.y.full_wall_impulse) wy.add(reaction);
                 for (const auto* compression : {&before_compression, &after_compression}) {
+                    result.report.primary_energy.merge(compression->primary_energy);
                     bounds.add(compression->energy_bound); compression_heat.add(compression->heat);
                     wx.add(compression->wall_impulse_x); wy.add(compression->wall_impulse_y);
                     result.report.compression_events += compression->events.size();
@@ -836,6 +848,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 }
                 result.report.unresolved_compressive_work_updates+=candidate.unresolved_compressive_work_updates;
                 if (settings_.thermal_conduction) for (const auto* conduction : {&before_conduction,&after_conduction}) {
+                    result.report.primary_energy.merge(conduction->primary_energy);
                     bounds.add(conduction->energy_bound); conductive_redistribution.add(conduction->redistributed_energy);
                     conductive_entropy.add(conduction->entropy_change_j_per_k);
                     ++result.report.conduction_stages; result.report.conduction_contacts+=conduction->contacts;
@@ -844,6 +857,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 }
                 if (settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0)
                     for (const auto* viscosity : {&before_viscosity,&after_viscosity}) {
+                        result.report.primary_energy.merge(viscosity->primary_energy);
                         bounds.add(viscosity->energy_bound);viscous_heat.add(viscosity->heat);
                         viscous_stored_heat.add(viscosity->stored_heat);
                         viscous_entropy.add(viscosity->entropy_lower_bound_j_per_k);
@@ -855,6 +869,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                     }
                 if (settings_.shock_heat != MacShockHeatRegularization::none)
                     for (const auto* heat : {&before_shock_heat, &after_shock_heat}) {
+                        result.report.primary_energy.merge(heat->primary_energy);
                         bounds.add(heat->energy_bound); shock_heat_transfer.add(heat->absolute_transfer);
                         ++result.report.shock_heat_stages; result.report.shock_heat_events += heat->events.size();
                         result.report.unresolved_shock_heat_updates += heat->unresolved_updates;
@@ -919,6 +934,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         const auto a = thermodynamics_->evaluate(old, old.mass() > 0 ? mac_material_volume(state_, cell) : state_.grid.volume_m3());
         const auto b = thermodynamics_->evaluate(next, next.mass() > 0 ? mac_material_volume(result.world.state_, cell) : state_.grid.volume_m3());
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
+        if(old.mass()>0)entropy.add(mac_stored_remainder_value(state_.cells[cell].energy_remainder_j).shared(1,a.temperature_k).negated().project().value);
+        if(next.mass()>0)entropy.add(mac_stored_remainder_value(result.world.state_.cells[cell].energy_remainder_j).shared(1,b.temperature_k).project().value);
         if (old.mass() > 0 && next.mass() > 0)
             entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));
         else {

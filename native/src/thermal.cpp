@@ -67,6 +67,7 @@ ThermalResult conduct_heat(std::span<const ThermalBody> bodies,
     for (const auto& face : faces) {
         const long double q = static_cast<long double>(face.conductance) *
             (static_cast<long double>(solve.pressure[face.right]) - solve.pressure[face.left]);
+        result.shared_face_energy_j.push_back(q);
         energy[face.left] += q;
         energy[face.right] -= q;
     }

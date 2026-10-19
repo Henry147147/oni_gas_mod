@@ -30,7 +30,9 @@ def review(cases):
             check(row[1] == (1 if i % 2 == 0 else -3) * unit, 'Signed source J differs')
             check(row[2] == (0 if i % 2 == 0 else -2) * unit, 'Signed subrange cancellation differs')
     report = cases[2]['wide_report']
-    check(report is not None and report[1] > 0 and report[4][2] > 0 and report[2] == 0, 'Subrange mixing/U rounding was hidden')
+    carried=any(u!=F(float(u)) for (e,_),u in cases[2]['cells'].items() if e==1)
+    storage=(report[1]==0 and carried) if cases[2].get('carried_u',False) else report[1]>0
+    check(report is not None and storage and report[4][2] > 0 and report[2] == 0, 'Subrange mixing/U rounding was hidden')
     case=cases[3];row=case['faces'][0,1]
     check(row[1]==0 and 0<row[2]<F(1,2**1075) and float(row[2])==0, 'New canonical J did not persist below binary64 range')
 

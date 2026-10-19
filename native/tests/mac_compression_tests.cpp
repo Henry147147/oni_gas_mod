@@ -86,8 +86,8 @@ void transpose_and_range() {
     for (std::size_t i = 0; i < j.size(); ++i) j[i] = MacScaled::from_parts(i % 2 == 0 ? .75 : -.75, -1941);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j);
     const auto result = advance_mac_compression(set.registry, *set.eos, tiny, .01);
-    check(result.report.heat.mantissa() > 0 && result.report.unresolved_heat_updates > 0 && result.report.unresolved_momentum_updates > 0,
-        "Tiny compression did not retain and report unresolved heat/J"); ma::testing::export_compression(3, tiny, result, .01);
+    check(result.report.heat.mantissa() > 0 && result.report.unresolved_heat_updates == 0 && !result.state.cells[0].energy_remainder_j.is_zero() && result.report.unresolved_momentum_updates > 0,
+        "Tiny compression did not retain heat while reporting unresolved J"); ma::testing::export_compression(3, tiny, result, .01);
 }
 void invalid_inputs() {
     const auto& set = ma::testing::setup(); const auto source = compressing(false, false); std::size_t rejected = 0;

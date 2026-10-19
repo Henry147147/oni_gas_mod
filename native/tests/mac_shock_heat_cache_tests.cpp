@@ -32,19 +32,22 @@ void replay(MacTransportState input,MacShockHeatLaw law,bool tiny,std::size_t& e
     const auto& s=ma::testing::setup();
     for(int stage=0;stage<3;++stage) {
         // A caller edit between stages must never reuse a prior call's EOS.
-        if(stage==1)input.cells[0].mixture=s.eos->initialize_at_temperature(input.cells[0].mixture.masses,875,1).mixture;
+        if(stage==1){input.cells[0].mixture=s.eos->initialize_at_temperature(input.cells[0].mixture.masses,875,1).mixture;input.cells[0].energy_remainder_j={};}
         const auto held=ma::testing::fingerprint(input);auto expected=input;
         const auto actual=advance_mac_shock_heat(s.registry,*s.eos,input,.001,law);
         check(!actual.report.events.empty(),"Cache replay did not exercise any face transfer");
         std::size_t positive=0,changed=0;
         for(const auto& event:actual.report.events) {
             auto& l=expected.cells[event.left].mixture;auto& r=expected.cells[event.right].mixture;
-            const auto fresh=relax_mac_shock_heat_pair(*s.eos,l,r,1,1,event.pair.integrated_conductance);
+            const auto fresh=relax_mac_shock_heat_pair(*s.eos,l,r,1,1,event.pair.integrated_conductance,
+                expected.cells[event.left].energy_remainder_j,expected.cells[event.right].energy_remainder_j);
             check(receipt(l,r,fresh)==receipt(l,r,event.pair),"Cached heat receipt differs from freshly evaluated actual endpoint inventories");
             if(l.energy!=input.cells[event.left].mixture.energy || r.energy!=input.cells[event.right].mixture.energy)++stale_witnesses;
             if(!fresh.transfer.is_zero())++positive;
             if(fresh.after_left_j!=l.energy || fresh.after_right_j!=r.energy)++changed;
-            l.energy=fresh.after_left_j;r.energy=fresh.after_right_j;++events;
+            l.energy=fresh.after_left_j;r.energy=fresh.after_right_j;
+            expected.cells[event.left].energy_remainder_j=fresh.after_left_remainder_j;
+            expected.cells[event.right].energy_remainder_j=fresh.after_right_remainder_j;++events;
         }
         // The sensed laws retain their frozen acoustic speed whenever the
         // closing velocity is positive, including a below-range velocity.

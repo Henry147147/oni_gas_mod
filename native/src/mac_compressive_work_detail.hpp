@@ -13,5 +13,5 @@ inline std::optional<double> pressure_increment(MacEnergy stress, std::optional<
 // the public entry validates and constructs those inputs itself.
 [[nodiscard]] MacCompressiveWork finish(const FluidThermodynamics&,const MixtureInventory&,
     const ReferenceIsentrope&,const ReferenceIsentropicResponse&,double isentropic_work_derivative,
-    double spacing,double dt,MacEnergy linear);
+    double spacing,double dt,MacEnergy linear,const MacStoredRemainder& energy_remainder_j = {});
 }

@@ -41,15 +41,15 @@ internal static class ConfiguredCheckpointPayloadTests
                 check(parsed.Configured==null && parsed.FormatVersion==version && parsed.CopyEncodedData().AsSpan().SequenceEqual(bytes));
             }
         });
-        test("diffusion and production solver images survive paired-save framing with legacy configured actor and particle wrappers",()=> {
+        test("diffusion, production and primary-U solver images survive paired-save framing with legacy configured actor and particle wrappers",()=> {
             foreach(var scenario in new[]{0U,6U,7U}) foreach(var withActor in new[]{false,true}) {
                 var geometry=scenario==7 ? ConfiguredGeometry() : LegacyGeometry(scenario);
-                foreach(var version in new[]{4U,5U,6U,7U,8U,uint.MaxValue}) {
+                foreach(var version in new[]{4U,5U,6U,7U,8U,9U,10U,11U,uint.MaxValue}) {
                     var solver=Solver(geometry.Width,geometry.Height,version);
                     var image=scenario==7 ? Wrapper(ConfiguredDomainLayout.PillaredRoom().Mask,ConfiguredDomainLayout.ScenePhysics(false),solverVersion:version) : solver;
                     if(withActor) image=ActorImage(image,geometry,10+10*64);
                     var pair=Pair(image,geometry);
-                    if(version!=5 && version!=6) {reject(()=>NativeDomainCheckpointPayload.Create(pair,image));continue;}
+                    if(version!=5 && version!=6 && version!=10) {reject(()=>NativeDomainCheckpointPayload.Create(pair,image));continue;}
                     foreach(var withParticle in new[]{false,true}) {
                         var particle=new NativeTransientParticle(9,10+10*64,0,new[]{10.5f,10.5f,-.5f,0f,-1f,0f,.03125f,333.25f,3f,0f});
                         var particles=withParticle ? NativeTransientParticleImage.Create(new[]{particle},geometry) : null;

@@ -96,6 +96,7 @@ struct MacClosedSubstep {
     // operands, including work and mass flux below binary64 range.
     std::vector<MacEnergy> full_gravity_body_work_y, full_gravity_potential_flux_y, full_gravity_internal_work_y;
     std::vector<double> pre_gravity_internal_energy_j, gravity_internal_changes_j;
+    std::vector<MacStoredRemainder> pre_gravity_energy_remainders_j;
     std::vector<MacEnergy> full_gravity_internal_changes_j;
     double gravity_internal_residual_j = 0, gravity_internal_bound_j = 0;
     double potential_transport_residual_j = 0, potential_transport_bound_j = 0;
@@ -116,6 +117,7 @@ struct MacClosedSubstep {
     MacEnergy full_compressive_work_residual_j, full_compressive_work_bound_j;
     std::size_t unresolved_compressive_work_updates = 0;
     std::size_t unresolved_gravity_internal_updates = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 // Closed regular-grid Lagrange/projection split. Exact empty cells contribute
 // geometry and zero traction, without a pressure unknown. Work pressure acts
@@ -176,6 +178,7 @@ struct MacClosedAdvanceReport {
     std::size_t rejected_shock_heat_trials = 0, unresolved_shock_heat_updates = 0;
     MacEnergy absolute_shock_heat_transfer_wide_j;
     double absolute_shock_heat_transfer_j = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacClosedAdvance;
 // Reference/exact_equilibrium retain the saved numerical selection. An
@@ -222,7 +225,7 @@ public:
         MacExecutionPolicy = MacExecutionPolicy::reference) const;
     // Immutable external heat exchange. Retains time, geometry, every mass and
     // canonical face momentum; checks the complete batch before returning it.
-    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>) const;
+    [[nodiscard]] MacClosedWorld with_cell_heat(std::span<const MacCellHeat>,MacPrimaryRoundingCounts* accepted_rounding=nullptr) const;
     // Declared point sources, not an aperture/pump flow model. Injection is at
     // rest; extraction carries the selected species at the local face speeds.
     // Filled gas cells without passive metadata only; unsupported void/liquid
@@ -260,5 +263,6 @@ struct MacFluidTransferResult {
     MacClosedWorld world;
     std::vector<MacFluidParcel> parcels;
     std::size_t unresolved_heat_updates = 0;
+    MacPrimaryRoundingCounts primary_energy{};
 };
 }

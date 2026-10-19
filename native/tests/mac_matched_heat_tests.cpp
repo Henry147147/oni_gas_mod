@@ -33,7 +33,7 @@ MacShockHeatAdvance grid(std::size_t id, const MacTransportState& state, double 
     check(ma::testing::fingerprint(state) == held && (!result.report.events.empty()) == active, "Matched heat changed source or activation differs");
     check((ma::testing::fingerprint(result.state) != held) == changes, "Matched heat state change differs");
     auto unchanged = result.state;
-    for (std::size_t i = 0; i < state.cells.size(); ++i) unchanged.cells[i].mixture.energy = state.cells[i].mixture.energy;
+    for (std::size_t i = 0; i < state.cells.size(); ++i) { unchanged.cells[i].mixture.energy = state.cells[i].mixture.energy; unchanged.cells[i].energy_remainder_j=state.cells[i].energy_remainder_j; }
     check(ma::testing::fingerprint(unchanged) == held, "Matched heat changes constituents, passives, momentum or geometry");
     ma::testing::export_shock_heat(id, state, result, dt); return result;
 }
@@ -72,9 +72,9 @@ void subrange() {
     for (std::size_t i = 0; i < state.cells.size(); ++i) state.cells[i].mixture = gas(i == 1 ? .5 : 1, i == 1 ? 600 : 300);
     std::vector<MacScaled> j(state.momentum_x.size()); j[1] = MacScaled::from_parts(.75, -1200); j[2] = j[1].negated();
     store_mac_field(state.momentum_x, state.full_momentum_x, j);
-    const auto result = grid(8, state, .001, true, false);
-    check(result.report.absolute_transfer.mantissa() > 0 && result.report.absolute_transfer.project().rounded && result.report.unresolved_updates > 0,
-        "Matched heat lost a below-range heat transfer or unresolved storage flag");
+    const auto result = grid(8, state, .001, true, true);
+    check(result.report.absolute_transfer.mantissa() > 0 && result.report.absolute_transfer.project().rounded && result.report.unresolved_updates == 0 && !result.state.cells[0].energy_remainder_j.is_zero(),
+        "Matched heat lost a below-range heat transfer or its carried correction");
 }
 void two_body() {
     const auto& s = ma::testing::setup(); auto state = s.state(2, 1, false);
@@ -94,7 +94,7 @@ void weak() {
         for (std::size_t i = 0; i < 16; ++i) state.cells[i].mixture = gas(1, 300 + amplitude * std::cos((static_cast<double>(i) + .5) * wave));
         const auto m = mac_face_inertias(s.registry, state, *s.eos);
         for (std::size_t i = 0; i < 16; ++i) state.momentum_x[i] = m.x[i] * amplitude * std::sin(static_cast<double>(i) * wave);
-        const auto result = grid(id, state, .001, true, id == 10);
+        const auto result = grid(id, state, .001, true, true);
         const auto scaled = result.report.absolute_transfer.require_representable() / (amplitude * amplitude);
         check(scaled > 0 && (previous == 0 || std::abs(scaled - previous) < 1e-5 * previous), "Matched weak-wave heat has a first-order amplitude term");
         std::cout << "HMWEAK " << id << ' ' << amplitude << ' ' << scaled << '\n'; previous = scaled;

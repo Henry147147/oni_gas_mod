@@ -14,6 +14,7 @@ struct MacNativeHeatReport {
     double energy_residual_j{},energy_bound_j{},entropy_lower_bound_j_per_k{};
     std::size_t iterations{};
     bool unresolved{};
+    MacPrimaryRoundingCounts primary_energy{};
 };
 struct MacNativeHeatExchange {
     MacClosedWorld world;

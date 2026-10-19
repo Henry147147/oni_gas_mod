@@ -69,7 +69,7 @@ void grids() {
         j[f] = MacScaled::from_parts(f % 3 == 0 ? .75 : -.75, -1941).multiplied(inertia.x[f]);
     store_mac_field(tiny.momentum_x, tiny.full_momentum_x, j); tiny.momentum_y.assign(tiny.momentum_y.size(), 0);
     const auto small = advance_mac_compression(set.registry, *set.eos, tiny, .001, sensed);
-    check(small.report.heat.mantissa() > 0 && small.report.heat.project().value == 0 && small.report.unresolved_heat_updates > 0 &&
+    check(small.report.heat.mantissa() > 0 && small.report.heat.project().value == 0 && small.report.unresolved_heat_updates == 0 && ma::testing::has_primary_energy_remainder(small.state) &&
         !small.state.full_momentum_x[1].is_zero() && tiny.full_momentum_x[1].is_zero(), "Sensed grid lost tiny heat or new canonical face momentum");
     ma::testing::export_acoustic_compression(4, tiny, small, .001);
 }

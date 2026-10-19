@@ -11,6 +11,7 @@ struct ThermalResult {
     std::vector<double> energy_changes_j;
     double entropy_produced_j_per_k = 0;
     std::size_t iterations = 0;
+    std::vector<long double> shared_face_energy_j{};
 };
 
 // Series thermal resistances on either side of a face. No contact resistance,
