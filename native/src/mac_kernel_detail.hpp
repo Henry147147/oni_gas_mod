@@ -302,6 +302,9 @@ struct Workspace {
     std::vector<std::uint8_t> flag;
     // Reconstruction proxy (thermal + elastic energy) per cell.
     std::vector<double> proxy;
+    // Sharp interfaces: per-cell liquid and gas fractions and phase energies.
+    std::vector<double> phase_alpha, phase_gas, phase_liquid_energy, phase_gas_energy;
+    std::vector<std::uint8_t> two_phase;
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.
     bool stats_valid = false;

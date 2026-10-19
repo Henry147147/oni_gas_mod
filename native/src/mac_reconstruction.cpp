@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_reconstruction.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
+#include "mac_interface_geometry.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -37,40 +38,6 @@ std::optional<double> scaled(double value, double part, double total) {
 struct Edge { std::size_t axis, face, donor, target; MacScaled volume; double cx = 0, cy = 0; };
 struct Field { double centre = 0, sx = 0, sy = 0, lower = 0, upper = 0; bool positive = true; };
 struct Point { double x = 0, y = 0; };
-// Convex polygons in donor coordinates: the unit square [-1/2, 1/2]^2.
-using Polygon = std::vector<Point>;
-// Keeps a*x + b*y <= c (Sutherland-Hodgman for one half-plane).
-Polygon clip_polygon(const Polygon& polygon, double a, double b, double c) {
-    Polygon kept; kept.reserve(polygon.size() + 1);
-    for (std::size_t k = 0; k < polygon.size(); ++k) {
-        const auto& start = polygon[k]; const auto& end = polygon[(k + 1) % polygon.size()];
-        const double ds = a * start.x + b * start.y - c, de = a * end.x + b * end.y - c;
-        if (ds <= 0) kept.push_back(start);
-        if ((ds < 0 && de > 0) || (ds > 0 && de < 0)) {
-            const double t = ds / (ds - de); kept.push_back({start.x + t * (end.x - start.x), start.y + t * (end.y - start.y)});
-        }
-    }
-    return kept;
-}
-double polygon_area(const Polygon& polygon) {
-    double twice = 0;
-    for (std::size_t k = 0; k < polygon.size(); ++k) {
-        const auto& start = polygon[k]; const auto& end = polygon[(k + 1) % polygon.size()];
-        twice += start.x * end.y - end.x * start.y;
-    }
-    return .5 * std::abs(twice);
-}
-// The liquid side {nx*x + ny*y <= c} of the unit cell holding area fraction
-// alpha; (nx, ny) is the unit normal pointing from liquid toward gas.
-Polygon liquid_polygon(double nx, double ny, double alpha) {
-    const Polygon cell{{-.5, -.5}, {.5, -.5}, {.5, .5}, {-.5, .5}};
-    double lo = -.5 * (std::abs(nx) + std::abs(ny)), hi = -lo;
-    for (int k = 0; k < 64; ++k) {
-        const double mid = .5 * (lo + hi); if (mid == lo || mid == hi) break;
-        if (polygon_area(clip_polygon(cell, nx, ny, mid)) < alpha) lo = mid; else hi = mid;
-    }
-    return clip_polygon(cell, nx, ny, .5 * (lo + hi));
-}
 enum class Mode { linear, swept, sharp };
 struct SweptGeometry {
     std::vector<Point> centres, x_half_displacements, y_half_displacements;
@@ -356,22 +323,18 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         if (sharp_donor) {
             const auto fraction = [&](std::size_t cell) { return cell == none ? alpha[i] : alpha[cell]; };
             const auto diagonal = [&](std::size_t cell, int dy) { return cell == none ? none : neighbor(cell, 1, dy); };
-            const double a00 = fraction(diagonal(adjacent[0], -1)), a01 = fraction(adjacent[0]), a02 = fraction(diagonal(adjacent[0], 1));
-            const double a10 = fraction(adjacent[2]), a12 = fraction(adjacent[3]);
-            const double a20 = fraction(diagonal(adjacent[1], -1)), a21 = fraction(adjacent[1]), a22 = fraction(diagonal(adjacent[1], 1));
-            const double gx = ((a22 + 2 * a21 + a20) - (a02 + 2 * a01 + a00)) / 8, gy = ((a02 + 2 * a12 + a22) - (a00 + 2 * a10 + a20)) / 8;
-            const double length = std::hypot(gx, gy); const bool oriented = std::isfinite(length) && length > 0;
-            const auto region = oriented ? liquid_polygon(-gx / length, -gy / length, alpha[i]) : Polygon{};
+            const double a[3][3] = {{fraction(diagonal(adjacent[0], -1)), fraction(adjacent[0]), fraction(diagonal(adjacent[0], 1))},
+                {fraction(adjacent[2]), alpha[i], fraction(adjacent[3])},
+                {fraction(diagonal(adjacent[1], -1)), fraction(adjacent[1]), fraction(diagonal(adjacent[1], 1))}};
+            double nx = 0, ny = 0; const bool oriented = interface_geometry::youngs_normal(a, nx, ny);
+            const auto region = oriented ? interface_geometry::liquid_region(nx, ny, alpha[i]) : interface_geometry::Polygon{};
             for (std::size_t k = 0; k < by_donor[i].size(); ++k) {
                 strip_liquid[k] = alpha[i];
                 if (!oriented || by_donor[i][k] == none) continue;
                 const auto& e = edges[by_donor[i][k]];
                 const double width = e.volume.shared(1, volumes[i]).project().value;
                 if (!(width > 0) || !std::isfinite(width)) continue;
-                const bool positive = (e.axis == 0 ? e.cx : e.cy) > 0; const double bound = positive ? .5 - width : -.5 + width;
-                const auto strip = e.axis == 0 ? clip_polygon(region, positive ? -1. : 1., 0., positive ? -bound : bound)
-                                               : clip_polygon(region, 0., positive ? -1. : 1., positive ? -bound : bound);
-                strip_liquid[k] = std::clamp(polygon_area(strip) / width, 0., 1.);
+                strip_liquid[k] = interface_geometry::strip_liquid(region, static_cast<int>(e.axis), (e.axis == 0 ? e.cx : e.cy) > 0, width);
             }
         }
         // A strip prototype at the donor volume: liquid at the donor's liquid

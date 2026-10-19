@@ -6,6 +6,7 @@
 // new half-mass shares. Every transfer is a shared face quantity, so each
 // constituent, passive and J component is conserved by construction.
 #include "mac_kernel_detail.hpp"
+#include "mac_interface_geometry.hpp"
 #include <chrono>
 
 namespace ma::experimental::mac_kernel {
@@ -84,7 +85,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     ws.px.resize(F * g.NX); ws.py.resize(F * g.NY); ws.retained.resize(F * N);
     ws.fx.assign(g.NX, 0); ws.fy.assign(g.NY, 0); ws.theta.resize(N);
     const auto& e = ws.eos;
-    const bool linear = c.settings.reconstruction == MacMaterialReconstruction::limited_linear;
+    // Selector 3 (MAC_TRANSPORT.md, sharp interfaces) keeps limited-linear
+    // slopes away from gas/liquid interfaces and splits two-phase donors by PLIC.
+    const bool sharp = c.settings.reconstruction == MacMaterialReconstruction::interface_plic;
+    const bool linear = c.settings.reconstruction == MacMaterialReconstruction::limited_linear || sharp;
     ws.proxy.resize(N);
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) ws.proxy[i] = e.kind[i] == empty || e.kind[i] == solid_cell ? 0 : f.U[i] - e.off[i];
@@ -97,6 +101,33 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     for (std::size_t p = 0; p < P; ++p) source[K + 1 + p] = f.q.data() + p * N;
     source[F] = ws.proxy.data();
     const bool gas_only = model.liquids.empty();
+    // Sharp interfaces: each cell's liquid and gas volume fractions and the
+    // energy of each phase, at its post-pressure material volume and stored U.
+    auto& alpha = ws.phase_alpha; auto& gas_fraction = ws.phase_gas;
+    auto& liquid_energy = ws.phase_liquid_energy; auto& gas_energy = ws.phase_gas_energy; auto& two_phase = ws.two_phase;
+    const bool phases = sharp && !gas_only;
+    if (phases) {
+        for (auto* v : {&alpha, &gas_fraction, &liquid_energy, &gas_energy}) v->assign(N, 0);
+        two_phase.assign(N, 0);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (g.wall[i] || e.kind[i] == empty || e.kind[i] == solid_cell || e.kind[i] == gas_cell) continue;
+                if (e.kind[i] == liquid_cell) { alpha[i] = 1; continue; }
+                const auto stats = cell_stats(model, f, N, i); State st;
+                // An unevaluable mixed state keeps its nominal fraction and donor order.
+                if (!evaluate_state(model, f, N, i, stats, f.U[i], ws.Vmat[i], st)) { alpha[i] = std::min(1., stats.Nl / ws.Vmat[i]); continue; }
+                alpha[i] = (ws.Vmat[i] - st.Vg) / ws.Vmat[i]; gas_fraction[i] = st.Vg / ws.Vmat[i];
+                DD liquid, gas; liquid.add(st.Eel);
+                for (std::size_t k = 0; k < K; ++k) {
+                    const double m = f.m[k * N + i]; if (m == 0) continue;
+                    const auto& sp = model.species[k]; const double part = m * (sp.offset + sp.cv * st.T);
+                    (sp.gas ? gas : liquid).add(part);
+                }
+                liquid_energy[i] = liquid.value(); gas_energy[i] = gas.value();
+                two_phase[i] = st.Vg > 0 && alpha[i] > 0;
+            }
+        });
+    }
     // ---- reconstruction: each donor writes its outgoing face parcels.
     struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; };
     auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
@@ -153,8 +184,32 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             double ratio[4] = {0, 0, 0, 0};
             for (int n = 0; n < 4; ++n) if (nb[n] != none) ratio[n] = Vi / ws.Vmat[nb[n]];
             const bool hx = nb[0] != none && nb[1] != none, hy = nb[2] != none && nb[3] != none;
+            // A single-phase donor beside an interface or a phase change keeps
+            // donor order; a two-phase donor's strips follow its PLIC line.
+            const bool sharp_donor = phases && two_phase[i];
+            bool forced_flat = sharp_donor;
+            if (phases && !sharp_donor) for (int n = 0; n < 4; ++n)
+                if (nb[n] != none && (two_phase[nb[n]] || (alpha[nb[n]] > 0) != (alpha[i] > 0))) forced_flat = true;
+            double strip[4] = {0, 0, 0, 0};
+            if (sharp_donor) {
+                const auto vertical = [&](Index cell, int dy) -> Index {
+                    if (cell == none) return none;
+                    const auto cx = static_cast<std::size_t>(cell) % g.W, cy = static_cast<std::size_t>(cell) / g.W;
+                    if (!g.py && ((dy < 0 && cy == 0) || (dy > 0 && cy + 1 == g.H))) return none;
+                    const auto ny = dy < 0 ? (cy == 0 ? g.H - 1 : cy - 1) : (cy + 1 == g.H ? 0 : cy + 1);
+                    const auto n = cx + ny * g.W; return g.wall[n] ? none : static_cast<Index>(n);
+                };
+                const auto at = [&](Index cell) { return cell == none ? alpha[i] : alpha[cell]; };
+                const double a[3][3] = {{at(vertical(nb[0], -1)), at(nb[0]), at(vertical(nb[0], 1))}, {at(nb[2]), alpha[i], at(nb[3])},
+                    {at(vertical(nb[1], -1)), at(nb[1]), at(vertical(nb[1], 1))}};
+                double nx = 0, ny = 0; const bool oriented = interface_geometry::youngs_normal(a, nx, ny);
+                const auto region = oriented ? interface_geometry::liquid_region(nx, ny, alpha[i]) : interface_geometry::Polygon{};
+                for (int n = 0; n < count; ++n) strip[n] = oriented && edges[n].share > 0 && std::isfinite(edges[n].share) ?
+                    interface_geometry::strip_liquid(region, edges[n].axis, edges[n].dir > 0, edges[n].share) : alpha[i];
+            }
+            bool homogeneous = !sharp_donor;
             double theta = linear ? 1 : 0;
-            bool flat = !linear;
+            bool flat = !linear || forced_flat;
             if (linear) {
                 for (std::size_t fld = 0; fld < L; ++fld) {
                     const double* src = source[fld];
@@ -234,7 +289,16 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 for (int n = 0; n < count && ok; ++n) {
                     double* pr = &proto[static_cast<std::size_t>(n) * F];
                     const double tx = theta * edges[n].cx, ty = theta * edges[n].cy;
-                    for (std::size_t fld = 0; fld < F; ++fld)
+                    if (!homogeneous) {
+                        // Strip prototype at the donor volume: liquid at its density,
+                        // gas at the headspace density, both at the donor's EOS state.
+                        const double ls = strip[n] / alpha[i], gs = (1 - strip[n]) / gas_fraction[i];
+                        DD total;
+                        for (std::size_t k = 0; k < K; ++k) { pr[k] = source[k][i] * (model.species[k].gas ? gs : ls); total.add(pr[k]); }
+                        pr[K] = ls * liquid_energy[i] + gs * gas_energy[i];
+                        const double mass_share = total.value() / e.M[i];
+                        for (std::size_t p = 0; p < P; ++p) pr[K + 1 + p] = source[K + 1 + p][i] * mass_share;
+                    } else for (std::size_t fld = 0; fld < F; ++fld)
                         pr[fld] = theta == 0 ? source[fld][i] : source[fld][i] + (tx * sx[fld] + ty * sy[fld]);
                     if (!admissible(pr, Vi)) { ok = false; break; }
                     for (std::size_t fld = 0; fld < F; ++fld) {
@@ -269,6 +333,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 }
                 if (ok && !admissible(keep.data(), retained_volume)) ok = false;
                 if (ok) { accepted = true; break; }
+                // A rejected phase split falls back to the donor's own composition.
+                if (!homogeneous) { homogeneous = true; continue; }
                 if (theta == 0) break;
                 ++result.backtracks; theta = attempt < 32 ? theta * .5 : 0;
             }

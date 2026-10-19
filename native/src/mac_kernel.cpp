@@ -43,8 +43,8 @@ double since(Clock::time_point t) { return std::chrono::duration<double, std::mi
 
 void require_supported(const MacClosedSettings& s) {
     s.validate();
-    require(s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear,
-        "Production kernel supports material reconstruction selectors 0 and 1");
+    require(s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
+        s.reconstruction == MacMaterialReconstruction::interface_plic, "Production kernel supports material reconstruction selectors 0, 1 and 3");
     require(s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear,
         "Production kernel supports momentum reconstruction selectors 0 and 1");
     require(s.preconditioner != PressurePreconditioner::incomplete_cholesky,
@@ -196,13 +196,21 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
             if (st0.kind == empty) continue;
             State st;
             if (!evaluate_state(model, f, N, i, st0, f.U[i], g.V, st)) reject("Production interval endpoint left its EOS domain");
+            // The headspace nRT/p carries the EOS root's volume tolerance. A
+            // gas-dominated mixed cell uses the closure V - Vliquid instead
+            // (MAC_HEAT.md, "Entropy measurement").
+            double headspace = st.Vg;
+            if (st0.kind == mixed_cell) {
+                const double liquid = liquid_at(model, f, N, i, st.p).volume;
+                if (liquid <= .5 * g.V) headspace = g.V - liquid;
+            }
             for (std::size_t k = 0; k < model.K(); ++k) {
                 const double m = f.m[k * N + i]; if (m == 0) continue;
                 const auto& sp = model.species[k];
                 if (!(st.T >= sp.tmin * (1 - 32 * eps) && st.T <= sp.tmax * (1 + 32 * eps)))
                     reject("Production interval endpoint temperature outside its material range");
                 o.s.add(m * sp.cv * std::log(st.T / experimental::entropy_reference_temperature_k));
-                if (sp.gas) { const double n = m / sp.molar_mass; o.s.add(n * R * (std::log(st.Vg) - std::log(n))); }
+                if (sp.gas) { const double n = m / sp.molar_mass; o.s.add(n * R * (std::log(headspace) - std::log(n))); }
             }
             o.allowance += std::abs(f.U[i]) / st.T;
         }
@@ -280,8 +288,9 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.Vmat, &ws.dU, &ws.tdU, &ws.qx, &ws.qy, &ws.body_work_y, &ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag, &ws.px, &ws.py,
         &ws.retained, &ws.fx, &ws.fy, &ws.theta, &ws.keep, &ws.jsum, &ws.ktr, &ws.mix, &ws.wheat, &ws.v0, &ws.vprov, &ws.slope0,
         &ws.slope1, &ws.cour0, &ws.cour1, &ws.face_heat_x, &ws.face_heat_y, &ws.dual_en, &ws.dual_et, &ws.dual_j1, &ws.speed,
-        &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy}) add(*v);
-    add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag);
+        &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
+        &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy}) add(*v);
+    add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase);
     for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->q); add(f->jx); add(f->jy); }
     return total;
 }
@@ -464,7 +473,8 @@ void MacKernelOptions::validate() const {
         "Production kernel minimum blocks per thread must be 1..65536");
 }
 bool mac_kernel_supports(const MacClosedSettings& s) {
-    return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear) &&
+    return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
+        s.reconstruction == MacMaterialReconstruction::interface_plic) &&
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure;
 }

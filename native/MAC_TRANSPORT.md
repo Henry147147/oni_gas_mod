@@ -161,8 +161,15 @@ water square through air at (0.3, 0.2) m/s in a 16×16 periodic box for 3.6 cell
 
 | Selector | Partly filled cells | Liquid in cells under 1% full | Liquid mass error | Velocity deviation |
 | --- | ---: | ---: | ---: | ---: |
-| 3 `interface_plic` | 85 | 0.16% | 3e-17 | 5e-11 |
+| 3 `interface_plic` | 89 | 0.17% | 6e-18 | 4e-11 |
+| 3 `interface_plic`, production kernel | 91 | 0.15% | 5e-18 | 5e-12 |
 | 1 `limited_linear` | 229 | 0.53% | 8e-18 | 8e-11 |
+
+Selector 3's counts move by a few cells under last-bit changes of the interface
+normal (85–91 measured), because such changes flip threshold decisions such as
+accepted splits and two-phase donors. The normal is scaled by its larger
+component, so axis-aligned normals are exactly ±1. It does not use `std::hypot`,
+which is not correctly rounded across C libraries and imports `GLIBC_2.35`.
 
 An exact representation of the shifted square has 24 partly filled cells. The
 remainder comes from diagonal motion: a donor's corner liquid should reach its
@@ -178,9 +185,13 @@ conserving liquid mass to 1e-16:
 | `interface_plic` | 3.75 | 99 | 4.0 a | 0.017% | 566 s |
 | `limited_linear` | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
 
-This selector is not yet in the production kernel, so owners using it run the
-audited reference path. One liquid region is placed per donor, so immiscible liquids
-are not separated from each other. Gas/vacuum fronts are not covered. The
+The production kernel runs this selector with the same line, strips and fallback.
+Its phase fractions and energies come from each cell's post-pressure EOS state.
+In the translation test it matches the reference to 0.3% liquid placement (L1),
+4e-4 cells of centroid and 3e-11 K.
+
+One liquid region is placed per donor, so immiscible liquids are not separated from
+each other. Gas/vacuum fronts are not covered. The
 free-surface gates are being defined and are not claimed.
 
 ### Limited linear reconstruction (selector 1)

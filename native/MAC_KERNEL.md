@@ -75,14 +75,14 @@ policy paths.
 
 | Setting | Production kernel |
 | --- | --- |
-| Material reconstruction | 0 donor cell, 1 limited linear |
+| Material reconstruction | 0 donor cell, 1 limited linear, 3 sharp interface |
 | Momentum reconstruction | 0 donor cell, 1 limited linear |
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic |
 | Shock heat | 0, 1, 2, 3 |
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 
-Swept (2) and sharp-interface (3) material reconstruction, momentum selectors 2–5, coupled
+Swept (2) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3) and explicit incomplete Cholesky are rejected by the
 flow-only helper. A selected production owner uses the audited reference for
 these settings, retaining their selectors and selection 2 in its next image.
