@@ -82,7 +82,7 @@ struct PressureTimeWorkspace::Impl::Run {
     Grid geometry;
     std::vector<Stats> stats;
     std::vector<Anchor> original;
-    std::vector<Index> coarse, fine, coarse_faces, fine_faces;
+    std::vector<Index> pressure_cells, coarse, fine, coarse_faces, fine_faces;
     std::vector<Index> coarse_position, fine_position;
     std::vector<std::uint8_t> occupied, is_fine;
     std::vector<Face> faces;
@@ -119,6 +119,7 @@ struct PressureTimeWorkspace::Impl::Run {
             if (!occupied[i]) { require(source.U[i] == 0, "Pressure time vacuum contains energy"); continue; }
             if (!anchor_at(model, source, N, i, stats[i], source.U[i], geometry.V, original[i]))
                 reject("Pressure time source is outside its normal EOS domain");
+            pressure_cells.push_back(static_cast<Index>(i));
             is_fine[i] = mask[i]; (is_fine[i] ? fine : coarse).push_back(static_cast<Index>(i));
         }
         require(fine.size() <= options.cell_interval_budget / pieces &&
@@ -158,9 +159,11 @@ struct PressureTimeWorkspace::Impl::Run {
     }
     double dot(const std::vector<double>& a, const std::vector<double>& b) {
         std::vector<DD> sums((a.size() + 255) / 256);
-        rows(sums.size(), [&](std::size_t block) {
+        const auto partial = [&](std::size_t block) {
             for (auto j = block * 256; j < std::min(a.size(), block * 256 + 256); ++j) sums[block].add(a[j] * b[j]);
-        });
+        };
+        if (sums.size() < 32) for (std::size_t block = 0; block < sums.size(); ++block) partial(block);
+        else pool.run(sums.size(), partial);
         DD sum; for (const auto& part : sums) sum.add(part); return sum.value();
     }
     double norm(const std::vector<double>& a) {
@@ -253,6 +256,7 @@ struct PressureTimeWorkspace::Impl::Run {
     std::vector<double> inverse_pair(PressureMomentMultigrid& inverse, const std::vector<Index>& active,
         const std::vector<double>& rhs, bool solve) {
         const auto n = active.size();
+        if (&inverse == workspace.coarse_inverse.get()) for (const auto i : fine) ra[i] = rb[i] = 0;
         for (std::size_t j = 0; j < n; ++j) { ra[active[j]] = rhs[j]; rb[active[j]] = rhs[n + j]; }
         bool done = false;
         if (solve) {
@@ -425,6 +429,12 @@ struct PressureTimeWorkspace::Impl::Run {
     // certify the actual root, so this is a chord Jacobian, not an EOS repair.
     std::vector<double> action(const std::vector<double>& x) {
         const auto N = geometry.N, nc = coarse.size(), nf = fine.size();
+        for (const auto i : fine) ra[i] = rb[i] = 0;
+        for (std::size_t j = 0; j < nc; ++j) { ra[coarse[j]] = x[j]; rb[coarse[j]] = x[nc + j]; }
+        if (!workspace.coarse_inverse->apply_pair(ra, rb, da, db, false)) reject("Flagged global pressure operator");
+        std::vector<double> result(2 * nc);
+        for (std::size_t j = 0; j < nc; ++j) { result[j] = da[coarse[j]]; result[nc + j] = db[coarse[j]]; }
+        if (nf == 0) return result;
         std::vector<Trace> traces(N); std::vector<double> volume(N), momentum(faces.size());
         std::vector<DD> qa(nc), qb(nc);
         const auto add_coarse = [&](const Face& face, double a, double b) {
@@ -439,9 +449,13 @@ struct PressureTimeWorkspace::Impl::Run {
             const auto i = coarse[j]; const double C = 1 / original[i].comp;
             traces[i] = {0, -.5 * C * x[j] + k * C * x[nc + j], -k * C * x[j], 0};
         }
-        for (const auto index : coarse_faces) {
-            const auto f = face_value(faces[index], 0, traces, 0, 1, 0, true);
-            add_coarse(faces[index], f.flux.volume, f.flux.first_volume);
+        // Remove macro traces at coarse/fine interfaces before streaming
+        // their actual fine-grid response. Internal coarse faces stay in A*x.
+        for (const auto index : fine_faces) {
+            const auto& edge = faces[index];
+            if (!((edge.left != none && coarse_position[edge.left] != none) || (edge.right != none && coarse_position[edge.right] != none))) continue;
+            const auto f = face_value(edge, 0, traces, 0, 1, 0, true);
+            add_coarse(edge, -f.flux.volume, -f.flux.first_volume);
         }
         std::vector<double> rhs(2 * nf);
         for (std::uint32_t tick = 0; nf != 0 && tick < pieces; ++tick) {
@@ -472,13 +486,12 @@ struct PressureTimeWorkspace::Impl::Run {
                 add_coarse(faces[index], f.flux.volume, first.value);
             }
         }
-        auto result = x;
         for (std::size_t j = 0; j < nc; ++j) { result[j] -= qa[j].value(); result[nc + j] -= qb[j].value(); }
         return result;
     }
     PressureTimeResult advance() {
         const auto N = geometry.N;
-        if (!coarse.empty()) prepare(workspace.coarse_inverse, workspace.coarse_matrix, coarse, original, options.seconds);
+        if (!coarse.empty()) prepare(workspace.coarse_inverse, workspace.coarse_matrix, pressure_cells, original, options.seconds);
         if (!fine.empty()) {
             prepare(workspace.fine_linear_inverse, workspace.fine_linear_matrix, fine, original, local_seconds);
             prepare(workspace.fine_inverse, workspace.fine_matrix, fine, original, local_seconds);

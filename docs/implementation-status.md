@@ -282,6 +282,11 @@ pass resolved references and the original energy bound; the mixed 1:8 case
 uses 88 physical cell intervals instead of 256 uniform-fine intervals.
 Its independent endpoint reader passes 3,307 checks/nineteen altered captures.
 Wall/body/empty-cell accounts, rejection, cache and twelve-worker controls pass.
+Its cached macro matrix now replaces repeated internal coarse-face integration,
+and its macro preconditioner includes the occupied fine region. The 250,000-cell
+mixed pressure-only diagnostic needs 16 outer iterations instead of 60 and
+measures 2,589–2,946 ms per .1 s (host load 26.83–28.90). This resets its source
+between samples and is not evolving owner acceptance.
 It is pressure-only, with normal-range coefficient admission and no saved
 selection. Its interval audits and owner binding remain unfinished. Automatic
 calm selection, full local transport/remap, open physics gates and in-game

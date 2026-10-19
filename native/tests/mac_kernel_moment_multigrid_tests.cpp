@@ -61,7 +61,36 @@ void run(unsigned id, MacGrid grid) {
         a[i] = .2 * std::sin(.21 * static_cast<double>(i + 1)); b[i] = .3 * std::cos(.37 * static_cast<double>(i + 2));
     }
     auto [ra, rb] = matrix.apply(a, b);
+    check(!mg.apply_pair(a, b, da, db) && da == std::vector<double>(n, 17) && db == std::vector<double>(n, 19),
+        "Unprepared direct operator published output");
+    for (unsigned shape = 0; shape < 4; ++shape) {
+        bool rejected = false;
+        try {
+            static_cast<void>(mg.apply_pair(std::span<const double>(a).first(n - (shape == 0)),
+                std::span<const double>(b).first(n - (shape == 1)),
+                std::span<double>(da).first(n - (shape == 2)), std::span<double>(db).first(n - (shape == 3))));
+        } catch (const std::invalid_argument&) { rejected = true; }
+        check(rejected && da == std::vector<double>(n, 17) && db == std::vector<double>(n, 19),
+            "Malformed direct operator request published output");
+    }
     check(mg.prepare(matrix.comp, matrix.diagonal, matrix.wx, matrix.wy), "Valid coupled coefficients rejected");
+    std::vector<double> op_a(n, 17), op_b(n, 19);
+    check(mg.apply_pair(a, b, op_a, op_b), "Prepared direct operator declined");
+    auto ca_input = a, cb_input = b;
+    for (std::size_t i = 0; i < n; ++i) if (!matrix.grid.walls[i]) {
+        ca_input[i] /= matrix.comp[i]; cb_input[i] /= matrix.comp[i];
+    }
+    const auto ha_input = matrix.h(ca_input), hb_input = matrix.h(cb_input);
+    double op_error = 0, op_scale = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        op_error = std::max({op_error, std::abs(op_a[i] - ra[i]), std::abs(op_b[i] - rb[i])});
+        op_scale = std::max(op_scale, std::abs(a[i]) + std::abs(b[i]) + 2 * std::abs(ha_input[i]) + 2 * std::abs(hb_input[i]));
+    }
+    check(op_error <= 128 * eps * op_scale, "Direct operator failed independent real block equation");
+    auto alias_a = a, alias_b = b;
+    check(mg.apply_pair(alias_a, alias_b, alias_a, alias_b) && alias_a == op_a && alias_b == op_b,
+        "Direct operator depends on input/output aliasing");
+    auto held_op_a = op_a, held_op_b = op_b;
     const auto result = mg.solve(ra, rb, da, db, 1e-12, 1e-15);
     check(result.converged && !result.flagged && result.iterations < 128, "Coupled solve did not converge");
     const auto [actual_a, actual_b] = matrix.apply(da, db); double error = 0, residual = 0, scale = 0;
@@ -72,7 +101,22 @@ void run(unsigned id, MacGrid grid) {
     }
     check(error < 1e-9 && residual < 2e-11 * scale, "Independent real block equation failed");
     const auto held_a = da, held_b = db;
-    mg.set_executor(executor, &pool); const auto parallel = mg.solve(ra, rb, da, db, 1e-12, 1e-15);
+    mg.set_executor(executor, &pool);
+    check(mg.apply_pair(a, b, op_a, op_b) && op_a == held_op_a && op_b == held_op_b,
+        "Direct operator depends on worker count");
+    std::fill(op_a.begin(), op_a.end(), 17); std::fill(op_b.begin(), op_b.end(), 19);
+    check(mg.apply_pair(a, b, op_a, op_b, false), "Local direct operator declined");
+    for (std::size_t i = 0; i < n; ++i) check(matrix.grid.walls[i] ? (op_a[i] == 17 && op_b[i] == 19) :
+        (op_a[i] == held_op_a[i] && op_b[i] == held_op_b[i]), "Local operator touched unrelated output");
+    auto invalid_input = a; invalid_input[topology->active_cells().front()] = std::numeric_limits<double>::quiet_NaN();
+    held_op_a = op_a; held_op_b = op_b;
+    check(!mg.apply_pair(invalid_input, b, op_a, op_b, false) && op_a == held_op_a && op_b == held_op_b,
+        "Nonfinite operator published output");
+    auto overflow_input = a;
+    overflow_input[topology->active_cells().front()] = std::numeric_limits<double>::max();
+    check(!mg.apply_pair(overflow_input, b, op_a, op_b) && op_a == held_op_a && op_b == held_op_b,
+        "Overflowed direct operator published output");
+    const auto parallel = mg.solve(ra, rb, da, db, 1e-12, 1e-15);
     check(parallel.converged && parallel.iterations == result.iterations && da == held_a && db == held_b,
         "Coupled solve depends on thread count");
     // Reuse topology with different coefficients and compare a cold workspace.
@@ -86,6 +130,8 @@ void run(unsigned id, MacGrid grid) {
         ca == da && cb == db, "Coupled continuation depends on stale coefficients");
     const auto saved = matrix.comp; matrix.comp[topology->active_cells().front()] = std::numeric_limits<double>::quiet_NaN();
     check(!mg.prepare(matrix.comp, matrix.diagonal, matrix.wx, matrix.wy), "Nonfinite coupled coefficient admitted");
+    check(!mg.apply_pair(a, b, op_a, op_b) && op_a == held_op_a && op_b == held_op_b,
+        "Rejected coefficients left the direct operator prepared");
     const auto failed = mg.solve(ra, rb, da, db, 1e-12, 1e-15);
     check(failed.flagged && !failed.converged && da == ca && db == cb, "Rejected coupled solve published a correction");
     matrix.comp = saved;

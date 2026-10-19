@@ -485,6 +485,14 @@ compliance-dominated gas systems; it needs a cheaper, parallel V-cycle, or an
 automatic choice that keeps Jacobi until Jacobi iteration counts grow (as
 they do in stiff liquid systems).
 
+The unselected [pressure-window component](MAC_PRESSURE_WINDOWS.md) now uses
+its cached macro matrix and a macro preconditioner over all occupied cells.
+At 250,000 cells, two pinned fixed-source diagnostic runs measure warm
+pressure-only costs of 1,200–1,279 ms for an all-coarse window and
+2,589–2,946 ms for a 15,500-cell stripe taking two local intervals (host load
+26.83–28.90). The latter needs 16 outer iterations instead of 60. These exclude
+remap/audits/adapters and do not replace the evolving-owner baseline above.
+
 ## Earlier Jacobi performance
 
 These measurements precede persisted selection 2 and automatic geometric

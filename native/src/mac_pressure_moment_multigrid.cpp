@@ -247,6 +247,21 @@ bool PressureMomentMultigrid::precondition_pair(std::span<const double> ra, std:
     return true;
 }
 
+bool PressureMomentMultigrid::apply_pair(std::span<const double> a, std::span<const double> b,
+    std::span<double> ra, std::span<double> rb, bool clear_inactive) {
+    const auto total = topology_->grid().walls.size(); const auto& active = topology_->active_cells(); const auto n = active.size();
+    require(a.size() == total && b.size() == total && ra.size() == total && rb.size() == total, "Invalid coupled operator request");
+    if (!prepared_) return false;
+    const double root3 = std::sqrt(3.);
+    rows(n, [&](std::size_t j) { const auto i = active[j]; x_[j] = {(a[i] - (.5 * root3) * b[i]) / compliance_[j], (.5 * b[i]) / compliance_[j]}; });
+    apply(x_, Ap_);
+    rows(n, [&](std::size_t j) { z_[j] = {Ap_[j].re + root3 * Ap_[j].im, 2 * Ap_[j].im}; });
+    for (const auto value : z_) if (!value.finite()) return false;
+    if (clear_inactive) rows(total, [&](std::size_t i) { ra[i] = 0; rb[i] = 0; });
+    rows(n, [&](std::size_t j) { ra[active[j]] = z_[j].re; rb[active[j]] = z_[j].im; });
+    return true;
+}
+
 void solve_pressure_moments_coupled(Context& c, const LinearSystem& sys, const std::vector<double>& compliance,
     const std::vector<double>& ra, const std::vector<double>& rb, std::vector<double>& da, std::vector<double>& db,
     double rtol, double atol, bool first_linearization) {

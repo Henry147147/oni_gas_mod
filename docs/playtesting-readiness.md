@@ -182,7 +182,11 @@ also pass collision.
   1:8 case uses 88 physical cell intervals against 256 uniform-fine intervals.
   Its independent endpoint review passes 3,307 checks/nineteen corruptions.
   Wall/body/empty-cell accounts, cache, rollback and twelve-worker controls
-  pass. This is a normal-range pressure component without owner selection,
+  pass. A cached macro action and a preconditioner over all occupied cells
+  reduce the mixed 250,000-cell diagnostic from 60 to 16 outer iterations.
+  Current warm pressure-only cost is 2,589–2,946 ms per .1 s, with host load
+  26.83–28.90; these fixed-source samples do not certify evolving owner speed.
+  This is a normal-range pressure component without owner selection,
   interval audits or local transport. Automatic selection, full local subcycling, open
   physics gates, real-time acceptance and in-game production use remain open.
 

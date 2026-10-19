@@ -52,6 +52,10 @@ public:
     // pressure window can leave unrelated output entries untouched.
     [[nodiscard]] bool precondition_pair(std::span<const double> ra, std::span<const double> rb,
         std::span<double> da, std::span<double> db, bool clear_inactive = true);
+    // Apply the prepared real two-moment matrix using its cached spatial
+    // graph. Input/output aliases are supported; failure publishes nothing.
+    [[nodiscard]] bool apply_pair(std::span<const double> a, std::span<const double> b,
+        std::span<double> ra, std::span<double> rb, bool clear_inactive = true);
     [[nodiscard]] std::size_t storage_bytes() const noexcept;
 private:
     struct Values {

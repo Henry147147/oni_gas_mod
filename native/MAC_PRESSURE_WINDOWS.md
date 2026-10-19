@@ -35,13 +35,26 @@ The outer linear solve is restarted right-preconditioned FGMRES with a
 fixed-source acoustic Schur action. That action streams analytic linear fine
 responses through the same grid, rather than forming finite-difference columns
 or a monolithic space-time matrix. Fine roots use the coupled complex solve.
-An undecidable or unconverged solve fails closed. Coarse/fine pressure masks
-are used only for the multigrid preconditioners; all physical face responses
-remain in the root. Fixed block reductions preserve worker-independent order.
+An undecidable or unconverged solve fails closed. The macro preconditioner
+includes every occupied cell, with zero fine-cell right-hand sides; only its
+coarse correction is retained. Fine local inverses use the fine-cell mask.
+These auxiliary graphs do not change any physical face response in the root.
+Fixed 256-entry reductions preserve worker-independent order and dispatch
+their partial sums directly to the pool.
 
-The coupled multigrid helper now supports one fixed inverse application and
-leaving inactive output entries untouched. Its existing solve defaults retain
-the preceding version-8 trajectory. Cached topology and coefficients are
+The cached macro graph also applies the analytic two-moment matrix. At a
+coarse/fine interface the action subtracts its zero-fine macro response before
+adding the streamed fine response. Internal coarse faces stay in the cached
+matrix. This avoids re-integrating those faces through the general time-mortar
+primitive on every Krylov iteration. Nonlinear residuals still use the original
+shared face path and certify the same local root and accumulated closure bounds.
+
+The coupled multigrid helper supports one fixed inverse application, a direct
+matrix application and leaving inactive output entries untouched. The direct
+application gathers inputs before publishing outputs, so input/output aliases
+are supported. Malformed requests throw; unprepared coefficients and nonfinite
+results fail without publication. Its existing solve defaults retain the
+preceding version-8 trajectory. Cached topology and coefficients are
 derived data. Fine coefficient refresh and local root work use packed fine
 lists; initial setup and outer evaluations still allocate/scan full fields.
 Reported storage counts retained workspace, excluding transient candidates.
@@ -62,7 +75,7 @@ fixed-mass gas ODE with RK4 at .0001 and .00005 seconds. All windows last .1 s.
 | Uniform fine 1:8, light patch | 256 | 3.69e-7 | 1.05e-9 |
 
 These controls keep the original 0.1 K/1% bounds and a 128-epsilon energy
-account. Maximum energy defect is 1.82e-15 against a 4.55e-12 allowance;
+account. Maximum energy defect is 1.74e-15 against a 4.55e-12 allowance;
 reference pressure refinement is at most 1.12e-10 of the disturbance. These are
 pressure-only synthetic controls, not the release strong-flow or wave gates.
 The mixed 1:8 outer root has 48 unknowns rather than 176 in a monolithic
@@ -70,13 +83,16 @@ two-moment history. The 88 cell intervals count physical local intervals,
 excluding auxiliary nonlinear and Krylov evaluations.
 
 Additional controls cover walls, gravity, an empty cell, mid-window rollback,
-inactive-output preservation, nonfinite inverse
-rejection, twelve malformed requests, caloric endpoint rejection, continuation
-after rejection, cold/warm
+inactive-output preservation, nonfinite inverse rejection, twelve malformed
+requests, caloric endpoint rejection, continuation after rejection, cold/warm
 workspace agreement and exact one/twelve-worker fields and iteration counts.
-The 33,389-cell threaded control uses 44,461 physical cell intervals and retains
-37,789,015 workspace bytes. This is not a whole-process memory measurement or
-real-time acceptance run.
+The coupled real-block oracle independently checks the cached matrix on six
+geometries, including 33,389 cells and 2,113 disconnected occupied cells. It
+checks input/output aliases, one/twelve-worker agreement, inactive entries,
+unprepared or invalid coefficients, malformed spans and overflow without
+publication. The 33,389-cell window control uses 44,461 physical cell intervals
+and retains 49,528,343 workspace bytes. This is not a whole-process memory
+measurement or real-time acceptance run.
 
 `review_mac_kernel_pressure_window.py` launches no native code. It independently
 reintegrates the saved scientific inputs, reconstructs shared displacement
@@ -88,9 +104,13 @@ in native code; the reader checks its reported account bounds.
 All 52 Release CTests pass with the ONI backend and warnings as errors. The
 affected coupled-block and both pressure-moment controls also pass the
 instrumented and Windows-target checks (targeted threaded checkpoint controls
-for the older moment methods under ThreadSanitizer). All 66 preceding MAC
-executables retain their physical output and exit status. Existing checkpoint
-bytes and continuation are unchanged, including fresh Linux/Wine processes.
+for the older moment methods under ThreadSanitizer). All 66 unaffected MAC
+executables retain their physical output and exit status against `11c32a6`:
+64 outputs are byte-identical and two differ only in timing. The window's
+iteration counts, workspace and last-bit results intentionally change while
+its original inputs, scientific tolerances and saved review remain intact.
+Existing checkpoint bytes and continuation are unchanged, including fresh
+Linux/Wine processes.
 Wine supplies Windows-target evidence; actual Windows OS runs remain open.
 
 ## Performance remains open
@@ -98,14 +118,19 @@ Wine supplies Windows-target evidence; actual Windows OS runs remain open.
 Two repeated `taskset -c 0-11` diagnostic runs use a 500x500 synthetic gas wave
 at 100,000 Pa with a 20 Pa disturbance, .1-second windows and twelve requested
 workers. All 250,000 cells change within a window. Warm pressure-only cost is
-1,767–1,857 ms with all cells coarse, and 10,317–10,327 ms with a prescribed
-15,500-cell stripe taking two local intervals. Host load is 19.65–20.76.
+1,200–1,279 ms with all cells coarse, and 2,589–2,946 ms with a prescribed
+15,500-cell stripe taking two local intervals. Host load is 26.83–28.90.
+Retained workspace is 178,741,568 and 220,086,528 bytes respectively, excluding
+transient candidates. The mixed case uses 16 outer iterations and 647 fine
+linear iterations, against 60 and 1,732 with the preceding coarse-only
+preconditioner. The same resolved controls and root bounds apply.
+
 This profile resets the source for each sample and excludes remap, interval
 audits and adapters. It is investigative data, not an evolving whole-owner
-real-time acceptance run. These costs already exceed the 62.5 ms total budget;
-serial linearized face work and nested fine inverses need optimization.
-Commands, source hashes, loads and captures are in
-`local/pressure-windows-v1/accepted-profile-*.json` and the accompanying outputs.
+real-time acceptance run. These costs already exceed the 62.5 ms total budget.
+CPU sampling identifies Krylov reductions and multigrid work as substantial
+remaining costs. Commands, source hashes, loads, current-native profiles and
+the preceding-commit comparison are in `local/pressure-window-operator-v1/`.
 
 ```sh
 cmake --build build-production --target ma_mac_kernel_pressure_window_tests
