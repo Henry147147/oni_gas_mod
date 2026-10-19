@@ -182,8 +182,12 @@ also pass collision.
   continuation and migration checks on Linux and MinGW/Wine. The managed wrapper
   admits production physical version 6 without changing outer payload bytes.
   A Linux production gas source saves, reloads in a fresh process, resaves at
-  paused frame zero and matches 120 continued frames. The remaining Linux
-  scenes and Proton production runs remain open. The latest Ubuntu
+  paused frame zero and matches 120 continued frames. Fourteen Linux scene
+  pairs now pass. Production water-heat fails its unchanged endpoint energy
+  gate after 123 frames (−0.0177002 J against 0.00594580 J), with no rejected
+  attempts; a public standalone reproducer matches the drift and conduction
+  counters. This feeds step d's primary-U work. Remaining Linux scenes and
+  Proton production runs are open. The latest Ubuntu
   production-owner/pressure-ledger build passes 55 tests and both shared
   libraries meet the glibc 2.34 ceiling after the shared interface geometry
   replaces `std::hypot`. The builder and package provenance check enforce that
@@ -212,7 +216,12 @@ also pass collision.
   reduce the mixed 250,000-cell diagnostic from 60 to 16 outer iterations.
   Current warm pressure-only cost is 2,589–2,946 ms per .1 s, with host load
   26.83–28.90; these fixed-source samples do not certify evolving owner speed.
-  This is a normal-range pressure component without owner selection,
+  An unselected full-flow probe passes the fixed 256x2 wave with .025 s mixed
+  windows (0.770% wave error); .1 s mixed windows fail at 8.489%, against reference
+  steps at most .0005 s. Its local remap fails strict trace accuracy without
+  a reconstruction halo; two extra stencil layers pass one front comparison
+  (0.330% helium, 0.445% passive), refining most of that small room. Reference
+  resolution and automatic scheduling remain open. The committed component has no owner selection,
   interval audits or local transport. Automatic selection, full local subcycling, open
   physics gates, real-time acceptance and in-game production validation remain open.
 

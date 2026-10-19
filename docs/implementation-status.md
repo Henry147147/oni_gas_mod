@@ -250,17 +250,25 @@ retain the saved kernel. Native transition and publication controls pass.
 Managed save framing now admits physical version 6; historical outer payload
 bytes remain unchanged. A Linux production gas source saves and reloads in a
 fresh process, resaves at paused frame zero and matches 120 continued frames.
-The remaining Linux scenes and Proton production runs remain open.
+Fourteen Linux scene pairs pass source/save and exact fresh-process continuation.
+Production water-heat fails the unchanged energy gate: −0.0177002 J residual
+against 0.00594580 J after 123 frames, with zero rejected attempts. A public
+standalone reproducer matches its drift and conduction counters. The primary-U
+investigation belongs to step d; remaining Linux scenes and Proton runs are open.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 55 Release CTests pass. Production-kernel,
+checkpoints remain unchanged. All 59 merged Release CTests pass. Production-kernel,
 native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
 MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
 ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
-also pass those instrumented and Windows-target routes.
-Against `3fbccfb`, all 68 preceding MAC component executables retain their physical
-records and exits: 66 outputs are byte-identical and two differ only in timing.
+pass Linux instrumentation. The latest sharp-interface control fails MinGW/Wine:
+mist 0.000568570 against 0.0005; the other affected pressure/owner controls pass.
+This physics-port failure belongs to step d and remains open.
+Against the preceding pressure-ledger build, all 69 MAC executable exits match:
+66 outputs are byte-identical, two differ only in timing, and the sharp-interface
+output intentionally changes with Claude's geometry fix. The default wave SHA
+remains `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The latest production-owner and
 pressure-storage-ledger Ubuntu 22.04 snapshot passes 55 CTests; both shared
@@ -308,9 +316,15 @@ mixed pressure-only diagnostic needs 16 outer iterations instead of 60 and
 measures 2,589–2,946 ms per .1 s (host load 26.83–28.90). This resets its source
 between samples and is not evolving owner acceptance.
 It is pressure-only, with normal-range coefficient admission and no saved
-selection. Its interval audits and owner binding remain unfinished. Automatic
-calm selection, full local transport/remap, open physics gates and in-game
-production-kernel validation remain open.
+selection. An unselected full-flow probe now surrounds it with the production
+interval audits and existing macro remap. On the fixed 256x2 wave over one
+second, .1 s mixed windows fail at 8.489% of disturbance amplitude; .025 s mixed
+windows pass at 0.770%, against reference steps at most .0005 s. The first local
+remap fails strict trace accuracy without a reconstruction halo; two extra
+stencil layers pass one front comparison (0.330% helium, 0.445% passive), with
+most of that small room refined. These probes do not select an owner method. Reference
+resolution, automatic calm selection, full local transport/remap, open physics
+gates and complete in-game production validation remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

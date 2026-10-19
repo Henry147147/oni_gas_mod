@@ -113,6 +113,49 @@ Existing checkpoint bytes and continuation are unchanged, including fresh
 Linux/Wine processes.
 Wine supplies Windows-target evidence; actual Windows OS runs remain open.
 
+## Full-flow integration experiments
+
+An unselected probe surrounds this component with the production interval
+conservation/entropy audits, the existing macro remap and physical stages.
+For the same 256x2, 20 Pa periodic wave over one second, with transported
+constituents and passive quantities, comparison against reference steps of at
+most .0005 s gives:
+
+| Pressure schedule | Maximum wave error / 20 Pa | Maximum temperature error | Comparison |
+| --- | ---: | ---: | --- |
+| Uniform .1 s | 0.5374% | 0.0000919 K | Pass |
+| .1 s coarse, first quarter at .05 s | 8.4886% | 0.001452 K | Fail |
+| .025 s coarse, first quarter at .0125 s | 0.7697% | 0.000132 K | Pass |
+
+All attempts pass the unchanged interval audits without rejection. Oxygen
+partial pressure and every compared positive constituent/passive stay within
+1% in these wave runs. The .001 s reference produces the same .1 s mixed-rate
+failure (8.4861%). These comparisons do not certify reference resolution or an
+automatic scheduling rule.
+
+The first geometric local-remap probe uses one shared swept-volume event at
+each face and tracks each cell's intermediate material volume. A uniform
+256-piece remap matches the same-rate reference to 2.83e-14 relative helium
+error. A mixed-rate remap fails: 267.1% maximum local helium error, despite
+bulk pressure/temperature agreement and passing interval audits. A finer
+4,096-piece mixed run still fails the 1% constituent gate. The strict positive
+constituent comparison and all scene inputs remain intact. Limiter traces
+identify background storage/normalization roundoff as one source of altered
+trace slopes; no limiter adjustment is selected. Refining two extra stencil
+layers instead passes the original front comparison: with 4,096 fine pieces
+against an 8,192-step reference, maximum helium error is 0.3296% and maximum
+passive error is 0.4442%. The prescribed fine mask grows to 28 of 32 cells,
+with 58 of 64 faces on the fine cadence. This small-room control establishes
+neither reference resolution nor useful computational savings; broader fronts,
+physical stages and automatic halo admission remain open.
+
+Commands, frozen public sources/libraries, host loads and captures are retained
+in `local/pressure-window-flow-v1/`, `local/pressure-window-transport-v1/`,
+`local/pressure-window-local-remap-v1/` and
+`local/pressure-window-remap-trace-v1/` and `local/pressure-window-remap-halo-v1/`. These probes have no saved selection
+or owner binding. Full local transport and automatic calm-region admission
+remain open.
+
 ## Performance remains open
 
 Two repeated `taskset -c 0-11` diagnostic runs use a 500x500 synthetic gas wave
