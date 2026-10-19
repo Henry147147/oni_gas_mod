@@ -166,7 +166,12 @@ also pass collision.
   bound, with identical endpoint images and refinement counters. The saved
   reader passes 10,974 checks/eighteen corruptions on Release, ASan/UBSan,
   ThreadSanitizer and MinGW/Wine. Pressure products and other
-  transient momentum/energy rounding ledgers remain open. Flagged pressure sweeps now
+  transient momentum/energy rounding ledgers remain open. Incoming constituent/
+  passive gathers now have audited storage-write counts: 70 of 80 independent
+  controlled additions, with 1,431 saved checks/fourteen altered captures rejected.
+  The original bounds, stored values and six version-6/7/8 endpoint/continuation
+  images remain unchanged. Retained-parcel subtractions and primary U are outside
+  this ledger. Flagged pressure sweeps now
   survive until parcel formation; canonical dual J and normalized kinetic
   products fix the reproduced large-inertia fault. Signed and quantized arrivals,
   twelve-worker cache/continuation, concurrency and shared-budget refinement
@@ -183,12 +188,14 @@ also pass collision.
   continuation and migration checks on Linux and MinGW/Wine. The managed wrapper
   admits production physical version 6 without changing outer payload bytes.
   A Linux production gas source saves, reloads in a fresh process, resaves at
-  paused frame zero and matches 120 continued frames. Fourteen Linux scene
-  pairs now pass. Production water-heat fails its unchanged endpoint energy
+  paused frame zero and matches 120 continued frames. The frozen `73abf47`
+  package passes twenty-eight Linux pairs, including both configured rooms,
+  and four WindowsPlayer/Proton pairs (solid heat, gas, water and paired
+  checkpoints); all reloads verify paused frame-zero saving and 120 exact frames. Production water-heat fails its unchanged endpoint energy
   gate after 123 frames (−0.0177002 J against 0.00594580 J), with no rejected
   attempts; a public standalone reproducer matches the drift and conduction
-  counters. This feeds step d's primary-U work. Remaining Linux scenes and
-  Proton production runs are open. The latest Ubuntu
+  counters. This feeds Codex's primary-U remainder work. These bounded runs
+  do not certify a colony or actual Windows OS execution. The latest Ubuntu
   production-owner/pressure-ledger build passes 55 tests and both shared
   libraries meet the glibc 2.34 ceiling after the shared interface geometry
   replaces `std::hypot`. The builder and package provenance check enforce that
@@ -223,7 +230,10 @@ also pass collision.
   windows (0.770% wave error); .1 s mixed windows fail at 8.489%, against reference
   steps at most .0005 s. Its local remap fails strict trace accuracy without
   a reconstruction halo; two extra stencil layers pass one front comparison
-  (0.330% helium, 0.445% passive), refining most of that small room. Reference
+  (0.330% helium, 0.445% passive), refining most of that small room. The same
+  sharp front fails over one second (413.8% maximum helium, 4.55% final passive);
+  a smooth control passes at 0.139%. A heuristic roundoff-margin probe passes
+  at 0.976%, but its envelope is unproved and unselected. Reference
   resolution and automatic scheduling remain open. The committed component has no owner selection,
   interval audits or local transport. Automatic selection, full local subcycling, open
   physics gates, real-time acceptance and in-game production validation remain open.

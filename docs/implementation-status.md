@@ -228,7 +228,14 @@ preserve one/twelve-worker fields, accepted ledgers, rollback and checkpoint
 continuation; six endpoint/continuation images and refinement counters match
 `3fbccfb`. Their saved reader passes 10,974 checks/eighteen corruptions on
 Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. Pressure
-products and other transient momentum/energy rounding ledgers remain open. Flagged sweeps now retain their range through parcel formation, and dual
+products and other transient momentum/energy rounding ledgers remain open.
+[Incoming constituent/passive gathers](../native/MAC_INVENTORY_ROUNDING.md) now
+count inexact additions without changing storage or the original interval bound:
+70 of 80 independently derived writes; the saved reviewer passes 1,431 checks
+and rejects fourteen altered captures. True one/twelve-worker pressure controls
+cover all three methods; six version-6/7/8 endpoint/continuation images match
+the preceding build. Retained-parcel subtractions, products and primary U are
+outside this ledger. Flagged sweeps retain their range through parcel formation, and dual
 J/K products use canonical momentum when a derived velocity or kinetic factor
 underflows. The former large-inertia fault now advances in one attempt and
 matches the strict reference, including a representable tracer arrival.
@@ -250,15 +257,19 @@ retain the saved kernel. Native transition and publication controls pass.
 Managed save framing now admits physical version 6; historical outer payload
 bytes remain unchanged. A Linux production gas source saves and reloads in a
 fresh process, resaves at paused frame zero and matches 120 continued frames.
-Fourteen Linux scene pairs pass source/save and exact fresh-process continuation.
+The frozen `73abf47` package passes twenty-eight Linux source/save and exact
+fresh-process reload pairs, including both configured rooms, and four
+WindowsPlayer/Proton pairs (solid heat, gas, water and paired checkpoints).
+Every reload verifies a paused frame-zero resave and 120 exact continued frames.
 Production water-heat fails the unchanged energy gate: −0.0177002 J residual
 against 0.00594580 J after 123 frames, with zero rejected attempts. A public
 standalone reproducer matches its drift and conduction counters. The primary-U
-investigation belongs to step d; remaining Linux scenes and Proton runs are open.
+investigation now belongs to Codex. These bounded runs do not certify a colony
+or actual Windows OS execution.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 59 merged Release CTests pass. Production-kernel,
+checkpoints remain unchanged. All 62 merged Release CTests pass. Production-kernel,
 native-owner and protocol controls pass Debug ASan/UBSan, ThreadSanitizer and
 MinGW/Wine; the moment suites use targeted threaded checkpoint modes under
 ThreadSanitizer. Post-rebase interface/reconstruction, kernel and owner controls
@@ -325,7 +336,11 @@ second, .1 s mixed windows fail at 8.489% of disturbance amplitude; .025 s mixed
 windows pass at 0.770%, against reference steps at most .0005 s. The first local
 remap fails strict trace accuracy without a reconstruction halo; two extra
 stencil layers pass one front comparison (0.330% helium, 0.445% passive), with
-most of that small room refined. These probes do not select an owner method. Reference
+most of that small room refined. Over one second the same sharp-front probe
+fails at 413.8% maximum local helium error and 4.55% final passive error; the
+smooth-composition control passes at 0.139%. A heuristic roundoff-margin probe
+passes the sharp front at 0.976%, but its envelope is unproved and unselected.
+These probes do not select an owner method. Reference
 resolution, automatic calm selection, full local transport/remap, open physics
 gates and complete in-game production validation remain open.
 

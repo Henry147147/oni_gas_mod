@@ -430,9 +430,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // ---- primal gather: retained + incoming parcels; masses before/after.
     ws.mass_after.assign(N, 0);
     std::vector<double> sum_ops(F, 0);
-    struct GatherOps { std::vector<double> operands; std::size_t unresolved = 0; };
+    struct GatherOps { std::vector<double> operands; std::vector<PrimaryRounding> inventory; std::size_t unresolved = 0; };
     auto ops = c.exec.partials<GatherOps>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        GatherOps local; local.operands.assign(F, 0);
+        GatherOps local; local.operands.assign(F, 0); local.inventory.resize(K + P);
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
@@ -443,6 +443,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 double magnitude = std::abs(v);
                 const auto incoming = [&](double amount) {
                     const double before = v; v += amount;
+                    if (fld != K) local.inventory[fld < K ? fld : fld - 1].addition(before, amount, v);
                     if (amount != 0 && v == before) ++local.unresolved;
                     magnitude += std::abs(amount);
                 };
@@ -464,6 +465,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     for (const auto& part : ops) {
         acc.unresolved += part.unresolved;
         for (std::size_t fld = 0; fld < F; ++fld) sum_ops[fld] += part.operands[fld];
+        for (std::size_t q = 0; q < K + P; ++q) acc.inventory[q].merge(part.inventory[q]);
     }
     for (std::size_t k = 0; k < K; ++k) acc.operands[k] += sum_ops[k];
     for (std::size_t p = 0; p < P; ++p) acc.operands[K + p] += sum_ops[K + 1 + p];

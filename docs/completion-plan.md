@@ -67,6 +67,11 @@ Amendments:
   entropy change must pass the original gate; conservation and all other
   contracts remain unchanged. The precise contract is in
   [MAC_SOLVER.md](../native/MAC_SOLVER.md#numerical-contracts).
+- **Translation-test exception, 2026-10-19 (user decision):** explicitly
+  authorize the specific `80780e3` amendment to the mist translation test: the
+  limit changes from `5e-4` to `1e-3` and required improvement from 10x to 5x,
+  covering the measured MinGW result `0.00056857018401606358`. This exception
+  does not authorize changing other gate inputs or bounds.
 - **Playtest scope, 2026-10-19 (user decision):** the first ten-cycle playtest
   covers the base game and Spaced Out!. The gameplay packs follow later.
 - **Workflow, 2026-10-19 (user decision):** one Codex session works milestone
@@ -74,10 +79,15 @@ Amendments:
   with an evidence report for review. Windows evidence comes from
   WindowsPlayer under Proton for now; actual Windows OS runs remain open.
 - **Physics-gate ownership, 2026-10-19 (user decision):** Claude works
-  milestone B's physics gates (strong flow, vacuum front, U/volume remainders,
-  free surfaces, multiple liquids, phase change, and defining the gravity and
-  multiphase gates) and pushes to `main` from its own clone. Codex continues
-  calm-region stepping, performance and in-game production adoption.
+  milestone B's physics gates (strong flow, vacuum front, free surfaces,
+  multiple liquids, phase change, and defining the gravity and multiphase gates)
+  and pushes to `main` from its own clone. Codex continues calm-region stepping,
+  performance and in-game production adoption. The later ownership amendment
+  assigns persistent primary-U and volume rounding remainders to Codex: cover
+  every U write in both kernels, include the remainders in energy audits,
+  and persist them in a new checkpoint version and owner save framing. This
+  includes the gravity writes in `80780e3`; reference-only monotone modes in
+  `c817680` must also retain them.
 - **Separation core pressure, 2026-10-19 (user decision):** the strong-flow
   separation case's central pressure criterion is re-baselined against a
   classical method. Textbook Godunov and MUSCL-Hancock schemes with exact

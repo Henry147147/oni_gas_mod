@@ -147,8 +147,18 @@ layers instead passes the original front comparison: with 4,096 fine pieces
 against an 8,192-step reference, maximum helium error is 0.3296% and maximum
 passive error is 0.4442%. The prescribed fine mask grows to 28 of 32 cells,
 with 58 of 64 faces on the fine cadence. This small-room control establishes
-neither reference resolution nor useful computational savings; broader fronts,
-physical stages and automatic halo admission remain open.
+neither reference resolution nor useful computational savings. Over one second,
+the unchanged halo method fails: maximum local helium error reaches 413.8%,
+and the final passive error is 4.55%. The smooth-composition control passes
+at 0.139% maximum constituent/passive error. An unselected sensitivity probe
+using a heuristic cumulative-roundoff margin passes the one-second sharp-front
+comparison at 0.976%; its envelope is not proved and it has no production
+selection. An unselected per-field limiter still fails at 83.2% maximum trace
+error. Putting every face on the fine cadence passes at 0.407% maximum
+constituent/passive error, without coarse-region savings. Halving the reference
+step changes the passive comparison by as much as 0.684%; this does not certify
+reference resolution. Broader fronts, physical stages and automatic halo
+admission remain open.
 
 Commands, frozen public sources/libraries, host loads and captures are retained
 in `local/pressure-window-flow-v1/`, `local/pressure-window-transport-v1/`,

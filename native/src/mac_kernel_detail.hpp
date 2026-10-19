@@ -265,6 +265,7 @@ struct Accounts {
     std::vector<double> operands, rounding;
     std::vector<TransferRounding> transfers;
     std::vector<PrimaryRounding> primary;
+    std::vector<PrimaryRounding> inventory;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
     // Concavity bound on the gravity reconciliation's entropy change, and its
@@ -276,6 +277,7 @@ struct Accounts {
         operands.assign(quantities, 0); rounding.assign(quantities, 0);
         transfers.assign(quantities, {});
         primary.assign(quantities, {});
+        inventory.assign(quantities, {});
     }
 };
 struct Counters {

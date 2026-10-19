@@ -4,8 +4,7 @@ The production midpoint, real-Schur moment and coupled-moment pressure stages
 count inexact binary64 additions to canonical face momentum. The original
 `J1 = J0 + impulse` result is retained. This ledger covers storage additions;
 pressure products, wall/body reductions and other stages' normal storage
-ledgers remain open. Persistent primary-U and volume remainders belong to the
-separate physics work.
+ledgers remain open. Persistent primary-U and volume remainders are a separate Codex-owned change.
 
 ## Interval accounting
 

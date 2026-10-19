@@ -47,10 +47,11 @@ void additions() {
     std::cout << "WCONTROLS 1 1 1 1\n";
 }
 void same_audit(const MacKernelReport& a, const MacKernelReport& b) {
-    check(a.rounded_primary_writes == b.rounded_primary_writes && a.audits.size() == b.audits.size(), "Primary count depends on execution history");
+    check(a.rounded_primary_writes == b.rounded_primary_writes && a.rounded_inventory_writes == b.rounded_inventory_writes && a.audits.size() == b.audits.size(), "Primary count depends on execution history");
     for (std::size_t i = 0; i < a.audits.size(); ++i) {
         const auto& x = a.audits[i]; const auto& y = b.audits[i];
         check(x.quantity == y.quantity && x.rounded_primary_writes == y.rounded_primary_writes &&
+            x.rounded_inventory_writes == y.rounded_inventory_writes &&
             x.rounding_allowance == y.rounding_allowance, "Primary audit depends on workers/cache/rejected work");
     }
 }
@@ -68,7 +69,7 @@ void evolution(MacPressureIntegration method) {
     const auto one = advance_mac_production(source, .002, 1024, options); const auto first = last_mac_production_report();
     options.threads = 12;
     const auto many = advance_mac_production(source, .002, 1024, options); const auto second = last_mac_production_report();
-    check(!second.reference_fallback && second.threads_used == 12 && second.rounded_primary_writes > 0 &&
+    check(!second.reference_fallback && second.threads_used == 12 && second.rounded_primary_writes > 0 && second.rounded_inventory_writes > 0 &&
         one.world.checkpoint() == many.world.checkpoint(), "Pressure rounding left production or changed threaded state");
     same_audit(first, second);
     std::size_t total = 0, axes = 0;
@@ -83,7 +84,7 @@ void evolution(MacPressureIntegration method) {
         }
     }
     check(axes == 2 && total == second.rounded_primary_writes && many.report.interval_rounded_updates ==
-        total + second.rounded_transfers + second.rounded_range_inputs, "Primary count did not reach the owner");
+        total + second.rounded_transfers + second.rounded_range_inputs + second.rounded_inventory_writes, "Primary count did not reach the owner");
     bool rejected = false; try { (void)advance_mac_production(source, .02, 1, options); } catch (const std::runtime_error&) { rejected = true; }
     check(rejected && source.checkpoint() == held && last_mac_production_report().rounded_primary_writes == 0,
         "Failed interval leaked primary rounding or changed its source");

@@ -57,6 +57,9 @@ struct MacKernelAudit {
     // Inexact pressure-momentum additions. Their half-ulp charges are
     // reported in rounding_allowance and fit inside the unchanged bound.
     std::size_t rounded_primary_writes = 0;
+    // Inexact constituent/passive additions while gathering shared parcels.
+    // Their half-ulp charges also fit inside the existing interval bound.
+    std::size_t rounded_inventory_writes = 0;
     // Accepted parcel and dual J/K products, including retained K. Their additive error is
     // checked against one half of the smallest binary64 quantum per actual
     // rounding; shared parcel errors add no endpoint allowance.
@@ -91,7 +94,7 @@ struct MacKernelReport {
     std::size_t eos_evaluations = 0, isentropic_evaluations = 0;
     std::size_t reconstruction_backtracks = 0, limited_momentum_corrections = 0;
     std::size_t compression_events = 0, shock_heat_events = 0, conduction_stages = 0, viscosity_modes = 0;
-    std::size_t rounded_range_inputs = 0, rounded_transfers = 0, rounded_primary_writes = 0;
+    std::size_t rounded_range_inputs = 0, rounded_transfers = 0, rounded_primary_writes = 0, rounded_inventory_writes = 0;
     // Accepted field/parcel writes whose nonzero increment leaves the stored
     // value unchanged; discarded reconstruction/substep/interval work is absent.
     std::size_t unresolved_updates = 0;

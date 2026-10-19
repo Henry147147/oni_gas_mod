@@ -58,15 +58,17 @@ unflagged replay and stateless continuation preserve the saved selection.
 Native regression evidence covers this transition. Production gas saves and
 fresh-process reloads pass Linux Unity, including paused frame-zero saving
 and 120 exact continued frames. The managed save wrapper admits physical
-version 6 without changing its outer payload framing. Fourteen Linux scene pairs
-now pass source/save and exact fresh-process continuation. Production
+version 6 without changing its outer payload framing. The frozen `73abf47`
+package passes twenty-eight Linux pairs, including both configured rooms, and
+four WindowsPlayer/Proton pairs (solid heat, gas, water and paired checkpoints).
+Every reload verifies paused frame-zero saving and 120 exact continued frames.
+These bounded fixtures do not certify a colony or actual Windows OS execution. Production
 `water-heat` fails its unchanged endpoint energy gate after 123 frames:
 −0.0177001953125 J residual against 0.005945804622783117 J, with no rejected
 solver attempts. A standalone public-species reproducer matches the drift,
 conduction counters and entropy report; it is retained with the game evidence
 in `local/production-water-heat-drift-v1/` and `local/production-save-v6-v1/`.
-Persistent primary-U work belongs to step d. The rest of the Linux cohort and
-Proton production runs remain open.
+Persistent primary-U and volume remainders now belong to Codex.
 
 **Native exclusions.** The validation scenes queue ONI's gas/liquid
 impermeability flags and verify them in the original native snapshot. Native

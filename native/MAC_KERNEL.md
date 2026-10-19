@@ -199,8 +199,10 @@ large-inertia production fault and preserves representable trace arrivals.
 inexact canonical-J additions with deterministic [primary-write ledgers](MAC_PRESSURE_ROUNDING.md).
 Their outward half-ulp charges fit inside the original interval operand bound;
 stored values and refinement counters are unchanged. Accepted counts reach the
-owner's rounded-update report. Other pressure products and normal storage
-ledgers outside pressure remain open.
+owner's rounded-update report. Incoming constituent/passive gathers now also
+have [inventory-write ledgers](MAC_INVENTORY_ROUNDING.md), with unchanged stored
+values and interval bounds. Retained-parcel subtractions, ordinary products,
+primary U and momentum writes outside pressure remain open.
 
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
 (modes 1–3), conduction (backward Euler for temperature changes, pairwise
