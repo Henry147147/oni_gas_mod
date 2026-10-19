@@ -129,7 +129,8 @@ also pass collision.
   flux now pass standalone controls, including a 10,000-step continuation, but
   unresolved U updates are reported rather than saved. The normal and flagged-range
   [two-part arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md) pass
-  independent saved checks, ASan/UBSan, ThreadSanitizer and MinGW/Wine controls,
+  independent saved checks including composed-sum ties, ASan/UBSan,
+  ThreadSanitizer and MinGW/Wine controls,
   but have no solver-state or checkpoint binding.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)

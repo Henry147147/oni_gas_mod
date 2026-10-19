@@ -5,6 +5,28 @@
 
 namespace ma::experimental {
 namespace {
+MacEnergy rounded_range(const MacEnergySum& total) {
+    auto value=total.value();
+    if(value.is_zero()) {
+        if(total.sign()!=0)throw std::runtime_error("MAC range estimate lost a nonzero primary correction");
+        return value;
+    }
+    for(unsigned attempt=0;attempt<8;++attempt) {
+        auto residual=total;residual.add(value.negated());const int sign=residual.sign();
+        if(sign==0)return value;
+        int shift=0;
+        const double mantissa=std::frexp(std::nextafter(value.mantissa(),sign>0 ?
+            std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity()),&shift);
+        const auto adjacent=MacEnergy::from_parts(mantissa,value.exponent()+shift);
+        MacEnergySum width;width.add(adjacent);width.add(value.negated());
+        MacEnergySum comparison;comparison.add(width.value().magnitude().shifted(-1).negated());
+        for(std::size_t k=0;k<residual.size();++k)
+            comparison.add(sign>0 ? residual.component(k) : residual.component(k).negated());
+        if(comparison.sign()<0 || (comparison.sign()==0 && (std::bit_cast<std::uint64_t>(value.mantissa())&1U)==0))return value;
+        value=adjacent;
+    }
+    throw std::runtime_error("MAC primary range rounding did not converge");
+}
 double nearest_high(double high, MacEnergy low) {
     if (low.is_zero()) return high;
     const double direction = low.mantissa() > 0 ? std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity();
@@ -39,17 +61,17 @@ bool canonical_mac_primary(double value, const MacStoredRemainder& remainder) {
     return nearest_high(value, low) == value;
 }
 MacPrimaryFullWrite store_mac_primary_remainder(const MacEnergySum& total) {
-    MacPrimaryFullWrite result; result.value = total.value().project().value;
+    MacPrimaryFullWrite result; result.value = rounded_range(total).project().value;
     MacEnergySum correction = total; correction.add(-result.value);
     result.high_rounded = correction.sign() != 0;
-    auto low = correction.value();
+    auto low = rounded_range(correction);
     bool normalized = false;
     for (unsigned attempt = 0; attempt < 4; ++attempt) {
         const double next = nearest_high(result.value, low);
         if (next == result.value) { normalized = true; break; }
         if (!std::isfinite(next)) throw std::overflow_error("MAC primary remainder normalization overflow");
-        low = add_mac_energy(low, MacEnergy::from_double(result.value - next)).high;
         result.value = next;
+        correction=total;correction.add(-result.value);low=rounded_range(correction);
     }
     if (!normalized) throw std::runtime_error("MAC primary remainder did not normalize");
     const auto projection = low.project(); result.remainder.projected = projection.value;

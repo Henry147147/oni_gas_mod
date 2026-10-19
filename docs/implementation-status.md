@@ -20,7 +20,8 @@ deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
 The next slice retains full-range vertical gravity work and potential flux, with
 10,000-step and checkpoint controls. Primary-U rounding remainders still need
 persistent storage. Checked [normal and flagged-range arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md)
-retain otherwise lost heat increments, with independent saved checks and
+retain otherwise lost heat increments and resolve composed-sum ties from all
+retained terms, with independent saved checks and
 ASan/UBSan, ThreadSanitizer and MinGW/Wine controls. They have no solver-state
 or checkpoint binding; these controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present

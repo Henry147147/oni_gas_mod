@@ -36,11 +36,12 @@ def parse(raw):
         fields = line.split()
         check(bool(fields) and count is None, "Empty/trailing record")
         if fields[0] == "PRFULL":
-            check(len(fields) == 14 and (not rows or len(rows[-1]['tails']) == rows[-1]['tail_count']), "Primary shape or missing tails")
+            check(len(fields) == 16 and (not rows or len(rows[-1]['tails']) == rows[-1]['tail_count']), "Primary shape or missing tails")
             rows.append(dict(identity=int(fields[1]), high=number(fields[2]), low=scaled(*fields[3:5]),
-                             increment=scaled(*fields[5:7]), stored=number(fields[7]), remainder=scaled(*fields[8:10]),
-                             projection=number(fields[10]), full=int(fields[11]), rounded=int(fields[12]),
-                             tail_count=int(fields[13]), tails=[]))
+                             increment=scaled(*fields[5:7]), extra=scaled(*fields[7:9]), stored=number(fields[9]), remainder=scaled(*fields[10:12]),
+                             remainder_exponent=int(fields[11]),
+                             projection=number(fields[12]), full=int(fields[13]), rounded=int(fields[14]),
+                             tail_count=int(fields[15]), tails=[]))
         elif fields[0] == "PRTAIL":
             check(len(fields) == 3 and rows and len(rows[-1]['tails']) < rows[-1]['tail_count'], "Tail shape/order")
             rows[-1]['tails'].append(scaled(*fields[1:3]))
@@ -54,22 +55,23 @@ def parse(raw):
 
 def review(data):
     rows, count = data
-    check(count == len(rows) == 1014, "Range-primary coverage/count changed")
+    check(count == len(rows) == 1022, "Range-primary coverage/count changed")
     full, discarded = 0, 0
     for n, row in enumerate(rows):
         check(row['identity'] == n and row['rounded'] in (0, 1) and row['full'] in (0, 1), "Primary ordering/flag")
         check(len(row['tails']) == row['tail_count'] <= 16, "Primary tail coverage")
-        h, l, q, s, r = (row[k] for k in ('high', 'low', 'increment', 'stored', 'remainder'))
-        exact = h + l + q
+        h, l, q, extra, s, r = (row[k] for k in ('high', 'low', 'increment', 'extra', 'stored', 'remainder'))
+        exact = h + l + q + extra
         tail = sum(row['tails'], F(0))
         check(exact == s + r + tail, "Unreported primary storage error")
         check(F(float(s + r)) == s, "Noncanonical stored primary pair")
         check(F(float(r)) == row['projection'] and row['full'] == int(F(float(r)) != r), "Remainder projection/flag differs")
         check(row['rounded'] == int(exact != s), "High-part rounding flag differs")
-        scale = abs(h) + abs(l) + abs(q) + abs(s) + abs(r)
+        scale = abs(h) + abs(l) + abs(q) + abs(row['extra']) + abs(s) + abs(r)
         check(abs(tail) <= scale / (1 << 45), "Primary error exceeds unchanged 128-epsilon operand account")
         full += row['full']
         discarded += tail != 0
+        check(abs(tail) <= (F(2) ** (row['remainder_exponent'] - 54) if r else 0), "Third part exceeds half a low-part quantum")
     check(full >= 515 and discarded >= 947, "Missing flagged-range/discarded-tail coverage")
     for n, exponent in enumerate((-1075, -2000, -4096)):
         a, b = rows[1000 + 2*n:1002 + 2*n]
@@ -78,13 +80,23 @@ def review(data):
         check((b['high'], b['low'], b['increment'], b['stored'], b['remainder']) == (1, tiny, -1, 0, tiny), "Cancellation control changed")
 
 
+    for n, sign in enumerate((-1, 1)):
+        for j, direction in enumerate((-1, 1)):
+            for k, tiny in enumerate((-1, 1)):
+                row = rows[1014 + 4*n + 2*j + k]
+                expected = (F(sign), F(sign, 1 << 54),
+                            F(-sign, 1 << 108) if direction < 0 else F(sign, 1 << 107), F(tiny, 1 << 160))
+                check(tuple(row[key] for key in ('high', 'low', 'increment', 'extra')) == expected, "Composed tie inputs changed")
+                check(row['stored'] == sign and row['remainder'] == F(float(sum(expected[1:]))), "Composed low part rounded before its deciding term")
+
+
 def main():
     raw = Path(sys.argv[1]).read_bytes()
     check(len(raw) <= 2*1024*1024, "Primary capture cap")
     data = parse(raw)
     review(data)
     measured_checks = CHECKS
-    mutations = ('high', 'low', 'increment', 'stored', 'remainder', 'projection', 'full', 'rounded', 'tail', 'count', 'missing', 'identity')
+    mutations = ('high', 'low', 'increment', 'extra', 'stored', 'remainder', 'projection', 'full', 'rounded', 'tail', 'count', 'missing', 'identity')
     for name in mutations:
         bad = copy.deepcopy(data)
         rows, count = bad
