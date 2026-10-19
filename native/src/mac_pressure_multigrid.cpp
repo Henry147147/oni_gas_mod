@@ -6,6 +6,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 
 namespace ma::experimental::interval_detail {
 namespace {
@@ -167,6 +168,22 @@ PressureMultigrid::PressureMultigrid(std::shared_ptr<const PressureMultigridTopo
     const auto n = topology_->levels().back().coordinates.size();
     if (!topology_->levels().back().edges.empty()) cholesky_.resize(n * n);
 }
+std::size_t PressureMultigridTopology::storage_bytes() const noexcept {
+    std::size_t bytes = grid_.walls.capacity() * sizeof(std::uint8_t) + active_.capacity() * sizeof(std::size_t);
+    const auto add = [&](const auto& v) { bytes += v.capacity() * sizeof(typename std::decay_t<decltype(v)>::value_type); };
+    add(levels_);
+    for (const auto& l : levels_) {
+        add(l.coordinates); add(l.edges); add(l.adjacent_offsets); add(l.adjacent); add(l.parent); add(l.edge_parent);
+        add(l.edge_scale); add(l.prolong_offsets); add(l.restrict_offsets); add(l.prolong); add(l.restrict);
+    }
+    return bytes;
+}
+std::size_t PressureMultigrid::storage_bytes() const noexcept {
+    std::size_t bytes = values_.capacity() * sizeof(MultigridValues) + cholesky_.capacity() * sizeof(double);
+    for (const auto& v : values_) for (const auto* f : {&v.compliance, &v.conductance, &v.diagonal, &v.relaxation, &v.rhs, &v.correction, &v.scratch})
+        bytes += f->capacity() * sizeof(double);
+    return bytes;
+}
 bool PressureMultigrid::prepare(std::span<const double> compliance, std::span<const double> gx, std::span<const double> gy) {
     prepared_ = false; cycles_ = 0; const auto& grid = topology_->grid();
     require(compliance.size() == grid.walls.size() && gx.size() == grid.x_width() * grid.height && gy.size() == grid.width * grid.y_height(), "Multigrid coefficient shape differs");
@@ -214,7 +231,7 @@ bool PressureMultigrid::prepare(std::span<const double> compliance, std::span<co
 }
 void PressureMultigrid::residual(std::size_t l) {
     auto& value = values_[l]; const auto& level = topology_->levels()[l];
-    independent_rows(value.rhs.size(), [&](std::size_t i) {
+    rows(value.rhs.size(), [&](std::size_t i) {
         double sum = value.rhs[i] - value.compliance[i] * value.correction[i];
         for (auto k = level.adjacent_offsets[i]; k < level.adjacent_offsets[i + 1]; ++k) {
             const auto& neighbor = level.adjacent[k]; sum -= value.conductance[neighbor.edge] * (value.correction[i] - value.correction[neighbor.node]);
@@ -230,7 +247,7 @@ void PressureMultigrid::smooth(std::size_t l, bool reverse) {
     auto& value = values_[l]; const auto& level = topology_->levels()[l];
     // Every downward solve defines an exactly zero initial correction. Its
     // first residual is the RHS; assign the first correction directly.
-    if (!reverse) independent_rows(value.correction.size(), [&](std::size_t i) {
+    if (!reverse) rows(value.correction.size(), [&](std::size_t i) {
         value.correction[i] = (.5 * value.relaxation[i]) * value.rhs[i];
     });
     for (int pass = reverse ? 0 : 1; pass < 2; ++pass) {
@@ -238,7 +255,7 @@ void PressureMultigrid::smooth(std::size_t l, bool reverse) {
         // Gather from the unchanged old vector and write the next correction
         // directly. This retains each row's arithmetic order while avoiding
         // a separate residual write/read and correction-update pass.
-        independent_rows(value.correction.size(), [&](std::size_t i) {
+        rows(value.correction.size(), [&](std::size_t i) {
             double sum = value.rhs[i] - value.compliance[i] * value.correction[i];
             for (auto k = level.adjacent_offsets[i]; k < level.adjacent_offsets[i + 1]; ++k) {
                 const auto& neighbor = level.adjacent[k]; sum -= value.conductance[neighbor.edge] * (value.correction[i] - value.correction[neighbor.node]);
@@ -252,7 +269,7 @@ void PressureMultigrid::cycle(std::size_t l) {
     auto& value = values_[l]; const auto& level = topology_->levels()[l];
     if (l + 1 == values_.size()) {
         const auto n = value.rhs.size();
-        if (level.edges.empty()) independent_rows(n, [&](std::size_t i) { value.correction[i] = value.rhs[i] / value.compliance[i]; });
+        if (level.edges.empty()) rows(n, [&](std::size_t i) { value.correction[i] = value.rhs[i] / value.compliance[i]; });
         else {
             for (std::size_t i = 0; i < n; ++i) {
                 double sum = value.rhs[i]; for (std::size_t j = 0; j < i; ++j) sum -= cholesky_[i * n + j] * value.correction[j];
@@ -266,7 +283,7 @@ void PressureMultigrid::cycle(std::size_t l) {
         return;
     }
     smooth(l, false); residual(l); auto& next = values_[l + 1];
-    independent_rows(next.rhs.size(), [&](std::size_t i) {
+    rows(next.rhs.size(), [&](std::size_t i) {
         double sum = 0;
         for (auto k = level.restrict_offsets[i]; k < level.restrict_offsets[i + 1]; ++k) {
             const auto& term = level.restrict[k]; sum += term.weight * value.scratch[term.node];
@@ -274,7 +291,7 @@ void PressureMultigrid::cycle(std::size_t l) {
         next.rhs[i] = sum;
     });
     cycle(l + 1);
-    independent_rows(value.correction.size(), [&](std::size_t i) {
+    rows(value.correction.size(), [&](std::size_t i) {
         double sum = 0;
         for (auto k = level.prolong_offsets[i]; k < level.prolong_offsets[i + 1]; ++k) {
             const auto& term = level.prolong[k]; sum += term.weight * next.correction[term.node];
@@ -288,13 +305,13 @@ bool PressureMultigrid::apply(std::span<const double> rhs, std::span<double> out
     if (!prepared_) return false;
     auto& first = values_[0]; const auto& active = topology_->active_cells();
     for (const auto i : active) if (!std::isfinite(rhs[i])) return false;
-    independent_rows(active.size(), [&](std::size_t i) { first.rhs[i] = rhs[active[i]]; });
+    rows(active.size(), [&](std::size_t i) { first.rhs[i] = rhs[active[i]]; });
     cycle(0); ++cycles_;
     for (const auto value : first.correction) if (!std::isfinite(value)) return false;
-    if (active.size() == output.size()) independent_rows(active.size(), [&](std::size_t i) { output[i] = first.correction[i]; });
+    if (active.size() == output.size()) rows(active.size(), [&](std::size_t i) { output[i] = first.correction[i]; });
     else {
-        independent_rows(output.size(), [&](std::size_t i) { output[i] = 0; });
-        independent_rows(active.size(), [&](std::size_t i) { output[active[i]] = first.correction[i]; });
+        rows(output.size(), [&](std::size_t i) { output[i] = 0; });
+        rows(active.size(), [&](std::size_t i) { output[active[i]] = first.correction[i]; });
     }
     return true;
 }

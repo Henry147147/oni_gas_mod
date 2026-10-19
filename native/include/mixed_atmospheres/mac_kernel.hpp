@@ -25,8 +25,8 @@ struct MacKernelOptions {
     // woken for every parallel region only cost time (4,096 cells, four
     // blocks: 2.0 times one thread with four threads, 1.6 with twelve).
     std::size_t minimum_blocks_per_thread = 1;
-    // Newton-correction preconditioner. The multigrid option is an untuned
-    // aggregation V-cycle; Jacobi-PCG is the default.
+    // Newton-correction preconditioner. The multigrid option is the symmetric
+    // geometric V-cycle shared with the saved-data component controls; Jacobi-PCG is the default.
     MacKernelPreconditioner preconditioner = MacKernelPreconditioner::jacobi;
     // Execution-only, process default off: when the persisted
     // MacNumericalKernel::interval_audited port declines a configuration it
@@ -65,6 +65,7 @@ struct MacKernelStageTiming {
 };
 struct MacKernelReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0, audit_retries = 0;
+    std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
     std::size_t newton_iterations = 0, linear_iterations = 0, line_search_backtracks = 0;
     std::size_t eos_evaluations = 0, isentropic_evaluations = 0;
     std::size_t reconstruction_backtracks = 0, limited_momentum_corrections = 0;

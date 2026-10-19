@@ -3,6 +3,7 @@
 // Structure-of-arrays binary64 storage, fixed row blocks and deterministic
 // block-ordered reductions. Nothing here is part of the owner API.
 #include "mixed_atmospheres/mac_kernel.hpp"
+#include "mac_pressure_multigrid.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <algorithm>
 #include <array>
@@ -205,6 +206,7 @@ struct Accounts {
     void resize(std::size_t quantities) { operands.assign(quantities, 0); rounding.assign(quantities, 0); }
 };
 struct Counters {
+    std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
     std::size_t newton = 0, linear = 0, line_search = 0, eos = 0, isentropic = 0, reconstruction_backtracks = 0,
         limited_momentum = 0, compression_events = 0, shock_events = 0, conduction_stages = 0, viscosity_modes = 0;
     double maximum_volume_closure = 0;
@@ -212,6 +214,10 @@ struct Counters {
 // Scratch arrays reused across substeps of one interval (no per-stage
 // allocation after the first substep).
 struct Workspace {
+    // Derived topology and coefficients only. The active mask includes empty
+    // cells; a changed mask or geometry replaces the hierarchy before use.
+    std::shared_ptr<const interval_detail::PressureMultigridTopology> pressure_topology;
+    std::unique_ptr<interval_detail::PressureMultigrid> pressure_multigrid;
     EosCache eos;
     std::vector<Anchor> anchor;
     std::vector<double> cell_mass, mass_after, ix, iy, ix1, iy1, inv_ix, inv_iy, dp0x, dp0y, wx, wy, bdiag;
@@ -236,6 +242,7 @@ struct Workspace {
 };
 struct Context {
     Workspace& ws;
+    const MacGrid& source_grid;
     const Model& model;
     const Grid& g;
     const MacClosedSettings& settings;

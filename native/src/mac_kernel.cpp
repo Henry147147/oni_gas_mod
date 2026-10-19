@@ -257,6 +257,8 @@ std::size_t retained_bytes(const Workspaces& w) {
     std::size_t total = 0;
     const auto add = [&](const auto& v) { total += v.capacity() * sizeof(typename std::decay_t<decltype(v)>::value_type); };
     const auto& ws = w.ws; const auto& e = ws.eos;
+    if (ws.pressure_topology) total += ws.pressure_topology->storage_bytes();
+    if (ws.pressure_multigrid) total += ws.pressure_multigrid->storage_bytes();
     for (const auto* v : {&e.M, &e.Cv, &e.off, &e.nR, &e.Nl, &e.T, &e.p, &e.Vg, &e.Eel, &e.Ceq, &e.comp, &e.lcomp}) add(*v);
     add(e.kind); add(ws.anchor);
     for (const auto* v : {&ws.cell_mass, &ws.mass_after, &ws.ix, &ws.iy, &ws.ix1, &ws.iy1, &ws.inv_ix, &ws.inv_iy, &ws.dp0x, &ws.dp0y,
@@ -293,7 +295,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     auto& w = workspaces();
     MacKernelReport report;
     report.threads_used = threads_for(g, options);
-    Context c{w.ws, model, g, settings, options, Exec{g, pool_for(report.threads_used)}, {}, {}};
+    Context c{w.ws, source.grid, model, g, settings, options, Exec{g, pool_for(report.threads_used)}, {}, {}};
     report.rounded_range_inputs = load(c.exec, model, g, source, w.start);
     for (std::size_t i = 0; i < g.N; ++i) {
         if (g.wall[i]) {
@@ -400,6 +402,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     store(c.exec, model, g, w.current, out);
     report.timing.conversion_ms += since(store_time);
     report.workspace_bytes = retained_bytes(w);
+    report.multigrid_solves = c.counters.multigrid_solves; report.multigrid_cycles = c.counters.multigrid_cycles;
+    report.multigrid_fallbacks = c.counters.multigrid_fallbacks; report.multigrid_levels = c.counters.multigrid_levels;
+    report.topology_builds = c.counters.topology_builds;
     report.newton_iterations = c.counters.newton; report.linear_iterations = c.counters.linear;
     report.line_search_backtracks = c.counters.line_search; report.eos_evaluations = c.counters.eos;
     report.isentropic_evaluations = c.counters.isentropic; report.reconstruction_backtracks = c.counters.reconstruction_backtracks;
@@ -488,6 +493,9 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     MacKernelAccess::stamp(result.world, start + seconds, revision + 1);
     auto& r = result.report;
     r.substeps = k.substeps; r.attempts = k.attempts; r.rejected_attempts = k.rejected_attempts;
+    r.interval_multigrid_solves = k.multigrid_solves; r.interval_multigrid_cycles = k.multigrid_cycles;
+    r.interval_multigrid_fallbacks = k.multigrid_fallbacks; r.interval_multigrid_levels = k.multigrid_levels;
+    r.interval_topology_builds = k.topology_builds;
     r.pressure_iterations = k.linear_iterations; r.nonlinear_iterations = k.newton_iterations;
     r.unresolved_heat_updates = k.unresolved_updates;
     r.compression_events = k.compression_events; r.shock_heat_events = k.shock_heat_events;

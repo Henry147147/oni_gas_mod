@@ -3,7 +3,7 @@
 // volume changes in the increment formulation W = p0 + dW(dV). Node pressure
 // differences gather (p0_l - p0_r) + (dW_l - dW_r), so no absolute-pressure
 // cancellation floor limits the Newton root. Linear systems use PCG with a
-// Jacobi or aggregation-multigrid preconditioner.
+// Jacobi or geometric-multigrid preconditioner.
 #include "mac_kernel_detail.hpp"
 #include <array>
 #include <chrono>
@@ -70,123 +70,41 @@ void apply(const Context& c, const LinearSystem& sys, const std::vector<double>&
     });
     if (dot) *dot = combine(part);
 }
-// ---------------------------------------------------------------- multigrid
-// Pairwise 2x2 aggregation with Galerkin coarse operators (piecewise-constant
-// prolongation), symmetric damped-Jacobi smoothing. Levels are built from the
-// fine system for each solve; every operation is a fixed-order gather.
-struct Level {
-    std::size_t W = 0, H = 0, N = 0;
-    bool px = false, py = false;
-    std::vector<double> diag, wx, wy, inv; // wx: right-neighbour weight of cell (x,y); wy: top-neighbour weight
-    std::vector<std::uint8_t> active;
-    std::vector<double> x, b, r;
-};
-struct Hierarchy { std::vector<Level> levels; };
-void build_hierarchy(const Context& c, const LinearSystem& sys, Hierarchy& h) {
-    const auto& g = c.g;
-    h.levels.clear();
-    Level fine; fine.W = g.W; fine.H = g.H; fine.N = g.N; fine.px = g.px; fine.py = g.py;
-    fine.diag.assign(fine.N, 0); fine.wx.assign(fine.N, 0); fine.wy.assign(fine.N, 0); fine.active.assign(fine.N, 0);
-    for (std::size_t i = 0; i < g.N; ++i) {
-        fine.active[i] = sys.active[i];
-        if (!sys.active[i]) continue;
-        const auto r = g.right_face(i), t = g.top_face(i);
-        fine.wx[i] = (g.px || i % g.W + 1 < g.W) ? sys.wx[r] : 0;
-        fine.wy[i] = (g.py || i / g.W + 1 < g.H) ? sys.wy[t] : 0;
-        const auto l = g.left_face(i), b = g.bottom_face(i);
-        // Diagonal of A = diag + sum of incident weights.
-        fine.diag[i] = sys.diag[i] + sys.wx[l] + sys.wx[r] + sys.wy[b] + sys.wy[t];
-    }
-    h.levels.push_back(std::move(fine));
-    while (h.levels.back().N > 64 && h.levels.size() < 24) {
-        const auto& f = h.levels.back();
-        if (f.W < 2 && f.H < 2) break;
-        Level q; q.W = (f.W + 1) / 2; q.H = (f.H + 1) / 2; q.N = q.W * q.H;
-        q.px = f.px && f.W % 2 == 0; q.py = f.py && f.H % 2 == 0;
-        q.diag.assign(q.N, 0); q.wx.assign(q.N, 0); q.wy.assign(q.N, 0); q.active.assign(q.N, 0);
-        const auto parent = [&](std::size_t x, std::size_t y) { return (x / 2) + (y / 2) * q.W; };
-        for (std::size_t y = 0; y < f.H; ++y) for (std::size_t x = 0; x < f.W; ++x) {
-            const auto i = x + y * f.W; if (!f.active[i]) continue;
-            const auto P = parent(x, y); q.active[P] = 1; q.diag[P] += f.diag[i];
-            // Right neighbour.
-            if (f.wx[i] != 0) {
-                const auto nx = (x + 1) % f.W, j = nx + y * f.W;
-                const auto Q = parent(nx, y);
-                if (Q == P) q.diag[P] -= 2 * f.wx[i];
-                else {
-                    // Coarse right link of P is to the cell at P+1 (or wrap).
-                    const bool right = (x / 2 + 1) % q.W == nx / 2;
-                    if (right && (q.px || x / 2 + 1 < q.W)) q.wx[P] += f.wx[i];
-                    else { // Periodic fine wrap without a periodic coarse grid: keep as diagonal only.
-                        q.diag[P] -= f.wx[i]; q.diag[Q] -= 0; (void)j;
-                    }
-                }
-            }
-            if (f.wy[i] != 0) {
-                const auto ny = (y + 1) % f.H;
-                const auto Q = parent(x, ny);
-                if (Q == P) q.diag[P] -= 2 * f.wy[i];
-                else {
-                    const bool up = (y / 2 + 1) % q.H == ny / 2;
-                    if (up && (q.py || y / 2 + 1 < q.H)) q.wy[P] += f.wy[i];
-                    else q.diag[P] -= f.wy[i];
-                }
-            }
-        }
-        h.levels.push_back(std::move(q));
-    }
-    for (auto& L : h.levels) {
-        L.inv.assign(L.N, 0);
-        for (std::size_t i = 0; i < L.N; ++i) if (L.active[i] && L.diag[i] > 0) L.inv[i] = 1 / L.diag[i];
-        L.x.assign(L.N, 0); L.b.assign(L.N, 0); L.r.assign(L.N, 0);
-    }
 }
-// Residual r = b - A x on a level (A from diag/off-diagonal weights).
-void level_residual(const Level& L, const std::vector<double>& x, const std::vector<double>& b, std::vector<double>& r) {
-    for (std::size_t y = 0; y < L.H; ++y) for (std::size_t xx = 0; xx < L.W; ++xx) {
-        const auto i = xx + y * L.W; if (!L.active[i]) { r[i] = 0; continue; }
-        double ax = L.diag[i] * x[i];
-        if (L.wx[i] != 0) ax -= L.wx[i] * x[(xx + 1) % L.W + y * L.W];
-        if (L.wy[i] != 0) ax -= L.wy[i] * x[xx + ((y + 1) % L.H) * L.W];
-        const auto left = xx > 0 ? i - 1 : (L.px ? i + L.W - 1 : i);
-        if (left != i && L.wx[left] != 0) ax -= L.wx[left] * x[left];
-        const auto below = y > 0 ? i - L.W : (L.py ? i + (L.H - 1) * L.W : i);
-        if (below != i && L.wy[below] != 0) ax -= L.wy[below] * x[below];
-        r[i] = b[i] - ax;
+// A cached hierarchy for exactly this active pressure geometry. Empty-cell
+// zero-traction faces enter the fine diagonal, never a coarse physical link.
+static bool prepare_multigrid(Context& c, const LinearSystem& sys) {
+    auto& ws = c.ws;
+    MacGrid active_grid = c.source_grid;
+    for (std::size_t i = 0; i < sys.active.size(); ++i) active_grid.walls[i] = sys.active[i] ? 0 : 1;
+    const auto same = [&](const MacGrid& old) {
+        return old.width == active_grid.width && old.height == active_grid.height &&
+            old.spacing_m == active_grid.spacing_m && old.depth_m == active_grid.depth_m &&
+            old.periodic_x == active_grid.periodic_x && old.periodic_y == active_grid.periodic_y && old.walls == active_grid.walls;
+    };
+    if (!ws.pressure_topology || !same(ws.pressure_topology->grid())) {
+        ws.pressure_topology = std::make_shared<const interval_detail::PressureMultigridTopology>(active_grid);
+        ws.pressure_multigrid = std::make_unique<interval_detail::PressureMultigrid>(ws.pressure_topology);
+        ++c.counters.topology_builds;
     }
-}
-void smooth(Level& L, int sweeps) {
-    constexpr double omega = .8;
-    for (int s = 0; s < sweeps; ++s) {
-        level_residual(L, L.x, L.b, L.r);
-        for (std::size_t i = 0; i < L.N; ++i) if (L.active[i]) L.x[i] += omega * L.inv[i] * L.r[i];
+    ws.pressure_multigrid->set_executor([](const void* context, std::size_t blocks, interval_detail::BlockFunction function, const void* job_context) {
+        // Small coarse levels stay serial; the block and row order is unchanged.
+        const auto job = [&](std::size_t block) { function(job_context, block); };
+        if (blocks < 32) { for (std::size_t b = 0; b < blocks; ++b) job(b); }
+        else static_cast<Pool*>(const_cast<void*>(context))->run(blocks, job);
+    }, &c.exec.pool);
+    c.counters.multigrid_levels = std::max(c.counters.multigrid_levels, ws.pressure_topology->levels().size());
+    if (!ws.pressure_multigrid->prepare(sys.diag, sys.wx, sys.wy)) {
+        ++c.counters.multigrid_fallbacks; return false;
     }
-}
-void vcycle(Hierarchy& h, std::size_t level) {
-    auto& L = h.levels[level];
-    if (level + 1 == h.levels.size()) { smooth(L, 40); return; }
-    smooth(L, 2);
-    level_residual(L, L.x, L.b, L.r);
-    auto& Q = h.levels[level + 1];
-    std::fill(Q.b.begin(), Q.b.end(), 0.); std::fill(Q.x.begin(), Q.x.end(), 0.);
-    for (std::size_t y = 0; y < L.H; ++y) for (std::size_t x = 0; x < L.W; ++x) {
-        const auto i = x + y * L.W; if (L.active[i]) Q.b[(x / 2) + (y / 2) * Q.W] += L.r[i];
-    }
-    vcycle(h, level + 1);
-    for (std::size_t y = 0; y < L.H; ++y) for (std::size_t x = 0; x < L.W; ++x) {
-        const auto i = x + y * L.W; if (L.active[i]) L.x[i] += Q.x[(x / 2) + (y / 2) * Q.W];
-    }
-    smooth(L, 2);
-}
+    ++c.counters.multigrid_solves; return true;
 }
 LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
     double rtol, double atol, std::size_t maximum) {
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     for (auto* v : {&ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag}) v->resize(N);
     x.assign(N, 0);
-    const bool multigrid = c.options.preconditioner == MacKernelPreconditioner::multigrid && g.N > 256;
-    static thread_local Hierarchy hierarchy;
-    if (multigrid) build_hierarchy(c, sys, hierarchy);
+    const bool multigrid = c.options.preconditioner == MacKernelPreconditioner::multigrid && g.N >= 256 && prepare_multigrid(c, sys);
     // Jacobi: inverse of the full operator diagonal.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -202,10 +120,8 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
             });
             return;
         }
-        auto& L = hierarchy.levels.front();
-        std::copy(ws.lr.begin(), ws.lr.end(), L.b.begin()); std::fill(L.x.begin(), L.x.end(), 0.);
-        vcycle(hierarchy, 0);
-        std::copy(L.x.begin(), L.x.end(), ws.lz.begin());
+        if (!ws.pressure_multigrid->apply(ws.lr, ws.lz)) reject("Production multigrid application failed");
+        ++c.counters.multigrid_cycles;
     };
     const auto dot = [&](const std::vector<double>& a, const std::vector<double>& bb) {
         return combine(c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {

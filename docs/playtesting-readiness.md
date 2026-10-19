@@ -17,7 +17,7 @@ The next playable gate needs:
    non-trace gas on hover, harmful-trace warnings and bounded simulation and
    publication latency. See [milestone D](completion-plan.md#d-first-playable-development-colony).
 
-As of 2026-10-18 all five gates are **open**. The [gate status](#gate-status)
+As of 2026-10-19 all five gates are **open**. The [gate status](#gate-status)
 records what exists, what is missing and what closes each one; the
 [work plan](#work-plan) orders the remaining items.
 
@@ -125,8 +125,13 @@ also pass collision.
   per-stage numerical contracts to interval-level audits (2026-10-18). The
   [production kernel](../native/MAC_KERNEL.md), chosen for consolidation on
   2026-10-19, matches the reference to roundoff and takes about 1.16 s per
-  0.1 s at 250,000 cells on 12 threads, about 19× over the budget. Multigrid,
-  calm-region steps and in-game use are still open.
+  0.1 s at 250,000 cells on 12 threads, about 19× over the budget. The geometric multigrid preconditioner is now an explicit production
+  option using the same pool, with cached geometry and pressure-active masks.
+  The new multigrid controls pass Release, Debug ASan/UBSan,
+  ThreadSanitizer and MinGW/Wine, and the 43 Release CTests pass. Jacobi
+  remains the default during consolidation. Persisted production
+  selection, saved-endpoint reviews, interval-kernel retirement, calm-region
+  steps and in-game production-kernel use are still open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

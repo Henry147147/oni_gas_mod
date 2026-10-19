@@ -1,7 +1,11 @@
-# Interval-kernel pressure preconditioner
+# Geometric pressure preconditioner
 
-The occupied ideal-gas [interval kernel](MAC_INTERVAL_KERNEL.md) now uses a
-geometric multigrid preconditioner for its existing matrix-free PCG solve.
+The [production kernel](MAC_KERNEL.md) and the occupied ideal-gas
+[interval kernel](MAC_INTERVAL_KERNEL.md) share this geometric multigrid
+preconditioner for their matrix-free PCG solves. Production selects it
+explicitly with `MacKernelOptions::preconditioner = multigrid`; its default
+remains Jacobi during consolidation. The following automatic-selection and
+serial performance measurements describe the interval kernel.
 `automatic` selects it for at least 256 active cells when the maximum ratio of
 off-diagonal coupling to compliance is at least two. Explicit `jacobi` keeps
 Jacobi. No pressure equation, root tolerance, physical selector or timestep
@@ -49,6 +53,14 @@ from zero, so previous vectors never supply continuation history. A
 geometry-changing operation must replace the cache.
 Checkpoint restoration rebuilds it. Cache state never changes the continued
 physical result, so no derived cache bytes are serialized.
+
+Production retains topology and coefficient storage in its calling-thread
+workspace, matching complete geometry and the current pressure-active mask.
+A changed vacuum mask rebuilds the hierarchy before use; there is no coarse
+connection through an empty or solid cell. It supplies the production pool
+through a synchronous block executor. Default component/interval execution
+keeps its existing row arithmetic and worker selection. Reported production
+workspace bytes include the retained hierarchy and numerical arrays.
 
 The interval control compares concurrent heated/unheated branches, subsequent
 reuses and fresh checkpoint restores. It passes fatal ASan/UBSan and
@@ -104,9 +116,13 @@ Wine continues byte for byte on both (2,560 inspected numeric fields per
 source). This is separate from actual Windows OS evidence and from the open
 liquid continuation failure.
 
-All 34 registered Linux tests pass. The 48 retained MAC output streams keep
-their previous bytes and exit statuses, including the known strong-flow
-collision-refinement failure. No original physical gate is weakened.
+The production consolidation passes all 43 Release CTests and compares all
+56 earlier MAC executables against `138fa03`: unchanged exits and physical
+output, with only timing fields differing in two streams. The new production
+controls cover occupied gas, liquids, mixtures, vacuum masks and concurrent
+branches under Release, Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
+No original physical gate is weakened; actual Windows OS and in-game
+production-kernel acceptance remain open.
 
 The GNU 15.2 Release/IPO 5900X run takes 6,626.66 ms median and 6,738.52 ms maximum
 for five fully changing 250,000-cell intervals of 0.1 simulated seconds. It

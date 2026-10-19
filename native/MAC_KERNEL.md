@@ -10,11 +10,10 @@ validation oracle.
 Status: phase 1 (single-threaded flux-form kernel, oracle validation,
 benchmark option) and phase 3 (deterministic multithreading: bit-identical
 results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
-pressure formulation is in; main's multigrid preconditioner (written for the
-interval kernel, `mac_pressure_multigrid.*`) and larger calm steps are not
-part of this kernel. It covers every selector the ONI domain uses. The
+pressure formulation and the shared geometric multigrid preconditioner
+(`mac_pressure_multigrid.*`) are in. Larger calm steps remain open. It covers every selector the ONI domain uses. The
 real-time gate is not met; see [performance](#performance), the
-[comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-7adfd63)
+[comparison with the interval kernel](#earlier-jacobi-comparison-with-the-interval-kernel-7adfd63)
 and [remaining work](#remaining-work).
 
 ## Selection
@@ -88,10 +87,20 @@ midpoint sweeps, solved for per-cell volume changes in the increment form
 mixtures the reference divided differences. Node pressure differences gather
 `(p0_l - p0_r) + (dW_l - dW_r)`, so there is no absolute-pressure roundoff
 floor; the root reaches the reference 16-epsilon closure. Each Newton
-correction is a matrix-free PCG solve (Jacobi; an aggregation multigrid
-option exists but is not tuned) with an inexact-Newton tolerance
+correction is a matrix-free PCG solve (Jacobi by default; explicit
+`MacKernelPreconditioner::multigrid` selects the shared geometric V-cycle) with an inexact-Newton tolerance
 (`0.1 * residual`). Canonical J, wall and body impulses and midpoint sweeps
 use the reference formulas.
+
+The geometric preconditioner uses [the independently reviewed hierarchy](MAC_MULTIGRID.md).
+Its topology and mutable workspace are retained on the calling thread, keyed
+by exact geometry and the pressure-active mask. Every solve replaces all
+coefficients; vacuum arrival changes the mask and rebuilds before use.
+Empty-side zero-traction terms stay in the fine diagonal. Production supplies
+its fixed-block pool to the V-cycle; no interval workers execute this path.
+An invalid preparation selects Jacobi before PCG; a failed application rejects
+the candidate. The old aggregation implementation has been removed. Workspace
+bytes include retained multigrid topology and numerical arrays.
 
 **Transport** (`mac_kernel_transport.cpp`). Limited-linear reconstruction with
 the reference stencil, limiter points, positive-field and EOS admission
@@ -209,6 +218,28 @@ quantity passes. Both suites are run under ASan/UBSan (Debug, `-O1
 -D_GLIBCXX_ASSERTIONS`, fatal findings) and ThreadSanitizer; see the commit
 messages for the exact coverage of each run.
 
+`ma_mac_kernel_multigrid_tests` adds nine explicit geometric-preconditioner
+controls: odd periodic waves (including 33,389 cells), an interior wall,
+filled liquid with gravity, moving gas/liquid mixtures, hydrostatic gas,
+conduction, viscosity and gas arrival into empty cells. It compares the
+reference within the original tolerances, checks identical checkpoints with
+1/12 workers and a fresh-thread 4-worker restore, rejects exhausted budgets
+atomically and compares concurrent heated/unheated branches. The largest
+temperature difference is 9.36e-8 K. These controls pass GNU 15.2 Release,
+Debug ASan/UBSan, Debug ThreadSanitizer and MinGW 13 under Wine 10.
+
+The Release build enables tests, the ONI backend and
+`CMAKE_COMPILE_WARNING_AS_ERROR=ON`; all 43 CTests pass. All 56 previous MAC
+executables retain their exits and physical output against a build of
+`138fa03`: 54 outputs are byte-identical and two differ only in their timing
+fields. The five-interval default 256-cell wave checkpoint remains SHA-256
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+The original strong-flow, curved-nodal and vacuum-front failures are unchanged.
+The geometric saved-data review passes 40,216 checks and rejects eight altered
+captures on native Linux, ASan/UBSan and Wine. Production endpoint saved-data
+reviews remain part of consolidation. There is no new game, Windows OS or
+performance acceptance evidence.
+
 The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
 --scene wave --continuation` gave 8.2e-11 of the disturbance after three
@@ -302,15 +333,14 @@ benchmark process (source and result owners, checkpoint, kernel workspace)
 peaks at 609–611 MB RSS at 250,000 cells, 246 MB at 100,000 and 163 MB at
 65,536, independent of the thread count.
 
-The [comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-7adfd63)
-measures both kernels on a common scene.
+The comparison below predates the geometric preconditioner port and measures the Jacobi default.
 
 Phase 1 stage breakdown (4,096 cells, default selectors, one thread, ns per
 cell-substep): pressure root and PCG 410, momentum transport 275, shock heat
 265, reconstruction 225, compression 215, primal gather/heat/gravity 70,
 EOS anchors 40, audit 28.
 
-## Comparison with the interval kernel (origin/main 7adfd63)
+## Earlier Jacobi comparison with the interval kernel (7adfd63)
 
 [`MAC_INTERVAL_KERNEL.md`](MAC_INTERVAL_KERNEL.md) describes the port
 selected by the persisted `MacNumericalKernel::interval_audited` setting, now
@@ -341,7 +371,7 @@ did not change from 66f9d11 to 7adfd63.
 | Phases | occupied constant-property ideal gas | gas, filled liquid, mixtures, exact empty cells, solids |
 | Range | flags any nonzero value outside `2^-450..2^450` (reference fallback) | admits below-range values (counted rounding); only nonfinite or `>2^450` falls back |
 | Gas diffusion | composed by the owner | composed by the owner (production policy) |
-| Preconditioner | automatic geometric multigrid (default) or Jacobi | Jacobi; untuned aggregation option |
+| Preconditioner | automatic geometric multigrid (default) or Jacobi | Jacobi default; shared geometric multigrid opt-in |
 | Threads | pressure and thermodynamic passes on deterministic workers; transport serial | every stage on the deterministic pool, bit-identical for 1–12 threads |
 | Substep schedule | restarts its clock each interval (11 substeps per 0.1 s here) | reference absolute-clock schedule (10) |
 
@@ -431,28 +461,9 @@ same build. Because both kernels' trajectories differ from the reference at
 roundoff, byte continuation of a saved game needs the same kernel after
 restore, which argues for a persisted selection.
 
-**What one kernel would take.**
-
-1. Keep the production kernel's coverage, stages, absolute-clock schedule,
-   below-range admission and deterministic pool.
-2. Wire main's `PressureMultigrid::prepare(compliance, conductances)` /
-   `apply` in as this kernel's PCG preconditioner (the operator is the same
-   `diag + B diag(w) Bᵀ`) and keep its cached topology across intervals. Its
-   smoothing and transfers already run on main's deterministic workers; they
-   would move to one executor. The below-range admission of point 1 should
-   keep multigrid roundoff in transverse momentum from forcing the reference
-   fallback measured above (not measured: the multigrid has not run inside
-   this kernel).
-3. Persist the selection: a `numerical_kernel` value for this kernel (new
-   checkpoint version) or `interval_audited` redefined to it, retiring the
-   interval kernel's narrower admission.
-4. Carry over the interval kernel's saved-data reviewers (100-digit
-   recomputation of inventories, EOS, entropy and U+K) to the production
-   selectors, and keep one thread pool. Main's executor parallelizes the
-   pressure and thermodynamic passes (1.31–1.42 times at 250,000 cells
-   above); this kernel's pool covers every stage (2.9 times with the same
-   selectors), so the measured difference reflects coverage as much as the
-   pools.
+The accepted consolidation keeps the production coverage and pool. The
+geometric preconditioner is now ported; persisted selection, production
+saved-endpoint reviewers and interval-kernel retirement remain in step a.
 
 ## Remaining work
 
@@ -460,15 +471,10 @@ restore, which argues for a persisted selection.
   per 0.1 s (3.6 s on one thread) against 62.5 ms, a factor of about 19; at
   100,000 cells about 0.40 s against 25 ms, a factor of about 16 (wave scene,
   shared host).
-- Main's geometric multigrid preconditioner ([MAC_MULTIGRID.md](MAC_MULTIGRID.md),
-  `mac_pressure_multigrid.*`, serial) serves the interval kernel and is not
-  wired into this kernel, whose default is Jacobi-PCG (about 37 PCG
-  iterations per substep in the 250,000-cell wave; the multigrid option here
-  is an untuned aggregation V-cycle). Its `prepare(compliance, conductances)` /
-  `apply` interface matches this kernel's operator `diag + B diag(w) Bᵀ`.
-  Larger calm-region steps with local subcycling are not part of this
-  kernel either. Both reduce the substep and iteration counts that every
-  number above is proportional to.
+- Geometric multigrid is opt-in and has no new performance measurement.
+  Persist the production selection, wire automatic selection to the saved
+  pressure setting, port saved-endpoint reviewers, then retire the narrower
+  interval kernel. Larger calm-region steps with local subcycling remain open.
 - Thread scaling stops near 3–3.7 times on 12 threads on the shared host.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
   reduction per iteration) and a measurement on an idle host are the next

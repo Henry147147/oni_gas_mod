@@ -1,6 +1,6 @@
 # Implementation status
 
-Current state on 2026-10-18. This is a private development milestone: the
+Current state on 2026-10-19. This is a private development milestone: the
 overhaul is incomplete and no first-playable or release gate has passed. The
 accepted [completion plan](completion-plan.md) is the execution target and
 [playtesting readiness](playtesting-readiness.md) tracks the five gates to an
@@ -176,21 +176,18 @@ atomically with receipts and deliver original game callbacks once.
 
 ## Solver development (milestone B)
 
-An opt-in [interval-audited kernel](../native/MAC_INTERVAL_KERNEL.md) now ports
-the existing donor-cell ideal-gas pressure/transport laws inside `MacClosedWorld`.
-It preserves selected laws through reference fallback, persists its numerical
-setting and checks completed intervals. The 10,000-step and 81-species controls
-pass. Automatic [pressure multigrid](../native/MAC_MULTIGRID.md), fixed-block
-reductions and immutable topology reuse reduce 250,000-cell timing to about
-6.63 s per 0.1 simulated seconds on one core, with every cell changing and no
-retries. Higher-order selectors, regularization, liquid/free-surface ports and the
-real-time acceptance gate remain open. The default kernel is unchanged.
-
-[Deterministic interval workers](interval-parallel-pressure.md) now cover large
-thermodynamic and pressure passes. Continuations remain byte-identical across
-worker counts and to the preceding serial solver; native/Ubuntu tests,
-sanitizers, saved reviews and Windows binaries under Wine pass. Loaded-host
-timings remain diagnostic and do not establish the performance gate.
+The [production kernel](../native/MAC_KERNEL.md) implements the in-game
+selectors with interval audits and deterministic workers. Its previously
+untuned aggregation preconditioner is replaced by the independently reviewed
+[geometric multigrid](../native/MAC_MULTIGRID.md), using the production pool
+and cached geometry/active masks. Nine new controls pass Release,
+Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine; all 43 Release CTests pass,
+and all 56 previous MAC executables retain their physical output and exits.
+The default 256-cell wave checkpoint SHA is unchanged. Jacobi remains its default during
+consolidation; there is no new timing or in-game acceptance claim.
+Persisted production selection, production saved-endpoint reviews and
+retirement of the narrower interval kernel remain in milestone B step a.
+The reference path stays the validation oracle.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

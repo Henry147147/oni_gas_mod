@@ -219,7 +219,8 @@ if(MA_BUILD_TESTS)
     # Production substep kernel (native/MAC_KERNEL.md).
     add_test(NAME mac_production_kernel_oracle COMMAND ma_mac_kernel_validation_tests)
     add_test(NAME mac_production_kernel_contract COMMAND ma_mac_kernel_unit_tests)
-    set_target_properties(ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME mac_production_kernel_multigrid COMMAND ma_mac_kernel_multigrid_tests)
+    set_target_properties(ma_mac_kernel_validation_tests ma_mac_kernel_unit_tests ma_mac_kernel_multigrid_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     foreach(target ma_oni_domain_tests ma_oni_diffusion_tests ma_oni_arithmetic_precision_tests ma_oni_mixed_domain_tests
             ma_oni_radial_consumption_tests ma_oni_frame_inputs_tests ma_oni_configured_domain_tests)
         target_link_libraries(${target} PRIVATE ma_oni_publication)
