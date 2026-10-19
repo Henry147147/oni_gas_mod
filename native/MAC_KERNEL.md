@@ -14,7 +14,7 @@ pressure formulation is in; main's multigrid preconditioner (written for the
 interval kernel, `mac_pressure_multigrid.*`) and larger calm steps are not
 part of this kernel. It covers every selector the ONI domain uses. The
 real-time gate is not met; see [performance](#performance), the
-[comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-66f9d11)
+[comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-7adfd63)
 and [remaining work](#remaining-work).
 
 ## Selection
@@ -302,7 +302,7 @@ benchmark process (source and result owners, checkpoint, kernel workspace)
 peaks at 609–611 MB RSS at 250,000 cells, 246 MB at 100,000 and 163 MB at
 65,536, independent of the thread count.
 
-The [comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-66f9d11)
+The [comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-7adfd63)
 measures both kernels on a common scene.
 
 Phase 1 stage breakdown (4,096 cells, default selectors, one thread, ns per
@@ -310,24 +310,26 @@ cell-substep): pressure root and PCG 410, momentum transport 275, shock heat
 265, reconstruction 225, compression 215, primal gather/heat/gravity 70,
 EOS anchors 40, audit 28.
 
-## Comparison with the interval kernel (origin/main fe31e7d)
+## Comparison with the interval kernel (origin/main 7adfd63)
 
 [`MAC_INTERVAL_KERNEL.md`](MAC_INTERVAL_KERNEL.md) describes the port
 selected by the persisted `MacNumericalKernel::interval_audited` setting, now
-with main's [multigrid preconditioner](MAC_MULTIGRID.md) and
+with main's [multigrid preconditioner](MAC_MULTIGRID.md),
 [deterministic pressure workers](../docs/interval-parallel-pressure.md)
-(`MA_MAC_WORKERS`, default at most four participants). Both kernels were
-measured on 2026-10-18/19 from builds made the same way (GNU 15.2
-Release/IPO; the interval kernel from builds of origin/main 66f9d11 and
-fe31e7d, the production kernel from this branch) with one scratch harness
+(`MA_MAC_WORKERS`, default at most four participants), retained pressure
+workspaces and cached connectivity. Both kernels were measured on
+2026-10-18/19 from builds made the same way (GNU 15.2 Release/IPO; the
+interval kernel from builds of origin/main 66f9d11, fe31e7d and 7adfd63, the
+production kernel from this branch) with one scratch harness
 through the public API: the fixture wave (20 Pa sinusoid along x, periodic,
 300 K, O2 0.22, helium trace and two passives), one warm-up interval, then
 three consecutive 0.1 s intervals; median interval of each run, three runs,
 `taskset -c 0-11`. The host's video encoder used about 11 cores; the 1-minute
-load was 17–31 for the 66f9d11 sweep and 28–70 for the fe31e7d sweep, so the
-multi-thread figures in particular are noisy. The interval kernel built from
-this branch gives byte-identical endpoints to the origin/main build, and its
-endpoints are identical for 1, 4 and 12 workers.
+load was 17–31 for the 66f9d11 sweep, 28–70 for fe31e7d and 23–64 for
+7adfd63, so the multi-thread figures in particular are noisy. The interval
+kernel built from this branch gives byte-identical endpoints to the
+origin/main build; its endpoints are identical for 1, 4 and 12 workers and
+did not change from 66f9d11 to 7adfd63.
 
 **Coverage.**
 
@@ -360,25 +362,28 @@ selectors):
 Both agree with the reference to roundoff where they run.
 
 **Speed, interval kernel's admitted selectors** (donor cell, no
-regularization; fe31e7d sweep). ms per 0.1 s (wall, median of three runs),
-with ns per cell-substep of process CPU and the kernel's own substep count in
-parentheses for one thread:
+regularization; 7adfd63 sweep, both kernels in the same hour). ms per 0.1 s
+(wall, median of three runs), with ns per cell-substep of process CPU and the
+kernel's own substep count in parentheses for one thread:
 
-| Cells | Interval, Jacobi, 1 worker | Interval, Jacobi, 4 / 12 workers | Production, 1 thread | Production, 12 threads |
+| Cells | Interval, Jacobi, 1 worker | Interval, Jacobi, 4 (default) / 12 workers | Production, 1 thread | Production, 12 threads |
 | ---: | --- | --- | --- | --- |
-| 4,096 | 91 (2,021 ns) | 91 / 82 | 22 (547 ns) | 17 (4 threads used) |
-| 65,536 | 1,632 (2,252 ns) | 1,303 / 1,843 | 462 (698 ns) | 175 |
-| 250,000 | 7,058 (2,540 ns) | 5,432 / 6,257 | 1,938 (769 ns) | 701 |
+| 4,096 | 82 (1,809 ns) | 87 / 93 | 22 (541 ns) | 17 (4 threads used) |
+| 65,536 | 1,328 (1,827 ns) | 975 / 1,489 | 399 (606 ns) | 137 |
+| 250,000 | 5,754 (2,084 ns) | 4,402 / 4,051 | 1,699 (675 ns) | 585 |
 
-Process CPU per 0.1 s at 250,000 cells: interval 6,985 (1 worker), 7,760 (4),
-8,453 (12); production 1,922 (1 thread), 4,065 (12). The interval kernel's
+Process CPU per 0.1 s at 250,000 cells: interval 5,730 (1 worker), 7,498 (4),
+7,586 (12); production 1,687 (1 thread), 4,328 (12). The same table at
+fe31e7d gave 7,058 / 5,432 / 6,257 ms for the interval kernel and 1,938 / 701
+ms for the production kernel at 250,000 cells (load 28–70), and at 66f9d11
+(serial interval kernel) 7,069 against 2,255 / 786 ms. The interval kernel's
 automatic preconditioner (its default) is not in this table: on this scene it
 falls back to the reference for most intervals. At 65,536 cells it took
-36,979 ms (66f9d11) and 38,770 ms (fe31e7d, default workers) per 0.1 s, with 2
-of 3 measured intervals on the reference; one 250,000-cell interval took
-120,752 ms (66f9d11, reference fallback). At 4,096 cells it ran (88 ms; its
-multigrid cut PCG iterations per interval from 492 to 128 without reducing the
-time).
+36,979 ms (66f9d11), 38,770 ms (fe31e7d) and 37,203 ms (7adfd63, default
+workers) per 0.1 s, with 2 of 3 measured intervals on the reference; one
+250,000-cell interval took 120,752 ms (66f9d11, reference fallback). At
+4,096 cells it ran every measured interval (88 ms at 66f9d11; its multigrid
+cut PCG iterations per interval from 492 to 128 without reducing the time).
 
 With automatic preconditioning, multigrid roundoff gives the y-uniform wave
 nonzero transverse momentum (smallest nonzero face value 4e-28 after the
@@ -400,16 +405,16 @@ in c0cb51d.
 (The fixture keeps `MacClosedSettings` defaults, compression mode 1; the
 playtest benchmark above uses compression mode 2.)
 
-**Best configuration of each at 250,000 cells:** interval kernel with Jacobi
-and four workers: 5,432 ms per 0.1 s (fe31e7d; 4,785–20,450 over three runs
-at load 30–70); production kernel with 12 threads: 701 ms with the same
-selectors (628–728), 1,426 ms with the production-default selectors (66f9d11
-sweep).
+**Best configuration of each at 250,000 cells** (7adfd63 sweep): interval
+kernel with Jacobi and 12 workers, 4,051 ms per 0.1 s (3,969–5,300 over three
+runs; four workers 4,402, 3,562–16,561); production kernel with 12 threads,
+585 ms with the same selectors (554–636) and 1,426 ms with the
+production-default selectors (66f9d11 sweep).
 
-**Thread scaling** (wall speedup over one thread, fe31e7d sweep). Interval
-kernel, Jacobi: 1.0 / 1.1 at 4,096 cells (4 / 12 workers), 1.25 / 0.89 at
-65,536, 1.30 / 1.13 at 250,000. Production, donor selectors: 1.3 (4,096,
-four threads used), 2.6 (65,536) and 2.8 (250,000) on 12 threads; with the
+**Thread scaling** (wall speedup over one thread, 7adfd63 sweep). Interval
+kernel, Jacobi: 0.94 / 0.87 at 4,096 cells (4 / 12 workers), 1.36 / 0.89 at
+65,536, 1.31 / 1.42 at 250,000. Production, donor selectors: 1.3 (4,096,
+four threads used), 2.9 (65,536) and 2.9 (250,000) on 12 threads; with the
 default selectors 1.6, 4.0 and 3.7 (66f9d11 sweep).
 
 **Memory.** Peak RSS above a setup-only process, per cell: interval kernel
@@ -444,8 +449,8 @@ restore, which argues for a persisted selection.
 4. Carry over the interval kernel's saved-data reviewers (100-digit
    recomputation of inventories, EOS, entropy and U+K) to the production
    selectors, and keep one thread pool. Main's executor parallelizes the
-   pressure and thermodynamic passes (1.13–1.30 times at 250,000 cells
-   above); this kernel's pool covers every stage (2.8 times with the same
+   pressure and thermodynamic passes (1.31–1.42 times at 250,000 cells
+   above); this kernel's pool covers every stage (2.9 times with the same
    selectors), so the measured difference reflects coverage as much as the
    pools.
 

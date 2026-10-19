@@ -144,6 +144,19 @@ int main() {
                 "Inactive native solid heat status");
         const auto held_solid=solid_heat;
         const MAOniDomainSolidHeatCell solid_input{48,1,649,123,1,0,10.F,.793F,2.F,255};
+        require(ma_oni_domain_solid_heat_startup_abi_version()==1,"Native solid startup ABI");
+        auto initial_solid=solid_input;initial_solid.session=0;
+        require(ma_oni_domain_start_with_solid_heat(&domain_config,&initial_solid,1,&domain,&solid_heat)==MA_ONI_BUSY &&
+            std::memcmp(&domain,&unchanged,sizeof(domain))==0 && std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,
+            "Unattached solid startup changed either output");
+        for(const auto count:{0U,129U})
+            require(ma_oni_domain_start_with_solid_heat(&domain_config,&initial_solid,count,&domain,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+                std::memcmp(&domain,&unchanged,sizeof(domain))==0 && std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,
+                "Invalid solid startup count changed either output");
+        require(ma_oni_domain_start_with_solid_heat(&domain_config,nullptr,1,&domain,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&
+            ma_oni_domain_start_with_solid_heat(&domain_config,&initial_solid,1,&domain,nullptr)==MA_ONI_INVALID_ARGUMENT &&
+            std::memcmp(&domain,&unchanged,sizeof(domain))==0 && std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,
+            "Invalid solid startup pointers changed either output");
         require(ma_oni_domain_solid_heat_configure(&solid_input,1,&solid_heat)==MA_ONI_BUSY &&
                 std::memcmp(&solid_heat,&held_solid,sizeof(solid_heat))==0,"Inactive solid registration changed output");
         for(const auto count:{0U,129U}) require(ma_oni_domain_solid_heat_configure(&solid_input,count,&solid_heat)==MA_ONI_INVALID_ARGUMENT &&

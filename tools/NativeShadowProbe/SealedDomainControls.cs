@@ -42,7 +42,14 @@ internal static unsafe partial class Program
         Require(OniNativeDomain.Begin(ref wrongPitch, ref status) == 2 && status.State == 0 && status.Session == 0,
             "A public grid with the wrong native pitch was accepted or changed its output.");
         report["wrongNativePitchRejectedBeforeActivation"] = true;
-        Require(OniNativeDomain.Begin(ref config, ref status) == 0, "Domain start failed: " + Marshal.PtrToStringAnsi(OniNativeDomain.LastError()));
+        var atomicSolidStartup=Environment.GetEnvironmentVariable("MA_VERIFY_SOLID_HEAT_STARTUP")=="1";
+        Require(!atomicSolidStartup || (Environment.GetEnvironmentVariable("MA_VERIFY_SOLID_HEAT")=="1" && !heating && !gravity && !checkpoint),
+            "Initial solid boundary control requires the plain gas/water solid heat control.");
+        NativeSolidHeatControl? initialSolidHeat=null;
+        if(atomicSolidStartup) {
+            initialSolidHeat=new NativeSolidHeatControl(sim,contract,null);
+            initialSolidHeat.Activate(ref config,ref status);
+        } else Require(OniNativeDomain.Begin(ref config, ref status) == 0, "Domain start failed: " + Marshal.PtrToStringAnsi(OniNativeDomain.LastError()));
         var premature=OniNativeDomain.PairStatus.Empty;
         Require(OniNativeDomain.RequestPair(status.Session,0,0,0,ref premature)==3 && premature.Token==0,
             "A never-advanced initial physical owner was admitted as a completed paired source.");
@@ -76,7 +83,7 @@ internal static unsafe partial class Program
         Require(!bodyHeatRequired || (!heating && !gravity && !checkpoint),"Native body heat control requires a plain sealed gas/water domain.");
         var inputControl=Environment.GetEnvironmentVariable("MA_VERIFY_FRAME_INPUTS")=="1" || bodyHeatRequired || solidHeatRequired ? new FrameInputControl(config,status) : null;
         NativeBodyHeatControl? bodyHeat=null;
-        NativeSolidHeatControl? solidHeat=null;
+        NativeSolidHeatControl? solidHeat=initialSolidHeat;
         for (var frame = 0; frame < 75; ++frame)
         {
             sim.Send(-775326397, DomainFrame(.2f)); snapshot = sim.PrepareAfterFrame(contract);

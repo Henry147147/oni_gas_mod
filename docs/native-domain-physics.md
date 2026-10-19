@@ -469,3 +469,41 @@ first Proton attempt failed prefix initialization before launching the game.
 
 Whole-colony heat, moving or changing solids, building thermal components and
 phase-changing boundaries remain open.
+
+**Atomic startup.** A subsequent fresh Linux run exposed a different race:
+the worker advanced between `ma_oni_domain_start` and revision-checked solid
+registration, while new-domain diffusion settings were being persisted. The
+registration correctly rejected the stale frame. The additive
+`ma_oni_domain_start_with_solid_heat` entry point now validates the preset owner
+and all initial boundary facts before publishing either. Inputs have no session
+or frame yet; activation assigns the session and returns two frame-zero results
+captured under the same fence. The first native frame already has its solid
+contacts. Ordinary later registration keeps its exact revision requirement.
+Native frames are fenced before activation too, preventing an owner from
+appearing halfway through a previously unowned physics pass.
+
+The unit control starts a competing worker at activation, checks its first
+contact and heat account in five gas/liquid scenarios, verifies unchanged
+startup results after that worker advances, rejects a late invalid batch
+without creating an owner, and retains the stale-revision negative control.
+`MA_VERIFY_SOLID_HEAT_STARTUP=1 MA_VERIFY_SOLID_HEAT=1` exercises this path in
+the licensed worker harness. Linux and Windows DLLs under Wine each pass gas
+and water through 61 contact-bearing frames and 61 publication leases with
+closed energy accounts. Three native tests and their fatal ASan/UBSan builds
+pass, as do two Windows-target tests under Wine, all 40 frozen Ubuntu 22.04
+tests and 297 Python tests with four skips. Private evidence is under
+`local/solid-heat-startup-v1/`; these startup controls are separate from the
+earlier Unity publication evidence above and from actual Windows OS acceptance.
+
+Fresh Unity checks of the atomic-startup package also pass on Linux and in
+WindowsPlayer under official Proton 10.0-4b. Each source/save run has 121
+contact-bearing frames and each fresh-process reload has 120, with zero
+published-temperature heat residual, a paused frame-zero resave and 120 exact
+resumed input replays. The represented heat remains 87.51526116611785 J and
+86.79199454491027 J respectively; the unchanged endpoint bounds are about
+1.688e-7 J on Linux and 1.678e-7 J under Proton. Reports and package hashes
+are in `unity-linux-matrix-v2/` and `unity-proton-matrix/` under the private
+startup evidence directory. The first Linux launch attempt was rejected by
+the shared runner operation lock before starting the game; it is retained
+separately. These bounded controls do not establish whole-colony heat or
+Windows OS/MSVC acceptance.

@@ -37,14 +37,16 @@ double primary(const StoredSum& s, double before, Rounding& rounding) {
     }
     return after;
 }
+} // namespace
+namespace interval_detail {
 struct Face { std::size_t left = none, right = none; bool free() const { return left != none && right != none; } };
 struct DualEdge { std::size_t left, right, axis, a, b; }; // absent primal operand is exact zero
-struct Geometry {
-    const MacGrid& g;
+struct TransportTopology {
+    const MacGrid g;
     std::array<std::vector<Face>, 2> faces;
     std::array<std::vector<DualEdge>, 2> dual;
     std::vector<std::array<std::size_t, 4>> cell_faces;
-    explicit Geometry(const MacGrid& grid) : g(grid), cell_faces(g.walls.size()) {
+    explicit TransportTopology(const MacGrid& grid) : g(grid), cell_faces(g.walls.size()) {
         const auto fluid = [&](std::size_t i) { return g.walls[i] ? none : i; };
         faces[0].resize(g.x_width() * g.height); faces[1].resize(g.width * g.y_height());
         for (std::size_t y = 0; y < g.height; ++y) for (std::size_t x = 0; x < g.x_width(); ++x) {
@@ -79,6 +81,10 @@ struct Geometry {
                     y < g.height ? g.x_face(x, y) : none});
     }
 };
+} // namespace interval_detail
+namespace {
+using Face = interval_detail::Face;
+using Geometry = interval_detail::TransportTopology;
 struct Gas { std::size_t species; double cv, offset, molar, low, high; };
 struct Fields {
     std::vector<std::vector<double>> q; // present species, present passive IDs, U
@@ -97,7 +103,7 @@ struct Kernel {
     const MacTransportState& source;
     const MacClosedSettings& settings;
     MacIntervalCache& cache;
-    Geometry topology;
+    const Geometry& topology;
     std::vector<Gas> gases;
     std::vector<std::uint64_t> passive_ids;
     std::array<Fields, 2> banks;
@@ -115,8 +121,21 @@ struct Kernel {
     MacClosedAdvanceReport report;
     std::size_t selected = 0;
     std::size_t active_cells = 0, topology_builds = 0;
-    std::unique_ptr<interval_detail::PressureMultigrid> multigrid;
+    std::unique_lock<std::mutex> multigrid_lock;
+    interval_detail::PressureMultigrid* multigrid = nullptr;
 
+    static const Geometry& transport_topology(MacIntervalCache& cached, const MacGrid& grid) {
+        std::call_once(cached.transport_once, [&] {
+            cached.transport = std::make_shared<const Geometry>(grid);
+        });
+        const auto& held = cached.transport->g;
+        // An owner with changed geometry needs a fresh cache. Refuse a stale
+        // internal cache rather than applying its faces to another grid.
+        if (held.width != grid.width || held.height != grid.height || held.spacing_m != grid.spacing_m ||
+            held.depth_m != grid.depth_m || held.periodic_x != grid.periodic_x || held.periodic_y != grid.periodic_y ||
+            held.walls != grid.walls) throw Decline{};
+        return *cached.transport;
+    }
     static std::vector<Gas> gas_models(const SpeciesRegistry& registry, const FluidThermodynamics& model,
         const MacTransportState& input) {
         std::vector<Gas> result;
@@ -141,7 +160,7 @@ struct Kernel {
         return result;
     }
     Kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model, const MacTransportState& input,
-        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(input.grid),
+        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(transport_topology(cached, input.grid)),
         gases(gas_models(registry, model, input)), passive_ids(ids(input)),
         banks{Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology),
               Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology)} {
@@ -251,8 +270,14 @@ struct Kernel {
     }
     double pressure_gradient(const Face& f) const {
         Sum d;
-        if (f.left != none) { d.add(current[f.left].pressure); d.add(increment[f.left]); }
-        if (f.right != none) { d.add(-current[f.right].pressure); d.add(-increment[f.right]); }
+        // Readings already checked these finite pressures. The first exact
+        // operand needs no two-sum against zero and cannot discard a limb.
+        if (f.left != none) { d.hi = current[f.left].pressure; d.add(increment[f.left]); }
+        if (f.right != none) {
+            if (f.left == none) d.hi = -current[f.right].pressure;
+            else d.add(-current[f.right].pressure);
+            d.add(-increment[f.right]);
+        }
         return normal(d.value());
     }
     double evaluate(const Fields& fields, std::span<const double> volumes, double dt) {
@@ -267,8 +292,8 @@ struct Kernel {
             double norm = 0;
             const auto begin = 256 * block, end = std::min(begin + 256, current.size());
             for (auto i = begin; i < end; ++i) if (!source.grid.walls[i]) {
-                const auto& f = topology.cell_faces[i]; Sum value;
-                value.add(volumes[i]); value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
+                const auto& f = topology.cell_faces[i]; Sum value{volumes[i] + 0., 0};
+                value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
                 value.add(sweep[1][f[2]]); value.add(-sweep[1][f[3]]);
                 residual[i] = normal(value.value()); norm = std::max(norm, std::abs(residual[i]) / source.grid.volume_m3());
             }
@@ -340,7 +365,10 @@ struct Kernel {
                 std::call_once(cache.multigrid_once, [&] {
                     cache.multigrid = std::make_shared<const interval_detail::PressureMultigridTopology>(source.grid); ++topology_builds;
                 });
-                multigrid = std::make_unique<interval_detail::PressureMultigrid>(cache.multigrid);
+                multigrid_lock = std::unique_lock(cache.multigrid_workspace_mutex);
+                if (!cache.multigrid_workspace)
+                    cache.multigrid_workspace = std::make_unique<interval_detail::PressureMultigrid>(cache.multigrid);
+                multigrid = cache.multigrid_workspace.get();
             }
             use_multigrid = multigrid->prepare(compliance, conductance[0], conductance[1]);
             if (use_multigrid) {
@@ -408,7 +436,7 @@ struct Kernel {
                 std::max(0., -sweep[1][f[2]]) + std::max(0., sweep[1][f[3]]);
             if (!(material_volume[i] > 0) || outgoing > settings.maximum_outgoing_volume_fraction * material_volume[i])
                 throw std::domain_error("Interval pressure material-volume CFL exceeded");
-            StoredSum energy; energy.add(from.u()[i]); energy.add(-product(pressure[i], swept));
+            StoredSum energy; energy.hi = from.u()[i] + 0.; energy.add(-product(pressure[i], swept));
             pressure_u[i] = primary(energy, from.u()[i], rounding);
             step.maximum_geometric_residual_m3 = std::max(step.maximum_geometric_residual_m3, std::abs(dv[i] - swept));
         }
@@ -429,7 +457,7 @@ struct Kernel {
             }
             for (std::size_t i = 0; i < values.size(); ++i) {
                 if (source.grid.walls[i]) { to.q[k][i] = 0; continue; }
-                const auto& f = topology.cell_faces[i]; StoredSum value; value.add(values[i]);
+                const auto& f = topology.cell_faces[i]; StoredSum value; value.hi = values[i] + 0.;
                 value.add(scalar_flux[0][f[0]]); value.add(-scalar_flux[0][f[1]]);
                 value.add(scalar_flux[1][f[2]]); value.add(-scalar_flux[1][f[3]]);
                 const double v = primary(value, values[i], rounding);

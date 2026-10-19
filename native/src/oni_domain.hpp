@@ -7,9 +7,17 @@
 #include <vector>
 
 namespace ma::oni {
+// Initial boundary facts are validated with the candidate and published before
+// enabling its worker. Results describe frame zero even if a worker immediately
+// advances after the activation fence is released.
+struct DomainSolidHeatStartup {
+    std::span<const MAOniDomainSolidHeatCell> cells;
+    MAOniDomainStatus status{};
+    MAOniDomainSolidHeatStatus heat{};
+};
 // Called only from the native detours. No managed/game callbacks are made.
 void start_domain(const MAOniDomainConfig&, std::uint64_t start_thread,std::span<const std::uint8_t> checkpoint={},double saved_time=0,
-    std::span<const MAOniDomainInitialCell> initial_cells={});
+    std::span<const MAOniDomainInitialCell> initial_cells={},DomainSolidHeatStartup* solid_heat=nullptr);
 void validate_domain_checkpoint(const MAOniDomainConfig&,std::span<const std::uint8_t>,double saved_time);
 // Configured ABI 1 (scenario 7). Exactly one of initial_cells or checkpoint is
 // supplied; legacy entry points above keep rejecting scenario 7.

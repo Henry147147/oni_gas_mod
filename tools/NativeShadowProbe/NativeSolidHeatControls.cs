@@ -12,8 +12,9 @@ internal static unsafe partial class Program
         private double bodyLoss;
         private int samples;
         private int publicationSamples;
+        private readonly OniNativeDomain.SolidHeatCell binding;
         private readonly List<object> evidence=new();
-        internal NativeSolidHeatControl(NativeSim sim,Contract contract,OniNativeDomain.Status status)
+        internal NativeSolidHeatControl(NativeSim sim,Contract contract,OniNativeDomain.Status? status)
         {
             var bits=Environment.GetEnvironmentVariable("MA_NATIVE_SOLID_TEMPERATURE_BITS");
             InitialTemperature=bits==null ? 400 : BitConverter.Int32BitsToSingle(int.Parse(bits,
@@ -32,13 +33,25 @@ internal static unsafe partial class Program
             var source=snapshot.CellData[cell];Require(source.Element==contract.Granite && source.Mass==Mass && source.Temperature==InitialTemperature,
                 "Native solid source did not complete its zero-time material preparation.");
             var input=new OniNativeDomain.SolidHeatCell {Size=48,Version=1,PublicCell=(uint)cell,NativeElementIndex=(uint)contract.Granite,
-                Session=status.Session,ExpectedFrame=status.CompletedFrames,MassKg=Mass,
+                Session=status?.Session ?? 0,ExpectedFrame=status?.CompletedFrames ?? 0,MassKg=Mass,
                 SpecificHeatKJPerKgK=BitConverter.ToSingle(contract.Elements,4+contract.Granite*164+12),
                 ConductivityWPerMK=BitConverter.ToSingle(contract.Elements,4+contract.Granite*164+16),NativeInsulation=source.Insulation};
             capacity=(double)Mass*input.SpecificHeatKJPerKgK*1000;
-            var result=OniNativeDomain.ChunkHeatStatus.Empty;
-            Require(OniNativeDomain.ConfigureSolidHeat(new[]{input},1,ref result)==0 && result.Session==status.Session &&
-                result.CompletedFrame==status.CompletedFrames && result.Transfers==0,"Native solid registration changed or rejected its zero-time source.");
+            binding=input;
+            if(status.HasValue) {
+                var result=OniNativeDomain.ChunkHeatStatus.Empty;
+                Require(OniNativeDomain.ConfigureSolidHeat(new[]{input},1,ref result)==0 && result.Session==status.Value.Session &&
+                    result.CompletedFrame==status.Value.CompletedFrames && result.Transfers==0,"Native solid registration changed or rejected its zero-time source.");
+            }
+        }
+        internal void Activate(ref OniNativeDomain.Configuration config,ref OniNativeDomain.Status status)
+        {
+            Require(OniNativeDomain.SolidHeatStartupVersion()==1,"Native solid startup capability differs.");
+            var heat=OniNativeDomain.ChunkHeatStatus.Empty;
+            Require(binding.Session==0 && binding.ExpectedFrame==0 &&
+                OniNativeDomain.BeginWithSolidHeat(ref config,new[]{binding},1,ref status,ref heat)==0 && status.State==1 &&
+                status.CompletedFrames==0 && heat.Session==status.Session && heat.CompletedFrame==0 && heat.Contacts==0,
+                "Native solid startup did not atomically activate its frame-zero boundary.");
         }
         internal void Observe(Snapshot snapshot,OniNativeDomain.Status status)
         {
@@ -99,7 +112,8 @@ internal static unsafe partial class Program
             var bound=128*2.2204460492503131e-16*(initialScale+fluid.Sum(c=>Math.Abs(c.InternalEnergy)+c.ResolvedKineticEnergy)+Math.Abs(heat.BodyHeatLossJoules));
             Require(Math.Abs(residual)<=bound,"Actual native solid/fluid U+K boundary did not close.");
             return new {Verified=true,ActualLicensedNativeWorker=true,UnityGameTest=false,ActualWindowsOsEstablishedByThisProbe=false,
-                Samples=samples,PublicationSamples=publicationSamples,PublicationLeasesVerified=true,InitialTemperature,FinalTemperature=temperature,HeatCapacityJoulesPerKelvin=capacity,
+                Samples=samples,PublicationSamples=publicationSamples,PublicationLeasesVerified=true,AtomicStartup=binding.Session==0,
+                InitialTemperature,FinalTemperature=temperature,HeatCapacityJoulesPerKelvin=capacity,
                 BodyHeatLossJoules=bodyLoss,ClosedEnergyResidualJoules=residual,ClosedEnergyBoundJoules=bound,
                 NativeOldTemperatureGridPreserved=true,CompatibilityCellTemperatureUnchanged=true,Evidence=evidence};
         }

@@ -128,6 +128,13 @@ continue after a declined scalar save.
 
 ## Status and limits
 
+With `MA_VERIFY_SOLID_HEAT=1`, the plain sealed gas/water controls exercise
+native solid boundary heat. Add `MA_VERIFY_SOLID_HEAT_STARTUP=1` to prepare the
+solid before owner creation and register it in the atomic startup call. The
+first positive owner frame must exchange heat; the final report distinguishes
+this path with `nativeSolidHeat.AtomicStartup`. Omitting the startup option
+retains the later, revision-checked registration control.
+
 On build 744825, the default suite passes on Windows and Linux, with `sanitize`
 failing as expected. Linux uses Windows-exported tables, and both produce
 byte-identical initial saves. The gas, water, heat, conduction, gravity,

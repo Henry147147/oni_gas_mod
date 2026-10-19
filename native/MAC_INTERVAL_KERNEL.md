@@ -21,6 +21,17 @@ identities have columns. Their number is unbounded by a development catalogue
 limit, but each present column currently spans the grid. Spatial block sparsity
 and workspace retention across intervals remain open.
 
+Primal/dual transport connectivity is retained across related owners, alongside
+the pressure hierarchy. Its immutable grid is owned by the cache, so destroying
+the source owner cannot leave a dangling grid reference. Heat and inventory
+changes retain this connectivity. Changed dimensions, spacing, depth, periodicity
+or wall masks require a fresh cache; an internal stale-cache request declines
+before consuming an attempt. Constructors and checkpoint restores create fresh
+caches. Neither topology nor numerical workspace state is physical save history.
+Source-lifetime, stale-geometry and continuation controls pass native Release,
+ASan/UBSan, ThreadSanitizer and Windows-target Wine runs. Saved output and the
+33,153-cell continuation with one, four and twelve workers remain unchanged.
+
 The nonlinear pressure equation uses continuous work-pressure increments and
 analytic isentropic secants/tangents. A matrix-free PCG operator solves
 each Newton correction, with an automatic [geometric multigrid preconditioner](MAC_MULTIGRID.md)
@@ -49,6 +60,15 @@ primary gathers is counted; unresolved primary updates are counted separately.
 Discarded third components remain tagged even if later additions cancel the
 surviving double-double tail.
 The first port does not yet use the permission to round below-range transfers.
+
+Pressure differences, geometric residuals and primary-field gathers seed their
+accumulators directly from an already checked finite first operand. This removes
+the error-free addition against zero; subsequent two-sum operations and discarded
+component flags are unchanged. Native and ASan output remains byte-identical to
+the preceding binary, as does the Windows-target output on Wine. A 33,153-cell
+continuation with one, four and twelve workers and the Windows-target four-worker
+continuation retain the preceding checkpoint bytes. These arithmetic controls
+do not establish the colony timing gate.
 
 Every constituent and passive quantity, both momentum components with wall
 impulses, and actual endpoint U+K must reconcile within `128 epsilon` times

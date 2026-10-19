@@ -377,6 +377,17 @@ MA_ONI_API MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolid
     MAOniDomainSolidHeatStatus*);
 MA_ONI_API MAOniResult ma_oni_domain_solid_heat_status(MAOniDomainSolidHeatStatus*);
 
+/* Additive startup ABI 1 for preset scenarios 0..6. Registers 1..128 native
+ * solid faces in the same activation transaction as ma_oni_domain_start.
+ * Inputs use session=expected_frame=0; the new session is assigned internally.
+ * Every fact is checked before activation. Failure preserves both outputs and
+ * the previous ownership state. Both success outputs describe frame zero, even
+ * when the native worker advances immediately after return. The old start and
+ * revision-checked solid_heat_configure entry points retain their meanings. */
+MA_ONI_API uint32_t ma_oni_domain_solid_heat_startup_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_domain_start_with_solid_heat(const MAOniDomainConfig*,
+    const MAOniDomainSolidHeatCell*, uint32_t count, MAOniDomainStatus*, MAOniDomainSolidHeatStatus*);
+
 /* Gravity diagnostics, ABI 1. Potential is measured from the bottom of the
  * owned rectangle, at cell centres. Boundary transfers carry the same datum.
  * All values describe the completed frame; pending potential is reserved only. */

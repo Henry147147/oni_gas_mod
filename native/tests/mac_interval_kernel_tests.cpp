@@ -1,9 +1,11 @@
 #include "mac_fixture.hpp"
 #include "../src/mac_interval_audit.hpp"
+#include "../src/mac_interval_kernel.hpp"
 #include "../src/mac_block_execution.hpp"
 #include <bit>
 #include <chrono>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iterator>
 #include <numbers>
@@ -276,6 +278,49 @@ void catalogue() {
     check(next.world.advanced(.001).world.checkpoint() == restored.advanced(.001).world.checkpoint(), "Large catalogue continuation differs");
     export_interval(4, owner, next);
 }
+void stale_topology_cache() {
+    const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
+    const auto input = scene(19, 17, true), changed = scene(18, 17, true);
+    MacIntervalCache cache; std::size_t attempts = 0;
+    const auto first = advance_mac_interval_kernel(fixture.registry, *fixture.eos, input, s, .01, 4096, attempts, &cache);
+    check(first.has_value(), "Initial topology cache control declined");
+    const auto expected = MacClosedWorld(fixture.registry, fixture.eos, first->state, s).checkpoint();
+    auto reject = [&](const MacTransportState& other) {
+        attempts = 123;
+        const auto candidate = advance_mac_interval_kernel(fixture.registry, *fixture.eos, other, s, .01, 4096, attempts, &cache);
+        check(!candidate && attempts == 0, "A stale transport topology was reused for changed geometry");
+    };
+    reject(changed);
+    auto rescaled = input; rescaled.grid.depth_m = 2; reject(rescaled);
+    reject(scene(19, 17, true, true));
+    attempts = 0;
+    const auto again = advance_mac_interval_kernel(fixture.registry, *fixture.eos, input, s, .01, 4096, attempts, &cache);
+    check(again && MacClosedWorld(fixture.registry, fixture.eos, again->state, s).checkpoint() == expected,
+        "Declined geometry reuse contaminated the original cached continuation");
+}
+void concurrent_continuation() {
+    const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
+    const auto warm = [&] {
+        const MacClosedWorld source(fixture.registry, fixture.eos, scene(19, 17, true), s);
+        return source.advanced(.02).world;
+    }(); // Cached topology must outlive this source and its grid allocation.
+    const auto heated = warm.with_cell_heat(std::array<MacCellHeat, 1>{{{7, .125, 1000}}});
+    const auto cold = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, warm.checkpoint());
+    const auto cold_heated = MacClosedWorld::from_checkpoint(fixture.registry, fixture.eos, heated.checkpoint());
+    const auto expected = cold.advanced(.013).world.checkpoint();
+    const auto expected_heated = cold_heated.advanced(.007).world.checkpoint();
+    std::promise<void> start; const auto ready = start.get_future().share();
+    auto first = std::async(std::launch::async, [&] { ready.wait(); return warm.advanced(.013); });
+    auto second = std::async(std::launch::async, [&] { ready.wait(); return heated.advanced(.007); });
+    start.set_value();
+    const auto a = first.get(), b = second.get();
+    check(a.report.interval_multigrid_solves > 0 && b.report.interval_multigrid_solves > 0 &&
+        a.world.checkpoint() == expected && b.world.checkpoint() == expected_heated,
+        "Concurrent related owners contaminated pressure workspace continuation");
+    check(warm.advanced(.013).world.checkpoint() == expected &&
+        heated.advanced(.007).world.checkpoint() == expected_heated,
+        "Retained pressure workspace depended on a sibling owner's previous coefficients");
+}
 void benchmark(std::size_t w, std::size_t h, int count, double maximum_dt, bool reference, bool jacobi) {
     const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = maximum_dt;
     if (reference) s.numerical_kernel = MacNumericalKernel::reference;
@@ -354,6 +399,7 @@ int main(int argc, char** argv) {
         check(argc == 1, "Unknown interval kernel test arguments"); audit_boundaries();
         compare(0, 12, 4, true, false); compare(1, 9, 5, false, true); compare(2, 7, 1, false, false);
         compare(5, 16, 16, true, false); compare(6, 19, 17, false, true);
+        stale_topology_cache(); concurrent_continuation();
         fallback_and_rollback(); endurance(); catalogue(); std::cout << "PASS interval kernel, reference comparisons, audited accounts and continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }
