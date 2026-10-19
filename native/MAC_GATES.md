@@ -3,10 +3,10 @@
 Milestone B's gravity and multiphase exit is defined by eight gates
 ([completion plan](../docs/completion-plan.md#gravity-and-multiphase-gates)).
 Each gate is a standalone executable that prints `GATE <id> PASS|FAIL|OPEN` with
-its measurements and exits nonzero unless it passes. All run the production
-kernel (numerical kernel 2) with default settings. The free-surface gates (M1–M3)
-also select sharp interfaces (material selector 3). Passing gates also run as
-CTests.
+its measurements and exits nonzero unless it passes. All except V run the
+production kernel (numerical kernel 2) with default settings. The free-surface gates
+(M1–M3) also select sharp interfaces (material selector 3). V runs the reference
+path's void phase. Passing gates also run as CTests.
 
 | Gate | Command | Status | CTest |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@ CTests.
 | M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | open: no immiscible interfaces | — |
 | M5 phase change | `ma_mac_multiphase_gates M5` | open: no phase change | — |
-| V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | fail | — |
+| V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | pass (void phase, reference path) | `mac_gate_v_vacuum_front` |
 
 ## Passing gates
 
@@ -90,11 +90,12 @@ a start-of-substep face weight is first order and anti-damping. It was also larg
 with mean-density face weights, which put half of a thin liquid layer's weight on
 the gas face above it. Time-centring a geometric weight removes both effects.
 
-## Failing gates
-
-**V vacuum front.** The N128 run stops with "Compressive actual stored-state
-entropy falls below the original stored-U allowance" ([vacuum](MAC_VACUUM.md)).
-Front tracking into vacuum needs a void phase.
+**V.** The front with 0.1% of the gas mass beyond it is compared with the exact fan.
+At N512 it is within 4.2% of its exact travel and moves within 0.32% of its exact
+displacement over the last 0.2t; both errors decrease over N128 and N256. The last
+gas-bearing cell stays behind the exact front. The gate first used that last cell
+as the front, which no grid method can bring within 5% at N512. Details, and the
+remaining fast-front error, are in [vacuum](MAC_VACUUM.md#gate-v-vacuum-front).
 
 ## Open gates
 

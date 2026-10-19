@@ -385,10 +385,12 @@ These were found while verifying formulation 2:
   reachable.
 - **Near vacuum.** A composed owner at 1e-4 Pa exhausts its attempt budget in
   the flow solver even with diffusion disabled.
-- **Cold CO₂.** A CO₂-bearing room at 200 K trips the EOS guard "Material
-  energy reference erases resolved thermal or elastic energy", also with
-  diffusion disabled. CO₂'s large energy offset loses the resolved thermal
-  energy there.
+- **Cold CO₂ (resolved).** A CO₂-bearing room at 200 K used to trip the EOS
+  guard "Material energy reference erases resolved thermal or elastic energy",
+  also with diffusion disabled: CO₂'s large energy offset cannot hold its
+  sensible energy to 32 epsilons. The guard now judges the round trip against the
+  stored energy's own precision ([vacuum](MAC_VACUUM.md#void-phase)); CO₂ and N2
+  round-trip down to 1 mK.
 
 ## Transfer-rounding controls
 

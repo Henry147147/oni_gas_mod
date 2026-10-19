@@ -32,8 +32,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
    reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
    diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
-   pressure; 7/8 for opt-in two-moment pressure implementations), and a length-prefixed
-   binary model identity.
+   pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
+   [void phase](MAC_VACUUM.md#void-phase)), and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -51,13 +51,20 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    Version 7 has the version-6 fields followed by the pressure-integration enum
    (unsigned 32-bit, canonical value 1) before any enabled diffusion formulation
    and profile. Versions 2–6 restore pressure-integration value 0 (midpoint).
+   Version 9 stores both viscosity coefficients, the numerical-kernel enum (0 or 2),
+   the diffusion mode and multiplier, the pressure-integration enum and the vacuum
+   representation (canonical value 1, void phase), before any enabled diffusion
+   formulation and profile.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
+8. Version 9 only: a count (0, or the cell count) and each cell's occupied volume
+   (binary64). The count is 0 exactly when every occupied cell fills its grid
+   volume; a restored owner that would canonicalize a stored vector rejects.
+9. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
 are zero and diffusion is disabled, so existing reference images retain their
@@ -69,8 +76,8 @@ current binary has.
 ### Version assignment
 
 Reference owners write version 2, 3 or 5 according to their settings; production
-owners write version 6, or 7/8 with two-moment pressure. Retired layouts remain
-listed for explicit rejection:
+owners write version 6, or 7/8 with two-moment pressure. Any void-phase owner writes
+version 9. Retired layouts remain listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
 | --- | --- | --- | --- |
@@ -81,6 +88,7 @@ listed for explicit rejection:
 | 6 | production (2) | either | disabled, physical or accelerated |
 | 7 | production (2), two-moment pressure (1) | either | disabled, physical or accelerated |
 | 8 | production (2), coupled two-moment pressure (2) | either | disabled, physical or accelerated |
+| 9 | reference (0) or production (2), void phase; midpoint pressure | off (the void phase rejects viscosity) | disabled |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to
@@ -146,12 +154,13 @@ older reader rejects a value it does not know):
 
 | Field | Values |
 | --- | --- |
-| Material reconstruction | 0 donor cell, 1 limited linear, 2 swept first moment |
+| Material reconstruction | 0 donor cell, 1 limited linear, 2 swept first moment, 3 interface PLIC |
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic/quadratic, 3 coupled compressive pressure |
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
-| Numerical kernel (versions 4–7) | 0 reference (version 5 only; implicit in versions 2/3), 1 retired interval (versions 4/5), 2 production (versions 6/7 only) |
-| Pressure integration (versions 7/8) | 1 real Schur two moments in version 7; 2 coupled two moments in version 8; midpoint 0 is implicit in versions 2–6 and redundant/noncanonical in versions 7/8 |
+| Numerical kernel (versions 4–9) | 0 reference (versions 5 and 9; implicit in versions 2/3), 1 retired interval (versions 4/5), 2 production (versions 6–9) |
+| Pressure integration (versions 7–9) | 1 real Schur two moments in version 7; 2 coupled two moments in version 8; midpoint 0 is implicit in versions 2–6, redundant/noncanonical in versions 7/8, and explicit in version 9 |
+| Vacuum representation (version 9) | 1 void phase; 0 (empty cells) is implicit in versions 2–8 and noncanonical in version 9 |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must

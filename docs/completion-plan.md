@@ -114,6 +114,16 @@ Amendments:
   original velocity and central bounds, and the central-density bound is
   ill-conditioned in a ~3e-4 kg/m³ core
   ([criteria](../native/MAC_STRONG_FLOW.md#acceptance-criteria)).
+- **Vacuum front measure, 2026-10-19 (user decision):** gate V measures the front
+  with 0.1% of the gas mass beyond it, plus an absolute bound that no gas lies more
+  than one cell ahead of the exact front. The last gas-bearing cell cannot converge
+  at N512 for any grid method: a pure Lagrangian solver is 48% short there, since the
+  mass beyond a point falls like (distance)^6 near the edge
+  ([vacuum](../native/MAC_VACUUM.md#gate-v-vacuum-front)).
+- **Cold gas in the EOS, 2026-10-19 (user decision):** the reference EOS represents
+  cold gas whose chemical energy offset dominates its sensible energy, judging the
+  stored energy against its own binary64 precision
+  ([vacuum](../native/MAC_VACUUM.md#void-phase)).
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
@@ -216,7 +226,7 @@ g = 9.81 m/s², the production kernel and the default settings; M1–M3 select
 sharp interfaces (material selector 3). Conservation means each species and
 passive exact to the interval audit, and liquid volume exact. Commands,
 measurements and diagnoses are in [MAC_GATES.md](../native/MAC_GATES.md).
-Status: G1, G2 and M1–M3 pass; V fails; M4 and M5 are open.
+Status: G1, G2, M1–M3 and V pass; M4 and M5 are open.
 
 | Gate | Setup | Pass criteria |
 | --- | --- | --- |
@@ -227,7 +237,7 @@ Status: G1, G2 and M1–M3 pass; V fails; M4 and M5 are open.
 | M3 standing wave | Water 0.5 m deep, wavelength 1 m, amplitude 1 mm, periodic; 32, 64 and 128 cells per wavelength | Finest grid: period within 1% of ω² = g k tanh(k h), converging; amplitude change within ±2% per period (loss at most 2%, no growth beyond 2%) |
 | M4 two liquids (Rayleigh–Taylor) | Immiscible 1000 and 800 kg/m³ liquids, no surface tension, width 0.1 m, perturbation 1e-4 of the width; 64 cells per wavelength | Growth rate within 10% of √(A g k) while the amplitude is below 5% of the width. Stable (light over heavy) case at rest within 1e-8 m/s. Open: needs immiscible liquids |
 | M5 phase change (Stefan vapour film) | Water and steam at 1 atm, wall at T_sat + 10 K, started from the exact solution at t0 | Interface x(t) = 2λ√(α t) within 2% over [t0, 10 t0] on the finest grid, converging; mass and energy including latent heat exact. Open: needs phase change |
-| V vacuum front (absolute bound added) | Existing [gas/vacuum gate](../native/GAS_VACUUM.md) inputs | Front within 5% of the exact travel (2.51 m) and recent speed within 10% of 5.019 c0 at N512, both errors decreasing over N128, N256 and N512. Open: needs a void phase |
+| V vacuum front (absolute bound added) | Existing [gas/vacuum gate](../native/GAS_VACUUM.md) inputs | The front with 0.1% of the gas mass beyond it within 5% of its exact travel at N512, and its displacement over the last 0.2t within 10% of exact; both errors decreasing over N128, N256 and N512. No gas more than one cell ahead of the exact front. Passes with the [void phase](../native/MAC_VACUUM.md#void-phase) (reference path) |
 
 M2 data are Martin & Moyce (1952), *Phil. Trans. R. Soc. A* 244, 312–324,
 for the 2a-tall column (T, Z): (0.41, 1.11), (0.84, 1.23), (1.19, 1.44),
@@ -254,9 +264,9 @@ finest-grid velocity bound and the central density/pressure bounds. The
 pressure/remap source-velocity convention mismatch, reproduced on Windows and
 Linux. A [conservative one-dimensional conversion](../native/MAC_NODAL_CONVERSION.md)
 now passes the interior curved-point oracle; general 2-D conversion and strong-flow
-accuracy remain open. The separate [gas/vacuum front gate](../native/GAS_VACUUM.md)
-also fails, and the owner rejects empty cells. Optional modes that did not pass
-remain opt-in experiments; original inputs and acceptance bounds are unchanged.
+accuracy remain open. The [vacuum front gate](../native/MAC_VACUUM.md#gate-v-vacuum-front)
+passes with the opt-in void phase on the reference path. Optional modes that did not
+pass remain opt-in experiments; original inputs and acceptance bounds are unchanged.
 The exit above is open.
 
 ## C. Materials, thermodynamics and aquatic chemistry

@@ -13,8 +13,28 @@ struct Problem {
     [[nodiscard]] double front_speed() const { return velocity + 2 * sound_speed / (gamma - 1); }
     [[nodiscard]] double head(double t) const { return interface_x + (velocity - sound_speed) * t; }
     [[nodiscard]] double front(double t) const { return interface_x + front_speed() * t; }
-
+    // Position with the given fraction of the gas mass beyond it. In the fan the
+    // mass beyond x is rho c0 t (c/c0)^((g+1)/(g-1)), c/c0 = (2 - (g-1) zeta)/(g+1).
+    [[nodiscard]] double mass_front(double t, double fraction) const {
+        const double c = std::pow(fraction * rho * interface_x / (rho * sound_speed * t), (gamma - 1) / (gamma + 1));
+        return interface_x + (2 - (gamma + 1) * c) / (gamma - 1) * sound_speed * t;
+    }
 };
+// Gate V's front: the position with 0.1% of the gas mass beyond it.
+constexpr double front_fraction = 1e-3;
+// Measured counterpart; a partly filled void-phase cell holds its gas at its start.
+double mass_front(const ma::experimental::MacTransportState& s, double h, double fraction) {
+    double total = 0; for (const auto& c : s.cells) total += c.mixture.mass();
+    double beyond = 0;
+    for (std::size_t i = s.cells.size(); i-- > 0;) {
+        const double m = s.cells[i].mixture.mass(); if (m == 0) continue;
+        const double width = std::min(h, ma::experimental::mac_material_volume(s, i));
+        if (beyond + m >= fraction * total) return static_cast<double>(i) * h + width * (1 - (fraction * total - beyond) / m);
+        beyond += m;
+    }
+    return 0;
+}
+struct Fronts { double support[2]{}, mass[2]{}; };
 struct Setup {
     ma::SpeciesRegistry registry = ma::SpeciesRegistry::standard();
     std::vector<double> fractions;
@@ -46,8 +66,10 @@ struct Setup {
 
 // One grid: prints the diagnostic records; returns 2 when the front or its
 // recent speed misses the exact fan by more than a cell. front/speed receive
-// the measured front position and recent speed.
-int run(std::size_t n,double& measured_front,double& measured_speed){
+// the measured front position and recent speed. With voids, the void phase
+// keeps each cell's occupied volume, the front is the gas/void line, and the
+// gate's mass-fraction fronts are also recorded at both endpoints.
+int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=false,Fronts* fronts=nullptr){
  using namespace ma;using namespace ma::experimental;
  Setup set;const auto& p=set.problem;
  require(n>=16 && n<=2048 && n%4==0,"Invalid vacuum front grid");
@@ -60,39 +82,54 @@ int run(std::size_t n,double& measured_front,double& measured_speed){
  for(std::size_t i=0;i<n;++i){MacMaterialCell c{MixtureInventory(set.registry.size()),{}};if(i<n/4){auto m=set.fractions;for(auto& x:m)x*=p.rho*v;c.mixture=set.eos->initialize_at_temperature(m,p.temperature,v).mixture;}s.cells.push_back(std::move(c));}
  MacClosedSettings settings;settings.maximum_timestep_s=dt;settings.reconstruction=MacMaterialReconstruction::swept_first_moment;
  settings.momentum_reconstruction=MacMomentumReconstruction::swept_energy_flux;settings.compression_viscosity=MacCompressionViscosity::coupled_pressure;
+ if(voids){settings.vacuum=MacVacuumRepresentation::void_phase;settings.momentum_reconstruction=MacMomentumReconstruction::donor_cell;}
  MacClosedWorld world(set.registry,set.eos,s,settings);
  std::cout<<"VFCONFIG "<<n<<' '<<h<<' '<<dt<<' '<<p.sound_speed<<' '<<p.gamma<<' '<<p.time()<<'\n';
  for(std::size_t i=0;i<n;++i)std::cout<<"VFOCCUPIED 0 "<<i<<' '<<s.cells[i].mixture.mass()<<'\n';
  double last=0;for(int endpoint=0;endpoint<2;++endpoint){auto r=world.advanced((endpoint==0?.8:.2)*p.time(),65536);world=std::move(r.world);
  double front=0;std::size_t occupied=0;
- for(std::size_t i=0;i<n;++i){const auto mass=world.state().cells[i].mixture.mass();std::cout<<"VFOCCUPIED "<<endpoint+1<<' '<<i<<' '<<mass<<'\n';if(mass>0){front=(static_cast<double>(i)+1)*h;++occupied;}}
+ for(std::size_t i=0;i<n;++i){const auto mass=world.state().cells[i].mixture.mass();std::cout<<"VFOCCUPIED "<<endpoint+1<<' '<<i<<' '<<mass<<'\n';if(mass>0){front=(static_cast<double>(i)+1)*h;++occupied;
+  // The x face area is spacing * depth = 1 m2, so the occupied volume is the gas depth.
+  if(voids)front=static_cast<double>(i)*h+mac_material_volume(world.state(),i);}}
  std::cout<<std::setprecision(17)<<"VFRONT "<<n<<' '<<world.time_s()<<' '<<front<<' '<<p.front(world.time_s())<<' '<<occupied<<' '<<r.report.substeps<<' '<<r.report.rejected_attempts<<' '<<r.report.energy_residual_j<<' '<<r.report.energy_bound_j<<'\n';
+ if(voids){const double x=mass_front(world.state(),h,front_fraction);
+  std::cout<<"VMASSFRONT "<<n<<' '<<world.time_s()<<' '<<x<<' '<<p.mass_front(world.time_s(),front_fraction)<<'\n';
+  if(fronts){fronts->support[endpoint]=front;fronts->mass[endpoint]=x;}}
  if(endpoint==1){const auto speed=(front-last)/(.2*p.time());std::cout<<"VSPEED "<<speed/p.sound_speed<<' '<<p.front_speed()/p.sound_speed<<'\n';
  measured_front=front;measured_speed=speed;
  if(std::abs(front-p.front(p.time()))>h || std::abs(speed-p.front_speed())*.2*p.time()>h)return 2;}
  last=front;}
  return 0;
 }
-// Gate V (docs/completion-plan.md): at N512 the front within 5% of the exact
-// travel and the recent speed within 10% of exact, both errors decreasing over
-// N128, N256 and N512.
+// Gate V (docs/completion-plan.md), void phase: at N512 the front with 0.1% of
+// the gas mass beyond it lies within 5% of its exact travel and moves over the
+// last 0.2t within 10% of its exact displacement, both errors decreasing over
+// N128, N256 and N512; and no gas lies more than one cell ahead of the exact
+// front at either endpoint.
 int gate(){
- const Problem p=Setup{}.problem;const double travel=p.front(p.time())-p.interface_x;
- std::vector<double> front_errors,speed_errors;
+ const Problem p=Setup{}.problem;
+ std::vector<double> front_errors,speed_errors;bool contained=true;
  for(const std::size_t n:{128,256,512}){
-  double front=0,speed=0;
-  try{(void)run(n,front,speed);}
+  double front=0,speed=0;Fronts f;
+  try{(void)run(n,front,speed,true,&f);}
   catch(const std::exception& e){std::cout<<"VGATE n="<<n<<" stopped: "<<e.what()<<"\nGATE V FAIL\n";return 1;}
-  front_errors.push_back(std::abs(front-p.front(p.time()))/travel);speed_errors.push_back(std::abs(speed-p.front_speed())/p.front_speed());
-  std::cout<<"VGATE n="<<n<<" front_error="<<front_errors.back()<<" speed_error="<<speed_errors.back()<<'\n';
+  const double t1=.8*p.time(),t2=p.time(),h=p.length/static_cast<double>(n);
+  const double exact=p.mass_front(t2,front_fraction),moved=exact-p.mass_front(t1,front_fraction);
+  front_errors.push_back(std::abs(f.mass[1]-exact)/(exact-p.interface_x));
+  speed_errors.push_back(std::abs(f.mass[1]-f.mass[0]-moved)/moved);
+  const double lead=std::max(f.support[0]-p.front(t1),f.support[1]-p.front(t2));contained=contained&&lead<=h;
+  std::cout<<"VGATE n="<<n<<" front_error="<<front_errors.back()<<" speed_error="<<speed_errors.back()
+   <<" support_lead_cells="<<lead/h<<'\n';
  }
  const bool decreasing=front_errors[1]<front_errors[0]&&front_errors[2]<front_errors[1]&&speed_errors[1]<speed_errors[0]&&speed_errors[2]<speed_errors[1];
- const bool pass=front_errors[2]<=.05&&speed_errors[2]<=.1&&decreasing;
+ const bool pass=front_errors[2]<=.05&&speed_errors[2]<=.1&&decreasing&&contained;
  std::cout<<"GATE V "<<(pass?"PASS":"FAIL")<<'\n';return pass?0:1;
 }
 }
 int main(int argc,char**argv){try{
- require(argc==1 || argc==2,"Expected an optional grid count or --gate");
+ // --void selects the void phase for one grid; --gate always uses it.
  if(argc==2 && std::string(argv[1])=="--gate")return gate();
- double front=0,speed=0;return run(argc>1?std::stoul(argv[1]):32,front,speed);
+ const bool voids=argc>1 && std::string(argv[1])=="--void";const int first=voids?2:1;
+ require(argc==first || argc==first+1,"Expected --gate, or [--void] and an optional grid count");
+ double front=0,speed=0;return run(argc>first?std::stoul(argv[first]):32,front,speed,voids);
 }catch(const std::exception&e){std::cerr<<e.what()<<'\n';return 1;}}

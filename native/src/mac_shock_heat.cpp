@@ -201,7 +201,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     }
     result.report.frozen_capacity_j_per_k.resize(source.cells.size());
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
-        current_index[i]=current.size();current.push_back(model.evaluate(source.cells[i].mixture,g.volume_m3()));
+        current_index[i]=current.size();current.push_back(model.evaluate(source.cells[i].mixture,mac_material_volume(source,i)));
         initial.emplace_back(current.back());
         result.report.frozen_capacity_j_per_k[i] = current.back().equilibrium_heat_capacity_at_cell_volume_j_per_k;
         if (sensed) {
@@ -277,7 +277,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     for (std::size_t sweep = 0; sweep < 2; ++sweep) for (std::size_t n = 0; n < links.size(); ++n) {
         const auto& link = links[sweep == 0 ? n : links.size() - 1 - n];
         auto& left = result.state.cells[link.left].mixture; auto& right = result.state.cells[link.right].mixture;
-        auto pair = relax_pair(model,left,right,g.volume_m3(),g.volume_m3(),link.integrated,
+        auto pair = relax_pair(model,left,right,mac_material_volume(source,link.left),mac_material_volume(source,link.right),link.integrated,
             current[current_index[link.left]],current[current_index[link.right]]);
         result.report.reused_pair_eos_readings+=2;
         left.energy = pair.after_left_j; right.energy = pair.after_right_j;
@@ -288,7 +288,7 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         balance.add(result.state.cells[i].mixture.energy); balance.add(-source.cells[i].mixture.energy);
         final.emplace_back(current[current_index[i]]);++result.report.reused_endpoint_eos_readings;
-        entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, g.volume_m3()});
+        entropy_cells.push_back({&source.cells[i].mixture, &result.state.cells[i].mixture, mac_material_volume(source, i)});
     }
     if (!balance.within_bound()) precision("Shock-heat global actual U account exceeds its operand bound");
     result.report.absolute_transfer = transferred.value(); result.report.energy_residual = balance.residual(); result.report.energy_bound = balance.bound();

@@ -82,10 +82,11 @@ policy paths.
 | Shock heat | 0, 1, 2, 3 |
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
+| Vacuum representation | 0 empty cells |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
-compressive pressure (3) and explicit incomplete Cholesky are rejected by the
-flow-only helper. A selected production owner uses the audited reference for
+compressive pressure (3), the [void phase](MAC_VACUUM.md#void-phase) and explicit
+incomplete Cholesky are rejected by the flow-only helper. A selected production owner uses the audited reference for
 these settings, retaining their selectors and selection 2 in its next image.
 
 Range: a nonfinite or overflow-range value (above `2^450`) in the input or

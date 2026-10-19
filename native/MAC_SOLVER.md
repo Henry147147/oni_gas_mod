@@ -8,8 +8,9 @@ SimDLL must not be used as the solver. The ONI native domain
 `ma::experimental` (the name predates the decision).
 
 The solver works on a closed regular two-dimensional MAC grid. Exact empty-cell
-inventory and gas arrival are supported, but the [vacuum front](MAC_VACUUM.md)
-still lacks occupied-volume tracking and fails its accuracy gate.
+inventory and gas arrival are supported. The opt-in [void phase](MAC_VACUUM.md#void-phase)
+tracks each cell's occupied volume and passes the vacuum-front gate; it is
+reference-only and gas-only so far.
 Primary state is each cell's constituent masses, stored internal energy U and passive
 quantities, plus the canonical normal momentum J on every face. Every derived quantity
 (velocity, kinetic energy K, pressure, temperature) is computed from those; nothing
@@ -31,7 +32,7 @@ Topic documents:
 | [Pressure multigrid](MAC_MULTIGRID.md) | Geometric preconditioning in the production kernel and independent component controls |
 | [Physical checkpoints](MAC_CHECKPOINT.md) | `MACCLS01` wire format, native-domain checkpoint ABI, paired saves |
 | [Strong-flow accuracy](MAC_STRONG_FLOW.md) | The failed Riemann gate, its diagnosis and the next step |
-| [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, saved controls and the failed front/volume gates |
+| [Empty cells and vacuum front](MAC_VACUUM.md) | Conservative empty-cell support, the void phase and gate V |
 | [Gravity and multiphase gates](MAC_GATES.md) | Milestone B's eight gates: commands, results and diagnoses |
 
 Separate documents cover [physical viscosity](../docs/native-domain-physics.md#physical-viscosity),
@@ -138,6 +139,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
 | `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
+| `vacuum` | 0 `empty_cells` | 1 `void_phase` (gas only, reference path; [void phase](MAC_VACUUM.md#void-phase)) |
 
 The native domain keeps these physical selectors and explicitly selects numerical
 kernel 2.

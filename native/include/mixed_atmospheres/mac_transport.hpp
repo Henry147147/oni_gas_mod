@@ -37,7 +37,16 @@ struct MacTransportState {
     std::vector<double> momentum_x, momentum_y;
     // Authoritative when nonempty; momentum_x/y are explicit projections.
     std::vector<MacScaled> full_momentum_x{}, full_momentum_y{};
+    // Void phase (MAC_VACUUM.md): the volume each cell's material occupies,
+    // the rest being exact vacuum. Empty when every occupied cell fills its
+    // grid volume; otherwise one value per cell, zero for empty cells and walls.
+    std::vector<double> occupied_volumes_m3{};
 };
+// The volume at which a cell's material is evaluated: its occupied volume in
+// the void phase, otherwise the grid volume.
+[[nodiscard]] inline double mac_material_volume(const MacTransportState& state, std::size_t cell) {
+    return state.occupied_volumes_m3.empty() ? state.grid.volume_m3() : state.occupied_volumes_m3[cell];
+}
 struct MacMassFluxes {
     // Integrated kg, oriented toward positive x/y; one value per primal face.
     std::vector<double> x, y;
@@ -60,6 +69,11 @@ struct MacParcelPlan {
     std::vector<MacMaterialCell> retained;
     std::vector<double> source_volumes_m3, retained_volumes_m3, limiter;
     std::size_t eos_backtracks = 0, unresolved_stencil_cells = 0;
+    // Void phase only (otherwise empty): each donor's material volume within
+    // its source volume, and the material and void parts of every parcel
+    // (aligned with parcels) and retained remainder.
+    std::vector<double> source_material_volumes_m3{}, parcel_material_volumes_m3{}, parcel_void_volumes_m3{};
+    std::vector<double> retained_material_volumes_m3{}, retained_void_volumes_m3{};
 };
 struct MacDualFlux { std::size_t left = 0, right = 0; double mass_kg = 0; MacScaled full_mass_kg{}; };
 [[nodiscard]] inline MacScaled mac_projected_value(double projected, MacScaled full) {

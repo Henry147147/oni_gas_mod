@@ -203,7 +203,14 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
         const double specific = checked(specific_sum.get());
         const Real sensible = specific_thermal + specific_elastic;
         const Real reconstructed_sensible = static_cast<Real>(specific) - material.energy_offset_j_per_kg;
-        check(std::abs(reconstructed_sensible - sensible) <= boundary_roundoff(reconstructed_sensible, sensible),
+        // The stored binary64 specific energy resolves sensible energy only to
+        // its own precision, about eps * |offset| when a large chemical offset
+        // dominates (cold gas: N2 below ~5 K, CO2 below ~215 K). Stored U has
+        // the same absolute precision, so judge the round trip against the
+        // representation, not against the sensible part alone.
+        const Real allowance = std::max(boundary_roundoff(reconstructed_sensible, sensible),
+            boundary_roundoff(static_cast<Real>(specific), material.energy_offset_j_per_kg));
+        check(std::abs(reconstructed_sensible - sensible) <= allowance,
             ReferenceErrorCode::numerical_range, "Material energy reference erases resolved thermal or elastic energy");
         result.specific_internal_energies_j_per_kg[i] = specific;
         energy.add(amount * specific);

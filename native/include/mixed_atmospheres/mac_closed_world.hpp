@@ -33,6 +33,11 @@ enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, pro
 // Persisted temporal pressure scheme. The moment path preserves pressure work
 // with two Legendre moments; the surrounding split remains second order.
 enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1, two_moment_coupled = 2 };
+// Persisted vacuum representation. Value 0: material entering an empty cell
+// fills its grid volume. Value 1 (void phase, MAC_VACUUM.md): each cell keeps
+// the volume its material occupies; the remainder is exact vacuum, and swept
+// strips carry material and void by a PLIC line. Reference path, gas only.
+enum class MacVacuumRepresentation { empty_cells = 0, void_phase = 1 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -54,6 +59,7 @@ struct MacClosedSettings {
     // Diffusion composes with either numerical kernel (it wraps each flow interval).
     MacDiffusionSettings diffusion=MacDiffusionSettings::disabled();
     MacPressureIntegration pressure_integration = MacPressureIntegration::discrete_gradient_midpoint;
+    MacVacuumRepresentation vacuum = MacVacuumRepresentation::empty_cells;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -73,6 +79,9 @@ struct MacClosedSubstep {
     // arrays contain the corresponding compact pressure-node index, or max().
     std::vector<std::size_t> active_cells, pressure_nodes_x, pressure_nodes_y;
     std::vector<double> material_volumes_m3, geometric_residuals_m3;
+    // Void phase: each cell's swept volume (grid volume plus face sweeps),
+    // holding its material volume and its unchanged void. Otherwise empty.
+    std::vector<double> swept_volumes_m3;
     double pressure_energy_residual_j = 0, pressure_energy_bound_j = 0;
     double energy_residual_j = 0, energy_bound_j = 0;
     MacEnergy pressure_energy_residual_wide_j, pressure_energy_bound_wide_j;

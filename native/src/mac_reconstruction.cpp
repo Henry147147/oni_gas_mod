@@ -103,11 +103,26 @@ double evaluated(const Field& field, double theta, double x, double y) {
     Sum value; value.add(field.centre); value.add(theta * x * field.sx); value.add(theta * y * field.sy); return value.value();
 }
 MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing, Mode mode) {
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing, Mode mode,
+    std::span<const double> material_volumes) {
     require_mac_energy_environment();
-    const bool swept = mode == Mode::swept, sharp = mode == Mode::sharp;
-    model.validate_registry(registry); static_cast<void>(mac_face_inertias(registry, source, model, volumes));
+    const bool swept = mode == Mode::swept, sharp = mode == Mode::sharp, voids = !material_volumes.empty();
     const auto& g = source.grid; const auto count = source.cells.size(), species = registry.size();
+    // Void phase: material sits at its own volume inside each swept volume.
+    // Empty cells are evaluated nowhere; they keep their swept volume here.
+    std::vector<double> eos_volumes(volumes.begin(), volumes.end()), filled(count, 1);
+    if (voids) {
+        require(material_volumes.size() == count && volumes.size() == count, "Invalid MAC void-phase material volume shape");
+        for (std::size_t i = 0; i < count; ++i) {
+            if (g.walls[i]) continue;
+            const double m = material_volumes[i];
+            require(std::isfinite(m) && m >= 0 && m <= volumes[i] && (m > 0) == (source.cells[i].mixture.mass() > 0),
+                "Invalid MAC void-phase material volume");
+            if (m > 0) eos_volumes[i] = m;
+            filled[i] = m / volumes[i];
+        }
+    }
+    model.validate_registry(registry); static_cast<void>(mac_face_inertias(registry, source, model, eos_volumes));
     const auto qx = mac_field_values(q.x, q.full_x), qy = mac_field_values(q.y, q.full_y);
     static_cast<void>(mac_field_values(source.momentum_x, source.full_momentum_x));
     static_cast<void>(mac_field_values(source.momentum_y, source.full_momentum_y));
@@ -132,8 +147,9 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0), "Invalid reconstruction material volume");
         sparse_count += source.cells[i].passive_quantities.size(); require(sparse_count <= 16000000, "MAC reconstruction passive capacity exceeded");
         if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
-            const auto eos = model.evaluate(source.cells[i].mixture, volumes[i]);
-            if (eos.vacuum_volume_m3 > 32 * eps * volumes[i]) throw std::domain_error("MAC reconstruction source contains internal void");
+            const auto eos = model.evaluate(source.cells[i].mixture, eos_volumes[i]);
+            if (eos.vacuum_volume_m3 > 32 * eps * eos_volumes[i]) throw std::domain_error("MAC reconstruction source contains internal void");
+            require(!voids || filled[i] == 1 || !(eos.liquid_volume_m3 > 0), "The MAC void phase does not yet hold liquid");
             positive_energy[i] = eos.thermal_energy_j + eos.elastic_energy_j; require_finite(positive_energy[i], "MAC positive reconstruction energy");
             if (sharp) {
                 alpha[i] = eos.liquid_volume_m3 / volumes[i]; gas_fraction[i] = eos.gas_volume_m3 / volumes[i];
@@ -188,6 +204,11 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             y < g.height ? x + y * g.width : none, qy[g.y_face(x, y)]);
     require(edges.size() <= q.x.size()+q.y.size(), "MAC reconstructed parcel face coverage exceeded");
     std::vector<std::optional<MacPrimalParcel>> prepared(edges.size());
+    std::vector<double> edge_material(voids ? edges.size() : 0), edge_void(voids ? edges.size() : 0);
+    if (voids) {
+        result.source_material_volumes_m3.assign(material_volumes.begin(), material_volumes.end());
+        result.retained_material_volumes_m3.assign(count, 0); result.retained_void_volumes_m3.assign(count, 0);
+    }
     for (std::size_t i = 0; i < count; ++i) {
         if (g.walls[i]) continue;
         if (exceeds(outgoing[i].value(), MacScaled::from_double(volumes[i]).multiplied(maximum_outgoing))) throw std::domain_error("MAC reconstructed volume CFL exceeded");
@@ -217,6 +238,11 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         bool forced_flat = sharp_donor;
         if (sharp && !sharp_donor) for (const auto cell : stencil)
             if (cell != none && (two_phase[cell] || (alpha[cell] > 0) != (alpha[i] > 0))) forced_flat = true;
+        // Void phase: a partly filled donor is homogeneous material behind its
+        // PLIC line; a donor beside a partly filled or empty cell keeps donor order.
+        const bool void_donor = voids && filled[i] < 1 && source.cells[i].mixture.mass() > 0;
+        if (voids) for (const auto cell : stencil) if (cell != none && filled[cell] < 1) forced_flat = true;
+        forced_flat = forced_flat || void_donor;
         std::vector<Point> weights(stencil.size());
         if (swept && !flat) {
             Sum xx, xy, yy;
@@ -345,6 +371,43 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 }
             }
         }
+        // Void-phase strips: each strip's material area (per unit donor volume)
+        // from the PLIC line between material and void; the void left behind
+        // is what the strips did not take. Without a normal, or on retry, every
+        // strip carries material and void in the donor's proportion.
+        std::array<double, 4> material_area{}, void_area{}; double void_left = 0; bool void_oriented = false;
+        if (void_donor) {
+            const auto fraction = [&](std::size_t cell) { return cell == none ? filled[i] : filled[cell]; };
+            const auto diagonal = [&](std::size_t cell, int dy) { return cell == none ? none : neighbor(cell, 1, dy); };
+            const double a[3][3] = {{fraction(diagonal(adjacent[0], -1)), fraction(adjacent[0]), fraction(diagonal(adjacent[0], 1))},
+                {fraction(adjacent[2]), filled[i], fraction(adjacent[3])},
+                {fraction(diagonal(adjacent[1], -1)), fraction(adjacent[1]), fraction(diagonal(adjacent[1], 1))}};
+            double nx = 0, ny = 0; void_oriented = interface_geometry::youngs_normal(a, nx, ny);
+            std::array<double, 4> width{}, estimated{}, material{}, vacuum{}; std::array<std::size_t, 4> slot{}; std::size_t strips = 0;
+            const double offset = void_oriented ? interface_geometry::line_offset(nx, ny, filled[i]) : 0;
+            for (std::size_t k = 0; k < by_donor[i].size(); ++k) {
+                if (by_donor[i][k] == none) continue;
+                const auto& e = edges[by_donor[i][k]];
+                const double w = e.volume.shared(1, volumes[i]).project().value;
+                if (!(w > 0) || !std::isfinite(w)) continue;
+                width[strips] = w; slot[strips] = k;
+                estimated[strips++] = void_oriented ? interface_geometry::strip_liquid_area(nx, ny, offset, static_cast<int>(e.axis),
+                    (e.axis == 0 ? e.cx : e.cy) > 0, w) : w * filled[i];
+            }
+            interface_geometry::allocate_strips(estimated, width, strips, filled[i], 1 - filled[i], material, vacuum);
+            void_left = 1 - filled[i];
+            for (std::size_t n = 0; n < strips; ++n) {
+                material_area[slot[n]] = material[n]; void_area[slot[n]] = vacuum[n]; void_left = std::max(0., void_left - vacuum[n]);
+            }
+        }
+        const auto void_prototype = [&](std::size_t slot, double width) {
+            MacMaterialCell cell = source.cells[i]; const double scale = material_area[slot] / (width * filled[i]);
+            if (scale == 0) return MacMaterialCell{MixtureInventory(species), {}};
+            for (auto& mass : cell.mixture.masses) mass *= scale;
+            cell.mixture.energy *= scale; cell.passive_quantities.clear();
+            for (const auto& p : source.cells[i].passive_quantities) { const double v = p.quantity * scale; if (v != 0) cell.passive_quantities.push_back({p.identity, v}); }
+            return cell;
+        };
         // A strip prototype at the donor volume: liquid at the donor's liquid
         // density, gas at its headspace density, both at the donor's EOS state.
         const auto phase_prototype = [&](std::size_t slot) {
@@ -361,7 +424,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             return cell;
         };
         bool homogeneous = false;
-        const auto split_retry = [&] { if (!sharp_donor || homogeneous) return false; homogeneous = true; return true; };
+        const auto split_retry = [&] { if (!(sharp_donor || void_donor) || homogeneous) return false; homogeneous = true; return true; };
         bool accepted = false;
         for (std::size_t attempt = 0; attempt <= 33; ++attempt) {
             std::vector<MacScaledSum> retained(species + 1 + ids.size());
@@ -370,9 +433,19 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             try {
                 for (std::size_t slot = 0; slot < by_donor[i].size(); ++slot) if (const auto edge = by_donor[i][slot]; edge != none) {
                     const auto& e = edges[edge];
-                    auto prototype = !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(slot);
-                    admitted(prototype, volumes[i]);
                     const auto volume_projection = e.volume.project();
+                    const double width = volume_projection.value / volumes[i];
+                    auto prototype = void_donor ? (homogeneous || !(width > 0) ? source.cells[i] : void_prototype(slot, width)) :
+                        !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(slot);
+                    admitted(prototype, volumes[i]);
+                    if (voids) {
+                        // Material and void parts of this strip's volume.
+                        const double whole = volume_projection.value;
+                        if (source.cells[i].mixture.mass() == 0) { edge_material[edge] = 0; edge_void[edge] = whole; }
+                        else if (!void_donor) { edge_material[edge] = whole; edge_void[edge] = 0; }
+                        else if (homogeneous || !(width > 0)) { edge_material[edge] = whole * filled[i]; edge_void[edge] = whole * (1 - filled[i]); }
+                        else { edge_material[edge] = material_area[slot] * volumes[i]; edge_void[edge] = void_area[slot] * volumes[i]; }
+                    }
                     MacPrimalParcel parcel{e.axis, e.face, i, e.target, volume_projection.value, std::move(prototype), volumes[i], volume_projection.rounded ? e.volume : MacScaled{}};
                     auto projected = parcel.contents; bool rounded = false;
                     const auto projection = [&](double value) {
@@ -386,6 +459,8 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                     // common-scale prototype, including every positive trace.
                     if (!rounded && parcel.full_volume_m3.is_zero()) { parcel.contents = std::move(projected); parcel.reference_volume_m3 = 0; }
                     admitted(mac_parcel_contents_at(parcel, volumes[i]), volumes[i]);
+                    // A strip whose material underflows to no mass is all void.
+                    if (voids && mac_parcel_mass_scaled(parcel).is_zero()) { edge_void[edge] += edge_material[edge]; edge_material[edge] = 0; }
                     for (std::size_t s = 0; s < species; ++s) retained[s].add(mac_parcel_quantity(parcel, parcel.contents.mixture.masses[s]).negated());
                     retained[species].add(mac_parcel_quantity(parcel, parcel.contents.mixture.energy).negated());
                     for (const auto& p : parcel.contents.passive_quantities) {
@@ -399,7 +474,17 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 cell.mixture.energy = store_mac_primary(retained[species], false);
                 cell.passive_quantities.clear();
                 for (std::size_t p = 0; p < ids.size(); ++p) { const double v = store_mac_primary(retained[species + 1 + p], true); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
-                admitted(cell, retained_volume); accepted = true;
+                admitted(cell, retained_volume);
+                if (voids) {
+                    // The retained remainder keeps the void the strips did not take.
+                    double vacuum = source.cells[i].mixture.mass() == 0 ? retained_volume : !void_donor ? 0 :
+                        homogeneous ? retained_volume * (1 - filled[i]) : std::min(retained_volume, void_left * volumes[i]);
+                    if (cell.mixture.mass() == 0) vacuum = retained_volume;
+                    const double material = retained_volume - vacuum;
+                    if ((cell.mixture.mass() > 0) != (material > 0)) throw std::domain_error("MAC void-phase remainder holds material without volume");
+                    result.retained_material_volumes_m3[i] = material; result.retained_void_volumes_m3[i] = vacuum;
+                }
+                accepted = true;
             } catch (const ReferenceError& error) {
                 if (error.code() == ReferenceErrorCode::invalid_model || error.code() == ReferenceErrorCode::incompatible_entropy_reference ||
                     (theta == 0 && !split_retry())) throw;
@@ -412,20 +497,24 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
     }
     result.parcels.reserve(edges.size());
     for (auto& parcel : prepared) { require(parcel.has_value(), "Missing reconstructed MAC parcel"); result.parcels.push_back(std::move(*parcel)); }
+    if (voids) { result.parcel_material_volumes_m3 = std::move(edge_material); result.parcel_void_volumes_m3 = std::move(edge_void); }
     return result;
 }
 }
 MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
-    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::linear);
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing,
+    std::span<const double> material_volumes) {
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::linear, material_volumes);
 }
 MacParcelPlan reconstruct_mac_swept_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
-    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::swept);
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing,
+    std::span<const double> material_volumes) {
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::swept, material_volumes);
 }
 MacParcelPlan reconstruct_mac_interface_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
-    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::sharp);
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing,
+    std::span<const double> material_volumes) {
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::sharp, material_volumes);
 }
 std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& state) {

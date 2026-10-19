@@ -129,7 +129,7 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
     for (const auto* values : {&state.full_momentum_x, &state.full_momentum_y})
         for (const auto& value : *values) if (!value.is_zero()) return {};
     const Topology topology(state.grid);
-    if (topology.active.empty()) return {};
+    if (topology.active.empty() || !state.occupied_volumes_m3.empty()) return {};
     const auto identical = [&](const Pair& pair) {
         if (pair.left == none || pair.right == none) return true;
         const auto& a=state.cells[pair.left].mixture;const auto& b=state.cells[pair.right].mixture;
@@ -181,6 +181,11 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(vacuum == MacVacuumRepresentation::empty_cells || (vacuum == MacVacuumRepresentation::void_phase &&
+        reconstruction != MacMaterialReconstruction::donor_cell && pressure_integration == MacPressureIntegration::discrete_gradient_midpoint &&
+        !thermal_conduction && viscosity.shear_pa_s == 0 && viscosity.bulk_pa_s == 0 && diffusion.mode == MacDiffusionMode::disabled),
+        "Invalid MAC vacuum representation (the void phase needs reconstructed parcels, midpoint pressure, "
+        "and no conduction, viscosity or diffusion yet)");
     require(pressure_integration == MacPressureIntegration::discrete_gradient_midpoint ||
         ((pressure_integration == MacPressureIntegration::two_moment || pressure_integration == MacPressureIntegration::two_moment_coupled) &&
             numerical_kernel == MacNumericalKernel::production),
@@ -229,7 +234,9 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         result.full_gravity_internal_changes_j.resize(source.cells.size());
     }
     std::vector<MaterialCell> materials; materials.reserve(topology.active.size());
-    for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, g.volume_m3(), 0});
+    const bool voids = settings.vacuum == MacVacuumRepresentation::void_phase;
+    require(voids || source.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
+    for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, mac_material_volume(source, cell), 0});
     // Sharp interfaces weigh each y face by the mass of its two half cells
     // (PLIC split) at the substep start; a kick after transport time-centres
     // that weight (MAC_PRESSURE.md, "Gravity with sharp interfaces").
@@ -387,12 +394,26 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         result.full_compressive_volume_changes_m3.resize(source.cells.size());
         result.full_compressive_internal_work_j.resize(source.cells.size());
     }
+    // Void phase: a partly filled cell's swept volume holds its material
+    // volume and its unchanged void (the face sweeps move the material).
+    std::vector<double> held_volumes;
+    if (voids) {
+        result.swept_volumes_m3 = result.material_volumes_m3; held_volumes = result.material_volumes_m3;
+        for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (topology.local[cell] == none) held_volumes[cell] = 0;
+        for (std::size_t cell = 0; cell < source.cells.size(); ++cell)
+            if (!g.walls[cell] && topology.local[cell] != none && mac_material_volume(source, cell) < g.volume_m3()) {
+                auto volume = sweeps[cell]; volume.add(g.volume_m3());
+                result.swept_volumes_m3[cell] = std::max(store_mac_primary(volume, true), result.material_volumes_m3[cell]);
+            }
+    }
     for (std::size_t cell = 0; cell < source.cells.size(); ++cell) if (!g.walls[cell]) {
-        MacScaledSum limit; limit.add(MacScaled::from_double(result.material_volumes_m3[cell]).multiplied(settings.maximum_outgoing_volume_fraction));
+        MacScaledSum limit; limit.add(MacScaled::from_double((voids ? result.swept_volumes_m3 : result.material_volumes_m3)[cell])
+            .multiplied(settings.maximum_outgoing_volume_fraction));
         for (std::size_t k = 0; k < outgoing[cell].size(); ++k) limit.add(outgoing[cell].component(k).negated());
         if (limit.sign() < 0)
             throw std::domain_error("MAC pressure material-volume CFL exceeded");
-        MacScaledAccount geometry; geometry.add(result.material_volumes_m3[cell]); geometry.add(-g.volume_m3());
+        MacScaledAccount geometry; geometry.add(result.material_volumes_m3[cell]);
+        geometry.add(-(topology.local[cell] == none ? g.volume_m3() : mac_material_volume(source, cell)));
         for (std::size_t k = 0; k < sweeps[cell].size(); ++k) geometry.add(sweeps[cell].component(k).negated());
         if (!geometry.within_bound()) throw std::domain_error("MAC pressure full material-volume closure exceeds its operand bound");
         result.geometric_residuals_m3[cell] = geometry.residual().project().value;
@@ -427,7 +448,9 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     if (settings.reconstruction != MacMaterialReconstruction::donor_cell) {
         const auto reconstruct = settings.reconstruction == MacMaterialReconstruction::swept_first_moment ? reconstruct_mac_swept_parcels :
             settings.reconstruction == MacMaterialReconstruction::interface_plic ? reconstruct_mac_interface_parcels : reconstruct_mac_parcels;
-        auto plan = reconstruct(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction);
+        auto plan = voids ? reconstruct(registry, model, result.pressure_state, result.swept_volumes_m3, result.volume_fluxes_m3,
+                settings.maximum_outgoing_volume_fraction, held_volumes) :
+            reconstruct(registry, model, result.pressure_state, result.material_volumes_m3, result.volume_fluxes_m3, settings.maximum_outgoing_volume_fraction, {});
         transported = advance_mac_parcel_transport(registry, result.pressure_state, model, plan, settings.momentum_reconstruction);
         result.mass_fluxes_kg = std::move(transported.report.primal_mass_fluxes_kg); result.reconstruction = std::move(plan);
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,
@@ -514,13 +537,14 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             const auto phi = MacEnergy::from_double(settings.gravity_m_per_s2).multiplied(static_cast<double>(i / g.width) + .5).multiplied(g.spacing_m);
             potential.add(phi.multiplied(cell.mixture.mass())); potential.add(phi.multiplied(source.cells[i].mixture.mass()).negated());
             if (!g.walls[i]) {
-                const auto old_eos = model.evaluate(source.cells[i].mixture, g.volume_m3());
-                const auto next_eos = model.evaluate(cell.mixture, g.volume_m3());
+                const auto old_eos = model.evaluate(source.cells[i].mixture,
+                    source.cells[i].mixture.mass() > 0 ? mac_material_volume(source, i) : g.volume_m3());
+                const auto next_eos = model.evaluate(cell.mixture, cell.mixture.mass() > 0 ? mac_material_volume(result.state, i) : g.volume_m3());
                 entropy.add(next_eos.entropy_j_per_k); entropy.add(-old_eos.entropy_j_per_k);
                 if (cell.mixture.energy != before && cell.mixture.mass() > 0) {
                     // Entropy is concave in U: S(U) - S(before) <= (U - before) / T(before).
                     auto pivot = cell.mixture; pivot.energy = before;
-                    const double t = model.evaluate(pivot, g.volume_m3()).temperature_k;
+                    const double t = model.evaluate(pivot, mac_material_volume(result.state, i)).temperature_k;
                     gravity_entropy.add((cell.mixture.energy - before) / t);
                 }
                 if (source.cells[i].mixture.mass() > 0 && cell.mixture.mass() > 0)
@@ -562,7 +586,13 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     thermodynamics_(model ? std::make_shared<const FluidThermodynamics>(*model) : nullptr), state_(std::move(state)), settings_(settings),transport_(std::move(transport)) {
     require_mac_energy_environment();
     require(thermodynamics_ != nullptr && transport_!=nullptr, "MAC closed owner requires immutable EOS and transport profiles"); settings_.validate();
+    require(settings_.vacuum == MacVacuumRepresentation::void_phase || state_.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
     const auto inertia = mac_face_inertias(registry_, state_, *thermodynamics_); const Topology topology(state_.grid);
+    // A void-phase state whose occupied cells are all filled has no occupied volumes.
+    bool partial = false;
+    for (std::size_t i = 0; i < state_.occupied_volumes_m3.size(); ++i)
+        partial = partial || (state_.cells[i].mixture.mass() > 0 && state_.occupied_volumes_m3[i] < state_.grid.volume_m3());
+    if (!partial) state_.occupied_volumes_m3.clear();
     require_diffusion_scope(registry_,state_,settings_.diffusion);
     require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
@@ -583,7 +613,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
         if (edit.joules != 0 && before == after)
             throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U");
         mixture.energy=after;
-        const auto reading=thermodynamics_->evaluate(mixture,next.grid.volume_m3());
+        const auto reading=thermodynamics_->evaluate(mixture,mixture.mass() > 0 ? mac_material_volume(next,edit.cell_index) : next.grid.volume_m3());
         require(edit.joules <= 0 || reading.temperature_k <= edit.maximum_temperature_k,
             "MAC heat exchange exceeds its reserved temperature limit");
         balance.add(before); balance.add(edit.joules); balance.add(-after);
@@ -885,8 +915,9 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     Account entropy, entropy_roundoff;
     for (std::size_t cell = 0; cell < state_.cells.size(); ++cell) if (!state_.grid.walls[cell]) {
         const auto& old = state_.cells[cell].mixture; const auto& next = result.world.state_.cells[cell].mixture;
-        const auto a = thermodynamics_->evaluate(old, state_.grid.volume_m3());
-        const auto b = thermodynamics_->evaluate(next, state_.grid.volume_m3());
+        // An empty cell's reading is the EOS sentinel at its grid volume.
+        const auto a = thermodynamics_->evaluate(old, old.mass() > 0 ? mac_material_volume(state_, cell) : state_.grid.volume_m3());
+        const auto b = thermodynamics_->evaluate(next, next.mass() > 0 ? mac_material_volume(result.world.state_, cell) : state_.grid.volume_m3());
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
         if (old.mass() > 0 && next.mass() > 0)
             entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));

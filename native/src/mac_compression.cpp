@@ -152,13 +152,14 @@ MacCompressionCoefficients freeze_mac_compression_coefficients(const SpeciesRegi
         if (law == MacCompressionLaw::pressure_sensed_acoustic) result.source_pressures_pa.resize(source.cells.size());
         for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
             const auto& mixture = source.cells[i].mixture;
-            const auto anchor = model.reference().make_isentrope(model.to_reference(mixture, g.volume_m3()));
+            const double volume = mac_material_volume(source, i);
+            const auto anchor = model.reference().make_isentrope(model.to_reference(mixture, volume));
             const auto compliance = model.compression_compliance(anchor);
             if (law == MacCompressionLaw::pressure_sensed_acoustic)
                 result.source_pressures_pa[i] = anchor.reference_state().mechanical_pressure_pa;
             // c_s^2 = V^2 / (mass * (-dV/dp)_S). Separate square roots avoid
             // under/overflow in an otherwise representable mass*compliance.
-            const auto sound = (g.volume_m3() / std::sqrt(mixture.mass())) / std::sqrt(compliance);
+            const auto sound = (volume / std::sqrt(mixture.mass())) / std::sqrt(compliance);
             if (!std::isfinite(sound) || sound <= 0) precision("MAC compression sound speed cannot be represented");
             result.source_linear_speeds[i] = MacScaled::from_double(sound).shifted(-1);
         }
@@ -276,7 +277,7 @@ MacCompressionAdvance advance_mac_compression(const SpeciesRegistry& registry, c
     for (std::size_t i = 0; i < source.cells.size(); ++i) if (!g.walls[i] && source.cells[i].mixture.mass() > 0) {
         const auto& old = source.cells[i].mixture; const auto& next = result.state.cells[i].mixture;
         balance.add(next.energy); balance.add(-old.energy);
-        const auto a = model.evaluate(old, g.volume_m3()), b = model.evaluate(next, g.volume_m3());
+        const auto a = model.evaluate(old, mac_material_volume(source, i)), b = model.evaluate(next, mac_material_volume(source, i));
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
         entropy_bound.add(MacEnergy::from_double(std::abs(old.energy)).shared(1, a.temperature_k).shifted(-45));
         entropy_bound.add(MacEnergy::from_double(std::abs(next.energy)).shared(1, b.temperature_k).shifted(-45));

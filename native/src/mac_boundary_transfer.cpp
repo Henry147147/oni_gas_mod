@@ -64,6 +64,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         "Unknown MAC fluid transfer topology policy");
     require(!edits.empty() && edits.size() <= 4096,"MAC fluid transfer batch must contain 1..4096 requests");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    require(state_.occupied_volumes_m3.empty(),"Fluid point transfers do not yet support partly filled void-phase cells");
     auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
     std::size_t unresolved=0;
     for (const auto& edit : edits) {

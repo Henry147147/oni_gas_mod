@@ -213,8 +213,10 @@ audit through the gravity reconciliation credit
 ([kernel](MAC_KERNEL.md#gravity-reconciliation-entropy)).
 
 One liquid region is placed per donor, so immiscible liquids are not separated from
-each other. Gas/vacuum fronts are not covered. Still water, the dam break and the standing
-wave pass their gates ([MAC_GATES.md](MAC_GATES.md)).
+each other. Gas/vacuum fronts use the separate [void phase](MAC_VACUUM.md#void-phase),
+which applies the same strip allocation between material and vacuum with any
+reconstruction selector. Still water, the dam break and the standing wave pass their
+gates ([MAC_GATES.md](MAC_GATES.md)).
 
 ### Limited linear reconstruction (selector 1)
 

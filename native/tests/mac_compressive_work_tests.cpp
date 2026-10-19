@@ -138,11 +138,15 @@ void invalid() {
     const auto anchor=limited.reference().make_isentrope(limited.to_reference(liquid,1));
     check(limited.reference().isentropic_response(anchor,-.000125).state.temperature_k<300.1,"Late-rejection control already has an invalid isentrope");
     rejects([&]{static_cast<void>(evaluate_mac_compressive_work(limited,liquid,1,-.000125,1,1e-8,{}));});
-    // Retain the previous failed -1e8 J/kg fixture as an explicit rejection:
-    // it cannot meet the existing per-species sensible-energy precision rule.
-    rejects([&]{const auto coarse=shifted_reference(1e8);const auto bad=coarse.initialize_at_temperature(source.masses,300,1).mixture;
-        static_cast<void>(evaluate_mac_compressive_work(coarse,bad,1,-.125,1,.01,{}));});
-    check(rejected==10,"Compressive rejection coverage differs");std::cout<<"CWREJECTED "<<rejected<<'\n';
+    check(rejected==9,"Compressive rejection coverage differs");std::cout<<"CWREJECTED "<<rejected<<'\n';
+    // The previous failed -1e8 J/kg fixture: the per-species sensible-energy
+    // round trip is now judged against the stored energy's own precision
+    // (MAC_VACUUM.md, "Void phase"), so this compression is admitted and heats
+    // the gas. Beside a 1e8 J/kg offset its U update is reported unresolved.
+    const auto coarse=shifted_reference(1e8);const auto shifted=coarse.initialize_at_temperature(source.masses,300,1).mixture;
+    const auto r=evaluate_mac_compressive_work(coarse,shifted,1,-.125,1,.01,{});
+    check(r.state.temperature_k>300,"Large-offset compression was not admitted with heating");
+    std::cout<<"CWLARGEOFFSET "<<r.state.temperature_k<<' '<<r.unresolved_energy_update<<'\n';
 }
 }
 int main() {try {

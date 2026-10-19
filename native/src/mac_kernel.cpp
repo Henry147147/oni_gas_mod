@@ -61,6 +61,7 @@ void require_supported(const MacClosedSettings& s) {
     require(s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
         s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed,
         "Production kernel does not support monotone regularization (compression/heat selector 4)");
+    require(s.vacuum == MacVacuumRepresentation::empty_cells, "Production kernel does not support the void phase");
 }
 Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state) {
     eos.validate_registry(registry);
@@ -514,7 +515,7 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s) &&
         s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
-        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed;
+        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed && s.vacuum == MacVacuumRepresentation::empty_cells;
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
     // Below-range values (and full-range canonical momentum, whose binary64

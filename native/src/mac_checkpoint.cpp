@@ -14,10 +14,12 @@ constexpr std::string_view magic="MACCLS01";
 // (diffusion disabled); 5 diffusion with kernels 0/1; 6 production kernel 2
 // with explicit diffusion mode/multiplier even when disabled. Each owner writes
 // its lowest representing version; 7 adds two-moment temporal pressure,
-// 8 selects its coupled linear implementation. Every version-2 through 7 byte stays unchanged.
+// 8 selects its coupled linear implementation. 9 is the void phase: every
+// version-8 setting, the vacuum selector and each cell's occupied volume.
+// Every version-2 through 8 byte stays unchanged.
 constexpr std::uint32_t legacy_format_version=2,viscous_format_version=3;
 constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5,production_format_version=6;
-constexpr std::uint32_t moment_format_version=7,coupled_moment_format_version=8;
+constexpr std::uint32_t moment_format_version=7,coupled_moment_format_version=8,void_format_version=9;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -100,7 +102,8 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool diffusive=settings_.diffusion.mode!=MacDiffusionMode::disabled;
     const bool coupled=settings_.pressure_integration==MacPressureIntegration::two_moment_coupled;
     const bool moments=settings_.pressure_integration!=MacPressureIntegration::discrete_gradient_midpoint;
-    out.u32(coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    const bool voids=settings_.vacuum==MacVacuumRepresentation::void_phase;
+    out.u32(voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -111,13 +114,14 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     out.u32(static_cast<std::uint32_t>(settings_.reconstruction)); out.u32(static_cast<std::uint32_t>(settings_.compression_viscosity));
     out.u32(static_cast<std::uint32_t>(settings_.momentum_reconstruction)); out.byte(settings_.thermal_conduction ? 1 : 0);
     out.u32(static_cast<std::uint32_t>(settings_.shock_heat));
-    if (viscous || diffusive || production) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
+    if (viscous || diffusive || production || voids) { out.number(settings_.viscosity.shear_pa_s);out.number(settings_.viscosity.bulk_pa_s); }
     // Versions 5/6 store the kernel selector; retired version 4 is read-only rejection.
-    if (diffusive || production) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
-    if (diffusive || production) {
+    if (diffusive || production || voids) out.u32(static_cast<std::uint32_t>(settings_.numerical_kernel));
+    if (diffusive || production || voids) {
         out.u32(static_cast<std::uint32_t>(settings_.diffusion.mode));out.number(settings_.diffusion.multiplier);
     }
-    if (moments) out.u32(static_cast<std::uint32_t>(settings_.pressure_integration));
+    if (moments || voids) out.u32(static_cast<std::uint32_t>(settings_.pressure_integration));
+    if (voids) out.u32(static_cast<std::uint32_t>(settings_.vacuum));
     if(diffusive) {
         // Discrete flux formulation. Diffusion images were never released; the
         // earlier version-4 diffusion layouts no longer parse and reject.
@@ -136,6 +140,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
         for (const auto& passive : cell.passive_quantities) { out.u64(passive.identity); out.number(passive.quantity); }
     }
     write_field(out,state_.momentum_x,state_.full_momentum_x); write_field(out,state_.momentum_y,state_.full_momentum_y);
+    if (voids) { out.count(state_.occupied_volumes_m3.size()); for (auto value : state_.occupied_volumes_m3) out.number(value); }
     out.u64(checksum(out.bytes)); return out.bytes;
 }
 
@@ -148,8 +153,9 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
+    const bool void_version=version==void_format_version;
     check(version==legacy_format_version || version==viscous_format_version || version==interval_format_version ||
-        version==diffusion_format_version || version==production_format_version || moment_version,"Unsupported MAC checkpoint version");
+        version==diffusion_format_version || version==production_format_version || moment_version || void_version,"Unsupported MAC checkpoint version");
     const auto model=identity(registry,*eos);
     check(in.u32()==model.size() && model.size()<=in.remaining(),"Saved MAC model size differs");
     for (auto value : model) check(in.byte()==value,"Saved MAC registry/EOS identity differs");
@@ -161,15 +167,18 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     settings.reconstruction=static_cast<MacMaterialReconstruction>(in.u32()); settings.compression_viscosity=static_cast<MacCompressionViscosity>(in.u32());
     settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>(in.u32()); settings.thermal_conduction=in.flag();
     settings.shock_heat=static_cast<MacShockHeatRegularization>(in.u32());
-    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version || version==production_format_version || moment_version) {
+    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version || version==production_format_version || moment_version || void_version) {
         settings.viscosity.shear_pa_s=in.number();settings.viscosity.bulk_pa_s=in.number();
         if (version==viscous_format_version)
             check(settings.viscosity.shear_pa_s>0 || settings.viscosity.bulk_pa_s>0,"Noncanonical viscosity-disabled checkpoint version");
     }
     check(version!=interval_format_version,"Saved MAC interval kernel 1 is retired; refusing a changed continuation");
-    if(version==diffusion_format_version || version==production_format_version || moment_version) {
+    if(version==diffusion_format_version || version==production_format_version || moment_version || void_version) {
         settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
-        if (version==production_format_version || moment_version)
+        if (void_version)
+            check(settings.numerical_kernel==MacNumericalKernel::reference || settings.numerical_kernel==MacNumericalKernel::production,
+                "Unsupported saved MAC numerical kernel");
+        else if (version==production_format_version || moment_version)
             check(settings.numerical_kernel==MacNumericalKernel::production,"Noncanonical saved MAC production kernel");
         else {
             check(settings.numerical_kernel!=MacNumericalKernel::retired_interval_audited,
@@ -177,12 +186,17 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
             check(settings.numerical_kernel==MacNumericalKernel::reference,"Unsupported saved MAC numerical kernel");
         }
         settings.diffusion.mode=static_cast<MacDiffusionMode>(in.u32());settings.diffusion.multiplier=in.number();
-        check(version==production_format_version || moment_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
+        check(version==production_format_version || moment_version || void_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
     }
     if (moment_version) {
         settings.pressure_integration=static_cast<MacPressureIntegration>(in.u32());
         check(settings.pressure_integration==(version==moment_format_version ? MacPressureIntegration::two_moment :
             MacPressureIntegration::two_moment_coupled),"Noncanonical saved MAC pressure integration");
+    }
+    if (void_version) {
+        settings.pressure_integration=static_cast<MacPressureIntegration>(in.u32());
+        settings.vacuum=static_cast<MacVacuumRepresentation>(in.u32());
+        check(settings.vacuum==MacVacuumRepresentation::void_phase,"Noncanonical saved MAC void-phase version");
     }
     if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");
@@ -210,8 +224,15 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     }
     const auto x_count=state.grid.x_width()*state.grid.height,y_count=state.grid.y_height()*state.grid.width;
     read_field(in,x_count,state.momentum_x,state.full_momentum_x); read_field(in,y_count,state.momentum_y,state.full_momentum_y);
+    if (void_version) {
+        // Canonical: no occupied volumes while every occupied cell is filled.
+        const auto size=in.u32(); check((size==0 || size==count) && size<=in.remaining()/8,"Saved MAC occupied-volume coverage differs");
+        state.occupied_volumes_m3.reserve(size); for (std::size_t i=0;i<size;++i) state.occupied_volumes_m3.push_back(in.number());
+    }
     check(in.remaining()==0,"Trailing MAC checkpoint data");
+    const bool saved_occupied=!state.occupied_volumes_m3.empty();
     MacClosedWorld result(std::move(registry),std::move(eos),std::move(state),settings,std::move(transport));
+    check(saved_occupied==!result.state_.occupied_volumes_m3.empty(),"Noncanonical saved MAC occupied volumes");
     result.time_s_=time; result.revision_=revision; return result;
 }
 }

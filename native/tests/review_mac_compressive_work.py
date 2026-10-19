@@ -9,8 +9,8 @@ thermal=importlib.util.module_from_spec(spec);spec.loader.exec_module(thermal)
 base=thermal.base;check,close,number,unique=base.check,base.close,base.number,base.unique
 dec=thermal.dec;EPS=base.EPS;R=thermal.ref.R
 
-def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=10):
-    d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full','entropy_probes')};passes=[];rejected=None
+def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=9):
+    d={k:{} for k in ('definitions','cases','initial','end','iso','masses','full','entropy_probes')};passes=[];rejected=None;large=None
     for line in raw.decode('ascii').splitlines():
         r=line.split();check(bool(r),'Empty compressive record');kind=r[0]
         if kind=='CWDEF':
@@ -32,9 +32,12 @@ def parse(raw,case_ids=tuple(range(17)),profiles=(0,1),groups=8,rejections=10):
             check(len(r)==12,'Actual relative entropy probe shape');unique(d['entropy_probes'],int(r[1]),(int(r[2]),*map(number,r[3:8]),base.scaled_energy(r[8],r[9]),base.scaled_energy(r[10],r[11])))
         elif kind=='CWREJECTED':
             check(len(r)==2 and rejected is None,'Rejection shape');rejected=int(r[1])
+        elif kind=='CWLARGEOFFSET':
+            # The -1e8 J/kg reference shift is admitted and heats the gas.
+            check(len(r)==3 and large is None and r[2] in ('0','1') and number(r[1])>300,'Large-offset admission shape');large=number(r[1])
         else:
             check(kind=='PASS','Unknown compressive work record');passes.append(line)
-    check(len(set(passes))==len(passes)==groups and rejected==rejections,'Missing compressive work groups or rejection controls')
+    check(len(set(passes))==len(passes)==groups and rejected==rejections and large is not None,'Missing compressive work groups or rejection controls')
     check(all(set(d[k])==set(case_ids) for k in ('cases','initial','end','iso','full')),'Missing or extra complete compressive response')
     check(set(k[0] for k in d['definitions'])==set(profiles) and len(d['definitions'])==4*len(profiles),'Missing immutable material profiles')
     check(all(c in d['cases'] for c,_ in d['masses']),'Orphan constituent')

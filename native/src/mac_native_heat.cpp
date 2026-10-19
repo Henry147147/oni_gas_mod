@@ -20,7 +20,7 @@ MacNativeHeatExchange exchange_mac_native_heat(const MacClosedWorld& source,std:
         throw std::invalid_argument("Invalid native body/fluid heat contact");
     MacNativeHeatExchange result{source,body.temperature_k,{}};
     const auto& mixture=source.state().cells[cell].mixture;
-    const auto volume=source.state().grid.volume_m3();
+    const auto volume=mixture.mass()>0 ? mac_material_volume(source.state(),cell) : source.state().grid.volume_m3();
     const auto initial=source.thermodynamics().evaluate(mixture,volume);
     const double capacity=body.heat_capacity_kj_per_k*1000;
     if (!std::isfinite(capacity)) throw std::overflow_error("Native body heat capacity exceeds its joule range");

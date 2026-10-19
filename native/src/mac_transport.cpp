@@ -75,6 +75,7 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
     std::vector<ThermalReading>* thermal = nullptr) {
     const auto& g = state.grid; require(state.cells.size() == g.walls.size(), "MAC material shape differs");
     require(volumes.empty() || volumes.size() == state.cells.size(), "MAC source-volume shape differs");
+    require(state.occupied_volumes_m3.empty() || state.occupied_volumes_m3.size() == state.cells.size(), "MAC occupied-volume shape differs");
     require(registry.size() > 0, "MAC transport requires a nonempty constituent registry");
     if (thermal) thermal->resize(state.cells.size());
     std::vector<double> result; result.reserve(state.cells.size());
@@ -82,6 +83,11 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
         const auto& cell = state.cells[i];
         if (!volumes.empty()) require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0),
             "Invalid MAC material source volume");
+        if (!state.occupied_volumes_m3.empty()) {
+            const double occupied = state.occupied_volumes_m3[i];
+            require(std::isfinite(occupied) && (g.walls[i] || cell.mixture.mass() == 0 ? occupied == 0 : occupied > 0 && occupied <= g.volume_m3()),
+                "Invalid MAC occupied volume");
+        }
         if (model) model->validate_inventory(cell.mixture); else cell.mixture.validate(registry);
         validate_passive_quantities(cell.passive_quantities);
         const auto mass = cell.mixture.mass();
@@ -92,7 +98,7 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
             for (std::size_t s = 0; s < registry.size(); ++s)
                 require(cell.mixture.masses[s] == 0 || registry[s].phase != Phase::solid, "MAC transport cannot move solids");
             if (model && evaluate_eos) {
-                const double volume = volumes.empty() ? g.volume_m3() : volumes[i];
+                const double volume = volumes.empty() ? mac_material_volume(state, i) : volumes[i];
                 const auto state_eos = model->evaluate(cell.mixture, volume);
                 if (state_eos.vacuum_volume_m3 > 32 * eps * volume)
                     throw FluidFatalError(FluidFatalCode::unsupported_topology, "MAC occupied EOS cell contains internal void");
@@ -467,6 +473,28 @@ MacMassFluxes validate_parcels(const SpeciesRegistry& registry, const FluidTherm
         target_volume.add(plan.retained_volumes_m3[i]); target_volume.add(source.grid.walls[i] ? 0 : -source.grid.volume_m3());
         if (!target_volume.within_bound()) precision("MAC full target volume account exceeds its operand bound");
     }
+    // Void phase: every part is a nonnegative volume, positive wherever it
+    // holds material, and material plus void is the part's volume.
+    if (!plan.source_material_volumes_m3.empty()) {
+        require(plan.source_material_volumes_m3.size() == count && plan.retained_material_volumes_m3.size() == count &&
+            plan.retained_void_volumes_m3.size() == count && plan.parcel_material_volumes_m3.size() == plan.parcels.size() &&
+            plan.parcel_void_volumes_m3.size() == plan.parcels.size(), "MAC void-phase parcel volumes differ in shape");
+        const auto part = [&](double material, double vacuum, double volume, bool holds) {
+            require(std::isfinite(material) && std::isfinite(vacuum) && material >= 0 && vacuum >= 0 && holds == (material > 0) &&
+                std::abs(material + vacuum - volume) <= 64 * eps * volume, "Invalid MAC void-phase material/void split");
+        };
+        for (std::size_t k = 0; k < plan.parcels.size(); ++k) {
+            const auto& parcel = plan.parcels[k];
+            part(plan.parcel_material_volumes_m3[k], plan.parcel_void_volumes_m3[k], mac_parcel_volume(parcel).project().value,
+                !mac_parcel_mass_scaled(parcel).is_zero());
+        }
+        for (std::size_t i = 0; i < count; ++i) if (!source.grid.walls[i]) {
+            require(std::isfinite(plan.source_material_volumes_m3[i]) && plan.source_material_volumes_m3[i] >= 0 &&
+                plan.source_material_volumes_m3[i] <= plan.source_volumes_m3[i] &&
+                (source.cells[i].mixture.mass() > 0) == (plan.source_material_volumes_m3[i] > 0), "Invalid MAC void-phase source material volume");
+            part(plan.retained_material_volumes_m3[i], plan.retained_void_volumes_m3[i], plan.retained_volumes_m3[i], plan.retained[i].mixture.mass() > 0);
+        }
+    } else require(source.occupied_volumes_m3.empty(), "MAC void-phase source needs a void-phase parcel plan");
     return mac_fluxes(flux_x, flux_y);
 }
 // Sparse rows share contiguous ID/accumulator blocks. Each target row is the
@@ -542,7 +570,18 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
     require(!physical || (model && source_volumes.size() == source.cells.size()), "Swept physical momentum requires EOS and every source volume");
     std::vector<ThermalReading> source_thermal;
     Geometry geometry(source.grid);
-    auto m0 = masses(registry, source, model, source_volumes, true, physical ? &source_thermal : nullptr);
+    const bool voids = plan && !plan->source_material_volumes_m3.empty();
+    require(voids || plan || source.occupied_volumes_m3.empty(), "MAC void-phase transport needs a parcel plan");
+    // Void phase: material is evaluated at its own volume (empty cells keep
+    // their swept volume, which holds no material).
+    std::vector<double> material_volumes;
+    if (voids) {
+        require(plan->source_material_volumes_m3.size() == source.cells.size(), "MAC void-phase source volume shape differs");
+        material_volumes = plan->source_material_volumes_m3;
+        for (std::size_t i = 0; i < material_volumes.size(); ++i) if (material_volumes[i] == 0) material_volumes[i] = source_volumes[i];
+    }
+    auto m0 = masses(registry, source, model, voids ? std::span<const double>(material_volumes) : source_volumes,
+        true, physical ? &source_thermal : nullptr);
     const auto& g = source.grid;
     MacMassFluxes parcel_flux;
     if (plan) parcel_flux = validate_parcels(registry, *model, source, geometry, *plan);
@@ -620,6 +659,24 @@ PreparedTransport prepare_transport(const SpeciesRegistry& registry, const MacTr
             const double stored = store_mac_primary(value, true);
             if (stored != 0) next.passive_quantities.push_back({identity, stored});
         }
+    }
+    // Void phase: a target's material occupies the material parts it
+    // received; void parts stay vacuum. The smaller sum sets the occupied
+    // volume, so neither a thin layer nor a thin void loses its precision.
+    if (voids) {
+        std::vector<double> material(plan->retained_material_volumes_m3), vacuum(plan->retained_void_volumes_m3);
+        for (std::size_t k = 0; k < plan->parcels.size(); ++k) {
+            material[plan->parcels[k].target] += plan->parcel_material_volumes_m3[k];
+            vacuum[plan->parcels[k].target] += plan->parcel_void_volumes_m3[k];
+        }
+        auto& occupied = result.state.occupied_volumes_m3; occupied.assign(count, 0); bool partial = false;
+        const double volume = g.volume_m3();
+        for (std::size_t i = 0; i < count; ++i) if (!g.walls[i] && result.state.cells[i].mixture.mass() > 0) {
+            const double value = vacuum[i] == 0 ? volume : material[i] <= vacuum[i] ? material[i] : volume - vacuum[i];
+            if (!(value > 0) || !std::isfinite(value)) precision("MAC void-phase target material has no occupied volume");
+            occupied[i] = std::min(value, volume); partial = partial || occupied[i] < volume;
+        }
+        if (!partial) occupied.clear();
     }
     if (reconstruction != MacMomentumReconstruction::donor_cell) {
         result.report.advected_internal_energy_j.reserve(count);
