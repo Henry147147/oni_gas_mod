@@ -10,6 +10,7 @@ import functools
 import hashlib
 import importlib.util
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -20,7 +21,7 @@ EPS=base.EPS;R=F(float('8.31446261815324'))
 def dec(v): return D(v.numerator)/D(v.denominator)
 
 def parse(raw):
-    materials={};problems={};states={};faces={};modes={};ids=None;passes=0
+    materials={};problems={};states={};faces={};modes={};references={};ids=None;passes=0
     for line in raw.decode('ascii').splitlines():
         row=line.split();check(bool(row),'Empty Riemann record');kind=row[0]
         if kind=='MATERIAL':
@@ -33,11 +34,13 @@ def parse(raw):
             check(len(row)==13,'State shape');unique(states,tuple(map(int,row[1:5])),tuple(map(number,row[5:])))
         elif kind=='RFACE':
             check(len(row)==7,'Face shape');unique(faces,tuple(map(int,row[1:5])),tuple(map(number,row[5:])))
+        elif kind=='RREFERENCE':
+            check(len(row)==5,'Reference shape');unique(references,tuple(map(int,row[1:3])),tuple(map(number,row[3:])))
         elif kind=='RMODE':
             check(len(row)==19,'Mode shape');unique(modes,tuple(map(int,row[1:3])),tuple(map(number,row[3:])))
         else:check(kind=='PASS','Unknown Riemann record');passes+=1
     check(ids is not None and len(set(ids))==2 and all(i in materials for i in ids),'Missing constituent identities')
-    return materials,ids,problems,states,faces,modes,passes
+    return materials,ids,problems,states,faces,modes,passes,references
 
 class Exact:
     def __init__(self,left,right,gamma):
@@ -91,14 +94,91 @@ class Exact:
                 values[j]+=scale*time*(qr**(k+1)-ql**(k+1))/(B*(k+1))
         return tuple(v/(b-a) for v in values)
 
+def reference_face(l,r,g):
+    """Exact-Riemann state at x/t=0, binary64, operation order of the native reference."""
+    (rl,ul,pl),(rr,ur,pr)=l,r;cl=math.sqrt(g*pl/rl);cr=math.sqrt(g*pr/rr)
+    def fan(s,c,side):
+        f=2/(g+1)*(c+side*.5*(g-1)*(s[1]-0))/c
+        return (s[0]*f**(2/(g-1)),2/(g+1)*(side*c+.5*(g-1)*s[1]+0),s[2]*f**(2*g/(g-1)))
+    if ur-ul>=2*(cl+cr)/(g-1):
+        if 0<=ul-cl:return l
+        if 0<ul+2*cl/(g-1):return fan(l,cl,1)
+        if 0<=ur-2*cr/(g-1):return (0.,0.,0.)
+        if 0>=ur+cr:return r
+        return fan(r,cr,-1)
+    def curve(s,c,q):
+        return (q-s[2])*math.sqrt(2/((g+1)*s[0])/(q+(g-1)/(g+1)*s[2])) if q>s[2] else 2*c/(g-1)*((q/s[2])**((g-1)/(2*g))-1)
+    def residual(q):return curve(l,cl,q)+curve(r,cr,q)+ur-ul
+    lo,hi=0.,max(pl,pr);i=0
+    while residual(hi)<0:check(i<128,'Reference bracket exhausted');hi*=2;i+=1
+    for _ in range(200):
+        mid=.5*(lo+hi)
+        if mid==lo or mid==hi:break
+        if residual(mid)>0:hi=mid
+        else:lo=mid
+    q=.5*(lo+hi);u=.5*(ul+ur+curve(r,cr,q)-curve(l,cl,q));beta=(g-1)/(g+1)
+    if 0<=u:
+        if q>pl:return l if 0<=ul-cl*math.sqrt((g+1)/(2*g)*q/pl+(g-1)/(2*g)) else (rl*(q/pl+beta)/(beta*q/pl+1),u,q)
+        d=rl*(q/pl)**(1/g)
+        if 0<=ul-cl:return l
+        if 0>=u-math.sqrt(g*q/d):return (d,u,q)
+        return fan(l,cl,1)
+    if q>pr:return r if 0>=ur+cr*math.sqrt((g+1)/(2*g)*q/pr+(g-1)/(2*g)) else (rr*(q/pr+beta)/(beta*q/pr+1),u,q)
+    d=rr*(q/pr)**(1/g)
+    if 0>=ur+cr:return r
+    if 0<=u+math.sqrt(g*q/d):return (d,u,q)
+    return fan(r,cr,-1)
+
+@functools.lru_cache(maxsize=None)
+def reference_central_errors(left,right,g,n,duration,dt):
+    """Binary64 primitive MUSCL-Hancock (minmod, mirrored walls, exact-Riemann fluxes).
+    Central relative errors use a binary64 exact oracle; only the pressure gates."""
+    h=1/n;cells=[]
+    for x in range(n):
+        rho,u,q=left if x<n//2 else right;cells.append([rho,rho*u,q/(g-1)+.5*rho*u*u])
+    def primitive(c):
+        u=c[1]/c[0];q=(g-1)*(c[2]-.5*c[0]*u*u)
+        check(c[0]>0 and q>0 and math.isfinite(q),'Separation reference left its physical domain')
+        return (c[0],u,q)
+    def minmod(a,b):return 0. if a*b<=0 else (a if abs(a)<abs(b) else b)
+    t=0.
+    while t<duration:
+        step=min(dt,duration-t);w=[primitive(c) for c in cells];lf=[];rf=[]
+        for x in range(n):
+            wl=w[x-1] if x>0 else (w[0][0],-w[0][1],w[0][2]);wr=w[x+1] if x+1<n else (w[-1][0],-w[-1][1],w[-1][2])
+            d=[minmod(w[x][k]-wl[k],wr[k]-w[x][k]) for k in range(3)];rho,u,q=w[x]
+            drho=-.5*step/h*(u*d[0]+rho*d[1]);du=-.5*step/h*(u*d[1]+d[2]/rho);dq=-.5*step/h*(g*q*d[1]+u*d[2])
+            lf.append((rho-.5*d[0]+drho,u-.5*d[1]+du,q-.5*d[2]+dq));rf.append((rho+.5*d[0]+drho,u+.5*d[1]+du,q+.5*d[2]+dq))
+        flux=[]
+        for f in range(n+1):
+            if f==0:s=reference_face((lf[0][0],-lf[0][1],lf[0][2]),lf[0],g)
+            elif f==n:s=reference_face(rf[-1],(rf[-1][0],-rf[-1][1],rf[-1][2]),g)
+            else:s=reference_face(rf[f-1],lf[f],g)
+            if s[0]>0:
+                e=s[2]/(g-1)+.5*s[0]*s[1]*s[1];flux.append((s[0]*s[1],s[0]*s[1]*s[1]+s[2],s[1]*(e+s[2])))
+            else:flux.append((0.,s[2],0.))
+        for x in range(n):
+            for k in range(3):cells[x][k]-=step/h*(flux[x+1][k]-flux[x][k])
+        t+=step
+    exact=Exact(tuple(map(D,left)),tuple(map(D,right)),D(g));central=[0.,0.]
+    for x in (n//2-1,n//2):
+        rho,_,q=primitive(cells[x]);rho_exact,q_exact=map(float,exact.average(D(x)/D(n),D(x+1)/D(n),D(duration)))
+        central[0]=max(central[0],abs(rho-rho_exact)/rho_exact);central[1]=max(central[1],abs(q-q_exact)/q_exact)
+    return tuple(central)
+
 def review(data,complete=True):
-    materials,ids,problems,states,faces,modes,passes=data;ni,he=ids
+    materials,ids,problems,states,faces,modes,passes,references=data;ni,he=ids
     if complete:check(set(modes)=={(c,n) for c in range(3) for n in (64,128,256)} and passes==3,'Incomplete Riemann gate')
     check(bool(modes),'No completed Riemann profile')
     check(set(states)=={(c,n,e,i) for c,n in modes for e in (0,1) for i in range(2*n)},'Missing/extra saved cells')
     check(set(faces)=={(c,n,a,f) for c,n in modes for a in (0,1) for f in range(2*(n+1) if a==0 else 2*n)},'Missing/extra saved faces')
     _,mn,cvn,offn,_,_=map(dec,materials[ni]);_,mh,cvh,offh,_,_=map(dec,materials[he])
     rgas=dec(R)*(1/mn+D('1e-28')/mh)/(1+D('1e-28'));cv=(cvn+D('1e-28')*cvh)/(1+D('1e-28'));gamma=1+rgas/cv
+    # Binary64 gamma, in the native operation order, for the classical reference.
+    fmn,fcvn,fmh,fcvh=float(materials[ni][1]),float(materials[ni][2]),float(materials[he][1]),float(materials[he][2])
+    gamma64=1+float(R)*(1/fmn+1e-28/fmh)/(1+1e-28)/((fcvn+1e-28*fcvh)/(1+1e-28))
+    check(set(references)<={(2,256)},'Unexpected classical reference record')
+    if complete:check((2,256) in references,'Missing separation classical reference')
     results={};oracles={}
     for control,p in problems.items():
         check(control in (0,1,2),'Unknown scientific problem')
@@ -171,9 +251,17 @@ def review(data,complete=True):
         for reported,expected in zip((erho,ep,eu),errors):check(abs(dec(reported)-expected)<D('2e-7'),'Independent primitive L1 error')
         for reported,expected in zip((centre_rho,centre_p),central):check(abs(dec(reported)-expected)<D('2e-7')*max(D(1),expected),'Independent central error')
         scientific=(momentum_ok and rejected==0 and steps<=int(dec(time/dt).to_integral_value(rounding='ROUND_CEILING'))+2 and sums[1]-sums[0]>=-allow)
-        if n==256:scientific=scientific and max(errors)<D('.06') and (control!=2 or max(central)<D('.5'))
+        reference=None
+        if control==2 and n==256 and (control,n) in references:
+            left=tuple(float(problems[control][k]) for k in range(3));right=tuple(float(problems[control][k]) for k in range(3,6))
+            reference=reference_central_errors(left,right,gamma64,n,float(time),float(dt))
+            for recorded,independent in zip(references[control,n],reference):
+                check(abs(float(recorded)-independent)<=1e-9*max(1.,independent),'Independent classical separation reference')
+        if n==256:scientific=scientific and max(errors)<D('.06') and (control!=2 or
+            (reference is not None and central[0]<D('.5') and central[1]<=D(reference[1])))
         if complete:check(scientific,'Strong-flow timestep/entropy/absolute gate')
         results[control,n]=dict(Errors=list(map(str,errors)),Central=list(map(str,central)),Momentum=momentum_witness,ProfilePhysicalCriteriaPassed=bool(scientific))
+        if reference is not None:results[control,n]['ClassicalReferenceCentral']=list(map(repr,reference))
     for c in range(3):
         for a,b in ((64,128),(128,256)):
             if (c,a) in results and (c,b) in results:
@@ -187,20 +275,22 @@ def main():
     with localcontext() as context:
         context.prec=80;data=parse(raw);results=review(data,complete=not partial);checks=base.CHECKS
         if not partial:
-            for corruption in ('trace','wall','profile'):
+            for corruption in ('trace','wall','profile','reference'):
                 bad=copy.deepcopy(data)
                 if corruption=='trace':
                     k=(0,64,1,0);v=list(bad[3][k]);v[1]*=F(101,100);bad[3][k]=tuple(v)
                 elif corruption=='wall':
                     k=(0,64,0,0);old,new=bad[4][k];bad[4][k]=(old,new+1)
-                else:
+                elif corruption=='profile':
                     k=(0,64);v=list(bad[5][k]);v[10]/=2;bad[5][k]=tuple(v)
+                else:
+                    k=(2,256);v=list(bad[7][k]);v[1]*=F(101,100);bad[7][k]=tuple(v)
                 caught=False
                 try:review(bad)
                 except ValueError:caught=True
                 check(caught,'Altered Riemann profile accepted')
     print(json.dumps(dict(Passed=not partial,PartialDataReview=partial,SavedSha256=hashlib.sha256(raw).hexdigest(),SavedChecks=checks,
-        CorruptionsRejected=0 if partial else 3,NativeProcessLaunched=False,IndependentAgentReview=False,
+        CorruptionsRejected=0 if partial else 4,NativeProcessLaunched=False,IndependentAgentReview=False,
         Profiles={str(k):v for k,v in results.items()},Scope='Closed occupied ideal-gas Riemann controls; no vacuum interface, production or game acceptance')))
 
 if __name__=='__main__':main()

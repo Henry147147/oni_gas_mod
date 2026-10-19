@@ -2,9 +2,11 @@
 
 This is the accuracy gate for [`MacClosedWorld`](MAC_SOLVER.md) on strong ideal-gas
 shocks and rarefactions. It is **failed**. With the production defaults, collision
-density refinement fails. The best opt-in selector combination passes Sod and
-collision, but separation still fails the finest-grid velocity bound and the central
-density/pressure bounds. The latest diagnosis localizes a convention mismatch between
+density refinement fails only from N64 to N128 (0.856 against 0.85). Separation
+fails the finest-grid velocity bound and both central-core bounds. The central
+pressure bound was re-baselined on 2026-10-19 against a
+[classical reference](#acceptance-criteria). The best opt-in selector combination
+passes Sod and collision, but its separation still fails. The latest diagnosis localizes a convention mismatch between
 the pressure step and the momentum remap under curved deformation; its share of the
 separation error is not yet quantified. Gate 2 in
 [playtesting readiness](../docs/playtesting-readiness.md) requires this gate and the
@@ -63,12 +65,32 @@ q = 2 (Sod), 2.5 (collision) and 5 (separation).
 - Each successive density, pressure and velocity L1 error is less than 0.85 of its
   predecessor (joint refinement).
 - At N256 every normalized error is below 0.06.
-- Separation at N256: both central cells' density and pressure errors are below half
-  their exact cell averages, so the low-pressure core cannot hide inside a small
+- Separation at N256: both central cells' density errors are below half their exact
+  cell averages, and their pressure errors are no larger than those of the classical
+  reference below, so the low-pressure core cannot hide inside a small
   domain-averaged error.
 - Every nitrogen, helium and passive inventory stays positive. Total entropy may
   decrease only within 128 binary64 epsilons of Σ|U|/T over the initial and final
   states.
+
+**Classical separation reference** (user decision, 2026-10-19). The original central
+pressure bound, half the exact cell average, is beyond textbook methods. With these
+inputs and metrics at N256, first-order Godunov misses it by 5.49× and MUSCL-Hancock
+by 26.5×, both with exact Riemann fluxes. Both pass collision refinement easily.
+The bound is the reference's own central pressure error, currently 26.530350009 at N256.
+The reference is binary64 primitive MUSCL-Hancock on one row of the same grid:
+- minmod slopes in density, velocity and pressure, with mirrored rigid-wall ghost
+  cells;
+- a half-step predictor in the primitive quasi-linear form;
+- Godunov fluxes from the exact Riemann state at x/t = 0: bisection for the star
+  pressure, and a two-rarefaction vacuum state when ur − ul ≥ 2(cl + cr)/(γ − 1);
+- the gate's own γ, maximum timestep and duration, with a final partial step.
+
+`mac_riemann_tests` records it as `RREFERENCE`. `review_mac_riemann.py` repeats the
+algorithm in the same operation order and requires the recorded value to agree within
+1e-9 relative. It also rejects a tampered reference record. Central density keeps its
+original bound; the reference gets central density within 0.004 of exact, so that
+bound is achievable.
 
 Density and pressure compare cell averages; velocity compares the normal face
 reading. Errors are normalized by the initial left density, 100000 Pa and c₀, and by
@@ -126,6 +148,20 @@ Collision ratios are 0.85616557 / 0.79637616 / 0.61103084 against 0.85. All five
 completed profiles pass their individual EOS, inventory, energy, entropy and
 momentum checks.
 
+A diagnostic copy of the test, which reports instead of stopping, ran the remaining
+default profiles on GNU Release at `5737fb6`:
+- **Collision:** N128→N256 refines by 0.412 / 0.388 / 0.480. N256 L1 is
+  0.01513 / 0.03144 / 0.02165, so only the first refinement fails.
+- **Separation:** refines by 0.437 / 0.506 / 0.759 and 0.549 / 0.596 / 0.707. N256 L1
+  is 0.01787 / 0.02327 / **0.07411**. Central relative density / pressure errors are
+  **77.52** / **732.98**, against 0.5 and the classical reference's 26.53.
+
+| Measure (separation, N256) | Production defaults | Classical reference | Bound |
+| --- | ---: | ---: | ---: |
+| Velocity L1 | **0.0741** | 0.1171 | 0.06 |
+| Central relative density error | **77.52** | 0.0038 | 0.5 |
+| Central relative pressure error | **732.98** | 26.53 | 26.53 |
+
 **Coupled compressive work (2 / 3 / 3 / 2).** All nine profiles complete with zero
 timestep retries. Collision ratios are 0.848334 / 0.819035 / 0.613088 (64→128) and
 0.414988 / 0.386744 / 0.481236 (128→256). Separation at N256 has density / pressure /
@@ -174,6 +210,18 @@ Saved-profile analysis, without native reruns, located the collision errors:
 
 ### Separation
 
+- With the defaults at N64, the two central cells heat from 336.9 K to about 386 K
+  by t = T/8 while they expand, where the exact isentropic state is about 100 K.
+  They are already 8× too dense; by t = T they are 190× too dense and 2,300× too
+  high in pressure. The start-up error stays in the stationary core material, so
+  refinement cannot dilute it. The centre face also drifts from exact symmetry,
+  to −7.45 m/s at t = T, and the two central cells differ by 6%.
+- In the defaults' collision profiles, the shocks sit within 0.03 cells of exact,
+  measured by mass. They are about 3–4 cells wide on every grid. The exact shock
+  falls 0.62 / 0.23 / 0.46 of the way through its cell at N64 / N128 / N256, and the
+  smeared-shock error in cell units follows this (0.67 / 1.00 / 0.77). Post-shock
+  ringing of about ±0.04 in density covers about ten cells at N128. Together these
+  set the first refinement ratio of 0.856.
 - With momentum selector 3, the central N256 gas reached 119.42 / 118.74 K against
   13.65 K, and most velocity L1 error lay in the expansion fans. An N64 replay showed
   the first remap cancelling every outward momentum correction at the two stationary

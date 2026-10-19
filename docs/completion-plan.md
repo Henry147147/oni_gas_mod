@@ -66,6 +66,20 @@ Amendments:
   by milestone in the execution order below and stops at each milestone exit
   with an evidence report for review. Windows evidence comes from
   WindowsPlayer under Proton for now; actual Windows OS runs remain open.
+- **Physics-gate ownership, 2026-10-19 (user decision):** Claude works
+  milestone B's physics gates (strong flow, vacuum front, U/volume remainders,
+  free surfaces, multiple liquids, phase change, and defining the gravity and
+  multiphase gates) and pushes to `main` from its own clone. Codex continues
+  calm-region stepping, performance and in-game production adoption.
+- **Separation core pressure, 2026-10-19 (user decision):** the strong-flow
+  separation case's central pressure criterion is re-baselined against a
+  classical method. Textbook Godunov and MUSCL-Hancock schemes with exact
+  Riemann fluxes miss the original "within half the exact cell average" bound
+  by about 5–26× at N256, so central pressure may now be no worse than a fully
+  specified binary64 MUSCL-Hancock reference on the same grid
+  ([criteria](../native/MAC_STRONG_FLOW.md#acceptance-criteria)). Every other
+  strong-flow criterion, input and bound is unchanged, including central
+  density within half its exact cell average.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
