@@ -11,8 +11,11 @@ Status: phase 1 (single-threaded flux-form kernel, oracle validation,
 benchmark option) and phase 3 (deterministic multithreading: bit-identical
 results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
 pressure formulation and the shared geometric multigrid preconditioner
-(`mac_pressure_multigrid.*`) are in. Larger calm steps remain open. It covers every selector the ONI domain uses. The
-real-time gate is not met; see [performance](#earlier-jacobi-performance), the
+(`mac_pressure_multigrid.*`) are in. The opt-in
+[two-moment pressure method](MAC_PRESSURE_MOMENTS.md) passes selected resolved
+wave schedules; automatic calm-region selection and local subcycling remain
+open. The midpoint path covers every selector the ONI domain uses. The
+real-time gate is not met; see [performance](#current-active-cell-baseline), the
 [historical comparison](#historical-comparison-with-the-retired-interval-port)
 and [remaining work](#remaining-work).
 
@@ -25,6 +28,11 @@ and [remaining work](#remaining-work).
   caller policy to continue this selection.
 - `MacExecutionPolicy::production`: explicitly opts the returned owner into
   that saved selection, including certified equilibrium intervals.
+- `MacPressureIntegration::two_moment`: opt-in temporal pressure for kernel 2,
+  persisted in checkpoint version 7. It retains the existing physical laws;
+  unsupported/range paths requiring legacy reference execution explicitly
+  reject instead of changing temporal method. It is not a general production
+  default or an automatic timestep selector.
 - `advance_mac_production(world, seconds, budget, options)`: flow only, without
   a certificate; also persists selection 2. It rejects enabled diffusion and
   unported selectors. The selected owner route uses an audited reference for
@@ -320,15 +328,12 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-47 CTests pass. Eight suites (the seven production-kernel controls and composed
-diffusion rounding) pass Debug ASan/UBSan and MinGW 13 under Wine 10. Seven
-production/range suites (checkpoint, contract, multigrid, saved accounts,
-diffusion rounding, parcel rounding and flagged transport) pass ThreadSanitizer. The
-independent production review passes on Release, ASan/UBSan, TSan and Wine.
-Against `513a0e2`, all 62 preceding MAC executable exits and physical output
-records agree: 59 output streams are byte-identical, two differ only in timing,
-and one adds the intended dual-projection counts (`TTHREAD`: `4/8/10` becomes
-`4/554/88`). Its product and endpoint mass records remain byte-identical.
+48 CTests pass. Ten native suites pass Debug ASan/UBSan and MinGW 13 under
+Wine 10; nine pass ThreadSanitizer. The five saved reviewers pass on all
+four routes. The opt-in temporal controls and their independent endpoint
+review are described in [pressure moments](MAC_PRESSURE_MOMENTS.md).
+Current accepted dual-projection counts (`TTHREAD`: `4/554/88`) include
+flagged J/K work; product and endpoint mass records are unchanged.
 The new diffusion-rounding suite independently checks quantized Heun transfers,
 shared-budget rollback, tiny ternary retry and spreading-front continuation.
 Its saved reader passes 2,690 checks/six corruptions on all four routes; the
@@ -381,14 +386,15 @@ the earlier format. Failed interval budgets publish neither count nor state.
 
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
-Against `d2e02c4`, all 63 MAC component executables retain their exit results:
-60 outputs are byte-identical, two differ only in timing and the range fixture
-adds its version-2 records. All preceding physical records are unchanged.
+Against `ef80ff8`, all 63 preceding MAC component executables retain their
+exit results: 61 outputs are byte-identical and two differ only in timing.
+All physical records are unchanged; the new moment executable makes 64.
 Five-interval 256- and 4,096-cell production wave checkpoints also retain every
 version-6 byte against the preceding binary. Fresh-process gas and multigrid
 images from Linux and Wine continue byte-identically on both, in both source
 directions. Subnormal helium/passive and flagged-sweep images also continue exactly
-in fresh Linux/Wine processes, in both source directions. These are Wine controls,
+in fresh Linux/Wine processes, in both source directions. New version-7 moment
+images also continue exactly on both platforms in both source directions. These are Wine controls,
 separate from actual Windows OS evidence.
 Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
 reference images restore unchanged and selector-1 images explicitly reject.

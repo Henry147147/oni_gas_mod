@@ -24,6 +24,9 @@ enum class MacShockHeatRegularization {
 // selectors/range flags; value 1 is the narrower legacy interval port.
 // Value 1 is reserved for the retired interval port and always rejects.
 enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2 };
+// Persisted temporal pressure scheme. The moment path preserves pressure work
+// with two Legendre moments; the surrounding split remains second order.
+enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -44,6 +47,7 @@ struct MacClosedSettings {
     // explicitly select physical diffusion; old checkpoints restore disabled.
     // Diffusion composes with either numerical kernel (it wraps each flow interval).
     MacDiffusionSettings diffusion=MacDiffusionSettings::disabled();
+    MacPressureIntegration pressure_integration = MacPressureIntegration::discrete_gradient_midpoint;
     void validate() const;
 };
 struct MacClosedSubstep {

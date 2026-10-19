@@ -170,6 +170,9 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportStat
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(pressure_integration == MacPressureIntegration::discrete_gradient_midpoint ||
+        (pressure_integration == MacPressureIntegration::two_moment && numerical_kernel == MacNumericalKernel::production),
+        "Invalid MAC pressure integration (two moments require production kernel 2)");
     require(numerical_kernel != MacNumericalKernel::retired_interval_audited, "MAC interval kernel 1 is retired; its checkpoints cannot continue under a different kernel");
     require((numerical_kernel == MacNumericalKernel::reference ||
         numerical_kernel == MacNumericalKernel::production) &&
@@ -195,6 +198,8 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
     require_mac_energy_environment();
     settings.validate(); require(std::isfinite(dt) && dt > 0 && dt <= settings.maximum_timestep_s, "Invalid MAC closed substep time");
+    require(settings.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
+        "The reference substep cannot execute two-moment pressure integration");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid; const Topology topology(g, &source);
     require(settings.gravity_m_per_s2 == 0 || !g.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
     const auto jx0 = mac_field_values(source.momentum_x, source.full_momentum_x), jy0 = mac_field_values(source.momentum_y, source.full_momentum_y);
@@ -647,6 +652,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     // otherwise the persisted numerical-kernel setting applies.
     if (!validation_reference && (policy == MacExecutionPolicy::production || settings_.numerical_kernel == MacNumericalKernel::production) &&
         mac_kernel_supports(settings_)) return advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
+    require(settings_.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
+        "Two-moment pressure integration cannot continue through the legacy reference path");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;

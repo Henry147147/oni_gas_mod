@@ -144,8 +144,8 @@ also pass collision.
   budget and row continuation controls pass. All four direct/composed physical/100×
   8,192-cell cases complete 400 frames with the original aggregate helium bound
   and unchanged bulk metrics. The saved reviews pass 2,690/131,154 checks,
-  rejecting six/three altered captures. All 47 Release CTests, eight ASan/UBSan,
-  eight MinGW/Wine and seven production/range ThreadSanitizer suites pass.
+  rejecting six/three altered captures. All 48 Release CTests, ten ASan/UBSan,
+  ten MinGW/Wine and nine ThreadSanitizer suites pass.
   Accepted below-range primal advection products now have exact error ledgers
   and counts, with unchanged parcel values and endpoint bounds. An 8,192-cell
   advected front completes 160 intervals with 44,420 rounded products and the
@@ -163,8 +163,15 @@ also pass collision.
   cross-block tracer uses the same shared transfer with one/twelve workers.
   The in-game owner remains reference pending step f. Supported legacy
   reference images retain their bytes and continuation. Calm-region/local
-  steps, open physics gates, real-time acceptance and in-game production use
-  remain open.
+  steps and local subcycling remain open. The opt-in
+  [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes
+  selected larger-step resolved waves with the original error bounds and
+  persists its temporal choice in version 7. Default schedules/legacy images
+  retain their method and bytes. Its independent saved review passes 80,709
+  checks/fourteen corruptions on all four routes. New version-7 images retain
+  exact fresh Linux/Wine continuation; composed diffusion and subnormal-front
+  controls pass. Automatic selection, open physics gates,
+  real-time acceptance and in-game production use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

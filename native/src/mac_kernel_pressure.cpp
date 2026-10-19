@@ -202,6 +202,102 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
     return result;
 }
 
+void solve_pressure_moments_linear(Context& c, const LinearSystem& sys, const std::vector<double>& compliance,
+    const std::vector<double>& ra, const std::vector<double>& rb, std::vector<double>& da, std::vector<double>& db,
+    double rtol, double atol) {
+    const auto& g = c.g; const auto N = g.N;
+    auto& scratch = c.ws.moments->linear;
+    for (auto& v : scratch) v.resize(N);
+    auto& ba = scratch[0]; auto& bb = scratch[1];
+    auto& r = scratch[2]; auto& z = scratch[3]; auto& p = scratch[4]; auto& Ap = scratch[5];
+    auto& Zp = scratch[6]; auto& ZZp = scratch[7]; auto& pre = scratch[8]; auto& intermediate = scratch[9];
+    const bool multigrid = c.settings.preconditioner == PressurePreconditioner::automatic && N >= 256 && prepare_multigrid(c, sys);
+    const auto apply_Z = [&](const std::vector<double>& v, std::vector<double>& out) {
+        const auto pressure = [&](Index i) { return i != none && sys.active[i] ? v[i] / compliance[i] : 0.; };
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (!sys.active[i]) { out[i] = 0; continue; }
+                const auto l = g.left_face(i), rr = g.right_face(i), b = g.bottom_face(i), t = g.top_face(i);
+                const double own = pressure(static_cast<Index>(i));
+                out[i] = (sys.diag[i] - compliance[i]) * own +
+                    sys.wx[l] * (own - pressure(g.xl[l])) + sys.wx[rr] * (own - pressure(g.xr[rr])) +
+                    sys.wy[b] * (own - pressure(g.yl[b])) + sys.wy[t] * (own - pressure(g.yr[t]));
+            }
+        });
+    };
+    const auto dot = [&](const std::vector<double>& a, const std::vector<double>& b) {
+        return combine(c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+            double s = 0;
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (sys.active[i]) s += a[i] * (b[i] / compliance[i]);
+            return s;
+        }));
+    };
+    // Z = dt² H C / 12, H the positive pressure graph operator and C the
+    // inverse compliance. The block Jacobian is [[I+2Z,-sqrt(3)Z],
+    // [sqrt(3)Z,I-Z]]. Its Schur polynomial S=I+Z+Z² is positive in the
+    // C-weighted inner product. (I+Z)² is spectrally equivalent, with
+    // eigenvalue ratio in [3/4,1]. Both factors use the SAME fixed V-cycle.
+    apply_Z(ra, Zp); apply_Z(rb, ZZp);
+    const double root3 = std::sqrt(3.);
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            ba[i] = ra[i] - Zp[i] + root3 * ZZp[i];
+            bb[i] = rb[i] - root3 * Zp[i] + 2 * ZZp[i];
+        }
+    });
+    const double weights = combine(c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        double s = 0; for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (sys.active[i]) s += 1 / compliance[i]; return s;
+    }));
+    const auto precondition = [&] {
+        if (multigrid) {
+            if (!c.ws.pressure_multigrid->apply(r, pre)) reject("Two-moment multigrid application failed");
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) intermediate[i] = sys.active[i] ? compliance[i] * pre[i] : 0;
+            });
+            if (!c.ws.pressure_multigrid->apply(intermediate, pre)) reject("Two-moment multigrid application failed");
+            c.counters.multigrid_cycles += 2;
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) z[i] = sys.active[i] ? compliance[i] * pre[i] : 0;
+            });
+        } else c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (!sys.active[i]) { z[i] = 0; continue; }
+                const double d = sys.diag[i] + sys.wx[g.left_face(i)] + sys.wx[g.right_face(i)] +
+                    sys.wy[g.bottom_face(i)] + sys.wy[g.top_face(i)];
+                const double inverse = compliance[i] / d;
+                z[i] = (r[i] * inverse) * inverse;
+            }
+        });
+    };
+    const auto solve = [&](const std::vector<double>& rhs, std::vector<double>& out) {
+        out.assign(N, 0); std::copy(rhs.begin(), rhs.end(), r.begin());
+        const double threshold = std::max(atol * std::sqrt(weights), rtol * std::sqrt(dot(r, r)));
+        if (std::sqrt(dot(r, r)) <= threshold) return;
+        precondition(); std::copy(z.begin(), z.end(), p.begin());
+        double rz = dot(r, z);
+        for (std::size_t iteration = 0; iteration < 4000; ++iteration) {
+            apply_Z(p, Zp); apply_Z(Zp, ZZp);
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) Ap[i] = p[i] + Zp[i] + ZZp[i];
+            });
+            const double pAp = dot(p, Ap);
+            if (!(pAp > 0) || !std::isfinite(pAp)) reject("Two-moment Schur operator lost positivity");
+            const double alpha = rz / pAp;
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) { out[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+            });
+            ++c.counters.linear;
+            if (std::sqrt(dot(r, r)) <= threshold) return;
+            precondition(); const double next = dot(r, z), beta = next / rz; rz = next;
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) p[i] = z[i] + beta * p[i];
+            });
+        }
+        reject("Two-moment Schur solve did not converge");
+    };
+    solve(ba, da); solve(bb, db);
+}
+
 void face_inertias(const Context& c, const std::vector<double>& mass, std::vector<double>& ix, std::vector<double>& iy) {
     const auto& g = c.g; ix.resize(g.NX); iy.resize(g.NY);
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t b) {

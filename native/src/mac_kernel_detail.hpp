@@ -252,9 +252,17 @@ struct Counters {
         limited_momentum = 0, compression_events = 0, shock_events = 0, conduction_stages = 0, viscosity_modes = 0;
     double maximum_volume_closure = 0;
 };
+struct PressureMomentWorkspace {
+    struct State {
+        std::vector<double> a, b, mean, first, du, ra, rb;
+        void resize(std::size_t n) { for (auto* v : {&a, &b, &mean, &first, &du, &ra, &rb}) v->resize(n); }
+    } accepted, trial;
+    std::array<std::vector<double>, 12> linear;
+};
 // Scratch arrays reused across substeps of one interval (no per-stage
 // allocation after the first substep).
 struct Workspace {
+    std::unique_ptr<PressureMomentWorkspace> moments;
     // Derived topology and coefficients only. The active mask includes empty
     // cells; a changed mask or geometry replaces the hierarchy before use.
     std::shared_ptr<const interval_detail::PressureMultigridTopology> pressure_topology;
@@ -311,6 +319,13 @@ void stage_conduction(Context&, Fields&, double seconds, Accounts&);
 void stage_shock_heat(Context&, Fields&, double seconds, Accounts&);
 void stage_compression(Context&, Fields&, double seconds, Accounts&);
 void stage_pressure_transport(Context&, Fields&, double seconds, Accounts&);
+void stage_pressure_transport_moments(Context&, Fields&, double seconds, Accounts&);
+struct LinearSystem;
+// Solve the anchor-linearized two-moment system. Compliance-weighted PCG
+// applies its positive Schur polynomial, preconditioned by two fixed V-cycles.
+void solve_pressure_moments_linear(Context&, const LinearSystem&, const std::vector<double>& compliance,
+    const std::vector<double>& ra, const std::vector<double>& rb, std::vector<double>& da, std::vector<double>& db,
+    double rtol, double atol);
 // Reserved stage slot for gas diffusion (MAC_KERNEL.md, "Diffusion slot").
 void stage_diffusion(Context&, Fields&, double seconds, Accounts&);
 // Remap after the pressure step: reconstruction, primal parcels, dual

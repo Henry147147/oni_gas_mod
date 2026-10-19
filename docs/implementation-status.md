@@ -52,7 +52,8 @@ real-time target and every first-playable gate remain open.
 Conservative [gas diffusion](../native/MAC_DIFFUSION.md) is merged into main as
 formulation 2. It supplies species-specific exchange with carried enthalpy,
 physical and accelerated modes, completed-frame configuration and versioned
-checkpoints (`MACCLS01` version 5 for reference; version 6 for production).
+checkpoints (`MACCLS01` version 5 for reference; version 6 for production
+midpoint, or 7 with opt-in two-moment pressure).
 Historical selector-1 version-4/5 images explicitly reject after retirement.
 
 The Maxwell–Stefan driving force includes pressure diffusion, in a symmetric
@@ -239,12 +240,11 @@ The in-game reference owner is unchanged pending step f.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 47 Release CTests pass; eight suites pass
-Debug ASan/UBSan and MinGW/Wine, and seven production/range suites pass
-ThreadSanitizer. Against `d2e02c4`, all 63 MAC component executables retain
-their exit results: 60 outputs are byte-identical, two differ only in timing,
-and the range fixture adds its version-2 share controls and write counts.
-Every preceding physical output record agrees.
+checkpoints remain unchanged. All 48 Release CTests pass; ten suites pass
+Debug ASan/UBSan and MinGW/Wine, and nine pass ThreadSanitizer. Against
+`ef80ff8`, all 63 preceding MAC component executables retain their physical
+records and exit results: 61 outputs are byte-identical and two differ only
+in timing. The added temporal executable makes 64 components.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
@@ -256,8 +256,17 @@ cells and 2,210–2,329 ms at 250,000, before adapters, on the shared Ryzen
 9 5900X. Every cell changes. Retained workspace is about 1.6 KiB/cell; total
 additional memory and colony FPS remain unmeasured. See the
 [current baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
-Calm-region/local stepping, open physics gates and in-game production-kernel
-adoption remain open.
+The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)
+passes selected larger-step wave schedules against resolved midpoint references:
+16×16 at .004 s and 256×2/512×2 at .1 s retain the original 0.1 K/1% bounds.
+Its new temporal selection persists in version 7; older images retain their
+method and bytes. One/twelve-worker state and ordinary continuation agree.
+Its independent endpoint reader passes 80,709 checks/fourteen altered captures
+on Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. New version-7 images
+continue exactly in fresh Linux/Wine processes in both source directions.
+Composed physical/accelerated diffusion and a spreading subnormal front pass.
+Automatic calm-region selection, local subcycling, open physics gates and
+in-game production-kernel adoption remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity

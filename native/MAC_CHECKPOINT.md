@@ -31,7 +31,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 
 1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
    reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
-   diffusion, historically kernels 0/1; 6 for production kernel 2), and a length-prefixed
+   diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
+   pressure; 7 for opt-in two-moment pressure), and a length-prefixed
    binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -47,6 +48,9 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    coefficients, requires numerical kernel 2, and always stores the diffusion
    mode and multiplier, including canonical disabled mode 0/multiplier 1.
    Enabled diffusion then stores the same formulation and complete profile.
+   Version 7 has the version-6 fields followed by the pressure-integration enum
+   (unsigned 32-bit, canonical value 1) before any enabled diffusion formulation
+   and profile. Versions 2–6 restore pressure-integration value 0 (midpoint).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
@@ -65,7 +69,8 @@ current binary has.
 ### Version assignment
 
 Reference owners write version 2, 3 or 5 according to their settings; production
-owners write version 6. Retired layouts remain listed for explicit rejection:
+owners write version 6, or 7 with two-moment pressure. Retired layouts remain
+listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
 | --- | --- | --- | --- |
@@ -74,6 +79,7 @@ owners write version 6. Retired layouts remain listed for explicit rejection:
 | 4 | retired interval (1), explicitly rejected | either | off |
 | 5 | reference (0); retired interval (1) explicitly rejected | either | physical or accelerated |
 | 6 | production (2) | either | disabled, physical or accelerated |
+| 7 | production (2), two-moment pressure (1) | either | disabled, physical or accelerated |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to
@@ -95,6 +101,14 @@ no preconditioner: automatic uses geometric multigrid on grids of at least
 256 cells; explicit Jacobi stays Jacobi. Explicit incomplete Cholesky and
 unported physical selectors use the audited reference through the owner.
 Thread counts and derived hierarchy/workspaces are not saved.
+
+Version 7 requires numerical kernel 2 and temporal selector 1. Unknown values
+and a redundant midpoint selector reject even with valid checksums. Every
+version-2/3/4/5/6 writer byte remains unchanged. A moment owner refuses a legacy
+reference fallback that would change its temporal scheme. The controls in
+`mac_kernel_moment_tests.cpp` cover ordinary restoration, one/twelve-worker
+continuation, malformed selectors and budget rollback; see
+[pressure moments](MAC_PRESSURE_MOMENTS.md).
 
 Six synthetic images spanning versions 2, 3, 4 and 5 (including both diffusion
 modes, viscosity and the legacy kernel) remain byte-identical to the earlier
@@ -133,7 +147,8 @@ older reader rejects a value it does not know):
 | Compression | 0 none, 1 quadratic, 2 pressure-sensed acoustic/quadratic, 3 coupled compressive pressure |
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
-| Numerical kernel (versions 4–6) | 0 reference (version 5 only; implicit in versions 2/3), 1 interval audited (versions 4/5), 2 production (version 6 only) |
+| Numerical kernel (versions 4–7) | 0 reference (version 5 only; implicit in versions 2/3), 1 retired interval (versions 4/5), 2 production (versions 6/7 only) |
+| Pressure integration (version 7) | 1 two moments; midpoint 0 is implicit in versions 2–6 and redundant/noncanonical in version 7 |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must

@@ -62,11 +62,17 @@ Declared in `mac_closed_world.hpp`:
   enabled conduction must have no temperature difference; gravity and wall
   impulse are still accounted. Nonzero force residuals take the full solver path.
 - `MacExecutionPolicy::production` selects and persists numerical kernel 2
-  (checkpoint version 6), including the certificate path. Ordinary restored
+  (checkpoint version 6, or 7 with opt-in two-moment pressure), including the certificate path. Ordinary restored
   advances select the same kernel without a caller flag. Its saved automatic
   pressure setting uses geometric multigrid on grids of at least 256 cells;
-  explicit Jacobi is retained. Unported settings take an audited reference
-  interval without changing their physical selectors or saved kernel.
+  explicit Jacobi is retained. With midpoint pressure, unported settings take an
+  audited reference interval without changing physical selectors or saved kernel.
+- `MacPressureIntegration::two_moment` is an opt-in pressure time scheme for
+  numerical kernel 2. It persists in version 7, preserving prior midpoint
+  trajectories and images. Selected larger-step waves pass resolved-reference
+  bounds; automatic calm-region selection and local subcycling are still open.
+  It refuses unsupported reference/range fallbacks that would change temporal
+  method. See [pressure moments](MAC_PRESSURE_MOMENTS.md).
 - `with_cell_heat`, `with_gas_transfers` and `with_fluid_transfers` are immutable,
   atomically checked edits (heat batches of 1–4096 edits; point sources and sinks
   with complete parcel accounting). Mixed gas/liquid transfers need the explicit

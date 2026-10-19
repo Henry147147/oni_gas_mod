@@ -221,7 +221,8 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     run(stage_conduction, .5 * dt, tm.conduction_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     run(stage_compression, .5 * dt, tm.compression_ms);
-    { double unused = 0; run(stage_pressure_transport, dt, unused); }
+    { double unused = 0; run(c.settings.pressure_integration == MacPressureIntegration::two_moment ?
+        stage_pressure_transport_moments : stage_pressure_transport, dt, unused); }
     run(stage_compression, .5 * dt, tm.compression_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     run(stage_conduction, .5 * dt, tm.conduction_ms);
@@ -262,6 +263,11 @@ std::size_t retained_bytes(const Workspaces& w) {
     std::size_t total = 0;
     const auto add = [&](const auto& v) { total += v.capacity() * sizeof(typename std::decay_t<decltype(v)>::value_type); };
     const auto& ws = w.ws; const auto& e = ws.eos;
+    if (ws.moments) {
+        for (const auto* s : {&ws.moments->accepted, &ws.moments->trial})
+            for (const auto* v : {&s->a, &s->b, &s->mean, &s->first, &s->du, &s->ra, &s->rb}) add(*v);
+        for (const auto& v : ws.moments->linear) add(v);
+    }
     if (ws.pressure_topology) total += ws.pressure_topology->storage_bytes();
     if (ws.pressure_multigrid) total += ws.pressure_multigrid->storage_bytes();
     for (const auto* v : {&e.M, &e.Cv, &e.off, &e.nR, &e.Nl, &e.T, &e.p, &e.Vg, &e.Eel, &e.Ceq, &e.comp, &e.lcomp}) add(*v);
@@ -496,6 +502,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     mac_kernel::require_supported(MacKernelAccess::settings(world));
     const auto fallback = [&](std::size_t consumed) {
+        mac_kernel::require(MacKernelAccess::settings(world).pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
+            "Two-moment pressure integration cannot continue through legacy reference fallback");
         // Flagged range: the complete interval through the reference, with
         // the attempts already consumed charged to the shared budget.
         if (consumed >= budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");
