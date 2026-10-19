@@ -186,6 +186,12 @@ reductions and immutable topology reuse reduce 250,000-cell timing to about
 retries. Higher-order selectors, regularization, liquid/free-surface ports and the
 real-time acceptance gate remain open. The default kernel is unchanged.
 
+[Deterministic interval workers](interval-parallel-pressure.md) now cover large
+thermodynamic and pressure passes. Continuations remain byte-identical across
+worker counts and to the preceding serial solver; native/Ubuntu tests,
+sanitizers, saved reviews and Windows binaries under Wine pass. Loaded-host
+timings remain diagnostic and do not establish the performance gate.
+
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity
 and gravity, with atomic intervals and bounded retries. Its components and

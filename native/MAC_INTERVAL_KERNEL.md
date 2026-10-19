@@ -128,8 +128,13 @@ standalone resident memory was about 329 MiB, including the test owner and
 buffers, rather than additional memory inside ONI. These samples are not
 performance acceptance: physical
 regularization, higher-order reconstruction, liquids, free surfaces, local
-subcycling, deterministic parallelism, machines and game rendering
+subcycling, further parallel ports, machines and game rendering
 remain open.
+
+The subsequent [deterministic worker implementation](../docs/interval-parallel-pressure.md)
+parallelizes large pressure and thermodynamic passes while retaining the
+serial arithmetic order within each row and reduction block. It does not
+promote a new physical configuration or close the performance gate.
 
 The subsequent [multigrid and reduction follow-up](MAC_MULTIGRID.md) reduces
 the measured 250,000-cell median to 6,626.66 ms, with no retries or physical

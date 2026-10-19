@@ -1,5 +1,6 @@
 #include "mac_interval_kernel.hpp"
 #include "mac_interval_audit.hpp"
+#include "mac_block_execution.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <algorithm>
 #include <array>
@@ -103,6 +104,7 @@ struct Kernel {
     std::vector<Reading> initial, current;
     std::vector<double> dv, trial, pressure, increment, compliance, residual, x, r, z, direction, applied, diagonal;
     std::vector<double> material_volume, pressure_u, next_mass;
+    std::vector<double> residual_norm_blocks;
     std::array<std::vector<double>, 2> inertia, conductance, sweep, pressure_j, mass_flux, scalar_flux;
     std::vector<double> keep, velocity, provisional, dual_flux;
     std::vector<StoredSum> gathered, heat;
@@ -148,6 +150,7 @@ struct Kernel {
         active_cells = source.grid.walls.size() - static_cast<std::size_t>(std::count(source.grid.walls.begin(), source.grid.walls.end(), std::uint8_t{1}));
         const auto n = input.cells.size(); initial.resize(n); current.resize(n); heat.resize(n);
         dot_blocks.resize((n + 255) / 256);
+        residual_norm_blocks.resize(dot_blocks.size());
         for (auto* v : {&dv, &trial, &pressure, &increment, &compliance, &residual, &x, &r, &z, &direction, &applied,
             &diagonal, &material_volume, &pressure_u, &next_mass}) v->resize(n);
         for (std::size_t a = 0; a < 2; ++a) {
@@ -205,14 +208,15 @@ struct Kernel {
         return out;
     }
     void readings(const Fields& f, std::vector<Reading>& output) const {
-        for (std::size_t i = 0; i < output.size(); ++i) output[i] = reading(f, i);
+        interval_detail::independent_rows(output.size(), [&](std::size_t i) { output[i] = reading(f, i); });
     }
     static double inertia_at(const Face& f, const std::vector<Reading>& values) {
         return (f.left == none ? 0 : .5 * values[f.left].mass) + (f.right == none ? 0 : .5 * values[f.right].mass);
     }
     void work(std::span<const double> volume_change) {
         const double volume = source.grid.volume_m3();
-        for (std::size_t i = 0; i < current.size(); ++i) if (!source.grid.walls[i]) {
+        interval_detail::independent_rows(current.size(), [&](std::size_t i) {
+            if (source.grid.walls[i]) return;
             const double q = volume_change[i] / volume, gamma = current[i].gamma, p0 = current[i].pressure;
             if (!(q > -1)) throw std::domain_error("Interval pressure exhausted material volume");
             const auto& anchor = current[i];
@@ -243,7 +247,7 @@ struct Kernel {
             increment[i] = normal(inc); pressure[i] = normal(p0 + inc);
             if (!(tangent < 0)) throw Decline{};
             compliance[i] = normal(-1 / tangent);
-        }
+        });
     }
     double pressure_gradient(const Face& f) const {
         Sum d;
@@ -253,25 +257,30 @@ struct Kernel {
     }
     double evaluate(const Fields& fields, std::span<const double> volumes, double dt) {
         work(volumes); const double factor = dt * source.grid.spacing_m * source.grid.depth_m;
-        for (std::size_t a = 0; a < 2; ++a) for (std::size_t f = 0; f < topology.faces[a].size(); ++f) {
-            if (!topology.faces[a][f].free()) { pressure_j[a][f] = 0; sweep[a][f] = 0; continue; }
+        for (std::size_t a = 0; a < 2; ++a) interval_detail::independent_rows(topology.faces[a].size(), [&](std::size_t f) {
+            if (!topology.faces[a][f].free()) { pressure_j[a][f] = 0; sweep[a][f] = 0; return; }
             const double impulse = product(factor, pressure_gradient(topology.faces[a][f]));
             pressure_j[a][f] = normal(fields.j[a][f] + impulse);
             sweep[a][f] = normal(product(factor, .5 * fields.j[a][f] + .5 * pressure_j[a][f]) / inertia[a][f]);
-        }
-        double norm = 0;
-        for (std::size_t i = 0; i < current.size(); ++i) if (!source.grid.walls[i]) {
-            const auto& f = topology.cell_faces[i]; Sum value;
-            value.add(volumes[i]); value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
-            value.add(sweep[1][f[2]]); value.add(-sweep[1][f[3]]);
-            residual[i] = normal(value.value()); norm = std::max(norm, std::abs(residual[i]) / source.grid.volume_m3());
-        }
+        });
+        interval_detail::independent_blocks(residual_norm_blocks.size(), [&](std::size_t block) {
+            double norm = 0;
+            const auto begin = 256 * block, end = std::min(begin + 256, current.size());
+            for (auto i = begin; i < end; ++i) if (!source.grid.walls[i]) {
+                const auto& f = topology.cell_faces[i]; Sum value;
+                value.add(volumes[i]); value.add(sweep[0][f[0]]); value.add(-sweep[0][f[1]]);
+                value.add(sweep[1][f[2]]); value.add(-sweep[1][f[3]]);
+                residual[i] = normal(value.value()); norm = std::max(norm, std::abs(residual[i]) / source.grid.volume_m3());
+            }
+            residual_norm_blocks[block] = norm;
+        });
+        double norm = 0; for (const auto value : residual_norm_blocks) norm = std::max(norm, value);
         return norm;
     }
     double dot(const std::vector<double>& a, const std::vector<double>& b) const {
         // Fixed blocks and lanes keep the reduction independent of future task
         // partitioning while breaking the long double-double dependency chain.
-        for (std::size_t block = 0; block < dot_blocks.size(); ++block) {
+        interval_detail::independent_blocks(dot_blocks.size(), [&](std::size_t block) {
             std::array<Sum, 4> lanes{}; const auto begin = block * 256, end = std::min(begin + 256, a.size());
             bool flagged = false;
             const auto accumulate = [&](std::size_t i, Sum& lane) {
@@ -288,23 +297,37 @@ struct Kernel {
             for (; i < end; ++i) accumulate(i, lanes[i % 4]);
             if (flagged) throw Decline{};
             Sum value; for (const auto& lane : lanes) { value.add(lane.hi); value.add(lane.lo); } dot_blocks[block] = value;
-        }
+        });
         Sum sum; for (const auto& block : dot_blocks) { sum.add(block.hi); sum.add(block.lo); }
         return normal(sum.value());
     }
     void apply(const std::vector<double>& in, std::vector<double>& out) const {
-        for (std::size_t i = 0; i < in.size(); ++i) out[i] = source.grid.walls[i] ? 0 : compliance[i] * in[i];
-        for (std::size_t a = 0; a < 2; ++a) for (std::size_t f = 0; f < topology.faces[a].size(); ++f) {
-            const auto& pair = topology.faces[a][f]; if (!pair.free()) continue;
-            const double v = conductance[a][f] * (in[pair.left] - in[pair.right]);
-            out[pair.left] += v; out[pair.right] -= v;
-        }
+        interval_detail::independent_rows(in.size(), [&](std::size_t i) {
+            if (source.grid.walls[i]) { out[i] = 0; return; }
+            double value = compliance[i] * in[i]; const auto& faces = topology.cell_faces[i];
+            for (std::size_t axis = 0; axis < 2; ++axis) {
+                const auto add_face = [&](std::size_t f) {
+                    const auto& pair = topology.faces[axis][f]; if (!pair.free()) return;
+                    // Recompute the same matrix coefficient product for each
+                    // row; physical transport still uses shared face fluxes.
+                    const double flux = conductance[axis][f] * (in[pair.left] - in[pair.right]);
+                    if (pair.left == i) value += flux;
+                    if (pair.right == i) value -= flux;
+                };
+                // Preserve the former x-face/y-face scattering order, also
+                // at periodic wraps and one-cell self edges.
+                const auto first = std::min(faces[2 * axis], faces[2 * axis + 1]);
+                const auto second = std::max(faces[2 * axis], faces[2 * axis + 1]);
+                add_face(first); if (second != first) add_face(second);
+            }
+            out[i] = value;
+        });
     }
     std::size_t solve(double dt, MacClosedAdvanceReport& step) {
         const double da = dt * source.grid.spacing_m * source.grid.depth_m, factor = .5 * da * da;
-        for (std::size_t i = 0; i < current.size(); ++i) {
+        interval_detail::independent_rows(current.size(), [&](std::size_t i) {
             x[i] = 0; r[i] = source.grid.walls[i] ? 0 : residual[i]; diagonal[i] = compliance[i];
-        }
+        });
         for (std::size_t a = 0; a < 2; ++a) for (std::size_t f = 0; f < topology.faces[a].size(); ++f) {
             const auto& pair = topology.faces[a][f]; conductance[a][f] = 0; if (!pair.free()) continue;
             const double g = conductance[a][f] = normal(factor / inertia[a][f]); diagonal[pair.left] += g; diagonal[pair.right] += g;
@@ -327,7 +350,7 @@ struct Kernel {
         }
         const auto precondition = [&] {
             if (use_multigrid) { if (!multigrid->apply(r, z)) throw Decline{}; }
-            else for (std::size_t i = 0; i < r.size(); ++i) z[i] = source.grid.walls[i] ? 0 : r[i] / diagonal[i];
+            else interval_detail::independent_rows(r.size(), [&](std::size_t i) { z[i] = source.grid.walls[i] ? 0 : r[i] / diagonal[i]; });
         };
         const auto completed = [&](std::size_t iterations) {
             if (use_multigrid) step.interval_multigrid_cycles += multigrid->cycles();
@@ -340,11 +363,11 @@ struct Kernel {
             apply(direction, applied); const double denominator = dot(direction, applied);
             if (!(denominator > 0 && rz > 0)) throw std::domain_error("Interval pressure PCG lost positive definiteness");
             const double alpha = rz / denominator;
-            for (std::size_t i = 0; i < r.size(); ++i) { x[i] += alpha * direction[i]; r[i] -= alpha * applied[i]; }
+            interval_detail::independent_rows(r.size(), [&](std::size_t i) { x[i] += alpha * direction[i]; r[i] -= alpha * applied[i]; });
             if (dot(r, r) <= 1e-24 * rr0) return completed(iteration + 1);
             precondition();
             const double next = dot(r, z), beta = next / rz; rz = next;
-            for (std::size_t i = 0; i < r.size(); ++i) direction[i] = z[i] + beta * direction[i];
+            interval_detail::independent_rows(r.size(), [&](std::size_t i) { direction[i] = z[i] + beta * direction[i]; });
         }
         throw std::domain_error("Interval pressure PCG exhausted iterations");
     }
