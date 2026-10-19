@@ -481,10 +481,14 @@ separate from actual Windows OS evidence.
 Six synthetic version-2/3/4/5 images retain every byte of the previous writer;
 reference images restore unchanged and selector-1 images explicitly reject.
 The original strong-flow, curved-nodal and vacuum-front failures remain open.
-The latest production-owner Ubuntu 22.04 snapshot passes 54 CTests, but the
-sharp-interface `std::hypot` call introduces `GLIBC_2.35` in the observer. This
-fails the project 2.34 ceiling and blocks its game package; the preceding
-53-test snapshot requires at most 2.34. Production game revalidation remains
+The frozen production-owner/pressure-ledger Ubuntu 22.04 snapshot passes 55
+CTests; both shared libraries meet the glibc 2.34 ceiling after the shared
+interface geometry replaces `std::hypot`. Production Linux source/save and
+fresh-process reload cases pass in the partial game cohort. Water-heat fails
+its unchanged endpoint energy gate (−0.0177002 J against 0.00594580 J after
+123 frames); a public standalone reproducer matches the drift. The latest
+merged sharp-interface control separately fails MinGW/Wine (mist 0.000568570
+against 0.0005). Remaining Linux scenes and Proton production validation are
 open. No actual Windows OS or active-cell acceptance is claimed here.
 
 The playtest benchmark compares against the reference automatically:
@@ -494,20 +498,21 @@ consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
 
 ## Current active-cell baseline
 
-At `cc9e9a0`, the production kernel with automatic geometric multigrid,
-limited-linear material/momentum reconstruction and the unchanged 0.01 s
-maximum step remains over budget. Each capture advances 21 consecutive
-0.1-second intervals of the 20 Pa wave; every cell changes, no equilibrium
-certificate is used, and there are no retries. Two captures per size use
-GNU 15.2 Release/IPO on the shared Ryzen 9 5900X, pinned to logical CPUs
-0–11 (one per physical core). Host 1-minute load spans 25.85–32.19.
+At `a118fe9`, including the pressure-storage rounding ledger, the production
+kernel with automatic geometric multigrid, limited-linear material/momentum
+reconstruction and the unchanged 0.01 s maximum step remains over budget.
+Each capture advances 21 consecutive 0.1-second intervals of the 20 Pa wave;
+every cell changes, no equilibrium certificate is used, and there are no
+retries. Two captures per size use GNU 15.2 Release/IPO on the shared Ryzen
+9 5900X, pinned to logical CPUs 0–11 (one per physical core). Sampled endpoint
+1-minute loads are 16.01–20.83. Shared-host timing variance is substantial.
 
-| Active cells (shape) | Workers used | p50 ms, runs 1 / 2 | p95 ms, runs 1 / 2 | Retained workspace B/cell |
-| ---: | ---: | ---: | ---: | ---: |
-| 4,096 (64×64) | 4 | 51.57 / 52.02 | 60.07 / 65.30 | 1,594 |
-| 65,536 (256×256) | 12 | 459.88 / 464.42 | 506.49 / 521.33 | 1,617 |
-| 100,000 (400×250) | 12 | 779.75 / 777.23 | 819.42 / 864.99 | 1,656 |
-| 250,000 (500×500) | 12 | 2,155.67 / 1,933.66 | 2,328.91 / 2,209.81 | 1,603 |
+| Active cells (shape) | Workers used | p50 ms, runs 1 / 2 | p95 ms, runs 1 / 2 | Workspace B/cell | Peak process RSS B/cell, runs 1 / 2 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 4,096 (64×64) | 4 | 38.80 / 37.44 | 46.17 / 40.80 | 1,594 | 5,840 / 5,777 |
+| 65,536 (256×256) | 12 | 317.61 / 298.99 | 373.37 / 379.00 | 1,617 | 3,270 / 3,262 |
+| 100,000 (400×250) | 12 | 433.88 / 429.74 | 467.38 / 533.14 | 1,656 | 3,220 / 3,216 |
+| 250,000 (500×500) | 12 | 1,503.61 / 1,824.78 | 1,721.04 / 3,196.87 | 1,603 | 3,159 / 3,159 |
 
 Reproduce each shape twice with:
 
@@ -520,12 +525,13 @@ taskset -c 0-11 python3 tools/run_mac_playtest_benchmark.py \
 ```
 
 The paired endpoint checkpoints are byte-identical. Captures, executable/source
-hashes and host load are in `local/calm-stepping-v1/current-scaling/`.
+hashes, sampled loads and `/usr/bin/time` peak-RSS receipts are in
+`local/active-scaling-a118-v1/`.
 These are solver-only timings: neither 25 ms at 100,000 cells nor 62.5 ms at
 250,000 passes, before adapter cost. Workspace is 382.2 MiB at 250,000;
-it includes cached multigrid/topology but excludes owner copies and process
-overhead, so it is not a total
-additional-memory acceptance measurement. Resolved-reference accuracy, colony
+it includes cached multigrid/topology. Peak command-process RSS at 250,000 is
+753.3 MiB, including standalone owner copies and the benchmark wrapper. Neither
+measurement establishes additional game/adapter memory. Resolved-reference accuracy, colony
 rendering and the 32-duplicant workload are not measured by these captures.
 
 **Preconditioner comparison (`cc9e9a0`).** On this wave, automatic multigrid

@@ -280,12 +280,13 @@ credit is recorded in the central numerical contract. Production Linux/Proton
 game validation remains open.
 
 The last measured automatic-multigrid baseline fails the real-time targets: two pinned
-21-interval evolving-wave runs measure p95 819–865 ms at 100,000 active
-cells and 2,210–2,329 ms at 250,000, before adapters, on the shared Ryzen
-9 5900X. Every cell changes. Retained workspace is about 1.6 KiB/cell; total
-additional memory and colony FPS remain unmeasured. See the
+21-interval evolving-wave runs with the pressure-storage ledger measure p95
+467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000, before
+adapters, on the shared Ryzen 9 5900X (sampled loads 16.01–20.83). Every cell
+changes. Workspace is about 1.6 KiB/cell; standalone peak RSS is 753.3 MiB
+at 250,000 (3,159 B/cell). Additional game/adapter memory and colony FPS remain
+unmeasured. See the
 [measured baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
-The pressure-storage ledger's timing impact has not yet been measured.
 The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)
 passes selected larger-step wave schedules against resolved midpoint references:
 16×16 at .004 s and 256×2/512×2 at .1 s retain the original 0.1 K/1% bounds.

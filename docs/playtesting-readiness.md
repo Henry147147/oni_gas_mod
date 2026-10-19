@@ -130,13 +130,14 @@ also pass collision.
   unresolved U updates are reported rather than saved.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
-  with automatic multigrid measures p95 819–865 ms at 100,000 active cells
-  and 2,210–2,329 ms at 250,000 per 0.1 simulated seconds on twelve workers,
-  against 25/62.5 ms before adapters. Each shape has two pinned 21-interval
-  evolving-wave captures on the shared Ryzen 9 5900X (load 25.85–32.19).
-  All cells change; no equilibrium certificate is used. Retained workspace
-  is about 1.6 KiB/cell; total additional memory, FPS and the 32-duplicant
-  workload remain unmeasured. The user has relaxed per-stage numerical
+  with automatic multigrid and the pressure-storage ledger measures p95
+  467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000 per 0.1
+  simulated seconds on twelve workers, against 25/62.5 ms before adapters.
+  Each shape has two pinned 21-interval evolving-wave captures on the shared
+  Ryzen 9 5900X (sampled loads 16.01–20.83). All cells change; no equilibrium
+  certificate is used. Workspace is about 1.6 KiB/cell; standalone peak RSS
+  is 753.3 MiB at 250,000 (3,159 B/cell). Additional game/adapter memory, FPS
+  and the 32-duplicant workload remain unmeasured. The user has relaxed per-stage numerical
   contracts to interval audits (2026-10-18).
   Geometric multigrid now uses the production pool, with cached geometry and
   pressure-active masks.
