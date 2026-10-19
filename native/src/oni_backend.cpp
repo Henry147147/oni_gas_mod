@@ -171,7 +171,9 @@ void on_process_frame(void* frame,void* data) {
 }
 float on_next_frame(void* self,void* data) {
     Call call(MA_ONI_NEXT_FRAME);
-    if (ma::oni::domain_active() && !worker_frame_fence.owns_lock())
+    // Fence inactive frames too: activation must not become visible halfway
+    // through native physics that began before the owner existed.
+    if (!worker_frame_fence.owns_lock())
         worker_frame_fence=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const float dt = original<float (*)(void*,void*)>(MA_ONI_NEXT_FRAME)(self,data);
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(dt),std::memory_order_release);
@@ -617,7 +619,8 @@ template<class Action> MAOniResult boundary(Action action) noexcept {
 // C-linkage functions as nonthrowing; exported entry points use boundary().
 void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* output,
     std::span<const std::uint8_t> image,double saved_time,std::span<const MAOniDomainInitialCell> initial_cells={},
-    const MAOniDomainPhysics* physics=nullptr,std::span<const std::uint8_t> solid_mask={}) {
+    const MAOniDomainPhysics* physics=nullptr,std::span<const std::uint8_t> solid_mask={},
+    ma::oni::DomainSolidHeatStartup* solid_heat=nullptr) {
     std::lock_guard save_lock(native_save_mutex);
     if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating fluid ownership");
     if (!config || !output || output->struct_size != sizeof(*output) || output->abi_version != MA_ONI_DOMAIN_ABI_VERSION)
@@ -641,10 +644,11 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
         throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the requested public domain grid");
     try {
         if (physics) ma::oni::start_configured_domain(*config,*physics,solid_mask,native_thread(),image,saved_time,initial_cells);
-        else ma::oni::start_domain(*config,native_thread(),image,saved_time,initial_cells);
+        else ma::oni::start_domain(*config,native_thread(),image,saved_time,initial_cells,solid_heat);
     }
     catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
-    ma::oni::copy_domain(*output,nullptr,0);
+    if(solid_heat) *output=solid_heat->status;
+    else ma::oni::copy_domain(*output,nullptr,0);
 }
 void configured_inputs_valid(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,const std::uint8_t* mask,std::uint32_t count) {
     if (!config || !physics || !mask || !count || count>MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_CELLS ||
@@ -909,6 +913,17 @@ MAOniResult ma_oni_domain_solid_heat_configure(const MAOniDomainSolidHeatCell* i
         try {ma::oni::configure_domain_solid_heat(inputs,count,*output);}
         catch(const std::invalid_argument& error) {throw Failure(MA_ONI_INVALID_ARGUMENT,error.what());}
         catch(const std::logic_error& error) {throw Failure(MA_ONI_BUSY,error.what());}
+    });
+}
+std::uint32_t ma_oni_domain_solid_heat_startup_abi_version() { return 1; }
+MAOniResult ma_oni_domain_start_with_solid_heat(const MAOniDomainConfig* config,const MAOniDomainSolidHeatCell* inputs,
+    std::uint32_t count,MAOniDomainStatus* output,MAOniDomainSolidHeatStatus* heat) {
+    return boundary([&] {
+        if(!inputs || !count || count>128 || !heat || heat->struct_size!=sizeof(*heat) || heat->abi_version!=1)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native solid heat startup ABI");
+        ma::oni::DomainSolidHeatStartup startup{std::span(inputs,count)};
+        start_domain_checked(config,output,{},0,{},nullptr,{},&startup);
+        *heat=startup.heat;
     });
 }
 MAOniResult ma_oni_domain_heat_status(MAOniDomainHeatStatus* output) {

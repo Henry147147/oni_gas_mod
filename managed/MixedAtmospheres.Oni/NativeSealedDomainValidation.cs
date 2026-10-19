@@ -449,10 +449,11 @@ namespace MixedAtmospheres.Oni
             latest = Status.Empty;
             if (ConfiguredMode) ImportConfiguredInventory(source, ref configuration);
             else if (InitialInventoryMode) ImportNativeInventory(source, ref configuration);
+            else if (SolidHeatMode) BeginWithNativeSolidHeat(source, ref configuration);
             else Check(Begin(ref configuration, ref latest));
             GasDiffusionOptions.NewDomain(latest, configuration.Scenario == 0 || configuration.Scenario == 2 ||
                 (ConfiguredMode && (ConfiguredPhysics.Flags & (PhysicsLiquid | PhysicsMixture)) == 0));
-            RegisterNativeSolidHeat(source);
+            if (!SolidHeatMode) RegisterNativeSolidHeat(source);
             domainManagedThread=System.Threading.Thread.CurrentThread.ManagedThreadId; active = true; arming = false;
             textureWriteBaseline = MixtureWorldRendering.TextureWrites;
             writingProjection = true;

@@ -22,6 +22,60 @@ void require(bool condition,const char* message) { if (!condition) throw std::ru
 MAOniDomainStatus capture(std::vector<MAOniDomainCell>& cells) {
     MAOniDomainStatus value{}; ma::oni::copy_domain(value,cells.data(),static_cast<std::uint32_t>(cells.size())); return value;
 }
+void atomic_solid_startup() {
+    using namespace ma::oni;
+    constexpr int fluid=11+11*66,solid=10+11*66;
+    MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
+    MAOniDomainSolidHeatCell input{48,1,649,123,0,0,1.125F,.793F,2.F,255};
+    shutdown_domain();std::vector<MAOniDomainCell> cells(6);
+    const auto inactive=capture(cells);
+    auto invalid=input;invalid.public_cell=650;
+    const std::array batch{input,invalid};
+    DomainSolidHeatStartup rejected_start{batch};
+    rejected_start.status.session=0x12345678;rejected_start.heat.contacts=0x87654321;
+    const auto held_status=rejected_start.status;const auto held_heat=rejected_start.heat;
+    bool rejected=false;
+    try {start_domain(config,1,{},0,{},&rejected_start);} catch(const std::invalid_argument&) {rejected=true;}
+    auto after=capture(cells);
+    require(rejected && !domain_active() && !domain_solid_heat_registered(solid) &&
+        std::memcmp(&after,&inactive,sizeof(after))==0 &&
+        std::memcmp(&rejected_start.status,&held_status,sizeof(held_status))==0 &&
+        std::memcmp(&rejected_start.heat,&held_heat,sizeof(held_heat))==0,
+        "A late invalid initial solid partially activated the domain or changed startup outputs");
+    auto stale=input;stale.session=1;DomainSolidHeatStartup stale_start{std::span(&stale,1)};rejected=false;
+    try {start_domain(config,1,{},0,{},&stale_start);} catch(const std::invalid_argument&) {rejected=true;}
+    require(rejected && !domain_active(),"Initial solid startup accepted a previous session identity");
+    for(const auto scenario:{0U,1U,4U,5U,6U}) {
+        config.scenario=scenario;
+        DomainSolidHeatStartup startup{std::span(&input,1)};
+        auto worker=std::async(std::launch::async,[&] {
+            const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+            while(!domain_active() && std::chrono::steady_clock::now()<deadline) std::this_thread::yield();
+            require(domain_active(),"Initial solid activation never reached its worker");
+            std::lock_guard fence(domain_frame_mutex());
+            require(domain_solid_heat_registered(solid),"The first native frame started without its initial solid boundary");
+            const auto contact=exchange_domain_solid_heat(fluid,solid,123,input.mass_kg,350,.2F,255,255,349.5F);
+            require(contact.handled && contact.temperature<350,"The first native contact missed its initial solid boundary");
+            advance_domain(1,.2F,2);
+        });
+        start_domain(config,1,{},0,{},&startup);worker.get();
+        after=capture(cells);MAOniDomainSolidHeatStatus heat{};copy_domain_solid_heat_status(heat);
+        require(after.state==1 && after.completed_frames==1 && heat.contacts==1 && heat.transfers==1 &&
+            heat.maximum_balance_residual_j<=heat.maximum_balance_bound_j,
+            "Atomic solid startup failed its first completed heat account");
+        require(startup.status.state==1 && startup.status.session==after.session && startup.status.completed_frames==0 &&
+            startup.heat.state==1 && startup.heat.session==after.session && startup.heat.completed_frame==0 &&
+            startup.heat.contacts==0 && startup.heat.transfers==0,
+            "An immediate worker advance rewrote or mixed the initial activation outputs");
+        auto late=input;late.session=after.session;rejected=false;
+        const auto before_rejection=snapshot_domain(after.session,after.completed_frames);
+        try {configure_domain_solid_heat(&late,1,heat);} catch(const std::logic_error&) {rejected=true;}
+        require(rejected && before_rejection==snapshot_domain(after.session,after.completed_frames),
+            "Atomic startup weakened subsequent solid registration revision checks");
+        shutdown_domain();
+    }
+    std::cout<<"PASS initial solid boundaries are atomic with activation, invalid batches leave no owner, first worker contacts exchange heat, source outputs stay frame zero and stale revisions still reject\n";
+}
 void solid_boundary_heat() {
     using namespace ma::oni;
     static_assert(sizeof(MAOniDomainSolidHeatCell)==48);
@@ -318,6 +372,7 @@ int main(int argc,char** argv) {
         static_assert(sizeof(MAOniDomainHeat)==48 && sizeof(MAOniDomainHeatStatus)==56);
         static_assert(sizeof(MAOniDomainTransfer)==64 && sizeof(MAOniDomainReceipt)==88 && sizeof(MAOniDomainTransferStatus)==104);
         static_assert(sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64);
+        atomic_solid_startup();
         solid_boundary_heat();
         persistent_actors();
         initial_inventory();

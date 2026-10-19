@@ -659,15 +659,51 @@ std::unique_ptr<MacClosedWorld> configured_owner_from_cells(const MAOniDomainCon
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
     return std::make_unique<MacClosedWorld>(registry,eos,std::move(state),configured_settings(physics));
 }
+std::map<int,MAOniDomainSolidHeatCell> checked_solid_heat(const MAOniDomainConfig& layout,
+    std::span<const std::uint8_t> walls,std::span<const MAOniDomainSolidHeatCell> inputs,
+    std::uint64_t session,std::uint64_t frame,bool startup=false,std::uint64_t assigned_session=0) {
+    if(inputs.empty() || inputs.size()>128) throw std::invalid_argument("Invalid solid boundary registration count");
+    std::map<int,MAOniDomainSolidHeatCell> candidate;
+    for(std::size_t index=0;index<inputs.size();++index) {
+        auto input=inputs[index];
+        if(input.struct_size!=sizeof(input) || input.abi_version!=1 || input.native_insulation>255 || input.native_element_index>65535 ||
+            !std::isfinite(input.mass_kg) || input.mass_kg<=0 || !std::isfinite(input.specific_heat_kj_per_kg_k) || input.specific_heat_kj_per_kg_k<=0 ||
+            !std::isfinite(input.conductivity_w_per_m_k) || input.conductivity_w_per_m_k<0)
+            throw std::invalid_argument("Invalid native solid boundary facts");
+        if(input.session!=session || input.expected_frame!=frame) {
+            if(startup) throw std::invalid_argument("Initial solid boundary requires an unbound session and frame");
+            throw std::logic_error("Solid boundary registration source changed");
+        }
+        if(startup) input.session=assigned_session;
+        const auto xx=input.public_cell%layout.native_grid_width,yy=input.public_cell/layout.native_grid_width;
+        const auto x0=layout.offset_x,y0=layout.offset_y,x1=x0+layout.width,y1=y0+layout.height;
+        const bool face=((xx+1==x0 || xx==x1) && yy>=y0 && yy<y1) || ((yy+1==y0 || yy==y1) && xx>=x0 && xx<x1);
+        if(!face || xx>=layout.native_grid_width || yy==UINT32_MAX || xx==0 || yy==0)
+            throw std::invalid_argument("Native solid is not an outside face of the owned rectangle");
+        // Interior fluid/solid faces stay adiabatic. An outside face that
+        // meets a configured solid is a native solid/solid pair, never owned.
+        const auto inside_x=xx+1==x0 ? x0 : xx==x1 ? x1-1 : xx,inside_y=yy+1==y0 ? y0 : yy==y1 ? y1-1 : yy;
+        if(walls[inside_x-x0+(inside_y-y0)*layout.width])
+            throw std::invalid_argument("Native solid boundary face touches a configured solid, not an owned fluid cell");
+        const auto native=static_cast<std::uint64_t>(xx)+1+(static_cast<std::uint64_t>(yy)+1)*(layout.native_grid_width+2ULL);
+        if(native>INT32_MAX || !candidate.emplace(static_cast<int>(native),input).second)
+            throw std::invalid_argument("Duplicate or out-of-range native solid boundary");
+    }
+    return candidate;
+}
+
 // Caller holds both locks and the arithmetic scope, with the previous session
 // off. Every allocation and check precedes the first published global.
 void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& physics,std::unique_ptr<MacClosedWorld> candidate,
-    std::span<const std::uint8_t> image,std::uint64_t thread,std::map<ActorIdentityKey,actor_checkpoint::State> restored_actors) {
+    std::span<const std::uint8_t> image,std::uint64_t thread,std::map<ActorIdentityKey,actor_checkpoint::State> restored_actors,
+    DomainSolidHeatStartup* solid_heat=nullptr) {
     auto initial_snapshot=image.empty() ? physical_image(*candidate,config,physics) : std::vector<std::uint8_t>(image.begin(),image.end());
     auto cells=project(*candidate,config,physics); const auto reported=reported_cell(*candidate);
     const auto totals=masses(*candidate); const auto total_energy=energy(*candidate); const auto next_potential=potential(*candidate);
     MAOniDomainStatus next{}; next.struct_size=sizeof(next); next.abi_version=MA_ONI_DOMAIN_ABI_VERSION;
     if (session_sequence==std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("Native domain session range exhausted");
+    auto initial_solids=solid_heat ? checked_solid_heat(config,candidate->state().grid.walls,
+        solid_heat->cells,0,0,true,session_sequence+1) : std::map<int,MAOniDomainSolidHeatCell>{};
     published_frames::reset();
     next.state=1; next.cells=static_cast<std::uint32_t>(cells.size()); next.session=++session_sequence;
     next.time_seconds=candidate->time_s(); geometry=config; physics_settings=physics;
@@ -692,17 +728,22 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
-    solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
+    solid_heat_cells=std::move(initial_solids);solid_heat_contacts.clear();completed_solid_cell={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
     initial_potential=next_potential; maximum_energy_residual=0;
     for (auto& value : suppressed) value=0;
+    if(solid_heat) {
+        solid_heat->status=status;
+        solid_heat->heat={};solid_heat->heat.struct_size=sizeof(solid_heat->heat);solid_heat->heat.abi_version=1;
+        solid_heat->heat.state=1;solid_heat->heat.session=status.session;
+    }
     enabled.store(true,std::memory_order_release);
 }
 
 }
 
 void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span<const std::uint8_t> image,double saved_time,
-    std::span<const MAOniDomainInitialCell> initial_cells) {
+    std::span<const MAOniDomainInitialCell> initial_cells,DomainSolidHeatStartup* solid_heat) {
     validate_domain_geometry(config);
     if (!initial_cells.empty() && (initial_cells.size()!=static_cast<std::size_t>(config.width)*config.height || !image.empty() || saved_time!=0))
         throw std::invalid_argument("Initial native inventory must cover exactly one new domain");
@@ -760,7 +801,7 @@ void start_domain(const MAOniDomainConfig& config,std::uint64_t thread,std::span
         const auto saved=decoded_actor_image(config,image);
         for (const auto& actor : saved.actors) restored_actors.emplace(actor.key(),actor);
     }
-    activate_domain(config,MAOniDomainPhysics{},std::move(candidate),image,thread,std::move(restored_actors));
+    activate_domain(config,MAOniDomainPhysics{},std::move(candidate),image,thread,std::move(restored_actors),solid_heat);
 }
 void start_configured_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& physics,std::span<const std::uint8_t> mask,
     std::uint64_t thread,std::span<const std::uint8_t> image,double saved_time,std::span<const MAOniDomainInitialCell> initial_cells) {
@@ -1123,29 +1164,7 @@ void configure_domain_solid_heat(const MAOniDomainSolidHeatCell* inputs,std::uin
     if(!inputs || count==0 || count>128) throw std::invalid_argument("Invalid solid boundary registration count");
     if(status.state!=1 || !world || pending_world || !receipts.empty())
         throw std::logic_error("Solid boundary registration requires a drained completed owner");
-    std::map<int,MAOniDomainSolidHeatCell> candidate;
-    for(std::uint32_t index=0;index<count;++index) {
-        const auto& input=inputs[index];
-        if(input.struct_size!=sizeof(input) || input.abi_version!=1 || input.native_insulation>255 || input.native_element_index>65535 ||
-            !std::isfinite(input.mass_kg) || input.mass_kg<=0 || !std::isfinite(input.specific_heat_kj_per_kg_k) || input.specific_heat_kj_per_kg_k<=0 ||
-            !std::isfinite(input.conductivity_w_per_m_k) || input.conductivity_w_per_m_k<0)
-            throw std::invalid_argument("Invalid native solid boundary facts");
-        if(input.session!=status.session || input.expected_frame!=status.completed_frames)
-            throw std::logic_error("Solid boundary registration source changed");
-        const auto xx=input.public_cell%geometry.native_grid_width,yy=input.public_cell/geometry.native_grid_width;
-        const auto x0=geometry.offset_x,y0=geometry.offset_y,x1=x0+geometry.width,y1=y0+geometry.height;
-        const bool face=((xx+1==x0 || xx==x1) && yy>=y0 && yy<y1) || ((yy+1==y0 || yy==y1) && xx>=x0 && xx<x1);
-        if(!face || xx>=geometry.native_grid_width || yy==UINT32_MAX || xx==0 || yy==0)
-            throw std::invalid_argument("Native solid is not an outside face of the owned rectangle");
-        // Interior fluid/solid faces stay adiabatic. An outside face that
-        // meets a configured solid is a native solid/solid pair, never owned.
-        const auto inside_x=xx+1==x0 ? x0 : xx==x1 ? x1-1 : xx,inside_y=yy+1==y0 ? y0 : yy==y1 ? y1-1 : yy;
-        if(world->state().grid.walls[inside_x-x0+(inside_y-y0)*geometry.width])
-            throw std::invalid_argument("Native solid boundary face touches a configured solid, not an owned fluid cell");
-        const auto native=static_cast<std::uint64_t>(xx)+1+(static_cast<std::uint64_t>(yy)+1)*(geometry.native_grid_width+2ULL);
-        if(native>INT32_MAX || !candidate.emplace(static_cast<int>(native),input).second)
-            throw std::invalid_argument("Duplicate or out-of-range native solid boundary");
-    }
+    auto candidate=checked_solid_heat(geometry,world->state().grid.walls,std::span(inputs,count),status.session,status.completed_frames);
     solid_heat_cells=std::move(candidate);solid_heat_contacts.clear();
     const auto& p=committed_solid_heat;
     output={sizeof(output),1,status.state,0,status.session,status.completed_frames,p.contacts,p.transfers,p.unresolved,p.iterations,

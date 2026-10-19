@@ -218,6 +218,8 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_abi_version",CallingConvention=CallingConvention.Cdecl)] internal static extern uint SolidHeatVersion();
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_configure",CallingConvention=CallingConvention.Cdecl)] internal static extern int ConfigureSolidHeat([In] SolidHeatCell[] input,uint count,ref ChunkHeatStatus status);
+        [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_startup_abi_version",CallingConvention=CallingConvention.Cdecl)] internal static extern uint SolidHeatStartupVersion();
+        [DllImport(Library,EntryPoint="ma_oni_domain_start_with_solid_heat",CallingConvention=CallingConvention.Cdecl)] internal static extern int BeginWithSolidHeat(ref Configuration configuration,[In] SolidHeatCell[] input,uint count,ref Status status,ref ChunkHeatStatus heat);
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_status",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidHeat(ref ChunkHeatStatus status);
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_heat_endpoint",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidHeatEndpoint(ref SolidHeatEndpoint endpoint);
         [DllImport(Library,EntryPoint="ma_oni_domain_solid_cell_state",CallingConvention=CallingConvention.Cdecl)] internal static extern int CopySolidCellState(ref SolidCellState state);

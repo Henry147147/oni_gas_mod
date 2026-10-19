@@ -29,12 +29,12 @@ namespace MixedAtmospheres.Oni
             solidHeatEndpointsVerified && solidHeatPublicationReleased && solidHeatObservedFrame==latest.CompletedFrames;
         private static bool IsSolidHeatBoundary(int dx,int dy)=>dx== -1 && dy==0 &&
             (SolidHeatMode || (ColonyRestoreMode && Grid.Element[Grid.XYToCell(x-1,y)].id==SimHashes.Granite));
-        private static void RegisterNativeSolidHeat(Sim.GameDataUpdate* source)
+        private static SolidHeatCell? NativeSolidHeatInput(Sim.GameDataUpdate* source)
         {
             Require(solidHeatBindings.Count==0,"Native solid contacts were registered twice.");
             var position=Grid.XYToCell(x-1,y);
             var element=ElementLoader.elements[source->elementIdx[position]];
-            if(element.id!=SimHashes.Granite) {Require(!SolidHeatMode,"Solid heat scene has no native granite contact.");return;}
+            if(element.id!=SimHashes.Granite) {Require(!SolidHeatMode,"Solid heat scene has no native granite contact.");return null;}
             Require(SolidHeatVersion()==1 && Marshal.SizeOf<SolidHeatCell>()==48 && Marshal.SizeOf<SolidHeatEndpoint>()==64 &&
                 Marshal.SizeOf<SolidCellState>()==64,"Unsupported native solid contact ABI.");
             Require(OniNativePublication.Version()==1 && Marshal.SizeOf<OniNativePublication.Info>()==64,
@@ -42,14 +42,32 @@ namespace MixedAtmospheres.Oni
             Require(element.IsSolid && source->mass[position]==10f && source->temperature[position]>=1 &&
                 source->temperature[position]<=1e6 && element.specificHeatCapacity>0 && element.thermalConductivity>0,
                 "Native solid contact material, mass or thermal metadata differs from the admitted scene.");
-            var input=new SolidHeatCell {Size=48,Version=1,PublicCell=checked((uint)position),NativeElementIndex=source->elementIdx[position],
+            return new SolidHeatCell {Size=48,Version=1,PublicCell=checked((uint)position),NativeElementIndex=source->elementIdx[position],
                 Session=latest.Session,ExpectedFrame=latest.CompletedFrames,MassKg=source->mass[position],
                 SpecificHeatKJPerKgK=element.specificHeatCapacity,ConductivityWPerMK=element.thermalConductivity,
                 NativeInsulation=source->insulation[position]};
-            var result=ChunkHeatStatus.Empty;Check(ConfigureSolidHeat(new[]{input},1,ref result));
+        }
+        private static void BeginWithNativeSolidHeat(Sim.GameDataUpdate* source,ref Configuration configuration)
+        {
+            Require(SolidHeatStartupVersion()==1,"Native solid heat requires atomic boundary activation.");
+            var input=NativeSolidHeatInput(source) ?? throw new InvalidOperationException("Missing native solid heat startup contact.");
+            input.Session=0;input.ExpectedFrame=0;
+            var result=ChunkHeatStatus.Empty;
+            Check(BeginWithSolidHeat(ref configuration,new[]{input},1,ref latest,ref result));
+            input.Session=latest.Session;input.ExpectedFrame=latest.CompletedFrames;
+            AcceptNativeSolidHeat(source,input,result);
+        }
+        private static void RegisterNativeSolidHeat(Sim.GameDataUpdate* source)
+        {
+            var value=NativeSolidHeatInput(source);if(!value.HasValue) return;
+            var input=value.Value;var result=ChunkHeatStatus.Empty;Check(ConfigureSolidHeat(new[]{input},1,ref result));
+            AcceptNativeSolidHeat(source,input,result);
+        }
+        private static void AcceptNativeSolidHeat(Sim.GameDataUpdate* source,SolidHeatCell input,ChunkHeatStatus result)
+        {
             Require(result.Session==latest.Session && result.CompletedFrame==latest.CompletedFrames && result.Contacts==0,
                 "Native solid registration advanced or changed its completed source.");
-            solidHeatBindings.Add(input);solidHeatInitialTemperatures.Add(position,source->temperature[position]);solidHeatStatus=result;
+            solidHeatBindings.Add(input);solidHeatInitialTemperatures.Add((int)input.PublicCell,source->temperature[input.PublicCell]);solidHeatStatus=result;
             solidHeatPublishedCells=new Cell[Width*Height];
         }
         private static void CaptureNativeSolidHeat()
