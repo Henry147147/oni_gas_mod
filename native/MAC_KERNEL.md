@@ -10,10 +10,12 @@ validation oracle.
 Status: phase 1 (single-threaded flux-form kernel, oracle validation,
 benchmark option) and phase 3 (deterministic multithreading: bit-identical
 results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
-pressure formulation is in; the multigrid preconditioner and larger calm steps
-are separate work (`mac_pressure_multigrid.*`) and not part of this kernel.
-It covers every selector the ONI domain uses. The real-time gate is not met;
-see [performance](#performance) and [remaining work](#remaining-work).
+pressure formulation is in; main's multigrid preconditioner (written for the
+interval kernel, `mac_pressure_multigrid.*`) and larger calm steps are not
+part of this kernel. It covers every selector the ONI domain uses. The
+real-time gate is not met; see [performance](#performance), the
+[comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-66f9d11)
+and [remaining work](#remaining-work).
 
 ## Selection
 
@@ -300,44 +302,129 @@ benchmark process (source and result owners, checkpoint, kernel workspace)
 peaks at 609–611 MB RSS at 250,000 cells, 246 MB at 100,000 and 163 MB at
 65,536, independent of the thread count.
 
-Comparison of the phase 1 kernel with the de805b7 interval port on the
-port's admitted configuration (donor-cell material and momentum, no
-regularization, gas only), one thread, same host and hour, thread CPU per
-0.1 s:
-
-| Cells | de805b7 | Production kernel |
-| ---: | --- | --- |
-| 4,096 | 97.8 ms, 11 substeps (2,170 ns per cell-substep) | 32.0 ms, 10 substeps (781 ns) |
-| 250,000 | 6,547 ms, 11 substeps (2,381 ns) | 2,406 ms, 10 substeps (962 ns) |
-
-The port takes a remainder substep per interval because it restarts its clock
-at zero; the production kernel reproduces the reference's absolute-clock
-schedule.
+The [comparison with the interval kernel](#comparison-with-the-interval-kernel-originmain-66f9d11)
+measures both kernels on a common scene.
 
 Phase 1 stage breakdown (4,096 cells, default selectors, one thread, ns per
 cell-substep): pressure root and PCG 410, momentum transport 275, shock heat
 265, reconstruction 225, compression 215, primal gather/heat/gravity 70,
 EOS anchors 40, audit 28.
 
-## Relation to the interval kernel (de805b7)
+## Comparison with the interval kernel (origin/main 66f9d11)
 
-[`MAC_INTERVAL_KERNEL.md`](MAC_INTERVAL_KERNEL.md) describes a first port
-selected by the persisted `MacNumericalKernel::interval_audited` setting
-(checkpoint version 4) for donor-cell occupied ideal gas without
-regularization, gravity, conduction or viscosity. This kernel:
+[`MAC_INTERVAL_KERNEL.md`](MAC_INTERVAL_KERNEL.md) describes the port
+selected by the persisted `MacNumericalKernel::interval_audited` setting, now
+with main's [multigrid preconditioner](MAC_MULTIGRID.md). Both kernels were
+measured on 2026-10-18 from builds made the same way (GNU 15.2 Release/IPO,
+the interval kernel from a build of origin/main 66f9d11, the production
+kernel from this branch) with one scratch harness through the public API: the
+fixture wave (20 Pa sinusoid along x, periodic, 300 K, O2 0.22, helium trace
+and two passives), one warm-up interval, then three consecutive 0.1 s
+intervals; median interval of each run, three runs, `taskset -c 0-11`,
+1-minute load 17–31 (the host's video encoder used about 11 cores). The
+interval kernel built from this branch gives byte-identical endpoints to the
+origin/main build.
 
-- uses that port's audit decision rule (`mac_interval_audit.hpp`) for its own
-  interval audit, computed from parallel block partials;
-- covers the production-default selectors and the remaining ONI physics,
-  validated against the reference to roundoff;
-- reproduces the reference absolute-clock schedule (no remainder substep);
-- is reachable through the persisted setting only when
-  `MacKernelOptions::extend_interval_admission` is set (default off, so the
-  port's fallback behaviour and tests are unchanged).
+**Coverage.**
 
-Whether the persisted setting or the execution policy should select the
-production kernel, and whether one implementation should replace the other,
-is an open ownership decision.
+| | Interval kernel | Production kernel |
+| --- | --- | --- |
+| Material / momentum reconstruction | 0 | 0, 1 |
+| Compression / shock heat | 0 / 0 | 0, 1, 2 / 0–3 |
+| Gravity, conduction, viscosity | no | yes |
+| Phases | occupied constant-property ideal gas | gas, filled liquid, mixtures, exact empty cells, solids |
+| Range | flags any nonzero value outside `2^-450..2^450` (reference fallback) | admits below-range values (counted rounding); only nonfinite or `>2^450` falls back |
+| Gas diffusion | composed by the owner | composed by the owner (production policy) |
+| Preconditioner | automatic geometric multigrid (default) or Jacobi, serial | Jacobi; untuned aggregation option |
+| Threads | serial (block execution in progress on main) | deterministic, bit-identical for 1–12 |
+| Substep schedule | restarts its clock each interval (11 substeps per 0.1 s here) | reference absolute-clock schedule (10) |
+
+With the production-default selectors the interval kernel declines every
+interval (reference fallback); only the production kernel runs them.
+
+**Accuracy against the reference oracle** (same owner, same selectors):
+
+| Scene | Kernel | max dT (K) | max dp / 20 Pa | O2 partial pressure | constituents |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 4,096 cells, donor, 3 intervals, automatic (interval kernel ran 2) | interval | 2.2e-12 | 7.0e-11 | 1.4e-14 | 1.2e-14 |
+| | production | 2.6e-12 | 7.9e-11 | 1.6e-14 | 1.4e-14 |
+| 4,096 cells, default selectors, 3 intervals | production | 2.2e-12 | 8.0e-11 | 1.7e-14 | 1.5e-14 |
+| 65,536 cells, donor, 2 intervals, Jacobi | interval | 6.8e-13 | 3.9e-11 | 8.6e-15 | 6.3e-15 |
+| | production | 6.3e-13 | 3.8e-11 | 8.3e-15 | 6.8e-15 |
+
+Both agree with the reference to roundoff where they run.
+
+**Speed, interval kernel's admitted selectors** (donor cell, no
+regularization). ms per 0.1 s (one-thread wall and process CPU agree within
+1%), with ns per cell-substep of process CPU and the kernel's own substep
+count in parentheses; 12-thread entries give wall and process CPU:
+
+| Cells | Interval, automatic (its default) | Interval, Jacobi | Production, 1 thread | Production, 12 threads |
+| ---: | --- | --- | --- | --- |
+| 4,096 | 88 (1,941 ns) | 85 (1,893 ns) | 29 (716 ns) | 16 wall, 57 CPU (4 threads used) |
+| 65,536 | 36,979: 2 of 3 intervals fell back to the reference | 1,526 (2,108 ns) | 481 (734 ns) | 172 wall, 1,083 CPU |
+| 250,000 | 120,752 (one run, one interval: reference fallback) | 7,069 (2,544 ns) | 2,255 (897 ns) | 786 wall, 4,720 CPU |
+
+With automatic preconditioning, multigrid roundoff gives the y-uniform wave
+nonzero transverse momentum (smallest nonzero face value 4e-28 after the
+first interval at 4,096 cells; with Jacobi it stays exactly zero), and the
+interval kernel then declines intervals to the reference. Its range checks
+also cover intermediate products (for example PCG dot-product terms below
+`2^-450`), which tiny transverse components reach; which check fires was not
+instrumented. It is the same class of fallback this kernel removed for itself
+in c0cb51d. With Jacobi the interval kernel ran every measured interval; its
+multigrid cut PCG iterations per interval from 492 to 128 at 4,096 cells but
+did not reduce the time there.
+
+**Production-default selectors** (production kernel only):
+
+| Cells | 1 thread | 12 threads |
+| ---: | --- | --- |
+| 4,096 | 71 (1,719 ns) | 44 wall (4 threads used) |
+| 65,536 | 1,134 (1,724 ns) | 285 wall |
+| 250,000 | 5,260 (2,091 ns; runs 4,411–6,008) | 1,426 wall |
+
+(The fixture keeps `MacClosedSettings` defaults, compression mode 1; the
+playtest benchmark above uses compression mode 2.)
+
+**Best configuration of each at 250,000 cells:** interval kernel with Jacobi,
+one thread: 7,069 ms per 0.1 s; production kernel, 12 threads: 786 ms with
+the same selectors, 1,426 ms with the production-default selectors.
+
+**Thread scaling.** Production, donor selectors: 1.9 (4,096 cells, four
+threads), 2.8 (65,536) and 2.9 (250,000) times on 12 threads; default
+selectors 1.6, 4.0 and 3.7. The interval kernel is serial.
+
+**Memory.** Peak RSS above a setup-only process, per cell: interval kernel
+with Jacobi 1,280–1,460 bytes; production 1,570–1,720 bytes (kernel workspace
+970 bytes per cell with donor selectors, 1,060 with the default selectors);
+any configuration that takes the reference fallback about 4,400 bytes.
+
+**Checkpoint and selection.** The interval kernel is a persisted physical-
+contract setting (checkpoint version 4, `numerical_kernel`). The production
+kernel is an execution policy (`MacExecutionPolicy::production`), so it adds
+no checkpoint bytes, and it reaches the persisted setting only through
+`extend_interval_admission`. Both continue checkpoints byte for byte on the
+same build. Because both kernels' trajectories differ from the reference at
+roundoff, byte continuation of a saved game needs the same kernel after
+restore, which argues for a persisted selection.
+
+**What one kernel would take.**
+
+1. Keep the production kernel's coverage, stages, absolute-clock schedule,
+   below-range admission and deterministic pool.
+2. Wire main's `PressureMultigrid::prepare(compliance, conductances)` /
+   `apply` in as this kernel's PCG preconditioner (the operator is the same
+   `diag + B diag(w) Bᵀ`), and run its relaxation and transfer passes on the
+   fixed row blocks so results stay thread-count independent; keep its cached
+   topology across intervals.
+3. Persist the selection: a `numerical_kernel` value for this kernel (new
+   checkpoint version) or `interval_audited` redefined to it, retiring the
+   interval kernel's narrower admission.
+4. Carry over the interval kernel's saved-data reviewers (100-digit
+   recomputation of inventories, EOS, entropy and U+K) to the production
+   selectors, and keep one thread pool (this kernel's or main's block
+   execution, whichever measures better).
 
 ## Remaining work
 
