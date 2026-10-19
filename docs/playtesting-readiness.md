@@ -119,14 +119,16 @@ also pass collision.
 - Persistent primary-U rounding remainders. Full-range gravity work and potential
   flux now pass standalone controls, including a 10,000-step continuation, but
   unresolved U updates are reported rather than saved.
-- Active-cell performance; see [measurements](#reproduce-measurements). The
-  [scaling analysis](solver-scaling-analysis.md) measures the current substep
-  at about 6,500–8,900× over the 250,000-cell budget. The user has relaxed the
-  per-stage numerical contracts to interval-level audits (2026-10-18). The
-  [production kernel](../native/MAC_KERNEL.md), chosen for consolidation on
-  2026-10-19, matches the reference to roundoff. Earlier Jacobi measurements
-  take about 1.16 s per 0.1 s at 250,000 cells on 12 threads, about 19× over
-  the budget; timing with current automatic geometric preconditioning is open.
+- Active-cell performance is open. The consolidated
+  [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
+  with automatic multigrid measures p95 819–865 ms at 100,000 active cells
+  and 2,210–2,329 ms at 250,000 per 0.1 simulated seconds on twelve workers,
+  against 25/62.5 ms before adapters. Each shape has two pinned 21-interval
+  evolving-wave captures on the shared Ryzen 9 5900X (load 25.85–32.19).
+  All cells change; no equilibrium certificate is used. Retained workspace
+  is about 1.6 KiB/cell; total additional memory, FPS and the 32-duplicant
+  workload remain unmeasured. The user has relaxed per-stage numerical
+  contracts to interval audits (2026-10-18).
   Geometric multigrid now uses the production pool, with cached geometry and
   pressure-active masks.
   Production selection persists in checkpoint version 6; ordinary restore keeps
@@ -161,8 +163,8 @@ also pass collision.
   cross-block tracer uses the same shared transfer with one/twelve workers.
   The in-game owner remains reference pending step f. Supported legacy
   reference images retain their bytes and continuation. Calm-region/local
-  steps, open physics gates, current active-cell timing and in-game production
-  use remain open.
+  steps, open physics gates, real-time acceptance and in-game production use
+  remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

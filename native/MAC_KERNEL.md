@@ -403,6 +403,42 @@ The playtest benchmark compares against the reference automatically:
 --scene wave --continuation` gave 8.2e-11 of the disturbance after three
 consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
 
+## Current active-cell baseline
+
+At `cc9e9a0`, the production kernel with automatic geometric multigrid,
+limited-linear material/momentum reconstruction and the unchanged 0.01 s
+maximum step remains over budget. Each capture advances 21 consecutive
+0.1-second intervals of the 20 Pa wave; every cell changes, no equilibrium
+certificate is used, and there are no retries. Two captures per size use
+GNU 15.2 Release/IPO on the shared Ryzen 9 5900X, pinned to logical CPUs
+0–11 (one per physical core). Host 1-minute load spans 25.85–32.19.
+
+| Active cells (shape) | Workers used | p50 ms, runs 1 / 2 | p95 ms, runs 1 / 2 | Retained workspace B/cell |
+| ---: | ---: | ---: | ---: | ---: |
+| 4,096 (64×64) | 4 | 51.57 / 52.02 | 60.07 / 65.30 | 1,594 |
+| 65,536 (256×256) | 12 | 459.88 / 464.42 | 506.49 / 521.33 | 1,617 |
+| 100,000 (400×250) | 12 | 779.75 / 777.23 | 819.42 / 864.99 | 1,656 |
+| 250,000 (500×500) | 12 | 2,155.67 / 1,933.66 | 2,328.91 / 2,209.81 | 1,603 |
+
+Reproduce each shape twice with:
+
+```sh
+taskset -c 0-11 python3 tools/run_mac_playtest_benchmark.py \
+  --executable build-production/ma_mac_playtest_benchmark --output CAPTURE \
+  --width WIDTH --height HEIGHT --samples 21 --profile reference \
+  --scene wave --kernel production --threads 12 --no-reference --continuation \
+  --timeout 600
+```
+
+The paired endpoint checkpoints are byte-identical. Captures, executable/source
+hashes and host load are in `local/calm-stepping-v1/current-scaling/`.
+These are solver-only timings: neither 25 ms at 100,000 cells nor 62.5 ms at
+250,000 passes, before adapter cost. Workspace is 382.2 MiB at 250,000;
+it includes cached multigrid/topology but excludes owner copies and process
+overhead, so it is not a total
+additional-memory acceptance measurement. Resolved-reference accuracy, colony
+rendering and the 32-duplicant workload are not measured by these captures.
+
 ## Earlier Jacobi performance
 
 These measurements precede persisted selection 2 and automatic geometric
@@ -518,11 +554,11 @@ do not certify current automatic-multigrid active-cell performance.
 
 ## Remaining work
 
-- Real-time target: open. Earlier Jacobi runs take 1.16 s per 0.1 s at
-  250,000 cells on twelve threads and 0.40 s at 100,000 cells, against 62.5/25 ms.
-  Current automatic-multigrid active-cell timing is not yet measured.
+- Real-time target: open. Current automatic-multigrid runs measure p95
+  2,210–2,329 ms per 0.1 s at 250,000 active cells and 819–865 ms at
+  100,000, against 62.5/25 ms, before adapter cost.
 - Persisted production selection and automatic geometric multigrid are
-  implemented; active-cell timing with these defaults is not yet measured.
+  implemented; measured active-cell timing with these defaults fails the targets.
   The saved reviewers are ported and the narrower interval kernel is retired.
   Larger calm-region steps with local subcycling remain open.
 - Thread scaling stops near 3–3.7 times on 12 threads on the shared host.

@@ -1,6 +1,6 @@
 # Solver scaling analysis
 
-Measured 2026-10-18 at `4f8e752`, with the 96×96 failure reproduced at
+The historical reference-path analysis below was measured 2026-10-18 at `4f8e752`, with the 96×96 failure reproduced at
 `fa8df8e`. The question: how far is `MacClosedWorld` from the accepted
 real-time target, and what could close the gap? The target, from the
 [completion plan](completion-plan.md) performance gate: 250,000 active fluid
@@ -9,7 +9,18 @@ solver-plus-adapter cost at most 62.5 ms per 0.1 simulated seconds; and at
 most 25 ms per 0.1 s for 100,000 active cells. Both targets allow about
 250 ns of wall time per cell per 0.1 s.
 
-**Conclusion.** The current exact-arithmetic substep cannot reach either
+**Current production baseline (`cc9e9a0`).** The consolidated production
+kernel uses interval audits and automatic geometric multigrid. Two pinned
+21-interval evolving-wave captures measure p95 819–865 ms per 0.1 s at
+100,000 active cells and 2,210–2,329 ms at 250,000 on twelve workers.
+All cells change; no equilibrium certificate is used. These are solver-only
+failures against 25/62.5 ms, approximately 33–35× and 35–37× over budget.
+Retained workspace is about 1.6 KiB/cell; total additional memory and colony
+FPS remain unmeasured. Commands, host load and the four required cell counts
+are in the [current kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
+Larger calm steps, local subcycling and further kernel optimization remain open.
+
+**Historical conclusion.** The exact-arithmetic reference substep cannot reach either
 target. Tuning that keeps the existing contracts is estimated at 15–50×. The
 measured gap is about 6,500–8,900× on one core, and 540–740× with ideal
 scaling across all 12 cores. Separately, grids of about 9,000 cells or more

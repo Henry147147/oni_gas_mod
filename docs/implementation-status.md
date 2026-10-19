@@ -248,9 +248,16 @@ Every preceding physical output record agrees.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
-it predates version 6 and no new game package is claimed. Current active-cell
-performance, calm-region/local stepping, the open physics gates and in-game
-production-kernel adoption remain open.
+it predates version 6 and no new game package is claimed.
+
+Current automatic-multigrid timings fail the real-time targets: two pinned
+21-interval evolving-wave runs measure p95 819–865 ms at 100,000 active
+cells and 2,210–2,329 ms at 250,000, before adapters, on the shared Ryzen
+9 5900X. Every cell changes. Retained workspace is about 1.6 KiB/cell; total
+additional memory and colony FPS remain unmeasured. See the
+[current baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
+Calm-region/local stepping, open physics gates and in-game production-kernel
+adoption remain open.
 
 `MacClosedWorld` composes EOS pressure work, MAC face-momentum transport,
 shared material reconstruction, compression/shock heat, conduction, viscosity
