@@ -303,9 +303,10 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.retained, &ws.fx, &ws.fy, &ws.theta, &ws.keep, &ws.jsum, &ws.ktr, &ws.mix, &ws.wheat, &ws.v0, &ws.vprov, &ws.slope0,
         &ws.slope1, &ws.cour0, &ws.cour1, &ws.face_heat_x, &ws.face_heat_y, &ws.dual_en, &ws.dual_et, &ws.dual_j1, &ws.speed,
         &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
-        &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy,
-        &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_lower, &ws.gravity_mass}) add(*v);
-    add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase);
+        &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy, &ws.phase_total, &ws.phase_liquid_fraction,
+        &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_total, &ws.gravity_lower, &ws.gravity_mass,
+        &ws.gravity_fraction}) add(*v);
+    add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase); add(ws.phase_liquids); add(ws.phase_heavy); add(ws.gravity_heavy);
     for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->q); add(f->jx); add(f->jy); }
     return total;
 }

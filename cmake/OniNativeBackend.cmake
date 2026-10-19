@@ -248,6 +248,7 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_gate_m1_still_water COMMAND ma_mac_free_surface_gates M1)
     add_test(NAME mac_gate_m2_dam_break_coarse COMMAND ma_mac_free_surface_gates M2 --quick)
     add_test(NAME mac_gate_m3_standing_wave_coarse COMMAND ma_mac_free_surface_gates M3 --quick)
+    add_test(NAME mac_gate_m4_two_liquids COMMAND ma_mac_multiphase_gates M4)
     add_test(NAME mac_gate_v_vacuum_front COMMAND ma_mac_vacuum_front_diagnostic --gate)
     add_test(NAME mac_void_phase COMMAND ma_mac_void_phase_tests)
     set_target_properties(ma_mac_gravity_gates ma_mac_free_surface_gates ma_mac_multiphase_gates

@@ -1,5 +1,6 @@
-// Sharp gas/liquid interfaces (MacMaterialReconstruction::interface_plic): a
-// liquid square translating through air at uniform velocity and pressure.
+// Sharp interfaces (MacMaterialReconstruction::interface_plic): a liquid
+// square translating through air, and a light liquid square translating
+// through water, at uniform velocity and pressure.
 // PLIC keeps the liquid in its own cells, with exact conservation and no
 // spurious acceleration at the density jump. Limited-linear is reported for
 // comparison only.
@@ -39,6 +40,56 @@ Measure translate(MacMaterialReconstruction reconstruction, std::size_t steps, M
     }
     result.mist /= static_cast<double>(initial);
     result.liquid = static_cast<double>((total(world) - initial) / initial);
+    const auto inertia = mac_face_inertias(s.registry, final, *s.eos);
+    for (std::size_t f = 0; f < final.momentum_x.size(); ++f) if (inertia.x[f] > 0)
+        result.velocity_error = std::max(result.velocity_error, std::abs(final.momentum_x[f] / inertia.x[f] - ux) / ux);
+    for (std::size_t f = 0; f < final.momentum_y.size(); ++f) if (inertia.y[f] > 0)
+        result.velocity_error = std::max(result.velocity_error, std::abs(final.momentum_y[f] / inertia.y[f] - uy) / uy);
+    result.world.emplace(world);
+    return result;
+}
+// Two immiscible liquids: a square of a lighter liquid (800 kg/m3) translating
+// through water with no gas. A cell holding both splits them by a PLIC line.
+struct TwoLiquids {
+    SpeciesRegistry registry; std::shared_ptr<const FluidThermodynamics> eos;
+    TwoLiquids() {
+        const auto standard = SpeciesRegistry::standard(); std::vector<ReferenceMaterial> materials;
+        for (const auto& [id, density] : {std::pair<const char*, double>{"water", 1000}, {"liquid_nitrogen", 800}}) {
+            const auto& sp = standard[standard.index(id)]; registry.add(sp); ReferenceMaterial m;
+            m.id = id; m.phase = ReferencePhase::elastic_liquid; m.molar_mass_kg_per_mol = sp.molar_mass; m.cv_j_per_kg_k = sp.cv();
+            m.energy_offset_j_per_kg = sp.internal_energy(0); m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e6;
+            m.zero_pressure_density_kg_per_m3 = density; m.reference_bulk_modulus_pa = 2.2e9; m.maximum_density_ratio = 2;
+            m.provenance = "Two-liquid interface test surrogate"; materials.push_back(m);
+        }
+        eos = std::make_shared<const FluidThermodynamics>(registry, "interface-two-liquids-1", std::move(materials));
+    }
+};
+Measure translate_liquids(MacMaterialReconstruction reconstruction, std::size_t steps, MacExecutionPolicy policy = MacExecutionPolicy::reference) {
+    static const TwoLiquids s; constexpr std::size_t n = 16, lo = 5, hi = 11; constexpr double h = .01, ux = .3, uy = .2, p = 101325;
+    const double volume = h * h;
+    MacTransportState st; st.grid = {n, n, h, 1, true, true, std::vector<std::uint8_t>(n * n)};
+    for (std::size_t y = 0; y < n; ++y) for (std::size_t x = 0; x < n; ++x) {
+        const bool light = x >= lo && x < hi && y >= lo && y < hi;
+        const std::vector<double> masses{light ? 0 : volume * 1000 * (1 + p / 2.2e9), light ? volume * 800 * (1 + p / 2.2e9) : 0};
+        st.cells.push_back({s.eos->initialize_at_temperature(masses, 300, volume).mixture, {}});
+    }
+    const auto faces = mac_face_inertias(s.registry, st, *s.eos);
+    st.momentum_x.resize(faces.x.size()); st.momentum_y.resize(faces.y.size());
+    for (std::size_t f = 0; f < faces.x.size(); ++f) st.momentum_x[f] = faces.x[f] * ux;
+    for (std::size_t f = 0; f < faces.y.size(); ++f) st.momentum_y[f] = faces.y[f] * uy;
+    MacClosedSettings settings; settings.reconstruction = reconstruction; settings.maximum_timestep_s = 1e-3;
+    MacClosedWorld world(s.registry, s.eos, st, settings);
+    const auto total = [&](const MacClosedWorld& w, std::size_t k) { long double m = 0; for (const auto& c : w.state().cells) m += c.mixture.masses[k]; return m; };
+    const long double water = total(world, 0), light = total(world, 1);
+    for (std::size_t k = 0; k < steps; ++k) world = world.advanced(.01, 4096, policy).world;
+    Measure result; const auto& final = world.state();
+    for (const auto& c : final.cells) {
+        const double a = c.mixture.masses[1] / 800, b = c.mixture.masses[0] / 1000, fraction = a / (a + b);
+        if (fraction > 1e-6 && fraction < 1 - 1e-6) ++result.mixed;
+        if (fraction < .01) result.mist += c.mixture.masses[1];
+    }
+    result.mist /= static_cast<double>(light);
+    result.liquid = static_cast<double>(std::max(std::abs((total(world, 0) - water) / water), std::abs((total(world, 1) - light) / light)));
     const auto inertia = mac_face_inertias(s.registry, final, *s.eos);
     for (std::size_t f = 0; f < final.momentum_x.size(); ++f) if (inertia.x[f] > 0)
         result.velocity_error = std::max(result.velocity_error, std::abs(final.momentum_x[f] / inertia.x[f] - ux) / ux);
@@ -163,6 +214,19 @@ int main() {
         check(placement <= .01 && centroid <= .01 && temperature <= .1 && gas_pressure <= .01,
             "Production interface reconstruction departs from the reference");
         std::cout << "PASS production kernel interface reconstruction matches the reference\n";
+        {
+            const auto sharp_liquids = translate_liquids(MacMaterialReconstruction::interface_plic, 12);
+            const auto smooth_liquids = translate_liquids(MacMaterialReconstruction::limited_linear, 12);
+            const auto production_liquids = translate_liquids(MacMaterialReconstruction::interface_plic, 12, MacExecutionPolicy::production);
+            print("two_liquids_plic", sharp_liquids); print("two_liquids_linear", smooth_liquids); print("two_liquids_plic_production", production_liquids);
+            // Measured: 23 mixed cells and 5.7e-5 mist in both kernels; limited-linear 240 and 5.1e-3.
+            for (const auto* m : {&sharp_liquids, &production_liquids}) {
+                check(std::abs(m->liquid) <= 1e-14 && m->velocity_error <= 1e-9, "Two-liquid interface lost conservation or uniform motion");
+                check(m->mixed <= 45 && m->mist <= 1e-3 && 4 * m->mixed <= smooth_liquids.mixed && 5 * m->mist <= smooth_liquids.mist,
+                    "Two-liquid interface reconstruction smeared the liquid square");
+            }
+            std::cout << "PASS translating two-liquid square stays sharp in both kernels\n";
+        }
         free_surface_gravity(MacMaterialReconstruction::limited_linear, "limited_linear");
         free_surface_gravity(MacMaterialReconstruction::interface_plic, "interface_plic");
         std::cout << "PASS free-surface gravity reconciliation is credited by its entropy bound in both kernels\n";

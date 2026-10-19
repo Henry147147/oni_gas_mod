@@ -15,7 +15,7 @@ path's void phase. Passing gates also run as CTests.
 | M1 still water | `ma_mac_free_surface_gates M1` | pass | `mac_gate_m1_still_water` |
 | M2 dam break | `ma_mac_free_surface_gates M2` | pass | `mac_gate_m2_dam_break_coarse` (16 cells across a only) |
 | M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
-| M4 two liquids | `ma_mac_multiphase_gates M4` | open: no immiscible interfaces | — |
+| M4 two liquids | `ma_mac_multiphase_gates M4` | pass | `mac_gate_m4_two_liquids` |
 | M5 phase change | `ma_mac_multiphase_gates M5` | open: no phase change | — |
 | V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | pass (void phase, reference path) | `mac_gate_v_vacuum_front` |
 
@@ -97,13 +97,18 @@ gas-bearing cell stays behind the exact front. The gate first used that last cel
 as the front, which no grid method can bring within 5% at N512. Details, and the
 remaining fast-front error, are in [vacuum](MAC_VACUUM.md#gate-v-vacuum-front).
 
-## Open gates
-
 **M4.** Water-like (1000 kg/m³) over lighter (800 kg/m³) liquid, 64 cells per
-0.1 m wavelength, perturbation 1e-5 m. The liquids still blend within a cell, so
-the gate stays open even though the measured numbers meet the criteria:
-- the unstable growth rate is 7.95/s, against √(A g k) = 8.28/s (4.0% low);
-- a flat stable interface stays at rest within 1.1e-12 m/s.
+0.1 m wavelength, perturbation 1e-5 m, with sharp interfaces: a cell holding exactly
+two liquids and no gas places the denser below a PLIC line
+([transport](MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3)).
+- The unstable growth rate is 8.01/s, against √(A g k) = 8.28/s (3.2% low).
+- A flat stable interface stays at rest within 1.5e-12 m/s.
+- At an amplitude of 5% of the width, the band of cells holding 1–99% heavy
+  liquid is at most 6 cells deep per column. Each liquid's share in cells where it
+  is under 1% is 2.0e-5. When the liquids blended within a cell, these were 9 cells
+  and 6.9e-5, with a growth rate 4.0% low.
+
+## Open gates
 
 **M5.** It reports open until phase change exists.
 

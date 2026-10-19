@@ -139,7 +139,11 @@ acceptance.
 ### Sharp gas/liquid interfaces (selector 3)
 
 A donor that holds both gas and liquid places its liquid behind a straight line, a
-piecewise-linear interface (PLIC).
+piecewise-linear interface (PLIC). A donor holding exactly two liquids and no gas
+places the denser liquid (by zero-pressure density) behind the line in the same
+way; its normal comes from neighbouring fractions of that liquid. Each liquid is a
+phase, so liquids are separated pairwise. A donor holding gas and several liquids
+still blends its liquids behind the gas/liquid line.
 - **Line:** its normal is Youngs' 3×3 gradient of the neighbouring EOS liquid
   fractions (each from the liquid's own volume, never V − V_gas). Its offset
   encloses the donor's liquid fraction, found by bisection.
@@ -151,8 +155,8 @@ piecewise-linear interface (PLIC).
   are then filled in order (left, right, bottom, top) so that each holds exactly its
   swept width and together they take no more of a phase than the donor holds.
 - **Single-phase donors:** these keep limited-linear slopes away from an interface.
-  Beside an interface or a change in liquid presence they keep donor order, so no
-  slope exports a phase the donor does not hold.
+  Beside an interface or a change in which liquids are present they keep donor
+  order, so no slope exports a phase the donor does not hold.
 - **Fallback:** a split that fails EOS admission falls back to the donor's own
   composition, which is donor order.
 
@@ -168,6 +172,10 @@ water square through air at (0.3, 0.2) m/s in a 16×16 periodic box for 3.6 cell
 | 3 `interface_plic` | 35 | 0.027% | 2e-18 | 8e-11 |
 | 3 `interface_plic`, production kernel | 25 | 1.5e-17% | 2e-17 | 2e-10 |
 | 1 `limited_linear` | 229 | 0.53% | 8e-18 | 8e-11 |
+
+The same test translates a 6×6 square of an 800 kg/m³ liquid through water (no
+gas): 23 cells hold both liquids and 0.0057% of the light liquid lies in cells
+under 1% of it, in both kernels, against 240 cells and 0.51% with limited-linear.
 
 The normal is scaled by its larger component, so axis-aligned normals are exactly
 ±1. It does not use `std::hypot`, which is not correctly rounded across C libraries
@@ -212,8 +220,7 @@ In the translation test it matches the reference to 0.5% liquid placement (L1),
 audit through the gravity reconciliation credit
 ([kernel](MAC_KERNEL.md#gravity-reconciliation-entropy)).
 
-One liquid region is placed per donor, so immiscible liquids are not separated from
-each other. Gas/vacuum fronts use the separate [void phase](MAC_VACUUM.md#void-phase),
+Gas/vacuum fronts use the separate [void phase](MAC_VACUUM.md#void-phase),
 which applies the same strip allocation between material and vacuum with any
 reconstruction selector. Still water, the dam break and the standing wave pass their
 gates ([MAC_GATES.md](MAC_GATES.md)).

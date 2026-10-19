@@ -1,8 +1,8 @@
 // Milestone B multiphase gates (docs/completion-plan.md, "Gravity and
 // multiphase gates"). Each gate prints GATE <id> PASS|FAIL|OPEN with its
 // measurements; FAIL and OPEN exit nonzero. Both run the production kernel.
-//   M4  two immiscible liquids (Rayleigh-Taylor). Runs today; liquids still
-//       blend within a cell, so the gate is open until immiscible interfaces exist.
+//   M4  two immiscible liquids (Rayleigh-Taylor), with sharp interfaces: a
+//       cell holding both liquids places the denser below a PLIC line.
 //   M5  Stefan vapour film. Open until phase change exists.
 #include "mac_kernel_fixture.hpp"
 #include <cstring>
@@ -58,6 +58,27 @@ MacTransportState column(const TwoLiquids& s, std::size_t w, std::size_t h, doub
     st.momentum_x.assign(faces.x.size(), 0); st.momentum_y.assign(faces.y.size(), 0);
     return st;
 }
+// Separation of the two liquids: the widest band of cells per column holding
+// 1-99% heavy liquid by nominal volume, and the mist (each liquid's share in
+// cells where it is under 1%) relative to its total.
+struct Separation { std::size_t band = 0; double mist = 0; };
+Separation separation(const MacTransportState& st) {
+    const auto w = st.grid.width, h = st.grid.height; Separation r; double heavy_total = 0, light_total = 0, heavy_mist = 0, light_mist = 0;
+    for (std::size_t x = 0; x < w; ++x) {
+        std::size_t band = 0;
+        for (std::size_t y = 0; y < h; ++y) {
+            const auto& m = st.cells[x + y * w].mixture; const double a = m.masses[0] / 1000, b = m.masses[1] / 800;
+            if (a + b == 0) continue;
+            const double fraction = a / (a + b);
+            if (fraction >= .01 && fraction <= .99) ++band;
+            heavy_total += m.masses[0]; light_total += m.masses[1];
+            if (fraction < .01) heavy_mist += m.masses[0];
+            if (fraction > .99) light_mist += m.masses[1];
+        }
+        r.band = std::max(r.band, band);
+    }
+    r.mist = std::max(heavy_mist / heavy_total, light_mist / light_total); return r;
+}
 // Amplitude of the cos(kx) mode of the interface height (heavy volume per
 // column, from nominal volumes: no EOS evaluation, so trace amounts below
 // binary64 volume range do not stop the measurement).
@@ -102,8 +123,10 @@ int m4() {
         const double y = std::log(a); sx += times[i]; sy += y; sxx += times[i] * times[i]; sxy += times[i] * y; ++used;
     }
     const double rate = used >= 3 ? (static_cast<double>(used) * sxy - sx * sy) / (static_cast<double>(used) * sxx - sx * sx) : 0;
+    const auto mixed = separation(world.state());
     std::cout << "M4 unstable samples=" << used << " growth_rate_1_s=" << rate << " relative_error=" << std::abs(rate - sigma) / sigma
-              << " final_t_s=" << t << " final_amplitude_m=" << (amplitudes.empty() ? 0 : amplitudes.back()) << '\n';
+              << " final_t_s=" << t << " final_amplitude_m=" << (amplitudes.empty() ? 0 : amplitudes.back())
+              << " band_cells=" << mixed.band << " mist=" << mixed.mist << '\n';
     // Stable: light over a flat heavy layer (on a face) stays at rest.
     const auto stable = column(s, n, rows, spacing, [&](std::size_t, std::size_t y) { return y < rows / 2 ? 1. : 0.; });
     MacClosedWorld rest(s.registry, s.eos, stable, settings); double speed = 0;
@@ -119,9 +142,7 @@ int m4() {
         }
     }
     std::cout << "M4 stable max_speed_m_s=" << speed << '\n';
-    const bool measured = used >= 3 && std::abs(rate - sigma) <= .1 * sigma && speed <= 1e-8;
-    std::cout << "M4 note: immiscible liquid interfaces are not implemented; the two liquids blend within a cell\n";
-    return verdict("M4", measured ? "OPEN (criteria met by blended liquids)" : "FAIL (open: immiscible liquids not implemented)");
+    return verdict("M4", used >= 3 && std::abs(rate - sigma) <= .1 * sigma && speed <= 1e-8 ? "PASS" : "FAIL");
 }
 int m5() {
     std::cout << "M5 note: phase change is not implemented\n";

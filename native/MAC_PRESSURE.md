@@ -71,9 +71,9 @@ the split and face distribution here are this implementation's choices.
 
 With material selector 3 (`interface_plic`) each vertical face carries a separate
 weight `W_f`: the mass of its two half cells (the upper half of the cell below and
-the lower half of the cell above). A cell holding both phases splits by its PLIC
-line at the grid volume, each phase at its cell-average density
-(`mac_interface_gravity_weights`). Other cells split evenly, so `W_f` equals the
+the lower half of the cell above). A cell holding two phases (gas and liquid, or
+exactly two liquids) splits by its PLIC line at the grid volume, each phase at its
+cell-average density (`mac_interface_gravity_weights`). Other cells split evenly, so `W_f` equals the
 face inertia `(m_below + m_above) / 2` away from interfaces. The inertia itself is
 unchanged.
 - **Start of substep:** the pressure stage applies `−g W_f dt` with the weight

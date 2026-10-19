@@ -322,11 +322,17 @@ struct Workspace {
     std::vector<std::uint8_t> flag;
     // Reconstruction proxy (thermal + elastic energy) per cell.
     std::vector<double> proxy;
-    // Sharp interfaces: per-cell liquid and gas fractions and phase energies.
-    std::vector<double> phase_alpha, phase_gas, phase_liquid_energy, phase_gas_energy;
+    // Sharp interfaces: per-cell phase-A/B fractions and phase energies (A is
+    // all liquid beside gas, or the denser of exactly two liquids), each cell's
+    // total liquid fraction, liquid-presence mask, denser liquid (an index into
+    // Model::liquids, or none) and, with several liquids, each liquid's fraction.
+    std::vector<double> phase_alpha, phase_gas, phase_liquid_energy, phase_gas_energy, phase_total, phase_liquid_fraction;
+    std::vector<std::uint64_t> phase_liquids;
+    std::vector<Index> phase_heavy;
     // Sharp-interface gravity: y-face PLIC half-cell weights at the substep start
     // and after transport, with their per-cell scratch.
-    std::vector<double> gravity_weight_start, gravity_weight_end, gravity_alpha, gravity_lower, gravity_mass;
+    std::vector<double> gravity_weight_start, gravity_weight_end, gravity_alpha, gravity_total, gravity_lower, gravity_mass, gravity_fraction;
+    std::vector<Index> gravity_heavy;
     std::vector<std::uint8_t> two_phase;
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.
