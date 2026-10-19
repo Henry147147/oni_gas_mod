@@ -172,8 +172,11 @@ also pass collision.
   Release, ASan/UBSan and MinGW/Wine; threaded controls pass ThreadSanitizer.
   Version-8 images retain exact fresh Linux/Wine continuation; composed
   diffusion and subnormal-front controls pass. The coupled method still fails
-  the original collision density refinement (0.861766 against 0.85). Automatic selection, open physics gates,
-  real-time acceptance and in-game production use remain open.
+  the original collision density refinement (0.861766 against 0.85). A
+  [shared-face time primitive](../native/MAC_TIME_MORTAR.md) passes
+  1,057 saved checks/fourteen corruptions on all four native routes. It is not
+  connected to the owner. Automatic selection, full local subcycling, open
+  physics gates, real-time acceptance and in-game production use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

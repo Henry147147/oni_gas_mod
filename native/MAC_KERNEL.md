@@ -13,7 +13,9 @@ results for 1, 2, 4, 8 and 12 threads) are done. From phase 2 the increment
 pressure formulation and the shared geometric multigrid preconditioner
 (`mac_pressure_multigrid.*`) are in. The opt-in
 [two-moment pressure method](MAC_PRESSURE_MOMENTS.md) passes selected resolved
-wave schedules; automatic calm-region selection and local subcycling remain
+wave schedules. A [shared-face time primitive](MAC_TIME_MORTAR.md) supplies
+dyadic time coordinates and range-aware face moments; it is not connected to
+the owner. Automatic calm-region selection and local subcycling remain
 open. The midpoint path covers every selector the ONI domain uses. The
 real-time gate is not met; see [performance](#current-active-cell-baseline), the
 [historical comparison](#historical-comparison-with-the-retired-interval-port)
@@ -330,11 +332,14 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-50 CTests pass. Twelve native suites pass Debug ASan/UBSan and MinGW 13 under
+51 CTests pass. Twelve pressure/kernel suites pass Debug ASan/UBSan and MinGW 13 under
 Wine 10; eleven pass ThreadSanitizer, using the moment suites’ threaded checkpoint
 controls there. All 22 saved reviews pass: both temporal formats on Release,
 ASan/UBSan and Wine, and the other four reviewers on all four routes. The temporal
 controls and endpoint review are described in [pressure moments](MAC_PRESSURE_MOMENTS.md).
+The shared-face time suite additionally passes all four routes, with 1,057
+independent saved checks and fourteen altered captures; see
+[time integration](MAC_TIME_MORTAR.md).
 Current accepted dual-projection counts (`TTHREAD`: `4/554/88`) include
 flagged J/K work; product and endpoint mass records are unchanged.
 The new diffusion-rounding suite independently checks quantized Heun transfers,
@@ -389,9 +394,9 @@ the earlier format. Failed interval budgets publish neither count nor state.
 
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
-Against `bc5197d`, all 64 preceding MAC component executables retain their
-exit results: 62 outputs are byte-identical and two differ only in timing.
-All physical records are unchanged; the coupled multigrid test makes 65.
+Against `cb8ecb1`, all 65 preceding MAC component executables retain their
+exit results: 63 outputs are byte-identical and two differ only in timing.
+All physical records are unchanged; the shared-face time test makes 66.
 Five-interval 256- and 4,096-cell production wave checkpoints also retain every
 version-6 byte against the preceding binary. Fresh-process gas and multigrid
 images from Linux and Wine continue byte-identically on both, in both source

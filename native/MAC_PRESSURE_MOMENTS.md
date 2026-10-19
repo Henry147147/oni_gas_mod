@@ -138,7 +138,7 @@ concurrent heated owners and same-size geometry changes. A flagged intermediate
 with a normal final sweep retains the strict endpoint in one attempt, with the
 original geometric closure.
 
-All 50 Release CTests pass with the ONI backend and warnings as errors. Twelve
+All 51 Release CTests pass with the ONI backend and warnings as errors. Twelve
 suites pass Debug ASan/UBSan and MinGW 13/Wine 10; eleven pass ThreadSanitizer,
 using the moment suites’ twelve-worker checkpoint controls there. The saved endpoint reader
 passes 80,709 checks for version 7 and 114,726 for version 8, rejecting fourteen
@@ -146,10 +146,10 @@ altered captures for each on Release, ASan/UBSan and MinGW/Wine. It checks EOS,
 reference resolution, all endpoint errors and admitted schedules without launching
 native code. All 22 saved reviews pass across these routes.
 
-All 64 preceding MAC executable exits and physical records are unchanged:
-62 outputs are byte-identical and two differ only in timing. Six historical
-images, sampled version-6 waves, version-7 images and cross-commit version-7
-continuation retain their bytes. The required reference wave SHA is unchanged.
+The [current component comparison](MAC_KERNEL.md#validation) retains prior
+exits and physical records. Six historical images, sampled version-6 waves,
+version-7 images and cross-commit version-7 continuation retain their bytes.
+The required reference wave SHA is unchanged.
 Version-8 images continue byte-identically in fresh Linux/Wine processes, twice
 on each platform in both source directions. Wine is Windows-target evidence;
 actual Windows OS runs remain open.
