@@ -4,9 +4,11 @@
 #include <mutex>
 
 namespace ma::experimental {
-namespace interval_detail { struct TransportTopology; }
+namespace interval_detail { struct TransportTopology; struct IntervalWorkspace; }
 struct MacIntervalCandidate { MacTransportState state; MacClosedAdvanceReport report; };
 struct MacIntervalCache {
+    MacIntervalCache();
+    ~MacIntervalCache();
     // The grid is owned with its immutable primal/dual face connectivity.
     std::once_flag transport_once;
     std::shared_ptr<const interval_detail::TransportTopology> transport;
@@ -16,6 +18,8 @@ struct MacIntervalCache {
     // solver leases it exclusively; coefficients are replaced before use.
     std::mutex multigrid_workspace_mutex;
     std::unique_ptr<interval_detail::PressureMultigrid> multigrid_workspace;
+    std::mutex workspace_mutex;
+    std::unique_ptr<interval_detail::IntervalWorkspace> workspace;
 };
 // An absent result requests the unchanged reference interval from its original
 // source. No partial state or numerical history escapes a declined fast path.

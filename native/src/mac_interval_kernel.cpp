@@ -8,6 +8,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <type_traits>
 
 namespace ma::experimental {
 namespace {
@@ -81,11 +82,17 @@ struct TransportTopology {
                     y < g.height ? g.x_face(x, y) : none});
     }
 };
-} // namespace interval_detail
-namespace {
-using Face = interval_detail::Face;
-using Geometry = interval_detail::TransportTopology;
-struct Gas { std::size_t species; double cv, offset, molar, low, high; };
+using Geometry = TransportTopology;
+struct Gas {
+    std::size_t species; double cv, offset, molar, low, high;
+    bool operator==(const Gas& other) const noexcept {
+        if (species != other.species) return false;
+        const std::array a{cv, offset, molar, low, high}, b{other.cv, other.offset, other.molar, other.low, other.high};
+        for (std::size_t k = 0; k < a.size(); ++k)
+            if (std::bit_cast<std::uint64_t>(a[k]) != std::bit_cast<std::uint64_t>(b[k])) return false;
+        return true;
+    }
+};
 struct Fields {
     std::vector<std::vector<double>> q; // present species, present passive IDs, U
     std::array<std::vector<double>, 2> j;
@@ -99,11 +106,7 @@ struct Reading {
     double mass = 0, capacity = 0, gas_heat = 0, offset = 0, thermal = 0, temperature = 0, pressure = 0, gamma = 0;
     double minimum_temperature = 0, maximum_temperature = 0;
 };
-struct Kernel {
-    const MacTransportState& source;
-    const MacClosedSettings& settings;
-    MacIntervalCache& cache;
-    const Geometry& topology;
+struct IntervalWorkspace {
     std::vector<Gas> gases;
     std::vector<std::uint64_t> passive_ids;
     std::array<Fields, 2> banks;
@@ -115,27 +118,6 @@ struct Kernel {
     std::vector<double> keep, velocity, provisional, dual_flux;
     std::vector<StoredSum> gathered, heat;
     mutable std::vector<Sum> dot_blocks;
-    std::array<MacEnergySum, 2> wall;
-    Sum mixing_heat, wall_heat;
-    Rounding rounding;
-    MacClosedAdvanceReport report;
-    std::size_t selected = 0;
-    std::size_t active_cells = 0, topology_builds = 0;
-    std::unique_lock<std::mutex> multigrid_lock;
-    interval_detail::PressureMultigrid* multigrid = nullptr;
-
-    static const Geometry& transport_topology(MacIntervalCache& cached, const MacGrid& grid) {
-        std::call_once(cached.transport_once, [&] {
-            cached.transport = std::make_shared<const Geometry>(grid);
-        });
-        const auto& held = cached.transport->g;
-        // An owner with changed geometry needs a fresh cache. Refuse a stale
-        // internal cache rather than applying its faces to another grid.
-        if (held.width != grid.width || held.height != grid.height || held.spacing_m != grid.spacing_m ||
-            held.depth_m != grid.depth_m || held.periodic_x != grid.periodic_x || held.periodic_y != grid.periodic_y ||
-            held.walls != grid.walls) throw Decline{};
-        return *cached.transport;
-    }
     static std::vector<Gas> gas_models(const SpeciesRegistry& registry, const FluidThermodynamics& model,
         const MacTransportState& input) {
         std::vector<Gas> result;
@@ -159,15 +141,11 @@ struct Kernel {
         std::sort(result.begin(), result.end()); result.erase(std::unique(result.begin(), result.end()), result.end());
         return result;
     }
-    Kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model, const MacTransportState& input,
-        const MacClosedSettings& config, MacIntervalCache& cached) : source(input), settings(config), cache(cached), topology(transport_topology(cached, input.grid)),
-        gases(gas_models(registry, model, input)), passive_ids(ids(input)),
-        banks{Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology),
-              Fields(gases.size() + passive_ids.size() + 1, input.cells.size(), topology)} {
-        if (!source.full_momentum_x.empty() || !source.full_momentum_y.empty()) throw Decline{};
-        normal(source.grid.volume_m3()); normal(source.grid.spacing_m * source.grid.depth_m);
-        active_cells = source.grid.walls.size() - static_cast<std::size_t>(std::count(source.grid.walls.begin(), source.grid.walls.end(), std::uint8_t{1}));
-        const auto n = input.cells.size(); initial.resize(n); current.resize(n); heat.resize(n);
+    IntervalWorkspace(std::vector<Gas> models, std::vector<std::uint64_t> passives, std::size_t n,
+        const TransportTopology& topology) : gases(std::move(models)), passive_ids(std::move(passives)),
+        banks{Fields(gases.size() + passive_ids.size() + 1, n, topology),
+              Fields(gases.size() + passive_ids.size() + 1, n, topology)} {
+        initial.resize(n); current.resize(n); heat.resize(n);
         dot_blocks.resize((n + 255) / 256);
         residual_norm_blocks.resize(dot_blocks.size());
         for (auto* v : {&dv, &trial, &pressure, &increment, &compliance, &residual, &x, &r, &z, &direction, &applied,
@@ -179,7 +157,89 @@ struct Kernel {
         const auto count = std::max(topology.faces[0].size(), topology.faces[1].size());
         for (auto* v : {&keep, &velocity, &provisional}) v->resize(count);
         gathered.resize(count); dual_flux.resize(std::max(topology.dual[0].size(), topology.dual[1].size()));
+    }
+    void reset() {
+        // Restore fresh-buffer values, including wall and inactive entries.
+        // Old attempts supply storage only, never numerical initial guesses.
+        for (auto& bank : banks) {
+            for (auto& column : bank.q) std::fill(column.begin(), column.end(), 0.);
+            for (auto& j : bank.j) std::fill(j.begin(), j.end(), 0.);
+        }
+        std::fill(initial.begin(), initial.end(), Reading{}); std::fill(current.begin(), current.end(), Reading{});
+        std::fill(gathered.begin(), gathered.end(), StoredSum{}); std::fill(heat.begin(), heat.end(), StoredSum{});
+        std::fill(dot_blocks.begin(), dot_blocks.end(), Sum{});
+        for (auto* field : {&dv, &trial, &pressure, &increment, &compliance, &residual, &x, &r, &z, &direction, &applied,
+            &diagonal, &material_volume, &pressure_u, &next_mass, &residual_norm_blocks, &keep, &velocity, &provisional, &dual_flux})
+            std::fill(field->begin(), field->end(), 0.);
+        for (std::size_t a = 0; a < 2; ++a)
+            for (auto* field : {&inertia[a], &conductance[a], &sweep[a], &pressure_j[a], &mass_flux[a], &scalar_flux[a]})
+                std::fill(field->begin(), field->end(), 0.);
+    }
+};
+static_assert(std::is_nothrow_move_constructible_v<IntervalWorkspace>);
+} // namespace interval_detail
+MacIntervalCache::MacIntervalCache() = default;
+MacIntervalCache::~MacIntervalCache() = default;
+namespace {
+using Face = interval_detail::Face;
+using Geometry = interval_detail::TransportTopology;
+using Fields = interval_detail::Fields;
+using Reading = interval_detail::Reading;
+using IntervalWorkspace = interval_detail::IntervalWorkspace;
+const Geometry& transport_topology(MacIntervalCache& cached, const MacGrid& grid) {
+    std::call_once(cached.transport_once, [&] {
+        cached.transport = std::make_shared<const Geometry>(grid);
+    });
+    const auto& held = cached.transport->g;
+    // An owner with changed geometry needs a fresh cache. Refuse a stale
+    // internal cache rather than applying its faces to another grid.
+    if (held.width != grid.width || held.height != grid.height || held.spacing_m != grid.spacing_m ||
+        held.depth_m != grid.depth_m || held.periodic_x != grid.periodic_x || held.periodic_y != grid.periodic_y ||
+        held.walls != grid.walls) throw Decline{};
+    return *cached.transport;
+}
+IntervalWorkspace take_workspace(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& input, MacIntervalCache& cached) {
+    const auto& topology = transport_topology(cached, input.grid);
+    auto models = IntervalWorkspace::gas_models(registry, model, input);
+    auto passives = IntervalWorkspace::ids(input);
+    std::unique_ptr<IntervalWorkspace> held;
+    { std::lock_guard lock(cached.workspace_mutex); held = std::move(cached.workspace); }
+    if (held && held->gases == models && held->passive_ids == passives && held->current.size() == input.cells.size()) {
+        held->reset(); return std::move(*held);
+    }
+    held.reset();
+    return IntervalWorkspace(std::move(models), std::move(passives), input.cells.size(), topology);
+}
+struct Kernel : IntervalWorkspace {
+    const MacTransportState& source;
+    const MacClosedSettings& settings;
+    MacIntervalCache& cache;
+    const Geometry& topology;
+    std::array<MacEnergySum, 2> wall;
+    Sum mixing_heat, wall_heat;
+    Rounding rounding;
+    MacClosedAdvanceReport report;
+    std::size_t selected = 0;
+    std::size_t active_cells = 0, topology_builds = 0;
+    std::unique_lock<std::mutex> multigrid_lock;
+    interval_detail::PressureMultigrid* multigrid = nullptr;
+    Kernel(const SpeciesRegistry& registry, const FluidThermodynamics& model, const MacTransportState& input,
+        const MacClosedSettings& config, MacIntervalCache& cached) : IntervalWorkspace(take_workspace(registry, model, input, cached)),
+        source(input), settings(config), cache(cached), topology(*cached.transport) {
+        if (!source.full_momentum_x.empty() || !source.full_momentum_y.empty()) throw Decline{};
+        normal(source.grid.volume_m3()); normal(source.grid.spacing_m * source.grid.depth_m);
+        active_cells = source.grid.walls.size() - static_cast<std::size_t>(std::count(source.grid.walls.begin(), source.grid.walls.end(), std::uint8_t{1}));
         pack(); initial = current;
+    }
+    ~Kernel() noexcept {
+        // Keep at most one idle field block. Concurrent branches can finish
+        // independently; retaining scratch storage never retains their owner.
+        try {
+            std::lock_guard lock(cache.workspace_mutex);
+            if (!cache.workspace)
+                cache.workspace = std::make_unique<IntervalWorkspace>(std::move(static_cast<IntervalWorkspace&>(*this)));
+        } catch (...) {} // Allocation/locking failure only declines future reuse.
     }
     double original(std::size_t column, std::size_t cell) const {
         const auto& c = source.cells[cell];

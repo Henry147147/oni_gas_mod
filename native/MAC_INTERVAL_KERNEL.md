@@ -19,7 +19,16 @@ The port uses reusable contiguous field columns, two candidate banks, cached
 topology and analytic gas responses. Only present species and passive
 identities have columns. Their number is unbounded by a development catalogue
 limit, but each present column currently spans the grid. Spatial block sparsity
-and workspace retention across intervals remain open.
+and eliminating copies of the authoritative owner remain open.
+
+Candidate banks, thermodynamic readings and pressure/transport scratch arrays
+are retained between intervals. Related owners keep at most one idle field
+workspace; concurrent branches borrow separate storage. Every borrow restores
+fresh-buffer values, including wall entries, and repacks the actual source.
+Present species, exact gas-property bits and passive identities form the field
+schema: changes rebuild storage before use. Rejected attempts can return scratch
+storage, but their values never become initial guesses or physical history.
+Failure to retain an idle block only loses a future allocation optimization.
 
 Primal/dual transport connectivity is retained across related owners, alongside
 the pressure hierarchy. Its immutable grid is owned by the cache, so destroying
@@ -31,6 +40,11 @@ caches. Neither topology nor numerical workspace state is physical save history.
 Source-lifetime, stale-geometry and continuation controls pass native Release,
 ASan/UBSan, ThreadSanitizer and Windows-target Wine runs. Saved output and the
 33,153-cell continuation with one, four and twelve workers remain unchanged.
+The concurrent heated/unheated branch comparison also uses this odd, periodic
+33,153-cell grid with a solid corner. Schema controls add CO₂ and passive
+metadata, use a different valid registry/EOS pair, restore the original mapping
+and compare each result against fresh storage. The 81-species/82-passive and
+10,000-step controls retain their original accounts and output.
 
 The nonlinear pressure equation uses continuous work-pressure increments and
 analytic isentropic secants/tangents. A matrix-free PCG operator solves

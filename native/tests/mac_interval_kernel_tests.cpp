@@ -278,30 +278,73 @@ void catalogue() {
     check(next.world.advanced(.001).world.checkpoint() == restored.advanced(.001).world.checkpoint(), "Large catalogue continuation differs");
     export_interval(4, owner, next);
 }
-void stale_topology_cache() {
+void cache_reuse_controls() {
     const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
+    auto definitions = fixture.eos->reference().materials();
+    const auto& co2 = fixture.registry[fixture.registry.index("carbon_dioxide")];
+    ReferenceMaterial extra; extra.id = co2.id; extra.molar_mass_kg_per_mol = co2.molar_mass;
+    extra.cv_j_per_kg_k = co2.cv(); extra.energy_offset_j_per_kg = co2.internal_energy(0);
+    extra.minimum_temperature_k = 1; extra.maximum_temperature_k = 1e6;
+    extra.provenance = "Explicit constant-property cache schema control";
+    definitions.push_back(extra);
+    const auto model = std::make_shared<const FluidThermodynamics>(fixture.registry, "interval-cache-schema-v1", definitions);
     const auto input = scene(19, 17, true), changed = scene(18, 17, true);
     MacIntervalCache cache; std::size_t attempts = 0;
-    const auto first = advance_mac_interval_kernel(fixture.registry, *fixture.eos, input, s, .01, 4096, attempts, &cache);
+    const auto first = advance_mac_interval_kernel(fixture.registry, *model, input, s, .01, 4096, attempts, &cache);
     check(first.has_value(), "Initial topology cache control declined");
-    const auto expected = MacClosedWorld(fixture.registry, fixture.eos, first->state, s).checkpoint();
+    const auto expected = MacClosedWorld(fixture.registry, model, first->state, s).checkpoint();
     auto reject = [&](const MacTransportState& other) {
         attempts = 123;
-        const auto candidate = advance_mac_interval_kernel(fixture.registry, *fixture.eos, other, s, .01, 4096, attempts, &cache);
+        const auto candidate = advance_mac_interval_kernel(fixture.registry, *model, other, s, .01, 4096, attempts, &cache);
         check(!candidate && attempts == 0, "A stale transport topology was reused for changed geometry");
     };
     reject(changed);
     auto rescaled = input; rescaled.grid.depth_m = 2; reject(rescaled);
     reject(scene(19, 17, true, true));
+    auto expanded = input;
+    auto masses = expanded.cells[7].mixture.masses;
+    masses[fixture.registry.index("carbon_dioxide")] = .01;
+    expanded.cells[7].mixture = model->initialize_at_temperature(masses, 300, 1).mixture;
+    expanded.cells[7].passive_quantities.push_back({radiation_passive_identity, 1e-30});
+    MacIntervalCache fresh; std::size_t fresh_attempts = 0;
+    const auto expected_expanded = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, fresh_attempts, &fresh);
     attempts = 0;
-    const auto again = advance_mac_interval_kernel(fixture.registry, *fixture.eos, input, s, .01, 4096, attempts, &cache);
-    check(again && MacClosedWorld(fixture.registry, fixture.eos, again->state, s).checkpoint() == expected,
+    const auto reused_expanded = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, attempts, &cache);
+    check(expected_expanded && reused_expanded &&
+        MacClosedWorld(fixture.registry, model, reused_expanded->state, s).checkpoint() ==
+            MacClosedWorld(fixture.registry, model, expected_expanded->state, s).checkpoint(),
+        "Changed constituent/passive layout reused stale field columns");
+    SpeciesRegistry replacement_registry;
+    for (auto species : fixture.registry.all()) {
+        if (species.id == "nitrogen") species.cp *= 1.01;
+        replacement_registry.add(std::move(species));
+    }
+    for (auto& definition : definitions) {
+        const auto& species = replacement_registry[replacement_registry.index(definition.id)];
+        definition.cv_j_per_kg_k = species.cv(); definition.energy_offset_j_per_kg = species.internal_energy(0);
+    }
+    const auto replacement = std::make_shared<const FluidThermodynamics>(replacement_registry, "interval-cache-caloric-v1", definitions);
+    MacIntervalCache replacement_fresh; fresh_attempts = attempts = 0;
+    const auto expected_replacement = advance_mac_interval_kernel(replacement_registry, *replacement, expanded, s, .01, 4096, fresh_attempts, &replacement_fresh);
+    const auto reused_replacement = advance_mac_interval_kernel(replacement_registry, *replacement, expanded, s, .01, 4096, attempts, &cache);
+    check(expected_replacement && reused_replacement &&
+        MacClosedWorld(replacement_registry, replacement, reused_replacement->state, s).checkpoint() ==
+            MacClosedWorld(replacement_registry, replacement, expected_replacement->state, s).checkpoint(),
+        "Changed material properties reused stale caloric coefficients");
+    attempts = 0;
+    const auto restored_model = advance_mac_interval_kernel(fixture.registry, *model, expanded, s, .01, 4096, attempts, &cache);
+    check(restored_model && MacClosedWorld(fixture.registry, model, restored_model->state, s).checkpoint() ==
+        MacClosedWorld(fixture.registry, model, expected_expanded->state, s).checkpoint(),
+        "Restoring material properties retained another model's field mapping");
+    attempts = 0;
+    const auto again = advance_mac_interval_kernel(fixture.registry, *model, input, s, .01, 4096, attempts, &cache);
+    check(again && MacClosedWorld(fixture.registry, model, again->state, s).checkpoint() == expected,
         "Declined geometry reuse contaminated the original cached continuation");
 }
 void concurrent_continuation() {
     const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
     const auto warm = [&] {
-        const MacClosedWorld source(fixture.registry, fixture.eos, scene(19, 17, true), s);
+        const MacClosedWorld source(fixture.registry, fixture.eos, scene(129, 257, true, true), s);
         return source.advanced(.02).world;
     }(); // Cached topology must outlive this source and its grid allocation.
     const auto heated = warm.with_cell_heat(std::array<MacCellHeat, 1>{{{7, .125, 1000}}});
@@ -399,7 +442,7 @@ int main(int argc, char** argv) {
         check(argc == 1, "Unknown interval kernel test arguments"); audit_boundaries();
         compare(0, 12, 4, true, false); compare(1, 9, 5, false, true); compare(2, 7, 1, false, false);
         compare(5, 16, 16, true, false); compare(6, 19, 17, false, true);
-        stale_topology_cache(); concurrent_continuation();
+        cache_reuse_controls(); concurrent_continuation();
         fallback_and_rollback(); endurance(); catalogue(); std::cout << "PASS interval kernel, reference comparisons, audited accounts and continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }
