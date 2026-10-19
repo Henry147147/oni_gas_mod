@@ -154,15 +154,15 @@ also pass collision.
   survive until parcel formation; canonical dual J and normalized kinetic
   products fix the reproduced large-inertia fault. Signed and quantized arrivals,
   twelve-worker cache/continuation, concurrency and shared-budget refinement
-  controls pass; the saved reader passes 916 checks/seven altered captures on
-  all four routes. A cross-block tracer uses the same shared transfer with
-  one/twelve workers. Dividing a normal sweep by a very large material volume
-  can still underflow its parcel share; that range follow-up remains open.
-  The in-game owner remains
-  reference pending step f. Supported
-  legacy reference images retain their bytes and continuation. Calm-region/local
-  steps, open physics gates,
-  current active-cell timing and in-game production use remain open.
+  controls pass. The expanded saved reader passes 1,318 checks/ten
+  altered captures on Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine, including a normal sweep divided by a very large material
+  volume and counted unresolved primal writes. It retains representable and
+  zero/one/two-quantum arrivals without changing conservation bounds. A
+  cross-block tracer uses the same shared transfer with one/twelve workers.
+  The in-game owner remains reference pending step f. Supported legacy
+  reference images retain their bytes and continuation. Calm-region/local
+  steps, open physics gates, current active-cell timing and in-game production
+  use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production
 defaults, and the owner advances the playtest colony for ten cycles without

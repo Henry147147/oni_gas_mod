@@ -98,7 +98,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     source[F] = ws.proxy.data();
     const bool gas_only = model.liquids.empty();
     // ---- reconstruction: each donor writes its outgoing face parcels.
-    struct Reconstruction { std::size_t backtracks = 0; std::vector<TransferRounding> rounding; };
+    struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; };
     auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Reconstruction result; result.rounding.resize(c.quantities());
         struct Product { std::size_t field; double a, b, stored; MacEnergy scaled; };
@@ -114,8 +114,15 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             const double midx = .5 * (ws.qx[lf] + ws.qx[rf]), midy = .5 * (ws.qy[bf] + ws.qy[tf]);
             const auto add = [&](int axis, Index face, int dir, double q) {
                 const auto* full = axis == 0 ? full_x : full_y;
-                const auto full_share = full == nullptr ? MacEnergy{} : full[face].magnitude().shared(1, Vi);
-                const double volume = std::abs(q), share = full_share.is_zero() ? volume / Vi : full_share.project().value;
+                const double volume = std::abs(q);
+                double share = volume / Vi;
+                auto full_share = full == nullptr ? MacEnergy{} : full[face].magnitude().shared(1, Vi);
+                // The sweep may be normal while its fraction is below range.
+                // Multiplying that fraction by a large field can still yield
+                // a representable parcel: preserve range until the transfer.
+                if (full_share.is_zero() && volume != 0 && !std::isnormal(share))
+                    full_share = MacEnergy::from_double(volume).shared(1, Vi);
+                if (!full_share.is_zero()) share = full_share.project().value;
                 const double normal = .5 * dir * (1 - share);
                 const double transverse = (axis == 0 ? midy : midx) / Vi * -.5;
                 edges[count++] = {axis, face, dir, volume, axis == 0 ? normal : transverse, axis == 0 ? transverse : normal, share, full_share};
@@ -218,8 +225,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             };
             // Parcels with EOS admission backtracking.
             bool accepted = false;
+            std::size_t candidate_unresolved = 0;
             for (int attempt = 0; attempt <= 33; ++attempt) {
                 products.clear();
+                candidate_unresolved = 0;
                 bool ok = true;
                 for (std::size_t fld = 0; fld < F; ++fld) keep[fld] = source[fld][i];
                 for (int n = 0; n < count && ok; ++n) {
@@ -239,7 +248,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                             if (value != 0 && share != 0 && std::abs(pr[fld]) <= std::numeric_limits<double>::min())
                                 products.push_back({fld, value, share, pr[fld], {}});
                         }
-                        keep[fld] -= pr[fld];
+                        const double before = keep[fld]; keep[fld] -= pr[fld];
+                        if (pr[fld] != 0 && keep[fld] == before) ++candidate_unresolved;
                     }
                 }
                 if (ok) {
@@ -251,7 +261,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                         int largest = 0;
                         for (int n = 1; n < count; ++n)
                             if (proto[static_cast<std::size_t>(n) * F + fld] > proto[static_cast<std::size_t>(largest) * F + fld]) largest = n;
-                        proto[static_cast<std::size_t>(largest) * F + fld] += keep[fld];
+                        auto& parcel = proto[static_cast<std::size_t>(largest) * F + fld];
+                        const double before = parcel; parcel += keep[fld];
+                        if (keep[fld] != 0 && parcel == before) ++candidate_unresolved;
                         keep[fld] = 0;
                     }
                 }
@@ -261,6 +273,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 ++result.backtracks; theta = attempt < 32 ? theta * .5 : 0;
             }
             if (!accepted) reject("Production reconstruction EOS backtracking exhausted");
+            result.unresolved += candidate_unresolved;
             for (const auto& p : products) {
                 const auto q = p.field < K ? p.field : p.field == K ? c.q_energy() : p.field - 1;
                 if (p.scaled.is_zero()) result.rounding[q].product(p.a, p.b, p.stored);
@@ -283,6 +296,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     });
     for (const auto& b : bt) {
         backtracks += b.backtracks;
+        acc.unresolved += b.unresolved;
         for (std::size_t q = 0; q < c.quantities(); ++q) acc.transfers[q].merge(b.rounding[q]);
     }
     c.counters.reconstruction_backtracks += backtracks;
@@ -290,8 +304,9 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // ---- primal gather: retained + incoming parcels; masses before/after.
     ws.mass_after.assign(N, 0);
     std::vector<double> sum_ops(F, 0);
-    auto ops = c.exec.partials<std::vector<double>>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        std::vector<double> local(F, 0);
+    struct GatherOps { std::vector<double> operands; std::size_t unresolved = 0; };
+    auto ops = c.exec.partials<GatherOps>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        GatherOps local; local.operands.assign(F, 0);
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
@@ -300,22 +315,30 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             for (std::size_t fld = 0; fld < F; ++fld) {
                 double v = ws.retained[fld * N + i];
                 double magnitude = std::abs(v);
-                if (in_l) { v += ws.px[fld * g.NX + lf]; magnitude += std::abs(ws.px[fld * g.NX + lf]); }
-                if (in_r) { v += ws.px[fld * g.NX + rf]; magnitude += std::abs(ws.px[fld * g.NX + rf]); }
-                if (in_b) { v += ws.py[fld * g.NY + bf]; magnitude += std::abs(ws.py[fld * g.NY + bf]); }
-                if (in_t) { v += ws.py[fld * g.NY + tf]; magnitude += std::abs(ws.py[fld * g.NY + tf]); }
+                const auto incoming = [&](double amount) {
+                    const double before = v; v += amount;
+                    if (amount != 0 && v == before) ++local.unresolved;
+                    magnitude += std::abs(amount);
+                };
+                if (in_l) incoming(ws.px[fld * g.NX + lf]);
+                if (in_r) incoming(ws.px[fld * g.NX + rf]);
+                if (in_b) incoming(ws.py[fld * g.NY + bf]);
+                if (in_t) incoming(ws.py[fld * g.NY + tf]);
                 if (fld != K && v < 0) reject("Production transport produced a negative inventory");
                 if (fld < K) { f.m[fld * N + i] = v; M += v; }
                 else if (fld == K) f.U[i] = v;
                 else f.q[(fld - K - 1) * N + i] = v;
-                local[fld] += 2 * magnitude;
+                local.operands[fld] += 2 * magnitude;
             }
             ws.mass_after[i] = M;
         }
         return local;
     });
     ws.stats_valid = false; // masses changed
-    for (const auto& part : ops) for (std::size_t fld = 0; fld < F; ++fld) sum_ops[fld] += part[fld];
+    for (const auto& part : ops) {
+        acc.unresolved += part.unresolved;
+        for (std::size_t fld = 0; fld < F; ++fld) sum_ops[fld] += part.operands[fld];
+    }
     for (std::size_t k = 0; k < K; ++k) acc.operands[k] += sum_ops[k];
     for (std::size_t p = 0; p < P; ++p) acc.operands[K + p] += sum_ops[K + 1 + p];
     acc.operands[c.q_energy()] += sum_ops[K];

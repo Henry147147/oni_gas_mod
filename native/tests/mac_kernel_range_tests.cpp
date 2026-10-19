@@ -32,12 +32,14 @@ void audited(const MacClosedAdvance& next, const MacKernelReport& report) {
     for (const auto& a : report.audits) { check(a.passed, "Flagged transport failed its interval audit"); rounded += a.rounded_transfers; }
     check(rounded == report.rounded_transfers && next.report.interval_rounded_updates == rounded + report.rounded_range_inputs,
         "Flagged product counts did not reach the owner");
+    check(next.report.interval_unresolved_updates == report.unresolved_updates, "Accepted write counts did not reach the owner");
 }
 void export_ledgers(int id, const MacKernelReport& report) {
     for (const auto& a : report.audits)
         std::cout << "RLEDGER " << id << ' ' << a.quantity << ' ' << a.rounded_transfers << ' '
             << a.transfer_roundoff.mantissa() << ' ' << a.transfer_roundoff.exponent() << ' '
             << a.transfer_roundoff_bound.mantissa() << ' ' << a.transfer_roundoff_bound.exponent() << '\n';
+    std::cout << "RWRITE " << id << ' ' << report.unresolved_updates << '\n';
 }
 void small(int id, int axis, double momentum, double amount, double quantized = 0) {
     const auto before = source(3, 2, axis, momentum, amount); const auto held = before.checkpoint();
@@ -79,6 +81,7 @@ MacClosedWorld threaded() {
     const auto b = advance_mac_production(before, .002, 1, options); const auto rb = last_mac_production_report(); audited(b, rb);
     check(rb.threads_used == 12 && a.world.checkpoint() == b.world.checkpoint() && ra.rounded_transfers == rb.rounded_transfers,
         "Worker count changed flagged transport");
+    check(ra.unresolved_updates == rb.unresolved_updates, "Worker count changed accepted primary-write counts");
     for (std::size_t i = 0; i < ra.audits.size(); ++i) {
         const auto& x = ra.audits[i]; const auto& y = rb.audits[i];
         check(x.rounded_transfers == y.rounded_transfers && x.transfer_roundoff.mantissa() == y.transfer_roundoff.mantissa() &&
@@ -119,9 +122,30 @@ void cross_block() {
     MacKernelOptions options; options.threads = 12;
     const auto b = advance_mac_production(before, .002, 1, options); const auto rb = last_mac_production_report(); audited(b, rb);
     check(rb.threads_used == 12 && packet(b.world, target) > 0 && a.world.checkpoint() == b.world.checkpoint() &&
-        ra.rounded_transfers == rb.rounded_transfers, "Flagged material did not cross a deterministic row-block boundary");
+        ra.rounded_transfers == rb.rounded_transfers && ra.unresolved_updates == rb.unresolved_updates,
+        "Flagged material did not cross a deterministic row-block boundary");
     std::cout << "RCROSS 33389 12 " << donor << ' ' << target << ' ' << rb.rounded_transfers << ' ' << packet(b.world, target) << '\n';
     export_ledgers(101, rb);
+}
+void share_case(int id, int axis, double momentum, double amount, double quantized = 0) {
+    const auto initial = source(3, 2, axis, momentum, amount); auto state = initial.state();
+    state.grid.spacing_m = 0x1p450; state.grid.depth_m = 0x1p-450; // V=2^450, area=1
+    const auto& s = setup(); const MacClosedWorld before(s.registry, s.eos, state, initial.settings());
+    const auto held = before.checkpoint(); const auto next = advance_mac_production(before, .002, 1, {});
+    const auto report = last_mac_production_report(); audited(next, report);
+    const std::size_t target = axis == 0 ? (momentum > 0 ? 1U : 2U) : 3U;
+    double reference_arrival = 0;
+    if (amount >= 0x1p400) {
+        const auto reference = before.advanced(.002, 1); reference_arrival = packet(reference.world, target);
+        check(reference_arrival > 0 && packet(next.world, target) == reference_arrival &&
+            fingerprint(next.world.state()) == fingerprint(reference.world.state()),
+            "Normal sweep lost a representable parcel through its below-range share");
+    } else check(packet(next.world, target) == quantized, "Flagged parcel share used the wrong storage quantum");
+    check(before.checkpoint() == held && report.attempts == 1, "Parcel-share refinement changed its source or shared budget");
+    std::cout << "RSHARE " << id << ' ' << axis << ' ' << state.cells[0].mixture.mass() << ' ' << momentum << ' ' << .002
+        << ' ' << state.grid.volume_m3() << ' ' << amount << ' ' << packet(next.world, target) << ' ' << reference_arrival
+        << ' ' << report.rounded_transfers << '\n';
+    export_ledgers(200 + id, report);
 }
 }
 int main(int argc, char** argv) {
@@ -136,11 +160,15 @@ int main(int argc, char** argv) {
         }
         if (argc == 3 && std::string(argv[1]) == "--write-checkpoint") { write(threaded(), argv[2]); return 0; }
         check(argc == 1, "Unknown flagged-transport argument");
+        std::cout << "RVERSION 2\n";
         small(0, 0, 0x1p-700, 0); small(1, 0, 0x1p-700, 0x1p450); small(2, 0, -0x1p-700, 0x1p450);
         small(3, 1, 0x1p-700, 0x1p450); small(4, 1, -0x1p-700, 0x1p450); small(5, 0, 0x1p-700, 0x1p-600);
         small(6, 0, 0x1p-700, 0x1p54); small(7, 0, 0x1p-700, 0x1p55, std::numeric_limits<double>::denorm_min());
         small(8, 0, 0x1p-700, 0x1p56, 2 * std::numeric_limits<double>::denorm_min());
         static_cast<void>(threaded()); cross_block(); fallback_and_concurrency();
+        share_case(0, 0, 0x1p-200, 0x1p450); share_case(1, 0, 0x1p-200, 16);
+        share_case(2, 0, -0x1p-200, 32, std::numeric_limits<double>::denorm_min());
+        share_case(3, 1, 0x1p-200, 64, 2 * std::numeric_limits<double>::denorm_min());
         std::cout << "PASS flagged swept volumes, canonical momentum, quantized parcels, threads, cache lifetime, rollback and continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

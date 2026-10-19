@@ -106,13 +106,15 @@ void threaded(const std::filesystem::path& output) {
     const MacClosedWorld limited(s.registry, s.eos, scene.state, scene.settings); const auto before = limited.checkpoint(); bool exhausted = false;
     try { static_cast<void>(advance_mac_production(limited, .002, 1, options)); }
     catch (const std::runtime_error&) { exhausted = true; }
-    check(exhausted && limited.checkpoint() == before && last_mac_production_report().rounded_transfers == 0,
+    check(exhausted && limited.checkpoint() == before && last_mac_production_report().rounded_transfers == 0 &&
+        last_mac_production_report().unresolved_updates == 0,
         "Budget exhaustion published a partial trace state or ledger");
     const auto completed = advance_mac_production(limited, .002, 2, options); const auto rc = last_mac_production_report(); audit(completed, rc);
     const auto half = advance_mac_production(limited, .001, 1, options); const auto r0 = last_mac_production_report();
     const auto second = advance_mac_production(half.world, .001, 1, options); const auto r1 = last_mac_production_report();
     check(completed.world.state().cells.size() == second.world.state().cells.size() &&
-        fingerprint(completed.world.state()) == fingerprint(second.world.state()) && rc.rounded_transfers == r0.rounded_transfers + r1.rounded_transfers,
+        fingerprint(completed.world.state()) == fingerprint(second.world.state()) && rc.rounded_transfers == r0.rounded_transfers + r1.rounded_transfers &&
+        rc.unresolved_updates == r0.unresolved_updates + r1.unresolved_updates,
         "Discarded interval work inflated the accepted rounding ledger");
     std::cout << "TTHREAD " << scene.state.cells.size() << ' ' << rb.threads_used << ' ' << rb.rounded_transfers << ' ' << rr.rounded_transfers << ' ' << rc.rounded_transfers << '\n';
 }

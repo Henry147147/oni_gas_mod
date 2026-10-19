@@ -72,7 +72,10 @@ struct MacKernelReport {
     std::size_t eos_evaluations = 0, isentropic_evaluations = 0;
     std::size_t reconstruction_backtracks = 0, limited_momentum_corrections = 0;
     std::size_t compression_events = 0, shock_heat_events = 0, conduction_stages = 0, viscosity_modes = 0;
-    std::size_t rounded_range_inputs = 0, rounded_transfers = 0, unresolved_updates = 0;
+    std::size_t rounded_range_inputs = 0, rounded_transfers = 0;
+    // Accepted field/parcel writes whose nonzero increment leaves the stored
+    // value unchanged; discarded reconstruction/substep/interval work is absent.
+    std::size_t unresolved_updates = 0;
     std::uint64_t cell_substeps = 0;
     // Threads that executed the interval (MacKernelOptions::threads capped
     // by the grid's row-block count).

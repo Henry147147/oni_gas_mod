@@ -151,6 +151,16 @@ Each donor forms the full parcel before one explicit storage projection; the
 receiver reads that same parcel. Ordinary sweep/product operation order stays
 unchanged. If a subnormal intermediate has instead erased a normal final sweep,
 the coupled pressure root refines through the strict reference.
+The fraction `sweep / material_volume` has its own flag: a normal sweep divided
+by a large volume can underflow before multiplication by the transported field.
+That fraction also retains range until the shared parcel is projected.
+
+Accepted primal writes that leave storage unchanged are counted for every
+constituent, passive and U: donor-retained subtraction, parcel correction and
+receiver gather. Reconstruction trials reset their candidate counts; discarded
+substeps/intervals never publish them. These writes already enter the original
+128-epsilon operand bound, which is unchanged. `unresolved_updates` combines
+them with the existing pressure/heat write counts; it is not a U remainder.
 
 Dual momentum uses canonical `J * part / inertia` when its velocity is flagged,
 so a zero projected velocity cannot erase representable J. Flagged kinetic
@@ -355,16 +365,25 @@ arrivals and per-quantity J/K error ledgers pass. A 33,389-cell control retains
 exact one/twelve-worker state and counts (100,167 projections), clears the
 cache before ordinary owners, and restores ordinary production continuation.
 The saved-only `review_mac_kernel_range.py` derives the physical transfer and
-J/K projection errors from independent exact fractions: 916 checks and seven
-altered captures rejected. A wide-area control requires a strict interval
+J/K projection errors from independent exact fractions, including a normal sweep
+divided by material volume `2^450`: 1,318 checks and ten
+altered captures rejected on Release, ASan/UBSan, TSan and MinGW/Wine. A wide-area control requires a strict interval
 restart and proves one discarded attempt remains charged; concurrent owners
 retain separate caches. A flagged tracer also crosses a fixed row-block boundary
 with the same shared transfer on one and twelve workers. All four saved reviewers
 pass on Release, ASan/UBSan, TSan and Wine. These controls do not certify
 active-cell performance.
+The large-volume control retains the reference's `3.9806709100596318e-190`
+arrival and zero/one/two-quantum arrivals. The reader independently counts all
+accepted unresolved writes: 48/49 in six cells, and 267,113 in the 33,389-cell
+controls. Saved format 2 requires these records; `--legacy` explicitly reviews
+the earlier format. Failed interval budgets publish neither count nor state.
 
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
+Against `d2e02c4`, all 63 MAC component executables retain their exit results:
+60 outputs are byte-identical, two differ only in timing and the range fixture
+adds its version-2 records. All preceding physical records are unchanged.
 Five-interval 256- and 4,096-cell production wave checkpoints also retain every
 version-6 byte against the preceding binary. Fresh-process gas and multigrid
 images from Linux and Wine continue byte-identically on both, in both source
@@ -517,8 +536,3 @@ do not certify current automatic-multigrid active-cell performance.
   J/K products retain canonical momentum and count their projections. Other
   pressure, regularization and heat-deposition transients still lack complete
   per-value rounding ledgers; interval endpoints and inputs retain range checks.
-- A normal sweep divided by a very large material volume can still underflow
-  its parcel share before a representable transfer is formed. With cell volume
-  `2^450` and J `2^-200`, production loses a `3.9806709100596318e-190` tracer
-  arrival that the strict reference retains. Extending flag handling to that
-  ratio remains open before calm/local stepping.

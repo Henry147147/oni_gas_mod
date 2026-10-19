@@ -240,7 +240,7 @@ struct Accounts {
     std::vector<TransferRounding> transfers;
     double wall_x = 0, wall_y = 0, body_y = 0;
     double mixing_heat = 0, wall_heat = 0, compression_heat = 0, shock_heat = 0;
-    std::size_t unresolved = 0;
+    std::size_t unresolved = 0; // Accepted primary/parcel and existing pressure/heat writes.
     void resize(std::size_t quantities) {
         operands.assign(quantities, 0); rounding.assign(quantities, 0);
         transfers.assign(quantities, {});

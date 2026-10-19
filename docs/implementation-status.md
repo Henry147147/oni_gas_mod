@@ -228,19 +228,23 @@ underflows. The former large-inertia fault now advances in one attempt and
 matches the strict reference, including a representable tracer arrival.
 Signed x/y, zero/one/two-quantum arrivals, twelve-worker/cache/continuation and
 shared-budget refinement controls pass; their saved exact-fraction reader
-passes 916 checks and rejects seven altered captures on all four routes. A
-cross-block tracer uses the same shared transfer with one/twelve workers.
-A normal sweep divided by a very large material volume can still underflow
-its share and lose a representable arrival; that follow-up remains open.
+passes 1,318 checks and rejects ten altered captures on Release, ASan/UBSan,
+ThreadSanitizer and MinGW/Wine. A cross-block tracer uses the same shared transfer with one/twelve workers.
+Normal sweeps divided by very large material volumes now retain their full
+share until parcel formation. The range controls preserve the reference
+arrival and zero/one/two-quantum transfers. Accepted primal writes blocked by
+storage resolution are counted for species, passives and U (48/49 in six cells;
+267,113 in the 33,389-cell controls), without changing the conservation bound.
 The in-game reference owner is unchanged pending step f.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
 checkpoints remain unchanged. All 47 Release CTests pass; eight suites pass
 Debug ASan/UBSan and MinGW/Wine, and seven production/range suites pass
-ThreadSanitizer. Of 62 preceding MAC executable outputs, 59 are byte-identical,
-two differ only in timing and one adds intended dual-projection counts; all
-exits and physical output records agree.
+ThreadSanitizer. Against `d2e02c4`, all 63 MAC component executables retain
+their exit results: 60 outputs are byte-identical, two differ only in timing,
+and the range fixture adds its version-2 share controls and write counts.
+Every preceding physical output record agrees.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
