@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tarfile
+from build_linux_compat import glibc_versions_within_limit
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,6 +50,8 @@ def native_build_info(path: Path | None, libraries: list[Path]) -> dict | None:
         entry = recorded.get(library.name)
         if not isinstance(entry, dict) or entry.get("sha256") != hashlib.sha256(library.read_bytes()).hexdigest():
             raise ValueError("Native build provenance differs from the packaged library: " + library.name)
+        if not glibc_versions_within_limit(entry.get("required_glibc")):
+            raise ValueError("Native build provenance exceeds or omits the glibc 2.34 ceiling: " + library.name)
     return report
 
 

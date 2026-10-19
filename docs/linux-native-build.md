@@ -29,8 +29,9 @@ directory for every native build. The image can be reused with
 `compatibility-build.json` records every frozen source hash, the source revision
 and working-tree status (tracked files deleted in the working tree are skipped
 and listed as `deleted_in_working_tree`), the exact container image ID, native binary hashes,
-required glibc versions and test completion. The current builder permits 2.35, so the stricter project ceiling needs an
-explicit check of every actual library requirement before packaging.
+required glibc versions and test completion. Both the builder and supplied-provenance
+package check enforce the 2.34 ceiling. Older reports declaring 2.35 are accepted
+only when every actual recorded library requirement is at most 2.34.
 The package builder verifies the
 supplied native binaries against that report and includes it as
 `native-build-provenance.json`. This native build record is separate from the

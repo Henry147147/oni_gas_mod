@@ -258,7 +258,8 @@ Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly bet
 Linux and Wine in both source directions. The latest
 production-owner Ubuntu 22.04 snapshot passes 54 CTests, but sharp-interface
 `std::hypot` imports `GLIBC_2.35` in the observer and fails the project 2.34
-ceiling. Its game package is blocked; production game validation remains open.
+ceiling. The builder and supplied-provenance package check now enforce 2.34.
+Its game package is blocked; production game validation remains open.
 The preceding 53-test snapshot requires at most 2.34.
 
 Current automatic-multigrid timings fail the real-time targets: two pinned

@@ -17,7 +17,13 @@ import shutil
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
+MAXIMUM_GLIBC=(2,34)
 BASE_IMAGE="ubuntu@sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401"
+
+def glibc_versions_within_limit(values):
+    return isinstance(values,list) and bool(values) and all(
+        isinstance(value,str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)+',value) and
+        tuple(map(int,value.split('.')))<=MAXIMUM_GLIBC for value in values)
 
 def run(command):
     print("+ "+" ".join(map(str,command)),flush=True)
@@ -51,7 +57,7 @@ def main():
         target=source/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(original,target)
         frozen[name]=hashlib.sha256(target.read_bytes()).hexdigest()
     if not exact<=frozen.keys():raise ValueError('Native source snapshot is incomplete')
-    manifest={'kind':'linux-native-compatibility-build','base_image':BASE_IMAGE,'glibc_maximum':'2.35',
+    manifest={'kind':'linux-native-compatibility-build','base_image':BASE_IMAGE,'glibc_maximum':'2.34',
         'source_revision':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
         'source_status':subprocess.check_output(['git','status','--short'],cwd=ROOT,text=True),
         'started_utc':datetime.now(timezone.utc).isoformat(),'source_files':frozen,'deleted_in_working_tree':skipped,'passed':False}
@@ -73,8 +79,8 @@ def main():
         library=output/'native'/name
         versions=subprocess.check_output(['readelf','--version-info',library],text=True)
         values=sorted(set(re.findall(r'\bGLIBC_([0-9.]+)\b',versions)),key=lambda value:tuple(map(int,value.split('.'))))
-        if not values or any(tuple(map(int,value.split('.')))>(2,35) for value in values) or 'GLIBC_PRIVATE' in versions or 'GLIBC_ABI_DT_RELR' in versions:
-            raise ValueError(f'{name} exceeds the declared glibc 2.35 baseline: {values}')
+        if not glibc_versions_within_limit(values) or 'GLIBC_PRIVATE' in versions or 'GLIBC_ABI_DT_RELR' in versions:
+            raise ValueError(f'{name} exceeds the declared glibc 2.34 baseline: {values}')
         required[name]={'required_glibc':values,'sha256':hashlib.sha256(library.read_bytes()).hexdigest()}
     manifest.update(passed=True,libraries=required,finished_utc=datetime.now(timezone.utc).isoformat(),
         actual_game_test=False,release_ready=False)
