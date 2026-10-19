@@ -9,14 +9,15 @@ solver-plus-adapter cost at most 62.5 ms per 0.1 simulated seconds; and at
 most 25 ms per 0.1 s for 100,000 active cells. Both targets allow about
 250 ns of wall time per cell per 0.1 s.
 
-**Current production baseline (`cc9e9a0`).** The consolidated production
-kernel uses interval audits and automatic geometric multigrid. Two pinned
-21-interval evolving-wave captures measure p95 819–865 ms per 0.1 s at
-100,000 active cells and 2,210–2,329 ms at 250,000 on twelve workers.
-All cells change; no equilibrium certificate is used. These are solver-only
-failures against 25/62.5 ms, approximately 33–35× and 35–37× over budget.
-Retained workspace is about 1.6 KiB/cell; total additional memory and colony
-FPS remain unmeasured. Commands, host load and the four required cell counts
+**Current production baseline (`a118fe9`).** The consolidated production
+kernel uses interval audits, counted pressure-storage rounding and automatic
+geometric multigrid. Two pinned 21-interval evolving-wave captures measure p95
+467–533 ms per 0.1 s at 100,000 active cells and 1,721–3,197 ms at 250,000
+on twelve workers (sampled endpoint loads 16.01–20.83). All cells change; no
+equilibrium certificate is used. These solver-only failures are about 19–21×
+and 28–51× over the 25/62.5 ms budgets. Workspace is about 1.6 KiB/cell;
+standalone peak RSS at 250,000 is 753.3 MiB (3,159 B/cell). Additional
+game/adapter memory and colony FPS remain unmeasured. Commands, host load and the four required cell counts
 are in the [current kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
 Larger calm steps, local subcycling and further kernel optimization remain open.
 

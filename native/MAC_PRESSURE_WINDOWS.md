@@ -101,16 +101,17 @@ It passes 3,307 checks and rejects nineteen altered captures on Release,
 Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine. The wall/body/
 vacuum fixture separately checks energy and both canonical-momentum accounts
 in native code; the reader checks its reported account bounds.
-All 52 Release CTests pass with the ONI backend and warnings as errors. The
-affected coupled-block and both pressure-moment controls also pass the
-instrumented and Windows-target checks (targeted threaded checkpoint controls
-for the older moment methods under ThreadSanitizer). All 66 unaffected MAC
-executables retain their physical output and exit status against `11c32a6`:
-64 outputs are byte-identical and two differ only in timing. The window's
-iteration counts, workspace and last-bit results intentionally change while
-its original inputs, scientific tolerances and saved review remain intact.
-Existing checkpoint bytes and continuation are unchanged, including fresh
-Linux/Wine processes.
+All 59 Release CTests pass with the ONI backend and warnings as errors. The
+window and coupled-block inverse controls also pass Debug ASan/UBSan,
+ThreadSanitizer and MinGW/Wine. Against `3f6c50a`, all 69 preceding MAC
+executables retain physical output and exits: 67 captures are byte-identical
+and two differ only in timing. The three newer executables also retain outputs
+and exits for G1/G2, the existing `--quick` free-surface control and the M5
+placeholder; these do not certify the full free-surface/multiphase gates.
+The window's original scientific inputs, tolerances and saved review remain
+intact. Existing checkpoint bytes and continuation are unchanged; no owner or
+saved setting selects this component. The default reference wave SHA remains
+`4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
 Wine supplies Windows-target evidence; actual Windows OS runs remain open.
 
 ## Full-flow integration experiments
@@ -160,9 +161,14 @@ remain open.
 
 Two repeated `taskset -c 0-11` diagnostic runs use a 500x500 synthetic gas wave
 at 100,000 Pa with a 20 Pa disturbance, .1-second windows and twelve requested
-workers. All 250,000 cells change within a window. Warm pressure-only cost is
-1,200–1,279 ms with all cells coarse, and 2,589–2,946 ms with a prescribed
-15,500-cell stripe taking two local intervals. Host load is 26.83–28.90.
+workers. All 250,000 cells change within a window. Eight independent
+double-double chains in each fixed 256-term Krylov dot block shorten arithmetic
+dependencies; the block partition and merge order stay independent of workers.
+Repeated, interleaved captures of the compiled component measure warm
+pressure-only costs of 813–905 ms with all cells coarse and 1,407–2,031 ms
+with a prescribed 15,500-cell stripe taking two local intervals. Paired warm
+means are 13–28% and 15–27% lower than the preceding reduction, respectively.
+Sampled endpoint host loads are 17.26–21.88.
 Retained workspace is 178,741,568 and 220,086,528 bytes respectively, excluding
 transient candidates. The mixed case uses 16 outer iterations and 647 fine
 linear iterations, against 60 and 1,732 with the preceding coarse-only
@@ -173,7 +179,8 @@ audits and adapters. It is investigative data, not an evolving whole-owner
 real-time acceptance run. These costs already exceed the 62.5 ms total budget.
 CPU sampling identifies Krylov reductions and multigrid work as substantial
 remaining costs. Commands, source hashes, loads, current-native profiles and
-the preceding-commit comparison are in `local/pressure-window-operator-v1/`.
+the preceding-commit comparison are in `local/pressure-window-operator-v1/`
+and `local/pressure-window-dd-integration-v1/`.
 
 ```sh
 cmake --build build-production --target ma_mac_kernel_pressure_window_tests

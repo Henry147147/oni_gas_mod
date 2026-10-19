@@ -557,10 +557,13 @@ they do in stiff liquid systems).
 
 The unselected [pressure-window component](MAC_PRESSURE_WINDOWS.md) now uses
 its cached macro matrix and a macro preconditioner over all occupied cells.
+Its fixed Krylov dot blocks use eight independent double-double chains.
 At 250,000 cells, two pinned fixed-source diagnostic runs measure warm
-pressure-only costs of 1,200–1,279 ms for an all-coarse window and
-2,589–2,946 ms for a 15,500-cell stripe taking two local intervals (host load
-26.83–28.90). The latter needs 16 outer iterations instead of 60. These exclude
+pressure-only costs of 813–905 ms for an all-coarse window and
+1,407–2,031 ms for a 15,500-cell stripe taking two local intervals (sampled
+host loads 17.26–21.88). The latter needs 16 outer iterations instead of 60.
+All prior MAC physical captures and exits remain unchanged by this reduction.
+These exclude
 remap/audits/adapters and do not replace the evolving-owner baseline above.
 
 ## Earlier Jacobi performance

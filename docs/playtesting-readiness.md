@@ -215,8 +215,10 @@ also pass collision.
   Wall/body/empty-cell accounts, cache, rollback and twelve-worker controls
   pass. A cached macro action and a preconditioner over all occupied cells
   reduce the mixed 250,000-cell diagnostic from 60 to 16 outer iterations.
-  Current warm pressure-only cost is 2,589–2,946 ms per .1 s, with host load
-  26.83–28.90; these fixed-source samples do not certify evolving owner speed.
+  Eight fixed double-double chains per Krylov dot block preserve the preceding
+  captures and reduce paired warm means by 15–27%. Current mixed pressure-only
+  samples are 1,407–2,031 ms per .1 s (sampled loads 17.26–21.88); these
+  fixed-source captures do not certify evolving owner speed.
   An unselected full-flow probe passes the fixed 256x2 wave with .025 s mixed
   windows (0.770% wave error); .1 s mixed windows fail at 8.489%, against reference
   steps at most .0005 s. Its local remap fails strict trace accuracy without

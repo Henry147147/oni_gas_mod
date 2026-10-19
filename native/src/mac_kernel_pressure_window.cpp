@@ -160,7 +160,15 @@ struct PressureTimeWorkspace::Impl::Run {
     double dot(const std::vector<double>& a, const std::vector<double>& b) {
         std::vector<DD> sums((a.size() + 255) / 256);
         const auto partial = [&](std::size_t block) {
-            for (auto j = block * 256; j < std::min(a.size(), block * 256 + 256); ++j) sums[block].add(a[j] * b[j]);
+            // Independent DD chains shorten the dependency path without
+            // changing the fixed blocks or their worker-independent merge.
+            std::array<DD, 8> lanes{};
+            const auto begin = block * 256, end = std::min(a.size(), begin + 256);
+            auto j = begin;
+            for (; end - j >= lanes.size(); j += lanes.size())
+                for (std::size_t lane = 0; lane < lanes.size(); ++lane) lanes[lane].add(a[j + lane] * b[j + lane]);
+            for (; j < end; ++j) lanes[(j - begin) % lanes.size()].add(a[j] * b[j]);
+            for (const auto& lane : lanes) sums[block].add(lane);
         };
         if (sums.size() < 32) for (std::size_t block = 0; block < sums.size(); ++block) partial(block);
         else pool.run(sums.size(), partial);

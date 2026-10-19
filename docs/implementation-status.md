@@ -313,8 +313,10 @@ Its independent endpoint reader passes 3,307 checks/nineteen altered captures.
 Wall/body/empty-cell accounts, rejection, cache and twelve-worker controls pass.
 Its cached macro matrix now replaces repeated internal coarse-face integration,
 and its macro preconditioner includes the occupied fine region. The 250,000-cell
-mixed pressure-only diagnostic needs 16 outer iterations instead of 60 and
-measures 2,589–2,946 ms per .1 s (host load 26.83–28.90). This resets its source
+mixed pressure-only diagnostic needs 16 outer iterations instead of 60. Eight
+fixed double-double chains per Krylov dot block retain deterministic output and
+reduce paired warm means by 15–27%; current mixed samples measure 1,407–2,031 ms
+per .1 s (sampled loads 17.26–21.88). This resets its source
 between samples and is not evolving owner acceptance.
 It is pressure-only, with normal-range coefficient admission and no saved
 selection. An unselected full-flow probe now surrounds it with the production
