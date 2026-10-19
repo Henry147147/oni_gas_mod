@@ -562,6 +562,11 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
 void combine_diffusion(MacDiffusionReport& a,const MacDiffusionReport& b) {
     a.substeps+=b.substeps;a.rejected_attempts+=b.rejected_attempts;a.faces+=b.faces;a.unresolved_updates+=b.unresolved_updates;
     a.exchanged_mass_kg+=b.exchanged_mass_kg;a.elapsed_ms+=b.elapsed_ms;combine(a.energy_residual,b.energy_residual);combine(a.energy_bound,b.energy_bound);
+    a.rounded_mass_transfers+=b.rounded_mass_transfers;a.rounded_energy_transfers+=b.rounded_energy_transfers;
+    combine(a.energy_transfer_roundoff,b.energy_transfer_roundoff);
+    a.species_rounded_transfers.resize(std::max(a.species_rounded_transfers.size(),b.species_rounded_transfers.size()));
+    a.species_transfer_roundoff.resize(std::max(a.species_transfer_roundoff.size(),b.species_transfer_roundoff.size()));
+    for(std::size_t k=0;k<b.species_rounded_transfers.size();++k) { a.species_rounded_transfers[k]+=b.species_rounded_transfers[k];combine(a.species_transfer_roundoff[k],b.species_transfer_roundoff[k]); }
     a.merge_out_of_range(b);
     a.entropy_change_j_per_k+=b.entropy_change_j_per_k;a.entropy_roundoff_j_per_k+=b.entropy_roundoff_j_per_k;
     a.species_mass_residual.resize(b.species_mass_residual.size());a.species_mass_bound.resize(b.species_mass_bound.size());
@@ -589,8 +594,10 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacE
         const auto diffuse=[&] {
             if(mac_diffusion_stationary(registry_,result.world.state_))return;
             if(used>=budget)throw std::runtime_error("MAC diffusion interval exhausted its shared attempt budget");
-            auto next=advance_mac_diffusion(registry_,*thermodynamics_,result.world.state_,.5*dt,settings_.diffusion,*transport_,budget-used);
+            auto next=advance_mac_diffusion(registry_,*thermodynamics_,result.world.state_,.5*dt,settings_.diffusion,*transport_,budget-used,
+                settings_.numerical_kernel==MacNumericalKernel::production ? MacDiffusionRounding::counted:MacDiffusionRounding::reference);
             used+=next.report.substeps+next.report.rejected_attempts;
+            result.report.interval_rounded_updates+=next.report.rounded_mass_transfers+next.report.rounded_energy_transfers;
             result.world.state_=std::move(next.state);combine_diffusion(result.report.diffusion,next.report);
         };
         diffuse();

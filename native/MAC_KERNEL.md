@@ -141,10 +141,13 @@ order, mixed conduction runs sequentially.
 
 **Diffusion slot.** Gas diffusion (`mac_diffusion*.cpp`) wraps each flow
 interval in half steps at the owner level. The production policy keeps that
-wrapper around the kernel (the diffusion implementation is main's), so a
+wrapper around the kernel. Persisted production selection opts diffusion into
+[counted shared-transfer rounding](MAC_DIFFUSION.md#counted-transfer-rounding);
+the strict reference keeps its existing admission. A
 diffusion-enabled owner gets the same composition and composed energy
 account with either policy; the unit suite compares the two on the room
-scene with physical diffusion (roundoff agreement). `stage_diffusion` stays
+scene with physical diffusion (roundoff agreement). Counted transfers are
+combined into the owner's interval report. `stage_diffusion` stays
 reserved for a flux-form diffusion stage inside the kernel: per-face
 antisymmetric species fluxes on the species-major columns, accumulated into
 the same interval audit.
@@ -270,15 +273,17 @@ attempts and atomic rollback. The former interval solver/cache is removed;
 selector-1 construction and its historical checkpoints explicitly reject.
 
 The Release build enables tests, the ONI backend and warnings as errors; all
-44 CTests pass. Nine touched/owner suites pass Debug ASan/UBSan and MinGW 13
-under Wine 10. Four production suites (checkpoint, contract, multigrid
-and saved accounts) pass ThreadSanitizer. The
+45 CTests pass. Nine touched/owner suites pass Debug ASan/UBSan and MinGW 13
+under Wine 10. Five production/range suites (checkpoint, contract, multigrid,
+saved accounts and diffusion rounding) pass ThreadSanitizer. The
 independent production review passes on Release, ASan/UBSan, TSan and Wine.
-Against `8315172`, all 59 retained MAC executable exits agree:
-54 output streams are byte-identical, two differ only in timing, and three
-intentionally change retirement/selection controls and corrected wall-impulse
-residuals. The former interval executable is replaced by the saved production
-suite. The reference scientific streams remain unchanged.
+Against `c23bc36`, all 60 preceding MAC executable exits and physical outputs
+agree: 58 output streams are byte-identical and two differ only in timing.
+The new diffusion-rounding suite independently checks quantized Heun transfers,
+shared-budget rollback, tiny ternary retry and spreading-front continuation.
+Its saved reader passes 2,690 checks/six corruptions on all four routes; the
+four 400-frame 8,192-cell captures pass 131,154 checks/three corruptions. Bulk
+metrics remain unchanged and the strict aggregate helium bound is retained.
 
 The default reference wave checkpoint SHA-256 remains
 `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.

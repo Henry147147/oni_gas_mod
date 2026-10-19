@@ -13,6 +13,37 @@ and states outside the correlations' ranges, and it could decrease entropy
 when a pressure step opposed a small composition gradient. It was never
 released. Its checkpoints reject (see [persistence](#modes-configuration-and-persistence)).
 
+## Counted transfer rounding
+
+A production owner (persisted numerical selection 2) selects
+`MacDiffusionRounding::counted`. The low-level helper defaults to `reference`,
+preserving the strict oracle and existing reference checkpoint continuation.
+No new physical setting or checkpoint field is introduced.
+
+Each below-normal-range mass or energy face transfer is projected once to
+binary64, with the same stored transfer used by both endpoints. A positive
+transfer can round to zero; neither endpoint inventory is clipped or repaired.
+Every actual projection error and count is retained in full range for accepted
+predictor/corrector stages. The interval checks their aggregate error against
+one half-subnormal-quantum allowance per projection. The constituent and energy
+conservation audits keep their original 128-epsilon endpoint bounds: shared
+rounded transfers remain antisymmetric, so no absolute conservation floor is
+added.
+
+Independently rounding a ternary face can change a tiny cell's total mass.
+Affected cells retain the original local operand bound; a candidate that fails
+it retries smaller. A subnormal ternary control requires 30 accepted steps and
+29 retries, leaves its source and endpoint unchanged, and counts only the 180
+accepted projections. It never adjusts an inventory to close an account.
+Normal-path range refinement restarts from the original source and charges its
+consumed attempts to the production interval's shared budget.
+
+The report exposes mass/energy transfer counts, per-species counts and full-range
+error magnitudes. The owner combines both diffusion half steps, including when
+a later half step needs no range refinement. The in-game owner still selects
+the reference kernel; production adoption and game evidence remain milestone B
+step f.
+
 ## Equations
 
 Each face uses the union of gases present on either side, including species
@@ -337,23 +368,19 @@ out-of-range counts.
 
 These were found while verifying formulation 2:
 
-- **Trace fronts in large rooms.** A constituent absent from part of a room
-  spreads one cell per Heun stage, two per substep. Its amount falls by about
-  `dt D/dx²` per cell, roughly 1e-6 at one bar and 1 m cells. Positive
-  inventories below binary64 reject rather than becoming zero, so physical
-  diffusion faults once the tip is about 36 cells from the source. In a
-  64-cell row with a 1e-28 kg helium trace in one end cell, that happens at
-  frame 4 (about 1 s). A 40-cell row runs 400 frames because the front reaches
-  the far wall first. Accelerated 100× has a per-cell factor about 100 times
-  larger (about 1e-4) and completes 400 frames of the 64-cell row.
-  Formulation 1 had the same limit. The generated development scenes carry the
-  trace in every cell, and the 3×2 and 7×5 rooms are too small to reach it.
-  Larger configured rooms with a locally introduced gas will reach it.
-- **Strong flow beside diffused traces.** One kilogram of helium in one cell
+- **Reference trace fronts.** The strict reference retains its positive-arrival
+  storage rejection. A 64-cell row with 1e-28 kg helium in one end cell faults
+  after 27 direct 0.1-second physical-diffusion advances. At 8,192 cells, the
+  preceding production owner faults after 13 composed physical frames or 22
+  composed 100× frames; the strict diffusion wrapper still supplied both half
+  steps there. Counted production diffusion now advances these fronts. The
+  generated development rooms carry trace in every cell and do not exercise
+  this front. Active-advection rounding counts and game adoption remain open.
+- **Reference strong flow beside diffused traces.** One kilogram of helium in one cell
   of an air row (about 6 bar) runs with diffusion disabled. Physical diffusion
   first carries a 2e-12 kg trace into the neighbours, and the flow solver then
   rejects with "MAC primary storage rounding exceeds its operand bound". The
-  flow solver rejects the same state with diffusion disabled when such traces
+  retained reference flow solver rejects the same state with diffusion disabled when such traces
   are present initially, so this is the existing strong-flow limit made
   reachable.
 - **Near vacuum.** A composed owner at 1e-4 Pa exhausts its attempt budget in
@@ -362,6 +389,52 @@ These were found while verifying formulation 2:
   energy reference erases resolved thermal or elastic energy", also with
   diffusion disabled. CO₂'s large energy offset loses the resolved thermal
   energy there.
+
+## Transfer-rounding controls
+
+`ma_mac_diffusion_rounding_tests` checks quantized Heun transfers with an
+identical-property binary model, both zero and nonzero rounded arrivals, strict
+reference rejection, threaded range refinement with shared-budget rollback,
+ternary zero-net-mass retry, and source/checkpoint continuation. Its default
+trace controls run a 64-cell row for 400 frames and a 256-cell composed row
+for 40 frames in physical and 100× modes. `--large-fronts` runs the 128×64
+room for 400 frames through direct and composed diffusion in both modes.
+
+`review_mac_diffusion_rounding.py` reads saved output only. It independently
+integrates the quantized binary Heun equation with exact fractions, checks
+reported transfer errors and counts, and recomputes each front's strict
+128-epsilon aggregate helium account from every exported endpoint inventory.
+It checks the original 0.1 K/1% bulk metrics and rejects altered inventory,
+endpoint, count, bound, error and shared-budget evidence.
+
+```sh
+build-production/ma_mac_diffusion_rounding_tests > rounding.stdout
+python3 native/tests/review_mac_diffusion_rounding.py rounding.stdout
+build-production/ma_mac_diffusion_rounding_tests --large-fronts > large.stdout
+python3 native/tests/review_mac_diffusion_rounding.py large.stdout --large-fronts
+```
+
+The default saved review passes 2,690 checks and rejects six altered captures
+on Release, Debug ASan/UBSan, ThreadSanitizer and MinGW 13/Wine 10. The four
+8,192-cell runs each complete 400 frames; their reader passes 131,154 checks
+and rejects three corruptions. Direct/composed physical mode counts
+2,062,328/4,336,439 rounded mass transfers and 537,571/1,132,852 rounded energy
+transfers. The 100× runs count 493/23,322 mass and 42/4,963 energy projections.
+All retain the original aggregate helium bound. Measured bulk temperature,
+pressure, oxygen partial pressure and major-constituent differences are zero.
+
+Post-rounding physical and 100× front checkpoints continue byte-identically in
+fresh Linux and Wine processes, including Linux reads of Wine-written images.
+All 45 Release CTests pass; nine suites pass Debug ASan/UBSan and MinGW/Wine,
+and five production/range suites pass ThreadSanitizer. Against `c23bc36`, all
+60 preceding component results retain their physics and exits: 58 outputs are
+byte-identical, two differ only in timing. Supported legacy wire images and the
+sampled production images retain every byte; the default reference wave SHA
+is unchanged. Original strong-flow and vacuum-front failures remain open.
+
+These are functional precision controls, not active-cell performance evidence.
+No new game or actual Windows OS run is claimed. Active-advection transfer
+counting and in-game production adoption remain open.
 
 ## Maxwell–Stefan review
 

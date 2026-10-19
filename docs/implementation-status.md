@@ -79,8 +79,9 @@ rejected attempt.
 
 Two known limits remain:
 
-- A locally introduced gas faults physical diffusion once its front is about
-  36 cells from the source, because positive amounts below binary64 reject.
+- The retained reference diffusion path rejects a locally introduced gas front
+  once positive arrivals leave binary64 range. Production now uses counted
+  shared-transfer rounding; active-advection counts and game adoption remain open.
 - Diffused traces beside a strong pressure jump reach an existing flow-solver
   rejection.
 
@@ -199,14 +200,29 @@ while exact static states can keep their certificate. Changed geometry/schema,
 heat/mass edits, source lifetime, concurrent owners and atomic range fallback
 are covered. The strict reference remains the validation oracle.
 
+Production [diffusion](../native/MAC_DIFFUSION.md#counted-transfer-rounding)
+now rounds a below-range face transfer once before either endpoint gathers it.
+Accepted projection counts and full-range error magnitudes are checked against
+half a storage quantum each. Shared antisymmetric transfers preserve the original
+128-epsilon inventory/energy bounds. Tiny ternary candidates retry instead of
+repairing a cell's total mass; normal-range refinement preserves the consumed
+attempt budget. The exact-fraction saved reader and default row/continuation
+controls pass. All four direct/composed 8,192-cell physical/100× cases complete 400 frames,
+with the original aggregate helium bound and zero measured bulk temperature,
+pressure, oxygen-partial-pressure and major-constituent changes. Their saved
+reader passes 131,154 checks/three corruptions; default quantum/row controls
+pass 2,690 checks/six corruptions on all instrumented/Windows-target routes.
+Post-rounding front saves continue exactly in fresh Linux/Wine processes.
+The in-game reference owner is unchanged pending step f; active-advection
+rounding counts are still open.
+
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 44 Release CTests pass; nine suites pass
-Debug ASan/UBSan and MinGW/Wine, and four production suites pass ThreadSanitizer.
-Of 59 retained MAC
-executable outputs, 54 are byte-identical, two differ only in timing and three
-intentionally change saved-selection/retirement messages and wall-impulse
-residuals. Fresh-process gas/multigrid continuation agrees exactly between
+checkpoints remain unchanged. All 45 Release CTests pass; nine suites pass
+Debug ASan/UBSan and MinGW/Wine, and five production/range suites pass
+ThreadSanitizer. Of 60 preceding MAC executable outputs, 58 are byte-identical
+and two differ only in timing; all exits and physical outputs agree.
+Fresh-process gas/multigrid continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
 it predates version 6 and no new game package is claimed. Current active-cell

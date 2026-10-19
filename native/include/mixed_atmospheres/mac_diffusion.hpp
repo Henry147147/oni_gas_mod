@@ -5,6 +5,9 @@
 
 namespace ma::experimental {
 enum class MacDiffusionMode : std::uint32_t { disabled=0, physical=1, accelerated=2 };
+// The persisted production kernel selects counted transfer rounding. The
+// reference oracle retains its original strict storage/admission behaviour.
+enum class MacDiffusionRounding { reference, counted };
 // Discrete flux formulation stored in diffusion checkpoints. 2: Maxwell-Stefan
 // driving force with pressure diffusion in the log-mean entropy-stable
 // corrected mixture-averaged form, empty-cell faces closed, correlations
@@ -58,6 +61,13 @@ private:
 };
 struct MacDiffusionReport {
     std::size_t substeps=0,rejected_attempts=0,faces=0,unresolved_updates=0;
+    // Shared face transfers rounded once before either endpoint gathers them.
+    // Each error is at most half the binary64 subnormal quantum. Counts and
+    // full-range error magnitudes are audited for accepted stages only.
+    std::size_t rounded_mass_transfers=0,rounded_energy_transfers=0;
+    std::vector<std::size_t> species_rounded_transfers;
+    std::vector<MacEnergy> species_transfer_roundoff;
+    MacEnergy energy_transfer_roundoff;
     // (face, stage, pair) coefficient evaluations of accepted substeps whose
     // face T or p lies outside that pair's validated range, and the extreme
     // face T and p among them (all zero when there are none).
@@ -82,7 +92,8 @@ struct MacDiffusionAdvance { MacTransportState state; MacDiffusionReport report;
 // retry before publication. No clipping or trace cutoffs.
 MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry&,const FluidThermodynamics&,
     const MacTransportState&,double seconds,const MacDiffusionSettings&,
-    const GasTransportProfile&,std::size_t attempt_budget=4096);
+    const GasTransportProfile&,std::size_t attempt_budget=4096,
+    MacDiffusionRounding=MacDiffusionRounding::reference);
 // Sufficient zero-flux certificate: every open face joins identical inventories
 // (masses and U), or touches an empty cell.
 bool mac_diffusion_stationary(const SpeciesRegistry&,const MacTransportState&);

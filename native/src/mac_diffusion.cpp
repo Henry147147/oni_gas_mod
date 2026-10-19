@@ -10,7 +10,7 @@
 
 namespace ma::experimental {
 std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesRegistry&,const FluidThermodynamics&,
-    const MacTransportState&,double,const MacDiffusionSettings&,const GasTransportProfile&,std::size_t);
+    const MacTransportState&,double,const MacDiffusionSettings&,const GasTransportProfile&,std::size_t,MacDiffusionRounding,std::size_t&);
 namespace {
 void require(bool condition,const char* why) { if(!condition) throw std::invalid_argument(why); }
 using Wide=MacScaled;
@@ -197,21 +197,51 @@ Rates rates(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const
     }
     return result;
 }
+struct TransferRounding {
+    std::vector<std::size_t> count;
+    std::vector<MacScaledSum> error;
+    std::size_t energy_count = 0;
+    MacScaledSum energy_error;
+    explicit TransferRounding(std::size_t species) : count(species), error(species) {}
+    void merge(const TransferRounding& other) {
+        for (std::size_t k=0;k<count.size();++k) { count[k]+=other.count[k]; for(std::size_t j=0;j<other.error[k].size();++j)error[k].add(other.error[k].component(j)); }
+        energy_count+=other.energy_count; for(std::size_t j=0;j<other.energy_error.size();++j)energy_error.add(other.energy_error.component(j));
+    }
+};
+Wide stored_transfer(Wide amount,MacDiffusionRounding policy,std::size_t& count,MacScaledSum& error) {
+    if(policy==MacDiffusionRounding::reference || amount.is_zero() || amount.exponent()>=-1021)return amount;
+    const auto projection=amount.project();if(!projection.rounded)return amount;
+    const auto stored=Wide::from_double(projection.value);
+    error.add(difference(amount,stored).magnitude());++count;
+    return stored;
+}
+// Exact full-range check of the counted half-quantum allowance; this never
+// adds a unit floor to the conservation account of an unflagged quantity.
+void audit_transfer_rounding(const MacScaledSum& error,std::size_t count) {
+    if(count==0) { if(error.sign()!=0)throw std::runtime_error("Uncounted diffusion transfer rounding");return; }
+    if(count>UINT64_C(9007199254740992))throw std::runtime_error("Diffusion rounding counter exceeds its exact audit range");
+    MacScaledSum remaining;remaining.add(Wide::from_double(static_cast<double>(count)).shifted(-1075));
+    for(std::size_t k=0;k<error.size();++k)remaining.add(error.component(k).negated());
+    if(remaining.sign()<0)throw std::runtime_error("Diffusion transfer rounding exceeds its counted half-quantum allowance");
+}
 MacTransportState apply(const SpeciesRegistry& registry,const FluidThermodynamics& eos,const MacTransportState& source,
     const std::vector<Face>& links,const std::vector<std::size_t>& gases,const Rates& first,const Rates* second,
-    double dt,MacDiffusionReport& report) {
+    double dt,MacDiffusionReport& report,MacDiffusionRounding policy,TransferRounding& rounding) {
     auto target=source;const auto n=source.cells.size(),ng=gases.size();
     std::vector<MacScaledSum> delta(n*ng),heat(n);
+    std::vector<std::uint8_t> rounded_cells(policy==MacDiffusionRounding::counted?n:0);
     for(std::size_t f=0;f<links.size();++f) {
         const auto [l,r]=links[f];
         for(std::size_t k=0;k<ng;++k) {
             MacScaledSum value;value.add(first.flux[f].mass[k]);if(second)value.add(second->flux[f].mass[k]);
-            const auto amount=value.value().multiplied(second ? .5*dt:dt);
+            const auto prior_count=rounding.count[gases[k]];
+            const auto amount=stored_transfer(value.value().multiplied(second ? .5*dt:dt),policy,rounding.count[gases[k]],rounding.error[gases[k]]);
+            if(rounding.count[gases[k]]!=prior_count)rounded_cells[l]=rounded_cells[r]=1;
             delta[l*ng+k].add(amount.negated());delta[r*ng+k].add(amount);
             if(second)report.exchanged_mass_kg+=.5*amount.magnitude().project().value;
         }
         MacScaledSum value;value.add(first.flux[f].heat);if(second)value.add(second->flux[f].heat);
-        const auto energy=value.value().multiplied(second ? .5*dt:dt);heat[l].add(energy.negated());heat[r].add(energy);
+        const auto energy=stored_transfer(value.value().multiplied(second ? .5*dt:dt),policy,rounding.energy_count,rounding.energy_error);heat[l].add(energy.negated());heat[r].add(energy);
     }
     for(std::size_t i=0;i<n;++i)if(!source.grid.walls[i]) {
         for(std::size_t k=0;k<ng;++k) {
@@ -221,6 +251,14 @@ MacTransportState apply(const SpeciesRegistry& registry,const FluidThermodynamic
             if(sum.sign()>0 && p.value==0)throw std::domain_error("Positive diffused mass cannot be stored");
             target.cells[i].mixture.masses[s]=p.value;
             if(second && !delta[i*ng+k].value().is_zero() && p.value==source.cells[i].mixture.masses[s])++report.unresolved_updates;
+        }
+        // Independent quantization of a ternary face can otherwise change a
+        // tiny cell's total mass. Retry smaller instead of repairing a flux
+        // or inventory. Keep the original local operand bound unchanged.
+        if(!rounded_cells.empty() && rounded_cells[i]) {
+            MacEnergyAccount total;
+            for(const auto s:gases) { total.add(target.cells[i].mixture.masses[s]);total.add(-source.cells[i].mixture.masses[s]); }
+            if(!total.within_bound())throw std::domain_error("Rounded diffusion transfer violates zero net cell mass");
         }
         MacScaledSum sum;sum.add(source.cells[i].mixture.energy);sum.add(heat[i].value());
         target.cells[i].mixture.energy=sum.value().require_representable();
@@ -338,9 +376,10 @@ bool mac_diffusion_stationary(const SpeciesRegistry& registry,const MacTransport
     return true;
 }
 MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const FluidThermodynamics& eos,
-    const MacTransportState& source,double seconds,const MacDiffusionSettings& settings,const GasTransportProfile& profile,std::size_t budget) {
+    const MacTransportState& source,double seconds,const MacDiffusionSettings& settings,const GasTransportProfile& profile,std::size_t budget,MacDiffusionRounding rounding_policy) {
     const auto started=std::chrono::steady_clock::now();require_mac_energy_environment();settings.validate();
     require(std::isfinite(seconds) && seconds>0 && seconds<=10 && budget>0,"Invalid diffusion advance interval/budget");
+    require(rounding_policy==MacDiffusionRounding::reference || rounding_policy==MacDiffusionRounding::counted,"Invalid diffusion rounding policy");
     require(source.grid.width>0 && source.grid.height>0 && source.grid.width<=std::numeric_limits<std::size_t>::max()/source.grid.height &&
         source.cells.size()==source.grid.width*source.grid.height && source.cells.size()<=std::numeric_limits<std::size_t>::max()/2 &&
         source.grid.walls.size()==source.cells.size() && std::isfinite(source.grid.spacing_m) && std::isfinite(source.grid.depth_m) &&
@@ -348,14 +387,17 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
     for(std::size_t i=0;i<source.cells.size();++i)require(source.grid.walls[i]<=1 &&
         source.cells[i].mixture.masses.size()==registry.size(),"Invalid diffusion cell/species coverage");
     if(settings.mode==MacDiffusionMode::disabled)return {source,{}};
-    if(auto normal=advance_mac_diffusion_normal(registry,eos,source,seconds,settings,profile,budget)) {
+    std::size_t consumed=0;
+    if(auto normal=advance_mac_diffusion_normal(registry,eos,source,seconds,settings,profile,budget,rounding_policy,consumed)) {
         normal->report.elapsed_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-started).count();
         return std::move(*normal);
     }
-    MacDiffusionAdvance result{source,{}};
+    if(consumed>=budget)throw std::runtime_error("Diffusion exhausted its shared attempt budget during range refinement");
+    MacDiffusionAdvance result{source,{}};result.report.rejected_attempts=consumed;
+    TransferRounding rounding(registry.size());
     const auto links=faces(source);std::vector<std::size_t> gases;
     for(std::size_t s=0;s<registry.size();++s)if(registry[s].phase==Phase::gas)gases.push_back(s);
-    double elapsed=0,next=seconds;std::size_t attempts=0;
+    double elapsed=0,next=seconds;std::size_t attempts=consumed;
     while(elapsed<seconds) {
         const auto first=rates(registry,eos,result.state,links,gases,settings,profile);
         // Select 10% inside the 0.2 acceptance bound: the predictor's coefficients
@@ -367,13 +409,13 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
             if(++attempts>budget)throw std::runtime_error("Diffusion exhausted its attempt budget");
             if(!(dt>0) || elapsed+dt<=elapsed)throw std::runtime_error("Diffusion timestep cannot advance its clock");
             try {
-                MacDiffusionReport attempt;
-                const auto predictor=apply(registry,eos,result.state,links,gases,first,nullptr,dt,attempt);
+                MacDiffusionReport attempt;TransferRounding trial_rounding(registry.size());
+                const auto predictor=apply(registry,eos,result.state,links,gases,first,nullptr,dt,attempt,rounding_policy,trial_rounding);
                 const auto second=rates(registry,eos,predictor,links,gases,settings,profile);
                 if(second.maximum_diffusivity*dt/(source.grid.spacing_m*source.grid.spacing_m)>.2)throw std::domain_error("Diffusion predictor violates stability bound");
-                auto corrected=apply(registry,eos,result.state,links,gases,first,&second,dt,attempt);
+                auto corrected=apply(registry,eos,result.state,links,gases,first,&second,dt,attempt,rounding_policy,trial_rounding);
                 check_trial_entropy(eos,result.state,corrected);
-                result.state=std::move(corrected);result.report.exchanged_mass_kg+=attempt.exchanged_mass_kg;
+                result.state=std::move(corrected);rounding.merge(trial_rounding);result.report.exchanged_mass_kg+=attempt.exchanged_mass_kg;
                 result.report.merge_out_of_range(first.range);result.report.merge_out_of_range(second.range);
                 result.report.unresolved_updates+=attempt.unresolved_updates;++result.report.substeps;result.report.faces+=links.size();break;
             }catch(const std::domain_error&) { dt*=.5;++result.report.rejected_attempts; }
@@ -383,6 +425,16 @@ MacDiffusionAdvance advance_mac_diffusion(const SpeciesRegistry& registry,const 
             }
         }
         elapsed+=dt;next=std::min(2*dt,seconds-elapsed);
+    }
+    if(rounding_policy==MacDiffusionRounding::counted) {
+        result.report.species_rounded_transfers=rounding.count;
+        result.report.species_transfer_roundoff.resize(registry.size());
+        for(std::size_t k=0;k<registry.size();++k) {
+            audit_transfer_rounding(rounding.error[k],rounding.count[k]);
+            result.report.rounded_mass_transfers+=rounding.count[k];result.report.species_transfer_roundoff[k]=rounding.error[k].value();
+        }
+        audit_transfer_rounding(rounding.energy_error,rounding.energy_count);
+        result.report.rounded_energy_transfers=rounding.energy_count;result.report.energy_transfer_roundoff=rounding.energy_error.value();
     }
     std::vector<MacEnergyAccount> balances(registry.size());MacEnergyAccount energy;
     MacEnergySum entropy_change,entropy_bound;

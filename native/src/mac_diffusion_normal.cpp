@@ -52,7 +52,8 @@ thread_local Workspace scratch;
 // specialization of the same equations. It never discards a constituent:
 // arbitrary species counts/extreme operands use the general range-safe path.
 std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesRegistry& registry,const FluidThermodynamics& eos,
-    const MacTransportState& source,double seconds,const MacDiffusionSettings& settings,const GasTransportProfile& profile,std::size_t budget) {
+    const MacTransportState& source,double seconds,const MacDiffusionSettings& settings,const GasTransportProfile& profile,std::size_t budget,MacDiffusionRounding rounding_policy,std::size_t& consumed) {
+    consumed=0;
     const auto started=std::chrono::steady_clock::now();
     std::vector<std::size_t> gases;
     for(std::size_t s=0;s<registry.size();++s) {
@@ -245,7 +246,9 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
                 Sum change,sum;sum.add(w.masses[i][k]);
                 for(std::size_t j=0;j<adjacent.count;++j) {
                     const auto f=adjacent.face[j];const double value=corrected ? .5*w.first[f].mass[k]+.5*w.second[f].mass[k]:w.first[f].mass[k];
-                    const double amount=adjacent.sign[j]*dt*value;sum.add(amount);change.add(amount);
+                    const double amount=adjacent.sign[j]*dt*value;
+                    if(rounding_policy==MacDiffusionRounding::counted && value!=0 && !std::isnormal(amount))ordinary=false;
+                    sum.add(amount);change.add(amount);
                 }
                 target[i][k]=sum.value();if(target[i][k]<0)positive=false;
                 if(target[i][k]>0 && target[i][k]<1e-150)ordinary=false;
@@ -253,6 +256,8 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
             }
             Sum heat_change;heat.add(w.energy[i]);for(std::size_t j=0;j<adjacent.count;++j) {
                 const auto f=adjacent.face[j];const double amount=adjacent.sign[j]*dt*(corrected ? .5*w.first[f].heat+.5*w.second[f].heat:w.first[f].heat);
+                if(rounding_policy==MacDiffusionRounding::counted &&
+                    (corrected ? .5*w.first[f].heat+.5*w.second[f].heat:w.first[f].heat)!=0 && !std::isnormal(amount))ordinary=false;
                 heat.add(amount);heat_change.add(amount);
             }
             energy[i]=heat.value();
@@ -266,6 +271,7 @@ std::optional<MacDiffusionAdvance> advance_mac_diffusion_normal(const SpeciesReg
         double dt=std::min({next,seconds-elapsed,maximum>0 ? .18*g.spacing_m*g.spacing_m/maximum:seconds});
         while(true) {
             if(++attempts>budget)throw std::runtime_error("Diffusion exhausted its attempt budget");
+            if(rounding_policy==MacDiffusionRounding::counted)consumed=attempts;
             if(!(dt>0) || elapsed+dt<=elapsed)throw std::runtime_error("Diffusion clock cannot advance");
             if(apply(dt,false,w.predictor,w.predictor_energy)) {
                 const auto second_max=rates(w.predictor,w.predictor_energy,w.second);if(!ordinary)return {};

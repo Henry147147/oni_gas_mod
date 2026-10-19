@@ -136,8 +136,16 @@ also pass collision.
   cancellation error, fixed by gathering pressure components before the common
   timestep/area product. Material-boundary uncertainty requests strict-reference
   refinement. The old interval solver/cache/bridge are removed; selector-1 owners
-  and saves explicitly reject as retired. All 44 Release CTests, nine ASan/UBSan
-  and MinGW/Wine suites, and four production ThreadSanitizer suites pass. Supported
+  and saves explicitly reject as retired. Counted production diffusion now rounds
+  shared below-range transfers and audits their errors without widening the
+  original endpoint conservation bounds. Quantized binary, ternary retry, shared
+  budget and row continuation controls pass. All four direct/composed physical/100×
+  8,192-cell cases complete 400 frames with the original aggregate helium bound
+  and unchanged bulk metrics. The saved reviews pass 2,690/131,154 checks,
+  rejecting six/three altered captures. All 45 Release CTests, nine ASan/UBSan
+  and MinGW/Wine suites, and five production/range ThreadSanitizer suites pass.
+  Active-advection transfer counts remain open. The in-game owner remains
+  reference pending step f. Supported
   legacy reference images retain their bytes and continuation. Calm-region/local
   steps, open physics gates,
   current active-cell timing and in-game production use remain open.
