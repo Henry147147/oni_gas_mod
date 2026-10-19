@@ -14,8 +14,12 @@ that discarded part. The helper checks canonical finite inputs and rejects
 overflow before publishing a result. The batch entry must check the usual MAC
 nearest-even, FTZ-off environment. Exact low-part sums avoid extra renormalization.
 
-The primitive is unselected. Flagged range values still need a corresponding
-remainder path, and both kernels' U writes, energy audits, checkpoint continuation
+The arithmetic remains unselected. `store_mac_primary_remainder` supplies the
+reference/flagged-range counterpart: a nearest high part and a normalized low
+part, with an authoritative range value only when the low part's binary64
+projection rounds. It returns every discarded expansion component for the
+caller's unchanged operand audit. Malformed range projections and overflowing
+high parts reject. Both kernels' U writes, energy audits, checkpoint continuation
 and owner save framing remain to be connected. The new format version has not
 been allocated. Existing reference trajectories and checkpoint bytes stay intact.
 
@@ -33,10 +37,22 @@ build-production/ma_mac_primary_remainder_tests > CAPTURE
 python3 native/tests/review_mac_primary_remainders.py CAPTURE
 ```
 
-All 63 Release CTests pass with the ONI backend and warnings as errors. The
-component and saved reader pass on Release, ASan/UBSan, ThreadSanitizer and
-MinGW/Wine. All 72 preceding MAC executable images and physical outputs remain
-unchanged, including the default wave checkpoint SHA.
+All 64 Release CTests pass with the ONI backend and warnings as errors. Both
+components and saved readers pass on Release, ASan/UBSan, ThreadSanitizer and
+MinGW/Wine. All 73 preceding MAC executable images, physical outputs and exit codes are
+unchanged (only two timing outputs differ). The default wave checkpoint SHA
+remains `4d250703f98fd1b00af3a7da505aaac1e7a7aa5405f24644e9b299893e8cf763`.
 
 This component evidence does not close persistent-field, water-heat, vacuum,
 local-subcycling, performance or milestone-B acceptance.
+
+`ma_mac_primary_range_tests` covers 1,014 full-range sums, ties, cancellation,
+subnormal highs and corrections below binary64. Its saved-only exact-fraction
+reviewer checks 22,067 assertions and rejects twelve altered captures. The
+normal and range components and both readers pass ASan/UBSan, ThreadSanitizer
+and MinGW/Wine. These are arithmetic controls, not persistent solver state.
+
+```sh
+build-production/ma_mac_primary_range_tests > RANGE_CAPTURE
+python3 native/tests/review_mac_primary_range.py RANGE_CAPTURE
+```

@@ -127,9 +127,10 @@ also pass collision.
   remain open ([component evidence](../native/MAC_NODAL_CONVERSION.md)).
 - Persistent primary-U rounding remainders. Full-range gravity work and potential
   flux now pass standalone controls, including a 10,000-step continuation, but
-  unresolved U updates are reported rather than saved. The normal
-  [two-part arithmetic primitive](../native/MAC_PRIMARY_REMAINDERS.md) passes
-  independent controls but has no solver-state or checkpoint binding.
+  unresolved U updates are reported rather than saved. The normal and flagged-range
+  [two-part arithmetic primitives](../native/MAC_PRIMARY_REMAINDERS.md) pass
+  independent saved checks, ASan/UBSan, ThreadSanitizer and MinGW/Wine controls,
+  but have no solver-state or checkpoint binding.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
   with automatic multigrid and the pressure-storage ledger measures p95

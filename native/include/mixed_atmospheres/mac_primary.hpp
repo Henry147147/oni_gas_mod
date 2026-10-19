@@ -1,4 +1,5 @@
 #pragma once
+#include "mac_scaled.hpp"
 #include <cmath>
 #include <stdexcept>
 
@@ -42,4 +43,29 @@ inline Pair two_sum(double a, double b) {
     const auto e = primary_detail::two_sum(c.high, d.high);
     return {e.high == 0 ? 0 : e.high, e.low == 0 ? 0 : e.low, d.low, a.low != 0};
 }
+// A projected correction, with an authoritative range value only when that
+// projection rounds. Ordinary production writes use the scalar helper above.
+struct MacStoredRemainder {
+    double projected = 0;
+    MacScaled full{};
+    [[nodiscard]] bool is_zero() const noexcept { return projected == 0 && full.is_zero(); }
+};
+[[nodiscard]] inline bool same_mac_stored_remainder(const MacStoredRemainder& a, const MacStoredRemainder& b) {
+    if (a.projected != b.projected) return false;
+    if (a.full.is_zero() && b.full.is_zero()) return true;
+    return a.full.mantissa() == b.full.mantissa() && a.full.exponent() == b.full.exponent();
+}
+struct MacPrimaryFullWrite {
+    double value = 0;
+    MacStoredRemainder remainder;
+    MacEnergySum discarded;
+    bool high_rounded = false;
+};
+[[nodiscard]] MacEnergy mac_stored_remainder_value(const MacStoredRemainder&);
+[[nodiscard]] long double mac_energy_long_double(MacEnergy);
+[[nodiscard]] bool canonical_mac_primary(double, const MacStoredRemainder&);
+// Reference or flagged-range storage: retain the projected high part and a
+// range-capable correction. The caller audits every discarded component.
+[[nodiscard]] MacPrimaryFullWrite store_mac_primary_remainder(const MacEnergySum&);
+
 }
