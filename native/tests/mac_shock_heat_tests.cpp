@@ -187,6 +187,44 @@ void entropy_reference_precision() {
     std::cout << "PASS genuine cooling still violates original stored-U entropy bound\n";
 }
 }
+// A captured dam-break pair: two gas cells carrying trace liquid exchange a
+// heat far below the EOS pressure root's volume tolerance (2e-12 V). Stage
+// readings of the same state can differ within that tolerance, so each
+// reported headspace is shifted by +/-1e-12 V. Each actual entropy change
+// must still match dU/T, and their sum may not fall below the original
+// stored-U allowance. A liquid-dominated cell checks the reported headspace
+// branch without the shift.
+void trace_liquid_regression() {
+    const auto& s = ma::testing::setup();
+    const auto cell = [&](double oxygen, double nitrogen, double helium, double water, double energy) {
+        MixtureInventory m(s.registry.size());
+        m.masses[s.registry.index("oxygen")] = oxygen; m.masses[s.registry.index("nitrogen")] = nitrogen;
+        m.masses[s.registry.index("helium")] = helium; m.masses[s.registry.index("water")] = water; m.energy = energy; return m;
+    };
+    const auto exchange = [&](const MixtureInventory& source, double endpoint_energy, double volume, double root_shift) {
+        auto endpoint = source; endpoint.energy = endpoint_energy;
+        auto before = s.eos->evaluate(source, volume), after = s.eos->evaluate(endpoint, volume);
+        before.gas_volume_m3 += root_shift * volume; after.gas_volume_m3 -= root_shift * volume;
+        const double heat = endpoint_energy - source.energy;
+        const double ds = entropy_detail::change(*s.eos, source, volume, before, endpoint, volume, after).project().value;
+        const double expected = heat / (.5 * (before.temperature_k + after.temperature_k));
+        std::cout << "HTRACE " << before.liquid_volume_m3 << ' ' << before.gas_volume_m3 << ' ' << heat << ' ' << ds << ' ' << expected << '\n';
+        check(std::abs(ds - expected) <= 1e-6 * std::abs(expected), "Trace-liquid entropy change departs from dU/T");
+        MacEnergySum bound; bound.add(MacEnergy::from_double(std::abs(source.energy)).shared(1, before.temperature_k).shifted(-45));
+        bound.add(MacEnergy::from_double(std::abs(endpoint.energy)).shared(1, after.temperature_k).shifted(-45));
+        return std::pair{ds, bound.value().project().value};
+    };
+    const double volume = 0x1.47ae147ae147cp-13;
+    const auto hot = cell(0x1.516330ee972b2p-15, 0x1.2b0c48766314dp-13, 0x1.7bb2243f8608fp-106, 0x1.fdc50f26342ecp-24, -0x1.15f1f70f854cep+4);
+    const auto cold = cell(0x1.51632475587a1p-15, 0x1.2b0c3d6802c94p-13, 0x1.7bb21635d87d4p-106, 0x1.7ad19d09c1377p-25, -0x1.0304fe4c267e8p+4);
+    const auto [hot_ds, hot_bound] = exchange(hot, -0x1.15f1f710cdd63p+4, volume, 1e-12);
+    const auto [cold_ds, cold_bound] = exchange(cold, -0x1.0304fe4addf53p+4, volume, -1e-12);
+    std::cout << "HTRACESUM " << hot_ds + cold_ds << ' ' << hot_bound + cold_bound << '\n';
+    check(hot_ds + cold_ds >= -(hot_bound + cold_bound), "Trace-liquid heat exchange reduces actual entropy");
+    const auto wet = s.mixture(volume, 101325, 300, .9);
+    static_cast<void>(exchange(wet, wet.energy + 1e-3, volume, 0));
+    std::cout << "PASS trace-liquid heat exchange keeps actual stored-state entropy\n";
+}
 int main(int argc, char** argv) { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17); const auto& s = ma::testing::setup();
     for (const auto& m : s.eos->reference().materials()) std::cout << "MATERIAL " << s.registry.index(m.id) << ' ' << static_cast<int>(m.phase) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' << m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
@@ -200,6 +238,9 @@ int main(int argc, char** argv) { try {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--bracket-regression") {
         admissible_brackets(); std::cout << "PASS admissible mixed-EOS bracket regression\n"; return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--trace-liquid-regression") {
+        trace_liquid_regression(); return 0;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--entropy-regression") {
         entropy_reference_precision(); return 0;

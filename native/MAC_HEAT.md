@@ -117,10 +117,29 @@ input inventory. These are cache-correctness controls, not a strong-flow pass.
 Heat and compressive-work stages admit a candidate only if actual stored-state entropy
 does not fall beyond 128 epsilons of the stored-U/temperature operands. The change is
 computed per fixed-mass, fixed-volume endpoint with the relative helper in
-`mac_material_entropy_detail.hpp`: `dS = Cv log(T1/T0) + nR log(Vg1/Vg0)`. Pure gas
-uses the conserved caloric increment, `Cv log((U1 − offset)/(U0 − offset))`; mixed and
-liquid states use the EOS temperature and gas headspace. Identical stored U and
-constituents give exactly zero. Small ratios keep the full-exponent leading term.
+`mac_material_entropy_detail.hpp`: `dS = Cv log(T1/T0) + nR log(Vg1/Vg0)`.
+- **Thermal ratio:** every state uses the conserved caloric increment,
+  `Cv log((U1 − offset − E1)/(U0 − offset − E0))`, where E is the EOS elastic energy
+  (zero for pure gas).
+- **Headspace ratio:** gas-dominated mixed cells, where liquid fills at most half the
+  volume at both endpoints, use the closure `V − Vliquid`. Liquid-dominated cells use
+  the reported headspace `nRT/p`.
+- **Exact cases:** identical stored U and constituents give exactly zero, and small
+  ratios keep the full-exponent leading term.
+
+The EOS pressure root closes volume only to 2e-12 V, so two readings of one state
+can differ by that much. In `nRT/p` this is an absolute entropy error of about
+2e-12·pV/T, whatever the headspace. That is harmless beside a liquid-dominated
+cell's stored-U allowance, but not beside a gas cell carrying trace liquid. In a dam
+break, two such cells (about 1.2e-10 m³ of water in 1.5625e-4 m³) exchanged 4.78e-9 J
+at 300.0010 K and 300.0009 K. The true entropy increment is +6.1e-18 J/K against an
+allowance of 6.4e-15 J/K, but the headspace readings gave −9.0e-15 J/K. That falsely
+rejected the step ("Shock heat reduces actual stored-state entropy"), so moving
+liquid with the default shock heat could not run. The bound, coefficient and
+rejection sign are unchanged; only the measurement of actual stored-state entropy
+changed. `ma_mac_shock_heat_tests --trace-liquid-regression` (CTest
+`mac_shock_heat_trace_liquid_entropy`) replays the captured pair, with readings
+shifted within the root tolerance, and a liquid-dominated cell.
 
 Subtracting two absolute EOS entropy readings fails when thermal energy nearly cancels
 a negative caloric reference. In a quadratic-reconstruction separation run, a heat pair

@@ -102,8 +102,9 @@ MacEnergy equilibrium_transfer(const FluidThermodynamics& model, const MixtureIn
 }
 struct EntropyCell { const MixtureInventory* source; const MixtureInventory* endpoint; double volume; };
 struct EntropyReading {
-    double temperature_k,gas_volume_m3;
-    EntropyReading(const ReferenceEquilibriumState& state):temperature_k(state.temperature_k),gas_volume_m3(state.gas_volume_m3){}
+    double temperature_k,gas_volume_m3,liquid_volume_m3,elastic_energy_j;
+    EntropyReading(const ReferenceEquilibriumState& state):temperature_k(state.temperature_k),gas_volume_m3(state.gas_volume_m3),
+        liquid_volume_m3(state.liquid_volume_m3),elastic_energy_j(state.elastic_energy_j){}
 };
 void entropy_check(const FluidThermodynamics& model, std::span<const EntropyCell> cells,
     const std::vector<EntropyReading>& before, const std::vector<EntropyReading>& after,

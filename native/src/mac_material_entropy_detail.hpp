@@ -30,10 +30,16 @@ inline MacEnergy logarithmic_ratio(double after,double before) {
     return MacEnergy::from_double(std::log(after)-std::log(before));
 }
 // Constant constituent masses: dS=Cv*log(T1/T0)+nR*log(Vg1/Vg0).
-// Pure gas uses the actual conserved caloric increment for T1/T0, avoiding
-// both absolute entropy subtraction and a rounded-temperature subtraction.
-// The mixed/liquid path reads the actual stored-state EOS temperatures and
-// headspaces; no hypothetical isentropic endpoint substitutes for actual U.
+// T1/T0 comes from the actual conserved caloric increment, avoiding both
+// absolute entropy subtraction and a rounded-temperature subtraction: the
+// thermal energy is U minus the caloric offsets (and, with liquid, minus the
+// EOS elastic energy). The reported headspace nRT/p carries the EOS root's
+// volume tolerance (2e-12 V), an absolute entropy error of about that
+// tolerance times pV/T whatever the headspace. While liquid fills at most
+// half of both endpoints the closure V - Vliquid is used instead: such
+// gas-dominated cells have small stored-U allowances, which that residue
+// exceeds for a small heat exchange beside trace liquid. Liquid-dominated
+// cells keep the reported headspace, where V - Vliquid can cancel to zero.
 template<class Before,class After>
 inline MacEnergy change(const FluidThermodynamics& model,const MixtureInventory& source,double v0,
     const Before& before,const MixtureInventory& endpoint,double v1,const After& after) {
@@ -46,15 +52,17 @@ inline MacEnergy change(const FluidThermodynamics& model,const MixtureInventory&
         if(material.phase==ReferencePhase::ideal_gas)gas.add(mass.shared(1,material.molar_mass_kg_per_mol).multiplied(reference_gas_constant));
         else liquid=true;
     }
-    MacEnergy thermal_log;
-    if(!liquid) {
-        MacEnergySum thermal,increment;thermal.add(source.energy);thermal.add(offset.value().negated());
-        increment.add(endpoint.energy);increment.add(-source.energy);
-        thermal_log=logarithmic_increment(increment.value(),thermal.value());
-    } else thermal_log=logarithmic_ratio(after.temperature_k,before.temperature_k);
+    MacEnergySum thermal,increment;thermal.add(source.energy);thermal.add(offset.value().negated());
+    increment.add(endpoint.energy);increment.add(-source.energy);
+    if(liquid) { thermal.add(-before.elastic_energy_j);increment.add(-after.elastic_energy_j);increment.add(before.elastic_energy_j); }
+    const auto thermal_log=logarithmic_increment(increment.value(),thermal.value());
     MacEnergySum result;result.add(multiply(capacity.value(),thermal_log));
-    if(!gas.value().is_zero())result.add(multiply(gas.value(),logarithmic_ratio(liquid ? after.gas_volume_m3 : v1,
-        liquid ? before.gas_volume_m3 : v0)));
+    if(!gas.value().is_zero()) {
+        const bool closure=liquid && before.liquid_volume_m3<=.5*v0 && after.liquid_volume_m3<=.5*v1;
+        const double h0=!liquid ? v0 : closure ? v0-before.liquid_volume_m3 : before.gas_volume_m3;
+        const double h1=!liquid ? v1 : closure ? v1-after.liquid_volume_m3 : after.gas_volume_m3;
+        result.add(multiply(gas.value(),logarithmic_ratio(h1,h0)));
+    }
     return result.value();
 }
 }
