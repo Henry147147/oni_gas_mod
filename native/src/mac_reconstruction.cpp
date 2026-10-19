@@ -427,4 +427,43 @@ MacParcelPlan reconstruct_mac_interface_parcels(const SpeciesRegistry& registry,
     const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
     return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::sharp);
 }
+std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& state) {
+    model.validate_registry(registry);
+    const auto& g = state.grid; const auto count = state.cells.size(); const double volume = g.volume_m3();
+    std::vector<bool> liquid(registry.size(), false);
+    for (const auto& material : model.reference().materials()) liquid[registry.index(material.id)] = material.phase == ReferencePhase::elastic_liquid;
+    std::vector<double> alpha(count, 0), mass(count, 0), lower(count, .5);
+    for (std::size_t i = 0; i < count; ++i) {
+        if (g.walls[i]) continue;
+        const auto& m = state.cells[i].mixture; mass[i] = m.mass();
+        if (mass[i] > 0) alpha[i] = model.evaluate(m, volume).liquid_volume_m3 / volume;
+    }
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!(alpha[i] > 0 && alpha[i] < 1) || !(mass[i] > 0)) continue;
+        const auto x = static_cast<long>(i % g.width), y = static_cast<long>(i / g.width);
+        const auto at = [&](long dx, long dy) {
+            long xx = x + dx; const long yy = y + dy;
+            if (g.periodic_x) xx = (xx + static_cast<long>(g.width)) % static_cast<long>(g.width);
+            if (xx < 0 || xx >= static_cast<long>(g.width) || yy < 0 || yy >= static_cast<long>(g.height)) return alpha[i];
+            const auto n = static_cast<std::size_t>(xx) + static_cast<std::size_t>(yy) * g.width; return g.walls[n] ? alpha[i] : alpha[n];
+        };
+        const double a[3][3] = {{at(-1, -1), at(-1, 0), at(-1, 1)}, {at(0, -1), alpha[i], at(0, 1)}, {at(1, -1), at(1, 0), at(1, 1)}};
+        double nx = 0, ny = 0; if (!interface_geometry::youngs_normal(a, nx, ny)) continue;
+        const double offset = interface_geometry::line_offset(nx, ny, alpha[i]);
+        const double liquid_lower = interface_geometry::area_below(nx, ny, offset, -.5, .5, -.5, 0);
+        double liquid_mass = 0; for (std::size_t s = 0; s < registry.size(); ++s) if (liquid[s]) liquid_mass += state.cells[i].mixture.masses[s];
+        lower[i] = (liquid_mass * liquid_lower / alpha[i] + (mass[i] - liquid_mass) * (.5 - liquid_lower) / (1 - alpha[i])) / mass[i];
+    }
+    std::vector<double> weight(g.width * g.y_height(), 0);
+    for (std::size_t y = 0; y < g.y_height(); ++y) for (std::size_t x = 0; x < g.width; ++x) {
+        // Face y sits below cell row y; periodic vertical grids are rejected with gravity.
+        const auto below = y > 0 ? x + (y - 1) * g.width : none, above = y < g.height ? x + y * g.width : none;
+        double w = 0;
+        if (below != none && !g.walls[below]) w += mass[below] * (1 - lower[below]);
+        if (above != none && !g.walls[above]) w += mass[above] * lower[above];
+        weight[g.y_face(x, y)] = w;
+    }
+    return weight;
+}
 }

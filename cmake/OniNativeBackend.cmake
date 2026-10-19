@@ -239,6 +239,7 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_gate_g2_species_separation COMMAND ma_mac_gravity_gates G2)
     add_test(NAME mac_gate_m1_still_water COMMAND ma_mac_free_surface_gates M1)
     add_test(NAME mac_gate_m2_dam_break_coarse COMMAND ma_mac_free_surface_gates M2 --quick)
+    add_test(NAME mac_gate_m3_standing_wave_coarse COMMAND ma_mac_free_surface_gates M3 --quick)
     set_target_properties(ma_mac_gravity_gates ma_mac_free_surface_gates ma_mac_multiphase_gates PROPERTIES EXCLUDE_FROM_ALL FALSE)
     set_target_properties(ma_mac_compressive_eos_reuse_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     # Production substep kernel (native/MAC_KERNEL.md).

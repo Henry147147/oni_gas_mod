@@ -68,6 +68,53 @@ bool limit_pair(double il, double ir, Pair& p, double requested) {
 }
 }
 
+void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::vector<double>& weights) {
+    auto& ws = c.ws; const auto& g = c.g; const auto N = g.N; const auto& model = c.model; const auto& e = ws.eos;
+    auto& alpha = ws.gravity_alpha; auto& lower = ws.gravity_lower; auto& mass = ws.gravity_mass;
+    alpha.assign(N, 0); lower.assign(N, .5); mass.assign(N, 0);
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (g.wall[i]) continue;
+            const auto stats = cell_stats(model, f, N, i); mass[i] = stats.M;
+            if (stats.kind == liquid_cell) alpha[i] = 1;
+            else if (stats.kind == mixed_cell) {
+                double p = 0;
+                if (cached) p = e.p[i];
+                else {
+                    State st;
+                    if (!evaluate_state(model, f, N, i, stats, f.U[i], g.V, st)) reject("Sharp-interface gravity weight left its EOS domain");
+                    p = st.p;
+                }
+                alpha[i] = std::min(1., liquid_at(model, f, N, i, p).volume / g.V);
+            }
+        }
+    });
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (!(alpha[i] > 0 && alpha[i] < 1) || !(mass[i] > 0)) continue;
+            const auto x = static_cast<long>(i % g.W), y = static_cast<long>(i / g.W);
+            const auto at = [&](long dx, long dy) {
+                long xx = x + dx; const long yy = y + dy;
+                if (g.px) xx = (xx + static_cast<long>(g.W)) % static_cast<long>(g.W);
+                if (xx < 0 || xx >= static_cast<long>(g.W) || yy < 0 || yy >= static_cast<long>(g.H)) return alpha[i];
+                const auto n = static_cast<std::size_t>(xx) + static_cast<std::size_t>(yy) * g.W; return g.wall[n] ? alpha[i] : alpha[n];
+            };
+            const double a[3][3] = {{at(-1, -1), at(-1, 0), at(-1, 1)}, {at(0, -1), alpha[i], at(0, 1)}, {at(1, -1), at(1, 0), at(1, 1)}};
+            double nx = 0, ny = 0; if (!interface_geometry::youngs_normal(a, nx, ny)) continue;
+            const double offset = interface_geometry::line_offset(nx, ny, alpha[i]);
+            const double liquid_lower = interface_geometry::area_below(nx, ny, offset, -.5, .5, -.5, 0);
+            double liquid_mass = 0; for (const auto k : model.liquids) liquid_mass += f.m[k * N + i];
+            lower[i] = (liquid_mass * liquid_lower / alpha[i] + (mass[i] - liquid_mass) * (.5 - liquid_lower) / (1 - alpha[i])) / mass[i];
+        }
+    });
+    weights.assign(g.NY, 0);
+    c.exec.rows([&](std::size_t y0, std::size_t, std::size_t blk) {
+        for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
+            const auto fidx = g.yface(col, row); const auto l = g.yl[fidx], r = g.yr[fidx];
+            weights[fidx] = (l == none ? 0 : mass[l] * (1 - lower[l])) + (r == none ? 0 : mass[r] * lower[r]);
+        }
+    });
+}
 void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     (void)dt;
     auto& ws = c.ws; const auto& g = c.g; const auto& model = c.model; const auto N = g.N;
@@ -670,6 +717,38 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     acc.operands[c.q_jx()] += jx_ops; acc.operands[c.q_jy()] += jy_ops;
     c.counters.limited_momentum += limited;
     if (c.options.collect_stage_timing) c.timing.momentum_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_dual).count();
+    // ---- time-centred sharp-interface gravity weight. The pressure stage
+    // applied -g W_start dt; each y face now receives -g (W_end - W_start) dt / 2
+    // (zero at rest). Its body work joins the gravity adjustment below and
+    // boundary faces pass it to the wall (reference: mac_closed_world.cpp).
+    if (sharp && c.settings.gravity_m_per_s2 != 0) {
+        interface_gravity_weights(c, f, false, ws.gravity_weight_end);
+        const double gk = c.settings.gravity_m_per_s2;
+        struct Kick { double body = 0, wall = 0, jy = 0, energy = 0; PrimaryRounding primary; std::size_t unresolved = 0; };
+        const auto kicks = c.exec.partials<Kick>([&](std::size_t y0, std::size_t, std::size_t blk) {
+            Kick k;
+            for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
+                const auto fidx = g.yface(col, row);
+                const double change = ws.gravity_weight_end[fidx] - ws.gravity_weight_start[fidx];
+                if (change == 0) continue;
+                const double kick = -gk * change * (.5 * dt);
+                k.body += kick;
+                if (g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0)) { k.wall -= kick; continue; }
+                const double before = f.jy[fidx], after = before + kick, inertia = ws.iy1[fidx];
+                f.jy[fidx] = after; k.primary.addition(before, kick, after);
+                if (kick != 0 && after == before) ++k.unresolved;
+                const double work = kick * (.5 * (before + after) / inertia);
+                ws.body_work_y[fidx] += work;
+                k.jy += std::abs(before) + std::abs(kick) + std::abs(after);
+                k.energy += std::abs(work) + .5 * before * (before / inertia) + .5 * after * (after / inertia);
+            }
+            return k;
+        });
+        for (const auto& k : kicks) {
+            acc.body_y += k.body; acc.wall_y += k.wall; acc.unresolved += k.unresolved;
+            acc.operands[c.q_jy()] += k.jy; acc.operands[c.q_energy()] += k.energy; acc.primary[c.q_jy()].merge(k.primary);
+        }
+    }
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
     struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; DD gravity_entropy; double gravity_entropy_operands = 0; };

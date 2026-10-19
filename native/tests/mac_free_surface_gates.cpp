@@ -216,7 +216,9 @@ bool m3(bool quick) {
                   << " amplitude_change_per_period=" << r.change << '\n';
     }
     bool converging = true; for (std::size_t i = 1; i < errors.size(); ++i) converging = converging && errors[i] <= errors[i - 1];
-    if (quick) return verdict("M3-quick", errors.back() <= .05);
+    // Coarse regression (32 cells): period within 5%, amplitude change within
+    // 5% per period (measured -3.6%).
+    if (quick) return verdict("M3-quick", errors.back() <= .05 && std::abs(change) <= .05);
     // An inviscid wave neither loses more than 2% per period nor grows.
     return verdict("M3", errors.back() <= .01 && converging && change >= -.02 && change <= .02);
 }

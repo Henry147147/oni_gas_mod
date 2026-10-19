@@ -14,7 +14,7 @@ CTests.
 | G2 gravitational species separation | `ma_mac_gravity_gates G2` | pass | `mac_gate_g2_species_separation` |
 | M1 still water | `ma_mac_free_surface_gates M1` | pass | `mac_gate_m1_still_water` |
 | M2 dam break | `ma_mac_free_surface_gates M2` | pass | `mac_gate_m2_dam_break_coarse` (16 cells across a only) |
-| M3 standing wave | `ma_mac_free_surface_gates M3` | fail: amplitude grows | — |
+| M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | open: no immiscible interfaces | — |
 | M5 phase change | `ma_mac_multiphase_gates M5` | open: no phase change | — |
 | V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | fail | — |
@@ -47,10 +47,11 @@ pressure-diffusion term ([diffusion](MAC_DIFFUSION.md)). Results:
 
 **M1.** A 1 m tank (32 × 32 cells) holds water 0.5 m deep under air, built in discrete
 hydrostatic balance with the surface on a face. After 10 s:
-- the maximum speed is 3.8e-9 m/s;
+- the maximum speed is 1.6e-11 m/s (3.8e-9 before the
+  [sharp-interface gravity weight](MAC_PRESSURE.md#gravity-with-sharp-interfaces));
 - the surface has drifted 3e-15 m;
 - the water above the surface cell is exactly zero;
-- water mass has drifted 1.2e-17.
+- water mass has drifted 1.9e-17.
 
 This gate found two sharp-interface defects that leaked trace water upward through
 the air ([transport](MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3)).
@@ -63,42 +64,33 @@ this is the time-origin shift of Lethe's validation, adopted by user decision on
 | T (data) | 0.84 | 1.19 | 1.43 | 1.82 | 2.20 | 2.50 | 2.82 | 2.96 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Data | 1.23 | 1.44 | 1.67 | 2.11 | 2.56 | 3.00 | 3.44 | 3.67 |
-| 64 cells | 1.27 | 1.55 | 1.77 | 2.20 | 2.68 | 3.08 | 3.54 | 3.75 |
-| 32 cells | 1.27 | 1.54 | 1.76 | 2.16 | 2.62 | 3.02 | 3.47 | 3.68 |
+| 64 cells | 1.27 | 1.55 | 1.78 | 2.21 | 2.68 | 3.09 | 3.55 | 3.76 |
+| 32 cells | 1.27 | 1.55 | 1.77 | 2.17 | 2.63 | 3.02 | 3.48 | 3.69 |
 
-- **Front:** the worst error is 7.4% (bound 10%).
-- **Grid agreement:** the two finest grids agree within 2.2% (bound 3%).
+- **Front:** the worst error is 7.6% (bound 10%).
+- **Grid agreement:** the two finest grids agree within 2.1% (bound 3%).
 - **Interface:** the band, counting cells 1–99% full across the interface, is at most
   3 cells wide.
 - **Mist:** liquid in cells under 1% full is at most 7e-5 of the water. A patch of
   0.1–0.5% full cells briefly forms near the column's upper corner around T ≈ 1.3.
-- **Conservation:** water mass drifts by at most 6e-17.
+- **Conservation:** water mass drifts by at most 6e-18.
 
-## Failing gates
-
-**M3 standing wave.** The period converges to linear theory:
+**M3.** The period converges to linear theory, and the amplitude
+change is within ±2% per period on the finest grid:
 
 | Cells per wavelength | 32 | 64 | 128 |
 | --- | ---: | ---: | ---: |
-| Period error | 2.4% | 0.61% | 0.052% |
-| Amplitude change per period | +0.9% | +6.6% | +8.8% |
+| Period error | 0.38% | 0.17% | 0.12% |
+| Amplitude change per period | −3.6% | −0.71% | −0.23% |
 
-The amplitude grows, so the run fails.
-- **Not the regularisation:** with shock heat and compression viscosity off, the
-  amplitude changes by −1.2%, +5.4% and +10.7% per period.
-- **Not only face crossing:** moving the mean surface to mid-cell (no face crossing)
-  still grows the wave 4.9% per period at 128 cells.
-- **Where the energy comes from:** the energy budget shows the gravity
-  reconciliation removing about 0.01 J/m of U every half period. That is about four
-  times this wave's energy (2.5e-3 J/m). It returns as mechanical energy, most of
-  which is dissipated again as mixing heat (0.047 J/m in three periods).
-- **Cause:** sharp mass fluxes combined with mean-density face inertia and weight.
-  The face above a thin liquid layer carries half of that layer's weight and
-  inertia, although the liquid rests on the face below. Raising and lowering the
-  surface therefore do not balance, and each cycle feeds the wave.
-- **Fix:** this is the known consistency requirement between mass and momentum
-  transport for VOF methods at large density ratios. Free surfaces need face mass
-  and weight consistent with the reconstructed interface.
+Before the [sharp-interface gravity weight](MAC_PRESSURE.md#gravity-with-sharp-interfaces),
+the wave grew +0.9%, +6.6% and +8.8% per period. The growth was proportional to the
+time step (6.6%, 3.3% and 1.4% at 64 cells with limits of 0.004, 0.002 and 0.0005 s):
+a start-of-substep face weight is first order and anti-damping. It was also larger
+with mean-density face weights, which put half of a thin liquid layer's weight on
+the gas face above it. Time-centring a geometric weight removes both effects.
+
+## Failing gates
 
 **V vacuum front.** The N128 run stops with "Compressive actual stored-state
 entropy falls below the original stored-U allowance" ([vacuum](MAC_VACUUM.md)).
@@ -109,7 +101,7 @@ Front tracking into vacuum needs a void phase.
 **M4.** Water-like (1000 kg/m³) over lighter (800 kg/m³) liquid, 64 cells per
 0.1 m wavelength, perturbation 1e-5 m. The liquids still blend within a cell, so
 the gate stays open even though the measured numbers meet the criteria:
-- the unstable growth rate is 7.81/s, against √(A g k) = 8.28/s (5.6% low);
+- the unstable growth rate is 7.95/s, against √(A g k) = 8.28/s (4.0% low);
 - a flat stable interface stays at rest within 1.1e-12 m/s.
 
 **M5.** It reports open until phase change exists.

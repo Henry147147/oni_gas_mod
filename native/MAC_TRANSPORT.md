@@ -190,12 +190,13 @@ Directionally split sweeps would remove this.
 
 A diagnostic dam break (48×24 cells of 12.5 mm; water column a = 0.1 m by 2a under
 air at 1 atm, 300 K; defaults otherwise) reaches T = t√(2g/a) = 3 with both selectors,
-conserving liquid mass to 1e-16:
+conserving liquid mass to 1e-16. Selector 3 includes its
+[sharp-interface gravity weight](MAC_PRESSURE.md#gravity-with-sharp-interfaces):
 
 | At T = 3.08 | Kernel | Front Z = x/a | Partly filled cells | Liquid reach | Mist | Wall time |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| `interface_plic` | reference | 3.625 | 58 | 3.75 a | 0.006% | 210 s |
-| `interface_plic` | production | 3.625 | 51 | 3.75 a | 0.013% | 1 s |
+| `interface_plic` | reference | 3.625 | 46 | 3.75 a | 0.014% | 285 s |
+| `interface_plic` | production | 3.625 | 53 | 3.75 a | 0.027% | 1 s |
 | `limited_linear` | reference | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
 | `limited_linear` | production | 4.0 | 435 | 6 a (whole tank) | 0.18% | 13 s |
 
@@ -212,8 +213,8 @@ audit through the gravity reconciliation credit
 ([kernel](MAC_KERNEL.md#gravity-reconciliation-entropy)).
 
 One liquid region is placed per donor, so immiscible liquids are not separated from
-each other. Gas/vacuum fronts are not covered. Gate status (still water passes; the
-dam break and standing wave do not yet) is in [MAC_GATES.md](MAC_GATES.md).
+each other. Gas/vacuum fronts are not covered. Still water, the dam break and the standing
+wave pass their gates ([MAC_GATES.md](MAC_GATES.md)).
 
 ### Limited linear reconstruction (selector 1)
 

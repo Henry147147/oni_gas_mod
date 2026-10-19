@@ -26,4 +26,11 @@ namespace ma::experimental {
 [[nodiscard]] MacParcelPlan reconstruct_mac_interface_parcels(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, std::span<const double> material_volumes_m3,
     const MacMassFluxes& volume_fluxes_m3, double maximum_outgoing_fraction = .4);
+// Gravity weight of each y face with sharp interfaces: the mass of the two half
+// cells beside it (upper half of the cell below, lower half of the cell above).
+// A cell holding both phases splits by its PLIC line at the grid volume, each
+// phase at its cell-average density; other cells split evenly, so the weight
+// equals the face inertia (m_below + m_above) / 2 away from interfaces.
+[[nodiscard]] std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry&, const FluidThermodynamics&,
+    const MacTransportState&);
 }

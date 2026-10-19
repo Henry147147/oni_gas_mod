@@ -198,7 +198,7 @@ g = 9.81 m/s², the production kernel and the default settings; M1–M3 select
 sharp interfaces (material selector 3). Conservation means each species and
 passive exact to the interval audit, and liquid volume exact. Commands,
 measurements and diagnoses are in [MAC_GATES.md](../native/MAC_GATES.md).
-Status: G1, G2, M1 and M2 pass; M3 and V fail; M4 and M5 are open.
+Status: G1, G2 and M1–M3 pass; V fails; M4 and M5 are open.
 
 | Gate | Setup | Pass criteria |
 | --- | --- | --- |

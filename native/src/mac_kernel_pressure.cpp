@@ -379,6 +379,11 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     const double A = g.A, gravity = c.settings.gravity_m_per_s2;
     evaluate_cells(c, f, ws.eos);
     auto& e = ws.eos;
+    // Sharp interfaces weigh y faces by their PLIC half-cell masses; the
+    // transport stage time-centres the weight (MAC_PRESSURE.md).
+    const bool sharp_gravity = gravity != 0 && c.settings.reconstruction == MacMaterialReconstruction::interface_plic;
+    if (sharp_gravity) interface_gravity_weights(c, f, true, ws.gravity_weight_start);
+    const auto weight_y = [&](std::size_t fidx) { return sharp_gravity ? ws.gravity_weight_start[fidx] : ws.iy[fidx]; };
     ws.anchor.resize(N);
     for (auto* v : {&ws.dV, &ws.dW, &ws.cc, &ws.dU, &ws.bdiag}) v->assign(N, 0);
     for (auto* v : {&ws.res, &ws.tdV, &ws.tdW, &ws.tcc, &ws.tres, &ws.Vmat, &ws.tdU}) v->resize(N);
@@ -440,19 +445,19 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto movable_y = [&](std::size_t fidx) { return g.yl[fidx] != none && g.yr[fidx] != none && ws.iy[fidx] > 0; };
     for (auto* v : {&ws.sx, &ws.keep}) v->assign(g.NX, 0);   // sx: c0, keep: c1 (x faces)
     for (auto* v : {&ws.sy, &ws.jsum}) v->assign(g.NY, 0);   // sy: c0, jsum: c1 (y faces)
-    const auto coefficients = [&](double J, double I, double dp0, double accel, double& c0, double& c1) {
+    const auto coefficients = [&](double J, double I, double dp0, double accel, double& c0, double& c1, double W) {
         const double half = A * dt * dt / (2 * I);
-        c0 = A * dt * (J / I) + half * (A * dp0 + I * accel);
+        c0 = A * dt * (J / I) + half * (A * dp0 + W * accel);
         c1 = half * A;
     };
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
             const auto fidx = g.xface(col, row);
-            if (movable_x(fidx)) coefficients(f.jx[fidx], ws.ix[fidx], ws.dp0x[fidx], 0, ws.sx[fidx], ws.keep[fidx]);
+            if (movable_x(fidx)) coefficients(f.jx[fidx], ws.ix[fidx], ws.dp0x[fidx], 0, ws.sx[fidx], ws.keep[fidx], ws.ix[fidx]);
         }
         for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
             const auto fidx = g.yface(col, row);
-            if (movable_y(fidx)) coefficients(f.jy[fidx], ws.iy[fidx], ws.dp0y[fidx], -gravity, ws.sy[fidx], ws.jsum[fidx]);
+            if (movable_y(fidx)) coefficients(f.jy[fidx], ws.iy[fidx], ws.dp0y[fidx], -gravity, ws.sy[fidx], ws.jsum[fidx], weight_y(fidx));
         }
     });
     const auto& c0x = ws.sx; const auto& c1x = ws.keep; const auto& c0y = ws.sy; const auto& c1y = ws.jsum;
@@ -579,8 +584,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             if (!(ws.iy[fidx] > 0)) continue;
             const double I = ws.iy[fidx], J0 = f.jy[fidx];
             const double dp = ws.dp0y[fidx] + (dWfinal(g.yl[fidx]) - dWfinal(g.yr[fidx]));
-            const double gimp = -I * gravity * dt;
-            const double impulse = gravity == 0 ? dt * A * dp : dt * (A * dp + (-I * gravity));
+            const double W = weight_y(fidx);
+            const double gimp = -W * gravity * dt;
+            const double impulse = gravity == 0 ? dt * A * dp : dt * (A * dp + (-W * gravity));
             o.body += gimp;
             o.jy += std::abs(J0) + std::abs(impulse) + std::abs(gimp);
             if (!movable_y(fidx)) {

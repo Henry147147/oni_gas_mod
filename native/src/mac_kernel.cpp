@@ -41,6 +41,12 @@ using Clock = std::chrono::steady_clock;
 struct RangeFlag { std::size_t consumed_attempts = 0; };
 double since(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
 
+// The time-centred sharp-interface gravity weight is implemented for the
+// midpoint pressure stage only.
+bool sharp_gravity_moments(const MacClosedSettings& s) {
+    return s.reconstruction == MacMaterialReconstruction::interface_plic && s.gravity_m_per_s2 != 0 &&
+        s.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint;
+}
 void require_supported(const MacClosedSettings& s) {
     s.validate();
     require(s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
@@ -51,6 +57,7 @@ void require_supported(const MacClosedSettings& s) {
         "Production kernel does not support explicit incomplete Cholesky");
     require(s.compression_viscosity != MacCompressionViscosity::coupled_pressure,
         "Production kernel does not support coupled compressive pressure (compression selector 3)");
+    require(!sharp_gravity_moments(s), "Sharp-interface gravity weights require midpoint pressure integration");
 }
 Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state) {
     eos.validate_registry(registry);
@@ -291,7 +298,8 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.retained, &ws.fx, &ws.fy, &ws.theta, &ws.keep, &ws.jsum, &ws.ktr, &ws.mix, &ws.wheat, &ws.v0, &ws.vprov, &ws.slope0,
         &ws.slope1, &ws.cour0, &ws.cour1, &ws.face_heat_x, &ws.face_heat_y, &ws.dual_en, &ws.dual_et, &ws.dual_j1, &ws.speed,
         &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
-        &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy}) add(*v);
+        &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy,
+        &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_lower, &ws.gravity_mass}) add(*v);
     add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase);
     for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->q); add(f->jx); add(f->jy); }
     return total;
@@ -492,7 +500,7 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
     return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
         s.reconstruction == MacMaterialReconstruction::interface_plic) &&
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
-        s.compression_viscosity != MacCompressionViscosity::coupled_pressure;
+        s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s);
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
     // Below-range values (and full-range canonical momentum, whose binary64

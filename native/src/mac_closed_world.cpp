@@ -115,8 +115,8 @@ MacEnergyAccount energy_difference(const MacTransportState& old, const MacTransp
     return balance;
 }
 struct StaticEquilibrium { MacScaled body_force_y; };
-std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportState& state, const MacClosedSettings& settings,
-    const FluidThermodynamics& model) {
+std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry& registry, const MacTransportState& state,
+    const MacClosedSettings& settings, const FluidThermodynamics& model) {
     for (const auto* values : {&state.momentum_x, &state.momentum_y})
         for (const double value : *values) if (value != 0) return {};
     // A projected zero may retain a nonzero canonical momentum below binary64.
@@ -144,18 +144,23 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const MacTransportStat
         pressure[i]=reading.mechanical_pressure_pa;temperature[i]=reading.temperature_k;mass[i]=state.cells[i].mixture.mass();
     }
     const double area=state.grid.spacing_m*state.grid.depth_m;
+    // Sharp interfaces weigh y faces by their PLIC half-cell masses.
+    const auto weights=settings.reconstruction==MacMaterialReconstruction::interface_plic ?
+        mac_interface_gravity_weights(registry,model,state) : std::vector<double>{};
     MacScaledSum body;
-    for (int axis=0;axis<2;++axis) for (const auto& pair : axis==0 ? topology.x : topology.y) {
+    for (int axis=0;axis<2;++axis) for (std::size_t f=0;f<(axis==0 ? topology.x : topology.y).size();++f) {
+        const auto& pair=(axis==0 ? topology.x : topology.y)[f];
+        const double weight=axis==0 ? 0 : !weights.empty() ? weights[f] :
+            (pair.left==none ? 0 : .5*mass[pair.left])+(pair.right==none ? 0 : .5*mass[pair.right]);
         if (axis==1) {
-            const double inertia=(pair.left==none ? 0 : .5*mass[pair.left])+(pair.right==none ? 0 : .5*mass[pair.right]);
-            if (!std::isfinite(inertia*settings.gravity_m_per_s2)) return {};
-            body.add(force_product(-inertia,settings.gravity_m_per_s2));
+            if (!std::isfinite(weight*settings.gravity_m_per_s2)) return {};
+            body.add(force_product(-weight,settings.gravity_m_per_s2));
         }
         if (pair.left==none || pair.right==none) continue;
         if (settings.thermal_conduction && temperature[pair.left]!=temperature[pair.right]) return {};
         if (axis==0) { if (pressure[pair.left]!=pressure[pair.right]) return {}; }
         else {
-            const double inertia=.5*mass[pair.left]+.5*mass[pair.right];
+            const double inertia=weight;
             MacScaledSum force;
             force.add(force_product(area,pressure[pair.left]-pressure[pair.right]));
             force.add(force_product(-inertia,settings.gravity_m_per_s2));
@@ -217,6 +222,11 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     }
     std::vector<MaterialCell> materials; materials.reserve(topology.active.size());
     for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, g.volume_m3(), 0});
+    // Sharp interfaces weigh each y face by the mass of its two half cells
+    // (PLIC split) at the substep start; a kick after transport time-centres
+    // that weight (MAC_PRESSURE.md, "Gravity with sharp interfaces").
+    const bool sharp_gravity = settings.gravity_m_per_s2 != 0 && settings.reconstruction == MacMaterialReconstruction::interface_plic;
+    const auto weight_start = sharp_gravity ? mac_interface_gravity_weights(registry, model, source) : std::vector<double>{};
     const double area = g.spacing_m * g.depth_m; require(std::isfinite(area) && area > 0, "MAC closed area cannot be represented");
     std::vector<OccupiedMaterialNode> nodes;
     for (int axis = 0; axis < 2; ++axis) {
@@ -225,8 +235,9 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         for (std::size_t f = 0; f < pairs.size(); ++f) if (m[f] > 0) {
             map[f] = nodes.size(); const auto& pair = pairs[f];
             const auto velocity = j[f].shared(1, m[f]).project(); if (velocity.rounded) ++result.rounded_pressure_velocity_inputs;
+            const double weight_ratio = axis == 1 && sharp_gravity ? weight_start[f] / m[f] : 1;
             nodes.push_back({pair.left == none ? none : topology.local[pair.left], pair.right == none ? none : topology.local[pair.right],
-                area, m[f], velocity.value, axis == 0 ? 0 : -settings.gravity_m_per_s2, pair.left == none || pair.right == none});
+                area, m[f], velocity.value, axis == 0 ? 0 : -settings.gravity_m_per_s2 * weight_ratio, pair.left == none || pair.right == none});
         }
     }
     ReferenceRootOptions work_root;
@@ -283,7 +294,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
             const double pr = pair.right == none || topology.local[pair.right] == none ? 0 : result.pressure.work_pressures_pa[topology.local[pair.right]];
             const double pressure_difference = result.pressure.node_pressure_differences_pa.empty() ? pl - pr
                 : result.pressure.node_pressure_differences_pa[(axis == 0 ? result.pressure_nodes_x : result.pressure_nodes_y)[f]];
-            const auto gravity_force = axis == 0 ? MacScaled{} : force_product(-m[f], settings.gravity_m_per_s2);
+            const auto gravity_force = axis == 0 ? MacScaled{} : force_product(-(sharp_gravity ? weight_start[f] : m[f]), settings.gravity_m_per_s2);
             const auto gravity_impulse = gravity_force.multiplied(dt);
             MacScaled impulse;
             if (settings.gravity_m_per_s2 == 0) {
@@ -414,6 +425,46 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     } else transported = advance_mac_transport(registry, result.pressure_state, result.mass_fluxes_kg, model,
         result.material_volumes_m3, settings.momentum_reconstruction);
     result.transport = std::move(transported.report); result.state = std::move(transported.state);
+    // Time-centred sharp-interface weight: the pressure stage applied
+    // -g W_start dt; each y face now receives -g (W_end - W_start) dt / 2.
+    // It vanishes at rest, so hydrostatic balance is unchanged. Its body work
+    // joins the gravity reconciliation; boundary faces pass it to the wall.
+    MacEnergy kick_bound;
+    if (sharp_gravity) {
+        const auto weight_end = mac_interface_gravity_weights(registry, model, result.state);
+        const auto end_inertia = mac_face_inertias(registry, result.state, model);
+        auto jy = mac_field_values(result.state.momentum_y, result.state.full_momentum_y);
+        const auto before = result.state; std::vector<MacEnergy> works;
+        MacScaledSum kicks, reactions;
+        for (std::size_t f = 0; f < topology.y.size(); ++f) {
+            const double difference = weight_end[f] - weight_start[f]; require_finite(difference, "MAC sharp gravity weight change");
+            if (difference == 0) continue;
+            const auto kick = force_product(-difference, settings.gravity_m_per_s2).multiplied(.5 * dt);
+            kicks.add(kick);
+            const auto& pair = topology.y[f];
+            if (pair.left == none || pair.right == none || !(end_inertia.y[f] > 0)) { reactions.add(kick.negated()); continue; }
+            MacScaledSum updated; updated.add(jy[f]); updated.add(kick); const auto next = mac_scaled_primary(updated);
+            if (!resolved_update(jy[f], next, kick)) ++result.unresolved_momentum_updates;
+            MacScaledSum midpoint; midpoint.add(jy[f]); midpoint.add(next);
+            const auto work = product(kick, midpoint.value().shifted(-1).shared(1, end_inertia.y[f]));
+            works.push_back(work);
+            MacEnergySum total; total.add(result.full_gravity_body_work_y[f]); total.add(work);
+            result.full_gravity_body_work_y[f] = mac_scaled_primary(total);
+            result.gravity_body_work_y[f] = projected_energy(result.full_gravity_body_work_y[f], result.rounded_gravity_projections);
+            jy[f] = next;
+        }
+        store_mac_field(result.state.momentum_y, result.state.full_momentum_y, jy);
+        MacScaledSum body; body.add(result.full_body_impulse_y); body.add(mac_scaled_primary(kicks));
+        result.full_body_impulse_y = mac_scaled_primary(body);
+        result.body_impulse_y = projected_energy(result.full_body_impulse_y, result.rounded_gravity_projections);
+        MacScaledSum wall; wall.add(result.full_pressure_wall_impulse_y); wall.add(mac_scaled_primary(reactions));
+        result.full_pressure_wall_impulse_y = mac_scaled_primary(wall);
+        result.pressure_wall_impulse_y = result.full_pressure_wall_impulse_y.project().value;
+        auto balance = energy_difference(before, result.state, end_inertia, end_inertia);
+        for (const auto& work : works) balance.add(work.negated());
+        if (!balance.within_bound()) throw std::domain_error("MAC sharp-interface gravity kick energy exceeds its operand bound");
+        kick_bound = balance.bound();
+    }
     if (settings.gravity_m_per_s2 != 0) {
         MacEnergyAccount potential, gravity_internal;
         MacEnergySum change;
@@ -490,7 +541,7 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     }
     const auto total = energy_difference(source, result.state, inertia, mac_face_inertias(registry, result.state, model), settings.gravity_m_per_s2);
     MacEnergySum budget; budget.add(result.pressure_energy_bound_wide_j); budget.add(result.transport.energy_bound_wide_j);
-    budget.add(result.gravity_internal_bound_wide_j); budget.add(result.potential_transport_bound_wide_j);
+    budget.add(result.gravity_internal_bound_wide_j); budget.add(result.potential_transport_bound_wide_j); budget.add(kick_bound);
     if (!within_energy_budget(total.terms(), budget)) throw std::domain_error("MAC composed energy exceeds the stage operand bounds");
     result.energy_residual_wide_j = total.residual(); result.energy_bound_wide_j = budget.value();
     result.rounded_energy_projections += result.transport.rounded_energy_projections;
@@ -644,7 +695,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     auto equilibrium=!validation_reference &&
         (policy!=MacExecutionPolicy::reference || settings_.numerical_kernel==MacNumericalKernel::production) &&
         (settings_.diffusion.mode==MacDiffusionMode::disabled || mac_diffusion_stationary(registry_,state_)) ?
-        exact_static_equilibrium(state_,settings_,*thermodynamics_) : std::nullopt;
+        exact_static_equilibrium(registry_,state_,settings_,*thermodynamics_) : std::nullopt;
     MacScaled equilibrium_body;
     if (equilibrium) equilibrium_body=equilibrium->body_force_y.multiplied(seconds);
     if (equilibrium) {

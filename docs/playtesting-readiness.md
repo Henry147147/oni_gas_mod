@@ -90,8 +90,8 @@ saves, fresh-process loads and natural autosaves
   through the [gravity reconciliation credit](../native/MAC_KERNEL.md#gravity-reconciliation-entropy);
   before it, any moving free surface faulted the production owner. Of the
   [gravity and multiphase gates](../native/MAC_GATES.md), hydrostatic gas, CO2
-  settling, still water and the dam break pass. The standing wave fails (its
-  amplitude grows); two liquids, phase change and the vacuum front are open.
+  settling, still water, the dam break and the standing wave pass. Two liquids
+  and phase change are open, and the vacuum front fails.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
 - Whole-world import. The Windows import staged 50,368 fluid cells, then

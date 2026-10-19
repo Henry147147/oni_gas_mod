@@ -322,6 +322,9 @@ struct Workspace {
     std::vector<double> proxy;
     // Sharp interfaces: per-cell liquid and gas fractions and phase energies.
     std::vector<double> phase_alpha, phase_gas, phase_liquid_energy, phase_gas_energy;
+    // Sharp-interface gravity: y-face PLIC half-cell weights at the substep start
+    // and after transport, with their per-cell scratch.
+    std::vector<double> gravity_weight_start, gravity_weight_end, gravity_alpha, gravity_lower, gravity_mass;
     std::vector<std::uint8_t> two_phase;
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.
@@ -369,6 +372,10 @@ void stage_diffusion(Context&, Fields&, double seconds, Accounts&);
 // momentum/K transport with the selected reconstruction, heat deposition and
 // the gravity internal-energy adjustment. Reads ws.qx/qy/Vmat/body_work_y.
 void transport_after_pressure(Context&, Fields&, double seconds, Accounts&);
+// Sharp-interface gravity weight of every y face: the mass of its two half
+// cells, splitting two-phase cells by their PLIC line (reference:
+// mac_interface_gravity_weights). `cached` reads pressures from the EOS cache.
+void interface_gravity_weights(Context&, const Fields&, bool cached, std::vector<double>& weights);
 
 // Linear SPD solve (diag + weighted graph Laplacian) x = b on the cell grid.
 struct LinearSystem {

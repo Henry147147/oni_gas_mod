@@ -67,6 +67,39 @@ between gravity work and face mass flux follows
 [Springel (2010), sections 5.2–5.4](https://academic.oup.com/mnras/article/401/2/791/1147356);
 the split and face distribution here are this implementation's choices.
 
+### Gravity with sharp interfaces
+
+With material selector 3 (`interface_plic`) each vertical face carries a separate
+weight `W_f`: the mass of its two half cells (the upper half of the cell below and
+the lower half of the cell above). A cell holding both phases splits by its PLIC
+line at the grid volume, each phase at its cell-average density
+(`mac_interface_gravity_weights`). Other cells split evenly, so `W_f` equals the
+face inertia `(m_below + m_above) / 2` away from interfaces. The inertia itself is
+unchanged.
+- **Start of substep:** the pressure stage applies `−g W_f dt` with the weight
+  `W_start`.
+- **After transport:** each face receives `−g (W_end − W_start) dt / 2`, which makes
+  the gravity force trapezoidal in time. Its body work (exact kinetic change at the
+  post-transport inertia) joins `W_f` in the internal-energy adjustment. On boundary
+  faces it passes to the wall. Its kinetic energy and body work have their own
+  128-epsilon account in the substep's energy budget.
+- **At rest** `W_end = W_start`, so hydrostatic balance and the exact-equilibrium
+  certificate, which uses the same weights, are unchanged.
+- **Kernels and limits:** the reference and production kernels share this
+  definition. The two-moment pressure methods do not implement it and reject
+  selector 3 with gravity.
+
+Both parts are needed for free surfaces. Mean-inertia weight puts half of a thin
+liquid layer's weight on the gas face above it. A start-of-substep weight is first
+order in time and anti-damping: a rising surface is pushed with too little weight
+and a falling one with too much. In the standing-wave gate
+([M3](MAC_GATES.md)) the wave grew 6.6% per period at 64 cells with neither part.
+With the time-step limit reduced to 0.002 s and 0.0005 s it grew 3.3% and 1.4%:
+proportional to the step. The start-of-substep geometric weight alone left 4.3%
+growth, and the time-centred mean weight alone 0.9%. Together they give −3.6%, −0.7%
+and −0.2% per period at 32, 64 and 128 cells. Still water then stays at 1.6e-11 m/s
+(3.8e-9 before).
+
 ## Compression regularization
 
 `compression_viscosity` selects a numerical shock regularization, separate from
