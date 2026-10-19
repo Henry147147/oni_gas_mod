@@ -78,14 +78,15 @@ def metrics(reference, candidate):
 
 
 def review(data):
-    check(data['version'] == 1 and data['gas_constant'] == F(8.31446261815324), 'Unsupported format/gas constant')
+    check(data['version'] in (1, 2) and data['gas_constant'] == F(8.31446261815324), 'Unsupported format/gas constant')
     check(set(data['thermo']) == {'nitrogen', 'oxygen', 'helium'}, 'Material coverage')
     for name, capacity, molar_mass in (('nitrogen', 1040, .0280134), ('oxygen', 918, .0319988), ('helium', 5193, .004002602)):
         cv, offset, mw = data['thermo'][name]
         check(mw == F(molar_mass), 'Fixture molar mass changed')
         near(cv, F(capacity) - data['gas_constant'] / mw, 'Fixture heat capacity changed')
         near(offset, -F(capacity) * F(298.15), 'Fixture energy reference changed')
-    check(set(data['waves']) == set(range(5)) and set(data['references']) == {0, 3}, 'Wave/reference coverage')
+    cases = CASES + ((500, 2, .1, .0001),) if data['version'] == 2 else CASES
+    check(set(data['waves']) == set(range(len(cases))) and set(data['references']) == {0, 3}, 'Wave/reference coverage')
     check(set(data['physics']) == {'hydrostatic_gravity', 'room_step', 'mixed_gas_liquid', 'filled_liquid_gravity', 'empty_cells'}, 'Physical coverage')
     for values in data['physics'].values():
         check(all(v >= 0 for v in values) and values[0] <= F(.1) and all(v <= F(.01) for v in values[1:]), 'Physical accuracy bound')
@@ -95,12 +96,13 @@ def review(data):
           all(v > 0 for v in data['thread'][2:]), 'Actual twelve-worker pressure solve missing')
     check(data['trace'] is not None and data['trace'][0] == 4096 and data['trace'][1] > 0 and 0 < data['trace'][2] <= 2048,
           'Spreading subnormal trace control missing')
-    check(data['passes'] == ['PASS version-7 temporal admission, rollback and legacy fallback guards',
-                            'PASS version-7 physical/accelerated diffusion and automatic/Jacobi continuation',
+    wire = 7 if data['version'] == 1 else 8
+    check(data['passes'] == [f'PASS version-{wire} temporal admission, rollback and legacy fallback guards',
+                            f'PASS version-{wire} physical/accelerated diffusion and automatic/Jacobi continuation',
                             'PASS resolved moment waves, physical controls, threads and persisted continuation'], 'Completion controls')
     expected_keys = set()
     names = ('nitrogen', 'oxygen', 'helium')
-    for case, (w, h, dt, fine) in enumerate(CASES):
+    for case, (w, h, dt, fine) in enumerate(cases):
         row = data['waves'][case]
         check(row[:4] == (w, h, F(dt), F(fine)), 'Temporal gate inputs changed')
         check(row[9] == row[10] and 5 <= row[9] <= 5 * (math.ceil(.1 / dt) + 1), 'Wave silently subcycled globally')

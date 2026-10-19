@@ -13,11 +13,11 @@ constexpr std::string_view magic="MACCLS01";
 // Version history: 2 reference kernel; 3 adds viscosity; 4 interval kernel
 // (diffusion disabled); 5 diffusion with kernels 0/1; 6 production kernel 2
 // with explicit diffusion mode/multiplier even when disabled. Each owner writes
-// its lowest representing version; 7 adds two-moment temporal pressure.
-// Every version-2/3/4/5/6 byte stays unchanged.
+// its lowest representing version; 7 adds two-moment temporal pressure,
+// 8 selects its coupled linear implementation. Every version-2 through 7 byte stays unchanged.
 constexpr std::uint32_t legacy_format_version=2,viscous_format_version=3;
 constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5,production_format_version=6;
-constexpr std::uint32_t moment_format_version=7;
+constexpr std::uint32_t moment_format_version=7,coupled_moment_format_version=8;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -98,8 +98,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
     const bool production=settings_.numerical_kernel==MacNumericalKernel::production;
     const bool diffusive=settings_.diffusion.mode!=MacDiffusionMode::disabled;
-    const bool moments=settings_.pressure_integration==MacPressureIntegration::two_moment;
-    out.u32(moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    const bool coupled=settings_.pressure_integration==MacPressureIntegration::two_moment_coupled;
+    const bool moments=settings_.pressure_integration!=MacPressureIntegration::discrete_gradient_midpoint;
+    out.u32(coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -146,8 +147,9 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     Reader in{bytes.first(bytes.size()-8)};
     for (auto value : magic) check(in.byte()==static_cast<std::uint8_t>(value),"Unrecognized MAC checkpoint signature");
     const auto version=in.u32();
+    const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
     check(version==legacy_format_version || version==viscous_format_version || version==interval_format_version ||
-        version==diffusion_format_version || version==production_format_version || version==moment_format_version,"Unsupported MAC checkpoint version");
+        version==diffusion_format_version || version==production_format_version || moment_version,"Unsupported MAC checkpoint version");
     const auto model=identity(registry,*eos);
     check(in.u32()==model.size() && model.size()<=in.remaining(),"Saved MAC model size differs");
     for (auto value : model) check(in.byte()==value,"Saved MAC registry/EOS identity differs");
@@ -159,15 +161,15 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     settings.reconstruction=static_cast<MacMaterialReconstruction>(in.u32()); settings.compression_viscosity=static_cast<MacCompressionViscosity>(in.u32());
     settings.momentum_reconstruction=static_cast<MacMomentumReconstruction>(in.u32()); settings.thermal_conduction=in.flag();
     settings.shock_heat=static_cast<MacShockHeatRegularization>(in.u32());
-    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version || version==production_format_version || version==moment_format_version) {
+    if (version==viscous_format_version || version==interval_format_version || version==diffusion_format_version || version==production_format_version || moment_version) {
         settings.viscosity.shear_pa_s=in.number();settings.viscosity.bulk_pa_s=in.number();
         if (version==viscous_format_version)
             check(settings.viscosity.shear_pa_s>0 || settings.viscosity.bulk_pa_s>0,"Noncanonical viscosity-disabled checkpoint version");
     }
     check(version!=interval_format_version,"Saved MAC interval kernel 1 is retired; refusing a changed continuation");
-    if(version==diffusion_format_version || version==production_format_version || version==moment_format_version) {
+    if(version==diffusion_format_version || version==production_format_version || moment_version) {
         settings.numerical_kernel=static_cast<MacNumericalKernel>(in.u32());
-        if (version==production_format_version || version==moment_format_version)
+        if (version==production_format_version || moment_version)
             check(settings.numerical_kernel==MacNumericalKernel::production,"Noncanonical saved MAC production kernel");
         else {
             check(settings.numerical_kernel!=MacNumericalKernel::retired_interval_audited,
@@ -175,11 +177,12 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
             check(settings.numerical_kernel==MacNumericalKernel::reference,"Unsupported saved MAC numerical kernel");
         }
         settings.diffusion.mode=static_cast<MacDiffusionMode>(in.u32());settings.diffusion.multiplier=in.number();
-        check(version==production_format_version || version==moment_format_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
+        check(version==production_format_version || moment_version || settings.diffusion.mode!=MacDiffusionMode::disabled,"Noncanonical diffusion-disabled checkpoint version");
     }
-    if (version==moment_format_version) {
+    if (moment_version) {
         settings.pressure_integration=static_cast<MacPressureIntegration>(in.u32());
-        check(settings.pressure_integration==MacPressureIntegration::two_moment,"Noncanonical saved MAC pressure integration");
+        check(settings.pressure_integration==(version==moment_format_version ? MacPressureIntegration::two_moment :
+            MacPressureIntegration::two_moment_coupled),"Noncanonical saved MAC pressure integration");
     }
     if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");

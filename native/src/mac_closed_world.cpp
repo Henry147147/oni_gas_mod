@@ -171,7 +171,8 @@ void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
     require(pressure_integration == MacPressureIntegration::discrete_gradient_midpoint ||
-        (pressure_integration == MacPressureIntegration::two_moment && numerical_kernel == MacNumericalKernel::production),
+        ((pressure_integration == MacPressureIntegration::two_moment || pressure_integration == MacPressureIntegration::two_moment_coupled) &&
+            numerical_kernel == MacNumericalKernel::production),
         "Invalid MAC pressure integration (two moments require production kernel 2)");
     require(numerical_kernel != MacNumericalKernel::retired_interval_audited, "MAC interval kernel 1 is retired; its checkpoints cannot continue under a different kernel");
     require((numerical_kernel == MacNumericalKernel::reference ||

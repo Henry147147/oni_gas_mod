@@ -8,6 +8,8 @@
 using namespace ma::testing;
 using namespace ma::testing::kernel;
 namespace {
+MacPressureIntegration selection = MacPressureIntegration::two_moment;
+unsigned wire_version() { return selection == MacPressureIntegration::two_moment ? 7U : 8U; }
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
 void audit() {
     const auto& r = last_mac_production_report();
@@ -19,7 +21,7 @@ void audit() {
 MacClosedWorld owner(Scene scene, double dt, bool moments) {
     const auto& s = setup(); scene.settings.maximum_timestep_s = dt;
     scene.settings.numerical_kernel = MacNumericalKernel::production;
-    scene.settings.pressure_integration = moments ? MacPressureIntegration::two_moment : MacPressureIntegration::discrete_gradient_midpoint;
+    scene.settings.pressure_integration = moments ? selection : MacPressureIntegration::discrete_gradient_midpoint;
     return MacClosedWorld(s.registry, s.eos, std::move(scene.state), scene.settings);
 }
 struct Evolution { std::size_t substeps = 0, attempts = 0, rejected = 0; double maximum_dt = 0; };
@@ -141,7 +143,7 @@ MacClosedWorld threaded() {
         "Moment state or rounding depends on thread count");
     const auto image = first.world.checkpoint(); const auto& s = setup();
     const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
-    check(image.at(8) == 7 && restored.checkpoint() == image && restored.settings().pressure_integration == MacPressureIntegration::two_moment,
+    check(image.at(8) == wire_version() && restored.checkpoint() == image && restored.settings().pressure_integration == selection,
         "Moment checkpoint lost its persisted temporal selection");
     const auto resumed = restored.advanced(.002, 256); audit();
     options.threads = 1; set_mac_kernel_default_options(options);
@@ -155,14 +157,14 @@ MacClosedWorld threaded() {
 }
 void invalid() {
     auto scene = wave(4, 4); auto settings = scene.settings;
-    settings.pressure_integration = MacPressureIntegration::two_moment;
+    settings.pressure_integration = selection;
     bool failed = false; try { settings.validate(); } catch (const std::invalid_argument&) { failed = true; }
     check(failed, "Reference settings admitted a moment selection");
     auto world = owner(scene, .001, true); const auto held = world.checkpoint();
     // Recompute checksums to exercise semantic admission.
     std::size_t model = 0; for (std::size_t i = 0; i < 4; ++i) model |= static_cast<std::size_t>(held.at(12 + i)) << (8 * i);
     const auto field = 16 + model + 103 + 16;
-    for (const auto value : {0U, 2U, 99U, UINT32_MAX}) {
+    for (const auto value : {0U, wire_version() == 7 ? 2U : 1U, 99U, UINT32_MAX}) {
         auto bytes = held; for (std::size_t i = 0; i < 4; ++i) bytes.at(field + i) = static_cast<std::uint8_t>(value >> (8 * i));
         std::uint64_t hash = UINT64_C(14695981039346656037);
         for (std::size_t i = 0; i + 8 < bytes.size(); ++i) hash = (hash ^ bytes[i]) * UINT64_C(1099511628211);
@@ -171,12 +173,12 @@ void invalid() {
         catch (const std::invalid_argument&) { failed = true; } check(failed, "Unknown/noncanonical moment checkpoint was admitted");
     }
     scene.settings.numerical_kernel = MacNumericalKernel::production;
-    scene.settings.pressure_integration = MacPressureIntegration::two_moment;
+    scene.settings.pressure_integration = selection;
     scene.settings.preconditioner = PressurePreconditioner::incomplete_cholesky;
     world = MacClosedWorld(setup().registry, setup().eos, scene.state, scene.settings); const auto unsupported = world.checkpoint();
     failed = false; try { static_cast<void>(world.advanced(.001)); } catch (const std::invalid_argument&) { failed = true; }
     check(failed && world.checkpoint() == unsupported, "Unsupported moment settings silently changed temporal method");
-    std::cout << "PASS version-7 temporal admission, rollback and legacy fallback guards\n";
+    std::cout << "PASS version-" << wire_version() << " temporal admission, rollback and legacy fallback guards\n";
 }
 void checkpoint_modes() {
     const auto& s = setup();
@@ -190,18 +192,19 @@ void checkpoint_modes() {
             const auto source = owner(scene, .002, true); const auto held = source.checkpoint();
             const auto first = source.advanced(.002, 4096); const auto image = first.world.checkpoint();
             const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
-            check(first.report.diffusion.exchanged_mass_kg > 0 && image.at(8) == 7 && restored.checkpoint() == image && restored.settings().preconditioner == pressure &&
+            check(first.report.diffusion.exchanged_mass_kg > 0 && image.at(8) == wire_version() && restored.checkpoint() == image && restored.settings().preconditioner == pressure &&
                 restored.settings().diffusion.mode == diffusion.mode && restored.settings().diffusion.multiplier == diffusion.multiplier &&
                 restored.advanced(.002, 4096).world.checkpoint() == first.world.advanced(.002, 4096).world.checkpoint() &&
                 source.checkpoint() == held, "Moment checkpoint lost composed diffusion/preconditioner continuation");
         }
     }
-    std::cout << "PASS version-7 physical/accelerated diffusion and automatic/Jacobi continuation\n";
+    std::cout << "PASS version-" << wire_version() << " physical/accelerated diffusion and automatic/Jacobi continuation\n";
 }
 }
 int main(int argc, char** argv) {
     try {
         std::cout << std::unitbuf << std::setprecision(17);
+        if (argc > 1 && std::string(argv[1]) == "--coupled") { selection = MacPressureIntegration::two_moment_coupled; --argc; ++argv; }
         if (argc == 4 && std::string(argv[1]) == "--continue") {
             std::ifstream in(argv[2], std::ios::binary); const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(in), {}};
             const auto restored = MacClosedWorld::from_checkpoint(setup().registry, setup().eos, bytes);
@@ -211,7 +214,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "--trace") { trace_control(); return 0; }
         if (argc == 2 && std::string(argv[1]) == "--checkpoint-modes") { checkpoint_modes(); return 0; }
         check(argc == 1, "Unknown moment test arguments");
-        std::cout << "MVERSION 1 " << gas_constant << '\n';
+        std::cout << "MVERSION " << (wire_version() == 7 ? 1 : 2) << ' ' << gas_constant << '\n';
         for (const std::string name : {"nitrogen", "oxygen", "helium"}) {
             const auto& sp = setup().registry[setup().registry.index(name)];
             std::cout << "MTHERMO " << name << ' ' << sp.cv() << ' ' << sp.internal_energy(0) << ' ' << sp.molar_mass << '\n';
@@ -219,6 +222,7 @@ int main(int argc, char** argv) {
         invalid(); checkpoint_modes(); small_physics();
         wave_case(0, 16, 16, .004, .00005, true); wave_case(1, 32, 2, .008, .0001, false);
         wave_case(2, 64, 2, .02, .0001, false); wave_case(3, 256, 2, .1, .0001, true); wave_case(4, 512, 2, .1, .0001, false);
+        if (wire_version() == 8) wave_case(5, 500, 2, .1, .0001, false);
         trace_control(); static_cast<void>(threaded()); std::cout << "PASS resolved moment waves, physical controls, threads and persisted continuation\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

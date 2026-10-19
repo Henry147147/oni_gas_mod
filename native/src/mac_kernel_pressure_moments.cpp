@@ -9,8 +9,8 @@
 
 namespace ma::experimental::mac_kernel {
 namespace {
-struct MomentSweep { double value = 0; MacEnergy full; };
-MomentSweep moment_sweep(double j0, double j1, double f1, double inertia, double dt, double area) {
+struct MomentSweep { double value = 0; MacEnergy full; bool corrected = false; };
+MomentSweep moment_sweep(double j0, double j1, double f1, double inertia, double dt, double area, bool allow_correction) {
     const double middle = .5 * (j0 + j1), correction = (std::sqrt(3.) / 6) * dt * f1;
     const double average = middle - correction, velocity = average / inertia;
     const double timed = velocity * dt, value = timed * area;
@@ -25,7 +25,10 @@ MomentSweep moment_sweep(double j0, double j1, double f1, double inertia, double
     if (full.exponent() > 1024) throw ArithmeticRefinement{};
     const auto stored = full.project();
     if (std::isnormal(stored.value)) {
-        if (stored.value != value) throw ArithmeticRefinement{};
+        if (stored.value != value) {
+            if (allow_correction) return {stored.value, {}, true};
+            throw ArithmeticRefinement{};
+        }
         return {value, {}};
     }
     return {stored.value, full};
@@ -170,8 +173,11 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     if (!std::isfinite(norm)) reject("Two-moment pressure anchor left its EOS domain");
     for (std::size_t iteration = 0; norm > tolerance; ++iteration) {
         if (iteration == 80) reject("Two-moment pressure root did not converge");
-        solve_pressure_moments_linear(c, sys, ws.cc, current.ra, current.rb, ws.sol, ws.tdV,
-            std::clamp(.1 * norm, 1e-13, 1e-3), .025 * tolerance * g.V);
+        const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3), atol = .025 * tolerance * g.V;
+        if (c.settings.pressure_integration == MacPressureIntegration::two_moment_coupled &&
+            c.settings.preconditioner == PressurePreconditioner::automatic)
+            solve_pressure_moments_coupled(c, sys, ws.cc, current.ra, current.rb, ws.sol, ws.tdV, rtol, atol, iteration == 0);
+        else solve_pressure_moments_linear(c, sys, ws.cc, current.ra, current.rb, ws.sol, ws.tdV, rtol, atol);
         bool accepted = false; double fraction = 1;
         for (std::size_t attempt = 0; attempt < 48; ++attempt) {
             c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
@@ -192,6 +198,7 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     struct Published {
         DD wall_x, wall_y, fixed_body;
         double body = 0, energy = 0, jx = 0, jy = 0;
+        bool corrected = false;
         std::vector<std::pair<Index, MacEnergy>> tiny_x, tiny_y;
     };
     const auto published = c.exec.partials<Published>([&](std::size_t y0, std::size_t y1, std::size_t block) {
@@ -209,7 +216,9 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
                 return;
             }
             const double J0 = J[j], J1 = J0 + impulse; J[j] = J1; ops += std::abs(J1);
-            const auto sweep = moment_sweep(J0, J1, f1, I, dt, g.A); q[j] = sweep.value;
+            const auto sweep = moment_sweep(J0, J1, f1, I, dt, g.A,
+                c.settings.pressure_integration == MacPressureIntegration::two_moment_coupled); q[j] = sweep.value;
+            out.corrected = out.corrected || sweep.corrected;
             if (!sweep.full.is_zero()) (vertical ? out.tiny_y : out.tiny_x).emplace_back(j, sweep.full);
             if (vertical && gravity != 0) ws.body_work_y[j] = body * ((.5 * (J0 + J1) - k * dt * f1) / I);
             out.energy += .5 * J0 * (J0 / I) + .5 * J1 * (J1 / I) + (vertical ? std::abs(ws.body_work_y[j]) : 0);
@@ -218,9 +227,10 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
         for (auto j = y0 * g.W; j < g.block_yrow_end(block) * g.W; ++j) face(static_cast<Index>(j), g.yl[j], g.yr[j], ws.iy[j], ws.dp0y[j], true, f.jy, ws.qy);
         return out;
     });
-    DD wall_x, wall_y, fixed_body;
+    DD wall_x, wall_y, fixed_body; bool corrected = false;
     for (const auto& out : published) {
         wall_x.add(out.wall_x); wall_y.add(out.wall_y); fixed_body.add(out.fixed_body);
+        corrected = corrected || out.corrected;
         acc.body_y += out.body; acc.operands[c.q_jx()] += out.jx; acc.operands[c.q_jy()] += out.jy; acc.operands[c.q_energy()] += out.energy;
         for (const auto& [j, value] : out.tiny_x) ws.full_qx.set(g.NX, j, value);
         for (const auto& [j, value] : out.tiny_y) ws.full_qy.set(g.NY, j, value);
@@ -248,6 +258,8 @@ void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts
     });
     for (const auto& out : volumes) {
         if (out.invalid) reject("Two-moment material-volume CFL exceeded");
+        if (corrected && out.closure > tolerance)
+            reject("Corrected normal sweeps require pressure-root refinement");
         acc.unresolved += out.unresolved; acc.operands[c.q_energy()] += out.energy;
         c.counters.maximum_volume_closure = std::max(c.counters.maximum_volume_closure, out.closure);
     }

@@ -26,7 +26,7 @@ enum class MacShockHeatRegularization {
 enum class MacNumericalKernel { reference = 0, retired_interval_audited = 1, production = 2 };
 // Persisted temporal pressure scheme. The moment path preserves pressure work
 // with two Legendre moments; the surrounding split remains second order.
-enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1 };
+enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment = 1, two_moment_coupled = 2 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.

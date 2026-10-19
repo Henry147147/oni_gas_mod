@@ -53,7 +53,7 @@ Conservative [gas diffusion](../native/MAC_DIFFUSION.md) is merged into main as
 formulation 2. It supplies species-specific exchange with carried enthalpy,
 physical and accelerated modes, completed-frame configuration and versioned
 checkpoints (`MACCLS01` version 5 for reference; version 6 for production
-midpoint, or 7 with opt-in two-moment pressure).
+midpoint, or 7/8 with opt-in two-moment pressure).
 Historical selector-1 version-4/5 images explicitly reject after retirement.
 
 The Maxwell–Stefan driving force includes pressure diffusion, in a symmetric
@@ -240,11 +240,12 @@ The in-game reference owner is unchanged pending step f.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 The default reference wave checkpoint SHA and sampled version-6 production
-checkpoints remain unchanged. All 48 Release CTests pass; ten suites pass
-Debug ASan/UBSan and MinGW/Wine, and nine pass ThreadSanitizer. Against
-`ef80ff8`, all 63 preceding MAC component executables retain their physical
-records and exit results: 61 outputs are byte-identical and two differ only
-in timing. The added temporal executable makes 64 components.
+checkpoints remain unchanged. All 50 Release CTests pass; twelve suites pass
+Debug ASan/UBSan and MinGW/Wine, and eleven pass ThreadSanitizer (targeted
+threaded checkpoint controls for the moment suites). Against `bc5197d`, all
+64 preceding MAC component executables retain their physical records and exits:
+62 outputs are byte-identical and two differ only in timing. The coupled
+multigrid test makes 65 components.
 Fresh-process gas/multigrid and subnormal-tracer continuation agrees exactly between
 Linux and Wine in both source directions. The preconditioner-port
 Ubuntu 22.04 snapshot passed 43 tests with glibc requirements at most 2.34;
@@ -259,12 +260,16 @@ additional memory and colony FPS remain unmeasured. See the
 The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)
 passes selected larger-step wave schedules against resolved midpoint references:
 16×16 at .004 s and 256×2/512×2 at .1 s retain the original 0.1 K/1% bounds.
-Its new temporal selection persists in version 7; older images retain their
-method and bytes. One/twelve-worker state and ordinary continuation agree.
-Its independent endpoint reader passes 80,709 checks/fourteen altered captures
-on Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. New version-7 images
-continue exactly in fresh Linux/Wine processes in both source directions.
-Composed physical/accelerated diffusion and a spreading subnormal front pass.
+Its original real Schur selection persists in version 7; the coupled complex
+multigrid implementation persists separately in version 8. Older images retain
+their method, bytes and continuation. One/twelve-worker state agrees. The coupled
+endpoint reader passes 114,726 checks/fourteen altered captures on Release,
+ASan/UBSan and MinGW/Wine, including a new 500×2 wave at .1 s. The threaded
+controls also pass ThreadSanitizer. Version-8 images continue exactly in fresh
+Linux/Wine processes in both source directions. Composed physical/accelerated
+diffusion and a spreading subnormal front pass. The original strong-flow inputs
+still fail collision density refinement with the coupled method (0.861766
+against 0.85); the unchanged defaults retain their original failure.
 Automatic calm-region selection, local subcycling, open physics gates and
 in-game production-kernel adoption remain open.
 

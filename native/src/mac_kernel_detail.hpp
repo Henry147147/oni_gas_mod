@@ -4,6 +4,7 @@
 // block-ordered reductions. Nothing here is part of the owner API.
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include "mac_pressure_multigrid.hpp"
+#include "mac_pressure_moment_multigrid.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <algorithm>
 #include <array>
@@ -253,6 +254,8 @@ struct Counters {
     double maximum_volume_closure = 0;
 };
 struct PressureMomentWorkspace {
+    std::unique_ptr<PressureMomentMultigrid> coupled;
+    bool coupled_ready = false;
     struct State {
         std::vector<double> a, b, mean, first, du, ra, rb;
         void resize(std::size_t n) { for (auto* v : {&a, &b, &mean, &first, &du, &ra, &rb}) v->resize(n); }

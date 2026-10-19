@@ -221,7 +221,7 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     run(stage_conduction, .5 * dt, tm.conduction_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     run(stage_compression, .5 * dt, tm.compression_ms);
-    { double unused = 0; run(c.settings.pressure_integration == MacPressureIntegration::two_moment ?
+    { double unused = 0; run(c.settings.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint ?
         stage_pressure_transport_moments : stage_pressure_transport, dt, unused); }
     run(stage_compression, .5 * dt, tm.compression_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
@@ -264,6 +264,7 @@ std::size_t retained_bytes(const Workspaces& w) {
     const auto add = [&](const auto& v) { total += v.capacity() * sizeof(typename std::decay_t<decltype(v)>::value_type); };
     const auto& ws = w.ws; const auto& e = ws.eos;
     if (ws.moments) {
+        if (ws.moments->coupled) total += ws.moments->coupled->storage_bytes();
         for (const auto* s : {&ws.moments->accepted, &ws.moments->trial})
             for (const auto* v : {&s->a, &s->b, &s->mean, &s->first, &s->du, &s->ra, &s->rb}) add(*v);
         for (const auto& v : ws.moments->linear) add(v);

@@ -32,7 +32,7 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
 1. Eight-byte `MACCLS01` family signature, unsigned 32-bit version (2; 3 when
    reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
    diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
-   pressure; 7 for opt-in two-moment pressure), and a length-prefixed
+   pressure; 7/8 for opt-in two-moment pressure implementations), and a length-prefixed
    binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -69,7 +69,7 @@ current binary has.
 ### Version assignment
 
 Reference owners write version 2, 3 or 5 according to their settings; production
-owners write version 6, or 7 with two-moment pressure. Retired layouts remain
+owners write version 6, or 7/8 with two-moment pressure. Retired layouts remain
 listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
@@ -80,6 +80,7 @@ listed for explicit rejection:
 | 5 | reference (0); retired interval (1) explicitly rejected | either | physical or accelerated |
 | 6 | production (2) | either | disabled, physical or accelerated |
 | 7 | production (2), two-moment pressure (1) | either | disabled, physical or accelerated |
+| 8 | production (2), coupled two-moment pressure (2) | either | disabled, physical or accelerated |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to
@@ -102,9 +103,11 @@ no preconditioner: automatic uses geometric multigrid on grids of at least
 unported physical selectors use the audited reference through the owner.
 Thread counts and derived hierarchy/workspaces are not saved.
 
-Version 7 requires numerical kernel 2 and temporal selector 1. Unknown values
-and a redundant midpoint selector reject even with valid checksums. Every
-version-2/3/4/5/6 writer byte remains unchanged. A moment owner refuses a legacy
+Versions 7/8 require numerical kernel 2 and temporal selector 1/2 respectively.
+Unknown values, the other version’s selector and a redundant midpoint selector
+reject even with valid checksums. Every version-2 through 7 writer byte remains
+unchanged; version 7 keeps its original real Schur implementation. A moment
+owner refuses a legacy
 reference fallback that would change its temporal scheme. The controls in
 `mac_kernel_moment_tests.cpp` cover ordinary restoration, one/twelve-worker
 continuation, malformed selectors and budget rollback; see
@@ -148,7 +151,7 @@ older reader rejects a value it does not know):
 | Momentum reconstruction | 0 donor cell, 1 limited linear, 2 quadratic limited linear, 3 swept physical, 4 swept energy flux |
 | Heat regularization | 0 none, 1 closing-speed, 2 pressure-sensed Cp/max-speed, 3 pressure-sensed series |
 | Numerical kernel (versions 4–7) | 0 reference (version 5 only; implicit in versions 2/3), 1 retired interval (versions 4/5), 2 production (versions 6/7 only) |
-| Pressure integration (version 7) | 1 two moments; midpoint 0 is implicit in versions 2–6 and redundant/noncanonical in version 7 |
+| Pressure integration (versions 7/8) | 1 real Schur two moments in version 7; 2 coupled two moments in version 8; midpoint 0 is implicit in versions 2–6 and redundant/noncanonical in versions 7/8 |
 
 The checksum detects accidental damage. Model identity, dimensions, byte and count
 limits, booleans, enums, canonical exponents (significand and exponent must

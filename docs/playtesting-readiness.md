@@ -166,11 +166,13 @@ also pass collision.
   steps and local subcycling remain open. The opt-in
   [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes
   selected larger-step resolved waves with the original error bounds and
-  persists its temporal choice in version 7. Default schedules/legacy images
-  retain their method and bytes. Its independent saved review passes 80,709
-  checks/fourteen corruptions on all four routes. New version-7 images retain
-  exact fresh Linux/Wine continuation; composed diffusion and subnormal-front
-  controls pass. Automatic selection, open physics gates,
+  persists its real Schur/coupled implementation in version 7/8. Default
+  schedules and earlier images retain their method, bytes and continuation.
+  The coupled saved review passes 114,726 checks/fourteen corruptions on
+  Release, ASan/UBSan and MinGW/Wine; threaded controls pass ThreadSanitizer.
+  Version-8 images retain exact fresh Linux/Wine continuation; composed
+  diffusion and subnormal-front controls pass. The coupled method still fails
+  the original collision density refinement (0.861766 against 0.85). Automatic selection, open physics gates,
   real-time acceptance and in-game production use remain open.
 
 **Closes when** the strong-flow and vacuum gates pass with production

@@ -21,6 +21,13 @@ Its saved accounts pass independent analysis and its finest separation errors
 reproduce the failure below. The production defaults still fail collision density
 refinement with byte-identical saved output. See [evidence and limits](../docs/production-timestep-progress.md#prepared-remap-admission).
 
+The opt-in coupled two-moment production pressure method also fails the
+original collision density refinement: N64/N128 errors 0.04256384/0.03668006
+give 0.86176589 against 0.85. Scientific inputs, schedules and bounds are
+unchanged. It stops after five profiles; the saved partial account review
+passes 59,205 checks and cannot certify the gate. This does not change the
+production-default results below.
+
 ## Benchmark
 
 The reference is the exact ideal-gas Euler Riemann solution, with shock jump curves,
