@@ -2,6 +2,9 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 SPEC = importlib.util.spec_from_file_location('observer_package', Path(__file__).resolve().parents[1] / 'package_probe.py')
 PACKAGE = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(PACKAGE)

@@ -32,6 +32,7 @@ and listed as `deleted_in_working_tree`), the exact container image ID, native b
 required glibc versions and test completion. Both the builder and supplied-provenance
 package check enforce the 2.34 ceiling. Older reports declaring 2.35 are accepted
 only when every actual recorded library requirement is at most 2.34.
+The packaging helper tests run independently of test discovery order.
 The package builder verifies the
 supplied native binaries against that report and includes it as
 `native-build-provenance.json`. This native build record is separate from the

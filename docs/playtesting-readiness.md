@@ -181,7 +181,7 @@ also pass collision.
   game scenes, saves and fresh-process reloads remain open. The latest Ubuntu
   build passes 54 tests but imports `GLIBC_2.35` through sharp-interface
   `std::hypot`; the 2.34 packaging ceiling is unmet and enforced by both the
-  builder and package provenance check. Calm-region/local
+  builder and package provenance check, whose helper tests run independently. Calm-region/local
   steps and local subcycling remain open. The opt-in
   [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes
   selected larger-step resolved waves with the original error bounds and
