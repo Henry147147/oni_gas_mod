@@ -216,12 +216,44 @@ Saved-profile analysis, without native reruns, located the collision errors:
   high in pressure. The start-up error stays in the stationary core material, so
   refinement cannot dilute it. The centre face also drifts from exact symmetry,
   to −7.45 m/s at t = T, and the two central cells differ by 6%.
+- The staggered initialization contributes. The centre face starts on the
+  discontinuity with J = 0, the momentum-conserving average of ±4 c₀. Its dual
+  therefore holds one cell of mass at rest, which the exact problem does not have.
+  At N256 that mass per unit area is about 850 times the exact core's.
+  - A diagnostic copy shifted the discontinuity half a cell so that no face starts
+    on it, and compared against the shifted exact solution (not a gate run).
+  - The core then over-empties instead: central density reaches about 1e-15 against
+    3.3e-4 kg/m³. The faces beside it keep about ±1,050 m/s at t = T/4, where the
+    exact flow is at ±6 m/s, because nearly empty cells have almost no EOS pressure
+    left to decelerate them.
+  - MUSCL-Hancock gets the core within 0.4%. Its centre-face Riemann flux supplies
+    the exact low star pressure, which a cell-pressure MAC face does not see.
+  - Passing the central density bound needs pressure on strongly expanding,
+    nearly empty faces. That is shared with the [vacuum front](MAC_VACUUM.md).
 - In the defaults' collision profiles, the shocks sit within 0.03 cells of exact,
   measured by mass. They are about 3–4 cells wide on every grid. The exact shock
   falls 0.62 / 0.23 / 0.46 of the way through its cell at N64 / N128 / N256, and the
   smeared-shock error in cell units follows this (0.67 / 1.00 / 0.77). Post-shock
   ringing of about ±0.04 in density covers about ten cells at N128. Together these
   set the first refinement ratio of 0.856.
+- The classical MUSCL-Hancock reference has collision density L1 of
+  0.0293 / 0.0154 / 0.0089, against the defaults' 0.0429 / 0.0367 / 0.0151. The
+  defaults' wider shocks are a real accuracy gap at N128, not only a refinement
+  artefact.
+- Selector and coefficient sweeps on collision do not close it. They used a
+  diagnostic copy of the test that reports instead of stopping, plus local
+  coefficient builds; nothing is tracked.
+
+  | Change from the defaults | N64→N128 ρ / p | Absolute L1 effect |
+  | --- | --- | --- |
+  | Donor-cell momentum (1 / 0 / 2 / 2) | 0.786 / 0.750 (pass) | Worse at every grid; the larger N64 error makes the ratio |
+  | Donor-cell material (0 / 1 / 2 / 2) | 0.740 / 0.694 (pass) | Worse at every grid; same artefact |
+  | Coupled compression (1 / 1 / 3 / 2) | 0.848 / 0.820 (pass) | Unchanged within 1%; not in the production kernel |
+  | Linear speed c/4, c/8, 0 | 0.869–0.890 / 0.840–0.906 | N64 improves more than N128 |
+  | Quadratic coefficient ½ (linear term unchanged) | 0.821 / **1.012** | Density sharpens; pressure error moves to N128 |
+
+  Existing shock-capture knobs trade density against pressure error. Passing
+  without loss needs a structurally sharper, ring-free shock capture.
 - With momentum selector 3, the central N256 gas reached 119.42 / 118.74 K against
   13.65 K, and most velocity L1 error lay in the expansion fans. An N64 replay showed
   the first remap cancelling every outward momentum correction at the two stationary
