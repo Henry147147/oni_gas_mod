@@ -439,6 +439,27 @@ overhead, so it is not a total
 additional-memory acceptance measurement. Resolved-reference accuracy, colony
 rendering and the 32-duplicant workload are not measured by these captures.
 
+**Preconditioner comparison (`cc9e9a0`).** On this wave, automatic multigrid
+is slower than the saved `PressurePreconditioner::jacobi` setting. A benchmark
+copy that only sets that field ran 8-interval captures, alternating
+preconditioners, pinned to CPUs 0–11 with twelve workers (host load 20–23):
+
+| Active cells | Jacobi p50 ms (PCG iterations) | Automatic multigrid p50 ms (PCG iterations) |
+| ---: | ---: | ---: |
+| 100,000 | 430 / 653 (3,193) | 682 / 601 (694) |
+| 250,000 | 1,076 / 1,107 (3,095) | 1,697 / 1,694 (577) |
+
+At 250,000 cells the pressure stage takes about 300–325 ms per 0.1 s with
+Jacobi against 910–1,370 ms with multigrid; the other stages are similar.
+Each Newton solve needs about 19 Jacobi iterations (about 0.75 ms each).
+Serially at 250,000 cells, one V-cycle takes about 13 ms and one `prepare`
+about 5–6.5 ms, with no gain from four interval workers. A topology build,
+needed whenever the pressure-active mask changes, takes about 161 ms, and the
+hierarchy retains about 130 MiB. Multigrid therefore cannot pay for itself on
+compliance-dominated gas systems; it needs a cheaper, parallel V-cycle, or an
+automatic choice that keeps Jacobi until Jacobi iteration counts grow (as
+they do in stiff liquid systems).
+
 ## Earlier Jacobi performance
 
 These measurements precede persisted selection 2 and automatic geometric
