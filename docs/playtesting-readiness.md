@@ -82,7 +82,11 @@ saves, fresh-process loads and natural autosaves
 - More than one owner, and Spaced Out! worlds.
 - Vacuum and free surfaces. `MacClosedWorld` admits exact empty cells
   ([vacuum](../native/MAC_VACUUM.md)), but its vacuum-front accuracy gate fails
-  and the in-game owner still rejects empty cells. Free surfaces are open.
+  and the in-game owner still rejects empty cells. Opt-in material selector 3
+  ([sharp interfaces](../native/MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3))
+  keeps liquid in its own cells. In a diagnostic dam break it leaves a quarter of
+  limited-linear's partly filled cells and a tenth of its mist. It is not yet in
+  the production kernel, and the free-surface gates are not yet defined or passed.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
 - Whole-world import. The Windows import staged 50,368 fluid cells, then

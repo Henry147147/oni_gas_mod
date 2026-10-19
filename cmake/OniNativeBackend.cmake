@@ -229,6 +229,8 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_coupled_constitutive_reuse COMMAND ma_mac_compressive_eos_reuse_tests)
     add_test(NAME mac_vacuum_inventory COMMAND ma_mac_vacuum_tests)
     set_target_properties(ma_mac_vacuum_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    add_test(NAME mac_sharp_interface_translation COMMAND ma_mac_interface_tests)
+    set_target_properties(ma_mac_interface_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     set_target_properties(ma_mac_compressive_eos_reuse_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     # Production substep kernel (native/MAC_KERNEL.md).
     add_test(NAME mac_production_kernel_oracle COMMAND ma_mac_kernel_validation_tests)

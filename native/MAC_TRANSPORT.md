@@ -134,6 +134,54 @@ acceptance.
 | 0 | `donor_cell` | Uniform donor-density flux through the EOS-aware overload; reference only |
 | 1 | `limited_linear` | Production default |
 | 2 | `swept_first_moment` | Opt-in; repairs a moving-centroid affine error |
+| 3 | `interface_plic` | Opt-in sharp gas/liquid interfaces ([below](#sharp-gasliquid-interfaces-selector-3)) |
+
+### Sharp gas/liquid interfaces (selector 3)
+
+A donor that holds both gas and liquid places its liquid behind a straight line, a
+piecewise-linear interface (PLIC).
+- **Line:** its normal is Youngs' 3×3 gradient of the neighbouring EOS liquid
+  fractions. Its offset encloses the donor's liquid fraction, found by polygon
+  clipping and bisection.
+- **Strip parcels:** each outgoing strip, the band of its face's swept width, carries
+  liquid and gas in the proportion the line gives it, at the donor's liquid density,
+  headspace density and EOS temperature.
+- **Single-phase donors:** these keep limited-linear slopes away from an interface.
+  Beside an interface or a change in liquid presence they keep donor order, so no
+  slope exports a phase the donor does not hold.
+- **Fallback:** a split that fails EOS admission falls back to the donor's own
+  composition, which is donor order.
+
+Conservation (retained = source − parcels), EOS admission and the compatible dual
+momentum transport are unchanged. Uniform motion therefore stays uniform across the
+density jump.
+
+`ma_mac_interface_tests` (CTest `mac_sharp_interface_translation`) translates a 6×6
+water square through air at (0.3, 0.2) m/s in a 16×16 periodic box for 3.6 cells:
+
+| Selector | Partly filled cells | Liquid in cells under 1% full | Liquid mass error | Velocity deviation |
+| --- | ---: | ---: | ---: | ---: |
+| 3 `interface_plic` | 85 | 0.16% | 3e-17 | 5e-11 |
+| 1 `limited_linear` | 229 | 0.53% | 8e-18 | 8e-11 |
+
+An exact representation of the shifted square has 24 partly filled cells. The
+remainder comes from diagonal motion: a donor's corner liquid should reach its
+diagonal neighbour, but face parcels can only send it to face neighbours.
+Directionally split sweeps would remove this.
+
+A diagnostic dam break (48×24 cells of 12.5 mm; water column a = 0.1 m by 2a under
+air at 1 atm, 300 K; defaults otherwise) reaches T = t√(2g/a) = 3 with both selectors,
+conserving liquid mass to 1e-16:
+
+| At T = 3.08 | Front Z = x/a | Partly filled cells | Liquid reach | Mist | Wall time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `interface_plic` | 3.75 | 99 | 4.0 a | 0.017% | 566 s |
+| `limited_linear` | 4.0 | 435 | 6 a (whole tank) | 0.18% | 2,334 s |
+
+This selector is not yet in the production kernel, so owners using it run the
+audited reference path. One liquid region is placed per donor, so immiscible liquids
+are not separated from each other. Gas/vacuum fronts are not covered. The
+free-surface gates are being defined and are not claimed.
 
 ### Limited linear reconstruction (selector 1)
 

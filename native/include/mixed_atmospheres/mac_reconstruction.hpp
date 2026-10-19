@@ -17,4 +17,13 @@ namespace ma::experimental {
 [[nodiscard]] MacParcelPlan reconstruct_mac_swept_parcels(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, std::span<const double> material_volumes_m3,
     const MacMassFluxes& volume_fluxes_m3, double maximum_outgoing_fraction = .4);
+// Sharp gas/liquid interfaces: in a donor holding both phases, a PLIC line
+// (Youngs normal from neighbouring liquid fractions) places the liquid, and
+// each swept strip carries liquid and gas in its geometric proportion at the
+// donor's EOS state. Single-phase donors keep limited-linear slopes away from
+// interfaces and are flat beside them. A rejected split falls back to donor
+// order. Conservation, EOS admission and momentum coupling are unchanged.
+[[nodiscard]] MacParcelPlan reconstruct_mac_interface_parcels(const SpeciesRegistry&, const FluidThermodynamics&,
+    const MacTransportState&, std::span<const double> material_volumes_m3,
+    const MacMassFluxes& volume_fluxes_m3, double maximum_outgoing_fraction = .4);
 }

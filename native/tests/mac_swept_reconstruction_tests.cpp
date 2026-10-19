@@ -163,7 +163,7 @@ void rejection_and_identity() {
         catch (const std::exception&) { caught = control != 3; }
         check(caught && before == ma::testing::fingerprint(source), "Swept malformed geometry or positive underflow was silently accepted");
     }
-    MacClosedSettings invalid; invalid.reconstruction = static_cast<MacMaterialReconstruction>(3); bool caught = false;
+    MacClosedSettings invalid; invalid.reconstruction = static_cast<MacMaterialReconstruction>(4); bool caught = false;
     try { invalid.validate(); } catch (const std::invalid_argument&) { caught = true; }
     check(caught && ma::testing::fingerprint(original) == held, "Swept selector admission or source atomicity failed");
 }

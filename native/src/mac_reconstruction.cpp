@@ -37,6 +37,41 @@ std::optional<double> scaled(double value, double part, double total) {
 struct Edge { std::size_t axis, face, donor, target; MacScaled volume; double cx = 0, cy = 0; };
 struct Field { double centre = 0, sx = 0, sy = 0, lower = 0, upper = 0; bool positive = true; };
 struct Point { double x = 0, y = 0; };
+// Convex polygons in donor coordinates: the unit square [-1/2, 1/2]^2.
+using Polygon = std::vector<Point>;
+// Keeps a*x + b*y <= c (Sutherland-Hodgman for one half-plane).
+Polygon clip_polygon(const Polygon& polygon, double a, double b, double c) {
+    Polygon kept; kept.reserve(polygon.size() + 1);
+    for (std::size_t k = 0; k < polygon.size(); ++k) {
+        const auto& start = polygon[k]; const auto& end = polygon[(k + 1) % polygon.size()];
+        const double ds = a * start.x + b * start.y - c, de = a * end.x + b * end.y - c;
+        if (ds <= 0) kept.push_back(start);
+        if ((ds < 0 && de > 0) || (ds > 0 && de < 0)) {
+            const double t = ds / (ds - de); kept.push_back({start.x + t * (end.x - start.x), start.y + t * (end.y - start.y)});
+        }
+    }
+    return kept;
+}
+double polygon_area(const Polygon& polygon) {
+    double twice = 0;
+    for (std::size_t k = 0; k < polygon.size(); ++k) {
+        const auto& start = polygon[k]; const auto& end = polygon[(k + 1) % polygon.size()];
+        twice += start.x * end.y - end.x * start.y;
+    }
+    return .5 * std::abs(twice);
+}
+// The liquid side {nx*x + ny*y <= c} of the unit cell holding area fraction
+// alpha; (nx, ny) is the unit normal pointing from liquid toward gas.
+Polygon liquid_polygon(double nx, double ny, double alpha) {
+    const Polygon cell{{-.5, -.5}, {.5, -.5}, {.5, .5}, {-.5, .5}};
+    double lo = -.5 * (std::abs(nx) + std::abs(ny)), hi = -lo;
+    for (int k = 0; k < 64; ++k) {
+        const double mid = .5 * (lo + hi); if (mid == lo || mid == hi) break;
+        if (polygon_area(clip_polygon(cell, nx, ny, mid)) < alpha) lo = mid; else hi = mid;
+    }
+    return clip_polygon(cell, nx, ny, .5 * (lo + hi));
+}
+enum class Mode { linear, swept, sharp };
 struct SweptGeometry {
     std::vector<Point> centres, x_half_displacements, y_half_displacements;
     std::vector<bool> unresolved;
@@ -101,8 +136,9 @@ double evaluated(const Field& field, double theta, double x, double y) {
     Sum value; value.add(field.centre); value.add(theta * x * field.sx); value.add(theta * y * field.sy); return value.value();
 }
 MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing, bool swept) {
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing, Mode mode) {
     require_mac_energy_environment();
+    const bool swept = mode == Mode::swept, sharp = mode == Mode::sharp;
     model.validate_registry(registry); static_cast<void>(mac_face_inertias(registry, source, model, volumes));
     const auto& g = source.grid; const auto count = source.cells.size(), species = registry.size();
     const auto qx = mac_field_values(q.x, q.full_x), qy = mac_field_values(q.y, q.full_y);
@@ -114,6 +150,16 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
     result.retained.reserve(count); std::vector<double> positive_energy(count); std::vector<MacScaledSum> outgoing(count);
     std::vector<std::array<std::size_t, 4>> by_donor(count); for (auto& row : by_donor) row.fill(none);
     std::vector<bool> flat_coordinate(count, false);
+    // Sharp mode: liquid and gas volume fractions at the source material volume,
+    // and registry-ordered specific energies for donors that hold both phases.
+    std::vector<double> alpha(count, 0), gas_fraction(count, 0);
+    std::vector<bool> two_phase(count, false);
+    std::vector<std::vector<double>> specific(count);
+    std::vector<bool> liquid(species, false); std::vector<std::size_t> profile_registry;
+    if (sharp) for (const auto& material : model.reference().materials()) {
+        const auto index = registry.index(material.id); profile_registry.push_back(index);
+        liquid[index] = material.phase == ReferencePhase::elastic_liquid;
+    }
     std::vector<Edge> edges; edges.reserve(q.x.size() + q.y.size()); std::size_t sparse_count = 0;
     for (std::size_t i = 0; i < count; ++i) {
         require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0), "Invalid reconstruction material volume");
@@ -122,6 +168,14 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const auto eos = model.evaluate(source.cells[i].mixture, volumes[i]);
             if (eos.vacuum_volume_m3 > 32 * eps * volumes[i]) throw std::domain_error("MAC reconstruction source contains internal void");
             positive_energy[i] = eos.thermal_energy_j + eos.elastic_energy_j; require_finite(positive_energy[i], "MAC positive reconstruction energy");
+            if (sharp) {
+                alpha[i] = eos.liquid_volume_m3 / volumes[i]; gas_fraction[i] = eos.gas_volume_m3 / volumes[i];
+                two_phase[i] = eos.liquid_volume_m3 > 0 && eos.has_gas && eos.gas_volume_m3 > 0;
+                if (two_phase[i]) {
+                    specific[i].assign(species, 0);
+                    for (std::size_t k = 0; k < profile_registry.size(); ++k) specific[i][profile_registry[k]] = eos.specific_internal_energies_j_per_kg[k];
+                }
+            }
         }
         result.retained.push_back({MixtureInventory(species), {}});
     }
@@ -190,6 +244,12 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         require(identities.size() <= 327685, "MAC reconstruction stencil passive capacity exceeded");
         const std::vector<std::uint64_t> ids(identities.begin(), identities.end());
         std::vector<Field> fields(species + 2 + ids.size()); bool flat = flat_coordinate[i] || (swept && geometry.unresolved[i]);
+        // A single-phase donor beside an interface or a phase change keeps donor
+        // order, so no slope can export a phase it does not hold.
+        const bool sharp_donor = sharp && two_phase[i];
+        bool forced_flat = sharp_donor;
+        if (sharp && !sharp_donor) for (const auto cell : stencil)
+            if (cell != none && (two_phase[cell] || (alpha[cell] > 0) != (alpha[i] > 0))) forced_flat = true;
         std::vector<Point> weights(stencil.size());
         if (swept && !flat) {
             Sum xx, xy, yy;
@@ -256,8 +316,8 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const double ratio = edges[edge].volume.shared(1, retained_volume).project().value;
             points.emplace_back(edges[edge].cx, edges[edge].cy); rx.add(-ratio * edges[edge].cx); ry.add(-ratio * edges[edge].cy);
         }
-        points.emplace_back(rx.value(), ry.value()); double theta = flat ? 0 : 1;
-        if (!flat) for (const auto& field : fields) {
+        points.emplace_back(rx.value(), ry.value()); double theta = flat || forced_flat ? 0 : 1;
+        if (!flat && !forced_flat) for (const auto& field : fields) {
             for (const auto& [x, y] : points) {
                 if (!std::isfinite(x * field.sx) || !std::isfinite(y * field.sy)) { flat = true; theta = 0; break; }
                 Sum increment; increment.add(x * field.sx); increment.add(y * field.sy); const double delta = increment.value();
@@ -290,14 +350,57 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const auto eos = model.evaluate(cell.mixture, volume);
             if (eos.vacuum_volume_m3 > 32 * eps * volume) throw std::domain_error("Reconstructed MAC state has internal void");
         };
+        // Each outgoing strip's liquid fraction from the PLIC line. Without a
+        // defined normal the strip carries the donor's average composition.
+        std::array<double, 4> strip_liquid{};
+        if (sharp_donor) {
+            const auto fraction = [&](std::size_t cell) { return cell == none ? alpha[i] : alpha[cell]; };
+            const auto diagonal = [&](std::size_t cell, int dy) { return cell == none ? none : neighbor(cell, 1, dy); };
+            const double a00 = fraction(diagonal(adjacent[0], -1)), a01 = fraction(adjacent[0]), a02 = fraction(diagonal(adjacent[0], 1));
+            const double a10 = fraction(adjacent[2]), a12 = fraction(adjacent[3]);
+            const double a20 = fraction(diagonal(adjacent[1], -1)), a21 = fraction(adjacent[1]), a22 = fraction(diagonal(adjacent[1], 1));
+            const double gx = ((a22 + 2 * a21 + a20) - (a02 + 2 * a01 + a00)) / 8, gy = ((a02 + 2 * a12 + a22) - (a00 + 2 * a10 + a20)) / 8;
+            const double length = std::hypot(gx, gy); const bool oriented = std::isfinite(length) && length > 0;
+            const auto region = oriented ? liquid_polygon(-gx / length, -gy / length, alpha[i]) : Polygon{};
+            for (std::size_t k = 0; k < by_donor[i].size(); ++k) {
+                strip_liquid[k] = alpha[i];
+                if (!oriented || by_donor[i][k] == none) continue;
+                const auto& e = edges[by_donor[i][k]];
+                const double width = e.volume.shared(1, volumes[i]).project().value;
+                if (!(width > 0) || !std::isfinite(width)) continue;
+                const bool positive = (e.axis == 0 ? e.cx : e.cy) > 0; const double bound = positive ? .5 - width : -.5 + width;
+                const auto strip = e.axis == 0 ? clip_polygon(region, positive ? -1. : 1., 0., positive ? -bound : bound)
+                                               : clip_polygon(region, 0., positive ? -1. : 1., positive ? -bound : bound);
+                strip_liquid[k] = std::clamp(polygon_area(strip) / width, 0., 1.);
+            }
+        }
+        // A strip prototype at the donor volume: liquid at the donor's liquid
+        // density, gas at its headspace density, both at the donor's EOS state.
+        const auto phase_prototype = [&](double strip) {
+            MacMaterialCell cell{MixtureInventory(species), {}};
+            const auto& from = source.cells[i];
+            const double liquid_scale = strip / alpha[i], gas_scale = (1 - strip) / gas_fraction[i];
+            Sum energy, total;
+            for (std::size_t s = 0; s < species; ++s) {
+                const double amount = from.mixture.masses[s] * (liquid[s] ? liquid_scale : gas_scale);
+                cell.mixture.masses[s] = amount; energy.add(amount * specific[i][s]); total.add(amount);
+            }
+            cell.mixture.energy = energy.value();
+            const double ratio = total.value() / from.mixture.mass();
+            for (const auto& p : from.passive_quantities) { const double v = p.quantity * ratio; if (v != 0) cell.passive_quantities.push_back({p.identity, v}); }
+            return cell;
+        };
+        bool homogeneous = false;
+        const auto split_retry = [&] { if (!sharp_donor || homogeneous) return false; homogeneous = true; return true; };
         bool accepted = false;
         for (std::size_t attempt = 0; attempt <= 33; ++attempt) {
             std::vector<MacScaledSum> retained(species + 1 + ids.size());
             for (std::size_t f = 0; f < species + 1; ++f) retained[f].add(quantity(i, f));
             for (std::size_t p = 0; p < ids.size(); ++p) retained[species + 1 + p].add(quantity(i, species + 2 + p));
             try {
-                for (auto edge : by_donor[i]) if (edge != none) {
-                    const auto& e = edges[edge]; auto prototype = values(theta, e.cx, e.cy);
+                for (std::size_t slot = 0; slot < by_donor[i].size(); ++slot) if (const auto edge = by_donor[i][slot]; edge != none) {
+                    const auto& e = edges[edge];
+                    auto prototype = !sharp_donor ? values(theta, e.cx, e.cy) : homogeneous ? source.cells[i] : phase_prototype(strip_liquid[slot]);
                     admitted(prototype, volumes[i]);
                     const auto volume_projection = e.volume.project();
                     MacPrimalParcel parcel{e.axis, e.face, i, e.target, volume_projection.value, std::move(prototype), volumes[i], volume_projection.rounded ? e.volume : MacScaled{}};
@@ -328,9 +431,10 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 for (std::size_t p = 0; p < ids.size(); ++p) { const double v = store_mac_primary(retained[species + 1 + p], true); if (v != 0) cell.passive_quantities.push_back({ids[p], v}); }
                 admitted(cell, retained_volume); accepted = true;
             } catch (const ReferenceError& error) {
-                if (theta == 0 || error.code() == ReferenceErrorCode::invalid_model || error.code() == ReferenceErrorCode::incompatible_entropy_reference) throw;
-            } catch (const std::domain_error&) { if (theta == 0) throw; }
-            catch (const std::invalid_argument&) { if (theta == 0) throw; }
+                if (error.code() == ReferenceErrorCode::invalid_model || error.code() == ReferenceErrorCode::incompatible_entropy_reference ||
+                    (theta == 0 && !split_retry())) throw;
+            } catch (const std::domain_error&) { if (theta == 0 && !split_retry()) throw; }
+            catch (const std::invalid_argument&) { if (theta == 0 && !split_retry()) throw; }
             if (accepted) break;
             ++result.eos_backtracks; theta = attempt < 32 ? theta * .5 : 0;
         }
@@ -343,10 +447,14 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
 }
 MacParcelPlan reconstruct_mac_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
-    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, false);
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::linear);
 }
 MacParcelPlan reconstruct_mac_swept_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
     const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
-    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, true);
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::swept);
+}
+MacParcelPlan reconstruct_mac_interface_parcels(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& source, std::span<const double> volumes, const MacMassFluxes& q, double maximum_outgoing) {
+    return reconstruct(registry, model, source, volumes, q, maximum_outgoing, Mode::sharp);
 }
 }

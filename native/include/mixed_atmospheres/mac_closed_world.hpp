@@ -12,7 +12,9 @@
 
 namespace ma::experimental {
 // Persisted selectors. The original index-space linear path keeps value 1.
-enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2 };
+// Value 3 reconstructs a piecewise-linear gas/liquid interface (PLIC) in cells
+// holding both phases, so swept parcels carry each phase only where it is.
+enum class MacMaterialReconstruction { donor_cell = 0, limited_linear = 1, swept_first_moment = 2, interface_plic = 3 };
 enum class MacCompressionViscosity { none = 0, quadratic = 1, acoustic_quadratic = 2, coupled_pressure = 3 };
 // Persisted values: 0 disabled, 1 closing-speed, 2 matched Cp/max-speed,
 // 3 matched Cp with two half-cell resistances. Older values keep their laws.

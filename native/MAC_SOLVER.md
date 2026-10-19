@@ -127,7 +127,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `maximum_outgoing_volume_fraction` | 0.4 | (0, 0.45] |
 | `preconditioner` | `automatic` | `jacobi`, `incomplete_cholesky` |
 | `gravity_m_per_s2` | 0 | ≥ 0, constant and downward; requires nonperiodic y |
-| `reconstruction` (material) | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `swept_first_moment` |
+| `reconstruction` (material) | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `swept_first_moment`, 3 `interface_plic` (sharp gas/liquid interfaces) |
 | `momentum_reconstruction` | 1 `limited_linear` | 0 `donor_cell` (reference), 2 `quadratic_limited_linear`, 3 `swept_physical`, 4 `swept_energy_flux`, 5 `swept_nodal_1d` (1-D only) |
 | `compression_viscosity` | 2 `acoustic_quadratic` (pressure-sensed) | 0 `none`, 1 `quadratic`, 3 `coupled_pressure` |
 | `shock_heat` | 2 `pressure_sensed_acoustic` | 0 `none`, 1 `compression_activated`, 3 `pressure_sensed_series` |
