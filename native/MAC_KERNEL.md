@@ -512,7 +512,8 @@ Each capture advances 21 consecutive 0.1-second intervals of the 20 Pa wave;
 every cell changes, no equilibrium certificate is used, and there are no
 retries. Two captures per size use GNU 15.2 Release/IPO on the shared Ryzen
 9 5900X, pinned to logical CPUs 0–11 (one per physical core). Sampled endpoint
-1-minute loads are 16.01–20.83. Shared-host timing variance is substantial.
+1-minute loads are 16.01–20.83. Shared-host timing variance is substantial. These
+captures predate persisted primary U and do not certify its current cost.
 
 | Active cells (shape) | Workers used | p50 ms, runs 1 / 2 | p95 ms, runs 1 / 2 | Workspace B/cell | Peak process RSS B/cell, runs 1 / 2 |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -689,9 +690,10 @@ do not certify current automatic-multigrid active-cell performance.
 ## Remaining work
 
 - Real-time target: open. The last measured automatic-multigrid baseline has p95
-  2,210–2,329 ms per 0.1 s at 250,000 active cells and 819–865 ms at
-  100,000, against 62.5/25 ms, before adapter cost. This baseline predates
-  the pressure-storage ledger; its timing impact remains unmeasured.
+  1,721–3,197 ms per 0.1 s at 250,000 active cells and 467–533 ms at
+  100,000, against 62.5/25 ms, before adapter cost. This `a118fe9` baseline
+  includes the pressure-storage ledger but predates persisted primary U;
+  current active-cell timing remains unmeasured.
 - Persisted production selection and automatic geometric multigrid are
   implemented; measured active-cell timing with these defaults fails the targets.
   The saved reviewers are ported and the narrower interval kernel is retired.
@@ -700,7 +702,8 @@ do not certify current automatic-multigrid active-cell performance.
   Fewer, larger parallel regions (fused sweep stages, a PCG variant with one
   reduction per iteration) and a measurement on an idle host are the next
   steps.
-- Diffusion inside the kernel (the stage slot above), swept and sharp-interface reconstruction,
+- Diffusion is composed around the flow kernel by the production owner.
+  Material selectors 0/1/3 are supported; swept material reconstruction,
   momentum selectors 2–5 and coupled compressive pressure are not ported.
 - Below-range primal parcel products and composed diffusion transfers are counted
   and audited. Flagged sweeps preserve range until parcel formation, and dual

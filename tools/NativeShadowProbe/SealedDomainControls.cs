@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using MixedAtmospheres.Oni;
 
@@ -182,17 +183,26 @@ internal static unsafe partial class Program
                 var thermal = OniNativeDomain.ThermalStatus.Empty;
                 Require(OniNativeDomain.CopyThermalStatus(ref thermal) == 0 && thermal.Enabled == 1 && thermal.State == 1 &&
                     thermal.Session == status.Session && thermal.CompletedFrame == status.CompletedFrames &&
-                    thermal.Stages == 2 * status.Substeps && thermal.Contacts > 0 &&
-                    (smallLiquidHeat ? thermal.UnresolvedUpdates>0 && thermal.RedistributedEnergy==0 && thermal.EntropyChange==0 :
-                        thermal.RedistributedEnergy>0 && thermal.EntropyChange>0),
+                    thermal.ExactEquilibriumIntervals <= status.Substeps &&
+                    thermal.Stages == 2 * (status.Substeps - thermal.ExactEquilibriumIntervals) && thermal.Stages > 0 && thermal.Contacts > 0 &&
+                    thermal.RedistributedEnergy>0 && thermal.EntropyChange>0,
                     "Worker-clock internal heat conduction did not produce coherent physical diagnostics.");
-                report["internalConductionPassed"] = !smallLiquidHeat;
+                report["internalConductionPassed"] = true;
                 report["smallLiquidHeatAccountingPassed"] = smallLiquidHeat;
+                if (smallLiquidHeat)
+                {
+                    var carried = ReadPhysicalCheckpoint(status.Session,status.CompletedFrames);
+                    var version = BinaryPrimitives.ReadUInt32LittleEndian(carried.AsSpan(8));
+                    Require(version==10 && ResumePhysicalCheckpoint(carried,0).SequenceEqual(carried),
+                        "Small liquid heat lost its carried primary-U checkpoint state.");
+                    report["smallLiquidHeatCheckpointVersion"] = version;
+                    report["smallLiquidHeatCheckpointExact"] = true;
+                }
                 if(liquid && !smallLiquidHeat) Require(values[0].Temperature>300 && values.Skip(1).Any(cell=>cell.Temperature>300+1e-9),
                     "Liquid heat did not warm the source and a conductive neighbor.");
                 report["thermalConduction"] = new { thermal.Size, thermal.Version, thermal.State, thermal.Enabled,
                     thermal.Session, thermal.CompletedFrame, thermal.Stages, thermal.Contacts, thermal.Iterations,
-                    thermal.UnresolvedUpdates, thermal.RedistributedEnergy, thermal.EntropyChange };
+                    thermal.UnresolvedUpdates, thermal.RedistributedEnergy, thermal.EntropyChange, thermal.ExactEquilibriumIntervals };
             }
             report["sealedNativeDomainPassed"] = true; report["projectionPrimedAtFrame"] = primedAt;
             if (gravity)

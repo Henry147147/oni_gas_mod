@@ -88,8 +88,8 @@ continue after a declined scalar save.
 | Mode | Additional checks |
 | --- | --- |
 | `sealed-gas`, `sealed-water` | Base gas and compressed-water rooms. |
-| `sealed-heat`, `sealed-water-heat`, `sealed-water-small-heat` | Game heat commands with a committed energy account. The small-heat case checks sub-ULP accounting only; see [rounding](../../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding). |
-| `sealed-conduction` | Positive internal redistribution and entropy, with two thermal stages per substep. |
+| `sealed-heat`, `sealed-water-heat`, `sealed-water-small-heat` | Game heat commands with a committed energy account. The small-heat case requires positive conduction and a byte-exact round trip of the carried-U version-10 checkpoint; see [rounding](../../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding). |
+| `sealed-conduction` | Positive internal redistribution and entropy, with two thermal stages per physical substep, excluding certified equilibrium intervals. |
 | `sealed-gravity`, `sealed-water-gravity` | Downward impulse, vertical momentum and an independent U+K+G account. |
 | `sealed-water-transfer` | Liquid injection and removal publish only after a native frame; a void-creating request is rejected. |
 | `sealed-checkpoint` | A restored image's continuation matches the next native worker frame byte for byte. |

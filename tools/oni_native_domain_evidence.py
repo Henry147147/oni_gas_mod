@@ -275,6 +275,25 @@ def _configured_solids_passed(solids, mask: list[int]) -> bool:
     return True
 
 
+def _thermal_stage_clock_passed(thermal: dict, physical: dict) -> bool:
+    if not isinstance(thermal, dict) or not isinstance(physical, dict):
+        return False
+    version=thermal.get('Version')
+    if type(version) is not int:
+        return False
+    if version==1 and thermal.get('Size')==80:
+        equilibrium=thermal.get('ExactEquilibriumIntervals',0)
+        if equilibrium!=0:
+            return False
+    elif version==2 and thermal.get('Size')==88:
+        equilibrium=thermal.get('ExactEquilibriumIntervals')
+    else:
+        return False
+    substeps=physical.get('Substeps')
+    return (type(equilibrium) is int and type(substeps) is int and 0<=equilibrium<=substeps
+            and type(thermal.get('Stages')) is int and thermal['Stages']==2*(substeps-equilibrium))
+
+
 def _configured_domain_passed(report: dict, physical: dict, liquid: bool, restored: bool = False) -> bool:
     """A configured scenario-7 room: exact copied geometry/physics/mask, native interior solids and acting physics.
 
@@ -340,7 +359,7 @@ def _configured_domain_passed(report: dict, physical: dict, liquid: bool, restor
             return False
         thermal, gravity = report['ThermalConduction'], report['Gravity']
         return (thermal.get('Enabled') == 1 and thermal.get('State') == 1 and thermal.get('Session') == physical['Session']
-                and thermal.get('CompletedFrame') == physical['CompletedFrames'] and thermal.get('Stages') == 2 * physical['Substeps']
+                and thermal.get('CompletedFrame') == physical['CompletedFrames'] and _thermal_stage_clock_passed(thermal,physical) and thermal['Stages']>0
                 and thermal.get('Contacts', 0) > 0 and thermal.get('RedistributedEnergy', 0) > 0 and thermal.get('EntropyChange', 0) > 0
                 and gravity.get('Enabled') == 1 and gravity.get('State') == 1 and gravity.get('Gravity') == 9.81
                 and gravity.get('Session') == physical['Session'] and gravity.get('CompletedFrame') == physical['CompletedFrames']
@@ -533,10 +552,9 @@ def _mixed_phase_passed(report: dict, physical: dict) -> bool:
                     or any(type(thermal.get(k)) not in (int,float) or thermal[k]!=0 for k in ('RedistributedEnergy','EntropyChange'))):return False
         elif (value.get('SinglePhaseConductionDisabled') is not False
                 or value.get('ConductionModel')!='complete-EOS-contact-split-backward-Euler-v1'
-                or thermal.get('Size')!=80 or thermal.get('Version')!=1 or thermal.get('State')!=1
+                or not _thermal_stage_clock_passed(thermal,physical) or thermal['Stages']<=0 or thermal.get('State')!=1
                 or type(thermal.get('Enabled')) is not int or thermal['Enabled']!=1
                 or thermal.get('Session')!=physical['Session'] or thermal.get('CompletedFrame')!=physical['CompletedFrames']
-                or type(thermal.get('Stages')) is not int or thermal['Stages']!=2*physical['Substeps']
                 or any(type(thermal.get(k)) is not int or thermal[k]<=0 for k in ('Contacts','Iterations'))
                 or any(type(thermal.get(k)) not in (int,float) or not math.isfinite(thermal[k]) or
                     (thermal[k]<=0 if value['NativeScenario']==5 else thermal[k]<0) for k in ('RedistributedEnergy','EntropyChange'))):return False
@@ -1005,10 +1023,10 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
             return False
     if conduction or liquid_heat:
         thermal = report.get("ThermalConduction")
-        if (report.get("ThermalConductionVerified") is not True or not isinstance(thermal, dict)
-                or thermal.get("Size") != 80 or thermal.get("Version") != 1 or thermal.get("Enabled") != 1 or thermal.get("State") != 1
+        if (report.get("ThermalConductionVerified") is not True or not _thermal_stage_clock_passed(thermal,physical) or thermal["Stages"]<=0
+                or thermal.get("Enabled") != 1 or thermal.get("State") != 1
                 or thermal.get("Session") != physical["Session"] or thermal.get("CompletedFrame") != physical["CompletedFrames"]
-                or thermal.get("Stages") != 2 * physical["Substeps"] or type(thermal.get("Contacts")) is not int or thermal["Contacts"] <= 0
+                or type(thermal.get("Contacts")) is not int or thermal["Contacts"] <= 0
                 or type(thermal.get("Iterations")) is not int or thermal["Iterations"] <= 0
                 or any(type(thermal.get(key)) not in (int, float) or not math.isfinite(thermal[key]) or thermal[key] <= 0
                        for key in ("RedistributedEnergy", "EntropyChange"))):

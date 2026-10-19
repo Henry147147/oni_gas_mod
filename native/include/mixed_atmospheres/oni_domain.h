@@ -276,14 +276,15 @@ MA_ONI_API MAOniResult ma_oni_domain_frame_inputs_copy(uint64_t session, uint64_
 MA_ONI_API MAOniResult ma_oni_domain_snapshot_advance_with_inputs(const uint8_t* source, uint32_t source_bytes,
     const uint8_t* journal, uint32_t journal_bytes, uint8_t* output, uint32_t capacity, uint32_t* required_bytes);
 
-/* Internal fluid conduction diagnostics, ABI 1. Scalar energy/entropy values
+/* Internal fluid conduction diagnostics, ABI 2. Scalar energy/entropy values
  * are read-only projections, never authority for a producer transaction.
- * Redistribution counts represented cell-U changes; requested sub-ULP heat
- * remains unresolved and must not be presented as physical redistribution. */
+ * Redistribution includes carried U corrections. Certified equilibrium intervals
+ * are reported substeps but execute no physical conduction stages. */
 typedef struct MAOniDomainThermalStatus {
     uint32_t struct_size, abi_version, state, enabled;
     uint64_t session, completed_frame, stages, contacts, iterations, unresolved_updates;
     double redistributed_energy_j, entropy_change_j_per_k;
+    uint64_t exact_equilibrium_intervals;
 } MAOniDomainThermalStatus;
 MA_ONI_API uint32_t ma_oni_domain_thermal_abi_version(void);
 MA_ONI_API MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus*);

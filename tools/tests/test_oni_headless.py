@@ -319,6 +319,22 @@ class NativeDomainEvidenceTests(unittest.TestCase):
             HeatCommands=dict(PendingBatches=0,AcceptedBatches=2,CommittedBatches=2,CommittedHeatJoules=1500000))
         return report
 
+    def test_conduction_clock_distinguishes_certified_idle_intervals(self):
+        report=self.mixed_heat_report()
+        total=report['NativeDomain']['Substeps']
+        report['ThermalConduction'].update(Size=88,Version=2,ExactEquilibriumIntervals=5,Stages=2*(total-5))
+        self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+        for change in [lambda r:r['ThermalConduction'].update(ExactEquilibriumIntervals=-1),
+            lambda r:r['ThermalConduction'].update(ExactEquilibriumIntervals=True),
+            lambda r:r['ThermalConduction'].update(ExactEquilibriumIntervals=total+1),
+            lambda r:r['ThermalConduction'].pop('ExactEquilibriumIntervals'),
+            lambda r:r['ThermalConduction'].update(Stages=2*total),
+            lambda r:r['ThermalConduction'].update(ExactEquilibriumIntervals=total,Stages=0),
+            lambda r:r['ThermalConduction'].update(Version=3),
+            lambda r:r['ThermalConduction'].update(Size=80)]:
+            altered=copy.deepcopy(report);change(altered)
+            self.assertFalse(runner.native_domain_passed(altered,self.observation,30,mixed_phase=True,heat=True,conduction=True))
+
     def test_heated_mixture_requires_full_eos_conduction_and_large_capacity_heat_accounts(self):
         report=self.mixed_heat_report()
         self.assertTrue(runner.native_domain_passed(report,self.observation,30,mixed_phase=True,heat=True,conduction=True))

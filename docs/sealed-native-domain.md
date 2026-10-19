@@ -62,18 +62,19 @@ version 6 without changing its outer payload framing. The frozen `73abf47`
 package passes twenty-eight Linux pairs, including both configured rooms, and
 four WindowsPlayer/Proton pairs (solid heat, gas, water and paired checkpoints).
 Every reload verifies paused frame-zero saving and 120 exact continued frames.
-These bounded fixtures do not certify a colony or actual Windows OS execution. Production
-`water-heat` fails its unchanged endpoint energy gate after 123 frames:
-−0.0177001953125 J residual against 0.005945804622783117 J, with no rejected
-solver attempts. A standalone public-species reproducer matches the drift,
-conduction counters and entropy report; it is retained with the game evidence
-in `local/production-water-heat-drift-v1/` and `local/production-save-v6-v1/`.
-[Persisted U corrections](../native/MAC_PRIMARY_REMAINDERS.md) now pass that
-unchanged standalone control (+3.81470e-6 J against 0.00594585 J). A new Linux run
-reaches frame 121 with zero rejected attempts and maximum relative energy error
-7.12279e-20, then fails the conduction stage-clock check: certified idle intervals
-are included in substeps but execute no physical stages. The owner diagnostic and
-fresh save/reload validation remain open. Volume remainders remain open under Codex.
+These bounded fixtures do not certify a colony or actual Windows OS execution.
+[Persisted U corrections](../native/MAC_PRIMARY_REMAINDERS.md) fix the frozen
+production water-heat energy failure (−0.0177002 J against 0.00594580 J).
+Thermal diagnostic ABI 2 also corrects its stage-clock observation: certified
+idle intervals count as substeps but run no physical stages. With both changes,
+the unchanged Linux source/save passes at frame 122 with zero rejected attempts,
+zero projected endpoint energy residual and maximum relative energy error
+7.12279e-20. Fresh-process reload, paused frame-zero saving and 120 exact
+continued frames pass. The matching WindowsPlayer/Proton pair also passes
+(source frame 121, zero rejected attempts and endpoint residual, 120 exact
+continued frames). Actual Windows OS runs and the rest of the U-enabled game
+cohort remain pending. Volume remainders remain
+open under Codex. Current evidence is in `local/thermal-certificates-v1/`.
 
 **Native exclusions.** The validation scenes queue ONI's gas/liquid
 impermeability flags and verify them in the original native snapshot. Native
@@ -144,7 +145,7 @@ extensions are described below; the full capability list is in
 
 | Extension | ABI | Records | Section |
 | --- | ---: | --- | --- |
-| Thermal diagnostic | 1 | 80-byte status | [Conduction](#internal-fluid-conduction) |
+| Thermal diagnostic | 2 | 88-byte status | [Conduction](#internal-fluid-conduction) |
 | Heat commands | 1 | 48-byte command, 56-byte status | [Heat commands](#conserved-game-heat-commands) |
 | Gravity diagnostic | 1 | 96-byte status | [Gravity](#gravity-and-carried-potential-energy) |
 | Transfers | 2 | 64-byte command, 88-byte receipt, 104-byte status | [Point sources](#gas-point-sources-and-game-callbacks) |
@@ -170,18 +171,25 @@ face momentum do not change during this operator.
 Every stage checks local and global energy accounts and endpoint entropy at
 bounds derived from its operands. Independent two-body equations and analytic
 time refinement test the heat solve; source immutability and the single clock
-are tested separately. Thermal diagnostic ABI 1 reports session/frame, enabled
-state, stage/contact/iteration counts, redistributed energy and entropy change,
-and counts heat updates smaller than the stored binary64 internal-energy
-resolution; these are reported, not hidden. Stored cell energy uses
-[conservative component rounding](../native/MAC_HEAT.md#physical-conduction-and-stored-energy-rounding),
-the diagnostic counts represented redistribution, and entropy uses the
-represented U increment.
+are tested separately. Thermal diagnostic ABI 2 (88 bytes) adds the count of
+certified equilibrium intervals to session/frame, stage/contact/iteration counts,
+redistributed energy and entropy. Those intervals count as solver substeps but
+execute no physical stages. Active conduction therefore requires exactly
+`Stages = 2 * (Substeps - ExactEquilibriumIntervals)`, plus positive contact,
+iteration, heat and entropy progress. A native regression covers five idle
+intervals, later heat flow and counter reset after restore. Older or truncated
+native layouts reject; saved-only evidence retains explicit ABI-1 support with
+its original zero-certificate equation.
+
+Cell energy includes its [persisted U correction](../native/MAC_PRIMARY_REMAINDERS.md).
+Redistribution and entropy use that complete increment; updates unresolved across
+both parts remain visible. Diagnostic counters are not checkpoint state, and this
+ABI change preserves physical checkpoint bytes and all energy/entropy bounds.
 
 - `native-conduction-domain` (`conduction`) seeds a gradient with the ordinary
   +2,000 J / -500 J game heat commands. It requires positive internal
-  redistribution and entropy, exactly two thermal stages per substep and
-  matching diagnostic session/frame values.
+  redistribution and entropy, exactly two thermal stages per physical substep
+  (excluding certified equilibrium intervals) and matching diagnostic session/frame values.
 - `native-liquid-heat-domain` (`water-heat`) applies +2 MJ / -0.5 MJ to filled
   water. It requires warming of the source and a conductive neighbour,
   positive represented redistribution and entropy, and the paired save/reload.

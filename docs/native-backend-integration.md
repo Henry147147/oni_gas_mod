@@ -178,7 +178,7 @@ historical. Additive capabilities each report their own version:
 
 | Capability (`ma_oni_domain_*`) | Version | Contract |
 | --- | --- | --- |
-| `heat`, `transfer`, `actor`, `thermal`, `gravity` | 1, 2, 1, 1, 1 | [Sealed domain](sealed-native-domain.md) |
+| `heat`, `transfer`, `actor`, `thermal`, `gravity` | 1, 2, 1, 2, 1 | [Sealed domain](sealed-native-domain.md) |
 | `radial_consumption`, `rectangular_consumption` | 1, 1 | [Transactions](native-domain-transactions.md) |
 | `frame_inputs`, `completed_snapshot` | 1, 1 | [Transactions](native-domain-transactions.md#accepted-frame-inputs-and-completed-images) |
 | `initial_inventory`, `viscosity`, `chunk_heat`, `solid_heat` | 1, 1, 1, 1 | [Physics](native-domain-physics.md) |

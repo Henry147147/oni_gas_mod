@@ -82,13 +82,22 @@ U-state reader passes 3,184 checks and twelve corruptions. The standard saved-re
 sweep passes 45/47: the strong-flow and legacy vacuum entropy-allowance failures
 also occur in the baseline and remain open.
 
-A fresh Linux water-heat run reaches frame 121 with zero rejected attempts and
-maximum relative energy error `7.122793139154451e-20`. Runtime validation then fails
-the conduction stage-clock equation: 4,872 stages versus twice 2,441 reported
-substeps. The validator does not distinguish certified idle intervals, which run
-no physical stages. This owner-diagnostic correction and fresh game saves/reloads
-remain open, along with volume remainders, local subcycling, performance and
-milestone B.
+Thermal diagnostic ABI 2 now distinguishes certified equilibrium intervals from
+physical substeps. The exact stage equation is `2*(substeps-certificates)`;
+positive physical heat and entropy remain required. The unchanged Linux water-heat
+source/save passes at frame 122 with zero rejected attempts, zero projected
+endpoint energy residual against 0.00594580462278261 J, and maximum relative
+energy error 7.12279e-20. Its fresh-process reload resaves at paused frame zero
+and matches 120 continued frames exactly. WindowsPlayer under Proton also passes
+the source/save (frame 121) and fresh-process reload with 120 exact frames.
+Both source runs have zero projected endpoint residual and the same maximum
+relative energy error; actual Windows OS validation remains open.
+The fifteen isolated Linux domain controls also pass; the small-water-heat
+control retains its inputs/bound and now observes positive conduction plus a
+byte-exact version-10 U-state round trip. The diagnostic fix leaves all 77 MAC
+exits and scientific outputs unchanged (75 stdout captures are byte-identical;
+two differ only in timing). Volume remainders, local subcycling, performance,
+the remaining current-package game scenes and milestone B remain open.
 
 ```sh
 build-production/ma_mac_primary_state_tests > U_CAPTURE

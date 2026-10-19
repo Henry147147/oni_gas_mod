@@ -93,7 +93,7 @@ std::map<std::pair<std::uint32_t,std::int32_t>,Actor> actors;
 using ActorIdentityKey=std::tuple<std::uint32_t,actor_checkpoint::Identity>;
 std::map<ActorIdentityKey,actor_checkpoint::State> pending_actor_restore;
 std::uint64_t accepted_actor_configurations{}, actor_steps{}, consumer_samples{}, emitter_samples{};
-std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{};
+std::uint64_t thermal_stages{},thermal_contacts{},thermal_iterations{},unresolved_thermal_updates{},thermal_equilibrium_intervals{};
 MacEnergySum thermal_redistribution,thermal_entropy;
 MacDiffusionReport diffusion_progress;
 std::uint64_t viscous_stages{},viscous_modes{},unresolved_viscous_heat{},unresolved_viscous_momentum{};
@@ -738,7 +738,7 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     completed_audit.reset();audit_full_serializations=audit_journal_serializations=0;
     actors.clear(); accepted_actor_configurations=actor_steps=consumer_samples=emitter_samples=0;
     pending_actor_restore=std::move(restored_actors);
-    thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=0;
+    thermal_stages=thermal_contacts=thermal_iterations=unresolved_thermal_updates=thermal_equilibrium_intervals=0;
     thermal_redistribution={}; thermal_entropy={};
     diffusion_progress={};
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
@@ -947,6 +947,10 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         next.maximum_relative_energy_error=std::max(next.maximum_relative_energy_error,static_cast<double>(energy_residual/energy_scale));
         if (next.maximum_relative_mass_error > 1e-8 || next.maximum_relative_energy_error > 1e-6)
             throw std::runtime_error("Native domain exceeded its mass/energy drift bound");
+        if (result.report.exact_equilibrium_intervals>result.report.substeps ||
+            result.report.exact_equilibrium_intervals>std::numeric_limits<std::uint64_t>::max()-thermal_equilibrium_intervals)
+            throw std::overflow_error("Native thermal equilibrium counter overflow or inconsistent report");
+        const auto next_thermal_equilibrium=thermal_equilibrium_intervals+result.report.exact_equilibrium_intervals;
         next.substeps+=result.report.substeps; next.rejected_attempts+=result.report.rejected_attempts;
         ++next.completed_frames; next.native_ticket=ticket; next.time_seconds=result.world.time_s();
         next.last_timestep_seconds=seconds; next.solver_thread=thread;
@@ -1011,6 +1015,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         committed_potential=std::move(next_potential); pending_potential={};
         body_impulse=std::move(next_impulse); gravity_internal_work=std::move(next_gravity_work);
         maximum_energy_residual=std::max(maximum_energy_residual,static_cast<double>(energy_residual));
+        thermal_equilibrium_intervals=next_thermal_equilibrium;
         thermal_stages+=result.report.conduction_stages; thermal_contacts+=result.report.conduction_contacts;
         thermal_iterations+=result.report.conduction_iterations; unresolved_thermal_updates+=result.report.unresolved_conduction_updates;
         diffusion_progress=std::move(next_diffusion);
@@ -1403,9 +1408,9 @@ void copy_domain_diffusion_status(MAOniDomainDiffusionStatus& output) {
 }
 void copy_domain_thermal_status(MAOniDomainThermalStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
-    output={sizeof(MAOniDomainThermalStatus),1,status.state,world && world->settings().thermal_conduction ? 1U : 0U,
+    output={sizeof(MAOniDomainThermalStatus),2,status.state,world && world->settings().thermal_conduction ? 1U : 0U,
         status.session,status.completed_frames,thermal_stages,thermal_contacts,thermal_iterations,unresolved_thermal_updates,
-        thermal_redistribution.value().project().value,thermal_entropy.value().project().value};
+        thermal_redistribution.value().project().value,thermal_entropy.value().project().value,thermal_equilibrium_intervals};
 }
 void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
     std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;

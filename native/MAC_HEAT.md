@@ -173,34 +173,33 @@ cells use complete-EOS pairwise contact solves, described in
 declared mole-weighted reference and liquid conductivity is volume-weighted. No heat
 crosses walls or the exterior; species, passives and J are retained.
 
-Independent nearest rounding of each cell's new U can repeatedly cool a hot cell while
-every small incoming update rounds away, losing energy from the closed system. For each
-connected conductive component, the operator forms the exact additive expansion of
-`old U + solved heat` per cell and finds its two neighbouring binary64 values. It then
-chooses among those endpoints to keep the component's exact original U sum when that
-sum is representable there: spacings are powers of two, so a greedy selection by
-descending spacing works, preferring the larger fractional request and breaking ties
-by cell index. No cell leaves its rounding bracket, and an insulating wall cannot carry
-a correction. If the spacings are too far apart to admit the exact sum, the component
-keeps nearest rounding and the ordinary accounts, and the report counts it as
-unavailable; no minimum flux is forced.
+Independent nearest rounding of each cell's new U can repeatedly cool a hot cell
+while small incoming updates round away. The operator now gathers one shared
+antisymmetric energy transfer per face, adds each cell's carried U correction,
+and stores the high part plus its normalized low part. Any discarded third part
+is counted and audited. Mixed contacts use the same persisted endpoint storage.
+No correction crosses an insulating wall, and no minimum heat flux is forced.
 
 Entropy for this operator is `Cv log1p(ΔU / (Cv T))` with ΔU formed exactly.
-`redistributed_energy` (and the native ABI's `RedistributedEnergy`) counts only
-represented U changes; the requested redistribution is a separate field. A sub-ULP
-request therefore shows positive requested heat, zero redistribution and zero entropy
-change, is counted unresolved, and cannot pass a conduction-progress check.
+`redistributed_energy` (and the native ABI's `RedistributedEnergy`) includes the
+[persisted U correction](MAC_PRIMARY_REMAINDERS.md); requested redistribution
+remains a separate field. A transfer below the high part's quantum can now reach
+the low part and produce physical progress. Changes unresolved across both parts
+remain counted; a requested transfer alone cannot pass the progress check.
 
-Licensed-native controls: `sealed-water-small-heat` (+2,000 J / −500 J) must conserve
-energy and report unresolved updates (`internalConductionPassed: false` by design);
-`sealed-water-heat` (+2 MJ / −0.5 MJ) must show positive redistribution and entropy and
-warm both the source and a conductive neighbour. On Linux and Windows-under-Wine the
-latter gives 4.375 J represented redistribution, 1.582595547e-5 J/K entropy increase
-and zero measured U+K drift; the small control reports 11,536 unresolved updates. The
-rendered `native-liquid-heat-domain` (Windows `-NativeDomain water-heat`) scene uses the
-resolvable input with save/reload checks; game-level results are in
-[sealed native domain](../docs/sealed-native-domain.md). Fluid/solid exchange,
-variable material properties and phase change are not covered.
+The licensed-native `sealed-water-small-heat` control keeps its +2,000 J / −500 J
+inputs and original energy bound. It now requires positive conduction and a
+byte-exact zero-time round trip of its version-10 U-remainder checkpoint. The
+61-frame Linux control measures 0.00438031377694647 J redistribution,
+1.58623740688208e-11 J/K entropy increase and zero projected U+K drift against
+0.00594584721271420 J. `sealed-water-heat` keeps +2 MJ / −0.5 MJ and requires
+warming of the source and a conductive neighbour; it measures 4.38031377696666 J
+redistribution, 1.58451772759253e-5 J/K entropy increase and zero projected drift.
+All fifteen isolated Linux domain controls pass with thermal diagnostic ABI 2.
+These measurements do not replace game save/reload or Windows evidence. The
+rendered `native-liquid-heat-domain` (Windows `-NativeDomain water-heat`) results
+are in [sealed native domain](../docs/sealed-native-domain.md). Fluid/solid
+exchange, variable material properties and phase change are not covered.
 
 ## Verification
 

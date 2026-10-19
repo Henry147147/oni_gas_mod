@@ -180,9 +180,13 @@ int main() {
         require(ma_oni_domain_queue_transfers(&transfer,1,&transfers)==MA_ONI_BUSY &&
                 std::memcmp(&transfers,&held_transfers,sizeof(transfers))==0,"unowned gas transfer changed output");
         require(ma_oni_domain_actor_abi_version()==1 && sizeof(MAOniDomainActor)==80 && sizeof(MAOniDomainActorStatus)==64,"actor extension ABI");
-        require(ma_oni_domain_thermal_abi_version()==1 && sizeof(MAOniDomainThermalStatus)==80,"conduction extension ABI");
-        MAOniDomainThermalStatus thermal{}; thermal.struct_size=80; thermal.abi_version=1;
+        require(ma_oni_domain_thermal_abi_version()==2 && sizeof(MAOniDomainThermalStatus)==88,"conduction extension ABI");
+        MAOniDomainThermalStatus thermal{}; thermal.struct_size=88; thermal.abi_version=2;
         require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_OK && thermal.state==0 && thermal.enabled==0,"inactive conduction status");
+        const auto held_thermal=thermal;thermal.abi_version=1;
+        require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_INVALID_ARGUMENT,"Legacy conduction layout was silently admitted");
+        thermal=held_thermal;thermal.struct_size=80;
+        require(ma_oni_domain_thermal_status(&thermal)==MA_ONI_INVALID_ARGUMENT,"Truncated conduction layout was silently admitted");
         require(ma_oni_domain_viscosity_abi_version()==1 && sizeof(MAOniDomainViscosityStatus)==120,"physical viscosity extension ABI");
         require(ma_oni_domain_radial_consumption_abi_version()==1,"radial consumption capability ABI");
         MAOniDomainViscosityStatus viscosity{};viscosity.struct_size=120;viscosity.abi_version=1;

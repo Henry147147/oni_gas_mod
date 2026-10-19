@@ -978,7 +978,7 @@ MAOniResult ma_oni_domain_ack_receipts(std::uint64_t session,std::uint64_t throu
     });
 }
 std::uint32_t ma_oni_domain_actor_abi_version() { return 1; }
-std::uint32_t ma_oni_domain_thermal_abi_version() { return 1; }
+std::uint32_t ma_oni_domain_thermal_abi_version() { return 2; }
 MAOniResult ma_oni_domain_diffusion_configure(std::uint64_t session,std::uint64_t frame,std::uint32_t mode,double multiplier) {
     return boundary([&] {
         try { ma::oni::configure_domain_diffusion(session,frame,mode,multiplier); }
@@ -995,7 +995,7 @@ MAOniResult ma_oni_domain_diffusion_status(MAOniDomainDiffusionStatus* output) {
 }
 MAOniResult ma_oni_domain_thermal_status(MAOniDomainThermalStatus* output) {
     return boundary([&] {
-        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 1)
+        if (!output || output->struct_size != sizeof(*output) || output->abi_version != 2)
             throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native conduction status ABI");
         ma::oni::copy_domain_thermal_status(*output);
     });

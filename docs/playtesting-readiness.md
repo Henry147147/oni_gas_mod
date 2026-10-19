@@ -131,12 +131,17 @@ also pass collision.
   production water-heat control passes (+3.81470e-6 J against 0.00594585 J at
   123 frames). Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests;
   ThreadSanitizer, MinGW/Wine and exact cross-platform continuation controls pass.
-  A fresh Linux run passes energy but fails the stage-clock validation, which
-  does not distinguish certified idle intervals. Volume remainders, that owner
-  diagnostic and fresh save/reload validation remain open.
+  Thermal ABI 2 now distinguishes certified idle intervals, preserving an exact
+  physical-stage equation and positive heat/entropy progress. Release/Ubuntu each
+  pass 69 CTests; affected sanitizer/Wine suites, 198 snapshot scenarios, 301
+  Python tests (four skips) and fifteen isolated Linux domain controls pass.
+  U-enabled LinuxPlayer and WindowsPlayer/Proton water-heat save/reload pass
+  paused frame-zero saving and 120 exact continued frames. Actual Windows OS,
+  the remaining current-package game cohort and volume remainders remain open.
 - Active-cell performance is open. The consolidated
   [production kernel](../native/MAC_KERNEL.md#current-active-cell-baseline)
-  with automatic multigrid and the pressure-storage ledger measures p95
+  baseline with automatic multigrid and the pressure-storage ledger, before
+  persisted primary U, measures p95
   467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000 per 0.1
   simulated seconds on twelve workers, against 25/62.5 ms before adapters.
   Each shape has two pinned 21-interval evolving-wave captures on the shared
@@ -198,18 +203,20 @@ also pass collision.
   paused frame zero and matches 120 continued frames. The frozen `73abf47`
   package passes twenty-eight Linux pairs, including both configured rooms,
   and four WindowsPlayer/Proton pairs (solid heat, gas, water and paired
-  checkpoints); all reloads verify paused frame-zero saving and 120 exact frames. Production water-heat fails its unchanged endpoint energy
-  gate after 123 frames (−0.0177002 J against 0.00594580 J), with no rejected
-  attempts; a public standalone reproducer matches the drift and conduction
-  counters. With persisted U, the unchanged standalone control now passes
-  (+3.81470e-6 J against 0.00594585 J). A fresh Linux run reaches frame 121 with
-  zero rejected attempts and maximum relative energy error 7.12279e-20, then fails
-  conduction stage accounting because certified idle intervals are included in
-  substeps. The owner diagnostic and fresh save/reload validation remain open. These bounded runs do not certify a colony or actual Windows OS execution. The latest Ubuntu
-  production-owner/pressure-ledger build passes 55 tests and both shared
-  libraries meet the glibc 2.34 ceiling after the shared interface geometry
-  replaces `std::hypot`. The builder and package provenance check enforce that
-  ceiling; their helper tests run independently. The user-authorized `3fbccfb`
+  checkpoints); all reloads verify paused frame-zero saving and 120 exact frames.
+  Persisted U fixes the frozen water-heat energy failure; the unchanged standalone
+  control passes (+3.81470e-6 J against 0.00594585 J). Thermal ABI 2 distinguishes
+  certified idle intervals. The U-enabled Linux water-heat source/save passes at
+  frame 122 with zero rejected attempts, zero projected endpoint residual and
+  maximum relative energy error 7.12279e-20. Fresh-process reload, paused
+  frame-zero saving and 120 exact continued frames pass. The matching
+  WindowsPlayer/Proton pair also passes (source frame 121, zero rejected attempts
+  and endpoint residual, 120 exact continued frames). The remaining current-package
+  game cohort is pending. These
+  bounded runs do not certify a colony or actual Windows OS execution. The current
+  Ubuntu compatibility build passes 69 tests, and both shared libraries meet the
+  glibc 2.34 ceiling. The builder and package provenance check enforce that ceiling;
+  their helper tests run independently. The user-authorized `3fbccfb`
   gravity entropy credit is recorded in the central contract. Calm-region/local
   steps and local subcycling remain open. The opt-in
   [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md) passes

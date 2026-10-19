@@ -358,6 +358,32 @@ void liquid_gravity() {
     std::cout<<"PASS filled-water gravity, pressure head, carried boundary potential, U+K+G residual="<<static_cast<double>(residual)
              <<" bound="<<static_cast<double>(bound)<<" and exact reload\n";
 }
+void certified_thermal_intervals() {
+    using namespace ma::oni;
+    shutdown_domain();
+    MAOniDomainConfig config{40,2,1,64,10,10,3,2,1,0};
+    start_domain(config,1);
+    std::vector<MAOniDomainCell> cells(6);
+    for(std::uint64_t ticket=1;ticket<=5;++ticket)advance_domain(ticket,.2,2);
+    auto state=capture(cells);MAOniDomainThermalStatus thermal{};copy_domain_thermal_status(thermal);
+    require(state.substeps==5 && thermal.stages==0 && thermal.exact_equilibrium_intervals==5 && thermal.completed_frame==5,
+        "Certified idle frames were counted as physical conduction or lost their clock");
+    MAOniDomainHeat request{48,1,state.session,state.completed_frames,10+10*64,17,1000000,1000};
+    MAOniDomainHeatStatus heat{};queue_domain_heat(&request,1,heat);advance_domain(6,.2,2);
+    state=capture(cells);copy_domain_thermal_status(thermal);
+    require(thermal.abi_version==2 && thermal.struct_size==88 && thermal.exact_equilibrium_intervals==5 &&
+        thermal.stages==2*(state.substeps-thermal.exact_equilibrium_intervals) && thermal.stages>0 &&
+        thermal.contacts>0 && thermal.redistributed_energy_j>0 && thermal.entropy_change_j_per_k>0,
+        "Heat after certified idle frames did not retain the exact physical-stage clock");
+    const auto checkpoint=snapshot_domain(state.session,state.completed_frames);const auto time=state.time_seconds;
+    shutdown_domain();start_domain(config,1,checkpoint,time);copy_domain_thermal_status(thermal);
+    require(thermal.exact_equilibrium_intervals==0 && thermal.stages==0,"Restored owner leaked previous-session thermal counters");
+    advance_domain(1,.2,2);state=capture(cells);copy_domain_thermal_status(thermal);
+    require(thermal.stages==2*(state.substeps-thermal.exact_equilibrium_intervals) && thermal.redistributed_energy_j>0,
+        "Restored heated owner lost its physical-stage accounting");
+    shutdown_domain();
+    std::cout<<"PASS certified idle intervals, later conduction and restored thermal clocks\n";
+}
 }
 int main(int argc,char** argv) {
     try {
@@ -376,6 +402,7 @@ int main(int argc,char** argv) {
         solid_boundary_heat();
         persistent_actors();
         initial_inventory();
+        certified_thermal_intervals();
         MAOniDomainConfig config{40,2,1,64,10,10,3,2,0,0};
         std::vector<MAOniDomainCell> cells(6);
         ma::oni::start_domain(config,1);

@@ -247,8 +247,9 @@ The substep exposes `full_compressive_volume_changes_m3`,
 `full_compressive_internal_work_j`, and their full residual/bound. Changes not resolved
 by stored U increment `unresolved_compressive_work_updates` in both substep and owner
 reports. These are diagnostic accounts, not additional heat or another energy-budget
-allowance. Primary-U/volume rounding remainders remain unpersisted; this does not
-complete the production conservation contract.
+allowance. [Primary U remainders](MAC_PRIMARY_REMAINDERS.md) are now persisted
+and included in these accounts; material-volume remainders remain open. This does
+not complete the production conservation contract.
 
 The constitutive callback reuses the pressure root's immutable source anchor and
 completed isentropic response/tangent. It adds the same compressive stress, actual

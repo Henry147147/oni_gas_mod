@@ -260,7 +260,9 @@ namespace MixedAtmospheres.Oni
                 {
                     thermalVerified = heatVerified && thermalStatus.Enabled == 1 && thermalStatus.State == 1 &&
                         thermalStatus.Session == latest.Session && thermalStatus.CompletedFrame == latest.CompletedFrames &&
-                        thermalStatus.Stages == 2 * latest.Substeps && thermalStatus.Contacts > 0 && thermalStatus.Iterations > 0 &&
+                        thermalStatus.ExactEquilibriumIntervals <= latest.Substeps &&
+                        thermalStatus.Stages == 2 * (latest.Substeps - thermalStatus.ExactEquilibriumIntervals) &&
+                        thermalStatus.Stages > 0 && thermalStatus.Contacts > 0 && thermalStatus.Iterations > 0 &&
                         thermalStatus.RedistributedEnergy > 0 && thermalStatus.EntropyChange > 0;
                     Require(thermalVerified, "Native internal conduction did not advance physical heat and entropy with the worker clock.");
                 }
@@ -304,7 +306,7 @@ namespace MixedAtmospheres.Oni
             Require(ActorVersion() == 1 && Marshal.SizeOf<ActorCommand>() == 80 && Marshal.SizeOf<ActorStatus>() == 64,
                 "Unsupported native actor ABI.");
             Require(ActorCheckpointVersion()==1 && Marshal.SizeOf<PersistentActorCommand>()==96,"Unsupported durable native actor ABI.");
-            Require(ThermalVersion() == 1 && Marshal.SizeOf<ThermalStatus>() == 80, "Unsupported native conduction ABI.");
+            Require(ThermalVersion() == 2 && Marshal.SizeOf<ThermalStatus>() == 88, "Unsupported native conduction ABI.");
             Require(ViscosityVersion() == 1 && Marshal.SizeOf<ViscosityStatus>() == 120, "Unsupported native physical viscosity ABI.");
             Require(FrameInputsVersion()==1,"Unsupported native accepted frame input journal ABI.");
             RequireChunkHeatCapability();

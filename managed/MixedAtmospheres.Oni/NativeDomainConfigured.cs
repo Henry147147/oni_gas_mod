@@ -253,7 +253,8 @@ namespace MixedAtmospheres.Oni
             });
             Require(configuredSolidsVerified, "A configured interior solid changed, became owned or stopped being static insulating Unobtanium.");
             configuredThermalVerified = thermalStatus.Enabled == 1 && thermalStatus.State == 1 && thermalStatus.Session == latest.Session &&
-                thermalStatus.CompletedFrame == latest.CompletedFrames && thermalStatus.Stages == 2 * latest.Substeps &&
+                thermalStatus.CompletedFrame == latest.CompletedFrames && thermalStatus.ExactEquilibriumIntervals <= latest.Substeps &&
+                thermalStatus.Stages == 2 * (latest.Substeps - thermalStatus.ExactEquilibriumIntervals) && thermalStatus.Stages > 0 &&
                 thermalStatus.Contacts > 0 && thermalStatus.Iterations > 0 && thermalStatus.RedistributedEnergy > 0 && thermalStatus.EntropyChange > 0;
             Require(configuredThermalVerified, "Configured conduction did not redistribute heat around the interior solids.");
             configuredGravityVerified = gravityStatus.Enabled == 1 && gravityStatus.State == 1 && gravityStatus.Gravity == 9.81 &&

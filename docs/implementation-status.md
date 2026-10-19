@@ -25,10 +25,15 @@ for versions 2/3/5/6/7/8/9 keep their bytes. The unchanged standalone production
 water-heat control passes (+3.81470e-6 J against 0.00594585 J after 123 frames).
 Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests. ThreadSanitizer,
 MinGW/Wine, saved data and cross-platform continuation controls pass; two baseline
-physics-reader failures remain open. A new Linux water-heat run passes energy but
-fails the conduction stage-clock equation because it counts certified idle
-intervals as physical stages. Volume remainders and the owner-diagnostic correction
-remain open.
+physics-reader failures remain open. Thermal diagnostic ABI 2 exposes certified
+idle intervals without counting them as physical stages. Release/Ubuntu each pass
+69 CTests; affected ASan/UBSan, ThreadSanitizer and MinGW/Wine suites pass, along
+with 198 snapshot scenarios, 301 Python tests (four skips) and fifteen isolated
+Linux domain controls. U-enabled LinuxPlayer and WindowsPlayer/Proton water-heat
+source/save and fresh-process reload pass, including paused frame-zero saving and
+120 exact continued frames. Actual Windows OS runs and the remaining current-package
+game cohort are pending. Volume
+remainders remain open.
 These controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present
 constituents and incoming donors, removing the former 16-million-slot product cap.
@@ -272,16 +277,17 @@ The frozen `73abf47` package passes twenty-eight Linux source/save and exact
 fresh-process reload pairs, including both configured rooms, and four
 WindowsPlayer/Proton pairs (solid heat, gas, water and paired checkpoints).
 Every reload verifies a paused frame-zero resave and 120 exact continued frames.
-Production water-heat fails the unchanged energy gate: −0.0177002 J residual
-against 0.00594580 J after 123 frames, with zero rejected attempts. A public
-standalone reproducer matches that frozen package's drift and conduction counters.
-With persisted U, the unchanged standalone control now passes (+3.81470e-6 J
-against 0.00594585 J). A fresh Linux run reaches frame 121 with zero rejected
-attempts and maximum relative energy error 7.12279e-20, but fails conduction stage
-accounting (4,872 stages versus 2 × 2,441 substeps). Certified idle intervals run
-no physical stages; the owner diagnostic needs to expose them. Fresh save/reload
-validation remains pending. These bounded runs do not certify a colony or actual
-Windows OS execution.
+The frozen production water-heat energy failure is resolved by persisted U;
+the unchanged standalone control passes (+3.81470e-6 J against 0.00594585 J).
+Thermal diagnostic ABI 2 now distinguishes certified idle intervals, preserving
+an exact physical-stage equation and positive heat/entropy progress. The updated
+Linux water-heat source/save passes at frame 122 with zero rejected attempts,
+zero projected endpoint residual and maximum relative energy error 7.12279e-20.
+Fresh-process reload, paused frame-zero saving and 120 exact continued frames
+pass. The matching WindowsPlayer/Proton pair also passes (source frame 121,
+zero rejected attempts and endpoint residual, 120 exact continued frames).
+The remaining U-enabled game cohort is pending. These bounded runs do not
+certify a colony or actual Windows OS execution.
 
 Six historical version-2/3/4/5 images retain every byte of the earlier writer.
 Zero-correction checkpoint controls keep their previous bytes. Persisted U
@@ -313,7 +319,8 @@ credit is recorded in the central numerical contract. Production Linux/Proton
 game validation remains open.
 
 The last measured automatic-multigrid baseline fails the real-time targets: two pinned
-21-interval evolving-wave runs with the pressure-storage ledger measure p95
+21-interval evolving-wave runs with the pressure-storage ledger, before persisted
+primary U, measure p95
 467–533 ms at 100,000 active cells and 1,721–3,197 ms at 250,000, before
 adapters, on the shared Ryzen 9 5900X (sampled loads 16.01–20.83). Every cell
 changes. Workspace is about 1.6 KiB/cell; standalone peak RSS is 753.3 MiB

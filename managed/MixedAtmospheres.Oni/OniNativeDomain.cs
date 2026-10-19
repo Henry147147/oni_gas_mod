@@ -162,7 +162,8 @@ namespace MixedAtmospheres.Oni
             public uint Size, Version, State, Enabled;
             public ulong Session, CompletedFrame, Stages, Contacts, Iterations, UnresolvedUpdates;
             public double RedistributedEnergy, EntropyChange;
-            internal static ThermalStatus Empty => new ThermalStatus { Size = 80, Version = 1 };
+            public ulong ExactEquilibriumIntervals;
+            internal static ThermalStatus Empty => new ThermalStatus { Size = 88, Version = 2 };
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
