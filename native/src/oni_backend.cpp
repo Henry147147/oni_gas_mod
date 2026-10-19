@@ -367,11 +367,16 @@ void on_copy_to_game(void* self, void* data, void* game, const void* previous, i
     if (!worker_frame_fence.owns_lock()) frame_lock = std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     using Function = void (*)(void*, void*, void*, const void*, int);
     reinterpret_cast<Function>(publication_originals[0])(self, data, game, previous, frames);
+    // The native copy has already replaced this GameData. A failed capture
+    // must not leave the previous frame cached under the same identity.
+    const auto forget = [game]() noexcept {
+        try { ma::oni::published_frames::record(game, std::nullopt); } catch (...) {}
+    };
     try {
         ma::oni::published_frames::record(game,
             ma::oni::capture_domain_publication(native_frame_epochs.load(std::memory_order_acquire)));
-    } catch (const std::exception& error) { ma::oni::fault_domain_solid_heat(error.what()); }
-      catch (...) { ma::oni::fault_domain_solid_heat("Cannot capture completed native publication"); }
+    } catch (const std::exception& error) { forget(); ma::oni::fault_domain_solid_heat(error.what()); }
+      catch (...) { forget(); ma::oni::fault_domain_solid_heat("Cannot capture completed native publication"); }
 }
 void* on_prepare_game_update(const void* game) {
     PublicationCall call; ma::oni::published_frames::unbind();
@@ -839,6 +844,8 @@ MAOniResult ma_oni_domain_publication_acquire(const void* native_update, MAOniDo
             throw Failure(MA_ONI_INVALID_ARGUMENT, "Invalid native publication info ABI");
         try { *output = ma::oni::published_frames::acquire(native_update); }
         catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT, error.what()); }
+        // length_error is a logic_error; lease exhaustion is not an unowned packet.
+        catch (const std::length_error& error) { throw Failure(MA_ONI_INTERNAL_ERROR, error.what()); }
         catch (const std::logic_error& error) { throw Failure(MA_ONI_BUSY, error.what()); }
     });
 }

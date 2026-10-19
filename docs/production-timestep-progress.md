@@ -746,3 +746,33 @@ frame-zero resave and 120 exact resumed input replays. These MinGW/Proton runs
 are separate from actual Windows OS/MSVC acceptance. The first attempt failed
 prefix initialization before any game launch; both attempts are retained under
 `local/solid-heat-native-debug/`.
+
+## Deterministic pressure worker implementation
+
+The opt-in interval gas kernel now distributes independent thermodynamic and
+pressure passes over reusable workers. Matrix operations gather complete rows
+in their former face order; multigrid rows preserve their inner arithmetic;
+dot products retain their fixed double-double lanes and ordered block
+reduction. Caller floating-point controls propagate to every worker. Nested
+work, concurrent callers, deterministic exception delivery and explicit native
+shutdown/retirement have dedicated controls. The numerical default remains
+the reference kernel, and no physical selector or checkpoint field changes.
+
+The 33,153-cell continuation and narrow/odd periodic controls remain
+byte-identical to the prior serial binary across one, four and twelve workers.
+The large image also agrees on fatal ASan and Windows binaries under Wine.
+Native Release and the frozen Ubuntu 22.04 build pass 40/40 tests; five changed
+tests pass fatal ASan/UBSan, four Windows-target groups pass under Wine, and
+the scheduler passes ThreadSanitizer. The unchanged saved streams pass 146,147
+independent checks with 13 corruption rejects. Python passes 297 tests with
+four skips.
+
+The first dynamic task counter regressed performance and was removed.
+Contiguous partitions and complete row gathers improve some loaded-host
+measurements, but concurrent CPU workloads cause substantial variation. These
+remain development diagnostics; no controlled p95 speedup, performance target,
+large-domain DLL integration or playable-colony gate is claimed. The executor
+uses at most four participants by default, with a fixed explicit override for
+profiling; worker count does not affect the saved continuation. Details,
+measurements and open ports are in
+[deterministic interval pressure workers](interval-parallel-pressure.md).

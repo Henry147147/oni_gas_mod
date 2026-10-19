@@ -57,7 +57,9 @@ PCG dot products now use fixed 256-cell blocks and four double-double lanes,
 then a fixed-order block reduction. Their ordering is independent of future
 task scheduling. Operand range flags still request the retained reference
 implementation; postponing the exception to the end of a reduction block
-cannot publish a partial physical update. The implementation is still serial.
+cannot publish a partial physical update. Large independent rows now use the
+[deterministic interval workers](../docs/interval-parallel-pressure.md), retaining
+each row's arithmetic and the fixed dot-product reduction order.
 
 ## Reproduction and scope
 

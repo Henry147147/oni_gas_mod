@@ -58,12 +58,24 @@ void solid_boundary_heat() {
         const MAOniDomainSolidCellState native_cell{64,1,1,649,source.session,1,350,contact.temperature,
             123,input.mass_kg,255,0,1};
         MAOniDomainSolidCellState observation{};copy_domain_solid_cell_state(observation);const auto unobserved=observation;
+        rejected=false;try {(void)capture_domain_publication(7);} catch(const std::logic_error&) {rejected=true;}
+        require(rejected,"A completed native publication admitted a stale solid observation");
         auto stale=native_cell;stale.completed_frame=0;rejected=false;
         try {record_domain_solid_cell_state(stale);} catch(const std::logic_error&) {rejected=true;}
         copy_domain_solid_cell_state(observation);
         require(rejected && std::memcmp(&unobserved,&observation,sizeof(observation))==0,"Stale native solid observation changed completed evidence");
         record_domain_solid_cell_state(native_cell);copy_domain_solid_cell_state(observation);
         require(std::memcmp(&native_cell,&observation,sizeof(observation))==0,"Completed native solid cell facts or source ticket changed");
+        const auto published=capture_domain_publication(7);
+        require(published && published->status.session==source.session && published->status.completed_frames==1 &&
+            published->native_epoch==7 && published->solid_heat.contacts==1 && published->solid_endpoint.contact_frame==1 &&
+            std::memcmp(&published->solid_cell,&native_cell,sizeof(native_cell))==0 && published->cells.size()==cells.size() &&
+            std::memcmp(published->cells.data(),cells.data(),cells.size()*sizeof(MAOniDomainCell))==0,
+            "Completed native publication mixed its owner frame, cells or solid observation");
+        published_frames::record(&image,published);published_frames::bind(&image,&input);
+        const auto lease=published_frames::acquire(&input);
+        require(lease.completed_frame==1 && lease.session==source.session && lease.native_epoch==7,"Captured native publication lease lost its source");
+        published_frames::release(lease.token);
         const auto journal=copy_domain_frame_inputs(source.session,1);
         require(advance_domain_snapshot_with_inputs(image,journal)==snapshot_domain(source.session,1),"Solid heat input did not replay the complete fluid image exactly");
         MAOniDomainChunkHeatStatus body{};copy_domain_chunk_heat_status(body);require(body.contacts==0,"Solid heat was counted as native body heat");
@@ -78,6 +90,9 @@ void solid_boundary_heat() {
             std::memcmp(held_cells.data(),cells.data(),cells.size()*sizeof(MAOniDomainCell))==0,
             "Changed native solid material modified a thermal endpoint before rejection");
         shutdown_domain();require(!domain_solid_heat_registered(solid),"Native solid registration survived shutdown");
+        rejected=false;try {(void)published_frames::acquire(&input);} catch(const std::logic_error&) {rejected=true;}
+        require(rejected && published_frames::statistics().cached_frames==0 && published_frames::statistics().leases==0,
+            "A native publication binding or cached source survived simulator shutdown");
     }
     std::cout<<"PASS atomic native solid registration, represented gas/water/wet heat, once-per-frame pairs, insulation, separate completed accounts and exact input replay\n";
 }

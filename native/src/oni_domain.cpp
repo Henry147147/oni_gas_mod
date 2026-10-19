@@ -1,4 +1,5 @@
 #include "oni_domain.hpp"
+#include "mac_block_execution.hpp"
 #include "oni_radial_consumption.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
 #include "mixed_atmospheres/mac_native_heat.hpp"
@@ -802,6 +803,9 @@ void stop_domain() noexcept {
 }
 void shutdown_domain() noexcept {
     std::lock_guard lock(state_mutex);
+    // A later simulator can reuse a GameData address. Unacquired bindings and
+    // cached sources end with this owner; acquired leases remain valid.
+    try { published_frames::reset(); } catch (...) {}
     enabled.store(false,std::memory_order_release);
     if (status.state == 1) status.state=2;
     world.reset();
@@ -813,6 +817,7 @@ void shutdown_domain() noexcept {
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
     solid_heat_cells.clear();solid_heat_contacts.clear();completed_solid_cell={};
     pending_actor_restore.clear();
+    ma::experimental::interval_detail::retire_block_executor();
 }
 bool domain_active() noexcept { return enabled.load(std::memory_order_acquire); }
 std::mutex& domain_frame_mutex() noexcept { return frame_mutex; }

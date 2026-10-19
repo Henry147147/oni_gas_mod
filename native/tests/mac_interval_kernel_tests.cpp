@@ -1,5 +1,6 @@
 #include "mac_fixture.hpp"
 #include "../src/mac_interval_audit.hpp"
+#include "../src/mac_block_execution.hpp"
 #include <bit>
 #include <chrono>
 #include <fstream>
@@ -311,8 +312,20 @@ void write_image(const MacClosedWorld& world, const char* path) {
 }
 }
 int main(int argc, char** argv) {
+    struct WorkerLifetime { ~WorkerLifetime() { interval_detail::retire_block_executor(); } } lifetime;
     try {
         require_mac_energy_environment(); std::cout << std::setprecision(17);
+        if ((argc == 3 || argc == 5) && std::string_view(argv[1]) == "--write-parallel-source") {
+            const auto& fixture = ma::testing::setup(); auto s = settings(); s.maximum_timestep_s = .01;
+            // An odd periodic domain with a solid corner exceeds the block
+            // threshold. Existing continuation readers can advance the same
+            // initial image with pre-parallel, serial and parallel binaries.
+            const auto width = argc == 5 ? static_cast<std::size_t>(std::stoull(argv[3])) : 129U;
+            const auto height = argc == 5 ? static_cast<std::size_t>(std::stoull(argv[4])) : 257U;
+            check(width > 0 && height > 0 && width <= 1000000 / height, "Invalid parallel source dimensions");
+            const MacClosedWorld owner(fixture.registry, fixture.eos, scene(width, height, true, width > 1 && height > 1), s);
+            write_image(owner, argv[2]); return 0;
+        }
         if (argc == 3 && (std::string_view(argv[1]) == "--write-checkpoint" || std::string_view(argv[1]) == "--write-multigrid-checkpoint")) {
             const bool mg = std::string_view(argv[1]) == "--write-multigrid-checkpoint";
             const auto& fixture = ma::testing::setup(); auto s = settings(); if (mg) s.maximum_timestep_s = .01;
