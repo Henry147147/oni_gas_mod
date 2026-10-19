@@ -43,6 +43,10 @@ struct ReferenceMaterial {
     double reference_bulk_modulus_pa = 0;
     double maximum_density_ratio = 1; // liquids: 1 <= rho/rho0 <= this bound
     std::string provenance;
+    // Constant added to the specific entropy. Zero except for a vapour whose
+    // liquid/vapour pair is calibrated to a saturation point; it then sets
+    // the pair's phase equilibrium and never changes a fixed-composition process.
+    double entropy_offset_j_per_kg_k = 0;
 };
 
 struct ReferenceConservedCell {

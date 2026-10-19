@@ -80,6 +80,8 @@ std::vector<std::uint8_t> identity(const SpeciesRegistry& registry,const FluidTh
             material.minimum_temperature_k,material.maximum_temperature_k,material.zero_pressure_density_kg_per_m3,
             material.reference_bulk_modulus_pa,material.maximum_density_ratio}) out.number(value);
         out.string(material.provenance);
+        // Calibrated saturation pairs only; every uncalibrated identity byte is unchanged.
+        if (material.entropy_offset_j_per_kg_k!=0) { out.string("entropy_offset"); out.number(material.entropy_offset_j_per_kg_k); }
     }
     return out.bytes;
 }
@@ -97,6 +99,7 @@ void read_field(Reader& in,std::size_t count,std::vector<double>& projected,std:
 
 std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     require_mac_energy_environment(); Writer out;
+    check(settings_.phase_change==MacPhaseChange::none,"MAC phase-change owners have no checkpoint version yet");
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;

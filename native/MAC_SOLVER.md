@@ -141,6 +141,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
 | `vacuum` | 0 `empty_cells` | 1 `void_phase` (gas only, reference path; [void phase](MAC_VACUUM.md#void-phase)) |
+| `phase_change` | 0 `none` | 1 `saturation` (pressure-dependent boiling of calibrated pairs; [phase change](MAC_PHASE_CHANGE.md)); not yet checkpointed |
 
 The native domain keeps these physical selectors and explicitly selects numerical
 kernel 2.

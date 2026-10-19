@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
 #include "mac_interval_fallback.hpp"
@@ -182,6 +183,9 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(phase_change == MacPhaseChange::none || (phase_change == MacPhaseChange::saturation &&
+        pressure_integration == MacPressureIntegration::discrete_gradient_midpoint),
+        "Invalid MAC phase change (saturation phase change needs midpoint pressure)");
     require(vacuum == MacVacuumRepresentation::empty_cells || (vacuum == MacVacuumRepresentation::void_phase &&
         reconstruction != MacMaterialReconstruction::donor_cell && pressure_integration == MacPressureIntegration::discrete_gradient_midpoint &&
         !thermal_conduction && viscosity.shear_pa_s == 0 && viscosity.bulk_pa_s == 0 && diffusion.mode == MacDiffusionMode::disabled),
@@ -593,6 +597,8 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     require_mac_energy_environment();
     require(thermodynamics_ != nullptr && transport_!=nullptr, "MAC closed owner requires immutable EOS and transport profiles"); settings_.validate();
     require(settings_.vacuum == MacVacuumRepresentation::void_phase || state_.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
+    require(settings_.phase_change == MacPhaseChange::none || !mac_saturation_pairs(registry_, *thermodynamics_).empty(),
+        "MAC saturation phase change requires a calibrated liquid/vapour pair");
     const auto inertia = mac_face_inertias(registry_, state_, *thermodynamics_); const Topology topology(state_.grid);
     // A void-phase state whose occupied cells are all filled has no occupied volumes.
     bool partial = false;
@@ -663,6 +669,8 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     MA_ADD(energy_residual_wide_j);MA_ADD(energy_bound_wide_j);MA_ADD(mixing_heat_wide_j);MA_ADD(wall_heat_wide_j);MA_ADD(remap_work_wide_j);
     MA_ADD(physical_admission_backtracks);MA_ADD(compression_heat_wide_j);MA_ADD(compression_heat_j);MA_ADD(rounded_energy_projections);
     MA_ADD(shock_heat_stages);MA_ADD(shock_heat_events);MA_ADD(shock_heat_root_iterations);MA_ADD(rejected_shock_heat_trials);MA_ADD(unresolved_shock_heat_updates);
+    MA_ADD(phase_change_stages);MA_ADD(evaporating_cells);MA_ADD(condensing_cells);MA_ADD(evaporated_kg);MA_ADD(condensed_kg);
+    MA_ADD(phase_change_entropy_j_per_k);
     MA_ADD(absolute_shock_heat_transfer_wide_j);MA_ADD(absolute_shock_heat_transfer_j);
 #undef MA_ADD
     a.maximum_geometric_residual_m3=std::max(a.maximum_geometric_residual_m3,b.maximum_geometric_residual_m3);
@@ -756,7 +764,21 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     // An explicit production execution request takes the production kernel;
     // otherwise the persisted numerical-kernel setting applies.
     if (!validation_reference && (policy == MacExecutionPolicy::production || settings_.numerical_kernel == MacNumericalKernel::production) &&
-        mac_kernel_supports(settings_)) return advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
+        mac_kernel_supports(settings_)) {
+        auto produced = advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
+        // The production kernel has no phase change: its interval is followed
+        // by one equilibrium relaxation (operator splitting per interval).
+        if (settings_.phase_change == MacPhaseChange::saturation) {
+            auto changed = advance_mac_phase_change(registry_, *thermodynamics_, produced.world.state_, mac_saturation_pairs(registry_, *thermodynamics_));
+            produced.world.state_ = std::move(changed.state); ++produced.report.phase_change_stages;
+            produced.report.evaporating_cells += changed.report.evaporating_cells; produced.report.condensing_cells += changed.report.condensing_cells;
+            produced.report.evaporated_kg += changed.report.evaporated_kg; produced.report.condensed_kg += changed.report.condensed_kg;
+            produced.report.phase_change_entropy_j_per_k += changed.report.entropy_change_j_per_k;
+            produced.report.entropy_change_j_per_k += changed.report.entropy_change_j_per_k;
+            produced.report.entropy_roundoff_j_per_k += changed.report.entropy_allowance_j_per_k;
+        }
+        return produced;
+    }
     require(settings_.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
         "Two-moment pressure integration cannot continue through the legacy reference path");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
@@ -765,6 +787,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     MacEnergySum viscous_heat,viscous_stored_heat;
     MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change; Account gravity_entropy, gravity_entropy_operands;
     const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
+    const auto saturation_pairs = settings_.phase_change == MacPhaseChange::saturation ?
+        mac_saturation_pairs(registry_, *thermodynamics_) : std::vector<MacSaturationPair>{};
     double next_dt = settings_.maximum_timestep_s;
     while (result.world.time_s_ < endpoint) {
         double dt = std::min(next_dt, endpoint - result.world.time_s_);
@@ -818,6 +842,13 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 if (settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0) {
                     auto damped=advance_mac_viscosity(registry_,*thermodynamics_,candidate.state,.5*dt,settings_.viscosity);
                     after_viscosity=std::move(damped.report);candidate.state=std::move(damped.state);
+                }
+                // Phase equilibrium at the end of the substep. Only the pair's
+                // masses change: U, momentum and every energy account hold.
+                MacPhaseChangeReport phase;
+                if (settings_.phase_change == MacPhaseChange::saturation) {
+                    auto changed = advance_mac_phase_change(registry_, *thermodynamics_, candidate.state, saturation_pairs);
+                    candidate.state = std::move(changed.state); phase = changed.report;
                 }
                 bounds.add(candidate.energy_bound_wide_j); mix.add(candidate.transport.mixing_heat_wide_j); wall.add(candidate.transport.wall_heat_wide_j);
                 remap_work.add(candidate.transport.remap_work_wide_j);
@@ -895,6 +926,12 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 result.report.rounded_gravity_projections += candidate.rounded_gravity_projections;
                 for (const auto residual : candidate.geometric_residuals_m3)
                     result.report.maximum_geometric_residual_m3 = std::max(result.report.maximum_geometric_residual_m3, std::abs(residual));
+                if (settings_.phase_change == MacPhaseChange::saturation) {
+                    ++result.report.phase_change_stages;
+                    result.report.evaporating_cells += phase.evaporating_cells; result.report.condensing_cells += phase.condensing_cells;
+                    result.report.evaporated_kg += phase.evaporated_kg; result.report.condensed_kg += phase.condensed_kg;
+                    result.report.phase_change_entropy_j_per_k += phase.entropy_change_j_per_k;
+                }
                 result.world.state_ = std::move(candidate.state); result.world.time_s_ += dt;
                 ++result.report.substeps; next_dt = std::min(settings_.maximum_timestep_s, 2 * dt); accepted = true;
             } catch (const std::domain_error&) { ++result.report.rejected_attempts; dt *= .5; }

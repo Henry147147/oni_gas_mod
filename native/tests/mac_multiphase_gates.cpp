@@ -3,8 +3,13 @@
 // measurements; FAIL and OPEN exit nonzero. Both run the production kernel.
 //   M4  two immiscible liquids (Rayleigh-Taylor), with sharp interfaces: a
 //       cell holding both liquids places the denser below a PLIC line.
-//   M5  Stefan vapour film. Open until phase change exists.
+//   M5  Stefan vapour film: pressure-dependent boiling at a heated wall.
+//       Open: mixed gas/liquid conduction is pairwise-split.
 #include "mac_kernel_fixture.hpp"
+#include "mixed_atmospheres/mac_native_heat.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
+#include <numbers>
+#include <cstdlib>
 #include <cstring>
 #include <functional>
 #include <iomanip>
@@ -144,9 +149,120 @@ int m4() {
     std::cout << "M4 stable max_speed_m_s=" << speed << '\n';
     return verdict("M4", used >= 3 && std::abs(rate - sigma) <= .1 * sigma && speed <= 1e-8 ? "PASS" : "FAIL");
 }
-int m5() {
-    std::cout << "M5 note: phase change is not implemented\n";
-    return verdict("M5", "OPEN (phase change not implemented)");
+// Water and steam calibrated to boil at 373.15 K and 1 atm; a heater liquid
+// (the liquid-oxygen slot, given a huge heat capacity and metal-like
+// conductivity) that holds the wall temperature; a non-volatile liquid plug
+// (the liquid-nitrogen slot) and a nitrogen reservoir that keeps the
+// pressure near 1 atm without evaporating water into it.
+struct Boiling {
+    SpeciesRegistry registry; std::shared_ptr<const FluidThermodynamics> eos;
+    std::size_t water = 0, steam = 0, air = 0, plug = 0, heater = 0;
+    Boiling() {
+        const auto standard = SpeciesRegistry::standard(); std::vector<ReferenceMaterial> materials;
+        for (const char* id : {"water", "steam", "nitrogen", "liquid_nitrogen", "liquid_oxygen"}) {
+            auto sp = standard[standard.index(id)];
+            if (std::string(id) == "liquid_oxygen") { sp.cp = 1e9; sp.conductivity = 1000; }
+            registry.add(sp); ReferenceMaterial m;
+            m.id = id; m.phase = sp.phase == Phase::gas ? ReferencePhase::ideal_gas : ReferencePhase::elastic_liquid;
+            m.molar_mass_kg_per_mol = sp.molar_mass; m.cv_j_per_kg_k = sp.cv(); m.energy_offset_j_per_kg = sp.internal_energy(0);
+            m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e6;
+            m.zero_pressure_density_kg_per_m3 = sp.phase == Phase::gas ? 0 : sp.density;
+            m.reference_bulk_modulus_pa = sp.phase == Phase::gas ? 0 : 2.2e9; m.maximum_density_ratio = sp.phase == Phase::gas ? 1 : 2;
+            m.provenance = "Stefan gate profile"; materials.push_back(m);
+        }
+        materials[1].entropy_offset_j_per_kg_k = mac_saturation_entropy_offset(materials[0], materials[1], 373.15, 101325);
+        eos = std::make_shared<const FluidThermodynamics>(registry, "stefan-gate-1", std::move(materials));
+        water = registry.index("water"); steam = registry.index("steam"); air = registry.index("nitrogen");
+        plug = registry.index("liquid_nitrogen"); heater = registry.index("liquid_oxygen");
+    }
+};
+// Stefan vapour film: a wall at T_sat + 10 K (the face beside the heater
+// cell) under a steam film, water at T_sat beyond, then the plug and the
+// reservoir. Starting from the exact solution at t0, the film thickness
+// (steam volume per unit area) must follow 2 lambda sqrt(alpha t) over
+// [t0, 10 t0]. Returns the worst relative error; film_cells resolves delta(t0).
+double stefan(std::size_t film_cells, double t0, double& mass_drift) {
+    const Boiling s; constexpr double t_sat = 373.15, dT = 10, p0 = 101325;
+    const auto& w = s.registry[s.water]; const auto& v = s.registry[s.steam];
+    const double latent = v.internal_energy(t_sat) + gas_constant * t_sat / v.molar_mass - w.internal_energy(t_sat) - p0 / w.density;
+    const double rho_v = p0 * v.molar_mass / (gas_constant * t_sat), alpha = v.conductivity / (rho_v * v.cp), stefan_number = v.cp * dT / latent;
+    double lo = 0, hi = 2;
+    for (int i = 0; i < 200; ++i) { const double l = .5 * (lo + hi); (l * std::exp(l * l) * std::erf(l) < stefan_number / std::sqrt(std::numbers::pi) ? lo : hi) = l; }
+    const double lambda = .5 * (lo + hi);
+    const auto delta = [&](double t) { return 2 * lambda * std::sqrt(alpha * t); };
+    const double d0 = delta(t0), d1 = delta(10 * t0), h = d0 / (static_cast<double>(film_cells) + .5);
+    // The reservoir is 100 times the film's growth: the pressure rises ~1%.
+    const auto water_end = 1 + static_cast<std::size_t>(std::ceil((2 * d1 + 4 * d0) / h));
+    const auto plug_end = water_end + static_cast<std::size_t>(std::ceil(2 * d0 / h));
+    const auto cells = plug_end + static_cast<std::size_t>(std::ceil(100 * (d1 - d0) / h));
+    const double volume = h;  // spacing h, depth 1/h: unit face area
+    MacTransportState st; st.grid = {cells, 1, h, 1 / h, false, false, std::vector<std::uint8_t>(cells)};
+    const auto exact_temperature = [&](double x, double t) { return t_sat + dT - dT * std::erf(x / (2 * std::sqrt(alpha * t))) / std::erf(lambda); };
+    const auto liquid = [&](double density) { return volume * density * (1 + p0 / 2.2e9); };
+    for (std::size_t i = 0; i < cells; ++i) {
+        std::vector<double> m(s.registry.size()); double cell_temperature = t_sat;
+        const double a = static_cast<double>(i - 1) * h, b = a + h;  // from the wall face
+        if (i == 0) { m[s.heater] = liquid(s.registry[s.heater].density); cell_temperature = t_sat + dT; }
+        else if (b <= d0) { cell_temperature = exact_temperature(.5 * (a + b), t0); m[s.steam] = p0 * volume * v.molar_mass / (gas_constant * cell_temperature); }
+        else if (a < d0) {
+            const double f = (d0 - a) / h;
+            m[s.steam] = p0 * f * volume * v.molar_mass / (gas_constant * t_sat); m[s.water] = (1 - f) * liquid(w.density);
+        } else if (i < water_end) m[s.water] = liquid(w.density);
+        else if (i < plug_end) m[s.plug] = liquid(s.registry[s.plug].density);
+        else m[s.air] = p0 * volume * s.registry[s.air].molar_mass / (gas_constant * t_sat);
+        st.cells.push_back({s.eos->initialize_at_temperature(m, cell_temperature, volume).mixture, {}});
+    }
+    const auto faces = mac_face_inertias(s.registry, st, *s.eos);
+    st.momentum_x.assign(faces.x.size(), 0); st.momentum_y.assign(faces.y.size(), 0);
+    MacClosedSettings settings; settings.thermal_conduction = true; settings.phase_change = MacPhaseChange::saturation;
+    settings.reconstruction = MacMaterialReconstruction::interface_plic;
+    const double step = t0 / 1000; settings.maximum_timestep_s = step;
+    MacClosedWorld world(s.registry, s.eos, st, settings);
+    // Steam volume between the wall and the water's far end. A cell the
+    // strict EOS cannot read holds only traces (the production kernel admits
+    // them) and adds no film.
+    const auto film = [&](const MacTransportState& x) {
+        double gas = 0;
+        for (std::size_t i = 1; i < water_end; ++i) if (x.cells[i].mixture.masses[s.steam] > 0) {
+            try { gas += s.eos->evaluate(x.cells[i].mixture, volume).gas_volume_m3; } catch (const ReferenceError&) {}
+        }
+        return gas;
+    };
+    const auto h2o = [&](const MacTransportState& x) { long double m = 0; for (const auto& c : x.cells) m += c.mixture.masses[s.water] + c.mixture.masses[s.steam]; return m; };
+    const long double initial = h2o(world.state());
+    double t = t0, worst = 0; int k = 0;
+    while (t < 10 * t0 * (1 - 1e-12)) {
+        world = world.advanced(step, 65536, MacExecutionPolicy::production).world; t += step;
+        if (++k % 100 == 0) {
+            const double x = film(world.state()), e = delta(t); worst = std::max(worst, std::abs(x - e) / e);
+            if (k % 500 == 0) std::cout << "M5 n=" << film_cells << " t_s=" << t << " film_m=" << x << " exact_m=" << e << " error=" << (x - e) / e << '\n';
+        }
+    }
+    mass_drift = static_cast<double>(std::abs(h2o(world.state()) - initial) / initial);
+    return worst;
+}
+// The Stefan run is long (production kernel, thousands of cells, 9000
+// intervals per grid) and stays open: mixed gas/liquid conduction uses
+// first-order pairwise contact splitting, which under-delivers the film's heat
+// flux about fivefold at these diffusion numbers (MAC_PHASE_CHANGE.md).
+// "M5 --run" runs every grid; "M5 --grid N" one grid.
+int m5(bool run, std::size_t only = 0) {
+    if (!run && only == 0) {
+        std::cout << "M5 note: needs coupled mixed-cell conduction; run with --run or --grid N\n";
+        return verdict("M5", "OPEN (mixed-cell conduction under-delivers heat)");
+    }
+    const double t0 = 1e-3; std::vector<double> errors; double mass = 0;
+    for (const std::size_t n : {10, 20, 40}) {
+        if (only != 0 && n != only) continue;
+        double m = 0;
+        try { errors.push_back(stefan(n, t0, m)); }
+        catch (const std::exception& error) { std::cout << "M5 n=" << n << " stopped: " << error.what() << '\n'; return verdict("M5", "FAIL"); }
+        mass = std::max(mass, m);
+        std::cout << "M5 n=" << n << " worst_error=" << errors.back() << " water_mass_drift=" << m << '\n';
+    }
+    if (only != 0) return verdict("M5", "FAIL (single grid)");
+    const bool converging = errors[1] < errors[0] && errors[2] < errors[1];
+    return verdict("M5", errors.back() <= .02 && converging && mass <= 1e-12 ? "PASS" : "FAIL");
 }
 }
 
@@ -158,7 +274,10 @@ int main(int argc, char** argv) {
         const auto selected = [&](const char* id) { return ids.empty() || std::find(ids.begin(), ids.end(), id) != ids.end(); };
         int failures = 0;
         if (selected("M4")) failures += m4();
-        if (selected("M5")) failures += m5();
+        // "--grid N" runs one M5 grid (diagnostic; never a pass).
+        std::size_t grid = 0;
+        for (std::size_t a = 0; a + 1 < ids.size(); ++a) if (ids[a] == "--grid") grid = std::stoul(ids[a + 1]);
+        if (selected("M5")) failures += m5(std::find(ids.begin(), ids.end(), "--run") != ids.end(), grid);
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 2; }
 }

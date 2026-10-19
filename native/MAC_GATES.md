@@ -16,7 +16,7 @@ path's void phase. Passing gates also run as CTests.
 | M2 dam break | `ma_mac_free_surface_gates M2` | pass | `mac_gate_m2_dam_break_coarse` (16 cells across a only) |
 | M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | pass | `mac_gate_m4_two_liquids` |
-| M5 phase change | `ma_mac_multiphase_gates M5` | open: no phase change | — |
+| M5 phase change | `ma_mac_multiphase_gates M5 --run` | open: mixed-cell conduction under-delivers heat | — |
 | V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | pass (void phase, reference path) | `mac_gate_v_vacuum_front` |
 
 ## Passing gates
@@ -110,7 +110,10 @@ two liquids and no gas places the denser below a PLIC line
 
 ## Open gates
 
-**M5.** It reports open until phase change exists.
+**M5.** Pressure-dependent boiling exists ([phase change](MAC_PHASE_CHANGE.md)). The
+Stefan film grows at about a tenth of the exact rate, because conduction splits
+gas/liquid contacts pairwise and under-delivers the interface heat flux about
+fivefold ([details](MAC_PHASE_CHANGE.md#gate-m5)).
 
 ## Reference oracle on liquid traces
 

@@ -182,6 +182,7 @@ ReferenceEquilibriumState finish(const std::vector<ReferenceMaterial>& definitio
         check(std::isfinite(specific_thermal) && specific_thermal > 0, ReferenceErrorCode::numerical_range,
             "Positive material thermal energy is outside the numerical range");
         entropy.add(amount * material.cv_j_per_kg_k * log_ratio(temperature, entropy_reference_temperature_k));
+        if (material.entropy_offset_j_per_kg_k != 0) entropy.add(amount * material.entropy_offset_j_per_kg_k);
         if (material.phase == ReferencePhase::elastic_liquid) {
             const Real q = compression_ratio(pressure, material.reference_bulk_modulus_pa);
             partial = amount / material.zero_pressure_density_kg_per_m3 / (1 + q);
@@ -257,6 +258,7 @@ LiquidThermodynamicReference::LiquidThermodynamicReference(std::string profile_v
             !material.provenance.empty(), ReferenceErrorCode::invalid_model, "Materials need unique identities and explicit provenance");
         ids.push_back(material.id);
         check(positive(material.molar_mass_kg_per_mol) && positive(material.cv_j_per_kg_k) && std::isfinite(material.energy_offset_j_per_kg) &&
+            std::isfinite(material.entropy_offset_j_per_kg_k) &&
             positive(material.minimum_temperature_k) && positive(material.maximum_temperature_k) && material.maximum_temperature_k > material.minimum_temperature_k,
             ReferenceErrorCode::invalid_model, "Invalid caloric parameters or finite temperature range");
         if (material.phase == ReferencePhase::elastic_liquid) {
@@ -275,10 +277,15 @@ std::string LiquidThermodynamicReference::build_metadata() const {
     std::ostringstream text; text.imbue(std::locale::classic()); text << std::setprecision(std::numeric_limits<double>::max_digits10) << std::scientific;
     text << liquid_reference_eos_version << '\n' << profile_version_.size() << ':' << profile_version_ << '\n';
     text << "R=" << reference_gas_constant << ";entropy_Tref=" << entropy_reference_temperature_k << ";zero_thermal_expansion;zero_tension;state_closure_only\n";
-    for (const auto& material : materials_) text << material.id.size() << ':' << material.id << ';' << static_cast<int>(material.phase) << ';'
-        << material.molar_mass_kg_per_mol << ';' << material.cv_j_per_kg_k << ';' << material.energy_offset_j_per_kg << ';'
-        << material.minimum_temperature_k << ';' << material.maximum_temperature_k << ';' << material.zero_pressure_density_kg_per_m3 << ';'
-        << material.reference_bulk_modulus_pa << ';' << material.maximum_density_ratio << ';' << material.provenance.size() << ':' << material.provenance << '\n';
+    for (const auto& material : materials_) {
+        text << material.id.size() << ':' << material.id << ';' << static_cast<int>(material.phase) << ';'
+            << material.molar_mass_kg_per_mol << ';' << material.cv_j_per_kg_k << ';' << material.energy_offset_j_per_kg << ';'
+            << material.minimum_temperature_k << ';' << material.maximum_temperature_k << ';' << material.zero_pressure_density_kg_per_m3 << ';'
+            << material.reference_bulk_modulus_pa << ';' << material.maximum_density_ratio << ';' << material.provenance.size() << ':' << material.provenance;
+        // Calibrated saturation pairs only; uncalibrated metadata is unchanged.
+        if (material.entropy_offset_j_per_kg_k != 0) text << ";entropy_offset=" << material.entropy_offset_j_per_kg_k;
+        text << '\n';
+    }
     return text.str();
 }
 
