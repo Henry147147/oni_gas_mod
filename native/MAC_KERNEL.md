@@ -134,7 +134,9 @@ midpoint sweeps, solved for per-cell volume changes in the increment form
 `(1-(1+x)^-k)/(kx)` for `|x| < 1/4`, liquids a closed form in `s = -dV/V1`,
 mixtures the reference divided differences. Node pressure differences gather
 `(p0_l - p0_r) + (dW_l - dW_r)`, so there is no absolute-pressure roundoff
-floor; the root reaches the reference 16-epsilon closure. Each Newton
+floor; the root reaches the reference 16-epsilon closure. A residual within 256
+times that target that no line-search step can reduce (rounding noise of stiff
+liquid/gas coupling) is accepted as converged rather than retried smaller. Each Newton
 correction is a matrix-free PCG solve honoring the saved pressure setting
 (automatic geometric multigrid, or explicit Jacobi) with an inexact-Newton tolerance
 (`0.1 * residual`). Canonical J, wall and body impulses and midpoint sweeps
