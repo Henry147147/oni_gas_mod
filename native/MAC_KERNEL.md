@@ -212,7 +212,10 @@ pressure still need their remaining ledgers.
 (modes 1–3), conduction (backward Euler for temperature changes; with mixtures
 present, Newton relinearizes each mixed cell against the complete EOS and
 warm-starts each correction solve to 1e-13 of the first residual) and viscosity
-(rank-one modes) use the reference pair/mode laws.
+(rank-one modes) use the reference pair/mode laws. With phase change and
+conduction on, the kernel also converts [sharp boiling interfaces](MAC_PHASE_CHANGE.md#sharp-interfaces)
+in each substep: conduction runs once before the pressure stage, and the pressure
+stage carries each interface's vapour volume.
 
 `MacKernelReport::physical` carries committed substeps, conduction contacts,
 iterations, stored redistribution and entropy, viscosity modes, requested and

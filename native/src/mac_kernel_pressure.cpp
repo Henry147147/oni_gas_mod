@@ -5,6 +5,7 @@
 // cancellation floor limits the Newton root. Linear systems use PCG with a
 // Jacobi or geometric-multigrid preconditioner.
 #include "mac_kernel_detail.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -394,6 +395,54 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     ws.sx.resize(g.NX); ws.sy.resize(g.NY);
     const auto occupied = [&](Index i) { return i != none && (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell); };
     const auto p0 = [&](Index i) { return occupied(i) ? e.p[i] : 0.; };
+    // Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces"): a
+    // boiling cell converts the heat conducted to its interface, Q / L, at
+    // constant pressure at the end of this stage. Its unknown is the total
+    // volume change D = x + s: x along the cell's isentrope from its state
+    // before that heat, then the vapour volume s at the endpoint pressure p1.
+    // The face force uses the mean work pressure (W(x) + p1 s) / D, so U + K
+    // closes exactly.
+    const bool boiling = c.sharp_boiling() && ws.interface_heat.size() == N;
+    constexpr double R = experimental::reference_gas_constant;
+    // The converted mass at the endpoint pressure change dp1: the interface
+    // temperature follows T_sat(p0 + dp1), so the conducted heat changes by
+    // -G dT_sat/dp dp1 (implicit; held at the start pressure, the coupling is
+    // an explicit loop whose gain grows like dt/h).
+    const auto interface_mass = [&](std::size_t i, double dp1) {
+        const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
+        const double heat = ws.interface_heat[i] - ws.interface_conductance[i] * ws.interface_slope[i] * dp1;
+        return std::clamp(heat / ws.interface_latent[i], -f.m[pair.vapour * N + i], f.m[pair.liquid * N + i]);
+    };
+    // Specific volume change of the conversion at p1 and the interface temperature.
+    const auto converted_volume = [&](std::size_t i, double p1) {
+        const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
+        const auto& sv = c.model.species[pair.vapour]; const auto& sl = c.model.species[pair.liquid];
+        return R * ws.interface_temperature[i] / (sv.molar_mass * p1) - 1 / (sl.rho0 * (1 + p1 / sl.bulk));
+    };
+    // A boiling cell's isentrope starts from its state before the conducted
+    // heat: that heat is converted, not held, so it must not raise the start
+    // pressure (in a mostly-gas cell it would by hundreds of pascals). The
+    // heat is still in U; the endpoint takes it back as latent heat.
+    if (boiling) {
+        for (auto* v : {&ws.interface_latent, &ws.interface_mass, &ws.interface_volume}) v->assign(N, 0);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (ws.interface_pair[i] == 0 || ws.interface_heat[i] == 0 || e.kind[i] != mixed_cell) continue;
+                const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
+                State before;
+                if (!evaluate_state(c.model, f, N, i, Stats{e.M[i], e.Cv[i], e.off[i], e.nR[i], e.Nl[i], e.kind[i]},
+                        f.U[i] - ws.interface_heat[i], g.V, before)) continue;
+                // At the cell's own temperature, so conversion leaves it unchanged.
+                const double latent = mac_latent_heat(*c.thermodynamics, pair.liquid_profile, pair.vapour_profile, before.T, before.p);
+                if (!(latent > 0)) continue;
+                e.T[i] = before.T; e.p[i] = before.p; e.Vg[i] = before.Vg; e.Eel[i] = before.Eel; e.Ceq[i] = before.Ceq; e.comp[i] = before.comp;
+                ws.interface_latent[i] = latent;
+                ws.interface_mass[i] = interface_mass(i, 0);
+                ws.interface_volume[i] = ws.interface_mass[i] * converted_volume(i, e.p[i]);
+            }
+        });
+    }
+    if (boiling) for (std::size_t i = 0; i < N; ++i) if (ws.interface_latent[i] != 0) ws.dV[i] = ws.interface_volume[i]; // root starts at x = 0
     // Anchors.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -462,6 +511,49 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         }
     });
     const auto& c0x = ws.sx; const auto& c1x = ws.keep; const auto& c0y = ws.sy; const auto& c1y = ws.jsum;
+    const auto interface_work = [&](std::size_t i, double D, Work& out) {
+        if (ws.anchor[i].kind != mixed_cell || D == 0) return false;
+        const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
+        const double vapour_mass = f.m[pair.vapour * N + i], liquid_mass = f.m[pair.liquid * N + i];
+        const double molar = c.model.species[pair.vapour].molar_mass;
+        // At x: the isentrope, the converted mass and vapour volume, and
+        // dD/dx = 1 + (ds/dp1) dp1/dx with dp1/dx by a one-sided difference
+        // (the secant law is too stiff a tangent once the vapour outgrows the
+        // cell's gas).
+        struct At { Work iso; double mass = 0, s = 0, stiffness = 0, stretch = 0; };
+        const auto at = [&](double x, At& a) {
+            Work nearby; const double step = std::max(1e-6 * std::abs(x), 1e-9 * g.V);
+            if (!isentropic_work(c.model, f, N, i, ws.anchor[i], x, a.iso) ||
+                !isentropic_work(c.model, f, N, i, ws.anchor[i], x - step, nearby)) return false;
+            a.mass = interface_mass(i, a.iso.dp1); a.s = a.mass * converted_volume(i, a.iso.p1);
+            a.stiffness = (a.iso.dp1 - nearby.dp1) / step;
+            const double free = a.mass > -vapour_mass && a.mass < liquid_mass ? 1. : 0.;
+            const double ds = -a.mass * R * ws.interface_temperature[i] / (molar * a.iso.p1 * a.iso.p1) -
+                free * converted_volume(i, a.iso.p1) * ws.interface_conductance[i] * ws.interface_slope[i] / ws.interface_latent[i];
+            a.stretch = 1 + ds * a.stiffness;
+            return a.stiffness < 0 && a.stretch > 0 && std::isfinite(a.s);
+        };
+        // x + s(x) = D by Newton: the implicit coupling makes s far more
+        // sensitive to x than x itself, so a fixed point would diverge.
+        double x = D - ws.interface_volume[i];
+        At a;
+        for (int it = 0;; ++it) {
+            if (it == 64 || !at(x, a)) return false;
+            const double residual = (x + a.s) - D;
+            if (std::abs(residual) <= 4 * eps * (std::abs(D) + std::abs(a.s))) break;
+            const double next = x - residual / a.stretch;
+            if (next == x) break;
+            x = next;
+        }
+        ws.interface_volume[i] = a.s; ws.interface_mass[i] = a.mass;
+        const double p1 = a.iso.p1, s = a.s;
+        out.dU = a.iso.dU - p1 * s;
+        // Mean work pressure minus p0, in increments: (dW x + dp1 s) / D.
+        out.dW = (a.iso.dW * x + a.iso.dp1 * s) / D;
+        out.derivative = a.stiffness / a.stretch;
+        out.p1 = p1;
+        return std::isfinite(out.dW) && std::isfinite(out.dU) && out.derivative < 0;
+    };
     // Residual evaluation for volume changes dv; fills dw, cc, res; returns
     // the max relative residual, or +inf if a trial left the EOS domain.
     const auto evaluate = [&](const std::vector<double>& dv, std::vector<double>& dw, std::vector<double>& cc,
@@ -471,7 +563,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
                 if (!occupied(static_cast<Index>(i))) { dw[i] = 0; continue; }
                 Work w;
-                if (!isentropic_work(c.model, f, N, i, ws.anchor[i], dv[i], w)) { failed = 1; continue; }
+                const bool source = boiling && ws.interface_latent[i] != 0;
+                if (!(source ? interface_work(i, dv[i], w) : isentropic_work(c.model, f, N, i, ws.anchor[i], dv[i], w))) { failed = 1; continue; }
                 dw[i] = w.dW; cc[i] = -1 / w.derivative; du[i] = w.dU;
                 if (!std::isfinite(cc[i]) || !(cc[i] > 0)) failed = 1;
             }
@@ -651,6 +744,25 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     acc.operands[c.q_jx()] += jx_ops; acc.operands[c.q_jy()] += jy_ops;
     acc.operands[c.q_energy()] += energy_ops;
     c.counters.maximum_volume_closure = std::max(c.counters.maximum_volume_closure, closure);
+    // Each boiling cell's converted masses at the accepted root; the interval
+    // audit takes the moved mass as each species' external change, and each
+    // write's rounding.
+    if (boiling) for (std::size_t i = 0; i < N; ++i) {
+        if (ws.interface_latent[i] == 0 || e.kind[i] != mixed_cell) continue;
+        Work accepted;
+        if (!interface_work(i, ws.dV[i], accepted)) reject("Production interface conversion left its EOS domain");
+        const double dm = ws.interface_mass[i];
+        if (dm == 0) continue;
+        const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
+        for (const auto& [k, change] : {std::pair{pair.liquid, -dm}, std::pair{pair.vapour, dm}}) {
+            double& m = f.m[k * N + i]; const double before = m; m = before + change;
+            acc.inventory[k].addition(before, change, m); acc.conversion[k].add(change);
+            acc.operands[k] += std::abs(before) + std::abs(change);
+        }
+        (dm > 0 ? acc.evaporated : acc.condensed) += std::abs(dm); ++acc.interface_conversions;
+        const auto st = cell_stats(c.model, f, N, i);
+        e.M[i] = st.M; e.Cv[i] = st.Cv; e.off[i] = st.off; e.nR[i] = st.nR; e.Nl[i] = st.Nl; e.kind[i] = st.kind;
+    }
     // Material-volume CFL.
     const double limit = c.settings.maximum_outgoing_volume_fraction;
     auto cfl = c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t) {

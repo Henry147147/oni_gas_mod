@@ -128,6 +128,15 @@ Amendments:
   cold gas whose chemical energy offset dominates its sensible energy, judging the
   stored energy against its own binary64 precision
   ([vacuum](../native/MAC_VACUUM.md#void-phase)).
+- **Sharp-interface boiling, 2026-10-20 (user decision):** boiling at a liquid
+  surface is converted at a sharp interface in the production kernel. The
+  interface is held at T_sat during conduction, the evaporation rate comes from the
+  interface heat balance, and the new vapour volume enters the pressure solve. A
+  fixed-volume equilibrium relaxation is used only away from interfaces
+  ([phase change](../native/MAC_PHASE_CHANGE.md#sharp-interfaces)). Shock-heat
+  regularization no longer crosses gas/liquid interfaces.
+- **Ownership, 2026-10-20 (user decision):** Codex development stopped. Claude owns
+  every remaining milestone, continuing to feature completeness on `main`.
 
 The current execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
@@ -230,9 +239,8 @@ g = 9.81 m/s², the production kernel and the default settings; M1–M3 select
 sharp interfaces (material selector 3). Conservation means each species and
 passive exact to the interval audit, and liquid volume exact. Commands,
 measurements and diagnoses are in [MAC_GATES.md](../native/MAC_GATES.md).
-Status: G1, G2, M1–M4 and V pass; M5 is open (phase change and coupled
-mixed-cell conduction exist; fixed-volume evaporation self-limits and the water
-absorbs the film's heat).
+Status: all eight gates pass (2026-10-20); M5 passes with sharp-interface
+boiling.
 
 | Gate | Setup | Pass criteria |
 | --- | --- | --- |
@@ -242,7 +250,7 @@ absorbs the film's heat).
 | M2 dam break | Martin & Moyce column, width a = 0.05715 m, height 2a, in a 5a-long tank under air; 16, 32 and 64 cells across a; to T = t√(2g/a) = 3 | Finest grid: front Z = x/a within 10% of the published data, compared at simulated T = T_data − 0.175 (≥ 0.5); two finest grids within 3% of each other; interface band (cells 1–99% full, measured across the interface) at most 3 cells wide; liquid volume exact |
 | M3 standing wave | Water 0.5 m deep, wavelength 1 m, amplitude 1 mm, periodic; 32, 64 and 128 cells per wavelength | Finest grid: period within 1% of ω² = g k tanh(k h), converging; amplitude change within ±2% per period (loss at most 2%, no growth beyond 2%) |
 | M4 two liquids (Rayleigh–Taylor) | Immiscible 1000 and 800 kg/m³ liquids, no surface tension, width 0.1 m, perturbation 1e-4 of the width; 64 cells per wavelength | Growth rate within 10% of √(A g k) while the amplitude is below 5% of the width. Stable (light over heavy) case at rest within 1e-8 m/s. Passes with sharp two-liquid interfaces |
-| M5 phase change (Stefan vapour film) | Water and steam at 1 atm, wall at T_sat + 10 K, started from the exact solution at t0 | Interface x(t) = 2λ√(α t) within 2% over [t0, 10 t0] on the finest grid, converging; mass and energy including latent heat exact. Open: needs evaporation coupled to the flow |
+| M5 phase change (Stefan vapour film) | Water and steam at 1 atm, wall at T_sat + 10 K, started from the exact solution at t0 | Interface x(t) = 2λ√(α t) within 2% over [t0, 10 t0] on the finest grid, converging; mass and energy including latent heat exact. Passes with [sharp-interface boiling](../native/MAC_PHASE_CHANGE.md#sharp-interfaces) |
 | V vacuum front (absolute bound added) | Existing [gas/vacuum gate](../native/GAS_VACUUM.md) inputs | The front with 0.1% of the gas mass beyond it within 5% of its exact travel at N512, and its displacement over the last 0.2t within 10% of exact; both errors decreasing over N128, N256 and N512. No gas more than one cell ahead of the exact front. Passes with the [void phase](../native/MAC_VACUUM.md#void-phase) (reference path) |
 
 M2 data are Martin & Moyce (1952), *Phil. Trans. R. Soc. A* 244, 312–324,

@@ -1,5 +1,6 @@
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/mac_energy.hpp"
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -49,6 +50,37 @@ double mac_saturation_pressure(const FluidThermodynamics& model, std::size_t liq
     // (R/M) T ln(R T / p) = g_v,base - g_l
     return reference_gas_constant * t * std::exp(-(vapour_gibbs_base(materials[vapour], t) - gl) / (r * t));
 }
+double mac_latent_heat(const FluidThermodynamics& model, std::size_t liquid, std::size_t vapour, double t, double liquid_pressure) {
+    const auto& materials = model.reference().materials();
+    require(liquid < materials.size() && vapour < materials.size() && materials[liquid].phase == ReferencePhase::elastic_liquid &&
+        materials[vapour].phase == ReferencePhase::ideal_gas && std::isfinite(t) && t > 0 && std::isfinite(liquid_pressure) && liquid_pressure >= 0,
+        "Invalid latent heat query");
+    const auto response = model.reference().liquid_response(liquid, liquid_pressure);
+    const auto& l = materials[liquid]; const auto& v = materials[vapour];
+    const double hv = v.energy_offset_j_per_kg + v.cv_j_per_kg_k * t + reference_gas_constant / v.molar_mass_kg_per_mol * t;
+    const double hl = l.energy_offset_j_per_kg + l.cv_j_per_kg_k * t + response.specific_elastic_energy_j_per_kg +
+        liquid_pressure * response.specific_volume_m3_per_kg;
+    return hv - hl;
+}
+double mac_saturation_temperature(const FluidThermodynamics& model, std::size_t liquid, std::size_t vapour,
+    double vapour_pressure, double liquid_pressure, double guess) {
+    require(std::isfinite(vapour_pressure) && vapour_pressure > 0 && std::isfinite(guess) && guess > 0, "Invalid saturation temperature query");
+    const double r = reference_gas_constant / model.reference().materials()[vapour].molar_mass_kg_per_mol;
+    // d ln p_sat / dT = (h_v - h_l) / (r T^2) (Clausius-Clapeyron; the ln(R T)
+    // term cancels the vapour base's r T enthalpy). The
+    // Gibbs difference behind p_sat cancels to about 1e-11 of ln p_sat, so the
+    // root resolves T to 1e-10 of itself, not to binary64.
+    double t = guess;
+    for (int it = 0; it < 64; ++it) {
+        const double f = std::log(mac_saturation_pressure(model, liquid, vapour, t, liquid_pressure) / vapour_pressure);
+        const double slope = mac_latent_heat(model, liquid, vapour, t, liquid_pressure) / (r * t * t);
+        if (!std::isfinite(f) || !std::isfinite(slope) || !(slope > 0)) break;
+        const double next = std::clamp(t - f / slope, .5 * t, 2 * t);
+        if (std::abs(next - t) <= 1e-10 * t) return next;
+        t = next;
+    }
+    throw std::domain_error("Saturation temperature did not converge");
+}
 std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry& registry, const FluidThermodynamics& model) {
     model.validate_registry(registry); std::vector<MacSaturationPair> pairs;
     const auto& materials = model.reference().materials();
@@ -61,7 +93,7 @@ std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry& regis
 }
 
 MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const MacSaturationPair> pairs) {
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces) {
     require_mac_energy_environment(); model.validate_registry(registry);
     MacPhaseChangeAdvance result{source, {}}; auto& report = result.report;
     const auto& g = source.grid; MacEnergySum entropy, allowance;
@@ -80,6 +112,14 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             ReferenceEquilibriumState before;
             try { before = model.evaluate(cell, volume); } catch (const ReferenceError&) { ++report.unevaluable_cells; continue; }
             ++report.eos_evaluations;
+            if (skip_sharp_interfaces && ml > 0 && before.has_gas && before.gas_volume_m3 >= mac_interface_phase_fraction * volume &&
+                before.liquid_volume_m3 >= mac_interface_phase_fraction * volume &&
+                before.partial_volumes_m3[vapour_profile] >= mac_interface_vapour_fraction * before.gas_volume_m3) {
+                bool only = true;
+                for (std::size_t k = 0; k < registry.size(); ++k)
+                    if (k != pair.liquid && registry[k].phase == Phase::liquid && cell.masses[k] != 0) only = false;
+                if (only) continue;
+            }
             // Departure from equilibrium after moving `moved` kg from liquid to
             // vapour: vapour partial pressure minus saturation pressure. A cell
             // without gas forms vapour at its own pressure.

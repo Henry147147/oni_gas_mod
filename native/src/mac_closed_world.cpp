@@ -766,10 +766,12 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     if (!validation_reference && (policy == MacExecutionPolicy::production || settings_.numerical_kernel == MacNumericalKernel::production) &&
         mac_kernel_supports(settings_)) {
         auto produced = advance_mac_production_flow(*this, seconds, budget, mac_kernel_default_options());
-        // The production kernel has no phase change: its interval is followed
-        // by one equilibrium relaxation (operator splitting per interval).
+        // The production kernel converts sharp boiling interfaces each substep
+        // (with conduction on); its interval is followed by one equilibrium
+        // relaxation of every other pair cell (operator splitting per interval).
         if (settings_.phase_change == MacPhaseChange::saturation) {
-            auto changed = advance_mac_phase_change(registry_, *thermodynamics_, produced.world.state_, mac_saturation_pairs(registry_, *thermodynamics_));
+            auto changed = advance_mac_phase_change(registry_, *thermodynamics_, produced.world.state_, mac_saturation_pairs(registry_, *thermodynamics_),
+                settings_.thermal_conduction);
             produced.world.state_ = std::move(changed.state); ++produced.report.phase_change_stages;
             produced.report.evaporating_cells += changed.report.evaporating_cells; produced.report.condensing_cells += changed.report.condensing_cells;
             produced.report.evaporated_kg += changed.report.evaporated_kg; produced.report.condensed_kg += changed.report.condensed_kg;

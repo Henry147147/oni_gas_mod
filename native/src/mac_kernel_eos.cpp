@@ -263,7 +263,7 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
         }
         w.dU = energy;
         w.derivative = derivative;
-        w.p1 = p;
+        w.p1 = p; w.dp1 = dp;
         w.dW = std::abs(dp) < std::abs(a.p0) / 8 ? dp - dV * derivative : -energy / dV - a.p0;
         if (!(derivative < 0) || !std::isfinite(w.dW)) return false;
     }

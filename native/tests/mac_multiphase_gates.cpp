@@ -3,8 +3,8 @@
 // measurements; FAIL and OPEN exit nonzero. Both run the production kernel.
 //   M4  two immiscible liquids (Rayleigh-Taylor), with sharp interfaces: a
 //       cell holding both liquids places the denser below a PLIC line.
-//   M5  Stefan vapour film: pressure-dependent boiling at a heated wall.
-//       Open: fixed-volume evaporation self-limits; the water absorbs the heat.
+//   M5  Stefan vapour film: pressure-dependent boiling at a heated wall, with
+//       sharp-interface boiling in the production kernel.
 #include "mac_kernel_fixture.hpp"
 #include "mixed_atmospheres/mac_native_heat.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
@@ -152,8 +152,8 @@ int m4() {
 // Water and steam calibrated to boil at 373.15 K and 1 atm; a heater liquid
 // (the liquid-oxygen slot, given a huge heat capacity and metal-like
 // conductivity) that holds the wall temperature; a non-volatile liquid plug
-// (the liquid-nitrogen slot) and a nitrogen reservoir that keeps the
-// pressure near 1 atm without evaporating water into it.
+// (the liquid-nitrogen slot) and a nitrogen reservoir held at 1 atm without
+// evaporating water into it.
 struct Boiling {
     SpeciesRegistry registry; std::shared_ptr<const FluidThermodynamics> eos;
     std::size_t water = 0, steam = 0, air = 0, plug = 0, heater = 0;
@@ -178,9 +178,11 @@ struct Boiling {
 };
 // Stefan vapour film: a wall at T_sat + 10 K (the face beside the heater
 // cell) under a steam film, water at T_sat beyond, then the plug and the
-// reservoir. Starting from the exact solution at t0, the film thickness
-// (steam volume per unit area) must follow 2 lambda sqrt(alpha t) over
-// [t0, 10 t0]. Returns the worst relative error; film_cells resolves delta(t0).
+// reservoir. Starting from the exact solution at t0 (temperatures, vapour at
+// rest, liquid moving away at (1 - rho_v/rho_l) d delta/dt), the film
+// thickness (steam volume per unit area) must follow 2 lambda sqrt(alpha t)
+// over [t0, 10 t0]. Returns the worst relative error; film_cells resolves
+// delta(t0).
 double stefan(std::size_t film_cells, double t0, double& mass_drift) {
     const Boiling s; constexpr double t_sat = 373.15, dT = 10, p0 = 101325;
     const auto& w = s.registry[s.water]; const auto& v = s.registry[s.steam];
@@ -214,6 +216,10 @@ double stefan(std::size_t film_cells, double t0, double& mass_drift) {
     }
     const auto faces = mac_face_inertias(s.registry, st, *s.eos);
     st.momentum_x.assign(faces.x.size(), 0); st.momentum_y.assign(faces.y.size(), 0);
+    std::size_t first_liquid = 1;
+    while (!(st.cells[first_liquid].mixture.masses[s.water] > 0)) ++first_liquid;
+    const double liquid_speed = (1 - rho_v / w.density) * lambda * std::sqrt(alpha / t0);
+    for (std::size_t i = first_liquid + 1; i <= plug_end; ++i) st.momentum_x[st.grid.x_face(i, 0)] = faces.x[st.grid.x_face(i, 0)] * liquid_speed;
     MacClosedSettings settings; settings.thermal_conduction = true; settings.phase_change = MacPhaseChange::saturation;
     settings.reconstruction = MacMaterialReconstruction::interface_plic;
     const double step = t0 / 1000; settings.maximum_timestep_s = step;
@@ -233,6 +239,29 @@ double stefan(std::size_t film_cells, double t0, double& mass_drift) {
     double t = t0, worst = 0; int k = 0;
     while (t < 10 * t0 * (1 - 1e-12)) {
         world = world.advanced(step, 65536, MacExecutionPolicy::production).world; t += step;
+        // The closed domain stands for 1 atm: the film's growth would compress
+        // even this reservoir by ~1.4 kPa (0.4 K of T_sat), and water conducts
+        // 24 times better than steam, so a liquid that far below the interface
+        // temperature takes much of the film's heat. After each interval the
+        // reservoir vents nitrogen only: its pure-nitrogen cells that the
+        // strict EOS can read are scaled by one common factor, at their own
+        // temperatures, so their median pressure returns to p0. One factor
+        // keeps the reservoir's pressure profile, so the vent creates no
+        // pressure step.
+        auto held = world.state(); std::vector<std::pair<std::size_t, ReferenceEquilibriumState>> vented;
+        for (std::size_t i = plug_end; i < cells; ++i) {
+            const auto& m = held.cells[i].mixture;
+            if (m.masses[s.plug] != 0 || m.masses[s.water] != 0 || m.masses[s.air] < (1 - 1e-4) * m.mass()) continue;
+            try { vented.emplace_back(i, s.eos->evaluate(m, volume)); } catch (const ReferenceError&) {}
+        }
+        std::vector<double> pressures; for (const auto& entry : vented) pressures.push_back(entry.second.mechanical_pressure_pa);
+        std::nth_element(pressures.begin(), pressures.begin() + static_cast<std::ptrdiff_t>(pressures.size() / 2), pressures.end());
+        const double factor = p0 / pressures[pressures.size() / 2];
+        for (const auto& [i, r] : vented) {
+            auto& cell = held.cells[i].mixture; auto target = cell.masses; target[s.air] *= factor;
+            cell = s.eos->initialize_at_temperature(target, r.temperature_k, volume).mixture;
+        }
+        world = MacClosedWorld(s.registry, s.eos, held, settings);
         if (++k % 100 == 0) {
             const double x = film(world.state()), e = delta(t); worst = std::max(worst, std::abs(x - e) / e);
             if (k % 500 == 0) std::cout << "M5 n=" << film_cells << " t_s=" << t << " film_m=" << x << " exact_m=" << e << " error=" << (x - e) / e << '\n';
@@ -242,17 +271,17 @@ double stefan(std::size_t film_cells, double t0, double& mass_drift) {
     return worst;
 }
 // The Stefan run is long (production kernel, thousands of cells, 9000
-// intervals per grid) and stays open: the fixed-volume evaporation relaxation
-// self-limits and the interface pressure oscillates, so the wall's heat mostly
-// warms the water (MAC_PHASE_CHANGE.md).
-// "M5 --run" runs every grid; "M5 --grid N" one grid.
-int m5(bool run, std::size_t only = 0) {
-    if (!run && only == 0) {
-        std::cout << "M5 note: needs evaporation coupled to the flow; run with --run or --grid N\n";
-        return verdict("M5", "OPEN (fixed-volume evaporation self-limits)");
+// intervals per grid), so the gate runs on request: "M5 --run" runs every
+// grid; "M5 --quick" the 5-cell regression (worst error within 4%); "M5 --grid
+// N" one grid. Sharp-interface boiling (MAC_PHASE_CHANGE.md).
+int m5(bool run, bool quick, std::size_t only = 0) {
+    if (!run && !quick && only == 0) {
+        std::cout << "M5 note: long run; use --run, --quick or --grid N\n";
+        return verdict("M5", "OPEN (not run)");
     }
     const double t0 = 1e-3; std::vector<double> errors; double mass = 0;
-    for (const std::size_t n : {10, 20, 40}) {
+    const std::vector<std::size_t> grids = quick ? std::vector<std::size_t>{5} : std::vector<std::size_t>{10, 20, 40};
+    for (const std::size_t n : grids) {
         if (only != 0 && n != only) continue;
         double m = 0;
         try { errors.push_back(stefan(n, t0, m)); }
@@ -260,6 +289,7 @@ int m5(bool run, std::size_t only = 0) {
         mass = std::max(mass, m);
         std::cout << "M5 n=" << n << " worst_error=" << errors.back() << " water_mass_drift=" << m << '\n';
     }
+    if (quick) return verdict("M5", errors.back() <= .04 && mass <= 1e-12 ? "PASS" : "FAIL");
     if (only != 0) return verdict("M5", "FAIL (single grid)");
     const bool converging = errors[1] < errors[0] && errors[2] < errors[1];
     return verdict("M5", errors.back() <= .02 && converging && mass <= 1e-12 ? "PASS" : "FAIL");
@@ -277,7 +307,8 @@ int main(int argc, char** argv) {
         // "--grid N" runs one M5 grid (diagnostic; never a pass).
         std::size_t grid = 0;
         for (std::size_t a = 0; a + 1 < ids.size(); ++a) if (ids[a] == "--grid") grid = std::stoul(ids[a + 1]);
-        if (selected("M5")) failures += m5(std::find(ids.begin(), ids.end(), "--run") != ids.end(), grid);
+        const auto flag = [&](const char* name) { return std::find(ids.begin(), ids.end(), name) != ids.end(); };
+        if (selected("M5")) failures += m5(flag("--run"), flag("--quick"), grid);
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 2; }
 }

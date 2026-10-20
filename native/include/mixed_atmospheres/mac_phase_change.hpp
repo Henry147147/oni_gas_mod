@@ -18,6 +18,20 @@ struct MacSaturationPair { std::size_t liquid = 0, vapour = 0; };
 // materials are EOS profile indices.
 [[nodiscard]] double mac_saturation_pressure(const FluidThermodynamics&, std::size_t liquid_material, std::size_t vapour_material,
     double temperature_k, double liquid_pressure_pa);
+// Temperature at which the liquid (at liquid_pressure_pa) is in equilibrium
+// with its vapour at partial pressure vapour_pressure_pa: the inverse of
+// mac_saturation_pressure in T, by Newton on ln p_sat from guess_k.
+[[nodiscard]] double mac_saturation_temperature(const FluidThermodynamics&, std::size_t liquid_material, std::size_t vapour_material,
+    double vapour_pressure_pa, double liquid_pressure_pa, double guess_k);
+// Specific latent heat h_v - h_l at temperature T (vapour ideal-gas enthalpy;
+// liquid enthalpy at liquid_pressure_pa, elastic energy and p v included).
+[[nodiscard]] double mac_latent_heat(const FluidThermodynamics&, std::size_t liquid_material, std::size_t vapour_material,
+    double temperature_k, double liquid_pressure_pa);
+// Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces") applies
+// to a cell whose only liquid is a pair's liquid, with at least this fraction
+// of the cell in each phase, and whose gas is mostly that pair's vapour.
+inline constexpr double mac_interface_phase_fraction = 1e-6;
+inline constexpr double mac_interface_vapour_fraction = .5;
 // Every registry liquid with a vapour of the same composition whose EOS
 // material carries a saturation calibration (nonzero entropy offset).
 [[nodiscard]] std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry&, const FluidThermodynamics&);
@@ -37,6 +51,9 @@ struct MacPhaseChangeAdvance { MacTransportState state; MacPhaseChangeReport rep
 // more than the nucleation superheat at its own pressure; the vapour it then
 // forms raises that pressure toward saturation. Only the pair's masses change; momentum, passives and U are
 // retained, and entropy cannot fall beyond its stored-U roundoff allowance.
+// With skip_sharp_interfaces, cells that sharp-interface boiling converts
+// (mac_interface_phase_fraction, mac_interface_vapour_fraction) are left as
+// they are.
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>);
+    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false);
 }

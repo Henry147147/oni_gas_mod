@@ -108,6 +108,7 @@ struct Species {
     bool gas = true;
     double molar_mass = 0, cv = 0, offset = 0, rho0 = 0, bulk = 0, maximum_ratio = 1, tmin = 0, tmax = 0;
     double conductivity = 0;
+    double entropy_offset = 0; // a saturation calibration's constant specific entropy
 };
 struct Model {
     std::size_t registry_size = 0;
@@ -167,7 +168,9 @@ struct Anchor {
     double K = 0, Nl = 0, qmax = 0;
     bool single_liquid = false;
 };
-struct Work { double dW = 0, derivative = 0, dU = 0, p1 = 0; };
+// p1 is the endpoint pressure; dp1 = p1 - p0 without cancellation (general
+// anchored branch only, which every gas/liquid cell takes).
+struct Work { double dW = 0, derivative = 0, dU = 0, p1 = 0, dp1 = 0; };
 // False when the trial leaves the EOS domain (void, compression limit).
 bool isentropic_work(const Model&, const Fields&, std::size_t N, std::size_t i, const Anchor&, double dV, Work& out);
 
@@ -290,6 +293,10 @@ struct Accounts {
     // Concavity bound on the gravity reconciliation's entropy change, and its
     // operand magnitude sum |dU| / T for the audit allowance.
     DD gravity_entropy; double gravity_entropy_operands = 0;
+    // Mass moved between phases by sharp-interface boiling, per quantity (the
+    // audit's external term for each species), and its totals.
+    std::vector<DD> conversion;
+    double evaporated = 0, condensed = 0; std::size_t interface_conversions = 0;
     std::size_t unresolved = 0; // Accepted primary/parcel and existing pressure/heat writes.
     PhysicalAccounts physical;
     void resize(std::size_t quantities) {
@@ -297,6 +304,7 @@ struct Accounts {
         transfers.assign(quantities, {});
         primary.assign(quantities, {});
         inventory.assign(quantities, {}); energy = {};
+        conversion.assign(quantities, {});
     }
 };
 struct Counters {
@@ -354,6 +362,14 @@ struct Workspace {
     std::vector<Index> gravity_heavy;
     std::vector<double> px_energy_remainder, py_energy_remainder, retained_energy_remainder;
     std::vector<std::uint8_t> two_phase;
+    // Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces"): per
+    // cell, the pair index + 1 (0: none), the held interface temperature, the
+    // conduction heat the pressure stage converts at the interface, the
+    // interface's integrated conductance and dT_sat/dp, and the pressure
+    // stage's latent heat, converted mass and vapour volume.
+    std::vector<std::uint8_t> interface_pair;
+    std::vector<double> interface_temperature, interface_heat, interface_conductance, interface_slope;
+    std::vector<double> interface_latent, interface_mass, interface_volume;
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.
     bool stats_valid = false;
@@ -368,6 +384,12 @@ struct Context {
     Exec exec;
     Counters counters;
     MacKernelStageTiming timing;
+    // Saturation pairs present in the model (species indices and EOS profile
+    // indices) when phase change is enabled, with the EOS that defines them.
+    struct PhasePair { std::size_t liquid = 0, vapour = 0, liquid_profile = 0, vapour_profile = 0; };
+    const FluidThermodynamics* thermodynamics = nullptr;
+    std::vector<PhasePair> phase_pairs{};
+    [[nodiscard]] bool sharp_boiling() const { return !phase_pairs.empty() && settings.thermal_conduction; }
     // Quantity layout of Accounts: [0,K) species, [K,K+P) passives,
     // K+P jx, K+P+1 jy, K+P+2 energy.
     [[nodiscard]] std::size_t q_jx() const { return model.K() + model.P(); }

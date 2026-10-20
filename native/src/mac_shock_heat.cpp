@@ -255,6 +255,14 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             if (l == none || r == none) { require(j[f].is_zero(), "Fixed shock-heat face has normal momentum"); continue; }
             if (current_index[l] == none || current_index[r] == none) continue;
             if (l == r) continue;
+            // A shock's numerical heat flux joins cells of one phase class
+            // (gas, liquid or gas/liquid): it never crosses an interface
+            // between them (MAC_HEAT.md, "Phase interfaces").
+            const auto phase = [&](std::size_t i) {
+                const auto& s = current[current_index[i]];
+                return s.has_gas ? (s.liquid_volume_m3 > 0 ? 2 : 0) : 1;
+            };
+            if (phase(l) != phase(r)) continue;
             const auto w = mac_scaled_difference(closing[l], closing[r]).mantissa() >= 0 ? closing[l] : closing[r];
             auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
             if (speed.is_zero()) continue;

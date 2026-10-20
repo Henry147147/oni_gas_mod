@@ -60,73 +60,145 @@ full cell raises that cell's pressure only to the saturation pressure, and then 
 A fixed boiling point instead forced evaporation regardless of pressure: in a
 prototype, a full water cell reached about 10 bar and the water slug cavitated.
 
+## Sharp interfaces
+
+Boiling at a liquid surface is limited by the heat reaching the surface, not by
+equilibrium in a cell. The production kernel therefore converts boiling interfaces
+inside each substep, with conduction on (user decision, 2026-10-20). The approach
+follows sharp-interface boiling methods ([Welch & Wilson 2000](https://doi.org/10.1006/jcph.2000.6481);
+[Tanguy et al. 2014](https://doi.org/10.1016/j.jcp.2014.01.014)).
+
+**Interface cells.** A cell holds a boiling interface when all of the following hold:
+- its only liquid is a pair's liquid;
+- gas and liquid each fill at least a millionth of it (`mac_interface_phase_fraction`);
+- that liquid's vapour is at least half of its gas moles (`mac_interface_vapour_fraction`);
+- it borders the other phase: a mostly-liquid cell beside a mostly-gas cell, or the reverse.
+
+Without the last rule, trace gas smeared into a liquid's interior became spurious
+interfaces. Across a face where transport has left a liquid film in a mostly-gas cell
+and a gas film in the mostly-liquid cell beside it, only the cell with the larger
+minority phase holds the interface.
+
+**Conduction** runs once per substep, before the pressure stage; backward Euler is
+first order either way.
+- **Held temperature.** Each interface cell is held at T_sat of its vapour partial
+  pressure, using the mean pressure of its mostly-gas neighbours. Pressure is
+  continuous across a flat interface, and a nearly full cell's own pressure is too
+  stiff: when it was used, the interface temperature rang by several kelvin.
+- **Interface distance.** A neighbour conducts through its own half cell plus the
+  interface cell's layer of the neighbour's phase, (phase volume fraction) × h deep.
+  It conducts with that phase's conductivity, not a volume-weighted average.
+- **Heat.** The heat Q conducted into the held cell enters its U as usual.
+
+**Conversion** happens in the pressure stage, so the new vapour pushes the liquid
+within the same implicit solve rather than spiking the cell's pressure:
+- **Isentrope.** The cell's isentrope starts from its state before the conducted heat
+  (U − Q), so that heat cannot raise the starting pressure; in a mostly-gas cell it
+  raised it by hundreds of pascals.
+- **Volume change.** The unknown is the total change D = x + s:
+  - x along the isentrope;
+  - then the vapour volume s = Δm (R T_int / (M p1) − 1/ρ_l(p1)) of converting Δm at
+    the endpoint pressure p1.
+- **Converted mass.** Δm = (Q − G dT_sat/dp Δp1) / L(T_cell), clamped to the
+  available phase:
+  - G is the interface's integrated face conductance;
+  - L is taken at the cell's own temperature, so conversion leaves that temperature
+    unchanged.
+  - The −G dT_sat/dp Δp1 term makes the interface temperature follow the endpoint
+    pressure. Held at the start pressure instead, the coupling was an explicit loop
+    whose gain grows like dt/h; it rang at the 20-cell grid and would be unstable at
+    40.
+- **Inner solve.** x + s(x) = D is solved by Newton, because the coupling makes s far
+  more sensitive to x than x itself.
+- **Exact energy.** The face force uses the mean work pressure (W(x) + p1 s)/D,
+  formed in increments, so U + K closes exactly.
+- **Interval audit.** The kernel's audit takes each species' converted mass as an
+  external change, with every write's rounding.
+- **Entropy.** Production entropy now includes the vapour's calibrated entropy
+  offset. That constant was irrelevant until mass changed phase.
+
+**Elsewhere.** The per-interval equilibrium relaxation leaves interface cells alone
+when conduction is on. Every other pair cell still relaxes, including traces and
+nucleation in a liquid's interior. Shock-heat regularization never crosses a
+gas/liquid interface ([heat](MAC_HEAT.md#phase-interfaces)).
+
 ## Where it runs
 
-The reference path relaxes after every accepted substep. The production kernel has
-no phase change, so the owner relaxes once after each production interval (operator
-splitting per interval). Its entropy change joins the interval report. Fluid point
-transfers, diffusion and the void phase combine with phase change only as they
-already do with liquids.
+The reference path relaxes after every accepted substep. The production kernel
+converts sharp boiling interfaces in each substep and relaxes every other pair cell
+once after each interval (operator splitting per interval). Its entropy change
+joins the interval report. Sharp-interface boiling is production-only: the reference
+path still uses the equilibrium relaxation for interfaces too, and cannot run the
+[M5 gate](#gate-m5), because its strict transport rejects the traces M5 creates.
+Fluid point transfers, diffusion and the void phase combine with phase change only
+as they already do with liquids.
 
-Phase-change owners do not checkpoint yet.
+Phase-change owners checkpoint as [version 11](MAC_CHECKPOINT.md#version-assignment).
 
 ## Gate M5
 
-M5 is open. `ma_mac_multiphase_gates M5 --run` (or `--grid N` for one grid) runs it on
-the production kernel. The 1-D setup:
+M5 passes (2026-10-20). `ma_mac_multiphase_gates M5 --run` runs the full gate on the
+production kernel, on grids of 10, 20 and 40 cells across the initial film. `--quick`
+runs a 5-cell grid with a 4% bound as the CTest `mac_gate_m5_stefan_coarse`; `--grid N`
+runs one grid as a diagnostic.
+
+The 1-D setup:
 - a heater cell, a liquid whose huge heat capacity and metal-like conductivity hold
   T_sat + 10 K at its face;
-- a steam film started from the exact Stefan solution at t0 = 1 ms (19 μm thick);
+- a steam film started from the exact Stefan solution at t0 = 1 ms (19 μm thick),
+  with the liquid moving away at the exact speed (1 − ρ_v/ρ_l) dδ/dt;
 - water at T_sat;
 - a non-volatile liquid plug;
 - a nitrogen reservoir 100 times the film's growth.
 
 The interface position is the film's steam volume per unit area, compared with
-2λ√(αt) over [t0, 10 t0] with λ = 0.0640 and α = 2.28e-5 m²/s.
+2λ√(αt) over [t0, 10 t0] with λ = 0.0640 and α = 2.28e-5 m²/s. The gate passes when:
+- the worst error on the 40-cell grid is within 2%;
+- the error falls with each refinement;
+- water and steam together keep their mass to 1e-12.
 
-Four setup lessons:
+| Cells across δ(t0) | Worst error | Water mass drift |
+| --- | --- | --- |
+| 5 (`--quick`) | 3.17% | 3.7e-16 |
+| 10 | 1.36% | 1.0e-16 |
+| 20 | 0.87% | 6.4e-17 |
+| 40 | 0.73% | 8.9e-17 |
+
+The errors approach a small positive offset rather than zero:
+- The analytic solution has constant properties, with steam at its saturation
+  density everywhere.
+- The model's steam is an ideal gas up to 10 K hotter near the wall, so the same
+  evaporated mass fills about 0.5–1% more volume.
+- A mass-based measure (steam mass over the saturation density) gives −0.1% on the
+  10-cell grid and −0.45% on the 20-cell grid.
+
+Five setup lessons:
 - Water at 100 °C next to dry air evaporates fast, as it physically should; hence
   the plug.
 - An owner-level wall-heat exchange rebuilds the world, and its strict EOS rejects
   the subnormal gas traces the production kernel admits; hence the heater cell.
 - The strict reference path rejects those traces in transport; hence the
   production kernel.
-- The reservoir is 100 times the film's growth, so the closed domain's pressure
-  rises about 1% over [t0, 10 t0].
+- The closed domain stands in for 1 atm. The film's growth would still compress the
+  reservoir by about 1.4 kPa, which is 0.4 K of saturation temperature. Water
+  conducts 24 times better than steam, so water that far below the interface
+  temperature takes much of the film's heat. After each interval the reservoir
+  therefore vents nitrogen: its readable pure-nitrogen cells are scaled by one
+  common factor that returns their median pressure to 1 atm. Resetting each cell
+  separately created a pressure step at the plug.
+- Started at rest, the liquid slug first has to be accelerated by the film, which
+  rings; the fixture starts it at the exact speed.
 
-**Blocker.** Coupled mixed-cell conduction (2026-10-20) replaced pairwise contact
-splitting, but it barely moved the film: 14% short after 0.5 t0 on the coarse grid,
-against 16% before. Conduction was not the main loss. In a heat budget of the coarse
-run, the wall delivers about 12 kW/m², evaporation absorbs about 1.8 kW/m², and the
-rest warms the water. That water holds no gas and stays below the nucleation
-superheat, so it cannot boil. Three mechanisms:
-- **The fixed-volume relaxation self-limits.** Vapour formed in the interface cell
-  raises that cell's pressure, and with it the saturation temperature (3.58 kPa/K).
-  In a half-full coarse cell, about 1% of the arriving heat evaporates per
-  relaxation; the rest warms the cell. The cell's liquid, the liquid slug's mass and
-  that pressure–temperature slope form an undamped oscillator, with a period of
-  about 80 μs on the coarse grid. Started at the exact liquid velocity, the slug
-  stops within about 11 μs and then oscillates, and the water's pressure swings by
-  thousands of pascals.
-- **The water is very sensitive to the interface temperature.** It conducts 24
-  times better than steam, so a liquid 1% of the wall superheat below the interface
-  temperature takes about a fifth of the vapour-side flux
-  ((k_l/k_v)·√(α_v/α_l)·erf λ ≈ 21). Each pressure swing moves the saturation
-  temperature by tenths of a kelvin.
-- **Shock-heat regularization.** The default regularization activates in the
-  compressing cells at the interface and moves more heat into the water. With it
-  off, the error at 1.3 ms falls from 10.8% to 7.6%.
+**History.** The equilibrium relaxation alone, run after each pressure stage,
+could not pass M5. Coupled mixed-cell conduction (2026-10-20) barely moved the
+coarse film (14% short after 0.5 t0, against 16% before). In a heat budget of that
+run:
+- the wall delivered about 12 kW/m²;
+- evaporation absorbed about 1.8 kW/m²;
+- the rest warmed the water.
 
-Zero water conductivity alone leaves the water warming at the same rate; with the
-regularization also off the early error is 2%, but the steam-side flux then falls
-short when the interface cell is mostly liquid, because its volume-weighted
-conductivity is small. A 10 times larger reservoir changed nothing over the first
-0.5 t0. Over the whole run, though, the 100 times reservoir rises about 1.4 kPa
-adiabatically (0.4 K of saturation temperature), which the liquid-side sensitivity
-would make significant. The fixture also starts the liquid at rest rather than at
-the exact solution's velocity.
-
-M5 therefore needs evaporation coupled to the flow: interfacial mass transfer from
-the interface heat balance at the interface's own pressure, with the new vapour
-volume entering the pressure stage, instead of a fixed-volume equilibrium relaxation
-after it.
+Vapour formed at fixed volume raised the interface cell's pressure and its
+saturation temperature (3.58 kPa/K). Only about 1% of the arriving heat boiled per
+relaxation, and the cell, the liquid slug and that slope formed an undamped
+oscillator. [Sharp interfaces](#sharp-interfaces) replaced it. Shock-heat
+regularization had also carried heat across the interface into the water.

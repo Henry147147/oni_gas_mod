@@ -101,6 +101,9 @@ struct MacKernelReport {
     // value unchanged; discarded reconstruction/substep/interval work is absent.
     std::size_t unresolved_updates = 0;
     std::uint64_t cell_substeps = 0;
+    // Sharp-interface boiling: accepted interface conversions and moved mass.
+    std::size_t interface_conversions = 0;
+    double evaporated_kg = 0, condensed_kg = 0;
     // Threads that executed the interval (MacKernelOptions::threads capped
     // by the grid's row-block count).
     unsigned threads_used = 1;

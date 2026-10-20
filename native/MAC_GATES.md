@@ -16,7 +16,7 @@ path's void phase. Passing gates also run as CTests.
 | M2 dam break | `ma_mac_free_surface_gates M2` | pass | `mac_gate_m2_dam_break_coarse` (16 cells across a only) |
 | M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | pass | `mac_gate_m4_two_liquids` |
-| M5 phase change | `ma_mac_multiphase_gates M5 --run` | open: fixed-volume evaporation self-limits; the water absorbs the film's heat | — |
+| M5 phase change | `ma_mac_multiphase_gates M5 --run` | pass (sharp-interface boiling) | `mac_gate_m5_stefan_coarse` (5 cells; worst error within 4%) |
 | V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | pass (void phase, reference path) | `mac_gate_v_vacuum_front` |
 
 ## Passing gates
@@ -108,13 +108,20 @@ two liquids and no gas places the denser below a PLIC line
   is under 1% is 2.0e-5. When the liquids blended within a cell, these were 9 cells
   and 6.9e-5, with a growth rate 4.0% low.
 
-## Open gates
+**M5.** A Stefan vapour film at a wall 10 K above saturation, started from the exact
+solution at t0 = 1 ms, with [sharp-interface boiling](MAC_PHASE_CHANGE.md#sharp-interfaces).
+The film's steam volume per unit area follows 2λ√(αt) over [t0, 10 t0]:
 
-**M5.** Pressure-dependent boiling and coupled mixed-cell conduction exist
-([phase change](MAC_PHASE_CHANGE.md)). The Stefan film still falls 14% short after
-0.5 t0 on the coarse grid: the wall's heat mostly warms the water instead of
-evaporating it, because the fixed-volume relaxation self-limits and the interface
-pressure oscillates ([details](MAC_PHASE_CHANGE.md#gate-m5)).
+| Cells across δ(t0) | Worst error | Water mass drift |
+| ---: | ---: | ---: |
+| 10 | 1.36% | 1.0e-16 |
+| 20 | 0.87% | 6.4e-17 |
+| 40 | 0.73% | 8.9e-17 |
+
+Every interval passes the kernel's energy and species audits, latent heat included.
+The errors approach an offset of about 0.5–1% rather than zero: the analytic
+solution keeps steam at its saturation density, while the model's hotter steam
+near the wall fills more volume ([details](MAC_PHASE_CHANGE.md#gate-m5)).
 
 ## Reference oracle on liquid traces
 

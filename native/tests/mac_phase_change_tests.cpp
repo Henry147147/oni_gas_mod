@@ -67,6 +67,46 @@ void relaxes(const Water& s, const char* name, std::vector<double> masses, doubl
         check(std::abs(pv - sat) <= 1e-9 * sat, "Relaxed cell is not at saturation");
     }
 }
+// A small heated column on the production kernel: hot steam over water at
+// saturation beside nitrogen. Sharp-interface boiling evaporates at the
+// interface each substep; water plus steam is conserved, and a version-11
+// checkpoint restores and continues byte for byte.
+void production_column(const Water& s) {
+    constexpr double h = 1e-4, volume = h * h, t_sat = 373.15, p0 = 101325;
+    MacTransportState st; st.grid = {16, 1, h, 1, false, false, std::vector<std::uint8_t>(16)};
+    const auto gas = [&](std::size_t k, double molar, double t, double fraction) { std::vector<double> m(3); m[k] = fraction * p0 * volume * molar / (gas_constant * t); return m; };
+    for (std::size_t i = 0; i < 16; ++i) {
+        std::vector<double> m(3); double t = t_sat;
+        if (i < 4) { m = gas(s.steam, .018015, t = 383 - 2.0 * static_cast<double>(i), 1); }
+        else if (i == 4) { m = gas(s.steam, .018015, t_sat, .5); m[s.water] = .5 * volume * s.registry[s.water].density * (1 + p0 / 2.2e9); }
+        else if (i < 10) m[s.water] = volume * s.registry[s.water].density * (1 + p0 / 2.2e9);
+        else m = gas(s.air, .028013, t_sat, 1);
+        st.cells.push_back({s.eos->initialize_at_temperature(m, t, volume).mixture, {}});
+    }
+    const auto faces = mac_face_inertias(s.registry, st, *s.eos);
+    st.momentum_x.assign(faces.x.size(), 0); st.momentum_y.assign(faces.y.size(), 0);
+    MacClosedSettings settings; settings.thermal_conduction = true; settings.phase_change = MacPhaseChange::saturation;
+    settings.reconstruction = MacMaterialReconstruction::interface_plic; settings.maximum_timestep_s = 1e-5;
+    MacClosedWorld world(s.registry, s.eos, st, settings);
+    const auto pair_mass = [&](const MacTransportState& x) { long double m = 0; for (const auto& c : x.cells) m += c.mixture.masses[s.water] + c.mixture.masses[s.steam]; return m; };
+    const long double initial = pair_mass(world.state());
+    double evaporated = 0;
+    std::vector<std::uint8_t> saved;
+    for (int k = 0; k < 20; ++k) {
+        auto next = world.advanced(1e-5, 65536, MacExecutionPolicy::production);
+        evaporated += next.report.evaporated_kg; world = std::move(next.world);
+        if (k == 9) saved = world.checkpoint();
+    }
+    const double drift = static_cast<double>(std::abs(pair_mass(world.state()) - initial) / initial);
+    std::cout << "PCCOLUMN evaporated_kg=" << evaporated << " pair_mass_drift=" << drift << '\n';
+    check(evaporated > 0 && drift <= 1e-12, "Production boiling did not evaporate or lost water and steam");
+    std::uint32_t version = 0; std::memcpy(&version, saved.data() + 8, 4);
+    check(version == 11, "Phase-change owner did not write checkpoint version 11");
+    auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, saved);
+    check(restored.checkpoint() == saved, "Version-11 checkpoint did not round-trip");
+    for (int k = 10; k < 20; ++k) restored = restored.advanced(1e-5, 65536, MacExecutionPolicy::production).world;
+    check(restored.checkpoint() == world.checkpoint(), "Restored phase-change owner did not continue byte for byte");
+}
 }
 
 int main() {
@@ -80,6 +120,7 @@ int main() {
         relaxes(s, "dry_air", masses(498.5, 0, 101325 * .5 * .028013 / (gas_constant * 300)), 300, 1, 1);
         // Exactly filled subcooled liquid stays liquid.
         relaxes(s, "subcooled_full", masses(997 * (1 + 101325 / 2.2e9), 0, 0), 350, 1, 0);
+        production_column(s);
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

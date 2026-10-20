@@ -93,6 +93,15 @@ None of these coefficients was fitted to a benchmark. Mode 3 made the strong-flo
 collision result worse than mode 2 (density/pressure ratios 0.919/0.898 against
 0.856/0.796), so mode 2 stays the default ([results](MAC_STRONG_FLOW.md#results-by-method)).
 
+### Phase interfaces
+
+A shock's numerical heat flux joins only cells of one phase class: gas, liquid, or
+gas/liquid (2026-10-20). Faces from gas to liquid, or from either single phase to a
+cell holding both, conduct no shock heat in either kernel. Along a wet surface,
+gas/liquid cells still exchange it. In the M5 Stefan film the regularization
+activated in the compressing cells beside the boiling interface and moved heat into
+the water.
+
 ### Reusing completed EOS readings
 
 Each heat stage retains the current validated EOS reading for every fluid cell.

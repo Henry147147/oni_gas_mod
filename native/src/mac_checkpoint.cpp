@@ -22,6 +22,7 @@ constexpr std::string_view magic="MACCLS01";
 constexpr std::uint32_t legacy_format_version=2,viscous_format_version=3;
 constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5,production_format_version=6;
 constexpr std::uint32_t moment_format_version=7,coupled_moment_format_version=8,void_format_version=9,primary_format_version=10;
+constexpr std::uint32_t phase_format_version=11;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -99,7 +100,6 @@ void read_field(Reader& in,std::size_t count,std::vector<double>& projected,std:
 
 std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     require_mac_energy_environment(); Writer out;
-    check(settings_.phase_change==MacPhaseChange::none,"MAC phase-change owners have no checkpoint version yet");
     for (auto value : magic) out.byte(static_cast<std::uint8_t>(value));
     // Keep every pre-viscosity checkpoint byte unchanged when disabled.
     const bool viscous=settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0;
@@ -108,9 +108,12 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool coupled=settings_.pressure_integration==MacPressureIntegration::two_moment_coupled;
     const bool moments=settings_.pressure_integration!=MacPressureIntegration::discrete_gradient_midpoint;
     const bool voids=settings_.vacuum==MacVacuumRepresentation::void_phase;
-    const bool primary=std::any_of(state_.cells.begin(),state_.cells.end(),
+    const bool carried=std::any_of(state_.cells.begin(),state_.cells.end(),
         [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); });
-    out.u32(primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    // Version 11 (phase change) has version 10's layout plus the phase-change
+    // selector, and always carries the primary-U sidecar.
+    const bool phase=settings_.phase_change!=MacPhaseChange::none, primary=carried || phase;
+    out.u32(phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -129,6 +132,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     }
     if (moments || voids || primary) out.u32(static_cast<std::uint32_t>(settings_.pressure_integration));
     if (voids || primary) out.u32(static_cast<std::uint32_t>(settings_.vacuum));
+    if (phase) out.u32(static_cast<std::uint32_t>(settings_.phase_change));
     if(diffusive) {
         // Discrete flux formulation. Diffusion images were never released; the
         // earlier version-4 diffusion layouts no longer parse and reject.
@@ -169,7 +173,8 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     const auto version=in.u32();
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
     const bool void_version=version==void_format_version;
-    const bool primary_version=version==primary_format_version;
+    const bool phase_version=version==phase_format_version;
+    const bool primary_version=version==primary_format_version || phase_version;
     const bool complete_settings=void_version || primary_version;
     check(version==legacy_format_version || version==viscous_format_version || version==interval_format_version ||
         version==diffusion_format_version || version==production_format_version || moment_version || complete_settings,"Unsupported MAC checkpoint version");
@@ -214,6 +219,10 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
         settings.pressure_integration=static_cast<MacPressureIntegration>(in.u32());
         settings.vacuum=static_cast<MacVacuumRepresentation>(in.u32());
         check(!void_version || settings.vacuum==MacVacuumRepresentation::void_phase,"Noncanonical saved MAC void-phase version");
+    }
+    if (phase_version) {
+        settings.phase_change=static_cast<MacPhaseChange>(in.u32());
+        check(settings.phase_change==MacPhaseChange::saturation,"Noncanonical saved MAC phase-change version");
     }
     if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");
@@ -261,7 +270,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
             check(canonical_mac_primary(cell.mixture.energy,remainder),"Noncanonical saved MAC primary-U remainder");
             nonzero=nonzero || !remainder.is_zero();
         }
-        check(nonzero,"Noncanonical primary-U remainder-disabled checkpoint version");
+        check(nonzero || phase_version,"Noncanonical primary-U remainder-disabled checkpoint version");
     }
     check(in.remaining()==0,"Trailing MAC checkpoint data");
     const bool saved_occupied=!state.occupied_volumes_m3.empty();

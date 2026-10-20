@@ -89,9 +89,9 @@ saves, fresh-process loads and natural autosaves
   kernel runs it. Production free-surface intervals pass their entropy audit
   through the [gravity reconciliation credit](../native/MAC_KERNEL.md#gravity-reconciliation-entropy);
   before it, any moving free surface faulted the production owner. Of the
-  [gravity and multiphase gates](../native/MAC_GATES.md), hydrostatic gas, CO2
-  settling, still water, the dam break and the standing wave pass. Two liquids
-  and phase change are open, and the vacuum front fails.
+  [gravity and multiphase gates](../native/MAC_GATES.md), all eight pass
+  standalone, including two liquids, the Stefan boiling film and the vacuum front.
+  The game does not select sharp interfaces, phase change or the void phase yet.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
 - Whole-world import. The Windows import staged 50,368 fluid cells, then

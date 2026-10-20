@@ -187,6 +187,10 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
     gx.assign(g.NX, 0); gy.assign(g.NY, 0); fxr.assign(g.NX, -1); fyr.assign(g.NY, -1);
     const auto link = [&](int axis, Index l, Index r, double& gg, double& frac) {
         if (l == none || r == none || l == r || !(e.M[l] > 0) || !(e.M[r] > 0)) return;
+        // A shock's numerical heat flux joins cells of one phase class (gas,
+        // liquid or gas/liquid): it never crosses an interface between them
+        // (MAC_HEAT.md, "Phase interfaces").
+        if (e.kind[l] != e.kind[r]) return;
         const double* diffusion = ws.diffusion.data() + static_cast<std::size_t>(axis) * N;
         const double speed = std::max(diffusion[l], diffusion[r]);
         if (speed == 0) return;

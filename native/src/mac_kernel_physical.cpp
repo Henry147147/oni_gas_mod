@@ -5,6 +5,7 @@
 // gas/liquid cells present, Newton relinearizes each against the complete EOS.
 // Viscosity relaxes the reference rank-one stress modes in multicolour order.
 #include "mac_kernel_detail.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
 #include <numeric>
 
 namespace ma::experimental::mac_kernel {
@@ -162,6 +163,116 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             if (l != none && r != none && l != r && occupied(l) && occupied(r)) gy[fidx] = conductance(k[l], k[r], g.h, area);
         }
     });
+    // Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces"): a
+    // boiling cell is held at its saturation temperature, located at its phase
+    // boundary. A neighbour conducts through its own half cell plus the boiling
+    // cell's layer of the neighbour's phase, (phase volume fraction) h deep.
+    const bool sharp = c.sharp_boiling();
+    if (sharp) for (auto* v : {&ws.interface_temperature, &ws.interface_heat, &ws.interface_conductance, &ws.interface_slope}) v->assign(N, 0);
+    if (sharp) ws.interface_pair.assign(N, 0);
+    const bool boiling = sharp && mixed;
+    std::vector<double> kgas, kliquid;
+    if (boiling) {
+        kgas.assign(N, 0); kliquid.assign(N, 0);
+        auto failures = c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t) {
+            int failed = 0;
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (e.kind[i] != mixed_cell) continue;
+                const double gas = e.Vg[i], liquid = g.V - gas;
+                if (!(gas >= mac_interface_phase_fraction * g.V && liquid >= mac_interface_phase_fraction * g.V)) continue;
+                for (std::size_t p = 0; p < c.phase_pairs.size(); ++p) {
+                    const auto& pair = c.phase_pairs[p];
+                    if (!(f.m[pair.liquid * N + i] > 0)) continue;
+                    bool only = true;
+                    for (const auto l : model.liquids) if (l != pair.liquid && f.m[l * N + i] != 0) only = false;
+                    double moles = 0, weighted = 0;
+                    for (const auto s : model.gases) {
+                        const double n = f.m[s * N + i] / model.species[s].molar_mass;
+                        moles += n; weighted += n * model.species[s].conductivity;
+                    }
+                    const double vapour = f.m[pair.vapour * N + i] / model.species[pair.vapour].molar_mass;
+                    if (!only || !(moles > 0) || vapour < mac_interface_vapour_fraction * moles) break;
+                    // The interface touches the gas beside it, and pressure is
+                    // continuous across a flat interface: take the mean pressure
+                    // of mostly-gas neighbours. A nearly full cell's own pressure
+                    // is stiff and would make the interface temperature ring.
+                    double beside = 0; int gases = 0;
+                    const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                    for (const Index n : {g.xl[lf], g.xr[rf], g.yl[bf], g.yr[tf]}) {
+                        if (n == none || n == static_cast<Index>(i)) continue;
+                        if (e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * g.V)) { beside += e.p[n]; ++gases; }
+                    }
+                    const double pressure = gases > 0 ? beside / gases : e.p[i];
+                    try {
+                        ws.interface_temperature[i] = mac_saturation_temperature(*c.thermodynamics, pair.liquid_profile,
+                            pair.vapour_profile, pressure * (vapour / moles), pressure, e.T[i]);
+                    } catch (const std::exception&) { failed = 1; break; }
+                    ws.interface_pair[i] = static_cast<std::uint8_t>(p + 1);
+                    // Clausius-Clapeyron dT_sat/dp at the cell's vapour fraction:
+                    // r T^2 / (L p), the pressure stage's implicit coupling.
+                    const double t = ws.interface_temperature[i], r = experimental::reference_gas_constant / model.species[pair.vapour].molar_mass;
+                    ws.interface_slope[i] = r * t * t / (mac_latent_heat(*c.thermodynamics, pair.liquid_profile, pair.vapour_profile, t, pressure) * pressure);
+                    kgas[i] = weighted / moles; kliquid[i] = model.species[pair.liquid].conductivity;
+                    break;
+                }
+            }
+            return failed;
+        });
+        for (const int failed : failures) if (failed) reject("Production interface saturation temperature did not converge");
+        // Transport can leave a thin film on both sides of a face: a mostly-gas
+        // cell with a liquid film beside a mostly-liquid cell with a gas film.
+        // Across such a face only the cell with the larger minority phase holds
+        // the interface (ties: the lower index); side-by-side cells all hold it.
+        const auto minority = [&](Index i) { return std::min(e.Vg[i], g.V - e.Vg[i]); };
+        const auto across = [&](Index a, Index b) {
+            if (a == none || b == none || a == b || ws.interface_pair[a] == 0 || ws.interface_pair[b] == 0) return false;
+            return (e.Vg[a] >= .5 * g.V) != (e.Vg[b] >= .5 * g.V) &&
+                (minority(b) > minority(a) || (minority(b) == minority(a) && b < a));
+        };
+        // An interface borders the other phase: a mostly-liquid cell holds it
+        // only beside a mostly-gas cell, and the reverse. Trace gas smeared
+        // into a liquid's interior is left to the equilibrium relaxation.
+        const auto gaseous = [&](Index n) { return e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * g.V); };
+        const auto liquid = [&](Index n) { return e.kind[n] == liquid_cell || (e.kind[n] == mixed_cell && e.Vg[n] < .5 * g.V); };
+        std::vector<std::uint8_t> released(N, 0);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (ws.interface_pair[i] == 0) continue;
+                const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                const auto self = static_cast<Index>(i);
+                const bool mostly_gas = e.Vg[i] >= .5 * g.V;
+                bool borders = false;
+                for (const Index n : {g.xl[lf], g.xr[rf], g.yl[bf], g.yr[tf]})
+                    if (n != none && n != self && (mostly_gas ? liquid(n) : gaseous(n))) borders = true;
+                if (!borders || across(self, g.xl[lf]) || across(self, g.xr[rf]) || across(self, g.yl[bf]) || across(self, g.yr[tf])) released[i] = 1;
+            }
+        });
+        for (std::size_t i = 0; i < N; ++i) if (released[i]) ws.interface_pair[i] = 0;
+        const auto layered = [&](std::size_t fidx, Index l, Index r, std::vector<double>& faces) {
+            if (faces[fidx] == 0) return; // also every exterior face
+            const bool pl = ws.interface_pair[l] != 0, pr = ws.interface_pair[r] != 0;
+            if (pl == pr) return;
+            const auto boundary = pl ? l : r, other = pl ? r : l;
+            const bool gas_side = e.kind[other] == gas_cell || (e.kind[other] == mixed_cell && e.Vg[other] >= .5 * g.V);
+            const double depth = g.h * (gas_side ? e.Vg[boundary] / g.V : 1 - e.Vg[boundary] / g.V);
+            const double inner = gas_side ? kgas[boundary] : kliquid[boundary];
+            if (inner == 0 && depth > 0) { faces[fidx] = 0; return; }
+            const long double resistance = static_cast<long double>(.5 * g.h) / k[other] +
+                (depth > 0 ? static_cast<long double>(depth) / inner : 0.L);
+            faces[fidx] = static_cast<double>(static_cast<long double>(area) / resistance);
+        };
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) layered(fidx, g.xl[fidx], g.xr[fidx], gx);
+            for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) layered(fidx, g.yl[fidx], g.yr[fidx], gy);
+        });
+    }
+    const auto pinned = [&](std::size_t i) { return boiling && ws.interface_pair[i] != 0; };
+    // Each held interface's integrated conductance dt sum(G), the heat its
+    // temperature drives per kelvin (local, an upper bound on the graph's).
+    if (boiling) c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (pinned(i))
+            ws.interface_conductance[i] = dt * (gx[g.left_face(i)] + gx[g.right_face(i)] + gy[g.bottom_face(i)] + gy[g.top_face(i)]);
+    });
     ++c.counters.conduction_stages;
     ++acc.physical.conduction_stages;
     for (const auto* conductances : {&gx, &gy})
@@ -174,16 +285,25 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
         for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) sys.wx[fidx] = dt * gx[fidx];
         for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) sys.wy[fidx] = dt * gy[fidx];
     });
+    // Mixed cells (MAC_HEAT.md, "Mixed cells"): U(T) at fixed volume is
+    // nonlinear there. Newton relinearizes each mixed cell at its current
+    // state as C_k (T - start), start = T_k - Q_k / C_k; other cells keep
+    // start = T^n, and a held boiling cell its interface temperature. Each
+    // correction is one graph solve, warm-started.
+    std::vector<double> start;
+    if (mixed) start = e.T;
+    if (boiling) for (std::size_t i = 0; i < N; ++i) if (pinned(i)) start[i] = ws.interface_temperature[i];
+    const auto& base = mixed ? start : e.T;
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-            if (!occupied(i)) continue;
+            if (!occupied(i) || pinned(i)) continue;
             sys.active[i] = 1; sys.diag[i] = e.Ceq[i];
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
             double r = 0;
-            if (sys.wx[lf] != 0) r += sys.wx[lf] * (e.T[g.xl[lf]] - e.T[i]);
-            if (sys.wx[rf] != 0) r += sys.wx[rf] * (e.T[g.xr[rf]] - e.T[i]);
-            if (sys.wy[bf] != 0) r += sys.wy[bf] * (e.T[g.yl[bf]] - e.T[i]);
-            if (sys.wy[tf] != 0) r += sys.wy[tf] * (e.T[g.yr[tf]] - e.T[i]);
+            if (sys.wx[lf] != 0) r += sys.wx[lf] * (base[g.xl[lf]] - base[i]);
+            if (sys.wx[rf] != 0) r += sys.wx[rf] * (base[g.xr[rf]] - base[i]);
+            if (sys.wy[bf] != 0) r += sys.wy[bf] * (base[g.yl[bf]] - base[i]);
+            if (sys.wy[tf] != 0) r += sys.wy[tf] * (base[g.yr[tf]] - base[i]);
             rhs[i] = r;
         }
     });
@@ -192,11 +312,11 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     const auto isothermal = [&] {
         for (const auto& part : c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
             for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) if (sys.wx[fidx] != 0) {
-                const double a = e.T[g.xl[fidx]], b = e.T[g.xr[fidx]];
+                const double a = base[g.xl[fidx]], b = base[g.xr[fidx]];
                 if (std::abs(a - b) > 64 * eps * (a + b)) return 0;
             }
             for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) if (sys.wy[fidx] != 0) {
-                const double a = e.T[g.yl[fidx]], b = e.T[g.yr[fidx]];
+                const double a = base[g.yl[fidx]], b = base[g.yr[fidx]];
                 if (std::abs(a - b) > 64 * eps * (a + b)) return 0;
             }
             return 1;
@@ -210,13 +330,6 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
         acc.physical.conduction_iterations += solved.iterations;
         if (!solved.converged) reject("Production conductive solve did not converge");
     }
-    // Mixed cells (MAC_HEAT.md, "Mixed cells"): U(T) at fixed volume is
-    // nonlinear there. Newton relinearizes each mixed cell at its current
-    // state as C_k (T - start), start = T_k - Q_k / C_k; other cells keep
-    // start = T^n. Each correction is one graph solve, warm-started.
-    std::vector<double> start;
-    if (mixed) start = e.T;
-    const auto& base = mixed ? start : e.T;
     const auto face_heats = [&] {
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
             for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) if (sys.wx[fidx] != 0) {
@@ -250,7 +363,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             for (const auto& o : c.exec.partials<Step>([&](std::size_t y0, std::size_t y1, std::size_t) {
                 Step o;
                 for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-                    if (e.kind[i] != mixed_cell) continue;
+                    if (e.kind[i] != mixed_cell || pinned(i)) continue;
                     const double heat = cell_heat(i), energy = f.U[i] + heat;
                     State state;
                     if (!evaluate_state(model, f, N, i, stats(i), energy, g.V, state) || !(state.Ceq > 0)) { o.outside = true; continue; }
@@ -269,7 +382,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             // Residual of (C_k + L) x = -L start at the current x = dT.
             c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
                 for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-                    if (!occupied(i)) { rhs[i] = 0; continue; }
+                    if (!occupied(i) || pinned(i)) { rhs[i] = 0; continue; }
                     const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
                     const double own = start[i] + dT[i];
                     double r = -sys.diag[i] * dT[i];
@@ -294,6 +407,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (!occupied(i)) continue;
             const double h = cell_heat(i);
+            if (pinned(i)) ws.interface_heat[i] = h;
             if (h == 0) continue;
             const double before = f.U[i], low = f.U_remainder[i];
             if (add_internal_energy(f, i, h, o.energy)) ++o.unresolved;

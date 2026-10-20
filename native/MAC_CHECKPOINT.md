@@ -33,8 +33,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    reference-kernel viscosity is enabled; 4 for the retired interval kernel; 5 with gas
    diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
    pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
-   [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U), and a
-   length-prefixed binary model identity.
+   [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U; 11 for
+   [phase change](MAC_PHASE_CHANGE.md)), and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -56,21 +56,24 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    the diffusion mode and multiplier, the pressure-integration enum and the vacuum
    representation (canonical value 1, void phase), before any enabled diffusion
    formulation and profile. Version 10 stores this complete settings prefix too,
-   retaining the supported pressure and vacuum selectors explicitly.
+   retaining the supported pressure and vacuum selectors explicitly. Version 11 has
+   the version-10 prefix followed by the phase-change enum (unsigned 32-bit,
+   canonical value 1, saturation).
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Versions 9/10: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9–11: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Version 10: the cell count followed by each correction's projected binary64
+9. Versions 10/11: the cell count followed by each correction's projected binary64
    value and boolean full-value flag. A flagged value adds its normalized binary64
    significand and length-prefixed canonical decimal exponent. The full value is
    required exactly when its projection rounds. High/low overlap, scalar negative
-   zero, incomplete coverage and an entirely zero correction vector reject.
+   zero and incomplete coverage reject; so does an entirely zero correction vector
+   in version 10, which version 11 (selected by phase change) admits.
 10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
@@ -85,8 +88,14 @@ current binary has.
 Version **10 carries persistent primary-U corrections**. It stores complete
 physical settings (including pressure and vacuum selectors), the occupied-volume
 sidecar and one canonical correction per cell. Nonzero corrections select this
-version; all-zero corrections keep the previous version and bytes. Other
-checkpoint extensions must use a later free version.
+version; all-zero corrections keep the previous version and bytes.
+
+Version **11 is phase change** (2026-10-20): any owner with `phase_change =
+saturation` writes it, whatever its corrections. Sharp-interface boiling keeps no
+pending state outside U, and the vapour's calibration offset is part of the model
+identity, so the selector is the only new field. `ma_mac_phase_change_tests` restores
+a boiling column mid-run and requires byte-identical continuation. Other checkpoint
+extensions must use a later free version.
 
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without

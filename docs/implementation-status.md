@@ -398,8 +398,9 @@ verification are in [timestep progress](production-timestep-progress.md#prepared
 | --- | --- |
 | [Strong-flow Riemann gate](../native/MAC_STRONG_FLOW.md) | Sod and collision pass with [compressive work](../native/MAC_PRESSURE.md#coupled-compressive-pressure-work-mode-3). **Separation fails** the finest-grid velocity bound and the central density/pressure bounds |
 | [Curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) | Localizes a pressure/remap source-velocity convention mismatch. Opt-in selector 5 passes the interior 1-D oracle with original J/K; general 2-D conversion and strong-flow acceptance remain open |
-| [Gas/vacuum front](../native/GAS_VACUUM.md) | **Fails**. Standalone MAC [empty-cell support](../native/MAC_VACUUM.md) admits conservative gas arrival and complete zero-inventory checkpoints; its front remains wrong without occupied-volume tracking. The in-game domain still rejects empty cells |
-| Shocks, free surfaces, phase interfaces, phase transitions | Not implemented in the owner |
+| [Gas/vacuum front](../native/MAC_VACUUM.md#gate-v-vacuum-front) | Passes with the opt-in [void phase](../native/MAC_VACUUM.md#void-phase), on the reference path only. The in-game domain still rejects empty cells |
+| [Gravity and multiphase gates](../native/MAC_GATES.md) | All eight pass standalone, including two liquids and the Stefan boiling film ([sharp-interface boiling](../native/MAC_PHASE_CHANGE.md#sharp-interfaces), production kernel) |
+| Free surfaces, phase interfaces, phase transitions in game | The game's owner does not select sharp interfaces, phase change or the void phase yet |
 
 Separate references, excluded from game dispatch: the gas-only `GasWorld`
 reference (still behind the public C ABI and `ma_demo`), the

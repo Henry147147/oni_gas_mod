@@ -3,6 +3,7 @@
 // audit and atomic publication through MacClosedWorld.
 #include "mac_kernel_detail.hpp"
 #include "mac_interval_audit.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -82,7 +83,7 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
         s.gas = found->phase == ReferencePhase::ideal_gas; s.molar_mass = found->molar_mass_kg_per_mol; s.cv = found->cv_j_per_kg_k;
         s.offset = found->energy_offset_j_per_kg; s.rho0 = found->zero_pressure_density_kg_per_m3; s.bulk = found->reference_bulk_modulus_pa;
         s.maximum_ratio = found->maximum_density_ratio; s.tmin = found->minimum_temperature_k; s.tmax = found->maximum_temperature_k;
-        s.conductivity = def.conductivity;
+        s.conductivity = def.conductivity; s.entropy_offset = found->entropy_offset_j_per_kg_k;
         (s.gas ? m.gases : m.liquids).push_back(m.species.size());
         m.species.push_back(s);
     }
@@ -222,6 +223,8 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
                 if (!(st.T >= sp.tmin * (1 - 32 * eps) && st.T <= sp.tmax * (1 + 32 * eps)))
                     reject("Production interval endpoint temperature outside its material range");
                 o.s.add(m * sp.cv * std::log(st.T / experimental::entropy_reference_temperature_k));
+                // Constant per mass: it matters only where phase change moves mass.
+                if (sp.entropy_offset != 0) { o.s.add(m * sp.entropy_offset); o.allowance += std::abs(m * sp.entropy_offset); }
                 if (sp.gas) { const double n = m / sp.molar_mass; o.s.add(n * R * (std::log(headspace) - std::log(n))); }
             }
             o.s.add(f.U_remainder[i] / st.T);
@@ -238,15 +241,19 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
         const auto t = Clock::now(); stage(c, f, seconds, acc); slot += since(t);
     };
     auto& tm = c.timing;
+    // Sharp-interface boiling conducts once per substep before the pressure
+    // stage, which converts that heat at each interface. Backward-Euler
+    // conduction is first order either way.
+    const bool boiling = c.sharp_boiling();
     run(stage_viscosity, .5 * dt, tm.viscosity_ms);
-    run(stage_conduction, .5 * dt, tm.conduction_ms);
+    run(stage_conduction, boiling ? dt : .5 * dt, tm.conduction_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     run(stage_compression, .5 * dt, tm.compression_ms);
     { double unused = 0; run(c.settings.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint ?
         stage_pressure_transport_moments : stage_pressure_transport, dt, unused); }
     run(stage_compression, .5 * dt, tm.compression_ms);
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
-    run(stage_conduction, .5 * dt, tm.conduction_ms);
+    if (!boiling) run(stage_conduction, .5 * dt, tm.conduction_ms);
     run(stage_viscosity, .5 * dt, tm.viscosity_ms);
 }
 void merge(Accounts& a, const Accounts& b) {
@@ -260,6 +267,8 @@ void merge(Accounts& a, const Accounts& b) {
     a.mixing_heat += b.mixing_heat; a.wall_heat += b.wall_heat; a.compression_heat += b.compression_heat; a.shock_heat += b.shock_heat;
     a.gravity_entropy.add(b.gravity_entropy); a.gravity_entropy_operands += b.gravity_entropy_operands;
     a.unresolved += b.unresolved;
+    for (std::size_t q = 0; q < a.conversion.size(); ++q) a.conversion[q].add(b.conversion[q]);
+    a.evaporated += b.evaporated; a.condensed += b.condensed; a.interface_conversions += b.interface_conversions;
     a.physical.merge(b.physical); a.energy.merge(b.energy);
 }
 std::string quantity_name(const Context& c, std::size_t q) {
@@ -308,7 +317,10 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.pressure, &ws.sensor0, &ws.sensor1, &ws.closing, &ws.diffusion, &ws.cp, &ws.ceq, &ws.temperature, &ws.heat, &ws.proxy,
         &ws.phase_alpha, &ws.phase_gas, &ws.phase_liquid_energy, &ws.phase_gas_energy, &ws.phase_total, &ws.phase_liquid_fraction,
         &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_total, &ws.gravity_lower, &ws.gravity_mass,
-        &ws.gravity_fraction, &ws.px_energy_remainder, &ws.py_energy_remainder, &ws.retained_energy_remainder}) add(*v);
+        &ws.gravity_fraction, &ws.px_energy_remainder, &ws.py_energy_remainder, &ws.retained_energy_remainder,
+        &ws.interface_temperature, &ws.interface_heat, &ws.interface_conductance, &ws.interface_slope,
+        &ws.interface_latent, &ws.interface_mass, &ws.interface_volume}) add(*v);
+    add(ws.interface_pair);
     add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase); add(ws.phase_liquids); add(ws.phase_heavy); add(ws.gravity_heavy);
     for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->U_remainder); add(f->q); add(f->jx); add(f->jy); }
     return total;
@@ -339,6 +351,18 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     MacKernelReport report;
     report.threads_used = threads_for(g, options);
     Context c{w.ws, source.grid, model, g, settings, options, Exec{g, pool_for(report.threads_used)}, {}, {}};
+    if (settings.phase_change == MacPhaseChange::saturation) {
+        c.thermodynamics = &eos;
+        const auto index = [&](std::size_t registry_index) {
+            for (std::size_t k = 0; k < model.K(); ++k) if (model.species[k].registry == registry_index) return k;
+            return model.K();
+        };
+        for (const auto& pair : mac_saturation_pairs(registry, eos)) {
+            const auto l = index(pair.liquid), v = index(pair.vapour);
+            if (l < model.K() && v < model.K()) c.phase_pairs.push_back({l, v, model.species[l].profile, model.species[v].profile});
+        }
+        require(c.phase_pairs.size() < 255, "Too many production saturation pairs");
+    }
     report.rounded_range_inputs = load(c.exec, model, g, source, w.start);
     for (std::size_t i = 0; i < g.N; ++i) {
         if (g.wall[i]) {
@@ -398,6 +422,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         report.audits.clear();
         for (std::size_t q = 0; q < c.quantities(); ++q) {
             double external = 0;
+            if (q < model.K()) external = acc.conversion[q].value();
             if (q == c.q_jx()) external = acc.wall_x;
             if (q == c.q_jy()) external = acc.wall_y + acc.body_y;
             // Shared interval rule (mac_interval_audit.hpp): residual against
@@ -460,6 +485,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             report.compression_heat_j = acc.compression_heat; report.shock_heat_transfer_j = acc.shock_heat;
             report.wall_impulse_x = acc.wall_x; report.wall_impulse_y = acc.wall_y; report.body_impulse_y = acc.body_y;
             report.unresolved_updates = acc.unresolved;
+            report.interface_conversions = acc.interface_conversions;
+            report.evaporated_kg = acc.evaporated; report.condensed_kg = acc.condensed;
             report.rounded_transfers = 0;
             report.rounded_primary_writes = 0;
             report.rounded_inventory_writes = 0;
@@ -594,6 +621,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     r.interval_kernel_intervals = 1;
     r.primary_energy.merge({k.rounded_energy_writes,k.discarded_energy_remainders});
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
+    r.evaporated_kg += k.evaporated_kg; r.condensed_kg += k.condensed_kg;
+    if (k.interface_conversions > 0) ++r.phase_change_stages;
     for (const auto count : {k.rounded_range_inputs, k.rounded_transfers, k.rounded_primary_writes, k.rounded_inventory_writes, k.rounded_energy_writes, k.discarded_energy_remainders}) {
         if (count > std::numeric_limits<std::size_t>::max() - r.interval_rounded_updates)
             mac_kernel::precision("Production owner rounding counter overflow");
