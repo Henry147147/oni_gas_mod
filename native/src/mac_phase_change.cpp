@@ -120,6 +120,8 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             if (near == -mv) cell.masses[pair.vapour] = 0;
             const auto after = model.evaluate(cell, volume); ++report.eos_evaluations;
             entropy.add(MacEnergy::from_double(after.entropy_j_per_k)); entropy.add(MacEnergy::from_double(-before.entropy_j_per_k));
+            account_mac_cell_entropy_remainder(entropy, result.state.cells[i], after.temperature_k);
+            account_mac_cell_entropy_remainder(entropy, source.cells[i], before.temperature_k, -1);
             allowance.add(MacEnergy::from_double(128 * std::numeric_limits<double>::epsilon() * std::abs(cell.energy) / std::min(before.temperature_k, after.temperature_k)));
             (evaporate ? report.evaporating_cells : report.condensing_cells) += 1;
             (evaporate ? report.evaporated_kg : report.condensed_kg) += std::abs(near);

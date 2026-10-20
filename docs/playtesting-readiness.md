@@ -127,7 +127,9 @@ also pass collision.
   remain open ([component evidence](../native/MAC_NODAL_CONVERSION.md)).
 - Primary-field remainders. [Persistent primary U](../native/MAC_PRIMARY_REMAINDERS.md)
   now carries a normal or flagged-range correction through both kernels, accounts,
-  version-10 checkpoints and owner save framing. The unchanged standalone
+  version-10 checkpoints and owner save framing. Phase conversion observes
+  carried U at its before/after temperatures without changing converted masses
+  or entropy allowance. The unchanged standalone
   production water-heat control passes (+3.81470e-6 J against 0.00594585 J at
   123 frames). Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests;
   ThreadSanitizer, MinGW/Wine and exact cross-platform continuation controls pass.

@@ -19,7 +19,9 @@ writes use `add_internal_energy` and each computational block's `EnergyRounding`
 Pressure (midpoint and both moment methods), reconstruction/transport, gravity,
 compression, shock heat, conduction, viscosity, diffusion and external heat or
 material transfers retain the low part. Rollback and checkpoint continuation
-carry it. Parallel heat relaxation accumulates counts per block before the fixed
+carry it. Phase conversion preserves both U parts and observes the caloric
+correction at each pair's before/after temperatures in its entropy audit.
+Parallel heat relaxation accumulates counts per block before the fixed
 ordered reduction. Legacy non-MAC material closures keep their former arithmetic
 and reject carried U unless explicitly requested.
 
@@ -34,6 +36,16 @@ Reconstructed void prototypes scale their carried U with their material share.
 The reference transport path subtracts and adds one shared energy transfer at
 both endpoints, including when a retained mass fraction rounds to one.
 Conduction gathers one antisymmetric face transfer before storing each endpoint.
+
+`ma_mac_primary_phase_tests` observes signed quarter-ULP U corrections through
+evaporation and condensation, checks unchanged converted masses and entropy
+allowances, and retains a flagged `2^-2001` correction. The original code fails
+the caloric observation. All 72 Release CTests and three affected suites on each
+of ASan/UBSan, ThreadSanitizer and MinGW/Wine pass. The fix changes phase entropy
+reports for carried U; default solver arithmetic and checkpoint bytes stay unchanged.
+All 82 preceding MAC exits and scientific outputs match the parent build (80
+byte-identical stdout captures, two timing-only differences); the U-era wave SHA
+remains `8be435…4c87e`.
 
 ## Carried material-volume component
 
@@ -135,6 +147,7 @@ the remaining current-package game scenes and milestone B remain open.
 build-production/ma_mac_primary_state_tests > U_CAPTURE
 python3 native/tests/review_mac_primary_state.py U_CAPTURE
 build-production/ma_mac_primary_water_heat_tests
+build-production/ma_mac_primary_phase_tests
 build-production/ma_mac_primary_volume_tests > V_CAPTURE
 python3 native/tests/review_mac_primary_volume.py V_CAPTURE
 ```

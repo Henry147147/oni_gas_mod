@@ -20,7 +20,9 @@ deferred full-frame audits and disconnected/hydrostatic equilibrium controls.
 The next slice retains full-range vertical gravity work and potential flux, with
 10,000-step and checkpoint controls. [Persistent primary U](../native/MAC_PRIMARY_REMAINDERS.md)
 now retains a normal or flagged-range rounding correction across every MAC stage,
-energy accounts and physical version-10 checkpoints. The zero-correction writers
+energy accounts and physical version-10 checkpoints. Phase conversion also
+observes carried U at its changed temperature, retaining the original entropy
+allowance and converted masses. The zero-correction writers
 for versions 2/3/5/6/7/8/9 keep their bytes. The unchanged standalone production
 water-heat control passes (+3.81470e-6 J against 0.00594585 J after 123 frames).
 Release, ASan/UBSan and Ubuntu 22.04 each pass 69 CTests. ThreadSanitizer,
