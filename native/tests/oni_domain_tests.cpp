@@ -404,6 +404,15 @@ void vacuum_subcell_domain() {
     };
     for (std::uint64_t frame=1;frame<=11;++frame) step(frame);
     require(std::memcmp(cells.data(),rest.data(),cells.size()*sizeof(MAOniDomainCell))==0,"Opted-in water/vacuum did not stay at rest");
+    std::vector<double> volumes(35,-1);MAOniDomainStatus volume_status{};
+    copy_domain_occupied_volumes(volume_status,volumes.data(),35);
+    require(volume_status.session==status.session && volume_status.completed_frames==11,"Native volumes lost their frame stamp");
+    for (std::size_t i=0;i<volumes.size();++i)
+        require(volumes[i]==(!mask[i] && i<7 ? .5 : 0),"Resting water/vacuum geometry changed in publication");
+    auto short_output=volumes;const auto held_status=volume_status;bool short_rejected=false;
+    try { copy_domain_occupied_volumes(volume_status,short_output.data(),34); } catch(const std::length_error&) { short_rejected=true; }
+    require(short_rejected && short_output==volumes && std::memcmp(&volume_status,&held_status,sizeof(volume_status))==0,
+        "Short volume output changed a caller's completed frame");
     MAOniDomainSubcellStatus account{};copy_domain_subcell_status(account);
     require(account.policy==1 && account.session==status.session && account.completed_frame==11 &&
         account.events==0 && account.entropy_increase_j_per_k==0,"Rest created unresolved gas events");
@@ -422,6 +431,16 @@ void vacuum_subcell_domain() {
         "Subcell owner vent failed the existing domain conservation limits");
     const auto events=account.events;const auto entropy=account.entropy_increase_j_per_k;
     const auto mass_error=status.maximum_relative_mass_error,energy_error=status.maximum_relative_energy_error;
+    copy_domain_occupied_volumes(volume_status,volumes.data(),35);
+    require(volume_status.completed_frames==151,"Evolving volume publication is stale");
+    for (std::size_t i=0;i<volumes.size();++i) {
+        require(std::isfinite(volumes[i]) && volumes[i]>=0 && volumes[i]<=1,"Published material volume is invalid");
+        if (!mask[i] && cells[i].masses[1]>0 && volumes[i]>cells[i].liquid_fraction) {
+            const auto headspace=volumes[i]-cells[i].liquid_fraction;
+            require(std::abs(headspace+cells[i].liquid_fraction+(1-volumes[i])-1)<=128*std::numeric_limits<double>::epsilon(),
+                "Native material geometry lost volume closure");
+        }
+    }
     const auto saved=snapshot_domain(status.session,151);const auto time=status.time_seconds;
     validate_configured_domain_checkpoint(config,physics,mask,saved,time);
     auto exact=physics;exact.flags&=~MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS;bool rejected=false;
@@ -432,6 +451,8 @@ void vacuum_subcell_domain() {
     copy_domain_subcell_status(account);
     require(account.policy==1 && account.events==0 && account.entropy_increase_j_per_k==0 &&
         snapshot_domain(status.session,0)==saved,"Restored subcell owner changed state or retained another activation's diagnostics");
+    std::vector<double> restored_volumes(35);copy_domain_occupied_volumes(volume_status,restored_volumes.data(),35);
+    require(restored_volumes==volumes,"Restoring changed published material geometry");
     step(1);require(snapshot_domain(status.session,1)==expected,"Subcell game owner lost exact checkpoint continuation");
     std::cout<<std::setprecision(17)<<"VACUUM_SUBCELL rest_frames=11 vent_frames=140 events="<<events<<" entropy="<<entropy
         <<" mass_error="<<mass_error<<" energy_error="<<energy_error<<" exact_restore=1\n";

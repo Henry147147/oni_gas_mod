@@ -183,7 +183,9 @@ namespace MixedAtmospheres.Oni
                 Require(nativeSolidsAdvanced, "Native solid-only heat conduction stopped during custom fluid ownership.");
                 Require(nativeSnapshotVerified && nativeCellsUnchanged && retainedFrameVerified && nativeFlowControlObserved && projectionPrimed,
                     "Native compatibility cells or retained completed frame changed unexpectedly.");
-                Require(latest.SuppressedPostProcess > 0 && latest.SuppressedTemperature > 0 && nativeFlowFenceVerified,
+                var nativePhaseCallsVerified = ConfiguredVacuumMode ? latest.SuppressedLiquid > 0 && latest.SuppressedTransition > 0 :
+                    latest.SuppressedTemperature > 0;
+                Require(latest.SuppressedPostProcess > 0 && nativePhaseCallsVerified && nativeFlowFenceVerified,
                     "Native fluid phases were not demonstrably excluded from the bounded domain.");
                 Require(latest.MaximumRelativeMassError <= 1e-8 && latest.MaximumRelativeEnergyError <= 1e-6,
                     "Custom fluid conservation exceeded its fixed bounds.");
@@ -382,6 +384,9 @@ namespace MixedAtmospheres.Oni
         }
         private static bool BoundaryReady(bool requireFluidIdentity = true)
         {
+            // Capture() can read a native frame ahead of the game. A moving
+            // vacuum front changes element identity, so check the owned snapshot
+            // delivered to Grid rather than that newer physical copy.
             for (var dy = -1; dy <= Height; ++dy) for (var dx = -1; dx <= Width; ++dx)
             {
                 var index = Grid.XYToCell(x + dx, y + dy); var wall = dx == -1 || dx == Width || dy == -1 || dy == Height;
@@ -389,10 +394,23 @@ namespace MixedAtmospheres.Oni
                 if (Grid.Solid[index] != solid || (solid && Grid.Element[index].id != (IsSolidHeatBoundary(dx,dy) ? SimHashes.Granite : SimHashes.Unobtanium)) ||
                     (solid && ConfiguredMode && !InsulatingStaticSolid(index)) ||
                     (!solid && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id !=
-                        (ConfiguredVacuumMode && (vacuumFixtureQueued || RestoredConfigured) ? active && projectionPrimed ? PublishedElementAt(dx + dy * Width) : CompatibilityElementAt(dx + dy * Width) : Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
+                        (ConfiguredVacuumMode && (vacuumFixtureQueued || RestoredConfigured) ? active && projectionPrimed ?
+                            ElementLoader.elements[currentSnapshot!.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx))[index]].id :
+                            CompatibilityElementAt(dx + dy * Width) : Liquid ? SimHashes.Water : SimHashes.Oxygen)))
+                {
+                    if (active) throw new InvalidOperationException($"Native domain boundary mismatch at {index} ({dx},{dy}): " +
+                        $"solid={Grid.Solid[index]}/{solid}, element={Grid.Element[index].id}, " +
+                        $"publication={(currentSnapshot != null ? ElementLoader.elements[currentSnapshot.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx))[index]].id.ToString() : "none")}, " +
+                        $"nativeFrame={latest.CompletedFrames}, publishedFrame={renderedRevision}.");
+                    return false;
+                }
                 if (!wall)
                 {
-                    if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
+                    if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0)
+                    {
+                        if (active) throw new InvalidOperationException($"Native domain metadata changed at {index}: disease={Grid.DiseaseCount[index]}, radiation={Grid.Radiation[index]}.");
+                        return false;
+                    }
                     for (var layer = 0; layer < (int)ObjectLayer.NumLayers; ++layer)
                     {
                         var occupant = Grid.Objects[index, layer];
@@ -510,6 +528,10 @@ namespace MixedAtmospheres.Oni
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
             if (ConfiguredVacuumMode)
             {
+                if (occupiedVolumes.Length != values.Length) occupiedVolumes = new double[values.Length];
+                var volumeStatus = Status.Empty; Check(CopyOccupiedVolumes(ref volumeStatus, occupiedVolumes, (uint)occupiedVolumes.Length));
+                Require(volumeStatus.State == next.State && volumeStatus.Session == next.Session && volumeStatus.CompletedFrames == next.CompletedFrames,
+                    "Material volume geometry differs from its completed physical frame.");
                 var subcell = SubcellStatus.Empty; Check(CopySubcellStatus(ref subcell));
                 var expectedPolicy = (ConfiguredPhysics.Flags & PhysicsUnresolvedGas) != 0 ? 1U : 0U;
                 Require(subcell.Size == 48 && subcell.Version == 1 && subcell.State == latest.State &&
@@ -567,7 +589,7 @@ namespace MixedAtmospheres.Oni
                     // An interior solid is native data: it keeps its unchanged
                     // native tuple above and publishes no physical reading.
                     if (IsDomainSolid(index)) { Require(ConfiguredDomainLayout.IsZero(cell), "A configured solid published fluid state."); continue; }
-                    readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global, ConfiguredVacuumMode));
+                    readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global, ConfiguredVacuumMode, ConfiguredVacuumMode ? occupiedVolumes[index] : (double?)null));
                 }
                 // Capture first and prove every native channel was copied. Only
                 // the owned copy is subsequently overlaid with custom readings.
@@ -580,18 +602,25 @@ namespace MixedAtmospheres.Oni
                 var temperatures = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.temperature));
                 var elements = copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx));
                 var properties = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.properties));
+                var identityChanges = new List<Sim.SubstanceChangeInfo>();
                 for (var index = 0; index < cells.Length; ++index)
                 {
                     if (IsDomainSolid(index)) continue;
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     masses[global] = checked((float)cells[index].TotalMass); temperatures[global] = checked((float)cells[index].Temperature);
                     elements[global] = (ushort)ElementLoader.FindElementByHash(PublishedElementAt(index)).idx;
+                    // ONI updates its cached Grid.Element through this event,
+                    // separately from the elementIdx pointer. Native compatibility
+                    // cells remain fixed while the physical vacuum front moves.
+                    if (ConfiguredVacuumMode && Grid.Element[global].idx != elements[global])
+                        identityChanges.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = elements[global] });
                     // These two flags fence the original native simulator. In
                     // the game-facing copy they would falsely describe fluid
                     // as a blocked tile and suppress ONI's liquid rendering.
                     // Keep every other flag and every original native byte.
                     properties[global] = (byte)(properties[global] & ~NativeFlowMask);
                 }
+                copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, identityChanges.ToArray());
                 var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
                 var through = deliveredReceipt;
                 foreach (var receipt in completedReceipts)

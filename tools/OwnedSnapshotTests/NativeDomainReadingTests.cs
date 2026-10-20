@@ -45,17 +45,32 @@ internal static class NativeDomainReadingTests
         });
         test("native void readings retain exact vacuum, partial liquid and resolved gas occupancy",()=> {
             var empty=new OniNativeDomain.Cell();
-            var reading=NativeDomainReading.Create(empty,Catalog(),1,1,true);
+            var reading=NativeDomainReading.Create(empty,Catalog(),1,1,true,0);
             check(reading.TotalMassKg==0 && reading.TemperatureKelvin==0 && reading.VacuumVolumeCubicMetres==1);
             var water=new OniNativeDomain.Cell {Water=500,LiquidFraction=.5,Temperature=300};
-            reading=NativeDomainReading.Create(water,Catalog(),1,1,true);
+            reading=NativeDomainReading.Create(water,Catalog(),1,1,true,.5);
             check(reading.LiquidVolumeCubicMetres==.5 && reading.VacuumVolumeCubicMetres==.5 && reading.MechanicalPressurePa==0);
             var gas=new OniNativeDomain.Cell {Oxygen=.032,Pressure=FluidMaterialCatalog.GasConstantJoulesPerMolKelvin*300/.25,Temperature=300};
-            reading=NativeDomainReading.Create(gas,Catalog(),1,1,true);
+            reading=NativeDomainReading.Create(gas,Catalog(),1,1,true,.25);
             check(Math.Abs(reading.GasVolumeCubicMetres-.25)<1e-14 && Math.Abs(reading.VacuumVolumeCubicMetres-.75)<1e-14);
             reject(()=>NativeDomainReading.Create(gas,Catalog(),1,1));
-            water.Pressure=100;reject(()=>NativeDomainReading.Create(water,Catalog(),1,1,true));
-            empty.InternalEnergy=1;reject(()=>NativeDomainReading.Create(empty,Catalog(),1,1,true));
+            water.Pressure=100;reject(()=>NativeDomainReading.Create(water,Catalog(),1,1,true,.5));
+            empty.InternalEnergy=1;reject(()=>NativeDomainReading.Create(empty,Catalog(),1,1,true,0));
+        });
+        test("void reading uses native geometry instead of rounded pressure and retains sub-ulp gas headspace",()=> {
+            var cell=Mixed();cell.Pressure*=1-6e-14;
+            var reading=NativeDomainReading.Create(cell,Catalog(),1,1,true,1);
+            check(reading.GasVolumeCubicMetres+reading.LiquidVolumeCubicMetres==1 && reading.VacuumVolumeCubicMetres==0);
+            var trace=new OniNativeDomain.Cell {Water=1000,LiquidFraction=1,Oxygen=1e-20,Temperature=300,Pressure=100000};
+            reading=NativeDomainReading.Create(trace,Catalog(),1,1,true,1);
+            check(reading.GasVolumeCubicMetres>0 && reading.Constituents.Single(c=>c.MaterialId=="oxygen").PartialVolumeCubicMetres>0);
+            trace.Water=500;trace.LiquidFraction=.5;trace.Oxygen=.032;trace.Pressure=FluidMaterialCatalog.GasConstantJoulesPerMolKelvin*300/1e-10;
+            var occupied=.5+1e-10;reading=NativeDomainReading.Create(trace,Catalog(),1,1,true,occupied);
+            check(reading.GasVolumeCubicMetres>0 && reading.GasVolumeCubicMetres!=occupied-.5 &&
+                Math.Abs(reading.VolumeClosureResidualCubicMetres)<=128*2.2204460492503131e-16);
+            foreach(var volume in new[]{double.NaN,double.PositiveInfinity,-1,1.01,0})
+                reject(()=>NativeDomainReading.Create(cell,Catalog(),1,1,true,volume));
+            reject(()=>NativeDomainReading.Create(cell,Catalog(),1,1,true));
         });
         test("native reading rejects nominal-density liquid volume and contradictory or nonfinite phase facts",()=> {
             var cell=Mixed();cell.LiquidFraction=cell.Water/1000;

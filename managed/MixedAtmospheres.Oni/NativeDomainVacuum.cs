@@ -11,8 +11,10 @@ namespace MixedAtmospheres.Oni
         private static bool vacuumFixtureQueued, vacuumRestVerified, vacuumVentSubmitted, vacuumFrontObserved;
         private static ulong vacuumRestFrames, vacuumVentFrame;
         private static bool vacuumFrontCaptured;
+        private static int vacuumFrontRenderFrame = -1;
         private static Cell[] vacuumRestState = Array.Empty<Cell>();
         private static SubcellStatus subcellStatus;
+        private static double[] occupiedVolumes = Array.Empty<double>();
         private static float CompatibilityMassAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? 500 : 0 : ProjectionMass(index % Width);
         private static float CompatibilityTemperatureAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? 300 : 0 : ProjectionTemperature(index % Width);
         private static SimHashes CompatibilityElementAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? SimHashes.Water : SimHashes.Vacuum : Liquid ? SimHashes.Water : SimHashes.Oxygen;
@@ -23,7 +25,7 @@ namespace MixedAtmospheres.Oni
         {
             vacuumFixtureQueued = vacuumRestVerified = vacuumVentSubmitted = vacuumFrontObserved = vacuumFrontCaptured = false;
             vacuumRestFrames = vacuumVentFrame = 0; vacuumRestState = Array.Empty<Cell>();
-            subcellStatus = default;
+            subcellStatus = default; vacuumFrontRenderFrame = -1; occupiedVolumes = Array.Empty<double>();
         }
         private static void QueueVacuumFixture()
         {
@@ -49,8 +51,12 @@ namespace MixedAtmospheres.Oni
                     .03125F, 300, 255, 0, -1);
                 vacuumVentSubmitted = true;
             }
-            if (vacuumVentSubmitted && !vacuumFrontCaptured && latest.CompletedFrames > vacuumVentFrame)
-            { vacuumFrontCaptured = true; ColonyRuntimeValidation.CaptureScreenshot("vacuum-front.png"); }
+            if (vacuumVentSubmitted && !vacuumFrontCaptured && renderedRevision > vacuumVentFrame)
+            {
+                if (vacuumFrontRenderFrame < 0) vacuumFrontRenderFrame = UnityEngine.Time.frameCount;
+                if (UnityEngine.Time.frameCount - vacuumFrontRenderFrame >= 3)
+                { vacuumFrontCaptured = true; ColonyRuntimeValidation.CaptureScreenshot("vacuum-front.png"); }
+            }
             vacuumFrontObserved |= ConfiguredRoom.FluidIndices.Any(index => index / Width > 0 &&
                 index != 2 * Width && cells[index].Oxygen > 0);
         }

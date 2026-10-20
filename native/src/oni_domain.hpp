@@ -32,6 +32,7 @@ void shutdown_domain() noexcept;
 void advance_domain(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;
 bool suppress_domain_cell(std::uint32_t hook, int cell) noexcept;
 void copy_domain(MAOniDomainStatus&, MAOniDomainCell*, std::uint32_t capacity);
+void copy_domain_occupied_volumes(MAOniDomainStatus&,double*,std::uint32_t capacity);
 bool domain_active() noexcept;
 MAOniDomainSpecies domain_species(std::uint32_t index);
 void queue_domain_heat(const MAOniDomainHeat*, std::uint32_t count, MAOniDomainHeatStatus&);

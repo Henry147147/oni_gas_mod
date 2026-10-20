@@ -1314,6 +1314,18 @@ void copy_domain(MAOniDomainStatus& output,MAOniDomainCell* cells,std::uint32_t 
     if (cells) std::copy(publication.begin(),publication.end(),cells);
     output=next;
 }
+void copy_domain_occupied_volumes(MAOniDomainStatus& output,double* volumes,std::uint32_t capacity) {
+    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
+    if (!volumes) throw std::invalid_argument("Native material volume output is null");
+    if (capacity<publication.size()) throw std::length_error("Native material volume capacity is insufficient");
+    const auto next=frame_status();
+    if (world) {
+        const auto& state=world->state();
+        for (std::size_t i=0;i<state.cells.size();++i)
+            volumes[i]=state.grid.walls[i] || !(state.cells[i].mixture.mass()>0) ? 0 : mac_material_volume(state,i);
+    }
+    output=next;
+}
 void copy_domain_receipts(MAOniDomainStatus& output,MAOniDomainCell* cells,std::uint32_t capacity,
     MAOniDomainReceipt* result,std::uint32_t receipt_capacity,std::uint32_t& count) {
     std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex);

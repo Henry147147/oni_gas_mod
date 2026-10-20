@@ -176,6 +176,7 @@ namespace MixedAtmospheres.Oni
             internal static SubcellStatus Empty => new SubcellStatus { Size = 48, Version = 1 };
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_subcell_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopySubcellStatus(ref SubcellStatus status);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_copy_occupied_volumes", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyOccupiedVolumes(ref Status status, [Out] double[] volumes, uint capacity);
         [StructLayout(LayoutKind.Sequential)]
         internal struct ViscosityStatus
         {

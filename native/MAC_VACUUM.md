@@ -389,7 +389,7 @@ The current-default 256-cell wave checkpoint retains SHA-256
 vacuum above it, checks ten resting frames and sends a real game vent packet.
 Managed readings retain void volume. New scenes use flags 105 and version 12;
 old flags-41 scenes keep exact geometry and versions 9/10. Phase change stays
-off. The 205 managed controls pass.
+off. The 207 managed controls pass.
 
 The first exact-geometry Linux and Proton runs passed activation and ten
 resting frames, then exhausted the pressure attempt budget on the first vent
@@ -399,6 +399,13 @@ The unchanged 7×5 native owner control completes eleven resting frames and
 maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact continuation.
 The completed-frame `ma_oni_domain_subcell_status` accounts reset on activation
 and restore; they do not alter saved physical state.
+`ma_oni_domain_copy_occupied_volumes` separately copies actual material geometry
+with its completed-frame stamp. The renderer uses it for resolved headspace and
+void, retaining pressure-derived trace volume when liquid subtraction loses
+relative accuracy. The existing EOS consistency and 128-epsilon closure checks
+stay fixed; the evolving native fixture's 31 readings close within 5.55e-17 m³.
+Fluid identity changes also publish substance-change events to ONI's cached
+`Grid.Element`; native compatibility tuples remain unchanged.
 
 Updated Linux game validation remains open. Private captures are under
 `artifacts/vacuum-game-v1/`. The user deferred further Proton/Wine/Windows

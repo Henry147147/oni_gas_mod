@@ -303,7 +303,7 @@ subcell policy with the wrapper. Phase change stays off; its version 11 remains
 rejected by this game adapter. Restore verifies the exact pool/vacuum
 compatibility tuples and loaded solid mask. Configured import and actor classification use the admitted mixture/liquid
 flags, so the vacuum scene admits both water and gas. Engine-free controls
-pass 205 OwnedSnapshotTests. Point transfers also enforce native phase admission
+pass 207 OwnedSnapshotTests. Point transfers also enforce native phase admission
 on empty cells; invalid single requests and batches leave the owner unchanged.
 The first exact-geometry Linux and Proton runs passed activation/rest but
 exhausted the pressure attempt budget on the first vent interval. The new
@@ -312,8 +312,21 @@ eleven resting frames, 140 vent frames, three closure events, entropy increase
 2.59e-17 J/K, maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact
 snapshot restore/continuation. The 48-byte `ma_oni_domain_subcell_status` reports
 completed-frame accounts since activation; restore resets those diagnostics.
-The harness checks their policy, frame and entropy. Updated Linux game runs
-remain open. Proton/Wine/Windows validation is deferred by the user's
+The harness checks their policy, frame and entropy. The additive
+`ma_oni_domain_copy_occupied_volumes` copies actual material volumes with the
+same completed-frame stamp; solids and vacuum report zero. Rendering derives
+resolved gas headspace and void from that geometry, retaining the EOS gas
+volume when liquid subtraction cannot resolve a trace. Geometry must still
+satisfy the existing ideal-gas consistency check; no bound changes. The native
+151-frame fixture's 31 fluid readings close volume within 5.55e-17 m³.
+
+The owned game snapshot also appends substance-change events for changed
+fluid identities: ONI's cached `Grid.Element` needs them separately from its
+`elementIdx` array. The room guard compares the delivered publication; the
+front capture waits three render frames after publication. Vacuum compatibility
+cells exercise blocked liquid, transition and post-processing calls; existing
+scenes keep their native temperature-call requirement. Updated complete Linux
+game validation remains open. Proton/Wine/Windows validation is deferred by the user's
 2026-10-20 decision; previous runs do not certify this revision.
 
 The read-only base-game whole-world retry stages 19,614 fluid cells in a

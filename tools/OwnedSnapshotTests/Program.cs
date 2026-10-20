@@ -71,6 +71,25 @@ internal static unsafe class Program
                 .SequenceEqual(new ReadOnlySpan<byte>(copy.Pointer->massConsumedCallbacks, originalCount * sizeof(Sim.MassConsumedCallback))));
             Reject(() => { _ = retained!.Masses.Length; });
         });
+        Test("physical identity projection owns its cache-update events and retains the native source", () =>
+        {
+            using var source = new NativeFixture();
+            using var retained = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            using var copy = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            var original = source.Pointer->elementIdx[1]; var count = source.Pointer->numSubstanceChangeInfo;
+            var next = (ushort)(original ^ 1);
+            copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx))[1] = next;
+            copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo,
+                new[] { new Sim.SubstanceChangeInfo { cellIdx = 1, newElemIdx = next } });
+            Check(copy.Pointer->elementIdx[1] == next && copy.Pointer->numSubstanceChangeInfo == count + 1 &&
+                copy.Pointer->substanceChangeInfo[count].cellIdx == 1 && copy.Pointer->substanceChangeInfo[count].newElemIdx == next);
+            Check(new ReadOnlySpan<byte>(source.Pointer->substanceChangeInfo, count * sizeof(Sim.SubstanceChangeInfo)).SequenceEqual(
+                new ReadOnlySpan<byte>(copy.Pointer->substanceChangeInfo, count * sizeof(Sim.SubstanceChangeInfo))));
+            Check(source.Pointer->elementIdx[1] == original && retained.Pointer->elementIdx[1] == original &&
+                source.Pointer->numSubstanceChangeInfo == count && retained.Pointer->numSubstanceChangeInfo == count);
+            copy.ClearEventsForFault();
+            Check(copy.Pointer->elementIdx[1] == next && copy.Pointer->numSubstanceChangeInfo == 0);
+        });
         Test("fault freeze retains physical buffers and status tables without replaying callbacks", () =>
         {
             using var source = new NativeFixture();

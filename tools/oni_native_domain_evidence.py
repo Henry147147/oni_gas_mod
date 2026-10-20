@@ -948,7 +948,8 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
     values = ("TimeSeconds", "LastTimestepSeconds", "InitialOxygenKg", "CurrentOxygenKg", "PressurePa", "LiquidMassKg")
     if any(type(physical.get(key)) not in (int, float) or not math.isfinite(physical[key]) for key in values):
         return False
-    phases = ("SuppressedPostProcess", "SuppressedTemperature")
+    # Vacuum/liquid compatibility cells need not enter native temperature work.
+    phases = ("SuppressedPostProcess", "SuppressedLiquid", "SuppressedTransition") if vacuum else ("SuppressedPostProcess", "SuppressedTemperature")
     if any(type(physical.get(key)) is not int or physical[key] <= 0 for key in phases):
         return False
     if (type(report.get("RenderedRevision")) is not int or not 0 < report["RenderedRevision"] <= physical["CompletedFrames"]

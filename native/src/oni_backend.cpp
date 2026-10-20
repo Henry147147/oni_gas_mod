@@ -1004,6 +1004,14 @@ std::uint32_t ma_oni_domain_gravity_abi_version() { return 1; }
 std::uint32_t ma_oni_domain_viscosity_abi_version() { return 1; }
 std::uint32_t ma_oni_domain_radial_consumption_abi_version() { return 1; }
 std::uint32_t ma_oni_domain_rectangular_consumption_abi_version() { return 1; }
+MAOniResult ma_oni_domain_copy_occupied_volumes(MAOniDomainStatus* output,double* volumes,std::uint32_t capacity) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_DOMAIN_ABI_VERSION || !volumes)
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native material volume output ABI");
+        try { ma::oni::copy_domain_occupied_volumes(*output,volumes,capacity); }
+        catch (const std::length_error& error) { throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what()); }
+    });
+}
 MAOniResult ma_oni_domain_subcell_status(MAOniDomainSubcellStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)

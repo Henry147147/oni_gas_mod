@@ -125,6 +125,9 @@ typedef struct MAOniDomainSubcellStatus {
     double entropy_increase_j_per_k;
 } MAOniDomainSubcellStatus;
 MA_ONI_API MAOniResult ma_oni_domain_subcell_status(MAOniDomainSubcellStatus*);
+/* Actual material volumes of this completed frame, row-major; solids and vacuum
+ * are zero. This reader does not reconstruct geometry from rounded pressure. */
+MA_ONI_API MAOniResult ma_oni_domain_copy_occupied_volumes(MAOniDomainStatus*, double*, uint32_t capacity);
 MA_ONI_API uint32_t ma_oni_domain_configured_abi_version(void);
 /* Complete validation precedes activation; the caller retains every input. */
 MA_ONI_API MAOniResult ma_oni_domain_start_configured(const MAOniDomainConfig*, const MAOniDomainPhysics*,

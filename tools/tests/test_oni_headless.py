@@ -138,6 +138,18 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         changed=copy.deepcopy(report);changed['Vacuum'].pop('SubcellAccountsSinceActivation');self.assertFalse(accepted(changed))
         self.assertFalse(accepted(self.configured_vacuum_report(exact=True)))
 
+    def test_vacuum_requires_its_actual_blocked_phases_and_keeps_legacy_temperature_checks(self):
+        report=self.configured_vacuum_report()
+        report['NativeDomain'].update(SuppressedTemperature=0,SuppressedLiquid=100,SuppressedTransition=100)
+        accepted=lambda r:runner.native_domain_passed(r,self.observation,30,configured=True,vacuum=True)
+        self.assertTrue(accepted(report))
+        for field in ('SuppressedPostProcess','SuppressedLiquid','SuppressedTransition'):
+            for value in (0,True,-1):
+                changed=copy.deepcopy(report);changed['NativeDomain'][field]=value
+                self.assertFalse(accepted(changed),(field,value))
+        legacy=self.configured_report();legacy['NativeDomain']['SuppressedTemperature']=0
+        self.assertFalse(runner.native_domain_passed(legacy,self.observation,30,configured=True))
+
     def test_restored_vacuum_evidence_keeps_the_saved_policy_and_resets_activation_accounts(self):
         for exact in (False,True):
             report=self.configured_vacuum_report(restored=True,exact=exact)
