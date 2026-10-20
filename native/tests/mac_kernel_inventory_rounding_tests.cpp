@@ -30,7 +30,13 @@ void controlled_gather() {
             const auto left = (x == 0 ? 3 : x - 1) + y * 4, bottom = x + (y == 0 ? 1 : 0) * 4;
             const double original = value(state.cells[i]);
             std::cout << "GINIT " << name << ' ' << i << ' ' << original << '\n';
-            double v = original; v -= original * dt; v -= original * (dt * .5);
+            double v = original;
+            for (const double outgoing : {original * dt, original * (dt * .5)}) {
+                const double before = v; v -= outgoing;
+                MacEnergySum difference; difference.add(before); difference.add(-outgoing); difference.add(-v);
+                const bool inexact = difference.sign() != 0; expected[name] += inexact ? 1U : 0U;
+                std::cout << "GADD " << id++ << ' ' << name << ' ' << before << ' ' << -outgoing << ' ' << v << ' ' << inexact << '\n';
+            }
             for (const double incoming : {value(state.cells[left]) * dt, value(state.cells[bottom]) * (dt * .5)}) {
                 const double before = v; v += incoming;
                 MacEnergySum difference; difference.add(before); difference.add(incoming); difference.add(-v);
@@ -48,7 +54,7 @@ void controlled_gather() {
     std::size_t total = 0;
     for (const auto& audit : report.audits) {
         check(audit.passed && audit.rounding_allowance <= audit.bound, "Gather charge exceeded the unchanged interval budget");
-        check(audit.rounded_inventory_writes == expected[audit.quantity], "Gather did not count its inexact inventory additions");
+        check(audit.rounded_inventory_writes == expected[audit.quantity], "Transport did not count its retained and incoming inventory writes");
         total += audit.rounded_inventory_writes;
         std::cout << "GQUANTITY " << audit.quantity << ' ' << audit.rounded_inventory_writes << ' ' << audit.rounding_allowance << ' '
             << audit.bound << ' ' << audit.stage_operand_magnitude << ' ' << audit.below_range_allowance << '\n';

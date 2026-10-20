@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review saved gather operands without launching native code."""
+"""Review saved retained/gather operands without launching native code."""
 import copy
 from fractions import Fraction as F
 import hashlib
@@ -69,21 +69,28 @@ def review(data):
     positions = dict.fromkeys(names, 0)
     previous = {}
     dt = F(1, 1024)
+    check(len(data['adds']) in (80, 160), "Missing/extra storage writes")
+    per_cell = len(data['adds']) // 40  # Historical gathers have two; full transport has four.
     for expected_id, (identity, name, before, amount, stored, flag) in enumerate(data['adds']):
         check(identity == expected_id and name in names, "Addition ordering/identity")
-        check(min(before, amount, stored) >= 0, "Negative inventory operand")
-        cell, side = divmod(positions[name], 2)
-        check(cell < 8, "Extra cell additions")
+        check(min(before, stored) >= 0, "Negative stored inventory")
+        cell, side = divmod(positions[name], per_cell)
+        check(cell < 8, "Extra cell storage writes")
         x, y = cell % 4, cell // 4
         initial = data['initial'][name, cell]
-        if side == 0:
-            kept = F(float(initial - F(float(initial * dt))))
-            expected_before = F(float(kept - F(float(initial * dt / 2))))
-            neighbor, share = (3 if x == 0 else x - 1) + 4 * y, dt
+        if per_cell == 4 and side < 2:
+            expected_before = initial if side == 0 else previous[name]
+            expected_amount = -F(float(initial * (dt if side == 0 else dt / 2)))
         else:
-            expected_before = previous[name]
-            neighbor, share = x + (4 if y == 0 else 0), dt / 2
-        expected_amount = F(float(data['initial'][name, neighbor] * share))
+            incoming = side - (2 if per_cell == 4 else 0)
+            if incoming == 0:
+                kept = F(float(initial - F(float(initial * dt))))
+                expected_before = previous[name] if per_cell == 4 else F(float(kept - F(float(initial * dt / 2))))
+                neighbor, share = (3 if x == 0 else x - 1) + 4 * y, dt
+            else:
+                expected_before = previous[name]
+                neighbor, share = x + (4 if y == 0 else 0), dt / 2
+            expected_amount = F(float(data['initial'][name, neighbor] * share))
         check(before == expected_before and amount == expected_amount, "Gather differs from the shared donor-cell geometry")
         exact = before + amount
         check(F(float(exact)) == stored, "Addition is not nearest-even binary64")
@@ -95,11 +102,11 @@ def review(data):
             counts[name] += 1
             errors[name] += error
             halves[name] += half
-        if side == 1:
+        if side == per_cell - 1:
             check(stored == data['final'][name, cell], "Gather differs from its stored endpoint")
         previous[name] = stored
         positions[name] += 1
-    check(len(data['adds']) == 80, "Missing/extra additions")
+    check(len(data['adds']) == 40 * per_cell, "Missing/extra writes")
     for name, (count, charge, bound, stage, tiny) in data['quantities'].items():
         check(count == counts.get(name, 0), "Published inventory count differs")
         check(0 <= charge <= bound and stage >= 0 and tiny >= 0, "Charge outside interval budget")
@@ -107,7 +114,7 @@ def review(data):
             check(count == 0, "Gather counted momentum or primary U")
             continue
         check({i for q, i in data['initial'] if q == name} == set(range(8)), "Cell coverage")
-        check(positions[name] == 16, "Missing cell additions")
+        check(positions[name] == 8 * per_cell, "Missing cell writes")
         check(errors[name] <= halves[name] <= charge, "Error/half-ulp charge understated")
         check(charge <= halves[name] * (1 + 16 * EPS) + F(1, 1 << 1074), "Unjustified charge enlargement")
         initial = [data['initial'][name, i] for i in range(8)]
@@ -121,7 +128,7 @@ def review(data):
         exact_bound = 128 * EPS * scale + tiny
         check(abs(bound - exact_bound) <= 8 * EPS * exact_bound, "The 128-epsilon interval bound changed")
         check(abs(sum(final) - sum(initial)) <= bound, "Endpoint inventory account failed")
-    check(data['total'] == (80, sum(counts.values()), 1, 1, 1), "Aggregate/cache/rollback controls missing")
+    check(data['total'] == (len(data['adds']), sum(counts.values()), 1, 1, 1), "Aggregate/cache/rollback controls missing")
     check(sum(counts.values()) > 0, "Empty rounding coverage")
 
 

@@ -186,12 +186,14 @@ also pass collision.
   bound, with identical endpoint images and refinement counters. The saved
   reader passes 10,974 checks/eighteen corruptions on Release, ASan/UBSan,
   ThreadSanitizer and MinGW/Wine. Pressure products and other
-  transient momentum/energy rounding ledgers remain open. Incoming constituent/
-  passive gathers now have audited storage-write counts: 70 of 80 independent
-  controlled additions, with 1,431 saved checks/fourteen altered captures rejected.
-  The original bounds, stored values and six version-6/7/8 endpoint/continuation
-  images remain unchanged. Primary U now has persisted corrections and audited
-  writes; retained constituent/passive subtractions are outside
+  transient momentum/energy rounding ledgers remain open. Constituent/
+  passive storage now has audited retained-subtraction and incoming-gather
+  counts: 126 of 160 independently derived writes, with 2,368 saved checks and
+  fourteen corruptions rejected. Stored values and the original interval bound
+  stay unchanged. Four affected suites pass ASan/UBSan, ThreadSanitizer and
+  MinGW/Wine with matching records. Only admitted reconstruction trials publish
+  counts. Primary U has persisted corrections and audited writes; ordinary
+  products remain outside
   this ledger. Flagged pressure sweeps now
   survive until parcel formation; canonical dual J and normalized kinetic
   products fix the reproduced large-inertia fault. Signed and quantized arrivals,

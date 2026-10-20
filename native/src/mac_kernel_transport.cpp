@@ -237,12 +237,13 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         });
     }
     // ---- reconstruction: each donor writes its outgoing face parcels.
-    struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; EnergyRounding energy; };
+    struct Reconstruction { std::size_t backtracks = 0, unresolved = 0; std::vector<TransferRounding> rounding; std::vector<PrimaryRounding> inventory; EnergyRounding energy; };
     auto bt = c.exec.partials<Reconstruction>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        Reconstruction result; result.rounding.resize(c.quantities());
+        Reconstruction result; result.rounding.resize(c.quantities()); result.inventory.resize(K + P);
         struct Product { std::size_t field; double a, b, stored; MacEnergy scaled; };
         std::vector<Product> products; // At most four parcels per donor; reused across trials.
         std::vector<double> centre(L), sx(L), sy(L), lo(L), hi(L), proto(4 * F), keep(F);
+        std::vector<PrimaryRounding> candidate_inventory(K + P);
         for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.W; ++col) {
             const auto i = col + row * g.W;
             if (g.wall[i]) continue;
@@ -411,6 +412,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 products.clear();
                 candidate_unresolved = 0;
                 kept_energy_remainder = f.U_remainder[i]; candidate_energy = {};
+                std::fill(candidate_inventory.begin(), candidate_inventory.end(), PrimaryRounding{});
                 bool ok = true;
                 for (std::size_t fld = 0; fld < F; ++fld) keep[fld] = source[fld][i];
                 for (int n = 0; n < count && ok; ++n) {
@@ -462,6 +464,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                             remove(pr[fld]); remove(parcel.remainder);
                         } else {
                             const double before = keep[fld]; keep[fld] -= pr[fld];
+                            candidate_inventory[fld < K ? fld : fld - 1].addition(before, -pr[fld], keep[fld]);
                             if (pr[fld] != 0 && keep[fld] == before) ++candidate_unresolved;
                         }
                     }
@@ -477,6 +480,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                             if (proto[static_cast<std::size_t>(n) * F + fld] > proto[static_cast<std::size_t>(largest) * F + fld]) largest = n;
                         auto& parcel = proto[static_cast<std::size_t>(largest) * F + fld];
                         const double before = parcel; parcel += keep[fld];
+                        candidate_inventory[fld < K ? fld : fld - 1].addition(before, keep[fld], parcel);
                         if (keep[fld] != 0 && parcel == before) ++candidate_unresolved;
                         keep[fld] = 0;
                     }
@@ -490,6 +494,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             if (!accepted) reject("Production reconstruction EOS backtracking exhausted");
             result.unresolved += candidate_unresolved; result.energy.merge(candidate_energy);
+            for (std::size_t q = 0; q < K + P; ++q) result.inventory[q].merge(candidate_inventory[q]);
             for (const auto& p : products) {
                 const auto q = p.field < K ? p.field : p.field == K ? c.q_energy() : p.field - 1;
                 if (p.scaled.is_zero()) result.rounding[q].product(p.a, p.b, p.stored);
@@ -516,6 +521,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
         backtracks += b.backtracks;
         acc.unresolved += b.unresolved; acc.energy.merge(b.energy);
         for (std::size_t q = 0; q < c.quantities(); ++q) acc.transfers[q].merge(b.rounding[q]);
+        for (std::size_t q = 0; q < K + P; ++q) acc.inventory[q].merge(b.inventory[q]);
     }
     c.counters.reconstruction_backtracks += backtracks;
     if (c.options.collect_stage_timing) c.timing.reconstruction_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t_reconstruction).count();

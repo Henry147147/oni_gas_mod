@@ -251,14 +251,15 @@ continuation; six endpoint/continuation images and refinement counters match
 `3fbccfb`. Their saved reader passes 10,974 checks/eighteen corruptions on
 Release, ASan/UBSan, ThreadSanitizer and MinGW/Wine. Pressure
 products and other transient momentum/energy rounding ledgers remain open.
-[Incoming constituent/passive gathers](../native/MAC_INVENTORY_ROUNDING.md) now
-count inexact additions without changing storage or the original interval bound:
-70 of 80 independently derived writes; the saved reviewer passes 1,431 checks
-and rejects fourteen altered captures. True one/twelve-worker pressure controls
-cover all three methods; six version-6/7/8 endpoint/continuation images match
-the preceding build. Primary U now has a persisted correction and audited
-writes. Retained constituent/passive subtractions and products are
-outside this ledger. Flagged sweeps retain their range through parcel formation, and dual
+[Constituent/passive storage rounding](../native/MAC_INVENTORY_ROUNDING.md)
+now covers retained outgoing subtractions and incoming gathers without changing
+stored values or the original interval bound: 126 of 160 independently derived
+writes are inexact. The saved reviewer passes 2,368 checks and rejects fourteen
+altered captures. Four affected suites each pass ASan/UBSan, ThreadSanitizer
+and MinGW/Wine with matching scientific records. Reconstruction trial ledgers
+are published only after admission. Primary U retains its separate persisted
+correction and audited writes; ordinary products and other transient rounding
+ledgers remain open. Flagged sweeps retain their range through parcel formation, and dual
 J/K products use canonical momentum when a derived velocity or kinetic factor
 underflows. The former large-inertia fault now advances in one attempt and
 matches the strict reference, including a representable tracer arrival.
