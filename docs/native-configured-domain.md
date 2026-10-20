@@ -298,8 +298,11 @@ copy selects vacuum, water or oxygen from the completed physical record.
 Saves retain the same configured wrapper and paired payload formats. Version-9
 void images and version-10 carried-U images are admitted; phase-change version 11
 remains rejected by this game adapter. Restore verifies the exact pool/vacuum
-compatibility tuples and loaded solid mask. Engine-free controls pass 202
-OwnedSnapshotTests; game verification of the new mode is pending.
+compatibility tuples and loaded solid mask. Configured import and actor classification use the admitted mixture/liquid
+flags, so the vacuum scene admits both water and gas. Engine-free controls
+pass 203 OwnedSnapshotTests. The Linux room activates and passes ten resting
+frames under gravity; the first vent interval currently stalls in the mixed-cell
+pressure root. Continuation and reload remain open.
 
 ### Linux game evidence
 

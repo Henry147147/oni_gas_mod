@@ -8,6 +8,17 @@ internal static class ConfiguredDomainLayoutTests
 {
     internal static void Run(System.Action<string,System.Action> test,System.Action<bool> check,System.Action<System.Action> reject)
     {
+        test("configured import and actor phase admission follow the mixture or liquid flags",()=> {
+            foreach(var flags in new[]{0U, PhysicsGravity|PhysicsConduction, PhysicsVacuum})
+                check(Enumerable.Range(0,6).Where(k=>ConfiguredDomainLayout.AdmitsSpecies(flags,(uint)k)).SequenceEqual(new[]{0,1,2,4}));
+            check(Enumerable.Range(0,6).Where(k=>ConfiguredDomainLayout.AdmitsSpecies(PhysicsLiquid,(uint)k)).SequenceEqual(new[]{3}));
+            foreach(var flags in new[]{PhysicsMixture, PhysicsVacuum|PhysicsMixture})
+                check(Enumerable.Range(0,6).Where(k=>ConfiguredDomainLayout.AdmitsSpecies(flags,(uint)k)).SequenceEqual(new[]{0,1,2,3,4}));
+            check(ConfiguredDomainLayout.AdmitsSpecies(flags,species)==(species<5 &&
+                        ((flags&PhysicsMixture)!=0 || ((flags&PhysicsLiquid)!=0)==(species==3))));
+            check(ConfiguredDomainLayout.AdmitsSpecies(ConfiguredDomainLayout.VacuumPhysics.Flags,3) &&
+                ConfiguredDomainLayout.AdmitsSpecies(ConfiguredDomainLayout.VacuumPhysics.Flags,1));
+        });
         test("configured physics record matches the native 40-byte MAOniDomainPhysics layout and flags",()=> {
             check(Marshal.SizeOf<Physics>()==40 && Marshal.OffsetOf<Physics>(nameof(Physics.Flags)).ToInt32()==8 &&
                 Marshal.OffsetOf<Physics>(nameof(Physics.Reserved)).ToInt32()==12 &&

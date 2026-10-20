@@ -60,6 +60,8 @@ namespace MixedAtmospheres.Oni
         internal static Physics ScenePhysics(bool liquid) =>
             Physics.Create(PhysicsGravity | PhysicsConduction | (liquid ? PhysicsLiquid : 0U), 9.81);
         internal static Physics VacuumPhysics => Physics.Create(PhysicsVacuum | PhysicsMixture | PhysicsGravity, 9.81);
+        internal static bool AdmitsSpecies(uint flags, uint species) => species < 5 &&
+            ((flags & PhysicsMixture) != 0 || ((flags & PhysicsLiquid) != 0) == (species == 3));
 
         // A saved configuration has a restore adapter only when it is exactly a
         // scene this adapter builds: the pillared room with the gas or water

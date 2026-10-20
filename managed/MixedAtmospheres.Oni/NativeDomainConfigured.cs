@@ -29,6 +29,8 @@ namespace MixedAtmospheres.Oni
         // Cells the custom owner holds: every fluid cell of a configured room.
         private static int OwnedCellCount => ConfiguredMode ? ConfiguredRoom.FluidCount : cells.Length;
         private static Physics ConfiguredPhysics => RestoredConfigured ? restoredConfiguredPhysics : ConfiguredVacuumMode ? ConfiguredDomainLayout.VacuumPhysics : ConfiguredDomainLayout.ScenePhysics(ConfiguredLiquidMode);
+        private static bool AdmitsDomainSpecies(uint species) => ConfiguredMode ?
+            ConfiguredDomainLayout.AdmitsSpecies(ConfiguredPhysics.Flags, species) : MixedPhaseMode || (species == 3) == Liquid;
         private static Physics restoredConfiguredPhysics;
         private static bool configuredRestoredGridVerified;
         private static byte[] configuredRestoredMask = Array.Empty<byte>();

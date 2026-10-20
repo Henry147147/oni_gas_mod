@@ -401,7 +401,7 @@ verification are in [timestep progress](production-timestep-progress.md#prepared
 | [Curved-nodal diagnostic](../native/MAC_STRONG_FLOW.md#curved-deformation-pressure-and-remap-convention) | Localizes a pressure/remap source-velocity convention mismatch. Opt-in selector 5 passes the interior 1-D oracle with original J/K; general 2-D conversion and strong-flow acceptance remain open |
 | [Gas/vacuum front](../native/MAC_VACUUM.md#gate-v-vacuum-front) | Passes with the opt-in [void phase](../native/MAC_VACUUM.md#void-phase) in both kernels. Configured game-owner admission now accepts empty cells; Unity verification is pending |
 | [Gravity and multiphase gates](../native/MAC_GATES.md) | All eight pass standalone, including two liquids and the Stefan boiling film ([sharp-interface boiling](../native/MAC_PHASE_CHANGE.md#sharp-interfaces), production kernel) |
-| Free surfaces, phase interfaces, phase transitions in game | Configured flag 32 selects production sharp interfaces and the void phase; native surface/publication/transfer/reload and 202 managed controls pass. The vacuum validation mode is registered. Phase change stays off; Unity verification is pending |
+| Free surfaces, phase interfaces, phase transitions in game | Configured flag 32 selects production sharp interfaces and the void phase; native surface/publication/transfer/reload and 203 managed controls pass. Linux vacuum-room activation and ten resting frames pass; the first vent interval stalls in the mixed-cell pressure root. Phase change stays off; continued game/reload verification remains open |
 
 Separate references, excluded from game dispatch: the gas-only `GasWorld`
 reference (still behind the public C ABI and `ma_demo`), the

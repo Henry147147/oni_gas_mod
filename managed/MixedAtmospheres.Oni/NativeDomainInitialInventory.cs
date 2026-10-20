@@ -23,7 +23,7 @@ namespace MixedAtmospheres.Oni
         private static int InitialInventorySpecies(ushort element)
         {
             for (var species = 0; species < Ids.Length; ++species)
-                if ((species == 3) == Liquid && ElementLoader.FindElementByHash(SpeciesHash((uint)species)).idx == element)
+                if (AdmitsDomainSpecies((uint)species) && ElementLoader.FindElementByHash(SpeciesHash((uint)species)).idx == element)
                     return species;
             throw new NotSupportedException("Native initial inventory requires a supported, single-phase fluid material.");
         }

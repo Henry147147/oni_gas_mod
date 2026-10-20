@@ -346,5 +346,7 @@ timing/RSS), including the current-default 256-cell wave image SHA-256
 `native-configured-vacuum-domain` now imports a half-filled water pool with
 vacuum above it, checks ten resting frames and sends a real game vent packet.
 Managed readings retain void volume, and configured saves admit versions 9/10
-while phase change stays off. The 202 managed controls pass; Unity validation
-is pending.
+while phase change stays off. The 203 managed controls pass. Linux activation and ten resting frames under
+gravity pass after configured import/actor classification was corrected to use
+the physics flags. The first vent interval currently stalls in the mixed-cell
+pressure root; game continuation and reload remain open.
