@@ -106,11 +106,18 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             auto& cell = result.state.cells[i].mixture;
             const double ml = cell.masses[pair.liquid], mv = cell.masses[pair.vapour];
             if (ml == 0 && mv == 0) continue;
-            const double volume = mac_material_volume(result.state, i);
+            // Void phase (MAC_VACUUM.md, "Phase change"): a partly filled cell
+            // holding the pair's liquid relaxes at its grid volume, its gas first
+            // expanding into its own void, so vapour fills the void at saturation;
+            // the cell is then full. Entropy is measured from its occupied volume.
+            const double held = mac_material_volume(result.state, i), grid_volume = g.volume_m3();
+            const bool fill = held < grid_volume && ml > 0;
+            const double volume = fill ? grid_volume : held;
             // A cell the strict EOS cannot read (traces below binary64 range,
             // which the production kernel admits) has no interface to relax.
-            ReferenceEquilibriumState before;
-            try { before = model.evaluate(cell, volume); } catch (const ReferenceError&) { ++report.unevaluable_cells; continue; }
+            ReferenceEquilibriumState before, source_state;
+            try { before = model.evaluate(cell, volume); source_state = fill ? model.evaluate(cell, held) : before; }
+            catch (const ReferenceError&) { ++report.unevaluable_cells; continue; }
             ++report.eos_evaluations;
             if (skip_sharp_interfaces && ml > 0 && before.has_gas && before.gas_volume_m3 >= mac_interface_phase_fraction * volume &&
                 before.liquid_volume_m3 >= mac_interface_phase_fraction * volume &&
@@ -159,14 +166,19 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             if (near == ml) cell.masses[pair.liquid] = 0;
             if (near == -mv) cell.masses[pair.vapour] = 0;
             const auto after = model.evaluate(cell, volume); ++report.eos_evaluations;
-            entropy.add(MacEnergy::from_double(after.entropy_j_per_k)); entropy.add(MacEnergy::from_double(-before.entropy_j_per_k));
+            if (fill) result.state.occupied_volumes_m3[i] = grid_volume;
+            entropy.add(MacEnergy::from_double(after.entropy_j_per_k)); entropy.add(MacEnergy::from_double(-source_state.entropy_j_per_k));
             account_mac_cell_entropy_remainder(entropy, result.state.cells[i], after.temperature_k);
-            account_mac_cell_entropy_remainder(entropy, source.cells[i], before.temperature_k, -1);
-            allowance.add(MacEnergy::from_double(128 * std::numeric_limits<double>::epsilon() * std::abs(cell.energy) / std::min(before.temperature_k, after.temperature_k)));
+            account_mac_cell_entropy_remainder(entropy, source.cells[i], source_state.temperature_k, -1);
+            allowance.add(MacEnergy::from_double(128 * std::numeric_limits<double>::epsilon() * std::abs(cell.energy) / std::min(source_state.temperature_k, after.temperature_k)));
             (evaporate ? report.evaporating_cells : report.condensing_cells) += 1;
             (evaporate ? report.evaporated_kg : report.condensed_kg) += std::abs(near);
         }
     }
+    // A void-phase state whose cells are all filled keeps no occupied volumes.
+    auto& occupied = result.state.occupied_volumes_m3; bool partial = false;
+    for (std::size_t i = 0; i < occupied.size(); ++i) partial = partial || (result.state.cells[i].mixture.mass() > 0 && occupied[i] < g.volume_m3());
+    if (!partial) occupied.clear();
     MacEnergySum admitted; admitted.add(entropy.value()); admitted.add(allowance.value());
     if (admitted.sign() < 0) throw std::domain_error("MAC phase change decreased entropy beyond its roundoff allowance");
     report.entropy_change_j_per_k = entropy.value().project().value; report.entropy_allowance_j_per_k = allowance.value().project().value;

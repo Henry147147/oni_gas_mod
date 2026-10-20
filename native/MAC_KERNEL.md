@@ -82,10 +82,10 @@ policy paths.
 | Shock heat | 0, 1, 2, 3 |
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
-| Vacuum representation | 0 empty cells |
+| Vacuum representation | 0 empty cells, 1 [void phase](MAC_VACUUM.md#void-phase) (gas and [liquid surfaces](MAC_VACUUM.md#liquid-surfaces); midpoint pressure) |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
-compressive pressure (3), the [void phase](MAC_VACUUM.md#void-phase) and explicit
+compressive pressure (3) and explicit
 incomplete Cholesky are rejected by the flow-only helper. A selected production owner uses the audited reference for
 these settings, retaining their selectors and selection 2 in its next image.
 
@@ -93,7 +93,9 @@ Range: a nonfinite or overflow-range value (above `2^450`) in the input or
 at the interval endpoint runs the whole interval through the reference
 implementation, so full-range arithmetic is used only for flagged values.
 Uncertain material-temperature or caloric boundaries also request the strict
-reference, retaining consumed attempts. A certified static state can advance
+reference, retaining consumed attempts. A temperature clearly outside a
+material's range is outside the EOS domain instead: the substep retries smaller
+(2026-10-20; before, it also ran the interval through the reference). A certified static state can advance
 unchanged at such a boundary. A flagged intermediate that loses a representable
 final pressure sweep also refines through the strict interval, retaining consumed
 attempts. Subnormal cell-volume/face-area geometry uses that reference directly.
@@ -261,7 +263,8 @@ the same interval audit.
   both endpoints, external impulses and every stage's operand magnitudes, so
   the 128-epsilon bound scales with the work actually done. Totals come from
   fixed row-block partials. A failed audit discards the interval and retries
-  it with half the maximum step, then faults.
+  it with half the maximum step, then faults. So does an endpoint outside the
+  EOS domain, such as a vacuum front's trace cooled below its material's range.
 - **Rounding.** Primary storage is binary64; updates that leave a stored value
   unchanged are counted (`unresolved_updates`). Accepted below-range primal
   parcel products have per-quantity counts and exact error ledgers, independently

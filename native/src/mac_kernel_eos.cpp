@@ -154,10 +154,15 @@ bool evaluate_state(const Model& model, const Fields& f, std::size_t N, std::siz
     // A boundary uncertainty requests reference evaluation; it never enlarges
     // a material's physical domain or changes a stored state.
     if (A - r.Eel < 0x1p-30 * (std::abs(U) + std::abs(s.off) + std::abs(r.Eel))) throw EosRefinement{};
+    // A temperature clearly outside a material's range leaves the EOS domain
+    // (the step retries smaller); only one within the boundary's uncertainty
+    // needs the reference.
     for (std::size_t k = 0; k < model.K(); ++k) if (f.m[k * N + i] != 0) {
         const auto& sp = model.species[k];
-        if (r.T - sp.tmin <= 64 * eps * std::max(r.T, sp.tmin) ||
-            sp.tmax - r.T <= 64 * eps * std::max(r.T, sp.tmax)) throw EosRefinement{};
+        const double low = r.T - sp.tmin, high = sp.tmax - r.T;
+        const double low_tolerance = 64 * eps * std::max(r.T, sp.tmin), high_tolerance = 64 * eps * std::max(r.T, sp.tmax);
+        if (low < -low_tolerance || high < -high_tolerance) return false;
+        if (low <= low_tolerance || high <= high_tolerance) throw EosRefinement{};
     }
     out = r;
     return true;
@@ -200,7 +205,8 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
         if (!(V1 > 0)) return false;
         const double s = -dV / V1, scale = a.K + a.p0;
         w.p1 = a.p0 + scale * s;
-        if (w.p1 < 0 && -w.p1 > 32 * eps * scale) return false; // would open an internal void
+        if (w.p1 < 0 && -w.p1 > 32 * eps * scale && !a.tension) return false; // would open an internal void
+        if (!(s > -.5)) return false;
         if (w.p1 / a.K - a.qmax > boundary(w.p1 / a.K, a.qmax)) return false;
         double g = 0, gp = 0;
         if (std::abs(s) < 1e-3) {
@@ -236,7 +242,7 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
         bool converged = false;
         for (int it = 0; it < 60; ++it) {
             double volume = 0, slope = 0; point(param, dp, p, volume, slope);
-            if (!(p >= 0) || !std::isfinite(volume)) return false;
+            if (!(p >= 0 || (a.tension && p > -.5 * a.K)) || !std::isfinite(volume)) return false;
             const double res = volume - dV;
             if (std::abs(res) <= 4 * eps * (std::abs(dV) + 1e-300)) { converged = true; break; }
             const double next = param - res / slope;
@@ -245,7 +251,7 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
             param = next;
         }
         if (!converged) return false;
-        if (!(p >= 0)) return false;
+        if (!(p >= 0 || (a.tension && p > -.5 * a.K))) return false;
         double energy = 0, derivative = 0;
         if (gas) {
             energy += a.Cv * a.T0 * std::expm1(am * param);

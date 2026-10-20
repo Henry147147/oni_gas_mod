@@ -186,11 +186,15 @@ void MacClosedSettings::validate() const {
     require(phase_change == MacPhaseChange::none || (phase_change == MacPhaseChange::saturation &&
         pressure_integration == MacPressureIntegration::discrete_gradient_midpoint),
         "Invalid MAC phase change (saturation phase change needs midpoint pressure)");
+    // Conduction and viscosity through partly filled cells exist in the
+    // production kernel only (MAC_VACUUM.md, "Conduction and viscosity").
+    const bool physical = numerical_kernel == MacNumericalKernel::production ||
+        (!thermal_conduction && viscosity.shear_pa_s == 0 && viscosity.bulk_pa_s == 0);
     require(vacuum == MacVacuumRepresentation::empty_cells || (vacuum == MacVacuumRepresentation::void_phase &&
         reconstruction != MacMaterialReconstruction::donor_cell && pressure_integration == MacPressureIntegration::discrete_gradient_midpoint &&
-        !thermal_conduction && viscosity.shear_pa_s == 0 && viscosity.bulk_pa_s == 0 && diffusion.mode == MacDiffusionMode::disabled),
-        "Invalid MAC vacuum representation (the void phase needs reconstructed parcels, midpoint pressure, "
-        "and no conduction, viscosity or diffusion yet)");
+        physical && diffusion.mode == MacDiffusionMode::disabled),
+        "Invalid MAC vacuum representation (the void phase needs reconstructed parcels, midpoint pressure and no diffusion; "
+        "conduction and viscosity need production kernel 2)");
     require(pressure_integration == MacPressureIntegration::discrete_gradient_midpoint ||
         ((pressure_integration == MacPressureIntegration::two_moment || pressure_integration == MacPressureIntegration::two_moment_coupled) &&
             numerical_kernel == MacNumericalKernel::production),
@@ -242,6 +246,8 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     std::vector<MaterialCell> materials; materials.reserve(topology.active.size());
     const bool voids = settings.vacuum == MacVacuumRepresentation::void_phase;
     require(voids || source.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
+    require(!voids || (!settings.thermal_conduction && settings.viscosity.shear_pa_s == 0 && settings.viscosity.bulk_pa_s == 0),
+        "The reference void phase runs no conduction or viscosity (production kernel only)");
     for (auto cell : topology.active) materials.push_back({source.cells[cell].mixture, mac_material_volume(source, cell), 0, source.cells[cell].energy_remainder_j});
     // Sharp interfaces weigh each y face by the mass of its two half cells
     // (PLIC split) at the substep start; a kick after transport time-centres
@@ -476,9 +482,12 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
         for (std::size_t f = 0; f < topology.y.size(); ++f) {
             const double difference = weight_end[f] - weight_start[f]; require_finite(difference, "MAC sharp gravity weight change");
             if (difference == 0) continue;
+            const auto& pair = topology.y[f];
+            // Void phase: a weight change beyond the face's remaining inertia means
+            // its material has left, so the correction is skipped (production rule).
+            if (voids && pair.left != none && pair.right != none && end_inertia.y[f] > 0 && std::abs(difference) > end_inertia.y[f]) continue;
             const auto kick = force_product(-difference, settings.gravity_m_per_s2).multiplied(.5 * dt);
             kicks.add(kick);
-            const auto& pair = topology.y[f];
             if (pair.left == none || pair.right == none || !(end_inertia.y[f] > 0)) { reactions.add(kick.negated()); continue; }
             MacScaledSum updated; updated.add(jy[f]); updated.add(kick); const auto next = mac_scaled_primary(updated);
             if (!resolved_update(jy[f], next, kick)) ++result.unresolved_momentum_updates;

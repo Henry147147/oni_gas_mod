@@ -17,7 +17,7 @@ path's void phase. Passing gates also run as CTests.
 | M3 standing wave | `ma_mac_free_surface_gates M3` | pass | `mac_gate_m3_standing_wave_coarse` (32 cells; period and amplitude within 5%) |
 | M4 two liquids | `ma_mac_multiphase_gates M4` | pass | `mac_gate_m4_two_liquids` |
 | M5 phase change | `ma_mac_multiphase_gates M5 --run` | pass (sharp-interface boiling) | `mac_gate_m5_stefan_coarse` (5 cells; worst error within 4%) |
-| V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` | pass (void phase, reference path) | `mac_gate_v_vacuum_front` |
+| V vacuum front | `ma_mac_vacuum_front_diagnostic --gate` (`--gate-production`) | pass (void phase; reference path and production kernel) | `mac_gate_v_vacuum_front`, `mac_gate_v_vacuum_front_production` |
 
 ## Passing gates
 

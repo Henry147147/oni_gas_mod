@@ -68,6 +68,37 @@ bool limit_pair(double il, double ir, Pair& p, double requested) {
 }
 }
 
+bool resting_surface(const Context& c, const Fields& f, const std::vector<double>& mass, std::size_t i) {
+    const auto& g = c.g;
+    if (f.Vo.empty() || g.wall[i] || !(mass[i] > 0) || !(f.Vo[i] < g.V)) return false;
+    for (const auto k : c.model.gases) if (f.m[k * g.N + i] != 0) return false;
+    // Supported: on a wall or the domain edge, or on material whose pressure
+    // carries at least the half of this cell's weight its top face would bear.
+    // Falling material carries nothing, so a falling surface falls freely.
+    const auto below = g.yl[g.bottom_face(i)];
+    return below == none || (mass[below] > 0 && c.ws.eos.p[below] * g.A >= .5 * c.settings.gravity_m_per_s2 * mass[i]);
+}
+void void_apertures(Context& c, const Fields& f, std::vector<std::array<double, 4>>& out) {
+    out.clear();
+    if (f.Vo.empty()) return;
+    const auto& g = c.g; out.assign(g.N, {1, 1, 1, 1});
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (g.wall[i] || !(f.Vo[i] > 0) || f.Vo[i] >= g.V) continue;
+            const double own = f.Vo[i] / g.V;
+            const auto at = [&](Index n) { return n == none ? own : f.Vo[n] / g.V; };
+            const auto down = [&](Index n) { return n == none ? none : g.yl[g.bottom_face(n)]; };
+            const auto up = [&](Index n) { return n == none ? none : g.yr[g.top_face(n)]; };
+            const Index l = g.xl[g.left_face(i)], r = g.xr[g.right_face(i)], b = g.yl[g.bottom_face(i)], t = g.yr[g.top_face(i)];
+            const double a[3][3] = {{at(down(l)), at(l), at(up(l))}, {at(b), own, at(t)}, {at(down(r)), at(r), at(up(r))}};
+            double nx = 0, ny = 0;
+            if (!interface_geometry::youngs_normal(a, nx, ny)) { out[i] = {own, own, own, own}; continue; }
+            const double line = interface_geometry::line_offset(nx, ny, own);
+            out[i] = {interface_geometry::face_aperture(nx, ny, line, 0, false), interface_geometry::face_aperture(nx, ny, line, 0, true),
+                interface_geometry::face_aperture(nx, ny, line, 1, false), interface_geometry::face_aperture(nx, ny, line, 1, true)};
+        }
+    });
+}
 void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::vector<double>& weights) {
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N; const auto& model = c.model; const auto& e = ws.eos;
     auto& alpha = ws.gravity_alpha; auto& total = ws.gravity_total; auto& lower = ws.gravity_lower; auto& mass = ws.gravity_mass;
@@ -84,7 +115,7 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
             const auto pressure = [&] {
                 if (cached) return e.p[i];
                 State st;
-                if (!evaluate_state(model, f, N, i, stats, f.U[i], g.V, st)) reject("Sharp-interface gravity weight left its EOS domain");
+                if (!evaluate_state(model, f, N, i, stats, f.U[i], material_volume(f, g.V, i), st)) reject("Sharp-interface gravity weight left its EOS domain");
                 return st.p;
             };
             const auto partials = [&](double p) {
@@ -94,7 +125,8 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
                 }
             };
             if (stats.kind == liquid_cell) {
-                alpha[i] = total[i] = 1;
+                // A void-phase liquid surface fills its occupied volume.
+                alpha[i] = total[i] = material_volume(f, g.V, i) / g.V;
                 if (LQ >= 2 && liquids == 1) fractions[first * N + i] = 1;
                 if (LQ < 2 || liquids != 2) continue;
                 partials(pressure());
@@ -129,6 +161,12 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
             lower[i] = (liquid_mass * liquid_lower / alpha[i] + (mass[i] - liquid_mass) * (.5 - liquid_lower) / (1 - alpha[i])) / mass[i];
         }
     });
+    // Void phase: a liquid surface resting on material, a wall or the domain
+    // edge carries its whole weight on its bottom face; its void holds no
+    // pressure to support liquid above its centre (MAC_VACUUM.md, "Liquid surfaces").
+    if (!f.Vo.empty()) c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) if (resting_surface(c, f, mass, i)) lower[i] = 1;
+    });
     weights.assign(g.NY, 0);
     c.exec.rows([&](std::size_t y0, std::size_t, std::size_t blk) {
         for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
@@ -160,6 +198,23 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // slopes away from gas/liquid interfaces and splits two-phase donors by PLIC.
     const bool sharp = c.settings.reconstruction == MacMaterialReconstruction::interface_plic;
     const bool linear = c.settings.reconstruction == MacMaterialReconstruction::limited_linear || sharp;
+    // Void phase (MAC_VACUUM.md): a donor's swept volume holds its material,
+    // the filled fraction Vmat / Vswept, behind a PLIC line; the rest is void.
+    const bool voids = c.settings.vacuum == MacVacuumRepresentation::void_phase;
+    const auto& swept = voids ? ws.Vswept : ws.Vmat;
+    auto& filled = ws.filled;
+    if (voids) {
+        filled.assign(N, 0);
+        for (auto* v : {&ws.material_x, &ws.void_x}) v->resize(g.NX);
+        for (auto* v : {&ws.material_y, &ws.void_y}) v->resize(g.NY);
+        for (auto* v : {&ws.retained_material, &ws.retained_void}) v->resize(N);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (g.wall[i] || e.kind[i] == empty) continue;
+                filled[i] = ws.Vmat[i] < ws.Vswept[i] ? ws.Vmat[i] / ws.Vswept[i] : 1;
+            }
+        });
+    }
     ws.proxy.resize(N);
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) ws.proxy[i] = e.kind[i] == empty || e.kind[i] == solid_cell ? 0 : f.U[i] - e.off[i];
@@ -201,7 +256,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     }
                 };
                 if (e.kind[i] == liquid_cell) {
-                    alpha[i] = liquid_total[i] = 1;
+                    alpha[i] = liquid_total[i] = voids ? filled[i] : 1;
                     if (several && liquids == 1) fractions[first * N + i] = 1;
                     // Exactly two liquids: the denser one below a PLIC line.
                     if (!several || liquids != 2 || !evaluate_state(model, f, N, i, stats, f.U[i], ws.Vmat[i], st)) continue;
@@ -250,7 +305,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
             struct Edge { int axis; Index face; int dir; double volume, cx, cy, share; MacEnergy full_share; };
             Edge edges[4]; int count = 0;
-            const double Vi = ws.Vmat[i];
+            const double Vi = swept[i];
             const double midx = .5 * (ws.qx[lf] + ws.qx[rf]), midy = .5 * (ws.qy[bf] + ws.qy[tf]);
             const auto add = [&](int axis, Index face, int dir, double q) {
                 const auto* full = axis == 0 ? full_x : full_y;
@@ -274,11 +329,22 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (count == 0 || e.kind[i] == empty) {
                 for (std::size_t fld = 0; fld < F; ++fld) ws.retained[fld * N + i] = source[fld][i];
                 ws.retained_energy_remainder[i] = f.U_remainder[i];
+                double outgoing = 0;
                 for (int n = 0; n < count; ++n) {
                     // Empty space moving out of an empty donor carries nothing.
                     auto& out = edges[n].axis == 0 ? ws.px : ws.py; const auto stride = edges[n].axis == 0 ? g.NX : g.NY;
                     for (std::size_t fld = 0; fld < F; ++fld) out[fld * stride + edges[n].face] = 0;
                     (edges[n].axis == 0 ? ws.px_energy_remainder : ws.py_energy_remainder)[edges[n].face] = 0;
+                    if (voids) {
+                        (edges[n].axis == 0 ? ws.material_x : ws.material_y)[edges[n].face] = 0;
+                        (edges[n].axis == 0 ? ws.void_x : ws.void_y)[edges[n].face] = edges[n].volume;
+                    }
+                    outgoing += edges[n].volume;
+                }
+                if (voids) {
+                    const bool held = e.kind[i] != empty;
+                    ws.retained_material[i] = held ? ws.Vmat[i] : 0;
+                    ws.retained_void[i] = held ? Vi - ws.Vmat[i] : Vi - outgoing;
                 }
                 ws.theta[i] = 0;
                 continue;
@@ -293,7 +359,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (g.py || y > 0) { const auto n = x + (y == 0 ? g.H - 1 : y - 1) * g.W; if (!g.wall[n]) nb[2] = static_cast<Index>(n); }
             if (g.py || y + 1 < g.H) { const auto n = x + (y + 1 == g.H ? 0 : y + 1) * g.W; if (!g.wall[n]) nb[3] = static_cast<Index>(n); }
             double ratio[4] = {0, 0, 0, 0};
-            for (int n = 0; n < 4; ++n) if (nb[n] != none) ratio[n] = Vi / ws.Vmat[nb[n]];
+            for (int n = 0; n < 4; ++n) if (nb[n] != none) ratio[n] = Vi / swept[nb[n]];
             const bool hx = nb[0] != none && nb[1] != none, hy = nb[2] != none && nb[3] != none;
             // A single-phase donor beside an interface or a phase change keeps
             // donor order; a two-phase donor's strips follow its PLIC line.
@@ -333,7 +399,50 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     }
                 }
             }
-            bool homogeneous = !sharp_donor;
+            // Void phase: a partly filled donor's strips follow its material/void
+            // PLIC line; a donor beside a partly filled or empty cell keeps donor
+            // order. Each strip's material and void volume per unit swept volume;
+            // without a normal, the donor's proportion. void_left is the void
+            // the strips do not take.
+            const bool void_donor = voids && filled[i] < 1;
+            if (voids) for (int n = 0; n < 4; ++n) if (nb[n] != none && filled[nb[n]] < 1) forced_flat = true;
+            forced_flat = forced_flat || void_donor;
+            double material_area[4] = {0, 0, 0, 0}, void_area[4] = {0, 0, 0, 0}, void_left = 0;
+            if (void_donor) {
+                const auto vertical = [&](Index cell, int dy) -> Index {
+                    if (cell == none) return none;
+                    const auto cx = static_cast<std::size_t>(cell) % g.W, cy = static_cast<std::size_t>(cell) / g.W;
+                    if (!g.py && ((dy < 0 && cy == 0) || (dy > 0 && cy + 1 == g.H))) return none;
+                    const auto ny = dy < 0 ? (cy == 0 ? g.H - 1 : cy - 1) : (cy + 1 == g.H ? 0 : cy + 1);
+                    const auto n = cx + ny * g.W; return g.wall[n] ? none : static_cast<Index>(n);
+                };
+                const auto at = [&](Index cell) { return cell == none ? filled[i] : filled[cell]; };
+                const double a[3][3] = {{at(vertical(nb[0], -1)), at(nb[0]), at(vertical(nb[0], 1))}, {at(nb[2]), filled[i], at(nb[3])},
+                    {at(vertical(nb[1], -1)), at(nb[1]), at(vertical(nb[1], 1))}};
+                double nx = 0, ny = 0; const bool oriented = interface_geometry::youngs_normal(a, nx, ny);
+                const double offset = oriented ? interface_geometry::line_offset(nx, ny, filled[i]) : 0;
+                std::array<double, 4> width{}, estimated{}, material{}, vacuum{}; std::array<int, 4> slot{}; std::size_t strips = 0;
+                for (int n = 0; n < count; ++n) if (edges[n].share > 0 && std::isfinite(edges[n].share)) {
+                    width[strips] = edges[n].share; slot[strips] = n;
+                    estimated[strips++] = oriented ? interface_geometry::strip_liquid_area(nx, ny, offset, edges[n].axis, edges[n].dir > 0,
+                        edges[n].share) : edges[n].share * filled[i];
+                }
+                interface_geometry::allocate_strips(estimated, width, strips, filled[i], 1 - filled[i], material, vacuum);
+                void_left = 1 - filled[i];
+                for (std::size_t n = 0; n < strips; ++n) {
+                    material_area[slot[n]] = material[n]; void_area[slot[n]] = vacuum[n]; void_left = std::max(0., void_left - vacuum[n]);
+                }
+            }
+            bool homogeneous = !sharp_donor && !void_donor;
+            // A void donor's retained material and void volumes. The smaller part
+            // is formed directly, so neither a thin layer nor a thin void loses
+            // its precision to the other.
+            const auto retained_parts = [&](bool average) {
+                if (average) return std::pair{retained_volume * filled[i], retained_volume * (1 - filled[i])};
+                double moved_material = 0; for (int n = 0; n < count; ++n) moved_material += material_area[n];
+                const double material = std::max(0., ws.Vmat[i] - moved_material * Vi), vacuum = std::min(retained_volume, void_left * Vi);
+                return material <= vacuum ? std::pair{material, retained_volume - material} : std::pair{retained_volume - vacuum, vacuum};
+            };
             double theta = linear ? 1 : 0;
             bool flat = !linear || forced_flat;
             if (linear) {
@@ -418,7 +527,13 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 for (int n = 0; n < count && ok; ++n) {
                     double* pr = &proto[static_cast<std::size_t>(n) * F];
                     const double tx = theta * edges[n].cx, ty = theta * edges[n].cy;
-                    if (!homogeneous) {
+                    // A void strip's material at the donor's one density; its U
+                    // remainder share follows the same scale.
+                    double scale = 1;
+                    if (void_donor && !homogeneous) {
+                        scale = edges[n].share > 0 ? material_area[n] / (edges[n].share * filled[i]) : 0;
+                        for (std::size_t fld = 0; fld < F; ++fld) pr[fld] = source[fld][i] * scale;
+                    } else if (!homogeneous) {
                         // Strip prototype at the donor volume: liquid at its density,
                         // gas at the headspace density, both at the donor's EOS state.
                         const double ls = liquid_scale[n], gs = gas_scale[n];
@@ -433,7 +548,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                         for (std::size_t p = 0; p < P; ++p) pr[K + 1 + p] = source[K + 1 + p][i] * mass_share;
                     } else for (std::size_t fld = 0; fld < F; ++fld)
                         pr[fld] = theta == 0 ? source[fld][i] : source[fld][i] + (tx * sx[fld] + ty * sy[fld]);
-                    if (!admissible(pr, Vi)) { ok = false; break; }
+                    // A void strip's material is admitted at its own volume.
+                    const double admission = !void_donor ? Vi : homogeneous ? Vi * filled[i] :
+                        edges[n].share > 0 ? Vi * (material_area[n] / edges[n].share) : 0;
+                    if (!admissible(pr, admission)) { ok = false; break; }
                     for (std::size_t fld = 0; fld < F; ++fld) {
                         const double value = pr[fld], share = edges[n].share;
                         if (!edges[n].full_share.is_zero()) {
@@ -446,13 +564,14 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                                 products.push_back({fld, value, share, pr[fld], {}});
                         }
                         if (fld == K) {
-                            double correction = f.U_remainder[i] * share;
+                            const double remainder = f.U_remainder[i] * scale;
+                            double correction = remainder * share;
                             if (!edges[n].full_share.is_zero()) {
-                                const auto amount = edges[n].full_share.multiplied(f.U_remainder[i]);
+                                const auto amount = edges[n].full_share.multiplied(remainder);
                                 const auto projection = amount.project(); correction = projection.value;
                                 if (projection.rounded) products.push_back({fld, 0, 0, correction, amount});
-                            } else if (f.U_remainder[i] != 0 && share != 0 && std::abs(correction) <= std::numeric_limits<double>::min())
-                                products.push_back({fld, f.U_remainder[i], share, correction, {}});
+                            } else if (remainder != 0 && share != 0 && std::abs(correction) <= std::numeric_limits<double>::min())
+                                products.push_back({fld, remainder, share, correction, {}});
                             const auto parcel = add_mac_primary(pr[fld], 0, correction); candidate_energy.observe(parcel);
                             pr[fld] = parcel.value; parcel_energy_remainders[static_cast<std::size_t>(n)] = parcel.remainder;
                             const auto remove = [&](double amount) {
@@ -485,7 +604,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                         keep[fld] = 0;
                     }
                 }
-                if (ok && !admissible(keep.data(), retained_volume)) ok = false;
+                if (ok && !admissible(keep.data(), void_donor ? retained_parts(homogeneous).first : retained_volume)) ok = false;
                 if (ok) { accepted = true; break; }
                 // A rejected phase split falls back to the donor's own composition.
                 if (!homogeneous) { homogeneous = true; continue; }
@@ -513,6 +632,24 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 for (std::size_t k = 0; k < K; ++k) mass += pr[k];
                 // Donor on the left (dir +1) gives a positive flux.
                 (edges[n].axis == 0 ? ws.fx : ws.fy)[edges[n].face] = edges[n].dir > 0 ? mass : -mass;
+                if (voids) {
+                    // Material and void parts of this strip; one whose material
+                    // underflows to no mass is all void.
+                    const double whole = edges[n].volume;
+                    double material = !void_donor ? whole : homogeneous ? whole * filled[i] : material_area[n] * Vi;
+                    double vacuum = !void_donor ? 0 : homogeneous ? whole * (1 - filled[i]) : void_area[n] * Vi;
+                    if (mass == 0) { vacuum += material; material = 0; }
+                    (edges[n].axis == 0 ? ws.material_x : ws.material_y)[edges[n].face] = material;
+                    (edges[n].axis == 0 ? ws.void_x : ws.void_y)[edges[n].face] = vacuum;
+                }
+            }
+            if (voids) {
+                // The retained remainder keeps the void the strips did not take.
+                double held = 0; for (std::size_t k = 0; k < K; ++k) held += keep[k];
+                auto [material, vacuum] = void_donor ? retained_parts(homogeneous) : std::pair{retained_volume, 0.};
+                if (held == 0) { material = 0; vacuum = retained_volume; }
+                if ((held > 0) != (material > 0)) reject("Production void-phase remainder holds material without volume");
+                ws.retained_material[i] = material; ws.retained_void[i] = vacuum;
             }
         }
         return result;
@@ -528,7 +665,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     // ---- primal gather: retained + incoming parcels; masses before/after.
     ws.mass_after.assign(N, 0);
     std::vector<double> sum_ops(F, 0);
-    struct GatherOps { std::vector<double> operands; std::vector<PrimaryRounding> inventory; EnergyRounding energy; std::size_t unresolved = 0; };
+    struct GatherOps { std::vector<double> operands; std::vector<PrimaryRounding> inventory; EnergyRounding energy; std::size_t unresolved = 0; bool partial = false; };
+    if (voids) f.Vo.resize(N);
     auto ops = c.exec.partials<GatherOps>([&](std::size_t y0, std::size_t y1, std::size_t) {
         GatherOps local; local.operands.assign(F, 0); local.inventory.resize(K + P);
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -567,9 +705,34 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 local.operands[fld] += 2 * magnitude;
             }
             ws.mass_after[i] = M;
+            if (voids) {
+                // A target's material occupies the material parts it received;
+                // void parts stay vacuum. The smaller sum sets the occupied
+                // volume, so neither a thin layer nor a thin void loses precision.
+                double material = ws.retained_material[i], vacuum = ws.retained_void[i];
+                if (in_l) { material += ws.material_x[lf]; vacuum += ws.void_x[lf]; }
+                if (in_r) { material += ws.material_x[rf]; vacuum += ws.void_x[rf]; }
+                if (in_b) { material += ws.material_y[bf]; vacuum += ws.void_y[bf]; }
+                if (in_t) { material += ws.material_y[tf]; vacuum += ws.void_y[tf]; }
+                double occupied = 0;
+                if (M > 0) {
+                    // A liquid-only target holds its liquid at zero pressure when
+                    // that leaves void (MAC_VACUUM.md, "Liquid surfaces"); otherwise
+                    // it fills the cell.
+                    const auto st = cell_stats(model, f, N, i);
+                    occupied = st.kind == liquid_cell ? std::min(g.V, st.Nl) :
+                        std::min(g.V, vacuum == 0 ? g.V : material <= vacuum ? material : g.V - vacuum);
+                    if (!(occupied > 0) || !std::isfinite(occupied)) reject("Production void-phase target material has no occupied volume");
+                }
+                f.Vo[i] = occupied; local.partial = local.partial || (M > 0 && occupied < g.V);
+            }
         }
         return local;
     });
+    if (voids) {
+        bool partial = false; for (const auto& part : ops) partial = partial || part.partial;
+        if (!partial) f.Vo.clear();
+    }
     ws.stats_valid = false; // masses changed
     for (const auto& part : ops) {
         acc.unresolved += part.unresolved; acc.energy.merge(part.energy);
@@ -842,6 +1005,11 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 const auto fidx = g.yface(col, row);
                 const double change = ws.gravity_weight_end[fidx] - ws.gravity_weight_start[fidx];
                 if (change == 0) continue;
+                // Void phase: a weight change beyond the face's remaining inertia
+                // means the material that carried it has left, perhaps leaving a
+                // trace; the correction would throw that trace, so it is skipped.
+                const bool fixed = g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0);
+                if (voids && !fixed && std::abs(change) > ws.iy1[fidx]) continue;
                 const double kick = -gk * change * (.5 * dt);
                 k.body += kick;
                 if (g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0)) { k.wall -= kick; continue; }
@@ -897,7 +1065,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 d.gravity_change.add(actual.hi); d.gravity_change.add(actual.lo);
                 if (gravity_share != 0 || actual.value() != 0) {
                     State st;
-                    if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, g.V, st))
+                    if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, material_volume(f, g.V, i), st))
                         reject("Production gravity reconciliation left its EOS domain");
                     d.gravity_entropy.add(actual.value() / st.T);
                     d.gravity_entropy_operands += std::abs(actual.value()) / st.T;

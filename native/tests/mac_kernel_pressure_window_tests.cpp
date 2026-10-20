@@ -202,8 +202,10 @@ void caloric_boundary() {
     f.model.species[0].tmax = 1.00001;
     PressureTimeOptions options{.1,0,.45,0,32}; Pool pool(1); PressureTimeWorkspace workspace; std::vector<std::uint8_t> mask(32);
     const auto held = f.fields; bool rejected = false;
+    // Clearly above the material's range, the endpoint leaves the EOS domain
+    // (an ordinary rejection); only an uncertain boundary refines.
     try { static_cast<void>(advance_pressure_time_window(f.model,f.fields,f.grid,mask,options,pool,workspace)); }
-    catch (const EosRefinement&) { rejected = true; }
+    catch (const std::domain_error&) { rejected = true; }
     check(rejected && f.fields.U == held.U && f.fields.jx == held.jx, "Out-of-domain caloric endpoint published");
     f.model.species[0].tmax = 1e10;
     const auto after = advance_pressure_time_window(f.model,f.fields,f.grid,mask,options,pool,workspace);

@@ -46,6 +46,15 @@ inline double strip_liquid_area(double nx, double ny, double c, int axis, bool p
     const double low = positive ? .5 - width : -.5, high = positive ? .5 : -.5 + width;
     return axis == 0 ? area_below(nx, ny, c, low, high, -.5, .5) : area_below(nx, ny, c, -.5, .5, low, high);
 }
+// Fraction of the face on `axis` at the positive or negative side lying in
+// {nx*x + ny*y <= c}: where the phase behind the line touches that face.
+inline double face_aperture(double nx, double ny, double c, int axis, bool positive) {
+    const double normal = axis == 0 ? nx : ny, along = axis == 0 ? ny : nx;
+    const double rest = c - normal * (positive ? .5 : -.5); // along * t <= rest, t in [-1/2, 1/2]
+    if (along == 0) return rest >= 0 ? 1 : 0;
+    const double t = rest / along;
+    return along > 0 ? std::clamp(t + .5, 0., 1.) : std::clamp(.5 - t, 0., 1.);
+}
 // Youngs' 3x3 normal from liquid fractions a[dx + 1][dy + 1] (missing
 // neighbours repeat the centre). Returns false where the gradient vanishes.
 // Scaling by the larger component keeps axis-aligned normals exactly +-1.

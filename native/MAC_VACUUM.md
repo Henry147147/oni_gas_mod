@@ -4,7 +4,8 @@ The standalone MAC owner admits exact empty cells and transports gas into them
 without seed mass. By default, gas entering an empty cell fills it. The opt-in
 [void phase](#void-phase) instead keeps the volume the gas occupies, so a gas/vacuum
 line crosses each cell and no gas runs ahead of it; it passes
-[gate V](#gate-v-vacuum-front). The void phase is reference-path and gas-only so far.
+[gate V](#gate-v-vacuum-front). The reference path and the production kernel both run it;
+only the production kernel also holds [liquid surfaces](#liquid-surfaces) facing vacuum.
 Normal colony activation is still disabled, and the
 [strong-flow gate](MAC_STRONG_FLOW.md) remains false.
 
@@ -100,12 +101,113 @@ less the void parts when those are smaller, so neither a thin layer nor a thin v
 loses precision. A rejected split falls back to the donor's average composition.
 
 **Scope.** The void phase requires reconstructed parcels (material selector 1, 2
-or 3) and midpoint pressure. It rejects thermal conduction, viscosity and gas
-diffusion, because those stages still assume filled cells. A partly filled cell
-holding liquid rejects ("does not yet hold liquid"), and fluid point transfers
-reject partly filled states. The production kernel does not implement it; the
-owner runs the audited reference fallback. Checkpoints use
-[version 9](MAC_CHECKPOINT.md).
+or 3) and midpoint pressure. It rejects gas diffusion, which still assumes filled
+cells. The reference path also rejects conduction and viscosity, and a partly
+filled cell holding liquid ("does not yet hold liquid"); the production kernel
+runs all three. Fluid point transfers reject partly filled states. Checkpoints use [version 9](MAC_CHECKPOINT.md).
+
+**Production kernel** (2026-10-20). The production kernel runs the void phase with
+material selectors 1 and 3; selector 2 and coupled compression still use the
+reference path. It carries the occupied volumes through each substep, evaluates
+every cell at its occupied volume and splits partly filled donors' strips by the
+same PLIC rule. Two details differ from a direct port:
+- The pressure root's residual is relative to the cell's swept volume, not its
+  material volume: face-sweep rounding scales with the grid cell. Relative to a
+  thin layer, the root stalled just above its tolerance.
+- A void strip's U remainder is split with its material, so an all-void strip
+  carries no energy.
+- Each strip and retained remainder is admitted at its own material volume. The
+  smaller of a remainder's material and void volumes is formed directly: a liquid
+  trace of 3e-17 kg lifted into vacuum lost its whole volume to the subtraction.
+
+Liquid surfaces, conduction and viscosity in the void phase exist only in the
+production kernel. An interval that needs the reference path (an overflow-range
+value or an uncertain material boundary) therefore cannot fall back once the
+state holds them; it fails instead.
+
+### Liquid surfaces
+
+The production kernel holds liquid in partly filled cells (2026-10-20). A liquid
+cannot hold tension, so a liquid-only cell that also holds void sits at zero
+pressure, its liquid at zero-pressure density: its occupied volume is that
+liquid's nominal volume Σ m/ρ0. Such a surface cell is no pressure unknown. Its
+mass still loads its faces, so beside vacuum it falls freely, and a liquid below
+it carries its weight. Mixed gas/liquid material in a partly filled cell is one
+occupied material, as gas is.
+
+The pressure stage settles which liquid cells hold void by an active set:
+- A surface cell whose faces would squeeze it past its void joins the solve. Its
+  material volume change is the net sweep plus that void, from zero pressure.
+- A liquid cell the root pulls into tension (its isentrope may pass below zero
+  pressure during the root) becomes a surface cell.
+
+The root is repeated until the set settles (at most eight times, else the
+substep retries smaller). Transport splits liquid donors by the same PLIC rule as
+gas. A liquid-only target takes its liquid's nominal volume when that leaves
+void, otherwise the whole cell; a compressed parcel arriving at a surface releases
+its elastic energy as heat.
+
+**Resting surfaces.** A surface cell at zero pressure cannot hold up liquid above
+its centre, yet the default gravity weights load its top face with half its mass
+(material selector 1) or its upper-half PLIC mass (selector 3). That face fell
+freely and drew energy from the cell. A surface cell resting on a wall, the domain
+edge, or material whose start pressure carries at least that half of its weight
+therefore puts its whole weight on its bottom face. Falling material carries
+nothing, so a falling surface keeps the default split and falls freely.
+
+**Time-centred gravity.** Selector 3 time-centres each y face's weight after
+transport. A partly filled surface can move its material off a face and leave only
+a trace behind. The kick would then throw that trace at an absurd speed, and the
+work it does landed as a 4e-11 J deficit in a 3e-31 kg water trace, whose
+temperature then went negative. In the void phase, a face whose weight change
+exceeds its remaining inertia therefore takes no kick, in both kernels. Worlds
+without the void phase keep every kick.
+
+Water under vacuum keeps its discrete hydrostatic rest with material selector 1 or
+3: after 0.2 s the water's faces move below 1e-11 m/s. Rounding lifts about 1e-16
+of its mass off the surface, which then falls back freely. A 2x2 water block
+released in vacuum gains exactly M g t of momentum, and its centroid falls ½ g t²
+within the cell-centre measure (selector 1 exactly, selector 3 4% long).
+
+### Conduction and viscosity
+
+The production kernel conducts and applies viscosity through partly filled cells
+(2026-10-20); the reference path still rejects both with the void phase, so they
+need numerical kernel 2. Each partly filled cell's PLIC line (its filled fraction,
+Youngs normal from its neighbours') gives the fraction of each face its material
+touches. A face conducts over the smaller of its two cells' contacts, so heat never
+crosses void, and a flat surface's wetted bottom face conducts across its whole
+area. Viscous modes act on the material only: a cell's modes are weighted by its
+filled fraction, a corner mode by the smallest of its four cells'. Every EOS
+reading in these stages, and the boiling interface rules, use material volumes.
+
+Two water blocks separated by an empty column exchange no heat. A half-filled
+330 K surface cell over 300 K water conducts 0.0900 J in 0.05 s (k A ΔT t / h =
+0.09 J), with the default shock heat on.
+
+### Phase change
+
+Water in vacuum boils at any temperature with a positive saturation pressure
+([pressure-dependent boiling](MAC_PHASE_CHANGE.md)). A partly filled cell holding a
+pair's liquid relaxes at its grid volume: its gas first expands into its own void
+(an entropy-producing free expansion), and the vapour formed then fills the void
+at saturation. The cell is full afterwards. Other cells relax at their occupied
+volume. In `ma_mac_phase_change_tests`, 0.5 kg of 300 K water resting in a 1 L
+cell under vacuum forms 12.9 mg of steam in the first 1 ms interval: at exactly
+the saturation pressure (3,583 Pa), with the water 14 mK cooler. The steam then
+spreads into the empty cells beside it and more water boils; the water/steam
+mass drifts 6e-17.
+
+### Point transfers
+
+Fluid point transfers read every cell at its occupied volume. An empty cell may
+receive fluid: gas fills it, and liquid rests at zero pressure as a surface cell.
+A removal may empty a cell, taking exactly its stored energy, or open a liquid
+surface; gas keeps the cell's occupied volume, and added liquid enlarges a mixed
+cell's material. Removing a mixture species by species can leave a trace
+constituent holding only the rounding residue of the larger removals, which no
+temperature resolves: the trace then rejects ("No positive thermal energy"). An
+adapter draining a cell should remove its traces with its last bulk constituent.
 
 `ma_mac_void_phase_tests` (CTest `mac_void_phase`) covers 1-D and 2-D corner
 expansions and gas falling into vacuum under gravity:
@@ -114,9 +216,12 @@ expansions and gas falling into vacuum under gravity:
 - in 1-D, only the front cell is partly filled and no gas runs ahead of the exact
   front plus one cell.
 
-It also covers version-9 save/restore with exact continuation, the production
-fallback (identical to the reference), the legacy checkpoint version, and the
-rejected combinations listed above.
+It also covers version-9 save/restore with exact continuation, the reference
+fallback for settings the production kernel does not implement, the legacy
+checkpoint version and the rejected combinations listed above. On the production
+kernel, the 1-D and 2-D expansions (material selectors 1 and 3) need no
+fallback, and their gas volume and reach agree with the reference path within
+0.5% and one cell; the liquid surface controls above also run there.
 
 The 2-D expansion cools gas near its front below about 5 K. Before this change, the
 reference EOS rejected that ("Material energy reference erases resolved thermal or
@@ -144,6 +249,11 @@ may lie more than one cell ahead of the exact front at either endpoint:
 | 128 | 14.2% | 9.3% | 15.5 cells behind |
 | 256 | 8.2% | 1.7% | 20.8 cells behind |
 | 512 | 4.2% | 0.32% | 5.5 cells behind |
+
+`--gate-production` (CTest `mac_gate_v_vacuum_front_production`, 0.5 s) runs the
+same gate on the production kernel with material selector 1 and the default
+compression law. Its errors agree with the table to about four digits (4.1664%
+against 4.1663% at N512).
 
 **Why not the last gas-bearing cell.** The gate first measured the last cell holding
 any gas. That measure cannot converge at these resolutions with any grid method.

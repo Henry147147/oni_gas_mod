@@ -25,14 +25,14 @@ double fraction(double x) {
 bool occupied(std::uint8_t kind) { return kind == gas_cell || kind == liquid_cell || kind == mixed_cell; }
 // Frozen half-sound speed (acoustic laws) and per-axis pressure sensors,
 // from the stage's incoming state (reference freeze_mac_compression_coefficients).
-void compression_coefficients(Context& c, bool acoustic) {
+void compression_coefficients(Context& c, const Fields& f, bool acoustic) {
     auto& ws = c.ws; const auto& g = c.g; const auto& e = ws.eos; const auto N = g.N;
     for (auto* v : {&ws.speed, &ws.pressure, &ws.sensor0, &ws.sensor1}) v->resize(N);
     ws.closing.resize(2 * N);
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (!acoustic || !occupied(e.kind[i])) { ws.speed[i] = 0; ws.pressure[i] = 0; continue; }
-            const double sound = g.V / std::sqrt(e.M[i] * e.comp[i]);
+            const double sound = material_volume(f, g.V, i) / std::sqrt(e.M[i] * e.comp[i]);
             if (!std::isfinite(sound) || !(sound > 0)) precision("Production compression sound speed cannot be represented");
             ws.speed[i] = .5 * sound; ws.pressure[i] = e.p[i];
         }
@@ -79,7 +79,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
     auto& ws = c.ws; const auto& g = c.g;
     evaluate_cells(c, f, ws.eos);
     const auto& e = ws.eos;
-    compression_coefficients(c, mode == MacCompressionViscosity::acoustic_quadratic);
+    compression_coefficients(c, f, mode == MacCompressionViscosity::acoustic_quadratic);
     double heat_total = 0, wall_x = 0, wall_y = 0;
     std::size_t events = 0, unresolved = 0;
     // Reference order: per axis, a forward then a reverse sweep over cells in
@@ -161,7 +161,7 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     evaluate_cells(c, f, ws.eos);
     auto& e = ws.eos;
-    if (sensed) compression_coefficients(c, true);
+    if (sensed) compression_coefficients(c, f, true);
     ws.cp.resize(N); ws.diffusion.resize(2 * N); ws.heat.resize(2 * N);
     // Per cell: Cp (sensed laws) and, per axis, closing and diffusion speeds.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
@@ -240,7 +240,8 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
             for (int it = 0; it < 128; ++it) {
                 const double mid = lo + (hi - lo) / 2;
                 State a, b;
-                if (!evaluate_state(c.model, f, N, hot, sh, f.U[hot] - mid, g.V, a) || !evaluate_state(c.model, f, N, cold, sc, f.U[cold] + mid, g.V, b)) { hi = mid; continue; }
+                if (!evaluate_state(c.model, f, N, hot, sh, f.U[hot] - mid, material_volume(f, g.V, hot), a) ||
+                    !evaluate_state(c.model, f, N, cold, sc, f.U[cold] + mid, material_volume(f, g.V, cold), b)) { hi = mid; continue; }
                 qeq = mid;
                 if (std::abs(a.T - b.T) <= 128 * eps * (a.T + b.T) || mid == lo || mid == hi) break;
                 if (a.T > b.T) lo = mid; else hi = mid;
@@ -259,7 +260,7 @@ void stage_shock_heat(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             const auto s = Stats{e.M[i], e.Cv[i], e.off[i], e.nR[i], e.Nl[i], e.kind[i]};
             State st;
-            if (!evaluate_state(c.model, f, N, i, s, f.U[i], g.V, st)) reject("Production shock heat left the EOS domain");
+            if (!evaluate_state(c.model, f, N, i, s, f.U[i], material_volume(f, g.V, i), st)) reject("Production shock heat left the EOS domain");
             e.T[i] = st.T; e.p[i] = st.p; e.Vg[i] = st.Vg; e.Eel[i] = st.Eel; e.Ceq[i] = st.Ceq; e.comp[i] = st.comp;
         }
         moved += q; ++count;

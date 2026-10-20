@@ -109,6 +109,40 @@ void production_column(const Water& s) {
 }
 }
 
+// Void phase (MAC_VACUUM.md, "Phase change"): water resting in vacuum at 300 K
+// boils, its vapour filling the cell's void at saturation and cooling the water;
+// the vapour then expands into the empty cells beside it and more water boils.
+void vacuum_boiling(const Water& s) {
+    constexpr double h = .1, volume = h * h * h;
+    MacTransportState st; st.grid = {3, 1, h, h, false, false, std::vector<std::uint8_t>(3)};
+    std::vector<double> m(3); m[s.water] = .5;
+    st.cells = {{s.eos->initialize_at_temperature(m, 300, volume).mixture, {}}, {MixtureInventory(3), {}}, {MixtureInventory(3), {}}};
+    st.occupied_volumes_m3 = {.5 / s.registry[s.water].density, 0, 0};
+    st.momentum_x.assign(4, 0); st.momentum_y.assign(6, 0);
+    MacClosedSettings settings; settings.vacuum = MacVacuumRepresentation::void_phase; settings.phase_change = MacPhaseChange::saturation;
+    settings.reconstruction = MacMaterialReconstruction::limited_linear; settings.numerical_kernel = MacNumericalKernel::production;
+    settings.maximum_timestep_s = 1e-4;
+    MacClosedWorld world(s.registry, s.eos, st, settings);
+    const auto pair_mass = [&](const MacTransportState& x) { long double t = 0; for (const auto& c : x.cells) t += c.mixture.masses[s.water] + c.mixture.masses[s.steam]; return t; };
+    const long double initial = pair_mass(st); double first = 0;
+    for (int k = 0; k < 5; ++k) {
+        auto r = world.advanced(1e-3, 65536, MacExecutionPolicy::production); world = std::move(r.world);
+        check(r.report.interval_reference_fallbacks == 0 && std::abs(r.report.energy_residual_j) <= r.report.energy_bound_j, "Vacuum boiling interval failed");
+        const auto& x = world.state();
+        if (k == 0) {
+            first = x.cells[0].mixture.masses[s.steam];
+            const auto e = s.eos->evaluate(x.cells[0].mixture, mac_material_volume(x, 0));
+            const double saturation = mac_saturation_pressure(*s.eos, 0, 1, e.temperature_k, e.mechanical_pressure_pa);
+            std::cout << "PCVOID first interval: steam " << first << " kg, T " << e.temperature_k << " K, vapour " << vapour_pressure(s, x.cells[0].mixture, mac_material_volume(x, 0))
+                      << " Pa (saturation " << saturation << " Pa), filled " << (mac_material_volume(x, 0) == volume) << '\n';
+            check(first > 0 && mac_material_volume(x, 0) == volume && e.temperature_k < 300, "Water in vacuum did not boil into its void");
+        }
+    }
+    const auto& x = world.state(); const double steam = x.cells[0].mixture.masses[s.steam] + x.cells[1].mixture.masses[s.steam] + x.cells[2].mixture.masses[s.steam];
+    std::cout << "PCVOID after 5 ms: steam " << steam << " kg, beside " << x.cells[1].mixture.masses[s.steam] + x.cells[2].mixture.masses[s.steam]
+              << " kg, pair mass drift " << static_cast<double>((pair_mass(x) - initial) / initial) << '\n';
+    check(steam > first && x.cells[1].mixture.masses[s.steam] > 0 && std::abs(pair_mass(x) - initial) <= 1e-14L * initial, "Vacuum boiling did not spread or lost mass");
+}
 int main() {
     try {
         const Water s; saturation_curve(s);
@@ -121,6 +155,7 @@ int main() {
         // Exactly filled subcooled liquid stays liquid.
         relaxes(s, "subcooled_full", masses(997 * (1 + 101325 / 2.2e9), 0, 0), 350, 1, 0);
         production_column(s);
+        vacuum_boiling(s);
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

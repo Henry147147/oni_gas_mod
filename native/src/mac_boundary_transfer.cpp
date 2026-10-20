@@ -64,8 +64,27 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         "Unknown MAC fluid transfer topology policy");
     require(!edits.empty() && edits.size() <= 4096,"MAC fluid transfer batch must contain 1..4096 requests");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    require(state_.occupied_volumes_m3.empty(),"Fluid point transfers do not yet support partly filled void-phase cells");
+    // Void phase (MAC_VACUUM.md, "Point transfers"): every cell is read at its
+    // occupied volume. An empty cell may receive fluid and a removal may empty a
+    // cell or open a liquid surface; liquid-only cells hold their liquid at zero
+    // pressure when that leaves void.
+    const bool voids=settings_.vacuum == MacVacuumRepresentation::void_phase;
     auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
+    const double grid_volume=next.grid.volume_m3();
+    if (voids && next.occupied_volumes_m3.empty()) {
+        next.occupied_volumes_m3.assign(next.cells.size(),0);
+        for (std::size_t i=0;i<next.cells.size();++i) if (!next.grid.walls[i] && next.cells[i].mixture.mass() > 0) next.occupied_volumes_m3[i]=grid_volume;
+    }
+    const auto& materials=thermodynamics_->reference().materials();
+    const auto density=[&](std::size_t k) {
+        for (const auto& m : materials) if (m.id == registry_[k].id) return m.zero_pressure_density_kg_per_m3;
+        throw std::invalid_argument("Transferred liquid has no thermodynamic profile");
+    };
+    const auto nominal_liquid=[&](const MixtureInventory& mixture) {
+        double volume=0;
+        for (std::size_t k=0;k<registry_.size();++k) if (mixture.masses[k] != 0 && registry_[k].phase == Phase::liquid) volume+=mixture.masses[k]/density(k);
+        return volume;
+    };
     std::size_t unresolved=0;MacPrimaryRoundingCounts rounding;
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.species_index < registry_.size() &&
@@ -79,8 +98,10 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             for (std::size_t k=0;k<registry_.size();++k)
                 require(cell.mixture.masses[k] == 0 || (liquid ? k == edit.species_index : registry_[k].phase == Phase::gas),
                     "Fluid point transfers require gas-only or one matching liquid material");
-        const auto before=thermodynamics_->evaluate(cell.mixture,next.grid.volume_m3());
-        require(!before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
+        const bool was_empty=cell.mixture.mass() == 0;
+        const double held=voids && !was_empty ? next.occupied_volumes_m3[edit.cell_index] : grid_volume;
+        const auto before=thermodynamics_->evaluate(cell.mixture,held);
+        require((voids && was_empty && edit.inject) || !before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
         const double mass=edit.inject ? edit.mass_kg : std::min(edit.mass_kg,cell.mixture.masses[edit.species_index]);
         const auto temperature=edit.inject ? edit.temperature_k : before.temperature_k;
         MacFluidParcel packet{edit.cell_index,edit.species_index,edit.inject,mass,temperature,0,{},{},{},{}};
@@ -107,11 +128,27 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         cell.mixture.masses[edit.species_index]=old_mass+signed_mass;
         if (cell.mixture.masses[edit.species_index] == old_mass)
             throw FluidFatalError(FluidFatalCode::numerical_precision,"Fluid transfer cannot represent its constituent mass change");
-        require(cell.mixture.mass() > 0,"Fluid removal would create an unsupported empty MAC cell");
+        require(voids || cell.mixture.mass() > 0,"Fluid removal would create an unsupported empty MAC cell");
+        if (voids) {
+            // Gas keeps the occupied volume (an empty cell's gas fills it); a
+            // liquid-only cell holds its liquid at zero pressure when that leaves
+            // void; added liquid enlarges a mixed cell's material.
+            auto& occupied=next.occupied_volumes_m3[edit.cell_index]; const double nominal=nominal_liquid(cell.mixture);
+            bool gas=false; for (std::size_t k=0;k<registry_.size();++k) gas=gas || (cell.mixture.masses[k] != 0 && registry_[k].phase == Phase::gas);
+            if (cell.mixture.mass() == 0) occupied=0;
+            else if (!gas) occupied=std::min(grid_volume,nominal);
+            else if (was_empty) occupied=grid_volume;
+            else if (liquid && edit.inject) occupied=std::min(grid_volume,occupied+mass/density(edit.species_index));
+        }
         MacEnergyAccount mass_account; mass_account.add(old_mass); mass_account.add(signed_mass); mass_account.add(-cell.mixture.masses[edit.species_index]);
         require(mass_account.within_bound(),"Fluid transfer constituent account failed");
+        // A removal that empties a cell takes exactly its stored energy, so the
+        // empty cell holds none.
+        const bool emptied=voids && !edit.inject && cell.mixture.mass() == 0;
+        if (emptied) { MacEnergySum held_energy; account_mac_cell_internal_energy(held_energy,cell); packet.internal_energy_j=held_energy.value().project().value; }
         const auto material_energy=edit.inject ? packet.internal_energy_j : -packet.internal_energy_j;
-        (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(material_energy),&rounding);
+        if (emptied) { cell.mixture.energy=0; cell.energy_remainder_j={}; }
+        else (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(material_energy),&rounding);
         const auto inertia1=mac_face_inertias(registry_,next,*thermodynamics_);
         std::vector<MacEnergySum> heat(next.cells.size()); MacEnergySum carried_kinetic; MacScaledSum carried_px,carried_py;
         const auto x=edit.cell_index%next.grid.width,y=edit.cell_index/next.grid.width;
@@ -133,6 +170,9 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
                 }
                 remainder.add(MacEnergy::kinetic(new_i[face],momenta[face]).negated());
                 if (edit.inject && remainder.sign() < 0) throw FluidFatalError(FluidFatalCode::numerical_precision,"At-rest injection increased face kinetic energy");
+                // A face left without inertia (beside an emptied cell) keeps no
+                // kinetic energy to share; the parcel carried it away.
+                if (!(new_i[face] > 0)) { require(remainder.sign() <= 0 || edit.inject,"Emptied face retained kinetic energy"); continue; }
                 const auto neighbors=adjacent(next.grid,axis,face);
                 for (const auto index : {neighbors.first,neighbors.second}) if (index != absent)
                     heat[index].add(remainder.value().shared(.5*next.cells[index].mixture.mass(),new_i[face]));
@@ -153,7 +193,8 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         if (!edit.inject) { energy.add(packet.resolved_kinetic_energy.negated()); px.add(packet.momentum_x.negated()); py.add(packet.momentum_y.negated()); }
         account_state(energy,px,py,registry_,*thermodynamics_,next,settings_.gravity_m_per_s2,true);
         require(energy.within_bound() && px.within_bound() && py.within_bound(),"Fluid transfer U+K+potential/momentum account failed");
-        require(!thermodynamics_->evaluate(cell.mixture,next.grid.volume_m3()).has_vacuum,
+        require((voids && cell.mixture.mass() == 0) ||
+            !thermodynamics_->evaluate(cell.mixture,voids ? next.occupied_volumes_m3[edit.cell_index] : grid_volume).has_vacuum,
             "Fluid removal would create an unsupported liquid free surface");
         parcels.push_back(std::move(packet));
     }

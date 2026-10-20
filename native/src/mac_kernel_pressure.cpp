@@ -335,11 +335,12 @@ void evaluate_cells(Context& c, const Fields& f, EosCache& e) {
                 e.M[i] = s.M; e.Cv[i] = s.Cv; e.off[i] = s.off; e.nR[i] = s.nR; e.Nl[i] = s.Nl; e.kind[i] = s.kind;
             } else s = Stats{e.M[i], e.Cv[i], e.off[i], e.nR[i], e.Nl[i], e.kind[i]};
             if (s.kind == empty) { if (f.U[i] != 0) reject("Production kernel empty cell has internal energy"); continue; }
+            const double V = material_volume(f, g.V, i);
             if (s.kind == gas_cell) {
                 const double A = f.U[i] - s.off;
                 if (!(A > 0)) reject("Production kernel cell left its EOS domain");
-                const double T = A / s.Cv, p = s.nR * T / g.V;
-                e.T[i] = T; e.p[i] = p; e.Vg[i] = g.V; e.Eel[i] = 0; e.Ceq[i] = s.Cv; e.comp[i] = s.Cv / (s.Cv + s.nR) * g.V / p; e.lcomp[i] = 0;
+                const double T = A / s.Cv, p = s.nR * T / V;
+                e.T[i] = T; e.p[i] = p; e.Vg[i] = V; e.Eel[i] = 0; e.Ceq[i] = s.Cv; e.comp[i] = s.Cv / (s.Cv + s.nR) * V / p; e.lcomp[i] = 0;
                 continue;
             }
             if (s.kind == liquid_cell && !refresh) {
@@ -351,7 +352,7 @@ void evaluate_cells(Context& c, const Fields& f, EosCache& e) {
                 continue;
             }
             State st;
-            if (!evaluate_state(c.model, f, g.N, i, s, f.U[i], g.V, st)) reject("Production kernel cell left its EOS domain");
+            if (!evaluate_state(c.model, f, g.N, i, s, f.U[i], V, st)) reject("Production kernel cell left its EOS domain");
             e.T[i] = st.T; e.p[i] = st.p; e.Vg[i] = st.Vg; e.Eel[i] = st.Eel; e.Ceq[i] = st.Ceq; e.comp[i] = st.comp; e.lcomp[i] = st.liquid_comp;
         }
     });
@@ -385,7 +386,17 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     // transport stage time-centres the weight (MAC_PRESSURE.md).
     const bool sharp_gravity = gravity != 0 && c.settings.reconstruction == MacMaterialReconstruction::interface_plic;
     if (sharp_gravity) interface_gravity_weights(c, f, true, ws.gravity_weight_start);
-    const auto weight_y = [&](std::size_t fidx) { return sharp_gravity ? ws.gravity_weight_start[fidx] : ws.iy[fidx]; };
+    // Void phase without sharp weights: a resting liquid surface moves its top
+    // face's half of its weight to its bottom face (MAC_VACUUM.md, "Liquid surfaces").
+    bool rested = false;
+    if (gravity != 0 && !sharp_gravity && !f.Vo.empty()) {
+        ws.gravity_weight_start = ws.iy;
+        for (std::size_t i = 0; i < N; ++i) if (resting_surface(c, f, e.M, i)) {
+            const double half = .5 * e.M[i];
+            ws.gravity_weight_start[g.top_face(i)] -= half; ws.gravity_weight_start[g.bottom_face(i)] += half; rested = true;
+        }
+    }
+    const auto weight_y = [&](std::size_t fidx) { return sharp_gravity || rested ? ws.gravity_weight_start[fidx] : ws.iy[fidx]; };
     ws.anchor.resize(N);
     for (auto* v : {&ws.dV, &ws.dW, &ws.cc, &ws.dU, &ws.bdiag}) v->assign(N, 0);
     for (auto* v : {&ws.res, &ws.tdV, &ws.tdW, &ws.tcc, &ws.tres, &ws.Vmat, &ws.tdU}) v->resize(N);
@@ -393,7 +404,15 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     for (auto* v : {&ws.dp0y, &ws.wy, &ws.qy, &ws.body_work_y}) v->assign(g.NY, 0);
     ws.full_qx.reset(g.NX); ws.full_qy.reset(g.NY);
     ws.sx.resize(g.NX); ws.sy.resize(g.NY);
-    const auto occupied = [&](Index i) { return i != none && (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell); };
+    // Void phase (MAC_VACUUM.md, "Liquid surfaces"): a liquid-only cell holding
+    // void sits at zero pressure, its liquid at zero-pressure density. It is no
+    // pressure unknown, but its mass still loads its faces.
+    const bool voids = c.settings.vacuum == MacVacuumRepresentation::void_phase;
+    ws.surface.assign(N, 0); ws.void0.assign(N, 0);
+    if (voids && !f.Vo.empty()) for (std::size_t i = 0; i < N; ++i) ws.surface[i] = e.kind[i] == liquid_cell && f.Vo[i] < g.V;
+    const auto occupied = [&](Index i) {
+        return i != none && (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell) && !ws.surface[i];
+    };
     const auto p0 = [&](Index i) { return occupied(i) ? e.p[i] : 0.; };
     // Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces"): a
     // boiling cell converts the heat conducted to its interface, Q / L, at
@@ -431,7 +450,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 const auto& pair = c.phase_pairs[ws.interface_pair[i] - 1];
                 State before;
                 if (!evaluate_state(c.model, f, N, i, Stats{e.M[i], e.Cv[i], e.off[i], e.nR[i], e.Nl[i], e.kind[i]},
-                        f.U[i] - ws.interface_heat[i], g.V, before)) continue;
+                        f.U[i] - ws.interface_heat[i], material_volume(f, g.V, i), before)) continue;
                 // At the cell's own temperature, so conversion leaves it unchanged.
                 const double latent = mac_latent_heat(*c.thermodynamics, pair.liquid_profile, pair.vapour_profile, before.T, before.p);
                 if (!(latent > 0)) continue;
@@ -443,26 +462,6 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         });
     }
     if (boiling) for (std::size_t i = 0; i < N; ++i) if (ws.interface_latent[i] != 0) ws.dV[i] = ws.interface_volume[i]; // root starts at x = 0
-    // Anchors.
-    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-            auto& a = ws.anchor[i]; a = Anchor{}; a.kind = e.kind[i];
-            if (e.kind[i] == empty || e.kind[i] == solid_cell) continue;
-            a.V0 = g.V; a.p0 = e.p[i]; a.T0 = e.T[i]; a.Vg0 = e.Vg[i]; a.Cv = e.Cv[i]; a.nR = e.nR[i];
-            a.k = a.nR / a.Cv; a.comp = e.comp[i];
-            if (a.kind == liquid_cell) {
-                std::size_t count = 0, which = 0;
-                for (const auto k : c.model.liquids) if (f.m[k * N + i] != 0) { ++count; which = k; }
-                if (count == 1) {
-                    const auto& sp = c.model.species[which];
-                    a.single_liquid = true; a.K = sp.bulk; a.Nl = f.m[which * N + i] / sp.rho0; a.qmax = sp.maximum_ratio - 1;
-                }
-            }
-            ws.cc[i] = 2 * a.comp; // -1/W'(0)
-        }
-    });
-    // Anchor pressure differences and link coefficients per face, then the
-    // boundary diagonals (faces to empty cells) gathered per cell.
     const auto weight = [&](double inertia) { return .5 * dt * A * (dt * A / inertia); };
     const auto face_setup = [&](const std::vector<Index>& fl, const std::vector<Index>& fr, const std::vector<double>& I,
         std::vector<double>& dp0, std::vector<double>& w, std::size_t fidx) {
@@ -470,46 +469,17 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         if (I[fidx] > 0) dp0[fidx] = p0(l) - p0(r);
         if (l != none && r != none && I[fidx] > 0 && occupied(l) && occupied(r)) w[fidx] = weight(I[fidx]);
     };
-    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
-        for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col)
-            face_setup(g.xl, g.xr, ws.ix, ws.dp0x, ws.wx, g.xface(col, row));
-        for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col)
-            face_setup(g.yl, g.yr, ws.iy, ws.dp0y, ws.wy, g.yface(col, row));
-    });
-    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-            if (!occupied(static_cast<Index>(i))) continue;
-            double d = 0;
-            const auto empty_side = [&](Index other, double inertia) { if (other != none && !occupied(other) && inertia > 0) d += weight(inertia); };
-            const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-            empty_side(g.xl[lf], ws.ix[lf]); empty_side(g.xr[rf], ws.ix[rf]);
-            empty_side(g.yl[bf], ws.iy[bf]); empty_side(g.yr[tf], ws.iy[tf]);
-            ws.bdiag[i] = d;
-        }
-    });
     // Midpoint sweep of a movable face with work-pressure increments:
     // swept = A dt (u0 + dt (A dp + I a) / (2 I)) = c0 + c1 (dW_l - dW_r),
     // c0 = A dt u0 + (A dt^2 / (2 I)) (A dp0 + I a), c1 = A^2 dt^2 / (2 I).
     // J and I are fixed during the root, so both coefficients are formed once.
     const auto movable_x = [&](std::size_t fidx) { return g.xl[fidx] != none && g.xr[fidx] != none && ws.ix[fidx] > 0; };
     const auto movable_y = [&](std::size_t fidx) { return g.yl[fidx] != none && g.yr[fidx] != none && ws.iy[fidx] > 0; };
-    for (auto* v : {&ws.sx, &ws.keep}) v->assign(g.NX, 0);   // sx: c0, keep: c1 (x faces)
-    for (auto* v : {&ws.sy, &ws.jsum}) v->assign(g.NY, 0);   // sy: c0, jsum: c1 (y faces)
     const auto coefficients = [&](double J, double I, double dp0, double accel, double& c0, double& c1, double W) {
         const double half = A * dt * dt / (2 * I);
         c0 = A * dt * (J / I) + half * (A * dp0 + W * accel);
         c1 = half * A;
     };
-    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
-        for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
-            const auto fidx = g.xface(col, row);
-            if (movable_x(fidx)) coefficients(f.jx[fidx], ws.ix[fidx], ws.dp0x[fidx], 0, ws.sx[fidx], ws.keep[fidx], ws.ix[fidx]);
-        }
-        for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
-            const auto fidx = g.yface(col, row);
-            if (movable_y(fidx)) coefficients(f.jy[fidx], ws.iy[fidx], ws.dp0y[fidx], -gravity, ws.sy[fidx], ws.jsum[fidx], weight_y(fidx));
-        }
-    });
     const auto& c0x = ws.sx; const auto& c1x = ws.keep; const auto& c0y = ws.sy; const auto& c1y = ws.jsum;
     const auto interface_work = [&](std::size_t i, double D, Work& out) {
         if (ws.anchor[i].kind != mixed_cell || D == 0) return false;
@@ -592,7 +562,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                     const double sb = c0y[bf] + c1y[bf] * (dw[down + col] - di);
                     const double st = c0y[tf] + c1y[tf] * (di - dw[up + col]);
                     // Left/bottom faces moving +: the cell shrinks by their sweep.
-                    res[i] = ((dv[i] + sl) - sr) + (sb - st);
+                    res[i] = (((dv[i] - ws.void0[i]) + sl) - sr) + (sb - st);
+                    // Relative to the swept cell, not its material volume: face
+                    // sweep rounding scales with the grid cell.
                     norm = std::max(norm, std::abs(res[i]) / (g.V + dv[i]));
                 }
             }
@@ -601,45 +573,125 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         double norm = 0; for (const double v : norms) norm = std::max(norm, v);
         return norm;
     };
-    lap(c.timing.eos_ms, t_mark);
     const double tolerance = 16 * eps;
-    double norm = evaluate(ws.dV, ws.dW, ws.cc, ws.res, ws.dU);
-    if (!std::isfinite(norm)) reject("Production pressure anchor left its EOS domain");
-    LinearSystem sys; sys.g = &g; sys.wx = ws.wx; sys.wy = ws.wy;
-    sys.active.assign(N, 0); sys.diag.assign(N, 0);
-    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.active[i] = occupied(static_cast<Index>(i)) ? 1 : 0;
-    });
-    std::size_t newton = 0;
-    const std::size_t linear_limit = 4000;
-    while (norm > tolerance) {
-        if (newton == 80) reject("Production pressure root did not converge; retry smaller timestep");
+    // The void phase settles which liquid cells hold void by an active set: a
+    // surface cell squeezed past its void joins the solve, its material volume
+    // change offset by that void; a liquid cell pulled into tension opens one.
+    for (int pass = 0;; ++pass) {
+        // Anchors.
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.diag[i] = sys.active[i] ? ws.cc[i] + ws.bdiag[i] : 0;
-        });
-        // Inexact Newton: the linear error only needs to stay below the
-        // quadratically convergent nonlinear residual (relative tolerance
-        // ~0.1 * norm), with an absolute floor at a fraction of the target.
-        const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3);
-        const auto solved = solve_linear(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit);
-        c.counters.linear += solved.iterations;
-        double fraction = 1; bool accepted = false;
-        for (int attempt = 0; attempt < 48; ++attempt) {
-            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) ws.tdV[i] = sys.active[i] ? ws.dV[i] - fraction * ws.cc[i] * ws.sol[i] : 0;
-            });
-            const double next = evaluate(ws.tdV, ws.tdW, ws.tcc, ws.tres, ws.tdU);
-            if (std::isfinite(next) && (next <= tolerance || next < norm * (1 - 1e-4 * fraction))) {
-                ws.dV.swap(ws.tdV); ws.dW.swap(ws.tdW); ws.cc.swap(ws.tcc); ws.res.swap(ws.tres); ws.dU.swap(ws.tdU);
-                norm = next; accepted = true; break;
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                auto& a = ws.anchor[i]; a = Anchor{}; a.kind = e.kind[i];
+                if (e.kind[i] == empty || e.kind[i] == solid_cell) continue;
+                a.V0 = material_volume(f, g.V, i); a.p0 = e.p[i]; a.T0 = e.T[i]; a.Vg0 = e.Vg[i]; a.Cv = e.Cv[i]; a.nR = e.nR[i];
+                a.k = a.nR / a.Cv; a.comp = e.comp[i]; a.tension = voids && a.kind == liquid_cell;
+                if (a.kind == liquid_cell) {
+                    std::size_t count = 0, which = 0;
+                    for (const auto k : c.model.liquids) if (f.m[k * N + i] != 0) { ++count; which = k; }
+                    if (count == 1) {
+                        const auto& sp = c.model.species[which];
+                        a.single_liquid = true; a.K = sp.bulk; a.Nl = f.m[which * N + i] / sp.rho0; a.qmax = sp.maximum_ratio - 1;
+                    } else if (a.tension) {
+                        // Several liquids: the softest bounds the tension range.
+                        a.K = std::numeric_limits<double>::infinity();
+                        for (const auto k : c.model.liquids) if (f.m[k * N + i] != 0) a.K = std::min(a.K, c.model.species[k].bulk);
+                    }
+                }
+                ws.cc[i] = 2 * a.comp; // -1/W'(0)
             }
-            ++c.counters.line_search; fraction *= .5;
+        });
+        // Anchor pressure differences and link coefficients per face, then the
+        // boundary diagonals (faces to empty cells) gathered per cell.
+        std::fill(ws.wx.begin(), ws.wx.end(), 0.); std::fill(ws.wy.begin(), ws.wy.end(), 0.);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col)
+                face_setup(g.xl, g.xr, ws.ix, ws.dp0x, ws.wx, g.xface(col, row));
+            for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col)
+                face_setup(g.yl, g.yr, ws.iy, ws.dp0y, ws.wy, g.yface(col, row));
+        });
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                if (!occupied(static_cast<Index>(i))) continue;
+                double d = 0;
+                const auto empty_side = [&](Index other, double inertia) { if (other != none && !occupied(other) && inertia > 0) d += weight(inertia); };
+                const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                empty_side(g.xl[lf], ws.ix[lf]); empty_side(g.xr[rf], ws.ix[rf]);
+                empty_side(g.yl[bf], ws.iy[bf]); empty_side(g.yr[tf], ws.iy[tf]);
+                ws.bdiag[i] = d;
+            }
+        });
+        for (auto* v : {&ws.sx, &ws.keep}) v->assign(g.NX, 0);   // sx: c0, keep: c1 (x faces)
+        for (auto* v : {&ws.sy, &ws.jsum}) v->assign(g.NY, 0);   // sy: c0, jsum: c1 (y faces)
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t row = y0; row < y1; ++row) for (std::size_t col = 0; col < g.XW; ++col) {
+                const auto fidx = g.xface(col, row);
+                if (movable_x(fidx)) coefficients(f.jx[fidx], ws.ix[fidx], ws.dp0x[fidx], 0, ws.sx[fidx], ws.keep[fidx], ws.ix[fidx]);
+            }
+            for (std::size_t row = y0; row < g.block_yrow_end(blk); ++row) for (std::size_t col = 0; col < g.W; ++col) {
+                const auto fidx = g.yface(col, row);
+                if (movable_y(fidx)) coefficients(f.jy[fidx], ws.iy[fidx], ws.dp0y[fidx], -gravity, ws.sy[fidx], ws.jsum[fidx], weight_y(fidx));
+            }
+        });
+        lap(c.timing.eos_ms, t_mark);
+        double norm = evaluate(ws.dV, ws.dW, ws.cc, ws.res, ws.dU);
+        if (!std::isfinite(norm)) reject("Production pressure anchor left its EOS domain");
+        LinearSystem sys; sys.g = &g; sys.wx = ws.wx; sys.wy = ws.wy;
+        sys.active.assign(N, 0); sys.diag.assign(N, 0);
+        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.active[i] = occupied(static_cast<Index>(i)) ? 1 : 0;
+        });
+        std::size_t newton = 0;
+        const std::size_t linear_limit = 4000;
+        while (norm > tolerance) {
+            if (newton == 80) reject("Production pressure root did not converge; retry smaller timestep");
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.diag[i] = sys.active[i] ? ws.cc[i] + ws.bdiag[i] : 0;
+            });
+            // Inexact Newton: the linear error only needs to stay below the
+            // quadratically convergent nonlinear residual (relative tolerance
+            // ~0.1 * norm), with an absolute floor at a fraction of the target.
+            const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3);
+            const auto solved = solve_linear(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit);
+            c.counters.linear += solved.iterations;
+            double fraction = 1; bool accepted = false;
+            for (int attempt = 0; attempt < 48; ++attempt) {
+                c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                    for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) ws.tdV[i] = sys.active[i] ? ws.dV[i] - fraction * ws.cc[i] * ws.sol[i] : 0;
+                });
+                const double next = evaluate(ws.tdV, ws.tdW, ws.tcc, ws.tres, ws.tdU);
+                if (std::isfinite(next) && (next <= tolerance || next < norm * (1 - 1e-4 * fraction))) {
+                    ws.dV.swap(ws.tdV); ws.dW.swap(ws.tdW); ws.cc.swap(ws.tcc); ws.res.swap(ws.tres); ws.dU.swap(ws.tdU);
+                    norm = next; accepted = true; break;
+                }
+                ++c.counters.line_search; fraction *= .5;
+            }
+            if (kernel_debug()) std::fprintf(stderr, "  newton %zu norm %.3e linear %zu res %.3e conv %d accepted %d\n", newton, norm, solved.iterations, solved.residual, solved.converged ? 1 : 0, accepted ? 1 : 0);
+            if (!accepted) reject("Production pressure line search failed; retry smaller timestep");
+            ++newton;
         }
-        if (kernel_debug()) std::fprintf(stderr, "  newton %zu norm %.3e linear %zu res %.3e conv %d accepted %d\n", newton, norm, solved.iterations, solved.residual, solved.converged ? 1 : 0, accepted ? 1 : 0);
-        if (!accepted) reject("Production pressure line search failed; retry smaller timestep");
-        ++newton;
+        c.counters.newton += newton;
+        if (!voids) break;
+        const auto increment = [&](Index n) { return n != none && occupied(n) ? ws.dW[n] : 0.; };
+        bool changed = false;
+        for (std::size_t i = 0; i < N; ++i) {
+            if (g.wall[i] || e.kind[i] != liquid_cell) continue;
+            const auto cell = static_cast<Index>(i);
+            if (ws.surface[i]) {
+                const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                const double sl = c0x[lf] + c1x[lf] * (increment(g.xl[lf]) - increment(cell)), sr = c0x[rf] + c1x[rf] * (increment(cell) - increment(g.xr[rf]));
+                const double sb = c0y[bf] + c1y[bf] * (increment(g.yl[bf]) - increment(cell)), st = c0y[tf] + c1y[tf] * (increment(cell) - increment(g.yr[tf]));
+                if (g.V + ((sr - sl) + (st - sb)) < e.Nl[i]) { ws.surface[i] = 0; ws.void0[i] = g.V - material_volume(f, g.V, i); changed = true; }
+            } else {
+                Work w;
+                if (!isentropic_work(c.model, f, N, i, ws.anchor[i], ws.dV[i], w)) reject("Production void-phase liquid left its EOS domain");
+                if (w.p1 < -64 * eps * (ws.anchor[i].V0 / ws.anchor[i].comp)) { ws.surface[i] = 1; ws.void0[i] = 0; changed = true; }
+            }
+        }
+        if (!changed) break;
+        if (pass == 8) reject("Production void-phase surface set did not settle; retry smaller timestep");
+        ws.dV.assign(N, 0);
+        if (boiling) for (std::size_t i = 0; i < N; ++i) if (ws.interface_latent[i] != 0) ws.dV[i] = ws.interface_volume[i];
     }
-    c.counters.newton += newton;
     // Publish the root: canonical J, midpoint sweeps, U and material volume.
     const auto dWfinal = [&](Index i) { return occupied(i) ? ws.dW[i] : 0.; };
     struct Publish {
@@ -701,6 +753,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         return o;
     });
     // Material volumes, U and the closure diagnostic after every sweep exists.
+    // Void phase: a cell's swept volume holds its material volume and its
+    // unchanged void (the face sweeps move the material); transport reads it.
+    if (voids) ws.Vswept.resize(N);
     auto volumes = c.exec.partials<Publish>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Publish o;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -708,9 +763,15 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             // Geometric volume change: right/top faces moving outward expand the cell.
             DD sweeps; sweeps.add(ws.qx[g.right_face(i)]); sweeps.add(-ws.qx[g.left_face(i)]);
             sweeps.add(ws.qy[g.top_face(i)]); sweeps.add(-ws.qy[g.bottom_face(i)]);
+            DD swept; swept.add(g.V); swept.add(sweeps.hi); swept.add(sweeps.lo);
+            if (ws.surface[i]) {
+                // A liquid surface keeps its zero-pressure volume; the sweeps move its void.
+                ws.Vmat[i] = e.Nl[i]; ws.Vswept[i] = std::max(swept.value(), e.Nl[i]);
+                continue;
+            }
             if (!occupied(static_cast<Index>(i))) {
-                DD v; v.add(g.V); v.add(sweeps.hi); v.add(sweeps.lo);
-                ws.Vmat[i] = v.value();
+                ws.Vmat[i] = swept.value();
+                if (voids) ws.Vswept[i] = ws.Vmat[i];
                 if (!(ws.Vmat[i] > 0)) o.failed = 1;
                 continue;
             }
@@ -718,8 +779,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             if (add_internal_energy(f, i, ws.dU[i], o.energy_rounding)) ++o.unresolved;
             o.energy += std::abs(before) + std::abs(ws.dU[i]);
 
-            ws.Vmat[i] = g.V + ws.dV[i];
-            DD r; r.add(ws.dV[i]); r.add(-sweeps.hi); r.add(-sweeps.lo);
+            ws.Vmat[i] = ws.anchor[i].V0 + ws.dV[i];
+            if (voids) ws.Vswept[i] = !f.Vo.empty() && f.Vo[i] < g.V ? std::max(swept.value(), ws.Vmat[i]) : ws.Vmat[i];
+            DD r; r.add(ws.dV[i]); r.add(-ws.void0[i]); r.add(-sweeps.hi); r.add(-sweeps.lo);
             o.closure = std::max(o.closure, std::abs(r.value()) / g.V);
         }
         return o;
@@ -775,7 +837,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             if (ws.qx[r] > 0) out += ws.qx[r];
             if (ws.qy[b] < 0) out -= ws.qy[b];
             if (ws.qy[t] > 0) out += ws.qy[t];
-            if (out > ws.Vmat[i] * limit) exceeded = 1;
+            if (out > (voids ? ws.Vswept : ws.Vmat)[i] * limit) exceeded = 1;
         }
         return exceeded;
     });

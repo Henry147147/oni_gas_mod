@@ -152,15 +152,20 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     });
     bool mixed = false; for (const int v : any_mixed) mixed = mixed || v != 0;
     const double area = g.h * g.depth;
+    // Void phase: a face conducts over the part both cells' material touches.
+    std::vector<std::array<double, 4>> aperture; void_apertures(c, f, aperture);
+    const auto contact = [&](Index l, Index r, int axis) {
+        return aperture.empty() ? 1. : std::min(aperture[l][axis == 0 ? 1 : 3], aperture[r][axis == 0 ? 0 : 2]);
+    };
     std::vector<double> gx(g.NX, 0), gy(g.NY, 0);
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) {
             const auto l = g.xl[fidx], r = g.xr[fidx];
-            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gx[fidx] = conductance(k[l], k[r], g.h, area);
+            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gx[fidx] = conductance(k[l], k[r], g.h, area) * contact(l, r, 0);
         }
         for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) {
             const auto l = g.yl[fidx], r = g.yr[fidx];
-            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gy[fidx] = conductance(k[l], k[r], g.h, area);
+            if (l != none && r != none && l != r && occupied(l) && occupied(r)) gy[fidx] = conductance(k[l], k[r], g.h, area) * contact(l, r, 1);
         }
     });
     // Sharp-interface boiling (MAC_PHASE_CHANGE.md, "Sharp interfaces"): a
@@ -171,6 +176,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     if (sharp) for (auto* v : {&ws.interface_temperature, &ws.interface_heat, &ws.interface_conductance, &ws.interface_slope}) v->assign(N, 0);
     if (sharp) ws.interface_pair.assign(N, 0);
     const bool boiling = sharp && mixed;
+    // Phase fractions are of each cell's material volume (void phase).
+    const auto volume = [&](Index n) { return material_volume(f, g.V, n); };
     std::vector<double> kgas, kliquid;
     if (boiling) {
         kgas.assign(N, 0); kliquid.assign(N, 0);
@@ -178,8 +185,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             int failed = 0;
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
                 if (e.kind[i] != mixed_cell) continue;
-                const double gas = e.Vg[i], liquid = g.V - gas;
-                if (!(gas >= mac_interface_phase_fraction * g.V && liquid >= mac_interface_phase_fraction * g.V)) continue;
+                const double held = volume(static_cast<Index>(i)), gas = e.Vg[i], liquid = held - gas;
+                if (!(gas >= mac_interface_phase_fraction * held && liquid >= mac_interface_phase_fraction * held)) continue;
                 for (std::size_t p = 0; p < c.phase_pairs.size(); ++p) {
                     const auto& pair = c.phase_pairs[p];
                     if (!(f.m[pair.liquid * N + i] > 0)) continue;
@@ -200,7 +207,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                     const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
                     for (const Index n : {g.xl[lf], g.xr[rf], g.yl[bf], g.yr[tf]}) {
                         if (n == none || n == static_cast<Index>(i)) continue;
-                        if (e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * g.V)) { beside += e.p[n]; ++gases; }
+                        if (e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * volume(n))) { beside += e.p[n]; ++gases; }
                     }
                     const double pressure = gases > 0 ? beside / gases : e.p[i];
                     try {
@@ -223,24 +230,24 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
         // cell with a liquid film beside a mostly-liquid cell with a gas film.
         // Across such a face only the cell with the larger minority phase holds
         // the interface (ties: the lower index); side-by-side cells all hold it.
-        const auto minority = [&](Index i) { return std::min(e.Vg[i], g.V - e.Vg[i]); };
+        const auto minority = [&](Index i) { return std::min(e.Vg[i], volume(i) - e.Vg[i]); };
         const auto across = [&](Index a, Index b) {
             if (a == none || b == none || a == b || ws.interface_pair[a] == 0 || ws.interface_pair[b] == 0) return false;
-            return (e.Vg[a] >= .5 * g.V) != (e.Vg[b] >= .5 * g.V) &&
+            return (e.Vg[a] >= .5 * volume(a)) != (e.Vg[b] >= .5 * volume(b)) &&
                 (minority(b) > minority(a) || (minority(b) == minority(a) && b < a));
         };
         // An interface borders the other phase: a mostly-liquid cell holds it
         // only beside a mostly-gas cell, and the reverse. Trace gas smeared
         // into a liquid's interior is left to the equilibrium relaxation.
-        const auto gaseous = [&](Index n) { return e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * g.V); };
-        const auto liquid = [&](Index n) { return e.kind[n] == liquid_cell || (e.kind[n] == mixed_cell && e.Vg[n] < .5 * g.V); };
+        const auto gaseous = [&](Index n) { return e.kind[n] == gas_cell || (e.kind[n] == mixed_cell && e.Vg[n] >= .5 * volume(n)); };
+        const auto liquid = [&](Index n) { return e.kind[n] == liquid_cell || (e.kind[n] == mixed_cell && e.Vg[n] < .5 * volume(n)); };
         std::vector<std::uint8_t> released(N, 0);
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
                 if (ws.interface_pair[i] == 0) continue;
                 const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
                 const auto self = static_cast<Index>(i);
-                const bool mostly_gas = e.Vg[i] >= .5 * g.V;
+                const bool mostly_gas = e.Vg[i] >= .5 * volume(self);
                 bool borders = false;
                 for (const Index n : {g.xl[lf], g.xr[rf], g.yl[bf], g.yr[tf]})
                     if (n != none && n != self && (mostly_gas ? liquid(n) : gaseous(n))) borders = true;
@@ -253,8 +260,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             const bool pl = ws.interface_pair[l] != 0, pr = ws.interface_pair[r] != 0;
             if (pl == pr) return;
             const auto boundary = pl ? l : r, other = pl ? r : l;
-            const bool gas_side = e.kind[other] == gas_cell || (e.kind[other] == mixed_cell && e.Vg[other] >= .5 * g.V);
-            const double depth = g.h * (gas_side ? e.Vg[boundary] / g.V : 1 - e.Vg[boundary] / g.V);
+            const bool gas_side = e.kind[other] == gas_cell || (e.kind[other] == mixed_cell && e.Vg[other] >= .5 * volume(other));
+            const double depth = g.h * (gas_side ? e.Vg[boundary] / volume(boundary) : 1 - e.Vg[boundary] / volume(boundary));
             const double inner = gas_side ? kgas[boundary] : kliquid[boundary];
             if (inner == 0 && depth > 0) { faces[fidx] = 0; return; }
             const long double resistance = static_cast<long double>(.5 * g.h) / k[other] +
@@ -366,7 +373,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                     if (e.kind[i] != mixed_cell || pinned(i)) continue;
                     const double heat = cell_heat(i), energy = f.U[i] + heat;
                     State state;
-                    if (!evaluate_state(model, f, N, i, stats(i), energy, g.V, state) || !(state.Ceq > 0)) { o.outside = true; continue; }
+                    if (!evaluate_state(model, f, N, i, stats(i), energy, material_volume(f, g.V, i), state) || !(state.Ceq > 0)) { o.outside = true; continue; }
                     const double mismatch = state.T - (start[i] + heat / sys.diag[i]);
                     const double bound = 128 * eps * (state.T + std::abs(energy) / state.Ceq);
                     o.worst = std::max(o.worst, std::abs(mismatch) / bound);
@@ -422,7 +429,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             const auto temperature = [&](double x) {
                 DD energy; energy.add(before); energy.add(x * change);
                 State state;
-                if (!evaluate_state(model, f, N, i, stats(i), energy.value(), g.V, state)) throw EosRefinement{};
+                if (!evaluate_state(model, f, N, i, stats(i), energy.value(), material_volume(f, g.V, i), state)) throw EosRefinement{};
                 return state.T;
             };
             const double after = temperature(1);
@@ -457,6 +464,8 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
     const auto fixed_y = [&](Index fidx) { return g.yl[fidx] == none || g.yr[fidx] == none; };
     struct Dof { int axis; Index face; double gradient; };
     const auto occupied = [&](std::size_t i) { return !g.wall[i] && ws.cell_mass[i] > 0; };
+    // Void phase: a partly filled cell's modes act on its material only.
+    const auto filled = [&](std::size_t i) { return f.Vo.empty() ? 1. : f.Vo[i] / g.V; };
     double heat_total = 0, wall_x = 0, wall_y = 0, ops = 0; std::size_t modes = 0, unresolved = 0;
     // One rank-one mode; returns the heat. Duplicate faces merge gradients.
     const auto relax = [&](Dof* dofs, int count, double weight, double duration, double& wx_out, double& wy_out,
@@ -510,7 +519,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
         const auto& e = ws.eos;
         const Stats stats{e.M[cell], e.Cv[cell], e.off[cell], e.nR[cell], e.Nl[cell], e.kind[cell]};
         State after;
-        if (!evaluate_state(model, f, N, cell, stats, f.U[cell], g.V, after)) throw EosRefinement{};
+        if (!evaluate_state(model, f, N, cell, stats, f.U[cell], material_volume(f, g.V, cell), after)) throw EosRefinement{};
         const double contribution = change / after.T;
         if (std::isnormal(contribution)) entropy.add(contribution);
         else entropy.add(MacEnergy::from_double(change).shared(1, after.T));
@@ -541,7 +550,7 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                                 const auto b = g.yface(x, y), t = g.yface(x, (y + 1) % g.YH);
                                 for (int kk = 0; kk < 2; ++kk) {
                                     const int kind = sweep == 0 ? kk : 1 - kk;
-                                    const double weight = kind == 0 ? shear_weight : div_weight;
+                                    const double weight = (kind == 0 ? shear_weight : div_weight) * filled(cell);
                                     if (!(weight > 0)) continue;
                                     Dof d[4] = {{0, l, -grad}, {0, r, grad}, {1, b, kind == 0 ? grad : -grad}, {1, t, kind == 0 ? -grad : grad}};
                                     ++o.modes;
@@ -556,7 +565,8 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
                                 if (!ok) continue;
                                 Dof d[4] = {{0, g.xface(x, bottom), -grad}, {0, g.xface(x, y), grad}, {1, g.yface(left, y), -grad}, {1, g.yface(x, y), grad}};
                                 ++o.modes;
-                                const double heat = relax(d, 4, shear_weight, .5 * seconds, o.wx, o.wy, o.ops, o.unresolved_momentum);
+                                double share_filled = 1; for (const auto cc : cells) share_filled = std::min(share_filled, filled(cc));
+                                const double heat = relax(d, 4, shear_weight * share_filled, .5 * seconds, o.wx, o.wy, o.ops, o.unresolved_momentum);
                                 if (heat != 0) {
                                     const double share = heat / 4;
                                     for (const auto cc : cells) deposit(cc, share, o.unresolved, o.unresolved_resolution, o.stored, o.entropy, o.energy);

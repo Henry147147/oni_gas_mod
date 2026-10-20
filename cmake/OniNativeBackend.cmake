@@ -260,6 +260,7 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_gate_m4_two_liquids COMMAND ma_mac_multiphase_gates M4)
     add_test(NAME mac_gate_m5_stefan_coarse COMMAND ma_mac_multiphase_gates M5 --quick)
     add_test(NAME mac_gate_v_vacuum_front COMMAND ma_mac_vacuum_front_diagnostic --gate)
+    add_test(NAME mac_gate_v_vacuum_front_production COMMAND ma_mac_vacuum_front_diagnostic --gate-production)
     add_test(NAME mac_void_phase COMMAND ma_mac_void_phase_tests)
     add_test(NAME mac_phase_change COMMAND ma_mac_phase_change_tests)
     set_target_properties(ma_mac_gravity_gates ma_mac_free_surface_gates ma_mac_multiphase_gates

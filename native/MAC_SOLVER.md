@@ -9,8 +9,9 @@ SimDLL must not be used as the solver. The ONI native domain
 
 The solver works on a closed regular two-dimensional MAC grid. Exact empty-cell
 inventory and gas arrival are supported. The opt-in [void phase](MAC_VACUUM.md#void-phase)
-tracks each cell's occupied volume and passes the vacuum-front gate; it is
-reference-only and gas-only so far.
+tracks each cell's occupied volume and passes the vacuum-front gate on both the
+reference path and the production kernel. The production kernel also holds liquid
+surfaces facing vacuum; the reference path is gas-only.
 Primary state is each cell's constituent masses, stored internal energy U and passive
 quantities, plus the canonical normal momentum J on every face. Every derived quantity
 (velocity, kinetic energy K, pressure, temperature) is computed from those; nothing
@@ -140,7 +141,7 @@ in checkpoints and never change meaning; new methods get new values.
 | `viscosity` (shear, bulk Pa·s) | 0, 0 (disabled) | nonnegative coefficients |
 | `numerical_kernel` | 0 `reference` | 2 `production`; unported selections use the audited reference; retired value 1 rejects |
 | `diffusion` | disabled for low-level compatibility; new game gas regions explicitly select physical; composes with either kernel | physical 1×, accelerated (initial preference 100×) |
-| `vacuum` | 0 `empty_cells` | 1 `void_phase` (gas only, reference path; [void phase](MAC_VACUUM.md#void-phase)) |
+| `vacuum` | 0 `empty_cells` | 1 `void_phase` ([void phase](MAC_VACUUM.md#void-phase); liquid surfaces, conduction and viscosity in the production kernel with material selectors 1 and 3) |
 | `phase_change` | 0 `none` | 1 `saturation` (pressure-dependent boiling of calibrated pairs, with [sharp boiling interfaces](MAC_PHASE_CHANGE.md#sharp-interfaces) in the production kernel; [phase change](MAC_PHASE_CHANGE.md)); checkpoint version 11 |
 
 The native domain keeps these physical selectors and explicitly selects numerical

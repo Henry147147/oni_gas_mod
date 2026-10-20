@@ -134,6 +134,8 @@ Fluid point transfers, diffusion and the void phase combine with phase change on
 as they already do with liquids.
 
 Phase-change owners checkpoint as [version 11](MAC_CHECKPOINT.md#version-assignment).
+With the void phase, liquid resting in vacuum boils into its cell's void
+([vacuum](MAC_VACUUM.md#phase-change)).
 
 ## Gate M5
 

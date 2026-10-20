@@ -62,7 +62,6 @@ void require_supported(const MacClosedSettings& s) {
     require(s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
         s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed,
         "Production kernel does not support monotone regularization (compression/heat selector 4)");
-    require(s.vacuum == MacVacuumRepresentation::empty_cells, "Production kernel does not support the void phase");
 }
 Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state) {
     eos.validate_registry(registry);
@@ -105,6 +104,8 @@ std::size_t load(const Exec& exec, const Model& model, const Grid& g, const MacT
     } });
     require(state.momentum_x.size() == g.NX && state.momentum_y.size() == g.NY, "Production kernel momentum shape differs");
     f.jx = state.momentum_x; f.jy = state.momentum_y;
+    require(state.occupied_volumes_m3.empty() || state.occupied_volumes_m3.size() == N, "Production kernel occupied-volume shape differs");
+    f.Vo = state.occupied_volumes_m3;
     std::size_t rounded = 0;
     for (const auto* full : {&state.full_momentum_x, &state.full_momentum_y})
         for (const auto& v : *full) if (v.project().rounded) ++rounded;
@@ -124,6 +125,7 @@ void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f,
     } });
     out.momentum_x = f.jx; out.momentum_y = f.jy;
     out.full_momentum_x.clear(); out.full_momentum_y.clear();
+    out.occupied_volumes_m3 = f.Vo;
 }
 // Interval totals per audited quantity, from deterministic per-block
 // partials: double-double signed sum, double-double absolute operand sum,
@@ -208,14 +210,15 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
             const auto st0 = cell_stats(model, f, N, i);
             if (st0.kind == empty) continue;
             State st;
-            if (!evaluate_state(model, f, N, i, st0, f.U[i], g.V, st)) reject("Production interval endpoint left its EOS domain");
+            const double volume = material_volume(f, g.V, i);
+            if (!evaluate_state(model, f, N, i, st0, f.U[i], volume, st)) reject("Production interval endpoint left its EOS domain");
             // The headspace nRT/p carries the EOS root's volume tolerance. A
             // gas-dominated mixed cell uses the closure V - Vliquid instead
             // (MAC_HEAT.md, "Entropy measurement").
             double headspace = st.Vg;
             if (st0.kind == mixed_cell) {
                 const double liquid = liquid_at(model, f, N, i, st.p).volume;
-                if (liquid <= .5 * g.V) headspace = g.V - liquid;
+                if (liquid <= .5 * volume) headspace = volume - liquid;
             }
             for (std::size_t k = 0; k < model.K(); ++k) {
                 const double m = f.m[k * N + i]; if (m == 0) continue;
@@ -282,13 +285,14 @@ std::string quantity_name(const Context& c, std::size_t q) {
 void copy_fields(const Exec& exec, const Grid& g, const Model& model, const Fields& from, Fields& to) {
     const auto N = g.N;
     to.m.resize(from.m.size()); to.U.resize(from.U.size()); to.U_remainder.resize(from.U_remainder.size()); to.q.resize(from.q.size());
-    to.jx.resize(from.jx.size()); to.jy.resize(from.jy.size());
+    to.jx.resize(from.jx.size()); to.jy.resize(from.jy.size()); to.Vo.resize(from.Vo.size());
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         const auto a = y0 * g.W, b = y1 * g.W;
         for (std::size_t k = 0; k < model.K(); ++k) std::copy(from.m.begin() + static_cast<std::ptrdiff_t>(k * N + a), from.m.begin() + static_cast<std::ptrdiff_t>(k * N + b), to.m.begin() + static_cast<std::ptrdiff_t>(k * N + a));
         for (std::size_t p = 0; p < model.P(); ++p) std::copy(from.q.begin() + static_cast<std::ptrdiff_t>(p * N + a), from.q.begin() + static_cast<std::ptrdiff_t>(p * N + b), to.q.begin() + static_cast<std::ptrdiff_t>(p * N + a));
         std::copy(from.U.begin() + static_cast<std::ptrdiff_t>(a), from.U.begin() + static_cast<std::ptrdiff_t>(b), to.U.begin() + static_cast<std::ptrdiff_t>(a));
         std::copy(from.U_remainder.begin() + static_cast<std::ptrdiff_t>(a), from.U_remainder.begin() + static_cast<std::ptrdiff_t>(b), to.U_remainder.begin() + static_cast<std::ptrdiff_t>(a));
+        if (!from.Vo.empty()) std::copy(from.Vo.begin() + static_cast<std::ptrdiff_t>(a), from.Vo.begin() + static_cast<std::ptrdiff_t>(b), to.Vo.begin() + static_cast<std::ptrdiff_t>(a));
         std::copy(from.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW), from.jx.begin() + static_cast<std::ptrdiff_t>(y1 * g.XW), to.jx.begin() + static_cast<std::ptrdiff_t>(y0 * g.XW));
         std::copy(from.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W), from.jy.begin() + static_cast<std::ptrdiff_t>(g.block_yrow_end(blk) * g.W), to.jy.begin() + static_cast<std::ptrdiff_t>(y0 * g.W));
     });
@@ -319,10 +323,11 @@ std::size_t retained_bytes(const Workspaces& w) {
         &ws.gravity_weight_start, &ws.gravity_weight_end, &ws.gravity_alpha, &ws.gravity_total, &ws.gravity_lower, &ws.gravity_mass,
         &ws.gravity_fraction, &ws.px_energy_remainder, &ws.py_energy_remainder, &ws.retained_energy_remainder,
         &ws.interface_temperature, &ws.interface_heat, &ws.interface_conductance, &ws.interface_slope,
-        &ws.interface_latent, &ws.interface_mass, &ws.interface_volume}) add(*v);
+        &ws.interface_latent, &ws.interface_mass, &ws.interface_volume, &ws.Vswept, &ws.filled, &ws.material_x, &ws.void_x,
+        &ws.material_y, &ws.void_y, &ws.retained_material, &ws.retained_void}) add(*v);
     add(ws.interface_pair);
     add(ws.dual_has_n); add(ws.dual_has_t); add(ws.flag); add(ws.two_phase); add(ws.phase_liquids); add(ws.phase_heavy); add(ws.gravity_heavy);
-    for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->U_remainder); add(f->q); add(f->jx); add(f->jy); }
+    for (const auto* f : {&w.start, &w.current, &w.trial}) { add(f->m); add(f->U); add(f->U_remainder); add(f->q); add(f->jx); add(f->jy); add(f->Vo); }
     return total;
 }
 Workspaces& workspaces() { static thread_local Workspaces w; return w; }
@@ -364,10 +369,19 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         require(c.phase_pairs.size() < 255, "Too many production saturation pairs");
     }
     report.rounded_range_inputs = load(c.exec, model, g, source, w.start);
+    require(settings.vacuum == MacVacuumRepresentation::void_phase || w.start.Vo.empty(), "MAC occupied volumes require the void phase");
     for (std::size_t i = 0; i < g.N; ++i) {
         if (g.wall[i]) {
             for (std::size_t k = 0; k < model.K(); ++k) require(w.start.m[k * g.N + i] == 0, "Production kernel solid contains fluid");
             require(w.start.U[i] == 0, "Production kernel solid contains energy");
+        }
+        if (!w.start.Vo.empty()) {
+            const double occupied = w.start.Vo[i]; const auto st = cell_stats(model, w.start, g.N, i);
+            require(std::isfinite(occupied) && (g.wall[i] || st.M == 0 ? occupied == 0 : occupied > 0 && occupied <= g.V),
+                "Invalid MAC occupied volume");
+            // A partly filled liquid-only cell holds its liquid at zero pressure.
+            require(st.kind != liquid_cell || occupied == g.V || std::abs(occupied - st.Nl) <= 32 * eps * g.V,
+                "A void-phase liquid surface must hold its liquid at zero pressure");
         }
     }
     report.timing.conversion_ms += since(conversion_start);
@@ -469,8 +483,13 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             if (q == c.q_energy()) { report.energy_residual_j = residual; report.energy_bound_j = bound; }
             report.audits.push_back(std::move(a));
         }
-        DD s1; double allowance1 = 0;
+        DD s1; double allowance1 = 0; bool endpoint_ok = true;
         try { entropy(c, w.current, s1, allowance1); } catch (const EosRefinement&) { throw RangeFlag{report.attempts}; }
+        catch (const std::domain_error& error) {
+            // An endpoint outside the EOS domain retries the interval smaller, as a failed audit does.
+            if (kernel_debug()) std::fprintf(stderr, "endpoint rejected: %s\n", error.what());
+            endpoint_ok = false;
+        }
         DD change = s1; change.add(-s0.hi); change.add(-s0.lo);
         report.entropy_change_j_per_k = change.value();
         // Every stage except the gravity reconciliation must produce entropy;
@@ -478,7 +497,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         report.gravity_entropy_bound_j_per_k = acc.gravity_entropy.value();
         change.add(-acc.gravity_entropy.hi); change.add(-acc.gravity_entropy.lo);
         report.entropy_allowance_j_per_k = 128 * eps * (allowance0 + allowance1 + acc.gravity_entropy_operands);
-        const bool entropy_ok = change.value() >= -report.entropy_allowance_j_per_k;
+        const bool entropy_ok = endpoint_ok && change.value() >= -report.entropy_allowance_j_per_k;
         report.timing.audit_ms += since(audit_time);
         if (passed && entropy_ok) {
             report.mixing_heat_j = acc.mixing_heat; report.wall_heat_j = acc.wall_heat;
@@ -554,7 +573,7 @@ bool mac_kernel_supports(const MacClosedSettings& s) {
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s) &&
         s.compression_viscosity != MacCompressionViscosity::monotone_acoustic_quadratic &&
-        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed && s.vacuum == MacVacuumRepresentation::empty_cells;
+        s.shock_heat != MacShockHeatRegularization::monotone_pressure_sensed;
 }
 bool mac_kernel_normal_range(const MacTransportState& state) {
     for (const auto& cell : state.cells) if (!cell.energy_remainder_j.full.is_zero()) return false;

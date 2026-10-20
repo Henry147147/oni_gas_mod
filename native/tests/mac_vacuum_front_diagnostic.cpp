@@ -69,7 +69,7 @@ struct Setup {
 // the measured front position and recent speed. With voids, the void phase
 // keeps each cell's occupied volume, the front is the gas/void line, and the
 // gate's mass-fraction fronts are also recorded at both endpoints.
-int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=false,Fronts* fronts=nullptr){
+int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=false,Fronts* fronts=nullptr,bool production=false){
  using namespace ma;using namespace ma::experimental;
  Setup set;const auto& p=set.problem;
  require(n>=16 && n<=2048 && n%4==0,"Invalid vacuum front grid");
@@ -83,10 +83,14 @@ int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=f
  MacClosedSettings settings;settings.maximum_timestep_s=dt;settings.reconstruction=MacMaterialReconstruction::swept_first_moment;
  settings.momentum_reconstruction=MacMomentumReconstruction::swept_energy_flux;settings.compression_viscosity=MacCompressionViscosity::coupled_pressure;
  if(voids){settings.vacuum=MacVacuumRepresentation::void_phase;settings.momentum_reconstruction=MacMomentumReconstruction::donor_cell;}
+ // The production kernel implements material selector 1 and the default compression law.
+ if(production){settings.reconstruction=MacMaterialReconstruction::limited_linear;settings.compression_viscosity=MacCompressionViscosity{};}
+ const auto policy=production?MacExecutionPolicy::production:MacExecutionPolicy::reference;
  MacClosedWorld world(set.registry,set.eos,s,settings);
  std::cout<<"VFCONFIG "<<n<<' '<<h<<' '<<dt<<' '<<p.sound_speed<<' '<<p.gamma<<' '<<p.time()<<'\n';
  for(std::size_t i=0;i<n;++i)std::cout<<"VFOCCUPIED 0 "<<i<<' '<<s.cells[i].mixture.mass()<<'\n';
- double last=0;for(int endpoint=0;endpoint<2;++endpoint){auto r=world.advanced((endpoint==0?.8:.2)*p.time(),65536);world=std::move(r.world);
+ double last=0;for(int endpoint=0;endpoint<2;++endpoint){auto r=world.advanced((endpoint==0?.8:.2)*p.time(),65536,policy);
+ require(!production || r.report.interval_reference_fallbacks==0,"Production vacuum front fell back to the reference");world=std::move(r.world);
  double front=0;std::size_t occupied=0;
  for(std::size_t i=0;i<n;++i){const auto mass=world.state().cells[i].mixture.mass();std::cout<<"VFOCCUPIED "<<endpoint+1<<' '<<i<<' '<<mass<<'\n';if(mass>0){front=(static_cast<double>(i)+1)*h;++occupied;
   // The x face area is spacing * depth = 1 m2, so the occupied volume is the gas depth.
@@ -106,12 +110,12 @@ int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=f
 // last 0.2t within 10% of its exact displacement, both errors decreasing over
 // N128, N256 and N512; and no gas lies more than one cell ahead of the exact
 // front at either endpoint.
-int gate(){
+int gate(bool production=false){
  const Problem p=Setup{}.problem;
  std::vector<double> front_errors,speed_errors;bool contained=true;
  for(const std::size_t n:{128,256,512}){
   double front=0,speed=0;Fronts f;
-  try{(void)run(n,front,speed,true,&f);}
+  try{(void)run(n,front,speed,true,&f,production);}
   catch(const std::exception& e){std::cout<<"VGATE n="<<n<<" stopped: "<<e.what()<<"\nGATE V FAIL\n";return 1;}
   const double t1=.8*p.time(),t2=p.time(),h=p.length/static_cast<double>(n);
   const double exact=p.mass_front(t2,front_fraction),moved=exact-p.mass_front(t1,front_fraction);
@@ -129,6 +133,8 @@ int gate(){
 int main(int argc,char**argv){try{
  // --void selects the void phase for one grid; --gate always uses it.
  if(argc==2 && std::string(argv[1])=="--gate")return gate();
+ // --gate-production runs gate V on the production kernel (selector 1).
+ if(argc==2 && std::string(argv[1])=="--gate-production")return gate(true);
  const bool voids=argc>1 && std::string(argv[1])=="--void";const int first=voids?2:1;
  require(argc==first || argc==first+1,"Expected --gate, or [--void] and an optional grid count");
  double front=0,speed=0;return run(argc>first?std::stoul(argv[first]):32,front,speed,voids);

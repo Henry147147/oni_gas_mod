@@ -122,11 +122,17 @@ struct Model {
 // ---------------------------------------------------------------- fields
 // Primary production state: species-major masses m[k*N+i], U, passives
 // q[p*N+i] and canonical face momentum.
+// Void phase (MAC_VACUUM.md): Vo holds each cell's occupied material volume,
+// zero for empty cells and walls; empty while every occupied cell fills it.
 struct Fields {
-    std::vector<double> m, U, U_remainder, q, jx, jy;
+    std::vector<double> m, U, U_remainder, q, jx, jy, Vo;
     [[nodiscard]] double* mass(std::size_t k, std::size_t N) { return m.data() + k * N; }
     [[nodiscard]] const double* mass(std::size_t k, std::size_t N) const { return m.data() + k * N; }
 };
+// The volume at which a cell's material is evaluated.
+[[nodiscard]] inline double material_volume(const Fields& f, double grid_volume, std::size_t i) {
+    return f.Vo.empty() ? grid_volume : f.Vo[i];
+}
 
 inline void prepare_primary_remainders(Fields& fields) {
     if (fields.U_remainder.empty()) fields.U_remainder.assign(fields.U.size(), 0);
@@ -167,6 +173,9 @@ struct Anchor {
     // Single-liquid closed form: bulk modulus, nominal volume.
     double K = 0, Nl = 0, qmax = 0;
     bool single_liquid = false;
+    // Void phase: a liquid may pass through tension during the root; the
+    // active set then opens a void in it.
+    bool tension = false;
 };
 // p1 is the endpoint pressure; dp1 = p1 - p0 without cancellation (general
 // anchored branch only, which every gas/liquid cell takes).
@@ -334,6 +343,14 @@ struct Workspace {
     std::vector<Anchor> anchor;
     std::vector<double> cell_mass, mass_after, ix, iy, ix1, iy1, inv_ix, inv_iy, dp0x, dp0y, wx, wy, bdiag;
     std::vector<double> dV, dW, cc, res, sx, sy, tdV, tdW, tcc, tres, sol, Vmat, dU, tdU;
+    // Void phase: each cell's swept volume (material volume Vmat plus its
+    // unchanged void), and the material and void parts of every x/y parcel and
+    // retained remainder.
+    std::vector<double> Vswept, filled, material_x, void_x, material_y, void_y, retained_material, retained_void;
+    // Void phase: liquid surface cells (zero pressure, no pressure unknown) and
+    // each rejoined surface cell's void at the substep start.
+    std::vector<std::uint8_t> surface;
+    std::vector<double> void0;
     std::vector<double> qx, qy, body_work_y;
     FlaggedSweeps full_qx, full_qy;
     std::vector<double> lr, lz, lp, lq, lAp, ldiag;
@@ -422,6 +439,14 @@ void stage_diffusion(Context&, Fields&, double seconds, Accounts&);
 // momentum/K transport with the selected reconstruction, heat deposition and
 // the gravity internal-energy adjustment. Reads ws.qx/qy/Vmat/body_work_y.
 void transport_after_pressure(Context&, Fields&, double seconds, Accounts&);
+// Void phase: each cell's material contact with its left, right, bottom and
+// top faces (1 for filled cells), from its PLIC line. Empty while no cell is
+// partly filled.
+void void_apertures(Context&, const Fields&, std::vector<std::array<double, 4>>&);
+// Void phase: a liquid-only partly filled cell resting on a wall, the domain
+// edge or supporting material, which carries its whole weight on its bottom
+// face (pressures from the EOS cache).
+bool resting_surface(const Context&, const Fields&, const std::vector<double>& cell_mass, std::size_t cell);
 // Sharp-interface gravity weight of every y face: the mass of its two half
 // cells, splitting two-phase cells by their PLIC line (reference:
 // mac_interface_gravity_weights). `cached` reads pressures from the EOS cache.
