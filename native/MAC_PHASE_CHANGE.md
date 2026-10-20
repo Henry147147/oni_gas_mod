@@ -91,18 +91,42 @@ Four setup lessons:
   the subnormal gas traces the production kernel admits; hence the heater cell.
 - The strict reference path rejects those traces in transport; hence the
   production kernel.
-- A 1% pressure rise in the closed domain shifts T_sat by 0.28 K, which costs about
-  2% of the interface position; hence the large reservoir.
+- The reservoir is 100 times the film's growth, so the closed domain's pressure
+  rises about 1% over [t0, 10 t0].
 
-**Blocker.** The film grows at about a tenth of the exact rate: 16% short after
-0.5 t0 on the coarse grid. At the interface, conduction delivers about 2 kW/m² where
-the film's gradient implies about 9 kW/m². Whenever a gas/liquid cell is present,
-conduction switches from the coupled backward-Euler graph solve to first-order
-pairwise contact splitting, in both kernels. At the film's diffusion number α Δt/h²
-of about 6 (10 cells across δ(t0), Δt = t0/1000), each contact lets the low-capacity
-steam cell nearly equilibrate with the interface cell within the step. That limits
-the heat it passes. The diffusion number grows with the square of the resolution,
-so refinement does not help. M5 needs a coupled mixed-cell conduction solve, for
-example the graph solve with each mixed cell's equilibrium heat capacity, corrected
-against the complete EOS.
+**Blocker.** Coupled mixed-cell conduction (2026-10-20) replaced pairwise contact
+splitting, but it barely moved the film: 14% short after 0.5 t0 on the coarse grid,
+against 16% before. Conduction was not the main loss. In a heat budget of the coarse
+run, the wall delivers about 12 kW/m², evaporation absorbs about 1.8 kW/m², and the
+rest warms the water. That water holds no gas and stays below the nucleation
+superheat, so it cannot boil. Three mechanisms:
+- **The fixed-volume relaxation self-limits.** Vapour formed in the interface cell
+  raises that cell's pressure, and with it the saturation temperature (3.58 kPa/K).
+  In a half-full coarse cell, about 1% of the arriving heat evaporates per
+  relaxation; the rest warms the cell. The cell's liquid, the liquid slug's mass and
+  that pressure–temperature slope form an undamped oscillator, with a period of
+  about 80 μs on the coarse grid. Started at the exact liquid velocity, the slug
+  stops within about 11 μs and then oscillates, and the water's pressure swings by
+  thousands of pascals.
+- **The water is very sensitive to the interface temperature.** It conducts 24
+  times better than steam, so a liquid 1% of the wall superheat below the interface
+  temperature takes about a fifth of the vapour-side flux
+  ((k_l/k_v)·√(α_v/α_l)·erf λ ≈ 21). Each pressure swing moves the saturation
+  temperature by tenths of a kelvin.
+- **Shock-heat regularization.** The default regularization activates in the
+  compressing cells at the interface and moves more heat into the water. With it
+  off, the error at 1.3 ms falls from 10.8% to 7.6%.
 
+Zero water conductivity alone leaves the water warming at the same rate; with the
+regularization also off the early error is 2%, but the steam-side flux then falls
+short when the interface cell is mostly liquid, because its volume-weighted
+conductivity is small. A 10 times larger reservoir changed nothing over the first
+0.5 t0. Over the whole run, though, the 100 times reservoir rises about 1.4 kPa
+adiabatically (0.4 K of saturation temperature), which the liquid-side sensitivity
+would make significant. The fixture also starts the liquid at rest rather than at
+the exact solution's velocity.
+
+M5 therefore needs evaporation coupled to the flow: interfacial mass transfer from
+the interface heat balance at the interface's own pressure, with the new vapour
+volume entering the pressure stage, instead of a fixed-volume equilibrium relaxation
+after it.

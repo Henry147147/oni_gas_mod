@@ -1,7 +1,8 @@
 // Production physical conduction and viscosity (MAC_KERNEL.md, "Physical
 // stages"), and the reserved diffusion stage slot. Conduction solves the
 // reference backward-Euler graph for temperature changes (no absolute
-// temperature cancellation) and applies each face's heat to both cells.
+// temperature cancellation) and applies each face's heat to both cells. With
+// gas/liquid cells present, Newton relinearizes each against the complete EOS.
 // Viscosity relaxes the reference rank-one stress modes in multicolour order.
 #include "mac_kernel_detail.hpp"
 #include <numeric>
@@ -88,40 +89,30 @@ double caloric_entropy(double capacity, double temperature, double before, doubl
     if (!std::isfinite(value)) throw ArithmeticRefinement{};
     return value;
 }
-// Diagnostic dS=dU/T integral for a mixed closed contact, using the retained
-// thermal oracle's joint-pair quadrature. It never changes either endpoint.
-template<class Temperature> double mixed_contact_entropy(const Temperature& temperature,
-    double cold_change, double hot_change, long double allowance) {
-    const double common = std::min(cold_change, hot_change);
-    const auto integrate = [&](const auto& integrand, double amount) -> long double {
-        if (amount == 0) return 0;
-        const auto sample = [&](double x) { return static_cast<long double>(amount) * integrand(x); };
-        const auto fa = sample(0), fm = sample(.5), fb = sample(1), initial = (fa + 4 * fm + fb) / 6;
-        const auto refine = [&](auto&& self, double a, double b, long double left, long double middle, long double right,
-            long double estimate, long double tolerance, unsigned depth) -> long double {
-            const auto center = std::midpoint(a, b), ql = std::midpoint(a, center), qr = std::midpoint(center, b);
-            const auto fl = sample(ql), fr = sample(qr);
-            const auto first = (center - a) / 6 * (left + 4 * fl + middle), second = (b - center) / 6 * (middle + 4 * fr + right);
-            const auto refined = first + second, error = refined - estimate;
-            if (!std::isfinite(refined)) throw ArithmeticRefinement{};
-            if (std::abs(error) <= 15 * tolerance) return refined + error / 15;
-            if (depth == 0 || ql == a || qr == b) throw EosRefinement{};
-            return self(self, a, center, left, fl, middle, first, tolerance / 2, depth - 1) +
-                self(self, center, b, middle, fr, right, second, tolerance / 2, depth - 1);
-        };
-        return refine(refine, 0, 1, fa, fm, fb, initial, allowance / 8, 20);
+// Diagnostic dS = dU/T integral of one mixed cell's heat at fixed mass and
+// volume (adaptive Simpson, as the retained thermal oracle's). temperature(x)
+// reads the cell at U_before + x * change; it never changes the endpoint.
+template<class Temperature> double mixed_cell_entropy(const Temperature& temperature, double change, long double allowance) {
+    if (change == 0) return 0;
+    const auto sample = [&](double x) { return static_cast<long double>(change) / temperature(x); };
+    const auto fa = sample(0), fm = sample(.5), fb = sample(1), initial = (fa + 4 * fm + fb) / 6;
+    const auto refine = [&](auto&& self, double a, double b, long double left, long double middle, long double right,
+        long double estimate, long double tolerance, unsigned depth) -> long double {
+        const auto center = std::midpoint(a, b), ql = std::midpoint(a, center), qr = std::midpoint(center, b);
+        const auto fl = sample(ql), fr = sample(qr);
+        const auto first = (center - a) / 6 * (left + 4 * fl + middle), second = (b - center) / 6 * (middle + 4 * fr + right);
+        const auto refined = first + second, error = refined - estimate;
+        if (!std::isfinite(refined)) throw ArithmeticRefinement{};
+        if (std::abs(error) <= 15 * tolerance) return refined + error / 15;
+        if (depth == 0 || ql == a || qr == b) throw EosRefinement{};
+        return self(self, a, center, left, fl, middle, first, tolerance / 2, depth - 1) +
+            self(self, center, b, middle, fr, right, second, tolerance / 2, depth - 1);
     };
-    long double result = integrate([&](double x) {
-        const long double cold = temperature(0, common * x, 0), hot = temperature(1, -common * x, 0);
-        return (hot - cold) / cold / hot;
-    }, common);
-    const double cold_extra = cold_change - common, hot_extra = hot_change - common;
-    result += integrate([&](double x) { return 1 / static_cast<long double>(temperature(0, common, cold_extra * x)); }, cold_extra);
-    result -= integrate([&](double x) { return 1 / static_cast<long double>(temperature(1, -common, -hot_extra * x)); }, hot_extra);
-    const double value = static_cast<double>(result);
+    const double value = static_cast<double>(refine(refine, 0, 1, fa, fm, fb, initial, allowance / 8, 20));
     if (!std::isfinite(value)) throw ArithmeticRefinement{};
     return value;
 }
+double combine_sum(const std::vector<double>& part) { DD s; for (const double v : part) s.add(v); return s.value(); }
 }
 
 void stage_diffusion(Context&, Fields&, double, Accounts&) {
@@ -176,127 +167,162 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     for (const auto* conductances : {&gx, &gy})
         for (const auto value : *conductances) if (value > 0) ++acc.physical.conduction_contacts;
     double ops = 0, moved = 0;
-    if (!mixed) {
-        LinearSystem sys; sys.g = &g; sys.active.assign(N, 0); sys.diag.assign(N, 0);
-        sys.wx.resize(g.NX); sys.wy.resize(g.NY);
-        std::vector<double> rhs(N, 0), dT, qx(g.NX, 0), qy(g.NY, 0); // q: heat into the left cell
-        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
-            for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) sys.wx[fidx] = dt * gx[fidx];
-            for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) sys.wy[fidx] = dt * gy[fidx];
-        });
-        c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
-            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-                if (!occupied(i)) continue;
-                sys.active[i] = 1; sys.diag[i] = e.Ceq[i];
-                const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
-                double r = 0;
-                if (sys.wx[lf] != 0) r += sys.wx[lf] * (e.T[g.xl[lf]] - e.T[i]);
-                if (sys.wx[rf] != 0) r += sys.wx[rf] * (e.T[g.xr[rf]] - e.T[i]);
-                if (sys.wy[bf] != 0) r += sys.wy[bf] * (e.T[g.yl[bf]] - e.T[i]);
-                if (sys.wy[tf] != 0) r += sys.wy[tf] * (e.T[g.yr[tf]] - e.T[i]);
-                rhs[i] = r;
+    LinearSystem sys; sys.g = &g; sys.active.assign(N, 0); sys.diag.assign(N, 0);
+    sys.wx.resize(g.NX); sys.wy.resize(g.NY);
+    std::vector<double> rhs(N, 0), dT, qx(g.NX, 0), qy(g.NY, 0); // q: heat into the left cell
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+        for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) sys.wx[fidx] = dt * gx[fidx];
+        for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) sys.wy[fidx] = dt * gy[fidx];
+    });
+    c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (!occupied(i)) continue;
+            sys.active[i] = 1; sys.diag[i] = e.Ceq[i];
+            const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+            double r = 0;
+            if (sys.wx[lf] != 0) r += sys.wx[lf] * (e.T[g.xl[lf]] - e.T[i]);
+            if (sys.wx[rf] != 0) r += sys.wx[rf] * (e.T[g.xr[rf]] - e.T[i]);
+            if (sys.wy[bf] != 0) r += sys.wy[bf] * (e.T[g.yl[bf]] - e.T[i]);
+            if (sys.wy[tf] != 0) r += sys.wy[tf] * (e.T[g.yr[tf]] - e.T[i]);
+            rhs[i] = r;
+        }
+    });
+    // Temperatures equal within their rounding across every contact are
+    // already equilibrium: heat driven by an ulp of temperature is noise.
+    const auto isothermal = [&] {
+        for (const auto& part : c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
+            for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) if (sys.wx[fidx] != 0) {
+                const double a = e.T[g.xl[fidx]], b = e.T[g.xr[fidx]];
+                if (std::abs(a - b) > 64 * eps * (a + b)) return 0;
             }
-        });
+            for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) if (sys.wy[fidx] != 0) {
+                const double a = e.T[g.yl[fidx]], b = e.T[g.yr[fidx]];
+                if (std::abs(a - b) > 64 * eps * (a + b)) return 0;
+            }
+            return 1;
+        })) if (part == 0) return false;
+        return true;
+    };
+    const bool equilibrium = mixed && isothermal();
+    if (!equilibrium) {
         const auto solved = solve_linear(c, sys, rhs, dT, 1e-13, 0, 4000);
         c.counters.linear += solved.iterations;
         acc.physical.conduction_iterations += solved.iterations;
         if (!solved.converged) reject("Production conductive solve did not converge");
+    }
+    // Mixed cells (MAC_HEAT.md, "Mixed cells"): U(T) at fixed volume is
+    // nonlinear there. Newton relinearizes each mixed cell at its current
+    // state as C_k (T - start), start = T_k - Q_k / C_k; other cells keep
+    // start = T^n. Each correction is one graph solve, warm-started.
+    std::vector<double> start;
+    if (mixed) start = e.T;
+    const auto& base = mixed ? start : e.T;
+    const auto face_heats = [&] {
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t blk) {
             for (std::size_t fidx = y0 * g.XW; fidx < y1 * g.XW; ++fidx) if (sys.wx[fidx] != 0) {
                 const auto l = g.xl[fidx], r = g.xr[fidx];
-                qx[fidx] = sys.wx[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
+                qx[fidx] = sys.wx[fidx] * ((base[r] - base[l]) + (dT[r] - dT[l]));
             }
             for (std::size_t fidx = y0 * g.W; fidx < g.block_yrow_end(blk) * g.W; ++fidx) if (sys.wy[fidx] != 0) {
                 const auto l = g.yl[fidx], r = g.yr[fidx];
-                qy[fidx] = sys.wy[fidx] * ((e.T[r] - e.T[l]) + (dT[r] - dT[l]));
+                qy[fidx] = sys.wy[fidx] * ((base[r] - base[l]) + (dT[r] - dT[l]));
             }
         });
-        struct Heat { double ops = 0, moved = 0; std::size_t unresolved = 0; MacEnergySum redistributed; DD entropy; EnergyRounding energy; };
-        for (const auto& o : c.exec.partials<Heat>([&](std::size_t y0, std::size_t y1, std::size_t) {
-            Heat o;
-            for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
-                if (!occupied(i)) continue;
-                // Heat into i: +q of faces where i is left, -q where i is right.
-                DD q; q.add(qx[g.right_face(i)]); q.add(-qx[g.left_face(i)]); q.add(qy[g.top_face(i)]); q.add(-qy[g.bottom_face(i)]);
-                const double h = q.value();
-                if (h == 0) continue;
-                const double before = f.U[i], low = f.U_remainder[i];
-                if (add_internal_energy(f, i, h, o.energy)) ++o.unresolved;
-                o.ops += std::abs(before) + std::abs(h); o.moved += std::abs(h);
-                redistribution(o.redistributed, before, low, f.U[i], f.U_remainder[i]);
+    };
+    // Heat into i: +q of faces where i is left, -q where i is right.
+    const auto cell_heat = [&](std::size_t i) {
+        DD q; q.add(qx[g.right_face(i)]); q.add(-qx[g.left_face(i)]); q.add(qy[g.top_face(i)]); q.add(-qy[g.bottom_face(i)]);
+        return q.value();
+    };
+    if (!equilibrium) face_heats();
+    const auto stats = [&](std::size_t i) { return Stats{e.M[i], e.Cv[i], e.off[i], e.nR[i], e.Nl[i], e.kind[i]}; };
+    if (mixed && !equilibrium) {
+        const double scale = std::sqrt(combine_sum(c.exec.partials<double>([&](std::size_t y0, std::size_t y1, std::size_t) {
+            double s = 0; for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) s += rhs[i] * rhs[i]; return s;
+        })));
+        std::vector<double> correction;
+        double previous = std::numeric_limits<double>::infinity();
+        for (int newton = 1;; ++newton) {
+            // Relinearize the mixed cells at U^n + Q; mismatch is the EOS
+            // temperature minus the linear model's start + Q / C_k.
+            struct Step { double worst = 0; bool outside = false; };
+            Step step;
+            for (const auto& o : c.exec.partials<Step>([&](std::size_t y0, std::size_t y1, std::size_t) {
+                Step o;
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                    if (e.kind[i] != mixed_cell) continue;
+                    const double heat = cell_heat(i), energy = f.U[i] + heat;
+                    State state;
+                    if (!evaluate_state(model, f, N, i, stats(i), energy, g.V, state) || !(state.Ceq > 0)) { o.outside = true; continue; }
+                    const double mismatch = state.T - (start[i] + heat / sys.diag[i]);
+                    const double bound = 128 * eps * (state.T + std::abs(energy) / state.Ceq);
+                    o.worst = std::max(o.worst, std::abs(mismatch) / bound);
+                    rhs[i] = state.T - heat / state.Ceq; dT[i] -= rhs[i] - start[i]; start[i] = rhs[i]; sys.diag[i] = state.Ceq;
+                }
+                return o;
+            })) { step.worst = std::max(step.worst, o.worst); step.outside = step.outside || o.outside; }
+            if (step.outside) reject("Production conduction left the EOS domain");
+            // At the arithmetic floor a further correction only re-rounds.
+            if (step.worst <= 1 || (newton > 2 && step.worst <= 64 && step.worst >= .5 * previous)) break;
+            if (newton == 32) reject("Production mixed conduction did not converge");
+            previous = step.worst;
+            // Residual of (C_k + L) x = -L start at the current x = dT.
+            c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
+                for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+                    if (!occupied(i)) { rhs[i] = 0; continue; }
+                    const auto lf = g.left_face(i), rf = g.right_face(i), bf = g.bottom_face(i), tf = g.top_face(i);
+                    const double own = start[i] + dT[i];
+                    double r = -sys.diag[i] * dT[i];
+                    if (sys.wx[lf] != 0) r += sys.wx[lf] * ((start[g.xl[lf]] + dT[g.xl[lf]]) - own);
+                    if (sys.wx[rf] != 0) r += sys.wx[rf] * ((start[g.xr[rf]] + dT[g.xr[rf]]) - own);
+                    if (sys.wy[bf] != 0) r += sys.wy[bf] * ((start[g.yl[bf]] + dT[g.yl[bf]]) - own);
+                    if (sys.wy[tf] != 0) r += sys.wy[tf] * ((start[g.yr[tf]] + dT[g.yr[tf]]) - own);
+                    rhs[i] = r;
+                }
+            });
+            const auto corrected = solve_linear(c, sys, rhs, correction, 0, 1e-13 * scale, 4000);
+            c.counters.linear += corrected.iterations;
+            acc.physical.conduction_iterations += corrected.iterations;
+            if (!corrected.converged) reject("Production conductive solve did not converge");
+            for (std::size_t i = 0; i < N; ++i) dT[i] += correction[i];
+            face_heats();
+        }
+    }
+    struct Heat { double ops = 0, moved = 0; std::size_t unresolved = 0; MacEnergySum redistributed; DD entropy; EnergyRounding energy; };
+    for (const auto& o : c.exec.partials<Heat>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        Heat o;
+        for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
+            if (!occupied(i)) continue;
+            const double h = cell_heat(i);
+            if (h == 0) continue;
+            const double before = f.U[i], low = f.U_remainder[i];
+            if (add_internal_energy(f, i, h, o.energy)) ++o.unresolved;
+            o.ops += std::abs(before) + std::abs(h); o.moved += std::abs(h);
+            redistribution(o.redistributed, before, low, f.U[i], f.U_remainder[i]);
+            if (e.kind[i] != mixed_cell) {
                 o.entropy.add(caloric_entropy(e.Cv[i], e.T[i], before, f.U[i]));
                 o.entropy.add(f.U_remainder[i] / (e.T[i] + (f.U[i] - before) / e.Cv[i]) - low / e.T[i]);
+                continue;
             }
-            return o;
-        })) {
-            ops += o.ops; moved += o.moved; acc.unresolved += o.unresolved;
-            acc.physical.unresolved_conduction_updates += o.unresolved;
-            for (std::size_t j = 0; j < o.redistributed.size(); ++j) acc.physical.conductive_redistribution.add(o.redistributed.component(j));
-            acc.physical.conductive_entropy.add(o.entropy); acc.energy.merge(o.energy);
-        }
-    } else {
-        // Complete-EOS pairwise contact solves in the reference order (cell
-        // order, right contact then top contact), forward then reverse halves.
-        struct Contact { Index a, b; double G; };
-        std::vector<Contact> contacts;
-        for (std::size_t i = 0; i < N; ++i) {
-            if (!occupied(i)) continue;
-            const auto rf = g.right_face(i), tf = g.top_face(i);
-            if ((i % g.W + 1 < g.W || g.px) && gx[rf] > 0) contacts.push_back({static_cast<Index>(i), g.xr[rf], gx[rf]});
-            if ((i / g.W + 1 < g.H || g.py) && gy[tf] > 0) contacts.push_back({static_cast<Index>(i), g.yr[tf], gy[tf]});
-        }
-        auto& cache = ws.eos;
-        const auto stats = [&](Index i) { return Stats{cache.M[i], cache.Cv[i], cache.off[i], cache.nR[i], cache.Nl[i], cache.kind[i]}; };
-        const auto exchange = [&](const Contact& ct, double duration) {
-            State sa, sb;
-            if (!evaluate_state(model, f, N, ct.a, stats(ct.a), f.U[ct.a], g.V, sa) ||
-                !evaluate_state(model, f, N, ct.b, stats(ct.b), f.U[ct.b], g.V, sb)) reject("Production conduction left the EOS domain");
-            if (sa.T == sb.T) return;
-            const bool forward = sa.T < sb.T;
-            const Index cold = forward ? ct.a : ct.b, hot = forward ? ct.b : ct.a;
-            const State& cs = forward ? sa : sb; const State& hs = forward ? sb : sa;
-            const double m = duration * ct.G;
-            double q = m * (hs.T - cs.T) / (1 + m * (1 / cs.Ceq + 1 / hs.Ceq));
-            for (int it = 0; it < 64; ++it) {
-                ++acc.physical.conduction_iterations;
-                State cn, hn;
-                if (!evaluate_state(model, f, N, cold, stats(cold), f.U[cold] + q, g.V, cn) ||
-                    !evaluate_state(model, f, N, hot, stats(hot), f.U[hot] - q, g.V, hn)) { q *= .5; continue; }
-                const double residual = q - m * (hn.T - cn.T);
-                const double derivative = 1 + m * (1 / cn.Ceq + 1 / hn.Ceq);
-                const double next = q - residual / derivative;
-                if (std::abs(next - q) <= 4 * eps * std::abs(q)) { q = next; break; }
-                q = next;
-            }
-            const double uc = f.U[cold], uh = f.U[hot], lc = f.U_remainder[cold], lh = f.U_remainder[hot];
-            const bool unresolved_cold = add_internal_energy(f, cold, q, acc.energy);
-            const bool unresolved_hot = add_internal_energy(f, hot, -q, acc.energy);
-            if (q != 0 && (unresolved_cold || unresolved_hot)) {
-                ++acc.unresolved; ++acc.physical.unresolved_conduction_updates;
-            }
-            ops += std::abs(uc) + std::abs(uh) + 2 * std::abs(q); moved += 2 * std::abs(q);
-            redistribution(acc.physical.conductive_redistribution, uc, lc, f.U[cold], f.U_remainder[cold]);
-            redistribution(acc.physical.conductive_redistribution, uh, lh, f.U[hot], f.U_remainder[hot]);
-            const auto temperature = [&](unsigned side, double shared, double extra) {
-                const auto cell = side == 0 ? cold : hot;
-                DD energy; energy.add(side == 0 ? uc : uh); energy.add(shared); energy.add(extra);
+            const double change = f.U[i] - before;
+            const auto temperature = [&](double x) {
+                DD energy; energy.add(before); energy.add(x * change);
                 State state;
-                if (!evaluate_state(model, f, N, cell, stats(cell), energy.value(), g.V, state)) throw EosRefinement{};
+                if (!evaluate_state(model, f, N, i, stats(i), energy.value(), g.V, state)) throw EosRefinement{};
                 return state.T;
             };
+            const double after = temperature(1);
             const long double allowance = 128 * static_cast<long double>(eps) *
-                (std::abs(uc) / cs.T + std::abs(uh) / hs.T +
-                 std::abs(f.U[cold]) / temperature(0, f.U[cold] - uc, 0) +
-                 std::abs(f.U[hot]) / temperature(1, f.U[hot] - uh, 0) + cache.Cv[cold] + cache.Cv[hot]);
-            acc.physical.conductive_entropy.add(mixed_contact_entropy(temperature, f.U[cold] - uc, uh - f.U[hot], allowance));
-            acc.physical.conductive_entropy.add(f.U_remainder[cold] / temperature(0, f.U[cold] - uc, 0) - lc / cs.T);
-            acc.physical.conductive_entropy.add(f.U_remainder[hot] / temperature(1, f.U[hot] - uh, 0) - lh / hs.T);
-        };
-        if (contacts.size() == 1) exchange(contacts.front(), dt);
-        else {
-            for (const auto& ct : contacts) exchange(ct, .5 * dt);
-            for (auto it = contacts.rbegin(); it != contacts.rend(); ++it) exchange(*it, .5 * dt);
+                (std::abs(before) / e.T[i] + std::abs(f.U[i]) / after + e.Cv[i]);
+            o.entropy.add(mixed_cell_entropy(temperature, change, allowance));
+            o.entropy.add(f.U_remainder[i] / after - low / e.T[i]);
         }
+        return o;
+    })) {
+        ops += o.ops; moved += o.moved; acc.unresolved += o.unresolved;
+        acc.physical.unresolved_conduction_updates += o.unresolved;
+        for (std::size_t j = 0; j < o.redistributed.size(); ++j) acc.physical.conductive_redistribution.add(o.redistributed.component(j));
+        acc.physical.conductive_entropy.add(o.entropy); acc.energy.merge(o.energy);
     }
     acc.operands[c.q_energy()] += 2 * ops + moved;
 }

@@ -209,9 +209,10 @@ constituent/passive subtractions, ordinary products and momentum writes outside
 pressure still need their remaining ledgers.
 
 **Regularization and physical stages.** Compression (modes 1/2), shock heat
-(modes 1–3), conduction (backward Euler for temperature changes, pairwise
-complete-EOS contacts when mixtures are present) and viscosity (rank-one
-modes) use the reference pair/mode laws.
+(modes 1–3), conduction (backward Euler for temperature changes; with mixtures
+present, Newton relinearizes each mixed cell against the complete EOS and
+warm-starts each correction solve to 1e-13 of the first residual) and viscosity
+(rank-one modes) use the reference pair/mode laws.
 
 `MacKernelReport::physical` carries committed substeps, conduction contacts,
 iterations, stored redistribution and entropy, viscosity modes, requested and

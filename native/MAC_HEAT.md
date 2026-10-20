@@ -167,8 +167,9 @@ unchanged and below-range states, and a genuine cooling state that must still re
 
 `advance_mac_conduction` (`thermal_conduction = true`) is closed finite-volume,
 backward-Euler conduction with harmonic half-cell face resistance and conductivity
-frozen per stage. Single-phase cells use the constant-capacity graph solve. Gas/liquid
-cells use complete-EOS pairwise contact solves, described in
+frozen per stage. Single-phase cells use the constant-capacity graph solve. When any
+gas/liquid cell is present, Newton repeats that graph solve with each mixed cell
+relinearized against the complete EOS, described in
 [gas/liquid conduction](../docs/native-domain-physics.md#mixed-cell-conduction). Gas conductivity is a
 declared mole-weighted reference and liquid conductivity is volume-weighted. No heat
 crosses walls or the exterior; species, passives and J are retained.
@@ -177,7 +178,7 @@ Independent nearest rounding of each cell's new U can repeatedly cool a hot cell
 while small incoming updates round away. The operator now gathers one shared
 antisymmetric energy transfer per face, adds each cell's carried U correction,
 and stores the high part plus its normalized low part. Any discarded third part
-is counted and audited. Mixed contacts use the same persisted endpoint storage.
+is counted and audited. Mixed cells use the same persisted endpoint storage.
 No correction crosses an insulating wall, and no minimum heat flux is forced.
 
 Entropy for this operator is `Cv log1p(ΔU / (Cv T))` with ΔU formed exactly.

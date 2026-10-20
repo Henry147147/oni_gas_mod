@@ -148,28 +148,39 @@ equilibrium heat capacity cannot stand in for the response.
 
 Each face uses the existing series thermal resistance. Gas/liquid conductivity
 is weighted by completed partial volumes (gas partial volumes proportional to
-gas mole fractions). Conductance is frozen for one conductive stage. A closed
-pair solves
+gas mole fractions). Conductance is frozen for one conductive stage.
 
-`q = dt * G * (T_hot(U_hot - q) - T_cold(U_cold + q))`
+The stage solves the whole graph's backward-Euler equations together. A mixed
+cell's energy is nonlinear in temperature, so Newton linearizes each mixed cell
+at its current state, `U ≈ U_k + C_k (T - T_k)` with `C_k` its equilibrium heat
+capacity at cell volume, and repeats the constant-capacity graph solve from the
+equivalent start temperature `T_k - Q_k / C_k` (Q_k is the cell's heat so far).
+Single-phase cells keep their capacity and `T^n`. Newton stops when every mixed
+cell's EOS temperature matches the linear model within 128 epsilons of its
+temperature and stored energy, or when the mismatch stops halving within 64 times
+that (at most 32 solves). Each solve works relative to its components'
+equilibrium, so a stiff interval keeps the heat's relative precision. A contact
+whose integrated conductance exceeds 2^40 times its smaller capacity is capped
+there, which holds both cells at one temperature to about 1e-12 of their
+difference; beyond C/epsilon the capacity would round off the solve's diagonal.
+If every contact already joins temperatures equal within 64 epsilons, no heat
+moves: heat driven by a rounding of temperature is noise.
 
-with a bracketed Newton solve on both full-EOS endpoints. It respects each
-constituent's temperature and compression ranges. If one cell's temperature is
-beyond the other's compression limit, it first locates the admissible
-endpoint, so a small valid exchange still proceeds. An exchange outside the
-model rejects the candidate. Stiff roots use a temperature-scaled residual so
-`dt*G*deltaT` cannot overflow into a false success.
+The converged face energies are applied to both cells like the single-phase
+solve's. A trial outside a constituent's temperature or compression model
+rejects the candidate, and final mixed temperatures must stay within the source
+interval. Refining time approaches the independently integrated
+variable-conductivity heat ODE. Walls and disconnected components exchange no
+heat. Every constituent, trace, passive quantity and face momentum is kept.
+Entropy for a mixed cell integrates `dS=dU/T` along its own represented heat
+through the full EOS (adaptive Simpson within its 128-epsilon allowance);
+single-phase cells keep the closed form. The operator supplies no phase
+conversion, latent heat or interface dynamics.
 
-One contact uses its full backward-Euler interval. Several contacts use
-forward/reverse half sweeps in deterministic grid order: a first-order
-contact-split scheme, not a simultaneous nonlinear graph solve. Refining time
-approaches the independently integrated variable-conductivity heat ODE. Walls
-and disconnected components exchange no heat. The pair's two energies are
-rounded together by the closed component rule. Every constituent, trace,
-passive quantity and face momentum is kept. Entropy uses `dS=dU/T` at fixed
-volume and integrates both represented heat paths jointly through the full
-EOS; subtracting two rounded EOS entropies erases the weak-heat signal. The
-operator supplies no phase conversion, latent heat or interface dynamics.
+Until 2026-10-20, several contacts used forward/reverse pairwise half sweeps, a
+first-order contact-split scheme. It lets a low-capacity cell nearly equilibrate
+with each neighbour in turn, which limits the heat passed along a chain at large
+diffusion numbers.
 
 The checkpoint stores the conduction flag and scenario separately: scenario 4
 restores only with conduction disabled and scenario 5 only with it enabled.

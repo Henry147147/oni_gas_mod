@@ -4,7 +4,7 @@
 //   M4  two immiscible liquids (Rayleigh-Taylor), with sharp interfaces: a
 //       cell holding both liquids places the denser below a PLIC line.
 //   M5  Stefan vapour film: pressure-dependent boiling at a heated wall.
-//       Open: mixed gas/liquid conduction is pairwise-split.
+//       Open: fixed-volume evaporation self-limits; the water absorbs the heat.
 #include "mac_kernel_fixture.hpp"
 #include "mixed_atmospheres/mac_native_heat.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
@@ -242,14 +242,14 @@ double stefan(std::size_t film_cells, double t0, double& mass_drift) {
     return worst;
 }
 // The Stefan run is long (production kernel, thousands of cells, 9000
-// intervals per grid) and stays open: mixed gas/liquid conduction uses
-// first-order pairwise contact splitting, which under-delivers the film's heat
-// flux about fivefold at these diffusion numbers (MAC_PHASE_CHANGE.md).
+// intervals per grid) and stays open: the fixed-volume evaporation relaxation
+// self-limits and the interface pressure oscillates, so the wall's heat mostly
+// warms the water (MAC_PHASE_CHANGE.md).
 // "M5 --run" runs every grid; "M5 --grid N" one grid.
 int m5(bool run, std::size_t only = 0) {
     if (!run && only == 0) {
-        std::cout << "M5 note: needs coupled mixed-cell conduction; run with --run or --grid N\n";
-        return verdict("M5", "OPEN (mixed-cell conduction under-delivers heat)");
+        std::cout << "M5 note: needs evaporation coupled to the flow; run with --run or --grid N\n";
+        return verdict("M5", "OPEN (fixed-volume evaporation self-limits)");
     }
     const double t0 = 1e-3; std::vector<double> errors; double mass = 0;
     for (const std::size_t n : {10, 20, 40}) {
