@@ -9,15 +9,18 @@ solver-plus-adapter cost at most 62.5 ms per 0.1 simulated seconds; and at
 most 25 ms per 0.1 s for 100,000 active cells. Both targets allow about
 250 ns of wall time per cell per 0.1 s.
 
-**Current production baseline (`a118fe9`).** The consolidated production
-kernel uses interval audits, counted pressure-storage rounding and automatic
-geometric multigrid. Two pinned 21-interval evolving-wave captures measure p95
-467–533 ms per 0.1 s at 100,000 active cells and 1,721–3,197 ms at 250,000
-on twelve workers (sampled endpoint loads 16.01–20.83). All cells change; no
-equilibrium certificate is used. These solver-only failures are about 19–21×
-and 28–51× over the 25/62.5 ms budgets. Workspace is about 1.6 KiB/cell;
-standalone peak RSS at 250,000 is 753.3 MiB (3,159 B/cell). Additional
-game/adapter memory and colony FPS remain unmeasured. Commands, host load and the four required cell counts
+**Current production baseline (`06e88fd`).** The consolidated production
+kernel uses interval audits, counted pressure-storage rounding, persisted U
+corrections and automatic geometric multigrid. Two pinned 21-interval
+evolving-wave captures measure p95 516–546 ms per 0.1 s at 100,000 active
+cells and 1,388–1,391 ms at 250,000 on twelve workers (one-minute loads
+sampled every five seconds: 2.35–8.69). All cells change; no equilibrium
+certificate is used. These solver-only failures are about 21–22× and 22×
+over the 25/62.5 ms budgets. Workspace is about 1.6 KiB/cell; standalone
+peak RSS at 250,000 is 805.6 MiB (3,379 B/cell). The different host loads
+prevent attributing changes from the preceding baseline to code alone.
+Additional game/adapter memory, colony FPS and the 32-duplicant workload
+remain unmeasured. Commands, host load and the four required cell counts
 are in the [current kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
 Larger calm steps, local subcycling and further kernel optimization remain open.
 

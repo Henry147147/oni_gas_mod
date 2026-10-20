@@ -146,6 +146,7 @@ also pass collision.
   persistence remain pending; no owner or saved selection uses it.
 - Active-cell performance is open. The `06e88fd`
   [production-kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline)
+  ([scaling overview](solver-scaling-analysis.md))
   with automatic multigrid, persisted U and the pressure-storage ledger measures
   p95 516–546 ms at 100,000 active cells and 1,388–1,391 ms at 250,000 per 0.1
   simulated seconds on twelve workers, against 25/62.5 ms before adapters.

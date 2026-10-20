@@ -332,7 +332,8 @@ at all four measured sizes (4,096 / 65,536 / 100,000 / 250,000). Workspace is
 about 1.6 KiB/cell; standalone peak RSS is 805.6 MiB at 250,000 (3,379 B/cell).
 Additional game/adapter memory, colony FPS and the 32-duplicant workload remain
 unmeasured. See the
-[measured baseline](../native/MAC_KERNEL.md#current-active-cell-baseline).
+[measured baseline](../native/MAC_KERNEL.md#current-active-cell-baseline) and
+[scaling overview](solver-scaling-analysis.md).
 The opt-in [two-moment pressure method](../native/MAC_PRESSURE_MOMENTS.md)
 passes selected larger-step wave schedules against resolved midpoint references:
 16×16 at .004 s and 256×2/512×2 at .1 s retain the original 0.1 K/1% bounds.
