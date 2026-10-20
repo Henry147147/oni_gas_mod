@@ -29,7 +29,7 @@ namespace MixedAtmospheres.Oni
                 var actual = (float)getter.Invoke(Grid.Pressure, new object[] { global });
                 var expected = (float)(source.MechanicalPressurePa / 1000);
                 var legacy = Grid.Mass[global] * 101.3f;
-                Require(actual == expected && actual > 0 && (!requireDistinctScalar || Math.Abs(actual - legacy) > 1),
+                Require(actual == expected && (ConfiguredVacuumMode ? actual >= 0 : actual > 0) && (!requireDistinctScalar || Math.Abs(actual - legacy) > 1),
                     "Native pressure still uses the scalar mass approximation instead of completed physical pressure.");
                 return (object)new { PublicCell = global, CompletedPhysicalFrame = reading.Revision,
                     PhysicalPressurePa = source.MechanicalPressurePa, GasPressurePa = source.GasPressurePa,

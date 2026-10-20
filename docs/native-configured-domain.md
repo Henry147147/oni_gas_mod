@@ -305,12 +305,17 @@ compatibility tuples and loaded solid mask. Configured import and actor classifi
 flags, so the vacuum scene admits both water and gas. Engine-free controls
 pass 207 OwnedSnapshotTests. Point transfers also enforce native phase admission
 on empty cells; invalid single requests and batches leave the owner unchanged.
-The first exact-geometry Linux and Proton runs passed activation/rest but
-exhausted the pressure attempt budget on the first vent interval. The new
-standalone owner control uses the unchanged 7×5 game fixture with flags 105:
-eleven resting frames, 140 vent frames, three closure events, entropy increase
-2.59e-17 J/K, maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact
-snapshot restore/continuation. The 48-byte `ma_oni_domain_subcell_status` reports
+Linux base-game ONI 744825 passes the source scene at frame 121/time
+24.2000003606081 s, including ten unchanged resting frames, a real 0.03125 kg
+oxygen packet, the front, Grid/GPU readback and ordinary paired save/readback.
+Three closure events add 2.59e-17 J/K; maximum relative mass/energy errors are
+9.58e-16/7.05e-19. A fresh process restores the same source hash, resaves at frame
+zero and completes 60 exact physical frames. Complete restored-reader/menu
+reload and the game long run remain open. Reader observations now follow each
+published vacuum/water/oxygen identity and permit the physical zero pressure and
+mass of void cells; legacy gas/water conditions stay unchanged.
+
+The 48-byte `ma_oni_domain_subcell_status` reports
 completed-frame accounts since activation; restore resets those diagnostics.
 The harness checks their policy, frame and entropy. The additive
 `ma_oni_domain_copy_phase_frame` atomically copies cells, actual material
@@ -329,7 +334,7 @@ fluid identities: ONI's cached `Grid.Element` needs them separately from its
 front capture waits three render frames after publication. Vacuum compatibility
 cells exercise blocked liquid, transition and post-processing calls; existing
 scenes keep their native temperature-call requirement. Updated complete Linux
-game validation remains open. Proton/Wine/Windows validation is deferred by the user's
+game reload/long-run validation remains open. Proton/Wine/Windows validation is deferred by the user's
 2026-10-20 decision; previous runs do not certify this revision.
 
 The read-only base-game whole-world retry stages 19,614 fluid cells in a

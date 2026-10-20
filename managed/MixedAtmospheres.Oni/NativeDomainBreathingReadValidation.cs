@@ -42,8 +42,10 @@ namespace MixedAtmospheres.Oni
                 Require(actual == 0 && (SimHashes)args[1] == SimHashes.Vacuum && !reading.IsBreathable ||
                     actual > 0 && actual <= oxygen && next > oxygen && reading.IsBreathable && (SimHashes)args[1] == SimHashes.Oxygen,
                     "The actual native breathing helper disagrees with the completed mixture oxygen or policy.");
-                Require(Grid.Element[item.Key].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen) && (!requireMixtureDistinct || Grid.Mass[item.Key] > oxygen),
-                    "The breathing control no longer distinguishes scalar total mass from physical oxygen.");
+                var index = item.Key % Grid.WidthInCells - x + (item.Key / Grid.WidthInCells - y) * Width;
+                var expectedElement = ConfiguredVacuumMode ? PublishedElementAt(index) : Liquid ? SimHashes.Water : SimHashes.Oxygen;
+                Require(Grid.Element[item.Key].id == expectedElement && (!requireMixtureDistinct || Grid.Mass[item.Key] > oxygen),
+                    "The breathing reader's scalar identity or mixture control differs from its publication.");
                 return sample;
             }).ToArray();
         }

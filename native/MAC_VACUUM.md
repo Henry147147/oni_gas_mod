@@ -391,12 +391,16 @@ Managed readings retain void volume. New scenes use flags 105 and version 12;
 old flags-41 scenes keep exact geometry and versions 9/10. Phase change stays
 off. The 207 managed controls pass.
 
-The first exact-geometry Linux and Proton runs passed activation and ten
-resting frames, then exhausted the pressure attempt budget on the first vent
-interval. The authorized gas-expansion opt-in now has native/managed wiring.
-The unchanged 7×5 native owner control completes eleven resting frames and
-140 vent frames with three closure events, entropy increase 2.59e-17 J/K,
-maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact continuation.
+Linux ONI 744825 passes the configured vacuum source scene: ten unchanged
+resting frames, an actual 0.03125 kg oxygen packet, a visible front, Grid and GPU
+readback, and an ordinary paired colony save with readback. At completed frame
+121 (24.2000003606081 s), three closure events add 2.59e-17 J/K; maximum relative
+mass/energy errors are 9.58e-16/7.05e-19. A fresh process restores the exact source
+hash, resaves at frame zero and passes 60 exact physical continuation frames;
+complete restored-reader/menu-reload validation and the game long run remain open.
+Restored reader observations now follow each published phase, including zero
+pressure/mass, while existing gas/water controls keep their original checks.
+
 The completed-frame `ma_oni_domain_subcell_status` accounts reset on activation
 and restore; they do not alter saved physical state.
 `ma_oni_domain_copy_phase_frame` atomically copies cell records, actual material
@@ -408,7 +412,7 @@ stay fixed; the evolving native fixture's 31 readings close within 5.55e-17 m³.
 Fluid identity changes also publish substance-change events to ONI's cached
 `Grid.Element`; native compatibility tuples remain unchanged.
 
-Updated Linux game validation remains open. Private captures are under
-`artifacts/vacuum-game-v1/`. The user deferred further Proton/Wine/Windows
+Private captures and the completed source report are under
+`artifacts/vacuum-game-v1/linux-save-v9/`. The user deferred further Proton/Wine/Windows
 checks. Flag 32 alone retains exact geometry; no attempt limits or gate bounds
 changed.

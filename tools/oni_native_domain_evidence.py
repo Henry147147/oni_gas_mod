@@ -111,7 +111,9 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require
     if not isinstance(rows, list) or len(rows) != cells:
         return False
     positions = set()
+    vacuum = report.get('Scenario') == 'configured-pillared-vacuum'
     try:
+        published = {row['Cell']:row['Reading'] for row in report.get('RenderingInputs',{}).get('Rows',[]) if not row.get('Solid')} if vacuum else {}
         def f32(value):return struct.unpack("<f", struct.pack("<f", value))[0]
         for row in rows:
             if not isinstance(row, dict):return False
@@ -119,14 +121,17 @@ def _pressure_read_passed(report: dict, physical: dict, liquid: bool, *, require
             if any(type(row.get(key)) not in (int, float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):return False
             cell = row.get("PublicCell")
             if (type(cell) is not int or cell < 0 or cell in positions or type(row.get("CompletedPhysicalFrame")) is not int
-                    or row["CompletedPhysicalFrame"] != physical["CompletedFrames"] or row["PhysicalPressurePa"] <= 0
-                    or row["NativeKilopascals"] <= 0 or row["ScalarMassKg"] <= 0
-                    or row["GasPressurePa"] != (0 if liquid else row["PhysicalPressurePa"])
+                    or row["CompletedPhysicalFrame"] != physical["CompletedFrames"] or not vacuum and (row["PhysicalPressurePa"] <= 0 or row["NativeKilopascals"] <= 0 or row["ScalarMassKg"] <= 0)
+                    or not vacuum and row["GasPressurePa"] != (0 if liquid else row["PhysicalPressurePa"])
                     or not _same_native_float(row["NativeKilopascals"], f32(row["PhysicalPressurePa"] / 1000))
                     or not _same_native_float(row["LegacyScalarKilopascals"], f32(f32(row["ScalarMassKg"]) * f32(101.3)))
                     or require_distinct and abs(row["NativeKilopascals"] - row["LegacyScalarKilopascals"]) <= 1):return False
+            if vacuum:
+                source=published[cell]
+                if (source['Revision']!=physical['CompletedFrames'] or row['PhysicalPressurePa']!=source['MechanicalPressurePa']
+                        or row['GasPressurePa']!=source['GasPressurePa'] or not _same_native_float(row['ScalarMassKg'],f32(source['TotalMassKg']))):return False
             positions.add(cell)
-    except (OverflowError, struct.error):return False
+    except (KeyError,TypeError,ValueError,AttributeError,OverflowError,struct.error):return False
     outside = reader.get("Outside")
     if not isinstance(outside, dict):return False
     try:
@@ -159,15 +164,32 @@ def _restored_readers_passed(report: dict, physical: dict, liquid: bool, cells: 
     rows = reader.get("BreathingSamples")
     if not isinstance(rows,list) or len(rows) != cells:return False
     advertised, positions = [], set()
+    is_void = report.get('Scenario') == 'configured-pillared-vacuum'
+    try:
+        published = {row['Cell']:row['Reading'] for row in report.get('RenderingInputs',{}).get('Rows',[]) if not row.get('Solid')} if is_void else {}
+    except (KeyError,TypeError,ValueError,AttributeError):return False
     for row in rows:
         if not isinstance(row,dict):return False
         keys=("OxygenMassKg","ScalarGridMassKg","OxygenMoleFraction","OxygenPartialPressurePa","CarbonDioxideMoleFraction","CarbonDioxidePartialPressurePa","AdvertisedOxygenMassKg")
         if any(type(row.get(key)) not in (int,float) or not math.isfinite(row[key]) or row[key] < 0 for key in keys):return False
         cell=row.get("PublicCell")
         if (type(cell) is not int or cell < 0 or cell in positions or row.get("CompletedPhysicalFrame") != physical["CompletedFrames"]
-                or row["ScalarGridMassKg"] <= 0 or row.get("ScalarElement") != (water if liquid else oxygen)
+                or not is_void and (row["ScalarGridMassKg"] <= 0 or row.get("ScalarElement") != (water if liquid else oxygen))
                 or row["OxygenMoleFraction"] > 1 or row["CarbonDioxideMoleFraction"] > 1):return False
-        failures=1 if liquid else ((2 if row["OxygenMoleFraction"] < .15 else 0) | (4 if row["OxygenMoleFraction"] > .35 else 0)
+        no_gas=liquid
+        if is_void:
+            try:
+                source=published[cell];constituents=source['Constituents']
+                oxygen_mass=sum(c['MassKg'] for c in constituents if c['MaterialId']=='oxygen')
+                water_mass=sum(c['MassKg'] for c in constituents if c['MaterialId']=='water')
+                gas_mass=sum(c['MassKg'] for c in constituents if c['Phase']==1)
+                expected_element=vacuum if source['TotalMassKg']==0 else water if water_mass>0 and water_mass>=gas_mass else oxygen
+                scalar=struct.unpack('<f',struct.pack('<f',source['TotalMassKg']))[0]
+                if (source['Revision']!=physical['CompletedFrames'] or row['ScalarElement']!=expected_element
+                        or not _same_native_float(row['ScalarGridMassKg'],scalar) or row['OxygenMassKg']!=oxygen_mass):return False
+                no_gas=source['GasVolumeCubicMetres']==0
+            except (KeyError,TypeError,ValueError,OverflowError,struct.error):return False
+        failures=1 if no_gas else ((2 if row["OxygenMoleFraction"] < .15 else 0) | (4 if row["OxygenMoleFraction"] > .35 else 0)
             | (8 if row["OxygenPartialPressurePa"] < 15000 else 0) | (16 if row["CarbonDioxideMoleFraction"] > .005 else 0)
             | (32 if row["CarbonDioxidePartialPressurePa"] > 500 else 0))
         if type(row.get("Failures")) is not int or row["Failures"] != failures or row.get("Breathable") is not (failures==0):return False

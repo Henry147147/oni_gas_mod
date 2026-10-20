@@ -203,6 +203,35 @@ class NativeDomainEvidenceTests(unittest.TestCase):
                 TotalBreathableMass=6*oxygen,BreatherInstanceId=-900,NoOxygenThreshold=.01,SearchedCells=searched))
         return self.report
 
+    def test_restored_void_readers_follow_each_published_phase_including_zero_pressure_and_mass(self):
+        report=self.configured_restored_report();report['Scenario']='configured-pillared-vacuum'
+        pressure=report['NativePressureReader']['Samples'];breathing=report['RestoredNativeReaders']['BreathingSamples'];render=[]
+        f32=lambda v:struct.unpack('<f',struct.pack('<f',v))[0]
+        for i,(p,b) in enumerate(zip(pressure,breathing)):
+            phase=i%3;mass=500 if phase==0 else 0 if phase==1 else .032;pascals=1000 if phase==2 else 0
+            constituents=[] if phase==1 else [dict(MaterialId='water' if phase==0 else 'oxygen',Phase=2 if phase==0 else 1,MassKg=mass)]
+            reading=dict(Revision=30,TotalMassKg=mass,MechanicalPressurePa=pascals,GasPressurePa=pascals,
+                         GasVolumeCubicMetres=1 if phase==2 else 0,Constituents=constituents)
+            render.append(dict(Cell=p['PublicCell'],Solid=False,Reading=reading))
+            p.update(PhysicalPressurePa=pascals,GasPressurePa=pascals,NativeKilopascals=f32(pascals/1000),
+                     LegacyScalarKilopascals=f32(f32(mass)*f32(101.3)),ScalarMassKg=f32(mass))
+            b.update(OxygenMassKg=mass if phase==2 else 0,ScalarGridMassKg=f32(mass),ScalarElement=2 if phase==0 else 0 if phase==1 else 1,
+                     OxygenMoleFraction=1 if phase==2 else 0,OxygenPartialPressurePa=pascals,CarbonDioxideMoleFraction=0,
+                     CarbonDioxidePartialPressurePa=0,AdvertisedOxygenMassKg=0,AdvertisedElement=0,Failures=12 if phase==2 else 1,Breathable=False)
+        report['NativeDomain']['PressurePa']=0;report['RenderingInputs']=dict(Rows=render)
+        report['RestoredNativeReaders']['BreathingSelection'].update(Mass=0,IsBreathable=False,ElementID=0,TotalBreathableMass=0)
+        accepted=lambda r:domain_evidence._restored_readers_passed(r,r['NativeDomain'],False,31)
+        self.assertTrue(accepted(report))
+        edits=[lambda r:r['RestoredNativeReaders']['BreathingSamples'][0].update(ScalarElement=1),
+               lambda r:r['RestoredNativeReaders']['BreathingSamples'][1].update(ScalarGridMassKg=1),
+               lambda r:r['RestoredNativeReaders']['BreathingSamples'][2].update(OxygenMassKg=.04),
+               lambda r:r['NativePressureReader']['Samples'][0].update(NativeKilopascals=1),
+               lambda r:r['RenderingInputs']['Rows'][0]['Reading'].update(Revision=29),
+               lambda r:r['RenderingInputs'].pop('Rows'),
+               lambda r:r['RenderingInputs'].update(Rows=[None])]
+        for edit in edits:
+            changed=copy.deepcopy(report);edit(changed);self.assertFalse(accepted(changed))
+
     def test_configured_source_save_requires_one_paused_paired_section(self):
         self.report=self.configured_report();self.set_saved_colony()
         self.assertTrue(runner.native_domain_passed(self.report,self.observation,30,configured=True,saved=True))
