@@ -775,6 +775,27 @@ if(MA_BUILD_TESTS)
     endif()
 endif()
 
+# Catalogue-driven colony owner (docs/material-catalogue.md). Standalone; the
+# game backend links it, and its controls need no game files.
+add_library(ma_oni_colony STATIC EXCLUDE_FROM_ALL native/src/oni_catalogue.cpp)
+target_link_libraries(ma_oni_colony PUBLIC ma_mac_closed_world)
+set_target_properties(ma_oni_colony PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+    target_compile_options(ma_oni_colony PRIVATE /W4 /WX /permissive- /fp:strict)
+else()
+    target_compile_options(ma_oni_colony PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+endif()
+if(MA_BUILD_TESTS)
+    add_executable(ma_oni_catalogue_tests native/tests/oni_catalogue_tests.cpp)
+    target_link_libraries(ma_oni_catalogue_tests PRIVATE ma_oni_colony)
+    if(MSVC)
+        target_compile_options(ma_oni_catalogue_tests PRIVATE /W4 /WX /permissive- /fp:strict)
+    else()
+        target_compile_options(ma_oni_catalogue_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+    endif()
+    add_test(NAME oni_material_catalogue COMMAND ma_oni_catalogue_tests)
+endif()
+
 add_executable(ma_fluid_benchmark native/apps/fluid_benchmark.cpp)
 target_link_libraries(ma_fluid_benchmark PRIVATE ma_core)
 

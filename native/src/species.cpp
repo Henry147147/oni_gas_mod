@@ -48,7 +48,9 @@ std::size_t SpeciesRegistry::add(SpeciesDefinition definition) {
     for (const auto& item : species_) {
         if (item.id == definition.id) throw std::invalid_argument("Duplicate species ID: " + definition.id);
     }
-    definition.molar_mass = molecular_mass(definition.atoms);
+    if (!definition.explicit_molar_mass) definition.molar_mass = molecular_mass(definition.atoms);
+    else if (definition.atoms.empty() || !std::isfinite(definition.molar_mass) || definition.molar_mass <= 0)
+        throw std::invalid_argument("An explicit molar mass needs an identity composition and a positive finite value");
     require_finite(definition.cp, "heat capacity");
     require_finite(definition.density, "density");
     require_finite(definition.conductivity, "conductivity");

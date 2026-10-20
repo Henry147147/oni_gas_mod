@@ -24,6 +24,9 @@ struct SpeciesDefinition {
     double conductivity = 0.0;       // W/(m K)
     double formation_enthalpy = 0.0; // J/mol at 298.15 K
     double max_mole_fraction = 1.0;  // configured gameplay contamination limit
+    // Keep molar_mass as given instead of deriving it from atoms. Catalogue
+    // materials read from the game use this; atoms then only label identity.
+    bool explicit_molar_mass = false;
 
     [[nodiscard]] double cv() const;
     [[nodiscard]] double internal_energy(double temperature) const; // J/kg
