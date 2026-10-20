@@ -514,7 +514,13 @@ namespace MixedAtmospheres.Oni
             // One reused copy buffer: Capture runs on every published frame,
             // and only the first count records are ever read back.
             var receipts = ReceiptBuffer;
-            Check(CopyReceipts(ref next, values, (uint)values.Length, receipts, (uint)receipts.Length, out var count));
+            uint count; var subcell = SubcellStatus.Empty;
+            if (ConfiguredVacuumMode)
+            {
+                if (occupiedVolumes.Length != values.Length) occupiedVolumes = new double[values.Length];
+                Check(CopyPhaseFrame(ref next, values, occupiedVolumes, (uint)values.Length, ref subcell, receipts, (uint)receipts.Length, out count));
+            }
+            else Check(CopyReceipts(ref next, values, (uint)values.Length, receipts, (uint)receipts.Length, out count));
             if (count > receipts.Length) throw new InvalidOperationException("Native receipt count exceeds capacity.");
             completedReceipts = receipts.Take(checked((int)count)).ToArray();
             if (next.Session != latest.Session || next.CompletedFrames < previous) throw new InvalidOperationException("Native domain session changed during capture.");
@@ -528,11 +534,6 @@ namespace MixedAtmospheres.Oni
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
             if (ConfiguredVacuumMode)
             {
-                if (occupiedVolumes.Length != values.Length) occupiedVolumes = new double[values.Length];
-                var volumeStatus = Status.Empty; Check(CopyOccupiedVolumes(ref volumeStatus, occupiedVolumes, (uint)occupiedVolumes.Length));
-                Require(volumeStatus.State == next.State && volumeStatus.Session == next.Session && volumeStatus.CompletedFrames == next.CompletedFrames,
-                    "Material volume geometry differs from its completed physical frame.");
-                var subcell = SubcellStatus.Empty; Check(CopySubcellStatus(ref subcell));
                 var expectedPolicy = (ConfiguredPhysics.Flags & PhysicsUnresolvedGas) != 0 ? 1U : 0U;
                 Require(subcell.Size == 48 && subcell.Version == 1 && subcell.State == latest.State &&
                     subcell.Session == latest.Session && subcell.CompletedFrame == latest.CompletedFrames && subcell.Policy == expectedPolicy &&

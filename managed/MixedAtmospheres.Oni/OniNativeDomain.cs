@@ -177,6 +177,8 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_subcell_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopySubcellStatus(ref SubcellStatus status);
         [DllImport(Library, EntryPoint = "ma_oni_domain_copy_occupied_volumes", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyOccupiedVolumes(ref Status status, [Out] double[] volumes, uint capacity);
+        [DllImport(Library, EntryPoint = "ma_oni_domain_copy_phase_frame", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyPhaseFrame(ref Status status, [Out] Cell[] cells, [Out] double[] volumes, uint capacity,
+            ref SubcellStatus account, [Out] Receipt[] receipts, uint receiptCapacity, out uint count);
         [StructLayout(LayoutKind.Sequential)]
         internal struct ViscosityStatus
         {

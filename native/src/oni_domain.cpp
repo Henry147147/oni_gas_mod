@@ -1336,6 +1336,25 @@ void copy_domain_receipts(MAOniDomainStatus& output,MAOniDomainCell* cells,std::
     if (!receipts.empty()) std::copy(receipts.begin(),receipts.end(),result);
     output=next; count=static_cast<std::uint32_t>(receipts.size());
 }
+void copy_domain_phase_frame(MAOniDomainStatus& output,MAOniDomainCell* cells,double* volumes,std::uint32_t capacity,
+    MAOniDomainSubcellStatus& account,MAOniDomainReceipt* result,std::uint32_t receipt_capacity,std::uint32_t& count) {
+    std::lock_guard frame_lock(frame_mutex); std::lock_guard lock(state_mutex); const ArithmeticScope arithmetic;
+    if (!cells || !volumes || capacity<publication.size() || receipt_capacity<receipts.size())
+        throw std::length_error("Native physical phase frame capacity is insufficient");
+    if (!result && !receipts.empty()) throw std::invalid_argument("Native receipt output is null");
+    const auto next=frame_status();
+    const MAOniDomainSubcellStatus next_account{sizeof(account),1,next.state,
+        world ? static_cast<std::uint32_t>(world->settings().subcell_void) : 0U,next.session,next.completed_frames,
+        subcell_void_events,subcell_void_entropy.value().require_representable()};
+    std::copy(publication.begin(),publication.end(),cells);
+    if (world) {
+        const auto& state=world->state();
+        for (std::size_t i=0;i<state.cells.size();++i)
+            volumes[i]=state.grid.walls[i] || !(state.cells[i].mixture.mass()>0) ? 0 : mac_material_volume(state,i);
+    }
+    if (!receipts.empty()) std::copy(receipts.begin(),receipts.end(),result);
+    output=next;account=next_account;count=static_cast<std::uint32_t>(receipts.size());
+}
 void ack_domain_receipts(std::uint64_t session,std::uint64_t through) {
     std::lock_guard lock(state_mutex);
     if (session != status.session) throw std::logic_error("Native receipt session changed");

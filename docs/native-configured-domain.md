@@ -313,8 +313,11 @@ eleven resting frames, 140 vent frames, three closure events, entropy increase
 snapshot restore/continuation. The 48-byte `ma_oni_domain_subcell_status` reports
 completed-frame accounts since activation; restore resets those diagnostics.
 The harness checks their policy, frame and entropy. The additive
-`ma_oni_domain_copy_occupied_volumes` copies actual material volumes with the
-same completed-frame stamp; solids and vacuum report zero. Rendering derives
+`ma_oni_domain_copy_phase_frame` atomically copies cells, actual material
+volumes, receipts and closure accounts under one frame/state fence. The adapter
+uses this endpoint so adjacent native frames cannot split the reading. The
+separate `ma_oni_domain_copy_occupied_volumes` reader remains available for
+inspection; solids and vacuum report zero. Rendering derives
 resolved gas headspace and void from that geometry, retaining the EOS gas
 volume when liquid subtraction cannot resolve a trace. Geometry must still
 satisfy the existing ideal-gas consistency check; no bound changes. The native

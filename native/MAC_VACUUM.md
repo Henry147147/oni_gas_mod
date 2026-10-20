@@ -399,8 +399,9 @@ The unchanged 7×5 native owner control completes eleven resting frames and
 maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact continuation.
 The completed-frame `ma_oni_domain_subcell_status` accounts reset on activation
 and restore; they do not alter saved physical state.
-`ma_oni_domain_copy_occupied_volumes` separately copies actual material geometry
-with its completed-frame stamp. The renderer uses it for resolved headspace and
+`ma_oni_domain_copy_phase_frame` atomically copies cell records, actual material
+geometry, receipts and closure accounts under one frame/state fence. The adapter
+uses this joint copy; separate readers remain available for inspection. The renderer uses it for resolved headspace and
 void, retaining pressure-derived trace volume when liquid subtraction loses
 relative accuracy. The existing EOS consistency and 128-epsilon closure checks
 stay fixed; the evolving native fixture's 31 readings close within 5.55e-17 m³.

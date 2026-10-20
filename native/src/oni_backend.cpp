@@ -1012,6 +1012,16 @@ MAOniResult ma_oni_domain_copy_occupied_volumes(MAOniDomainStatus* output,double
         catch (const std::length_error& error) { throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what()); }
     });
 }
+MAOniResult ma_oni_domain_copy_phase_frame(MAOniDomainStatus* output,MAOniDomainCell* cells,double* volumes,std::uint32_t capacity,
+    MAOniDomainSubcellStatus* account,MAOniDomainReceipt* receipts,std::uint32_t receipt_capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_DOMAIN_ABI_VERSION || !cells || !volumes ||
+            !account || account->struct_size!=sizeof(*account) || account->abi_version!=1 || !count || (!receipts && receipt_capacity))
+            throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid native physical phase frame ABI");
+        try { ma::oni::copy_domain_phase_frame(*output,cells,volumes,capacity,*account,receipts,receipt_capacity,*count); }
+        catch (const std::length_error& error) { throw Failure(MA_ONI_BUFFER_TOO_SMALL,error.what()); }
+    });
+}
 MAOniResult ma_oni_domain_subcell_status(MAOniDomainSubcellStatus* output) {
     return boundary([&] {
         if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=1)

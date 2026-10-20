@@ -399,8 +399,13 @@ void vacuum_subcell_domain() {
     start_configured_domain(config,physics,mask,1,{},0,input);
     std::vector<MAOniDomainCell> cells(35);auto status=capture(cells);const auto rest=cells;
     const auto step=[&](std::uint64_t frame) {
-        advance_domain(frame,.2F,2);status=capture(cells);
+        advance_domain(frame,.2F,2);
+        std::array<double,35> geometry{};MAOniDomainSubcellStatus phase{};
+        std::array<MAOniDomainReceipt,2> copied_receipts{};std::uint32_t count=0;
+        copy_domain_phase_frame(status,cells.data(),geometry.data(),35,phase,copied_receipts.data(),2,count);
         if (status.state!=1) throw std::runtime_error(std::string("Subcell owner: ")+status.error);
+        require(phase.state==status.state && phase.session==status.session && phase.completed_frame==status.completed_frames &&
+            phase.completed_frame==frame && phase.policy==1 && count<=1,"Physical phase frame split its completed epoch");
     };
     for (std::uint64_t frame=1;frame<=11;++frame) step(frame);
     require(std::memcmp(cells.data(),rest.data(),cells.size()*sizeof(MAOniDomainCell))==0,"Opted-in water/vacuum did not stay at rest");
@@ -413,6 +418,16 @@ void vacuum_subcell_domain() {
     try { copy_domain_occupied_volumes(volume_status,short_output.data(),34); } catch(const std::length_error&) { short_rejected=true; }
     require(short_rejected && short_output==volumes && std::memcmp(&volume_status,&held_status,sizeof(volume_status))==0,
         "Short volume output changed a caller's completed frame");
+    {
+        auto held_cells=cells;auto held_volumes=volumes;auto held_frame=status;
+        MAOniDomainSubcellStatus phase{};phase.events=99;const auto held_phase=phase;
+        std::array<MAOniDomainReceipt,2> copied_receipts{};std::uint32_t count=99;bool rejected=false;
+        try { copy_domain_phase_frame(held_frame,held_cells.data(),held_volumes.data(),34,phase,copied_receipts.data(),2,count); }
+        catch(const std::length_error&) { rejected=true; }
+        require(rejected && std::memcmp(held_cells.data(),cells.data(),cells.size()*sizeof(cells[0]))==0 && held_volumes==volumes &&
+            std::memcmp(&held_frame,&status,sizeof(status))==0 && std::memcmp(&phase,&held_phase,sizeof(phase))==0 && count==99,
+            "Short phase frame changed a caller's retained data");
+    }
     MAOniDomainSubcellStatus account{};copy_domain_subcell_status(account);
     require(account.policy==1 && account.session==status.session && account.completed_frame==11 &&
         account.events==0 && account.entropy_increase_j_per_k==0,"Rest created unresolved gas events");

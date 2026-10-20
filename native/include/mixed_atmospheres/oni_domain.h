@@ -206,6 +206,10 @@ MA_ONI_API MAOniResult ma_oni_domain_transfer_status(MAOniDomainTransferStatus*)
 /* Both physical cells and receipts refer to the same completed native frame. */
 MA_ONI_API MAOniResult ma_oni_domain_copy_receipts(MAOniDomainStatus*, MAOniDomainCell*, uint32_t cell_capacity,
     MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* receipt_count);
+/* One atomic completed frame, including geometry, accounts and receipts. */
+MA_ONI_API MAOniResult ma_oni_domain_copy_phase_frame(MAOniDomainStatus*, MAOniDomainCell*, double*, uint32_t capacity,
+    MAOniDomainSubcellStatus*, MAOniDomainReceipt*, uint32_t receipt_capacity, uint32_t* count);
+
 MA_ONI_API MAOniResult ma_oni_domain_ack_receipts(uint64_t session, uint64_t through_sequence);
 /* Additive radial consumption capability 1. Transfer flags bits 8..15 select
  * a face-connected radius for kind 2; bit 0 must also be set. Radius zero
