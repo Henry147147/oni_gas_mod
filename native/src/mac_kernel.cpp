@@ -111,7 +111,7 @@ std::size_t load(const Exec& exec, const Model& model, const Grid& g, const MacT
         for (const auto& v : *full) if (v.project().rounded) ++rounded;
     return rounded;
 }
-void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f, MacTransportState& out) {
+void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f, MacTransportState& out, bool canonical_void) {
     const auto N = g.N, K = model.K(), P = model.P();
     exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) { for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
         auto& cell = out.cells[i];
@@ -126,6 +126,12 @@ void store(const Exec& exec, const Model& model, const Grid& g, const Fields& f,
     out.momentum_x = f.jx; out.momentum_y = f.jy;
     out.full_momentum_x.clear(); out.full_momentum_y.clear();
     out.occupied_volumes_m3 = f.Vo;
+    if (canonical_void && !out.occupied_volumes_m3.empty()) {
+        bool partial = false;
+        for (std::size_t i = 0; i < N; ++i)
+            partial = partial || (out.cells[i].mixture.mass() > 0 && out.occupied_volumes_m3[i] < g.V);
+        if (!partial) out.occupied_volumes_m3.clear();
+    }
 }
 // Interval totals per audited quantity, from deterministic per-block
 // partials: double-double signed sum, double-double absolute operand sum,
@@ -237,6 +243,41 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
     });
     for (const auto& p : parts) { total.add(p.s); allowance += p.allowance; }
 }
+void expand_unresolved_gas(Context& c, Fields& f, Accounts& acc) {
+    if (c.settings.subcell_void != MacSubcellVoidPolicy::expand_unresolved_gas || f.Vo.empty()) return;
+    const auto& g = c.g;
+    for (std::size_t i = 0; i < g.N; ++i) {
+        if (g.wall[i] || !(f.Vo[i] > 0 && f.Vo[i] <= 16 * eps * g.V)) continue;
+        const auto stats = cell_stats(c.model, f, g.N, i);
+        if (!(stats.nR > 0)) continue;
+        State before, after;
+        if (!evaluate_state(c.model, f, g.N, i, stats, f.U[i], f.Vo[i], before) ||
+            !evaluate_state(c.model, f, g.N, i, stats, f.U[i], g.V, after))
+            reject("Unresolved gas expansion left its EOS domain");
+        const auto headspace = [&](const State& state, double volume) {
+            if (stats.kind != mixed_cell) return state.Vg;
+            const double liquid = liquid_at(c.model, f, g.N, i, state.p).volume;
+            return liquid <= .5 * volume ? volume - liquid : state.Vg;
+        };
+        // Same entropy expression as the interval audit, differenced at fixed
+        // masses/U. Species offsets cancel. Primary-U remainders are retained
+        // and observed with the interval's U_low/T convention. This is physical
+        // free expansion: its positive entropy is not a rounding allowance.
+        DD increase;
+        increase.add(stats.Cv * (std::log(after.T) - std::log(before.T)));
+        increase.add(stats.nR * (std::log(headspace(after, g.V)) - std::log(headspace(before, f.Vo[i]))));
+        increase.add(f.U_remainder[i] / after.T);
+        increase.add(-f.U_remainder[i] / before.T);
+        if (!std::isfinite(increase.value()) || increase.value() < 0)
+            reject("Unresolved gas expansion did not increase entropy");
+        if (acc.subcell_void_events == std::numeric_limits<std::size_t>::max())
+            precision("Unresolved gas expansion counter overflow");
+        ++acc.subcell_void_events; acc.subcell_void_entropy.add(increase);
+        // No conserved field is written. In particular U and its carried
+        // remainder, constituent/passive inventories and face J stay intact.
+        f.Vo[i] = g.V;
+    }
+}
 void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     const bool timed = c.options.collect_stage_timing;
     const auto run = [&](auto&& stage, double seconds, double& slot) {
@@ -258,6 +299,7 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     run(stage_shock_heat, .5 * dt, tm.shock_heat_ms);
     if (!boiling) run(stage_conduction, .5 * dt, tm.conduction_ms);
     run(stage_viscosity, .5 * dt, tm.viscosity_ms);
+    expand_unresolved_gas(c, f, acc);
 }
 void merge(Accounts& a, const Accounts& b) {
     for (std::size_t q = 0; q < a.operands.size(); ++q) {
@@ -272,6 +314,9 @@ void merge(Accounts& a, const Accounts& b) {
     a.unresolved += b.unresolved;
     for (std::size_t q = 0; q < a.conversion.size(); ++q) a.conversion[q].add(b.conversion[q]);
     a.evaporated += b.evaporated; a.condensed += b.condensed; a.interface_conversions += b.interface_conversions;
+    if (b.subcell_void_events > std::numeric_limits<std::size_t>::max() - a.subcell_void_events)
+        precision("Unresolved gas expansion counter overflow");
+    a.subcell_void_events += b.subcell_void_events; a.subcell_void_entropy.add(b.subcell_void_entropy);
     a.physical.merge(b.physical); a.energy.merge(b.energy);
 }
 std::string quantity_name(const Context& c, std::size_t q) {
@@ -506,6 +551,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             report.unresolved_updates = acc.unresolved;
             report.interface_conversions = acc.interface_conversions;
             report.evaporated_kg = acc.evaporated; report.condensed_kg = acc.condensed;
+            report.subcell_void_events = acc.subcell_void_events;
+            report.subcell_void_entropy_j_per_k = acc.subcell_void_entropy.value();
             report.rounded_transfers = 0;
             report.rounded_primary_writes = 0;
             report.rounded_inventory_writes = 0;
@@ -537,7 +584,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             throw FluidFatalError(FluidFatalCode::numerical_precision, passed ? "Production interval entropy audit failed" : "Production interval conservation audit failed");
     }
     const auto store_time = Clock::now();
-    store(c.exec, model, g, w.current, out);
+    store(c.exec, model, g, w.current, out, settings.subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas);
     report.timing.conversion_ms += since(store_time);
     report.workspace_bytes = retained_bytes(w);
     report.multigrid_solves = c.counters.multigrid_solves; report.multigrid_cycles = c.counters.multigrid_cycles;
@@ -614,6 +661,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     mac_kernel::require_supported(MacKernelAccess::settings(world));
     const auto fallback = [&](std::size_t consumed) {
+        mac_kernel::require(MacKernelAccess::settings(world).subcell_void == MacSubcellVoidPolicy::exact_geometry,
+            "Unresolved gas expansion cannot continue through reference fallback");
         mac_kernel::require(MacKernelAccess::settings(world).pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
             "Two-moment pressure integration cannot continue through legacy reference fallback");
         // Flagged range: the complete interval through the reference, with
@@ -641,6 +690,7 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     r.primary_energy.merge({k.rounded_energy_writes,k.discarded_energy_remainders});
     r.interval_audit_retries = k.audit_retries; r.interval_unresolved_updates = k.unresolved_updates;
     r.evaporated_kg += k.evaporated_kg; r.condensed_kg += k.condensed_kg;
+    r.subcell_void_events = k.subcell_void_events; r.subcell_void_entropy_j_per_k = k.subcell_void_entropy_j_per_k;
     if (k.interface_conversions > 0) ++r.phase_change_stages;
     for (const auto count : {k.rounded_range_inputs, k.rounded_transfers, k.rounded_primary_writes, k.rounded_inventory_writes, k.rounded_energy_writes, k.discarded_energy_remainders}) {
         if (count > std::numeric_limits<std::size_t>::max() - r.interval_rounded_updates)

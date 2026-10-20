@@ -635,6 +635,7 @@ std::unique_ptr<MacClosedWorld> restored_configured_owner(const MAOniDomainConfi
         grid.periodic_x || grid.periodic_y || !std::equal(grid.walls.begin(),grid.walls.end(),mask.begin(),mask.end()) ||
         !same_bits(actual.gravity_m_per_s2,expected.gravity_m_per_s2) || actual.thermal_conduction!=expected.thermal_conduction ||
         actual.vacuum!=expected.vacuum || actual.reconstruction!=expected.reconstruction || actual.phase_change!=expected.phase_change ||
+        actual.subcell_void!=expected.subcell_void ||
         (!void_domain(physics) && !state.occupied_volumes_m3.empty()) ||
         !same_bits(actual.viscosity.shear_pa_s,expected.viscosity.shear_pa_s) || !same_bits(actual.viscosity.bulk_pa_s,expected.viscosity.bulk_pa_s))
         throw std::invalid_argument("Configured physical checkpoint clock, grid, solid mask or physics differs from its native domain configuration");

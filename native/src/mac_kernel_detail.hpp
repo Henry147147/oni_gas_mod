@@ -181,7 +181,8 @@ struct Anchor {
 // anchored branch only, which every gas/liquid cell takes).
 struct Work { double dW = 0, derivative = 0, dU = 0, p1 = 0, dp1 = 0; };
 // False when the trial leaves the EOS domain (void, compression limit).
-bool isentropic_work(const Model&, const Fields&, std::size_t N, std::size_t i, const Anchor&, double dV, Work& out);
+bool isentropic_work(const Model&, const Fields&, std::size_t N, std::size_t i, const Anchor&, double dV, Work& out,
+    bool robust_void_seed = false);
 
 // ---------------------------------------------------------------- execution
 class Pool {
@@ -306,6 +307,8 @@ struct Accounts {
     // audit's external term for each species), and its totals.
     std::vector<DD> conversion;
     double evaporated = 0, condensed = 0; std::size_t interface_conversions = 0;
+    std::size_t subcell_void_events = 0;
+    DD subcell_void_entropy;
     std::size_t unresolved = 0; // Accepted primary/parcel and existing pressure/heat writes.
     PhysicalAccounts physical;
     void resize(std::size_t quantities) {

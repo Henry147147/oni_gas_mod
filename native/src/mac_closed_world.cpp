@@ -183,6 +183,10 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(subcell_void == MacSubcellVoidPolicy::exact_geometry ||
+        (subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas &&
+            vacuum == MacVacuumRepresentation::void_phase && numerical_kernel == MacNumericalKernel::production && mac_kernel_supports(*this)),
+        "Invalid MAC subcell-void policy (unresolved expansion requires supported production void-phase selectors)");
     require(phase_change == MacPhaseChange::none || (phase_change == MacPhaseChange::saturation &&
         pressure_integration == MacPressureIntegration::discrete_gradient_midpoint),
         "Invalid MAC phase change (saturation phase change needs midpoint pressure)");
@@ -226,6 +230,8 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
     const MacTransportState& source, double dt, const MacClosedSettings& settings) {
     require_mac_energy_environment();
     settings.validate(); require(std::isfinite(dt) && dt > 0 && dt <= settings.maximum_timestep_s, "Invalid MAC closed substep time");
+    require(settings.subcell_void == MacSubcellVoidPolicy::exact_geometry,
+        "Unresolved gas expansion is available only through the production kernel");
     require(settings.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
         "The reference substep cannot execute two-moment pressure integration");
     const auto inertia = mac_face_inertias(registry, source, model); const auto& g = source.grid; const Topology topology(g, &source);
@@ -680,6 +686,7 @@ void combine_report(MacClosedAdvanceReport& a,const MacClosedAdvanceReport& b) {
     MA_ADD(shock_heat_stages);MA_ADD(shock_heat_events);MA_ADD(shock_heat_root_iterations);MA_ADD(rejected_shock_heat_trials);MA_ADD(unresolved_shock_heat_updates);
     MA_ADD(phase_change_stages);MA_ADD(evaporating_cells);MA_ADD(condensing_cells);MA_ADD(evaporated_kg);MA_ADD(condensed_kg);
     MA_ADD(phase_change_entropy_j_per_k);
+    MA_ADD(subcell_void_events);MA_ADD(subcell_void_entropy_j_per_k);
     MA_ADD(absolute_shock_heat_transfer_wide_j);MA_ADD(absolute_shock_heat_transfer_j);
 #undef MA_ADD
     a.maximum_geometric_residual_m3=std::max(a.maximum_geometric_residual_m3,b.maximum_geometric_residual_m3);

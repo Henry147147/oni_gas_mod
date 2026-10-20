@@ -14,8 +14,6 @@ internal static class ConfiguredDomainLayoutTests
             check(Enumerable.Range(0,6).Where(k=>ConfiguredDomainLayout.AdmitsSpecies(PhysicsLiquid,(uint)k)).SequenceEqual(new[]{3}));
             foreach(var flags in new[]{PhysicsMixture, PhysicsVacuum|PhysicsMixture})
                 check(Enumerable.Range(0,6).Where(k=>ConfiguredDomainLayout.AdmitsSpecies(flags,(uint)k)).SequenceEqual(new[]{0,1,2,3,4}));
-            check(ConfiguredDomainLayout.AdmitsSpecies(flags,species)==(species<5 &&
-                        ((flags&PhysicsMixture)!=0 || ((flags&PhysicsLiquid)!=0)==(species==3))));
             check(ConfiguredDomainLayout.AdmitsSpecies(ConfiguredDomainLayout.VacuumPhysics.Flags,3) &&
                 ConfiguredDomainLayout.AdmitsSpecies(ConfiguredDomainLayout.VacuumPhysics.Flags,1));
         });

@@ -104,6 +104,8 @@ struct MacKernelReport {
     // Sharp-interface boiling: accepted interface conversions and moved mass.
     std::size_t interface_conversions = 0;
     double evaporated_kg = 0, condensed_kg = 0;
+    std::size_t subcell_void_events = 0;
+    double subcell_void_entropy_j_per_k = 0;
     // Threads that executed the interval (MacKernelOptions::threads capped
     // by the grid's row-block count).
     unsigned threads_used = 1;

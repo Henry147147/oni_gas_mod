@@ -167,7 +167,8 @@ bool evaluate_state(const Model& model, const Fields& f, std::size_t N, std::siz
     out = r;
     return true;
 }
-bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::size_t i, const Anchor& a, double dV, Work& out) {
+bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::size_t i, const Anchor& a, double dV, Work& out,
+    bool robust_void_seed) {
     Work w;
     if (dV == 0) {
         w.dW = 0; w.dU = 0; w.p1 = a.p0;
@@ -225,6 +226,12 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
         const bool gas = a.nR > 0;
         const double am = gas ? a.nR / (a.Cv + a.nR) : 0, bm = gas ? a.Cv / (a.Cv + a.nR) : 1;
         double param = gas ? -dV / (a.p0 * a.comp) : -dV / a.comp;
+        // The linear pressure estimate can be hundreds of log units from the
+        // root for trace gas in water. These seeds retain the same equation,
+        // convergence bounds and iteration limit. Older policies keep their
+        // original Newton trajectory.
+        if (robust_void_seed && gas && param > 1) param = std::log1p(param);
+        else if (robust_void_seed && gas && param < -1) param = -std::log1p(dV / a.Vg0) / bm;
         const auto point = [&](double t, double& dp, double& p, double& volume, double& slope) {
             dp = gas ? a.p0 * std::expm1(t) : t; p = a.p0 + dp;
             const double dpdt = gas ? p : 1;

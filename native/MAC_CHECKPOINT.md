@@ -34,7 +34,7 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    diffusion, historically kernels 0/1; 6 for production kernel 2 with midpoint
    pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
    [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U; 11 for
-   [phase change](MAC_PHASE_CHANGE.md)), and a length-prefixed binary model identity.
+   [phase change](MAC_PHASE_CHANGE.md); 12 for the [unresolved gas opt-in](MAC_VACUUM.md#unresolved-gas-opt-in)), and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -58,22 +58,24 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    formulation and profile. Version 10 stores this complete settings prefix too,
    retaining the supported pressure and vacuum selectors explicitly. Version 11 has
    the version-10 prefix followed by the phase-change enum (unsigned 32-bit,
-   canonical value 1, saturation).
+   canonical value 1, saturation). Version 12 stores the version-10 prefix,
+   the phase-change enum (0 or 1), then the subcell-void policy (unsigned 32-bit,
+   canonical value 1). It requires supported production void-phase settings.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Versions 9–11: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9–12: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Versions 10/11: the cell count followed by each correction's projected binary64
+9. Versions 10–12: the cell count followed by each correction's projected binary64
    value and boolean full-value flag. A flagged value adds its normalized binary64
    significand and length-prefixed canonical decimal exponent. The full value is
    required exactly when its projection rounds. High/low overlap, scalar negative
    zero and incomplete coverage reject; so does an entirely zero correction vector
-   in version 10, which version 11 (selected by phase change) admits.
+   in version 10, which versions 11/12 (selected by their opt-in setting) admit.
 10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
@@ -97,10 +99,19 @@ identity, so the selector is the only new field. `ma_mac_phase_change_tests` res
 a boiling column mid-run and requires byte-identical continuation. Other checkpoint
 extensions must use a later free version.
 
+Version **12 is unresolved subcell gas expansion** (2026-10-20), allocated after
+a fresh fetch/rebase onto `de08225`. Any owner with this explicit policy writes
+it, including with phase change disabled and all-zero U corrections. Unknown or
+zero policy values reject as noncanonical; older versions restore exact geometry.
+`ma_mac_subcell_void_tests` checks complete identity, malformed settings,
+canonical full-cell endpoints and byte-identical continuation with/without carried U.
+Clean-build raw comparisons retain all fifteen controls covering versions 2–11
+(including synthesized retired layout 4), plus 39 domain images and 39 publications.
+
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without
 U corrections writes version 9. Any owner with nonzero corrections writes version
-10. Retired layouts remain listed for explicit rejection:
+10 unless phase change selects 11 or unresolved expansion selects 12. Retired layouts remain listed for explicit rejection:
 
 | Version | Kernel | Viscosity | Gas diffusion |
 | --- | --- | --- | --- |
@@ -111,8 +122,10 @@ U corrections writes version 9. Any owner with nonzero corrections writes versio
 | 6 | production (2) | either | disabled, physical or accelerated |
 | 7 | production (2), two-moment pressure (1) | either | disabled, physical or accelerated |
 | 8 | production (2), coupled two-moment pressure (2) | either | disabled, physical or accelerated |
-| 9 | reference (0) or production (2), void phase; midpoint pressure | off (the void phase rejects viscosity) | disabled |
+| 9 | reference (0) or production (2), void phase; midpoint pressure | production only | disabled |
 | 10 | reference (0) or production (2), explicit pressure/vacuum selectors and carried U | according to physical settings | according to physical settings |
+| 11 | reference (0) or production (2), explicit saturation phase change and primary-U sidecar | according to physical settings | according to physical settings |
+| 12 | supported production (2), void phase, explicit unresolved gas expansion | either | disabled |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to

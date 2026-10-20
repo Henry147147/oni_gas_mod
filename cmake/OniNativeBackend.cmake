@@ -262,10 +262,12 @@ if(MA_BUILD_TESTS)
     add_test(NAME mac_gate_m5_stefan_coarse COMMAND ma_mac_multiphase_gates M5 --quick)
     add_test(NAME mac_gate_v_vacuum_front COMMAND ma_mac_vacuum_front_diagnostic --gate)
     add_test(NAME mac_gate_v_vacuum_front_production COMMAND ma_mac_vacuum_front_diagnostic --gate-production)
+    add_test(NAME mac_gate_v_vacuum_front_production_subcell COMMAND ma_mac_vacuum_front_diagnostic --gate-production-subcell)
     add_test(NAME mac_void_phase COMMAND ma_mac_void_phase_tests)
+    add_test(NAME mac_subcell_void COMMAND ma_mac_subcell_void_tests)
     add_test(NAME mac_phase_change COMMAND ma_mac_phase_change_tests)
     set_target_properties(ma_mac_gravity_gates ma_mac_free_surface_gates ma_mac_multiphase_gates
-        ma_mac_vacuum_front_diagnostic ma_mac_void_phase_tests ma_mac_phase_change_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
+        ma_mac_vacuum_front_diagnostic ma_mac_void_phase_tests ma_mac_subcell_void_tests ma_mac_phase_change_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     set_target_properties(ma_mac_compressive_eos_reuse_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
     # Production substep kernel (native/MAC_KERNEL.md).
     add_test(NAME mac_production_kernel_oracle COMMAND ma_mac_kernel_validation_tests)

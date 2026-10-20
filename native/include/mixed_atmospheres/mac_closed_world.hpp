@@ -38,6 +38,10 @@ enum class MacPressureIntegration { discrete_gradient_midpoint = 0, two_moment =
 // the volume its material occupies; the remainder is exact vacuum, and swept
 // strips carry material and void by a PLIC line. Reference path, gas only.
 enum class MacVacuumRepresentation { empty_cells = 0, void_phase = 1 };
+// Explicit coarse-graining of unresolved gas-containing material. Value 0
+// retains exact void geometry; value 1 expands material occupying at most
+// 16 epsilons of grid volume into that cell, retaining all conserved fields.
+enum class MacSubcellVoidPolicy { exact_geometry = 0, expand_unresolved_gas = 1 };
 // Persisted phase change. Value 1: after each substep, every calibrated
 // liquid/vapour pair relaxes to phase equilibrium at its pressure-dependent
 // saturation point (MAC_PHASE_CHANGE.md). Reference path only.
@@ -65,6 +69,7 @@ struct MacClosedSettings {
     MacPressureIntegration pressure_integration = MacPressureIntegration::discrete_gradient_midpoint;
     MacVacuumRepresentation vacuum = MacVacuumRepresentation::empty_cells;
     MacPhaseChange phase_change = MacPhaseChange::none;
+    MacSubcellVoidPolicy subcell_void = MacSubcellVoidPolicy::exact_geometry;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -186,6 +191,8 @@ struct MacClosedAdvanceReport {
     MacPrimaryRoundingCounts primary_energy{};
     std::size_t phase_change_stages = 0, evaporating_cells = 0, condensing_cells = 0;
     double evaporated_kg = 0, condensed_kg = 0, phase_change_entropy_j_per_k = 0;
+    std::size_t subcell_void_events = 0;
+    double subcell_void_entropy_j_per_k = 0;
 };
 struct MacClosedAdvance;
 // Reference/exact_equilibrium retain the saved numerical selection. An

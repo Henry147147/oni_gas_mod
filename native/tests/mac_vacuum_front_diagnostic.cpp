@@ -69,7 +69,7 @@ struct Setup {
 // the measured front position and recent speed. With voids, the void phase
 // keeps each cell's occupied volume, the front is the gas/void line, and the
 // gate's mass-fraction fronts are also recorded at both endpoints.
-int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=false,Fronts* fronts=nullptr,bool production=false){
+int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=false,Fronts* fronts=nullptr,bool production=false,bool subcell=false){
  using namespace ma;using namespace ma::experimental;
  Setup set;const auto& p=set.problem;
  require(n>=16 && n<=2048 && n%4==0,"Invalid vacuum front grid");
@@ -85,6 +85,7 @@ int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=f
  if(voids){settings.vacuum=MacVacuumRepresentation::void_phase;settings.momentum_reconstruction=MacMomentumReconstruction::donor_cell;}
  // The production kernel implements material selector 1 and the default compression law.
  if(production){settings.reconstruction=MacMaterialReconstruction::limited_linear;settings.compression_viscosity=MacCompressionViscosity{};}
+ if(subcell){settings.numerical_kernel=MacNumericalKernel::production;settings.subcell_void=MacSubcellVoidPolicy::expand_unresolved_gas;}
  const auto policy=production?MacExecutionPolicy::production:MacExecutionPolicy::reference;
  MacClosedWorld world(set.registry,set.eos,s,settings);
  std::cout<<"VFCONFIG "<<n<<' '<<h<<' '<<dt<<' '<<p.sound_speed<<' '<<p.gamma<<' '<<p.time()<<'\n';
@@ -110,12 +111,12 @@ int run(std::size_t n,double& measured_front,double& measured_speed,bool voids=f
 // last 0.2t within 10% of its exact displacement, both errors decreasing over
 // N128, N256 and N512; and no gas lies more than one cell ahead of the exact
 // front at either endpoint.
-int gate(bool production=false){
+int gate(bool production=false,bool subcell=false){
  const Problem p=Setup{}.problem;
  std::vector<double> front_errors,speed_errors;bool contained=true;
  for(const std::size_t n:{128,256,512}){
   double front=0,speed=0;Fronts f;
-  try{(void)run(n,front,speed,true,&f,production);}
+  try{(void)run(n,front,speed,true,&f,production,subcell);}
   catch(const std::exception& e){std::cout<<"VGATE n="<<n<<" stopped: "<<e.what()<<"\nGATE V FAIL\n";return 1;}
   const double t1=.8*p.time(),t2=p.time(),h=p.length/static_cast<double>(n);
   const double exact=p.mass_front(t2,front_fraction),moved=exact-p.mass_front(t1,front_fraction);
@@ -135,6 +136,7 @@ int main(int argc,char**argv){try{
  if(argc==2 && std::string(argv[1])=="--gate")return gate();
  // --gate-production runs gate V on the production kernel (selector 1).
  if(argc==2 && std::string(argv[1])=="--gate-production")return gate(true);
+ if(argc==2 && std::string(argv[1])=="--gate-production-subcell")return gate(true,true);
  const bool voids=argc>1 && std::string(argv[1])=="--void";const int first=voids?2:1;
  require(argc==first || argc==first+1,"Expected --gate, or [--void] and an optional grid count");
  double front=0,speed=0;return run(argc>first?std::stoul(argv[first]):32,front,speed,voids);

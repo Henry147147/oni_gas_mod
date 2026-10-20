@@ -233,6 +233,45 @@ below about 215 K). Stored U has the same absolute precision, about eps × |offs
 The check now accepts the larger of that bound and 32 epsilons of the represented
 specific energy (user decision, 2026-10-19).
 
+### Unresolved gas opt-in
+
+The default `MacSubcellVoidPolicy::exact_geometry` (0) keeps the geometry above.
+The user-authorized `expand_unresolved_gas` (1) is an explicit production-only
+coarse-graining: after a successful substep, gas-containing material occupying
+at most `16 * epsilon * grid_volume` expands into the rest of that cell.
+Liquid-only material and resolved occupied volumes keep their geometry. No
+constituent, passive quantity, primary U/remainder or face momentum is changed.
+This is free expansion, not a discarded transfer or a rounding correction.
+
+Each event evaluates the complete EOS before and after at fixed U. Its entropy
+increase is counted separately in `subcell_void_events` and
+`subcell_void_entropy_j_per_k`; it contributes to the unchanged interval entropy
+check and adds no entropy credit. A negative increase or invalid EOS state
+rejects the trial. The interval's 128-epsilon conservation bounds are unchanged.
+New logarithmic isentrope seeds are enabled only with this policy, avoiding
+unbounded linear pressure guesses in gas/water trace cells. The equation,
+iteration limit and convergence bounds remain the same.
+
+The policy requires supported production selectors and the void phase. It
+cannot use the reference substep or range/material-boundary fallback. Version 12
+persists it, the complete settings and primary-U sidecar; older versions restore
+exact geometry and retain their bytes. The game owner does not yet expose this
+opt-in. `ma_mac_subcell_void_tests` covers unchanged conserved fields, complete-EOS
+entropy, the threshold boundary, liquid exclusion, malformed saves, exact
+continuation and actual one/twelve-thread execution. Gate V can also run with
+`--gate-production-subcell`, using the original inputs and bounds.
+
+Release verification passes 78 CTests. All 93 existing MAC/domain executable
+outputs match the previous clean revision scientifically (90 raw-identical;
+three differ only in timing/RSS), and the new executable passes. The default
+256-cell wave retains SHA-256
+`0363472ea13eb275789bf8a4bbce195191937731e28ae4ad2224835969d4632f`.
+Fifteen raw images covering versions 2–11, plus 39 domain images and 39
+publications, remain byte-identical. The opt-in production gate V reports
+4.166% front error and 0.322% speed error with the original refinement criteria.
+Twelve selected domain/kernel/reference controls pass ASan/UBSan Debug,
+ThreadSanitizer and MinGW/Wine, including the new closure and front modes.
+
 ## Gate V: vacuum front
 
 Gate V uses the [original problem](GAS_VACUUM.md), with the void phase, material
@@ -359,8 +398,7 @@ are private under `artifacts/vacuum-game-v1/`.
 
 The native reproduction first encounters poorly scaled logarithmic EOS seeds;
 better seeds advance it further but still stall on microscopic mixed cells.
-A private subcell-void closure experiment completes 140 vent frames with maximum
-relative energy error 7.05e-19 and passes the unchanged production gate V. It is
-not production policy yet: the user authorized an audited opt-in with persisted
-selection on 2026-10-20; implementation and validation remain open. No solver arithmetic,
-attempt limits or gate bounds were changed for the game results above.
+The authorized standalone opt-in above follows a private closure experiment
+that completes 140 vent frames with maximum relative energy error 7.05e-19.
+Game wiring remains open; flag 32 alone retains exact geometry. No solver
+arithmetic, attempt limits or gate bounds were changed for the game results above.

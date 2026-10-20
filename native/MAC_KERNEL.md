@@ -83,6 +83,7 @@ policy paths.
 | Conduction, gravity, viscosity | yes |
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 | Vacuum representation | 0 empty cells, 1 [void phase](MAC_VACUUM.md#void-phase) (gas and [liquid surfaces](MAC_VACUUM.md#liquid-surfaces); midpoint pressure) |
+| Unresolved subcell void | 0 exact geometry (default), 1 [audited gas expansion](MAC_VACUUM.md#unresolved-gas-opt-in), persisted in version 12; supported production void-phase selectors only, no reference fallback |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3) and explicit

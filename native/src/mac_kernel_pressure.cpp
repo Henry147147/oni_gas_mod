@@ -493,8 +493,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         struct At { Work iso; double mass = 0, s = 0, stiffness = 0, stretch = 0; };
         const auto at = [&](double x, At& a) {
             Work nearby; const double step = std::max(1e-6 * std::abs(x), 1e-9 * g.V);
-            if (!isentropic_work(c.model, f, N, i, ws.anchor[i], x, a.iso) ||
-                !isentropic_work(c.model, f, N, i, ws.anchor[i], x - step, nearby)) return false;
+            const bool robust = c.settings.subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas;
+            if (!isentropic_work(c.model, f, N, i, ws.anchor[i], x, a.iso, robust) ||
+                !isentropic_work(c.model, f, N, i, ws.anchor[i], x - step, nearby, robust)) return false;
             a.mass = interface_mass(i, a.iso.dp1); a.s = a.mass * converted_volume(i, a.iso.p1);
             a.stiffness = (a.iso.dp1 - nearby.dp1) / step;
             const double free = a.mass > -vapour_mass && a.mass < liquid_mass ? 1. : 0.;
@@ -534,7 +535,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 if (!occupied(static_cast<Index>(i))) { dw[i] = 0; continue; }
                 Work w;
                 const bool source = boiling && ws.interface_latent[i] != 0;
-                if (!(source ? interface_work(i, dv[i], w) : isentropic_work(c.model, f, N, i, ws.anchor[i], dv[i], w))) { failed = 1; continue; }
+                if (!(source ? interface_work(i, dv[i], w) : isentropic_work(c.model, f, N, i, ws.anchor[i], dv[i], w,
+                    c.settings.subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas))) { failed = 1; continue; }
                 dw[i] = w.dW; cc[i] = -1 / w.derivative; du[i] = w.dU;
                 if (!std::isfinite(cc[i]) || !(cc[i] > 0)) failed = 1;
             }
