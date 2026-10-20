@@ -138,6 +138,12 @@ also pass collision.
   U-enabled LinuxPlayer and WindowsPlayer/Proton water-heat save/reload pass
   paused frame-zero saving and 120 exact continued frames. Actual Windows OS,
   the remaining current-package game cohort and volume remainders remain open.
+  The opt-in ideal-gas constitutive volume component passes 80 responses with
+  1,251 independent saved checks/eight corruptions. All 71 Release CTests and
+  affected ASan/UBSan, ThreadSanitizer and MinGW/Wine suites pass, with identical
+  scientific records. All 81 preceding MAC scientific outputs and the U-era wave
+  SHA remain unchanged. World/remap integration, liquid/mixed volume and checkpoint
+  persistence remain pending; no owner or saved selection uses it.
 - Active-cell performance is open. The `06e88fd`
   [production-kernel baseline](../native/MAC_KERNEL.md#current-active-cell-baseline)
   with automatic multigrid, persisted U and the pressure-storage ledger measures

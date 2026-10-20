@@ -2,6 +2,7 @@
 #include "fluid_thermodynamics.hpp"
 #include "mac_energy.hpp"
 #include "volume_work.hpp"
+#include <optional>
 
 namespace ma::experimental {
 // A local constitutive response, not a pressure solve or an owning timestep.
@@ -12,6 +13,10 @@ namespace ma::experimental {
 struct MacCompressiveWork {
     MixtureInventory mixture;
     MacStoredRemainder energy_remainder_j{};
+    // Opt-in carried material volume. Its value/remainder is authoritative;
+    // discarded terms are in m3 and must join the caller's volume audit.
+    // The existing owner does not select this component yet.
+    std::optional<MacPrimaryFullWrite> primary_volume{};
     ReferenceEquilibriumState state;
     ReferenceIsentropicResponse isentropic;
     MacEnergy stress_pa, stress_volume_derivative_pa_per_m3, dissipated_heat_j;
@@ -28,11 +33,16 @@ struct MacCompressiveWork {
 // dV. At dV=0 the returned tangent is the compressive one-sided derivative.
 // Reference energies may be negative. The source and model remain unchanged
 // after success or failure; the returned EOS reads the actual stored endpoint.
+// The opt-in volume component is currently ideal-gas only. It returns a
+// normalized high/low volume and audits discarded terms at the existing bound.
+// No owner or checkpoint selects this component yet; nonzero incoming volume
+// corrections without explicit admission reject.
 [[nodiscard]] MacCompressiveWork evaluate_mac_compressive_work(
     const FluidThermodynamics&, const MixtureInventory&, double source_volume_m3,
     double volume_change_m3, double spacing_m, double timestep_s,
     MacEnergy linear_speed_m_per_s, ReferenceRootOptions isentropic_root_options = {},
-    const MacStoredRemainder& energy_remainder_j = {});
+    const MacStoredRemainder& energy_remainder_j = {},
+    const MacStoredRemainder& volume_remainder_m3 = {}, bool carry_primary_volume = false);
 
 struct MacCompressivePressureStep {
     OccupiedMaterialPressureStep pressure;

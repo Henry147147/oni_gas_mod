@@ -15,7 +15,8 @@ bool above(MacEnergy a, MacEnergy b) { MacEnergySum s; s.add(a); s.add(b.negated
 }
 MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& model,
     const MixtureInventory& source, double volume, double delta, double spacing, double dt,
-    MacEnergy linear, ReferenceRootOptions options, const MacStoredRemainder& energy_remainder_j) {
+    MacEnergy linear, ReferenceRootOptions options, const MacStoredRemainder& energy_remainder_j,
+    const MacStoredRemainder& volume_remainder_m3, bool carry_primary_volume) {
     require_mac_energy_environment();
     if (!std::isfinite(volume) || volume<=0 || !std::isfinite(delta) || !std::isfinite(spacing) || spacing<=0 ||
         !std::isfinite(dt) || dt<=0 || linear.mantissa()<0)
@@ -33,14 +34,27 @@ MacCompressiveWork evaluate_mac_compressive_work(const FluidThermodynamics& mode
     if(iso.state.vacuum_volume_m3>32*std::numeric_limits<double>::epsilon()*iso.endpoint.volume_m3)
         throw FluidFatalError(FluidFatalCode::unsupported_topology,"Compressive pressure work cannot create a liquid void");
     if(delta==0 || (!iso.state.has_gas && iso.work_pressure_pa==0))derivative=-.5/model.compression_compliance(anchor);
-    return compression_detail::finish(model,source,anchor,iso,derivative,spacing,dt,linear,energy_remainder_j);
+    return compression_detail::finish(model,source,anchor,iso,derivative,spacing,dt,linear,energy_remainder_j,volume_remainder_m3,carry_primary_volume);
 }
 MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,const MixtureInventory& source,
     const ReferenceIsentrope& anchor,const ReferenceIsentropicResponse& isentropic,double derivative,
-    double spacing,double dt,MacEnergy linear,const MacStoredRemainder& energy_remainder_j) {
+    double spacing,double dt,MacEnergy linear,const MacStoredRemainder& energy_remainder_j,
+    const MacStoredRemainder& volume_remainder_m3,bool carry_primary_volume) {
     const double mass=source.mass(),volume=anchor.reference_cell().volume_m3,delta=isentropic.volume_change_m3;
+    if (!canonical_mac_primary(volume,volume_remainder_m3) || (!carry_primary_volume && !volume_remainder_m3.is_zero()))
+        throw std::invalid_argument("Carried compressive volume requires canonical state and explicit admission");
     MacCompressiveWork result;
     result.isentropic=isentropic;
+    if (carry_primary_volume) {
+        MacEnergySum endpoint;endpoint.add(volume);endpoint.add(mac_stored_remainder_value(volume_remainder_m3));endpoint.add(delta);
+        auto stored=store_mac_primary_remainder(endpoint);audit_mac_primary_write(stored);
+        if (!(stored.value>0)) precision("Compressive material volume has no positive binary64 projection");
+        result.primary_volume=std::move(stored);
+        if (result.primary_volume->value!=result.isentropic.endpoint.volume_m3) {
+            result.isentropic.endpoint.volume_m3=result.primary_volume->value;
+            result.isentropic.state=model.reference().evaluate(result.isentropic.endpoint);
+        }
+    }
     const auto& iso=result.isentropic;
     if (iso.state.vacuum_volume_m3>32*std::numeric_limits<double>::epsilon()*iso.endpoint.volume_m3)
         throw FluidFatalError(FluidFatalCode::unsupported_topology,"Compressive pressure work cannot create a liquid void");
@@ -85,6 +99,23 @@ MacCompressiveWork compression_detail::finish(const FluidThermodynamics& model,c
     MacEnergySum entropy; entropy.add(result.entropy_change_j_per_k);
     entropy.add(mac_stored_remainder_value(result.energy_remainder_j).shared(1,result.state.temperature_k));
     entropy.add(mac_stored_remainder_value(energy_remainder_j).shared(1,anchor.reference_state().temperature_k).negated());
+    if (carry_primary_volume) {
+        const auto input=model.to_reference(source,volume);const auto& definitions=model.reference().materials();
+        MacEnergySum gas;bool liquid=false;
+        for (std::size_t i=0;i<definitions.size();++i) if (input.masses_kg[i]>0) {
+            if (definitions[i].phase==ReferencePhase::ideal_gas)
+                gas.add(MacEnergy::from_double(input.masses_kg[i]).shared(1,definitions[i].molar_mass_kg_per_mol).multiplied(reference_gas_constant));
+            else liquid=true;
+        }
+        if (!liquid) {
+            // Exact logarithmic factors for the complete gas volumes, retaining
+            // even a correction whose ratio lies below binary64 range.
+            entropy.add(product(gas.value(),entropy_detail::logarithmic_increment(
+                mac_stored_remainder_value(result.primary_volume->remainder),MacEnergy::from_double(iso.endpoint.volume_m3))));
+            entropy.add(product(gas.value(),entropy_detail::logarithmic_increment(
+                mac_stored_remainder_value(volume_remainder_m3),MacEnergy::from_double(volume))).negated());
+        } else throw std::invalid_argument("Carried constitutive volume currently requires ideal gas only");
+    }
     result.entropy_change_j_per_k=entropy.value();
     result.entropy_allowance_j_per_k=allowance.value();
     if (above(result.entropy_change_j_per_k.negated(),result.entropy_allowance_j_per_k))

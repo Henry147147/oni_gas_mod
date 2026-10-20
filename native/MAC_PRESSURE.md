@@ -251,6 +251,12 @@ allowance. [Primary U remainders](MAC_PRIMARY_REMAINDERS.md) are now persisted
 and included in these accounts; material-volume remainders remain open. This does
 not complete the production conservation contract.
 
+The opt-in [carried-volume constitutive component](MAC_PRIMARY_REMAINDERS.md#carried-material-volume-component)
+retains a high/low ideal-gas volume through continued local work calls and checks
+the complete-volume entropy at the original allowance. Its saved reader verifies
+80 responses and rejects eight altered captures. The owning timestep, remap and
+physical checkpoint do not select it yet; liquid/mixed-cell volume remains open.
+
 The constitutive callback reuses the pressure root's immutable source anchor and
 completed isentropic response/tangent. It adds the same compressive stress, actual
 stored-U update and admission checks without solving the isentrope again. The public

@@ -33,8 +33,13 @@ Linux domain controls. U-enabled LinuxPlayer and WindowsPlayer/Proton water-heat
 source/save and fresh-process reload pass, including paused frame-zero saving and
 120 exact continued frames. Actual Windows OS runs and the remaining current-package
 game cohort are pending. Volume
-remainders remain open.
-These controls do not close the physics gate.
+remainders remain open. An opt-in ideal-gas constitutive volume component now
+retains the returned high/low volume through continued work calls; 80 responses
+pass 1,251 independent saved checks and reject eight corruptions. All 71 Release
+CTests, six affected ASan/UBSan, five ThreadSanitizer and six MinGW/Wine suites
+pass, with identical scientific records. All 81 preceding MAC scientific outputs
+and the U-era wave SHA are unchanged. Owner/remap integration, liquid/mixed
+volumes and volume checkpoint persistence remain pending. These controls do not close the physics gate.
 Sparse transport accumulation now allocates full-range accounts only for present
 constituents and incoming donors, removing the former 16-million-slot product cap.
 A 4,097-species/4,096-cell EOS parcel control passes; primary inventories and

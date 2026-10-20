@@ -35,6 +35,38 @@ The reference transport path subtracts and adds one shared energy transfer at
 both endpoints, including when a retained mass fraction rounds to one.
 Conduction gathers one antisymmetric face transfer before storing each endpoint.
 
+## Carried material-volume component
+
+The local `evaluate_mac_compressive_work` API has an explicit
+`carry_primary_volume` path for ideal gas. It folds the incoming volume
+correction into the next volume write and returns `primary_volume`, including
+its normalized correction, high-write rounding flag and audited discarded terms
+in cubic metres. Gas entropy includes the logarithmic factors of both complete
+volumes. Existing callers retain their previous path; nonzero incoming corrections
+without explicit admission, noncanonical state and nongas material reject.
+
+`ma_mac_primary_volume_tests` covers 80 saved responses: the unchanged N64
+compression operands whose rounded volume fails the original entropy allowance,
+64 continued forward/reverse updates, ordinary and sub-ULP changes, a flagged
+`2^-2001` correction, discarded third-part accounting and a correction that moves
+the high endpoint by one ULP. Five invalid/unsupported requests reject without
+changing their source. `review_mac_primary_volume.py` independently checks the
+complete volumes and U with exact fractions and 750-digit gas entropy; it passes
+1,251 checks and rejects eight altered captures. All 71 Release CTests pass
+with the ONI backend and warnings as errors. Six affected ASan/UBSan suites,
+five ThreadSanitizer suites and six MinGW/Wine suites pass after rebasing onto
+the phase-change implementation. The 80 scientific
+records agree across those builds. All 81 preceding MAC exits and scientific
+outputs are unchanged: 79 stdout captures are byte-identical and two differ only
+in timing. The comparison includes the existing `--quick` free-surface control;
+full physics acceptance remains separate. The U-era default-wave SHA remains `8be435…4c87e`.
+EOS readings use the nearest high volume; the entropy account includes both parts.
+
+This is a constitutive component. World/remap integration, liquid and mixed-cell
+volume accounting, interval volume ledgers and checkpoint persistence remain
+open. No owner or saved selection uses this path, and no checkpoint version is
+allocated for it yet.
+
 ## Checkpoints and owner framing
 
 Nonzero U corrections select physical version 10. It stores complete physical
@@ -103,4 +135,6 @@ the remaining current-package game scenes and milestone B remain open.
 build-production/ma_mac_primary_state_tests > U_CAPTURE
 python3 native/tests/review_mac_primary_state.py U_CAPTURE
 build-production/ma_mac_primary_water_heat_tests
+build-production/ma_mac_primary_volume_tests > V_CAPTURE
+python3 native/tests/review_mac_primary_volume.py V_CAPTURE
 ```
