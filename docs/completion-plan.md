@@ -8,6 +8,14 @@ still require separate authorization.
 
 Amendments:
 
+- **Unresolved subcell void, 2026-10-20 (user decision):** authorize an
+  explicit opt-in that lets gas-containing material occupy the cell's remaining
+  void when its occupied volume is at most 16 binary64 epsilons of grid volume.
+  Retain all constituent masses, primary U and remainders, momentum and passive
+  quantities; count events and audit the entropy increase. This changes exact
+  subcell geometry, rather than rounding away a transfer. Persist the selection
+  in a new checkpoint version; existing worlds keep their policy. Accuracy gate
+  inputs and bounds remain unchanged.
 - **Architecture, 2026-10-16:** implement the full overhaul through
   [native SimDLL hooks](native-backend-integration.md), retaining verified native
   nonfluid services. Observer and takeover work are the next engineering steps;

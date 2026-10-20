@@ -324,8 +324,10 @@ imports below one cubic metre occupy Σ m/ρ0 at zero pressure. Every EOS read i
 publication and body heat uses the occupied volume; vacuum takes no body heat.
 The existing emitter density limit remains mass per grid-cell volume.
 
-Point transfers can fill vacuum, open a surface or empty a cell. Polling an
-already empty cell returns a zero-mass receipt. Mixture drains still need to
+Point transfers can fill vacuum, open a surface or empty a cell. They enforce
+the configured gas/liquid admission flags even on empty cells; a rejected batch
+leaves the publication, pending accounts and checkpoint unchanged. Polling an
+already empty cell for an admitted species returns a zero-mass receipt. Mixture drains still need to
 remove trace constituents with the last bulk constituent: species-by-species
 removal can leave a trace with no positive thermal energy and reject. Restore
 checks the exact vacuum/reconstruction settings and rejects phase change. No
@@ -334,7 +336,7 @@ checkpoint schema changes; the configured wrapper carries the opt-in flag.
 `ma_oni_domain_tests --vacuum` checks exact rest for twenty 0.2 s frames of
 500 kg water at half fill, all-zero vacuum publication, empty-cell ownership,
 body heat beside vacuum and partial water, vent expansion, full pump drainage,
-empty consumer polls and exact checkpoint/restore continuation. The measured
+empty consumer polls, atomic phase rejection and exact checkpoint/restore continuation. The measured
 vent mass error is 3.18e-16 relative; recorded relative energy error is zero.
 The full Release suite passes 76 CTests. The vacuum control and eight affected
 domain/transfer suites pass Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
@@ -346,7 +348,19 @@ timing/RSS), including the current-default 256-cell wave image SHA-256
 `native-configured-vacuum-domain` now imports a half-filled water pool with
 vacuum above it, checks ten resting frames and sends a real game vent packet.
 Managed readings retain void volume, and configured saves admit versions 9/10
-while phase change stays off. The 203 managed controls pass. Linux activation and ten resting frames under
-gravity pass after configured import/actor classification was corrected to use
-the physics flags. The first vent interval currently stalls in the mixed-cell
-pressure root; game continuation and reload remain open.
+while phase change stays off. The 203 managed controls pass. Linux (base game)
+and WindowsPlayer under Proton (Spaced Out!, nine worlds) activate the room and
+pass ten resting frames under gravity: six 500 kg, 300 K half-filled water cells,
+with zero reported mass/energy drift. Both stop at completed frame 11, time
+2.2000000327825546 s: the first vent interval exhausts its shared attempt budget
+in mixed-cell pressure work. No front capture, game save/reload, long run or
+actual Windows OS acceptance is established. Screenshots and source reports
+are private under `artifacts/vacuum-game-v1/`.
+
+The native reproduction first encounters poorly scaled logarithmic EOS seeds;
+better seeds advance it further but still stall on microscopic mixed cells.
+A private subcell-void closure experiment completes 140 vent frames with maximum
+relative energy error 7.05e-19 and passes the unchanged production gate V. It is
+not production policy yet: the user authorized an audited opt-in with persisted
+selection on 2026-10-20; implementation and validation remain open. No solver arithmetic,
+attempt limits or gate bounds were changed for the game results above.

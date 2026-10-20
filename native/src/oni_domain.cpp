@@ -388,6 +388,7 @@ std::unique_ptr<MacClosedWorld> prepare_heat(const MacClosedWorld& source,const 
 MAOniDomainReceipt prepare_point_transfer(GasWork& work,const MAOniDomainTransfer& input,std::uint32_t receipt_kind) {
     if (input.struct_size != sizeof(input) || input.abi_version != MA_ONI_DOMAIN_TRANSFER_ABI_VERSION || input.reserved || input.flags > 1 ||
         (input.kind != 1 && input.kind != 2) || input.species >= ids.size() ||
+        !admitted_domain_species(work.configuration,work.physics,input.species) ||
         !std::isfinite(input.mass_kg) || input.mass_kg < 0 || !std::isfinite(input.temperature_k))
         throw std::invalid_argument("Native fluid transfer input differs from its ABI/model");
     if (input.session != work.session || input.expected_frame != work.frame)

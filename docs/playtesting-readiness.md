@@ -85,9 +85,8 @@ saves, fresh-process loads and natural autosaves
 - Fluid/solid heat exchange at interior faces, and solids that melt, fall or
   are dug inside the owner.
 - More than one owner, and Spaced Out! worlds.
-- Vacuum and free surfaces. `MacClosedWorld` admits exact empty cells
-  ([vacuum](../native/MAC_VACUUM.md)), but its vacuum-front accuracy gate fails
-  and the in-game owner still rejects empty cells. Opt-in material selector 3
+- Vacuum and free surfaces. `MacClosedWorld` and the configured owner admit exact
+  empty cells and partial liquid surfaces ([vacuum](../native/MAC_VACUUM.md)). Opt-in material selector 3
   ([sharp interfaces](../native/MAC_TRANSPORT.md#sharp-gasliquid-interfaces-selector-3))
   keeps liquid in its own cells. In a diagnostic dam break it leaves an eighth of
   limited-linear's partly filled cells and under a tenth of its mist. The production
@@ -96,12 +95,21 @@ saves, fresh-process loads and natural autosaves
   before it, any moving free surface faulted the production owner. Of the
   [gravity and multiphase gates](../native/MAC_GATES.md), all eight pass
   standalone, including two liquids, the Stefan boiling film and the vacuum front.
-  The game does not select sharp interfaces, phase change or the void phase yet.
+  Configured flag 32 selects sharp interfaces and the void phase in game; phase
+  change stays off. Linux base game and WindowsPlayer/Proton Spaced Out! pass
+  activation and ten resting frames with zero reported mass/energy drift, then
+  both stop at completed frame 11/time 2.2000000327825546 s: the first vent
+  interval exhausts the pressure attempt budget. Front rendering, game
+  saves/reloads and long continuation remain unverified. Native point transfers
+  enforce configured phase admission even in empty cells, with atomic rejection.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
-- Whole-world import. The Windows import staged 50,368 fluid cells, then
-  rejected compressed-liquid placement
-  ([status](implementation-status.md#game-integration-and-ownership)).
+- Whole-world import. The new Linux base-game retry stages 19,614 fluid cells.
+  Native per-cell probes admit all 7,370 mapped metadata-free inputs with the
+  void flag (173 internal-void rejections without it). Whole-world activation
+  still rejects the 256×384 geometry limit; 12,138 cells use eleven unmapped
+  materials and 106 mapped cells carry unsupported metadata. Original native
+  payloads remain unchanged ([status](implementation-status.md#game-integration-and-ownership)).
 - Production activation without a development configuration.
 - Coverage: all 3,074 [inventory entries](ownership-coverage.md) remain
   `unimplemented`.
@@ -404,10 +412,10 @@ licensed game to verify.
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended gravity and persisted U corrections; volume remainders and game verification remain | M–L | Later |
-| 7 | 1, 2 | Vacuum and partial-water surfaces: standalone physics and native/managed admission pass; Linux vacuum activation/rest passes; the first vent interval stalls in the pressure root and continuation/reloads remain open. Further liquid adapters remain | XL | Yes |
+| 7 | 1, 2 | Vacuum and partial-water surfaces: standalone physics and native/managed admission pass; Linux/Proton activation and ten resting frames pass; both first vent intervals exhaust the pressure attempt budget. Front capture, game saves/reloads and long continuation remain open. The user authorized an audited subcell-void opt-in; implementation remains open | XL | Yes |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |
-| 10 | 1 | Whole-world import, resolving the compressed-liquid placement failure | L | Yes |
+| 10 | 1 | Whole-world retry: void admission removes 173 mapped partial-water rejections; actual ownership remains blocked by geometry limits, eleven unmapped material identities and unsupported metadata | L | Yes |
 | 11 | 3 | Breathing for every duplicant and critter | L | Yes |
 | 12 | 3 | Power reservations and converter adapters | XL | Yes |
 | 13 | 3 | Pumps, vents and conduit contents | XL | Yes |

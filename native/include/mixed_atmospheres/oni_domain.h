@@ -71,12 +71,14 @@ MA_ONI_API MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig*,
  *
  * solid_mask is row-major width*height, 0 fluid or 1 solid, with at least one
  * fluid cell. Solids are impermeable MAC walls with all-zero initial records
- * (masses and temperature). Every fluid cell is occupied: no vacuum, passive
- * data or disease. Heat edits, point transfers, radius centres and actors
+ * (masses and temperature). Without PHYSICS_VACUUM every fluid cell is occupied;
+ * with it, empty cells and partial liquid surfaces are admitted. Passive data
+ * and disease remain unsupported. Point transfers admit only the configured
+ * gas/liquid phases, including when the destination is empty.
+ * Heat edits, point transfers, radius centres and actors
  * targeting a solid reject the whole batch; rectangle footprints skip solids,
  * including their anchor, exactly as the inspected native loop does. Copies
- * publish solids as all-zero cells (a fluid cell always has positive mass and
- * temperature); ma_oni_domain_configuration_copy returns the authoritative
+ * publish solids and vacuum as all-zero cells; ma_oni_domain_configuration_copy returns the authoritative
  * mask. Status scalars sample the first fluid cell in row-major order. Native
  * compatibility projections must not be written into solid cells.
  *

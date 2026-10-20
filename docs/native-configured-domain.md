@@ -300,9 +300,25 @@ void images and version-10 carried-U images are admitted; phase-change version 1
 remains rejected by this game adapter. Restore verifies the exact pool/vacuum
 compatibility tuples and loaded solid mask. Configured import and actor classification use the admitted mixture/liquid
 flags, so the vacuum scene admits both water and gas. Engine-free controls
-pass 203 OwnedSnapshotTests. The Linux room activates and passes ten resting
-frames under gravity; the first vent interval currently stalls in the mixed-cell
-pressure root. Continuation and reload remain open.
+pass 203 OwnedSnapshotTests. Point transfers also enforce native phase admission
+on empty cells; invalid single requests and batches leave the owner unchanged.
+Linux (base game) and WindowsPlayer under Proton (Spaced Out!, nine worlds)
+activate the vacuum room and pass ten resting frames under gravity with zero
+reported mass/energy drift. Both stop at completed frame 11, time
+2.2000000327825546 s: the first oxygen vent interval exhausts the shared attempt
+budget in mixed-cell pressure work. The half-filled pool is visible in
+`artifacts/vacuum-game-v1/linux-rest.png` and `proton-rest.png`. The front capture,
+final renderer checks, game saves/reloads and long continuation remain open;
+these are not actual Windows OS runs.
+
+The read-only base-game whole-world retry stages 19,614 fluid cells in a
+256×384 world. A direct configured-owner request with flags 40 rejects its
+geometry (height limit 256, total-cell limit 4,096). Separate native single-cell
+admission probes admit all 7,370 mapped, metadata-free inputs with flags 40;
+without the void flag, 173 reject internal void. This resolves those partial
+water admissions, not whole-world ownership. Another 12,138 cells use eleven
+unmapped identities and 106 mapped cells carry unsupported disease/radiation
+metadata. No whole-world owner activates; original native payloads are unchanged.
 
 ### Linux game evidence
 
@@ -416,8 +432,8 @@ evidence.
   once the granite pair has nearly equilibrated.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
-- The configured vacuum/surface path has native and managed controls; the
-  new vacuum scene still needs Linux/Proton game verification.
+- The configured vacuum/surface path has native and managed controls and passes
+  Linux/Proton activation and rest; vent continuation fails as described above.
   Passive data, disease and further liquids still need adapters.
 - Materials beyond the five-species catalogue.
 - The production timestep and performance gate.

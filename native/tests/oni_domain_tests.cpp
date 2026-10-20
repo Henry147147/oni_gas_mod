@@ -460,6 +460,29 @@ void vacuum_domain() {
     require(cells[0].masses[1]==.125 && std::abs(cells[0].temperature-300)<=64*std::numeric_limits<double>::epsilon()*300 &&
         cells[0].pressure>0,"An emitter could not refill a drained cell");
     shutdown_domain();
+    for (const auto liquid:{false,true}) {
+        auto restricted=physics;
+        restricted.flags=MA_ONI_DOMAIN_PHYSICS_VACUUM|(liquid ? MA_ONI_DOMAIN_PHYSICS_LIQUID : 0U);
+        input[0].masses[3]=0;input[0].temperature_k=0;
+        start_configured_domain(config,restricted,isolated,1,{},0,input);status=check(cells);
+        const auto before=snapshot_domain(status.session,0);
+        MAOniDomainTransfer allowed{64,2,status.session,0,10+10*64,liquid ? 3U : 1U,1,0,1,0,.125,300};
+        auto denied=allowed;denied.species=liquid ? 1U : 3U;
+        for (const auto kind:{1U,2U}) {
+            denied.kind=kind;
+            const std::array batch{allowed,denied};
+            for (const auto prefix:{false,true}) {
+                bool rejected=false;
+                try { queue_domain_transfers(prefix ? batch.data() : &denied,prefix ? 2U : 1U,transfers); }
+                catch(const std::invalid_argument&) { rejected=true; }
+                require(rejected,"A point transfer admitted a phase outside its configured domain");
+                copy_domain_transfer_status(transfers);status=check(cells);
+                require(transfers.accepted_batches==0 && transfers.pending_batches==0 && zero(cells[0]) &&
+                    snapshot_domain(status.session,0)==before,"Rejected point-transfer phases changed the owner or its pending accounts");
+            }
+        }
+        shutdown_domain();
+    }
     std::cout<<"PASS configured vacuum, resting partial water, native publication, body heat, vent expansion, full pump drainage, empty consumer and exact checkpoints\n";
 }
 }
