@@ -249,13 +249,62 @@ bool isentropic_work(const Model& model, const Fields& f, std::size_t N, std::si
         bool converged = false;
         for (int it = 0; it < 60; ++it) {
             double volume = 0, slope = 0; point(param, dp, p, volume, slope);
-            if (!(p >= 0 || (a.tension && p > -.5 * a.K)) || !std::isfinite(volume)) return false;
+            if (!(p >= 0 || (a.tension && p > -.5 * a.K)) || !std::isfinite(volume)) break;
             const double res = volume - dV;
             if (std::abs(res) <= 4 * eps * (std::abs(dV) + 1e-300)) { converged = true; break; }
             const double next = param - res / slope;
-            if (!std::isfinite(next)) return false;
+            if (!std::isfinite(next)) break;
             if (std::abs(next - param) <= 2 * eps * std::abs(param)) { param = next; point(param, dp, p, volume, slope); converged = true; break; }
             param = next;
+        }
+        // Safeguarded fallback, reached only where the Newton iteration above
+        // fails: a trace gas bubble compressed past its own volume puts the
+        // root tens of log units of pressure away, where the gas slope has
+        // vanished and Newton overshoots. The volume change decreases
+        // monotonically in the parameter, so bracket the root and bisect
+        // whenever a Newton step leaves the bracket. Converged results above
+        // are unchanged.
+        if (!converged && gas) {
+            const auto residual = [&](double t, double& slope) {
+                double volume = 0; point(t, dp, p, volume, slope);
+                if (!std::isfinite(volume) || !std::isfinite(slope) || !(p >= 0 || (a.tension && p > -.5 * a.K)))
+                    return std::numeric_limits<double>::quiet_NaN();
+                return volume - dV;
+            };
+            double slope = 0, lo = 0, hi = 0;
+            const double r0 = residual(0, slope);
+            if (!(r0 != 0) || !std::isfinite(r0)) return false;
+            // r(t) decreases in t: compression (r0 > 0) has its root above 0.
+            const double direction = r0 > 0 ? 1 : -1;
+            // Expand |t| until the residual changes sign; an invalid trial
+            // (overflow or outside the pressure domain) is approached by bisection.
+            double step = 1, inner = 0, outer = 0, invalid = std::numeric_limits<double>::infinity();
+            for (int it = 0;; ++it) {
+                if (it == 256) return false;
+                const double r = residual(direction * step, slope);
+                if (std::isnan(r)) {
+                    invalid = step; step = .5 * (std::abs(inner) + invalid);
+                    if (invalid - std::abs(inner) <= 2 * eps * invalid) return false;
+                    continue;
+                }
+                if (direction * r <= 0) { outer = direction * step; break; }
+                inner = direction * step;
+                step = std::isinf(invalid) ? 2 * step : .5 * (step + invalid);
+            }
+            lo = std::min(inner, outer); hi = std::max(inner, outer);
+            param = .5 * (lo + hi);
+            for (int it = 0; it < 200; ++it) {
+                const double r = residual(param, slope);
+                if (std::isnan(r)) return false;
+                if (std::abs(r) <= 4 * eps * (std::abs(dV) + 1e-300)) { converged = true; break; }
+                if (r > 0) lo = param; else hi = param;
+                double next = param - r / slope;
+                if (!(next > lo && next < hi) || !std::isfinite(next)) next = .5 * (lo + hi);
+                if (std::abs(next - param) <= 2 * eps * std::abs(param) || hi - lo <= 2 * eps * std::max(std::abs(lo), std::abs(hi))) {
+                    param = next; (void)residual(param, slope); converged = true; break;
+                }
+                param = next;
+            }
         }
         if (!converged) return false;
         if (!(p >= 0 || (a.tension && p > -.5 * a.K))) return false;

@@ -122,7 +122,11 @@ cells, safeguarded Newton roots for mixtures and several liquids. Per-cell
 statistics (mass, Cv, offsets, moles, nominal liquid volume) and face
 inertias are cached until transport changes the masses; between transports a
 gas or liquid reading is a few operations (liquid pressure does not depend on
-U at fixed volume).
+U at fixed volume). Where the Newton root of a
+gas-bearing mixture's isentrope fails (a trace bubble compressed past its own
+volume puts the root tens of log units of pressure away), a bracketed,
+bisection-safeguarded solve of the same equation and tolerance takes over;
+converged Newton roots are unchanged.
 
 **Pressure** (`mac_kernel_pressure.cpp`). The reference implicit EOS work with
 midpoint sweeps, solved for per-cell volume changes in the increment form
