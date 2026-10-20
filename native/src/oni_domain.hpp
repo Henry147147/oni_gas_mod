@@ -49,6 +49,7 @@ void copy_domain_thermal_status(MAOniDomainThermalStatus&);
 void configure_domain_diffusion(std::uint64_t,std::uint64_t,std::uint32_t,double);
 void copy_domain_diffusion_status(MAOniDomainDiffusionStatus&);
 void copy_domain_viscosity_status(MAOniDomainViscosityStatus&);
+void copy_domain_subcell_status(MAOniDomainSubcellStatus&);
 struct DomainChunkHeat { bool handled{};float temperature{},delta_kj{}; };
 DomainChunkHeat exchange_domain_chunk_heat(int native_cell,float temperature,float capacity_kj,float conductivity,
     float transfer_scale,float contact_scale,float seconds) noexcept;

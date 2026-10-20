@@ -75,6 +75,26 @@ internal static class ConfiguredCheckpointPayloadTests
             var phase=Wrapper(room.Mask,Physics.Create(PhysicsVacuum|PhysicsMixture),solverVersion:11);
             reject(()=>NativeDomainCheckpointPayload.Create(Pair(phase,ConfiguredGeometry()),phase));
         });
+        test("unresolved gas saves require the explicit flag and version 12, retaining exact-geometry saves",()=> {
+            var room=ConfiguredDomainLayout.PillaredRoom();
+            var image=Wrapper(room.Mask,ConfiguredDomainLayout.VacuumPhysics,solverVersion:12);
+            var payload=NativeDomainCheckpointPayload.Create(Pair(image,ConfiguredGeometry()),image);
+            var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+            check(restored.Configured!.Physics.Flags==105 && ConfiguredDomainLayout.IsSavedScene(restored.Configured) &&
+                restored.CopyEncodedData().SequenceEqual(payload.CopyEncodedData()));
+            foreach(var version in new[]{9U,10U,11U}) {
+                var wrong=Wrapper(room.Mask,ConfiguredDomainLayout.VacuumPhysics,solverVersion:version);
+                reject(()=>NativeDomainCheckpointPayload.Create(Pair(wrong,ConfiguredGeometry()),wrong));
+            }
+            var unflagged=Wrapper(room.Mask,ConfiguredDomainLayout.ExactVacuumPhysics,solverVersion:12);
+            reject(()=>NativeDomainCheckpointPayload.Create(Pair(unflagged,ConfiguredGeometry()),unflagged));
+            foreach(var version in new[]{9U,10U}) {
+                var old=Wrapper(room.Mask,ConfiguredDomainLayout.ExactVacuumPhysics,solverVersion:version);
+                var exact=NativeDomainCheckpointPayload.Create(Pair(old,ConfiguredGeometry()),old);
+                check(exact.Configured!.Physics.Flags==41 && ConfiguredDomainLayout.IsSavedScene(exact.Configured) &&
+                    NativeDomainCheckpointPayload.Parse(exact.CopyEncodedData()).CopyEncodedData().SequenceEqual(exact.CopyEncodedData()));
+            }
+        });
         test("configured wrapper exposes the exact saved geometry physics record mask and solver image",()=> {
             var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.ScenePhysics(false));
             var value=NativeConfiguredDomainImage.Parse(image);
@@ -187,7 +207,7 @@ internal static class ConfiguredCheckpointPayloadTests
             reject(()=>NativeDomainCheckpointPayload.Create(Pair(legacyInner,ConfiguredGeometry()),legacyInner));
         });
         test("configured vacuum saves admit the exact pool and empty compatibility cells and reject changed tuples",()=> {
-            var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.VacuumPhysics,solverVersion:9);
+            var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.ExactVacuumPhysics,solverVersion:9);
             var payload=NativeDomainCheckpointPayload.Create(Pair(image,ConfiguredGeometry()),image);
             check(ConfiguredDomainLayout.IsSavedScene(payload.Configured!));
             var native=World(room,false);

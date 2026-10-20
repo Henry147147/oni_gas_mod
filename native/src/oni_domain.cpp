@@ -39,7 +39,8 @@ constexpr bool gravity_scenario(std::uint32_t scenario) { return scenario==2 || 
 // never from a scenario number. Legacy scenarios keep the helpers above.
 constexpr bool configured_scenario(std::uint32_t scenario) { return scenario==MA_ONI_DOMAIN_CONFIGURED_SCENARIO; }
 constexpr std::uint32_t configured_physics_flags=MA_ONI_DOMAIN_PHYSICS_GRAVITY|MA_ONI_DOMAIN_PHYSICS_CONDUCTION|
-    MA_ONI_DOMAIN_PHYSICS_VISCOSITY|MA_ONI_DOMAIN_PHYSICS_MIXTURE|MA_ONI_DOMAIN_PHYSICS_LIQUID|MA_ONI_DOMAIN_PHYSICS_VACUUM;
+    MA_ONI_DOMAIN_PHYSICS_VISCOSITY|MA_ONI_DOMAIN_PHYSICS_MIXTURE|MA_ONI_DOMAIN_PHYSICS_LIQUID|MA_ONI_DOMAIN_PHYSICS_VACUUM|
+    MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS;
 bool void_domain(const MAOniDomainPhysics& p) { return (p.flags&MA_ONI_DOMAIN_PHYSICS_VACUUM)!=0; }
 bool mixed_domain(const MAOniDomainConfig& g,const MAOniDomainPhysics& p) {
     return configured_scenario(g.scenario) ? (p.flags&MA_ONI_DOMAIN_PHYSICS_MIXTURE)!=0 : mixed_scenario(g.scenario);
@@ -99,6 +100,8 @@ MacEnergySum thermal_redistribution,thermal_entropy;
 MacDiffusionReport diffusion_progress;
 std::uint64_t viscous_stages{},viscous_modes{},unresolved_viscous_heat{},unresolved_viscous_momentum{};
 MacEnergySum viscous_dissipation,viscous_stored_heat,viscous_entropy,viscous_wall_x,viscous_wall_y;
+std::uint64_t subcell_void_events{};
+MacEnergySum subcell_void_entropy;
 struct ChunkHeatProgress {
     std::uint64_t contacts{},transfers{},unresolved{},iterations{};
     MacEnergySum body_loss,fluid_heat,entropy,requested;
@@ -295,6 +298,7 @@ MacClosedSettings configured_settings(const MAOniDomainPhysics& physics) {
     settings.gravity_m_per_s2=physics.gravity_m_per_s2;
     // Vacuum: the void phase with sharp interfaces (native/MAC_VACUUM.md).
     if (void_domain(physics)) { settings.vacuum=MacVacuumRepresentation::void_phase; settings.reconstruction=MacMaterialReconstruction::interface_plic; }
+    if (physics.flags&MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS) settings.subcell_void=MacSubcellVoidPolicy::expand_unresolved_gas;
     return settings;
 }
 MacClosedAdvance advance_owned_world(const MacClosedWorld& source,double seconds,
@@ -589,7 +593,8 @@ void validate_configured_layout(const MAOniDomainConfig& config,const MAOniDomai
         throw std::invalid_argument("Invalid configured native domain geometry, size or opt-in");
     const auto flags=physics.flags;
     if (physics.struct_size != sizeof(physics) || physics.abi_version != MA_ONI_DOMAIN_CONFIGURED_ABI_VERSION || physics.reserved ||
-        (flags&~configured_physics_flags) || ((flags&MA_ONI_DOMAIN_PHYSICS_MIXTURE) && (flags&MA_ONI_DOMAIN_PHYSICS_LIQUID)))
+        (flags&~configured_physics_flags) || ((flags&MA_ONI_DOMAIN_PHYSICS_MIXTURE) && (flags&MA_ONI_DOMAIN_PHYSICS_LIQUID)) ||
+        ((flags&MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS) && !(flags&MA_ONI_DOMAIN_PHYSICS_VACUUM)))
         throw std::invalid_argument("Configured native domain physics ABI, flags or phase admission differ");
     const auto g=physics.gravity_m_per_s2;
     if ((flags&MA_ONI_DOMAIN_PHYSICS_GRAVITY) ? !(std::isfinite(g) && g>0 && g<=100) : !positive_zero(g))
@@ -769,6 +774,7 @@ void activate_domain(const MAOniDomainConfig& config,const MAOniDomainPhysics& p
     diffusion_progress={};
     viscous_stages=viscous_modes=unresolved_viscous_heat=unresolved_viscous_momentum=0;
     viscous_dissipation={};viscous_stored_heat={};viscous_entropy={};viscous_wall_x={};viscous_wall_y={};
+    subcell_void_events=0;subcell_void_entropy={};
     pending_chunk_heat={};committed_chunk_heat={};pending_solid_heat={};committed_solid_heat={};
     solid_heat_cells=std::move(initial_solids);solid_heat_contacts.clear();completed_solid_cell={};
     committed_potential={}; pending_potential={}; body_impulse={}; gravity_internal_work={};
@@ -989,6 +995,11 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         for (std::size_t i=0;i<ids.size();++i) next_mass[i]=combined_heat(committed_mass[i],work.mass[i]);
         auto owner=std::make_shared<const MacClosedWorld>(std::move(result.world));
         auto next_redistribution=thermal_redistribution,next_entropy=thermal_entropy;
+        if (result.report.subcell_void_events>std::numeric_limits<std::uint64_t>::max()-subcell_void_events)
+            throw std::overflow_error("Native unresolved gas expansion counter overflow");
+        const auto next_subcell_events=subcell_void_events+result.report.subcell_void_events;
+        auto next_subcell_entropy=subcell_void_entropy;next_subcell_entropy.add(result.report.subcell_void_entropy_j_per_k);
+        (void)next_subcell_entropy.value().require_representable();
         auto next_viscous_dissipation=viscous_dissipation,next_viscous_stored_heat=viscous_stored_heat,next_viscous_entropy=viscous_entropy;
         auto next_viscous_wall_x=viscous_wall_x,next_viscous_wall_y=viscous_wall_y;
         next_viscous_dissipation.add(result.report.viscous_heat);next_viscous_stored_heat.add(result.report.viscous_stored_heat);
@@ -1036,6 +1047,7 @@ void advance_domain(std::uint64_t ticket,double seconds,std::uint64_t thread) no
         committed_solid_heat=std::move(next_solid_heat);pending_solid_heat={};solid_heat_contacts.clear();
         completed_inputs.clear();pending_inputs.clear();pending_input_flags=0;
         thermal_redistribution=std::move(next_redistribution); thermal_entropy=std::move(next_entropy);
+        subcell_void_events=next_subcell_events;subcell_void_entropy=std::move(next_subcell_entropy);
         viscous_dissipation=std::move(next_viscous_dissipation);viscous_stored_heat=std::move(next_viscous_stored_heat);
         viscous_entropy=std::move(next_viscous_entropy);viscous_wall_x=std::move(next_viscous_wall_x);viscous_wall_y=std::move(next_viscous_wall_y);
         committed_potential=std::move(next_potential); pending_potential={};
@@ -1447,6 +1459,11 @@ void copy_domain_gravity_status(MAOniDomainGravityStatus& output) {
         gravity,initial_potential,world ? potential(*world) : 0,committed_potential.value().require_representable(),
         pending_potential.value().require_representable(),body_impulse.value().require_representable(),
         gravity_internal_work.value().require_representable(),maximum_energy_residual};
+}
+void copy_domain_subcell_status(MAOniDomainSubcellStatus& output) {
+    std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;
+    output={sizeof(output),1,status.state,world ? static_cast<std::uint32_t>(world->settings().subcell_void) : 0U,
+        status.session,status.completed_frames,subcell_void_events,subcell_void_entropy.value().require_representable()};
 }
 void copy_domain_viscosity_status(MAOniDomainViscosityStatus& output) {
     std::lock_guard lock(state_mutex);const ArithmeticScope arithmetic;

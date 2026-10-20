@@ -24,11 +24,19 @@ internal static class ConfiguredDomainLayoutTests
                 Marshal.OffsetOf<Physics>(nameof(Physics.ShearViscosityPaSeconds)).ToInt32()==24 &&
                 Marshal.OffsetOf<Physics>(nameof(Physics.BulkViscosityPaSeconds)).ToInt32()==32);
             check(Marshal.SizeOf<Configuration>()==40 && Marshal.SizeOf<InitialCell>()==56 && Marshal.SizeOf<Cell>()==96 && Marshal.SizeOf<Status>()==440);
-            check(PhysicsGravity==1 && PhysicsConduction==2 && PhysicsViscosity==4 && PhysicsMixture==8 && PhysicsLiquid==16 && PhysicsVacuum==32 &&
+            check(PhysicsGravity==1 && PhysicsConduction==2 && PhysicsViscosity==4 && PhysicsMixture==8 && PhysicsLiquid==16 && PhysicsVacuum==32 && PhysicsUnresolvedGas==64 &&
                 ConfiguredScenario==7 && ConfiguredAbiVersion==1 && ConfiguredMaximumSide==256 && ConfiguredMaximumCells==4096);
             var value=Physics.Create(PhysicsGravity|PhysicsConduction,9.81);
             check(value.Size==40 && value.Version==1 && value.Flags==3 && value.Reserved==0 && value.GravityMetresPerSecondSquared==9.81 &&
                 BitConverter.DoubleToInt64Bits(value.ShearViscosityPaSeconds)==0 && BitConverter.DoubleToInt64Bits(value.BulkViscosityPaSeconds)==0);
+        });
+        test("unresolved gas requires the vacuum opt-in and has a completed-frame account layout",()=> {
+            check(Marshal.SizeOf<SubcellStatus>()==48 && Marshal.OffsetOf<SubcellStatus>(nameof(SubcellStatus.Events)).ToInt32()==32 &&
+                Marshal.OffsetOf<SubcellStatus>(nameof(SubcellStatus.EntropyIncrease)).ToInt32()==40);
+            check(!NativeConfiguredDomainImage.ValidPhysics(Physics.Create(PhysicsUnresolvedGas)) &&
+                !NativeConfiguredDomainImage.ValidPhysics(Physics.Create(128)) &&
+                NativeConfiguredDomainImage.ValidPhysics(Physics.Create(PhysicsVacuum|PhysicsUnresolvedGas)) &&
+                ConfiguredDomainLayout.ExactVacuumPhysics.Flags==41 && ConfiguredDomainLayout.VacuumPhysics.Flags==105);
         });
         test("the in-game configured room is larger than 3x2 with interior pillar and ledge solids touching fluid",()=> {
             var room=ConfiguredDomainLayout.PillaredRoom();

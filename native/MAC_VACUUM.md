@@ -255,8 +255,8 @@ iteration limit and convergence bounds remain the same.
 The policy requires supported production selectors and the void phase. It
 cannot use the reference substep or range/material-boundary fallback. Version 12
 persists it, the complete settings and primary-U sidecar; older versions restore
-exact geometry and retain their bytes. The game owner does not yet expose this
-opt-in. `ma_mac_subcell_void_tests` covers unchanged conserved fields, complete-EOS
+exact geometry and retain their bytes. Configured game-owner flag 64 requires
+flag 32 and explicitly selects this policy. `ma_mac_subcell_void_tests` covers unchanged conserved fields, complete-EOS
 entropy, the threshold boundary, liquid exclusion, malformed saves, exact
 continuation and actual one/twelve-thread execution. Gate V can also run with
 `--gate-production-subcell`, using the original inputs and bounds.
@@ -369,36 +369,38 @@ leaves the publication, pending accounts and checkpoint unchanged. Polling an
 already empty cell for an admitted species returns a zero-mass receipt. Mixture drains still need to
 remove trace constituents with the last bulk constituent: species-by-species
 removal can leave a trace with no positive thermal energy and reject. Restore
-checks the exact vacuum/reconstruction settings and rejects phase change. No
-checkpoint schema changes; the configured wrapper carries the opt-in flag.
+checks the exact vacuum/reconstruction/subcell settings and rejects phase change.
+Flag 32 alone keeps its existing checkpoint formats; adding flag 64 selects
+version 12 inside the unchanged configured save wrapper.
 
 `ma_oni_domain_tests --vacuum` checks exact rest for twenty 0.2 s frames of
 500 kg water at half fill, all-zero vacuum publication, empty-cell ownership,
 body heat beside vacuum and partial water, vent expansion, full pump drainage,
 empty consumer polls, atomic phase rejection and exact checkpoint/restore continuation. The measured
 vent mass error is 3.18e-16 relative; recorded relative energy error is zero.
-The full Release suite passes 76 CTests. The vacuum control and eight affected
-domain/transfer suites pass Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
-Thirty-nine legacy/configured images and thirty-nine publications remain
-byte-identical to the clean previous revision. All 93 MAC/domain executable
-outputs match scientifically (90 raw-identical; three differ only in measured
-timing/RSS), including the current-default 256-cell wave image SHA-256
+The full Release suite passes 79 CTests. Both vacuum controls and eight affected
+domain/transfer suites pass Debug
+ASan/UBSan and ThreadSanitizer. Thirty-nine legacy/configured images and
+thirty-nine publications remain byte-identical to the clean previous revision.
+The current-default 256-cell wave checkpoint retains SHA-256
 `0363472ea13eb275789bf8a4bbce195191937731e28ae4ad2224835969d4632f`.
+
 `native-configured-vacuum-domain` now imports a half-filled water pool with
 vacuum above it, checks ten resting frames and sends a real game vent packet.
-Managed readings retain void volume, and configured saves admit versions 9/10
-while phase change stays off. The 203 managed controls pass. Linux (base game)
-and WindowsPlayer under Proton (Spaced Out!, nine worlds) activate the room and
-pass ten resting frames under gravity: six 500 kg, 300 K half-filled water cells,
-with zero reported mass/energy drift. Both stop at completed frame 11, time
-2.2000000327825546 s: the first vent interval exhausts its shared attempt budget
-in mixed-cell pressure work. No front capture, game save/reload, long run or
-actual Windows OS acceptance is established. Screenshots and source reports
-are private under `artifacts/vacuum-game-v1/`.
+Managed readings retain void volume. New scenes use flags 105 and version 12;
+old flags-41 scenes keep exact geometry and versions 9/10. Phase change stays
+off. The 205 managed controls pass.
 
-The native reproduction first encounters poorly scaled logarithmic EOS seeds;
-better seeds advance it further but still stall on microscopic mixed cells.
-The authorized standalone opt-in above follows a private closure experiment
-that completes 140 vent frames with maximum relative energy error 7.05e-19.
-Game wiring remains open; flag 32 alone retains exact geometry. No solver
-arithmetic, attempt limits or gate bounds were changed for the game results above.
+The first exact-geometry Linux and Proton runs passed activation and ten
+resting frames, then exhausted the pressure attempt budget on the first vent
+interval. The authorized gas-expansion opt-in now has native/managed wiring.
+The unchanged 7×5 native owner control completes eleven resting frames and
+140 vent frames with three closure events, entropy increase 2.59e-17 J/K,
+maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact continuation.
+The completed-frame `ma_oni_domain_subcell_status` accounts reset on activation
+and restore; they do not alter saved physical state.
+
+Updated Linux game validation remains open. Private captures are under
+`artifacts/vacuum-game-v1/`. The user deferred further Proton/Wine/Windows
+checks. Flag 32 alone retains exact geometry; no attempt limits or gate bounds
+changed.

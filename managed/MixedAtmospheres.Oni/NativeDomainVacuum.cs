@@ -12,6 +12,7 @@ namespace MixedAtmospheres.Oni
         private static ulong vacuumRestFrames, vacuumVentFrame;
         private static bool vacuumFrontCaptured;
         private static Cell[] vacuumRestState = Array.Empty<Cell>();
+        private static SubcellStatus subcellStatus;
         private static float CompatibilityMassAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? 500 : 0 : ProjectionMass(index % Width);
         private static float CompatibilityTemperatureAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? 300 : 0 : ProjectionTemperature(index % Width);
         private static SimHashes CompatibilityElementAt(int index) => ConfiguredVacuumMode ? index / Width == 0 ? SimHashes.Water : SimHashes.Vacuum : Liquid ? SimHashes.Water : SimHashes.Oxygen;
@@ -22,6 +23,7 @@ namespace MixedAtmospheres.Oni
         {
             vacuumFixtureQueued = vacuumRestVerified = vacuumVentSubmitted = vacuumFrontObserved = vacuumFrontCaptured = false;
             vacuumRestFrames = vacuumVentFrame = 0; vacuumRestState = Array.Empty<Cell>();
+            subcellStatus = default;
         }
         private static void QueueVacuumFixture()
         {
@@ -68,6 +70,9 @@ namespace MixedAtmospheres.Oni
                 configuredMotionObserved && viscosityStatus.Enabled == 0, "Vacuum scene publication, solids or disabled physics differs.");
             Require(RestoredConfigured || vacuumRestVerified && vacuumFrontObserved && vacuumVentSubmitted,
                 "Vacuum scene did not exercise rest and an actual game vent packet.");
+            Require(RestoredConfigured || (ConfiguredPhysics.Flags & PhysicsUnresolvedGas) == 0 ||
+                subcellStatus.Policy == 1 && subcellStatus.Events > 0 && subcellStatus.EntropyIncrease > 0,
+                "The unresolved gas opt-in did not expose its accepted entropy account.");
         }
         private static object? VacuumReport() => !ConfiguredVacuumMode ? null : new
         {
@@ -76,6 +81,7 @@ namespace MixedAtmospheres.Oni
             VentMassKg = .03125, RestState = vacuumRestState, Cells = cells,
             EmptyCells = ConfiguredRoom.FluidIndices.Count(index => cells[index].TotalMass == 0),
             PartialLiquidCells = ConfiguredRoom.FluidIndices.Count(index => cells[index].Water > 0 && cells[index].LiquidFraction > 0 && cells[index].LiquidFraction < 1),
+            SubcellAccountsSinceActivation = subcellStatus,
             Source = "completed-native-void-phase-publication"
         };
     }

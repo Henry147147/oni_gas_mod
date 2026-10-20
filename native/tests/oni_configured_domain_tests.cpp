@@ -132,7 +132,7 @@ void admission_rejection() {
     }
     // Physics record.
     const double nan=std::numeric_limits<double>::quiet_NaN(),inf=std::numeric_limits<double>::infinity();
-    for (int fault=0;fault<20;++fault) {
+    for (int fault=0;fault<21;++fault) {
         auto bad=base;auto& p=bad.settings;
         if (fault==0) p.struct_size=32;
         if (fault==1) p.abi_version=2;
@@ -154,6 +154,7 @@ void admission_rejection() {
         if (fault==17) p.shear_viscosity_pa_s=.5;
         if (fault==18) p.bulk_viscosity_pa_s=-0.0;
         if (fault==19) { p.flags|=MA_ONI_DOMAIN_PHYSICS_VISCOSITY;p.shear_viscosity_pa_s=inf; }
+        if (fault==20) p.flags|=128;
         refuse(bad,"Invalid configured physics record was admitted");
     }
     // Solid mask.

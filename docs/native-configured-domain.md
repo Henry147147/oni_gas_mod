@@ -33,6 +33,7 @@ diagnostics use the existing shared calls.
 | `MIXTURE` | 8 | occupied gas/liquid admission, transfer topology and EOS liquid fraction of scenarios 4–6 |
 | `LIQUID` | 16 | without `MIXTURE`, single-liquid (water) admission; neither flag is gas-only |
 | `VACUUM` | 32 | production void phase and sharp interfaces; empty fluid cells and partly filled water surfaces |
+| `UNRESOLVED_GAS` | 64 | requires `VACUUM`; explicitly enables audited unresolved gas expansion, saved in MAC checkpoint version 12 |
 
 `MIXTURE|LIQUID`, unknown bits, nonzero reserved words and other struct sizes
 or versions reject. The registry and EOS are those of scenarios 0–2 and 4–6
@@ -236,7 +237,7 @@ floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
 | --- | --- | --- |
 | `native-configured-domain` | `GRAVITY\|CONDUCTION`, g = 9.81 | oxygen, 0.6–2.4 kg per column, 280–310 K |
 | `native-configured-water-domain` | `LIQUID\|GRAVITY\|CONDUCTION`, g = 9.81 | filled water, 1000–1120 kg, 280–310 K |
-| `native-configured-vacuum-domain` | `VACUUM\|MIXTURE\|GRAVITY`, g = 9.81 | 500 kg water in each floor fluid cell, vacuum above; 300 K water |
+| `native-configured-vacuum-domain` | `VACUUM\|UNRESOLVED_GAS\|MIXTURE\|GRAVITY`, g = 9.81 | 500 kg water in each floor fluid cell, vacuum above; 300 K water |
 
 - **Placement.** The arena keeps every active positioned prefab at least four
   cells, and every `Brain` (critter, duplicant) eight cells, away. Burrowed
@@ -295,26 +296,30 @@ the default common-pressure reading rules are unchanged. Native compatibility
 cells keep the initial pool/vacuum tuples behind the flow guards. The published
 copy selects vacuum, water or oxygen from the completed physical record.
 
-Saves retain the same configured wrapper and paired payload formats. Version-9
-void images and version-10 carried-U images are admitted; phase-change version 11
-remains rejected by this game adapter. Restore verifies the exact pool/vacuum
+Saves retain the same configured wrapper and paired payload formats. Existing
+version-9/10 exact-geometry saves keep flags 41; new vacuum scenes use flags 105
+and require version 12. Flag 64 requires flag 32, and restore compares the saved
+subcell policy with the wrapper. Phase change stays off; its version 11 remains
+rejected by this game adapter. Restore verifies the exact pool/vacuum
 compatibility tuples and loaded solid mask. Configured import and actor classification use the admitted mixture/liquid
 flags, so the vacuum scene admits both water and gas. Engine-free controls
-pass 203 OwnedSnapshotTests. Point transfers also enforce native phase admission
+pass 205 OwnedSnapshotTests. Point transfers also enforce native phase admission
 on empty cells; invalid single requests and batches leave the owner unchanged.
-Linux (base game) and WindowsPlayer under Proton (Spaced Out!, nine worlds)
-activate the vacuum room and pass ten resting frames under gravity with zero
-reported mass/energy drift. Both stop at completed frame 11, time
-2.2000000327825546 s: the first oxygen vent interval exhausts the shared attempt
-budget in mixed-cell pressure work. The half-filled pool is visible in
-`artifacts/vacuum-game-v1/linux-rest.png` and `proton-rest.png`. The front capture,
-final renderer checks, game saves/reloads and long continuation remain open;
-these are not actual Windows OS runs.
+The first exact-geometry Linux and Proton runs passed activation/rest but
+exhausted the pressure attempt budget on the first vent interval. The new
+standalone owner control uses the unchanged 7×5 game fixture with flags 105:
+eleven resting frames, 140 vent frames, three closure events, entropy increase
+2.59e-17 J/K, maximum relative mass/energy errors 1.06e-15/7.05e-19 and exact
+snapshot restore/continuation. The 48-byte `ma_oni_domain_subcell_status` reports
+completed-frame accounts since activation; restore resets those diagnostics.
+The harness checks their policy, frame and entropy. Updated Linux game runs
+remain open. Proton/Wine/Windows validation is deferred by the user's
+2026-10-20 decision; previous runs do not certify this revision.
 
 The read-only base-game whole-world retry stages 19,614 fluid cells in a
-256×384 world. A direct configured-owner request with flags 40 rejects its
+256×384 world. Direct configured-owner requests with flags 40 and 104 reject their
 geometry (height limit 256, total-cell limit 4,096). Separate native single-cell
-admission probes admit all 7,370 mapped, metadata-free inputs with flags 40;
+admission probes admit all 7,370 mapped, metadata-free inputs with either flag set;
 without the void flag, 173 reject internal void. This resolves those partial
 water admissions, not whole-world ownership. Another 12,138 cells use eleven
 unmapped identities and 106 mapped cells carry unsupported disease/radiation

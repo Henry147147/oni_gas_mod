@@ -412,7 +412,7 @@ licensed game to verify.
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended gravity and persisted U corrections; volume remainders and game verification remain | M–L | Later |
-| 7 | 1, 2 | Vacuum and partial-water surfaces: standalone physics and native/managed admission pass; Linux/Proton activation and ten resting frames pass; both first vent intervals exhaust the pressure attempt budget. The authorized audited subcell gas opt-in now has native controls and version-12 persistence; game wiring, front capture, game saves/reloads and long continuation remain open | XL | Yes |
+| 7 | 1, 2 | Vacuum/partial water: flag 32 preserves exact geometry; additional flag 64 enables the audited gas closure and version-12 saves. The native 7×5 fixture passes rest, 140 vent frames, conservation and exact reload; 205 managed controls pass. Updated Linux front capture, game saves/reloads and long continuation remain open. Further Proton/Wine/Windows validation is deferred | XL | Yes |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |
 | 10 | 1 | Whole-world retry: void admission removes 173 mapped partial-water rejections; actual ownership remains blocked by geometry limits, eleven unmapped material identities and unsupported metadata | L | Yes |

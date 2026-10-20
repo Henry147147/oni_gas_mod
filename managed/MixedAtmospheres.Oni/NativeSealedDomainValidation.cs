@@ -508,6 +508,16 @@ namespace MixedAtmospheres.Oni
             var heat = HeatStatus.Empty; Check(CopyHeat(ref heat)); heatStatus = heat;
             var thermal = ThermalStatus.Empty; Check(CopyThermalStatus(ref thermal)); thermalStatus = thermal;
             var viscosity = ViscosityStatus.Empty; Check(CopyViscosityStatus(ref viscosity)); viscosityStatus = viscosity;
+            if (ConfiguredVacuumMode)
+            {
+                var subcell = SubcellStatus.Empty; Check(CopySubcellStatus(ref subcell));
+                var expectedPolicy = (ConfiguredPhysics.Flags & PhysicsUnresolvedGas) != 0 ? 1U : 0U;
+                Require(subcell.Size == 48 && subcell.Version == 1 && subcell.State == latest.State &&
+                    subcell.Session == latest.Session && subcell.CompletedFrame == latest.CompletedFrames && subcell.Policy == expectedPolicy &&
+                    !double.IsNaN(subcell.EntropyIncrease) && !double.IsInfinity(subcell.EntropyIncrease) && subcell.EntropyIncrease >= 0,
+                    "Subcell expansion account differs from its completed owner frame.");
+                subcellStatus = subcell;
+            }
             CaptureChunkHeat();
             CaptureNativeSolidHeat();
             var gravity = GravityStatus.Empty; Check(CopyGravityStatus(ref gravity)); gravityStatus = gravity;

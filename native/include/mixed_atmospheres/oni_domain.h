@@ -111,10 +111,20 @@ MA_ONI_API MAOniResult ma_oni_domain_start_from_cells(const MAOniDomainConfig*,
 /* Void phase with sharp interfaces (native/MAC_VACUUM.md): vacuum fluid cells,
  * and liquid cells holding less than a full cell at zero pressure. */
 #define MA_ONI_DOMAIN_PHYSICS_VACUUM 32U
+/* Audited unresolved gas expansion; requires PHYSICS_VACUUM. Default off. */
+#define MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS 64U
 typedef struct MAOniDomainPhysics {
     uint32_t struct_size, abi_version, flags, reserved;
     double gravity_m_per_s2, shear_viscosity_pa_s, bulk_viscosity_pa_s;
 } MAOniDomainPhysics;
+/* Completed-owner accounts since activation (reset on restore, like thermal
+ * diagnostics). No state or policy change occurs through this reader. */
+typedef struct MAOniDomainSubcellStatus {
+    uint32_t struct_size, abi_version, state, policy;
+    uint64_t session, completed_frame, events;
+    double entropy_increase_j_per_k;
+} MAOniDomainSubcellStatus;
+MA_ONI_API MAOniResult ma_oni_domain_subcell_status(MAOniDomainSubcellStatus*);
 MA_ONI_API uint32_t ma_oni_domain_configured_abi_version(void);
 /* Complete validation precedes activation; the caller retains every input. */
 MA_ONI_API MAOniResult ma_oni_domain_start_configured(const MAOniDomainConfig*, const MAOniDomainPhysics*,

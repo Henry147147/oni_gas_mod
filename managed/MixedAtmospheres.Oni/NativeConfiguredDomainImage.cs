@@ -42,9 +42,10 @@ namespace MixedAtmospheres.Oni
         // Enabled values within the admission bounds; disabled values exactly +0.
         internal static bool ValidPhysics(Physics p)
         {
-            const uint known=PhysicsGravity|PhysicsConduction|PhysicsViscosity|PhysicsMixture|PhysicsLiquid|PhysicsVacuum;
+            const uint known=PhysicsGravity|PhysicsConduction|PhysicsViscosity|PhysicsMixture|PhysicsLiquid|PhysicsVacuum|PhysicsUnresolvedGas;
             if(p.Size!=40 || p.Version!=ConfiguredAbiVersion || p.Reserved!=0 || (p.Flags&~known)!=0 ||
-                ((p.Flags&PhysicsMixture)!=0 && (p.Flags&PhysicsLiquid)!=0)) return false;
+                ((p.Flags&PhysicsMixture)!=0 && (p.Flags&PhysicsLiquid)!=0) ||
+                ((p.Flags&PhysicsUnresolvedGas)!=0 && (p.Flags&PhysicsVacuum)==0)) return false;
             var g=p.GravityMetresPerSecondSquared;
             if((p.Flags&PhysicsGravity)!=0 ? !(!double.IsNaN(g) && !double.IsInfinity(g) && g>0 && g<=100) : !PositiveZero(g)) return false;
             bool Admitted(double value)=>!double.IsNaN(value) && !double.IsInfinity(value) && (value>0 || PositiveZero(value)) && value<=1000;

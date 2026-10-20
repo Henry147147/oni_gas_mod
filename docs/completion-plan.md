@@ -8,6 +8,10 @@ still require separate authorization.
 
 Amendments:
 
+- **Validation platforms, 2026-10-20 (user decision):** continue development
+  and acceptance on Linux. Defer Proton, Wine and Windows validation to the
+  user until the Linux mod is complete. Earlier measurements remain evidence
+  for their measured revisions; they do not certify later Windows builds.
 - **Unresolved subcell void, 2026-10-20 (user decision):** authorize an
   explicit opt-in that lets gas-containing material occupy the cell's remaining
   void when its occupied volume is at most 16 binary64 epsilons of grid volume.

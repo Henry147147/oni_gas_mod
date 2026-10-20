@@ -372,7 +372,9 @@ def _configured_domain_passed(report: dict, physical: dict, liquid: bool, restor
 def _configured_vacuum_passed(report: dict, physical: dict, restored: bool) -> bool:
     try:
         value=report['ConfiguredDomain']; void=report['Vacuum']; mask=configured_solid_mask(report)
-        expected=dict(Size=40, Version=1, Flags=41, Reserved=0, GravityMetresPerSecondSquared=9.81,
+        flags=value.get('Physics',{}).get('Flags')
+        if flags not in ((41,105) if restored else (105,)):return False
+        expected=dict(Size=40, Version=1, Flags=flags, Reserved=0, GravityMetresPerSecondSquared=9.81,
                       ShearViscosityPaSeconds=0.0, BulkViscosityPaSeconds=0.0)
         if (mask is None or len(mask)!=35 or value.get('Width')!=7 or value.get('Height')!=5
                 or value.get('Physics')!=expected or value.get('CopiedPhysics')!=expected or value.get('CopiedMask')!=mask
@@ -383,6 +385,14 @@ def _configured_vacuum_passed(report: dict, physical: dict, restored: bool) -> b
                 or void.get('Required') is not True or void.get('PhaseChangeEnabled') is not False
                 or void.get('Source')!='completed-native-void-phase-publication'
                 or report['ThermalConduction']['Enabled']!=0 or report['Gravity']['Enabled']!=1 or report['Gravity']['Gravity']!=9.81):return False
+        account=void['SubcellAccountsSinceActivation']; enabled=bool(flags&64)
+        if (any(type(account.get(k)) is not int for k in ('Size','Version','State','Policy','Session','CompletedFrame','Events'))
+                or account['Size']!=48 or account['Version']!=1 or account['State']!=1 or account['Policy']!=int(enabled)
+                or account['Session']!=physical['Session'] or account['CompletedFrame']!=physical['CompletedFrames']
+                or account['Events']<0 or type(account.get('EntropyIncrease')) not in (int,float)
+                or not math.isfinite(account['EntropyIncrease']) or account['EntropyIncrease']<0
+                or not enabled and (account['Events']!=0 or account['EntropyIncrease']!=0)
+                or enabled and not restored and (account['Events']==0 or account['EntropyIncrease']==0)):return False
         if restored:
             if value.get('RestoredGridVerified') is not True or value.get('RestoredMaskFromLoadedGrid')!=mask:return False
         elif (value.get('InventoryVerified') is not True or void.get('WaterRestVerified') is not True

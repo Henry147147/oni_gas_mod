@@ -46,7 +46,7 @@ namespace MixedAtmospheres.Oni
         // row-major solid mask and a complete initial inventory with all-zero
         // records for solids. Legacy entry points keep rejecting scenario 7.
         internal const uint ConfiguredAbiVersion = 1, ConfiguredScenario = 7, ConfiguredMaximumSide = 256, ConfiguredMaximumCells = 4096;
-        internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16, PhysicsVacuum = 32;
+        internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16, PhysicsVacuum = 32, PhysicsUnresolvedGas = 64;
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
         internal struct DiffusionStatus
         {
@@ -167,6 +167,15 @@ namespace MixedAtmospheres.Oni
         }
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_abi_version", CallingConvention = CallingConvention.Cdecl)] internal static extern uint ThermalVersion();
         [DllImport(Library, EntryPoint = "ma_oni_domain_thermal_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopyThermalStatus(ref ThermalStatus status);
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct SubcellStatus
+        {
+            public uint Size, Version, State, Policy;
+            public ulong Session, CompletedFrame, Events;
+            public double EntropyIncrease;
+            internal static SubcellStatus Empty => new SubcellStatus { Size = 48, Version = 1 };
+        }
+        [DllImport(Library, EntryPoint = "ma_oni_domain_subcell_status", CallingConvention = CallingConvention.Cdecl)] internal static extern int CopySubcellStatus(ref SubcellStatus status);
         [StructLayout(LayoutKind.Sequential)]
         internal struct ViscosityStatus
         {

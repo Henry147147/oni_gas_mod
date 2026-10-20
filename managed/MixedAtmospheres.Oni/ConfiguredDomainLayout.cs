@@ -59,7 +59,8 @@ namespace MixedAtmospheres.Oni
         // conduction, oxygen gas or filled water (no mixture or viscosity).
         internal static Physics ScenePhysics(bool liquid) =>
             Physics.Create(PhysicsGravity | PhysicsConduction | (liquid ? PhysicsLiquid : 0U), 9.81);
-        internal static Physics VacuumPhysics => Physics.Create(PhysicsVacuum | PhysicsMixture | PhysicsGravity, 9.81);
+        internal static Physics ExactVacuumPhysics => Physics.Create(PhysicsVacuum | PhysicsMixture | PhysicsGravity, 9.81);
+        internal static Physics VacuumPhysics => Physics.Create(PhysicsVacuum | PhysicsMixture | PhysicsGravity | PhysicsUnresolvedGas, 9.81);
         internal static bool AdmitsSpecies(uint flags, uint species) => species < 5 &&
             ((flags & PhysicsMixture) != 0 || ((flags & PhysicsLiquid) != 0) == (species == 3));
 
@@ -71,7 +72,8 @@ namespace MixedAtmospheres.Oni
             var room = PillaredRoom(); var liquid = (saved.Physics.Flags & PhysicsLiquid) != 0;
             return saved.Geometry.Width == room.Width && saved.Geometry.Height == room.Height && saved.SameMask(room.Mask) &&
                 (NativeConfiguredDomainImage.SamePhysics(saved.Physics, ScenePhysics(liquid)) ||
-                 NativeConfiguredDomainImage.SamePhysics(saved.Physics, VacuumPhysics));
+                 NativeConfiguredDomainImage.SamePhysics(saved.Physics, VacuumPhysics) ||
+                 NativeConfiguredDomainImage.SamePhysics(saved.Physics, ExactVacuumPhysics));
         }
 
         // Native compatibility projection of the in-game configured scenes for a

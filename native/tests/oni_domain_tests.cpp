@@ -384,6 +384,59 @@ void certified_thermal_intervals() {
     shutdown_domain();
     std::cout<<"PASS certified idle intervals, later conduction and restored thermal clocks\n";
 }
+void vacuum_subcell_domain() {
+    using namespace ma::oni;
+    static_assert(sizeof(MAOniDomainSubcellStatus)==48);
+    const MAOniDomainConfig config{40,2,1,64,10,10,7,5,MA_ONI_DOMAIN_CONFIGURED_SCENARIO,0};
+    const MAOniDomainPhysics physics{40,1,MA_ONI_DOMAIN_PHYSICS_VACUUM|MA_ONI_DOMAIN_PHYSICS_MIXTURE|
+        MA_ONI_DOMAIN_PHYSICS_GRAVITY|MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS,0,9.81,0,0};
+    std::vector<std::uint8_t> mask(35);for (const auto i:{3,10,17,26}) mask[static_cast<std::size_t>(i)]=1;
+    std::vector<MAOniDomainInitialCell> input(35);
+    for (std::size_t i=0;i<input.size();++i) {
+        input[i].struct_size=56;input[i].abi_version=1;
+        if (i<7 && !mask[i]) { input[i].masses[3]=500;input[i].temperature_k=300; }
+    }
+    start_configured_domain(config,physics,mask,1,{},0,input);
+    std::vector<MAOniDomainCell> cells(35);auto status=capture(cells);const auto rest=cells;
+    const auto step=[&](std::uint64_t frame) {
+        advance_domain(frame,.2F,2);status=capture(cells);
+        if (status.state!=1) throw std::runtime_error(std::string("Subcell owner: ")+status.error);
+    };
+    for (std::uint64_t frame=1;frame<=11;++frame) step(frame);
+    require(std::memcmp(cells.data(),rest.data(),cells.size()*sizeof(MAOniDomainCell))==0,"Opted-in water/vacuum did not stay at rest");
+    MAOniDomainSubcellStatus account{};copy_domain_subcell_status(account);
+    require(account.policy==1 && account.session==status.session && account.completed_frame==11 &&
+        account.events==0 && account.entropy_increase_j_per_k==0,"Rest created unresolved gas events");
+    MAOniDomainTransfer vent{64,2,status.session,11,10+12*64,1,1,1,-1,0,.03125F,300};
+    MAOniDomainTransferStatus transfers{};queue_domain_transfers(&vent,1,transfers);
+    step(12);
+    std::array<MAOniDomainReceipt,2> receipts{};std::uint32_t count=0;
+    copy_domain_receipts(status,cells.data(),35,receipts.data(),2,count);
+    require(count==1 && receipts[0].mass_kg==.03125,"Subcell vent receipt changed its game packet");
+    ack_domain_receipts(status.session,receipts[0].sequence);
+    for (std::uint64_t frame=13;frame<=151;++frame) step(frame);
+    copy_domain_subcell_status(account);
+    require(account.events>0 && account.entropy_increase_j_per_k>0 && account.session==status.session && account.completed_frame==151,
+        "Completed owner omitted its unresolved gas entropy account");
+    require(status.maximum_relative_mass_error<=1e-8 && status.maximum_relative_energy_error<=1e-6,
+        "Subcell owner vent failed the existing domain conservation limits");
+    const auto events=account.events;const auto entropy=account.entropy_increase_j_per_k;
+    const auto mass_error=status.maximum_relative_mass_error,energy_error=status.maximum_relative_energy_error;
+    const auto saved=snapshot_domain(status.session,151);const auto time=status.time_seconds;
+    validate_configured_domain_checkpoint(config,physics,mask,saved,time);
+    auto exact=physics;exact.flags&=~MA_ONI_DOMAIN_PHYSICS_UNRESOLVED_GAS;bool rejected=false;
+    try { validate_configured_domain_checkpoint(config,exact,mask,saved,time); } catch(const std::invalid_argument&) { rejected=true; }
+    require(rejected,"An exact-geometry owner admitted unresolved expansion from a save");
+    const auto expected=advance_domain_snapshot(saved,.2F);
+    shutdown_domain();start_configured_domain(config,physics,mask,1,saved,time);status=capture(cells);
+    copy_domain_subcell_status(account);
+    require(account.policy==1 && account.events==0 && account.entropy_increase_j_per_k==0 &&
+        snapshot_domain(status.session,0)==saved,"Restored subcell owner changed state or retained another activation's diagnostics");
+    step(1);require(snapshot_domain(status.session,1)==expected,"Subcell game owner lost exact checkpoint continuation");
+    std::cout<<std::setprecision(17)<<"VACUUM_SUBCELL rest_frames=11 vent_frames=140 events="<<events<<" entropy="<<entropy
+        <<" mass_error="<<mass_error<<" energy_error="<<energy_error<<" exact_restore=1\n";
+    shutdown_domain();
+}
 void vacuum_domain() {
     using namespace ma::oni;
     const MAOniDomainConfig config{40,2,1,64,10,10,3,2,MA_ONI_DOMAIN_CONFIGURED_SCENARIO,0};
@@ -489,6 +542,7 @@ void vacuum_domain() {
 int main(int argc,char** argv) {
     try {
         if (argc==2 && std::string(argv[1])=="--vacuum") { vacuum_domain();return 0; }
+        if (argc==2 && std::string(argv[1])=="--vacuum-subcell") { vacuum_subcell_domain();return 0; }
         if (argc==3 && std::string(argv[1])=="--read-checkpoint") {
             std::ifstream input(argv[2],std::ios::binary); require(input.good(),"Could not open the cross-platform native-domain image");
             const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(input),{}};

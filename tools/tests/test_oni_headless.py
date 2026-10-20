@@ -21,6 +21,7 @@ if not sys.platform.startswith("linux"):
 SPEC = importlib.util.spec_from_file_location("oni_headless", Path(__file__).parents[1] / "oni_headless.py")
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
+import oni_native_domain_evidence as domain_evidence
 
 
 class CompletedInspectionTests(unittest.TestCase):
@@ -103,6 +104,47 @@ class NativeDomainEvidenceTests(unittest.TestCase):
         report['Gravity']=dict(Size=96,Version=1,State=1,Enabled=1,Session=1,CompletedFrame=30,Gravity=9.81,InitialPotential=100.0,
             Potential=99.5,CommittedBoundaryPotential=0.0,PendingBoundaryPotential=0.0,BodyImpulseY=-3.0,InternalWork=.1,MaximumEnergyResidual=1e-9)
         return report
+
+    def configured_vacuum_report(self, restored=False, exact=False):
+        report=self.configured_report();mask=self.CONFIGURED_MASK;value=report['ConfiguredDomain']
+        report['Scenario']='configured-pillared-vacuum';value.update(Variant='vacuum',Restored=restored)
+        for key in ('Physics','CopiedPhysics'):value[key]['Flags']=41 if exact else 105
+        if restored:value.update(RestoredGridVerified=True,RestoredMaskFromLoadedGrid=list(mask))
+        report['ThermalConduction']['Enabled']=0
+        report['Vacuum']=dict(Required=True,Restored=restored,PhaseChangeEnabled=False,WaterRestVerified=True,
+            RestFrames=10,VentSubmitted=True,FrontObserved=True,PartialLiquidCells=6,Cells=[{} for _ in mask],
+            Source='completed-native-void-phase-publication',
+            SubcellAccountsSinceActivation=dict(Size=48,Version=1,State=1,Policy=0 if exact else 1,Session=1,
+                CompletedFrame=30,Events=0 if exact else 2,EntropyIncrease=0.0 if exact else 1e-16))
+        rows=[]
+        for i,bit in enumerate(mask):
+            water=i<7
+            reading=None if bit else dict(VolumeCubicMetres=1,GasVolumeCubicMetres=0,LiquidVolumeCubicMetres=.5 if water else 0,
+                VacuumVolumeCubicMetres=.5 if water else 1,TotalMassKg=500 if water else 0,TemperatureKelvin=300 if water else 0,
+                MechanicalPressurePa=0,StoredInternalEnergyJoules=1 if water else 0,ResolvedKineticEnergyJoules=0)
+            rows.append(dict(Solid=bool(bit),Reading=reading))
+        report['RenderingInputs']=dict(Rows=rows)
+        return report
+
+    def test_vacuum_evidence_requires_the_opt_in_and_matching_completed_entropy_accounts(self):
+        report=self.configured_vacuum_report()
+        accepted=lambda r:domain_evidence._configured_vacuum_passed(r,r['NativeDomain'],False)
+        self.assertTrue(accepted(report))
+        for field,bad in [('Size',40),('Version',2),('State',3),('Policy',0),('Session',2),('CompletedFrame',29),
+                          ('Events',0),('Events',True),('Events',-1),('EntropyIncrease',0),('EntropyIncrease',-1),
+                          ('EntropyIncrease',float('nan')),('EntropyIncrease',float('inf'))]:
+            changed=copy.deepcopy(report);changed['Vacuum']['SubcellAccountsSinceActivation'][field]=bad
+            self.assertFalse(accepted(changed),(field,bad))
+        changed=copy.deepcopy(report);changed['Vacuum'].pop('SubcellAccountsSinceActivation');self.assertFalse(accepted(changed))
+        self.assertFalse(accepted(self.configured_vacuum_report(exact=True)))
+
+    def test_restored_vacuum_evidence_keeps_the_saved_policy_and_resets_activation_accounts(self):
+        for exact in (False,True):
+            report=self.configured_vacuum_report(restored=True,exact=exact)
+            account=report['Vacuum']['SubcellAccountsSinceActivation'];account.update(Events=0,EntropyIncrease=0.0)
+            accepted=lambda r:domain_evidence._configured_vacuum_passed(r,r['NativeDomain'],True)
+            self.assertTrue(accepted(report))
+            account['Policy']=1 if exact else 0;self.assertFalse(accepted(report))
 
     def test_configured_room_requires_exact_copied_scenario_seven_native_solids_and_acting_physics(self):
         for liquid in (False,True):
