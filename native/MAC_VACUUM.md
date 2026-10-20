@@ -396,8 +396,18 @@ resting frames, an actual 0.03125 kg oxygen packet, a visible front, Grid and GP
 readback, and an ordinary paired colony save with readback. At completed frame
 121 (24.2000003606081 s), three closure events add 2.59e-17 J/K; maximum relative
 mass/energy errors are 9.58e-16/7.05e-19. A fresh process restores the exact source
-hash, resaves at frame zero and passes 60 exact physical continuation frames;
-complete restored-reader/menu-reload validation and the game long run remain open.
+hash and resaves at frame zero. Fresh-process and same-process load-menu
+replays each pass 60 exact physical frames, including restored readers and GPU
+publication, and produce the same final checkpoint hash.
+
+The 8,400-frame Linux game request ends as `failed-runtime-validation` when
+all three unowned-colony duplicants die. Final telemetry records 7,152 completed
+owner frames (1,430.400021314621 s), no native fault, and maximum relative
+mass/energy errors 8.90e-15/8.61e-19. Two natural autosaves pass paired file
+readback and restore the pause state. The telemetry session closes correctly
+with 29 lines; it records a failed validation, not a long-run pass. Finishing the
+requested run needs a supported surrounding colony. The standalone native
+fixture separately completes 8,401 frames; that is not in-game evidence.
 Restored reader observations now follow each published phase, including zero
 pressure/mass, while existing gas/water controls keep their original checks.
 
@@ -412,7 +422,8 @@ stay fixed; the evolving native fixture's 31 readings close within 5.55e-17 m³.
 Fluid identity changes also publish substance-change events to ONI's cached
 `Grid.Element`; native compatibility tuples remain unchanged.
 
-Private captures and the completed source report are under
-`artifacts/vacuum-game-v1/linux-save-v9/`. The user deferred further Proton/Wine/Windows
+Private game reports are under
+`artifacts/vacuum-game-v1/linux-save-v9/`, `linux-load-v2/` and `linux-long-v1/`.
+The user deferred further Proton/Wine/Windows
 checks. Flag 32 alone retains exact geometry; no attempt limits or gate bounds
 changed.

@@ -101,7 +101,11 @@ the playtest.
   owner covers it. The configured domain is capped at 4,096 cells and 256 per
   side; a base-game asteroid is 256 × 384.
 - **Vacuum:** empty and partly filled liquid cells (a1e3db3) remove the recorded
-  compressed-liquid import failure. Their in-game check is pending.
+  compressed-liquid admission failure. The configured Linux scene passes rest,
+  gas expansion, Grid/GPU publication, save and exact fresh-process/menu reload;
+  its 8,400-frame long request stops on surrounding-colony death at 7,152
+  frames, with no native fault. Long-run acceptance needs a supported colony.
+  Whole-asteroid ownership still needs the geometry and catalogue work above.
 - **Readers:** every game reader sees the owned state, including rendering,
   element/mass/temperature queries, pressure, pathing, placement checks and
   overlays.

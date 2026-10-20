@@ -188,6 +188,11 @@ accept `--save-colony`, `--load-save` and `--long-run`. Both pass in the Linux
 game, with saves and fresh-process loads; scope, commands and numbers are in the
 [configured domain](../docs/native-configured-domain.md#linux-game-evidence).
 
+`native-configured-vacuum-domain` uses the same room with a half-filled water
+pool and vacuum above it, followed by a real oxygen emission. It supports the
+same save/load/long-run options; its audited subcell policy and Linux evidence
+are in the [vacuum scene](../docs/native-configured-domain.md#vacuum-scene).
+
 ## Separate test display
 
 Add `--private-display` to `oni_headless.py run` to put the game on a separate
@@ -220,7 +225,8 @@ separate, explicit request for such a run; it never widens the short fixture
 controls. It accepts 1–100,000 frames (default 30,000) and 30–172,800 s
 (default 48 h), and only the `snapshot-copy`, `native-observer`,
 `native-domain`, `native-liquid-domain`, `native-mixed-domain`,
-`native-configured-domain` and `native-configured-water-domain` scenes.
+`native-configured-domain`, `native-configured-water-domain` and
+`native-configured-vacuum-domain` scenes.
 Fixture flags with exact short windows (`--save-colony`,
 `--resave-before-resume`, `--load-save`, autosave, actor, breathing, particle,
 I/O and reload controls) are rejected. Saved-colony replay keeps one input
@@ -277,7 +283,8 @@ every second and is still flushed at completion.
 colony, and a long run fails as soon as every duplicant has died, because ONI
 then pauses on its Colony Lost screen and no frame can complete. In the default
 disposable colony (seed 147147, no orders) all three duplicants die in the
-third or fourth cycle, after about 8,500–9,100 domain frames. No run can yet
+third or fourth cycle; the vacuum room run loses them earlier, at game cycle
+2 / 7,152 owner frames. No run can yet
 pass 10,000 frames or ten cycles: a ten-cycle pass first needs life support (a
 scripted build order or a prepared save).
 
@@ -302,6 +309,14 @@ per frame; per-line medians of the p95 values were native wait 0.083 ms,
 managed publication 327 ms and presentation lag 221 ms. RSS went from 6.79 to
 6.65 GiB. An earlier attempt failed at frame 6,386 on a body-heat read race,
 since fixed ([object heat](../docs/native-domain-physics.md#native-object-heat)).
+
+A configured vacuum request (`--mode native-configured-vacuum-domain --long-run
+--frames 8400 --timeout 14400 --private-display`) fails when all three duplicants
+die. Final telemetry records 7,152 completed owner frames, 1,430.400021314621 s,
+no native fault, and relative mass/energy errors 8.90e-15/8.61e-19. Two natural
+autosaves pass paired readback and pause-state restoration. All 29 telemetry
+lines form one complete session ending in `final`; `development_telemetry_passed`
+is true, while runtime validation is failed. This is not an 8,400-frame pass.
 
 `tools/configure_visual_demo.py --long-run` prepares the same request for a
 manually started scene: 30,000 frames by default, a 48-hour limit and telemetry.

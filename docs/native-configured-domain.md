@@ -310,8 +310,18 @@ Linux base-game ONI 744825 passes the source scene at frame 121/time
 oxygen packet, the front, Grid/GPU readback and ordinary paired save/readback.
 Three closure events add 2.59e-17 J/K; maximum relative mass/energy errors are
 9.58e-16/7.05e-19. A fresh process restores the same source hash, resaves at frame
-zero and completes 60 exact physical frames. Complete restored-reader/menu
-reload and the game long run remain open. Reader observations now follow each
+zero and completes 60 exact physical frames. A same-process load-menu replay
+also completes 60 exact frames and produces the identical final checkpoint;
+restored readers and GPU publication pass.
+
+The 8,400-frame game request fails when all three duplicants in the surrounding
+unowned colony die. Final telemetry records 7,152 owner frames and
+1,430.400021314621 s with no native fault; maximum relative mass/energy errors
+are 8.90e-15/8.61e-19. Both natural autosaves pass paired readback and restore
+the pause state. Its complete 29-line telemetry session records failed
+validation. The long-run acceptance remains open; a supported surrounding
+colony is needed. The separate 8,401-frame native fixture does not certify it.
+Reader observations follow each
 published vacuum/water/oxygen identity and permit the physical zero pressure and
 mass of void cells; legacy gas/water conditions stay unchanged.
 
@@ -333,8 +343,10 @@ fluid identities: ONI's cached `Grid.Element` needs them separately from its
 `elementIdx` array. The room guard compares the delivered publication; the
 front capture waits three render frames after publication. Vacuum compatibility
 cells exercise blocked liquid, transition and post-processing calls; existing
-scenes keep their native temperature-call requirement. Updated complete Linux
-game reload/long-run validation remains open. Proton/Wine/Windows validation is deferred by the user's
+scenes keep their native temperature-call requirement. Private source/reload
+reports are `artifacts/vacuum-game-v1/linux-save-v9/result.json` and
+`linux-load-v2/result.json`; the failed long request is `linux-long-v1/result.json`.
+Proton/Wine/Windows validation is deferred by the user's
 2026-10-20 decision; previous runs do not certify this revision.
 
 The read-only base-game whole-world retry stages 19,614 fluid cells in a
@@ -458,8 +470,9 @@ evidence.
   once the granite pair has nearly equilibrated.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
-- The configured vacuum/surface path has native and managed controls and passes
-  Linux/Proton activation and rest; vent continuation fails as described above.
-  Passive data, disease and further liquids still need adapters.
+- The configured vacuum/surface path passes Linux rest, vent, publication,
+  save and exact reload checks. The requested long run stops on unowned-colony
+  death, with no native fault;
+  passive data, disease and further liquids still need adapters.
 - Materials beyond the five-species catalogue.
 - The production timestep and performance gate.
