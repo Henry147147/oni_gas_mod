@@ -17,7 +17,7 @@ namespace MixedAtmospheres.Oni
     // its MADCFG01 wrapper; a load restores exactly that configuration.
     internal static unsafe partial class NativeSealedDomainValidation
     {
-        private static bool ConfiguredMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-domain" || ConfiguredLiquidMode || RestoredConfigured;
+        private static bool ConfiguredMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-domain" || ConfiguredLiquidMode || ConfiguredVacuumMode || RestoredConfigured;
         private static bool ConfiguredLiquidMode => ColonyRuntimeValidation.Settings?.Mode == "native-configured-water-domain" ||
             RestoredConfigured && (restoredConfiguredPhysics.Flags & PhysicsLiquid) != 0;
         private static bool RestoredConfigured => restoredScenarioSelected && restoredScenario == ConfiguredScenario;
@@ -28,7 +28,7 @@ namespace MixedAtmospheres.Oni
         private static int FirstDomainFluid => ConfiguredMode ? ConfiguredRoom.FirstFluid : 0;
         // Cells the custom owner holds: every fluid cell of a configured room.
         private static int OwnedCellCount => ConfiguredMode ? ConfiguredRoom.FluidCount : cells.Length;
-        private static Physics ConfiguredPhysics => RestoredConfigured ? restoredConfiguredPhysics : ConfiguredDomainLayout.ScenePhysics(ConfiguredLiquidMode);
+        private static Physics ConfiguredPhysics => RestoredConfigured ? restoredConfiguredPhysics : ConfiguredVacuumMode ? ConfiguredDomainLayout.VacuumPhysics : ConfiguredDomainLayout.ScenePhysics(ConfiguredLiquidMode);
         private static Physics restoredConfiguredPhysics;
         private static bool configuredRestoredGridVerified;
         private static byte[] configuredRestoredMask = Array.Empty<byte>();
@@ -77,7 +77,7 @@ namespace MixedAtmospheres.Oni
             var saved = payload.Configured ?? throw new InvalidDataException("A configured colony save has no configuration wrapper.");
             RequireConfiguredCapability();
             if (!ConfiguredDomainLayout.IsSavedScene(saved))
-                throw new InvalidDataException("Saved configured room has no managed restore adapter; only the pillared 7x5 gas or water scene is admitted.");
+                throw new InvalidDataException("Saved configured room has no managed restore adapter; only the pillared 7x5 gas, water or vacuum scene is admitted.");
         }
 
         // Native admission of a saved image against its own saved configuration.
@@ -174,13 +174,15 @@ namespace MixedAtmospheres.Oni
                 var mass = source->mass[global]; var temperature = source->temperature[global];
                 Require(source->diseaseCount[global] == 0 && Grid.Radiation[global] == 0,
                     "Configured inventory has unsupported disease or radiation metadata at cell " + global + ".");
+                if (ConfiguredVacuumMode && elements[index] == ElementLoader.FindElementByHash(SimHashes.Vacuum).idx)
+                { Require(mass == 0, "Native vacuum carries mass."); return new InitialCell { Size = 56, Version = 1 }; }
                 Require(!float.IsNaN(mass) && !float.IsInfinity(mass) && mass > 0 && !float.IsNaN(temperature) && !float.IsInfinity(temperature) && temperature > 0,
                     $"Configured inventory has invalid mass or temperature at cell {global}: element={elements[index]}, mass={mass:R}, temperature={temperature:R}.");
                 var species = InitialInventorySpecies(elements[index]);
                 return new InitialCell { Size = 56, Version = 1, Temperature = temperature,
                     Nitrogen = species == 0 ? mass : 0, Oxygen = species == 1 ? mass : 0, Helium = species == 2 ? mass : 0,
                     Water = species == 3 ? mass : 0, CarbonDioxide = species == 4 ? mass : 0 };
-            });
+            }, ConfiguredVacuumMode);
             var physics = ConfiguredPhysics; var mask = room.Mask;
             // The complete immutable packet is admitted before any custom
             // activation; native admission validates every record again.
@@ -190,7 +192,7 @@ namespace MixedAtmospheres.Oni
             Check(Copy(ref status, admitted, (uint)admitted.Length));
             var first = room.FirstFluid;
             configuredInventoryVerified = status.CompletedFrames == 0 && status.TimeSeconds == 0 && status.Cells == room.Count &&
-                room.CopyMatchesMask(admitted) && status.InitialOxygenKg == inventory[first].Oxygen &&
+                room.CopyMatchesMask(admitted, ConfiguredVacuumMode) && status.InitialOxygenKg == inventory[first].Oxygen &&
                 room.FluidIndices.All(index =>
                     Enumerable.Range(0, Ids.Length).All(species => admitted[index].Mass(species) == inventory[index].Mass(species)) &&
                     Math.Abs(admitted[index].Temperature - inventory[index].Temperature) <= 64 * 2.2204460492503131e-16 * inventory[index].Temperature &&
@@ -231,7 +233,7 @@ namespace MixedAtmospheres.Oni
             Require(configuredConfigurationVerified, "Configured session copy differs from its admitted geometry, physics or mask.");
         }
 
-        private static bool ConfiguredPhysicsExercised => configuredInventoryVerified && latest.PressurePa > 0 &&
+        private static bool ConfiguredPhysicsExercised => ConfiguredVacuumMode ? vacuumRestVerified && vacuumFrontObserved : configuredInventoryVerified && latest.PressurePa > 0 &&
             ConfiguredRoom.FluidIndices.Any(index => cells[index].Temperature != configuredInventory[index].Temperature ||
                 Enumerable.Range(0, Ids.Length).Any(species => cells[index].Mass(species) != configuredInventory[index].Mass(species)));
 
@@ -239,6 +241,7 @@ namespace MixedAtmospheres.Oni
         {
             var room = ConfiguredRoom;
             VerifyConfigurationCopy(latest.Session, configuredGeometry, ConfiguredPhysics);
+            if (ConfiguredVacuumMode) { VerifyVacuumCompletion(); return; }
             configuredCopiesVerified = latest.Cells == room.Count && room.CopyMatchesMask(cells) &&
                 room.FluidIndices.All(index => cells[index].Pressure > 0 && publishedReadings!.ContainsKey(Grid.XYToCell(x + index % Width, y + index / Width))) &&
                 room.SolidIndices.All(index => !publishedReadings!.ContainsKey(Grid.XYToCell(x + index % Width, y + index / Width)));
@@ -278,7 +281,7 @@ namespace MixedAtmospheres.Oni
                 RestoredGridVerified = configuredRestoredGridVerified,
                 RestoredMaskFromLoadedGrid = configuredRestoredMask.Select(value => (int)value).ToArray(),
                 RestoredInteriorSolids = configuredRestoredSolidEvidence,
-                Variant = ConfiguredLiquidMode ? "water" : "gas", Width = room.Width, Height = room.Height,
+                Variant = ConfiguredVacuumMode ? "vacuum" : ConfiguredLiquidMode ? "water" : "gas", Width = room.Width, Height = room.Height,
                 Mask = room.Mask.Select(value => (int)value).ToArray(), FluidCells = room.FluidCount, SolidCells = room.SolidCount,
                 FirstFluidCell = room.FirstFluid,
                 Physics = new { physics.Size, physics.Version, physics.Flags, physics.Reserved, physics.GravityMetresPerSecondSquared,

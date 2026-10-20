@@ -343,4 +343,8 @@ byte-identical to the clean previous revision. All 93 MAC/domain executable
 outputs match scientifically (90 raw-identical; three differ only in measured
 timing/RSS), including the current-default 256-cell wave image SHA-256
 `0363472ea13eb275789bf8a4bbce195191937731e28ae4ad2224835969d4632f`.
-Unity validation is pending.
+`native-configured-vacuum-domain` now imports a half-filled water pool with
+vacuum above it, checks ten resting frames and sends a real game vent packet.
+Managed readings retain void volume, and configured saves admit versions 9/10
+while phase change stays off. The 202 managed controls pass; Unity validation
+is pending.

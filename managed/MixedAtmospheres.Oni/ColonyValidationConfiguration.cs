@@ -54,7 +54,7 @@ namespace MixedAtmospheres.Oni
             "native-breathing-read-domain", "native-carbon-particle-domain", "native-carbon-domain", "native-conduction-domain",
             "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain",
             "native-save-domain", "native-load-domain", "presentation", "tile-hover", "coupled-presentation", "load-rejection",
-            "native-configured-domain", "native-configured-water-domain"
+            "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain"
         };
         // Scenes whose retained evidence was audited as bounded per frame.
         // Fixture variants keep their short, exact windows; saved-colony replay
@@ -63,7 +63,7 @@ namespace MixedAtmospheres.Oni
         // state only and their natural autosaves use the paired configured save.
         internal static readonly string[] LongRunModes =
             { "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
-              "native-configured-domain", "native-configured-water-domain" };
+              "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain" };
 
         internal static ColonyValidationConfiguration Parse(string text)
         {

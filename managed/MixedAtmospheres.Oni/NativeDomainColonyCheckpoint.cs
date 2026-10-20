@@ -365,8 +365,8 @@ namespace MixedAtmospheres.Oni
                     var column=index%Width;var global=Grid.XYToCell(x+column,y+index/Width);
                     var packet=Packet(writer=>
                     {
-                        writer.Write(global);writer.Write(-1);writer.Write(ProjectionTemperature(column));writer.Write(ProjectionMass(column));writer.Write(0);
-                        writer.Write((ushort)ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);writer.Write((byte)1);writer.Write((byte)255);writer.Write((byte)1);writer.Write(new byte[3]);
+                        writer.Write(global);writer.Write(-1);writer.Write(CompatibilityTemperatureAt(index));writer.Write(CompatibilityMassAt(index));writer.Write(0);
+                        writer.Write((ushort)ElementLoader.FindElementByHash(CompatibilityElementAt(index)).idx);writer.Write((byte)1);writer.Write((byte)255);writer.Write((byte)1);writer.Write(new byte[3]);
                     });SendRaw(-1252920804,packet);
                 }
                 SendZeroTimeFrame();var restored=WaitZeroTimeFrame();
@@ -377,8 +377,8 @@ namespace MixedAtmospheres.Oni
                 {
                     var xx=global%Grid.WidthInCells;var yy=global/Grid.WidthInCells;
                     if(xx>=x && xx<x+Width && yy>=y && yy<y+Height && !IsDomainSolidAt(xx-x,yy-y))
-                        Require((restored->properties[global]&NativeFlowMask)==NativeFlowMask && restored->mass[global]==ProjectionMass(xx-x) &&
-                            restored->temperature[global]==ProjectionTemperature(xx-x),"Restored compatibility cells/flags differ.");
+                        Require((restored->properties[global]&NativeFlowMask)==NativeFlowMask && restored->mass[global]==CompatibilityMassAt(xx-x+(yy-y)*Width) &&
+                            restored->temperature[global]==CompatibilityTemperatureAt(xx-x+(yy-y)*Width),"Restored compatibility cells/flags differ.");
                     else Require(source->elementIdx[global]==restored->elementIdx[global] && source->mass[global]==restored->mass[global] &&
                         source->temperature[global]==restored->temperature[global] && source->diseaseIdx[global]==restored->diseaseIdx[global] &&
                         source->diseaseCount[global]==restored->diseaseCount[global] && source->properties[global]==restored->properties[global],
@@ -552,7 +552,7 @@ namespace MixedAtmospheres.Oni
                 var global=Grid.XYToCell(x+index%Width,y+index/Width);
                 if(IsDomainSolid(index)) return Grid.Solid[global] && Grid.Element[global].id==SimHashes.Unobtanium;
                 return Grid.Mass[global]==(float)cells[index].TotalMass &&
-                    Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==(Liquid ? SimHashes.Water : SimHashes.Oxygen);
+                    Grid.Temperature[global]==(float)cells[index].Temperature && Grid.Element[global].id==PublishedElementAt(index);
             });
             nativeRendererAdvanced=restoredRendererVerified;
             if(LiveBreathingRequired) VerifyLiveBreathing();

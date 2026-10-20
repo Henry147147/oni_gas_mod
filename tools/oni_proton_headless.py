@@ -25,7 +25,7 @@ from oni_native_matrix import SCENES
 
 PLATFORM = "WindowsPlayer"
 MOD_ID = "MixedAtmospheres.IntegrationProbe"
-CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain")
+CONFIGURED_MODES = ("native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain")
 MODES = tuple(SCENES.values()) + CONFIGURED_MODES + ("native-load-domain", "menu")
 GAME_FILES = {
     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll":
@@ -124,7 +124,7 @@ def initialize_prefix(command: list[str], output: Path, env: dict) -> None:
 def domain_options(args) -> dict:
     mode = args.mode
     return dict(expected_platform=PLATFORM,mixed_phase=mode in ("native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain"),
-        configured=mode in CONFIGURED_MODES,
+        configured=mode in CONFIGURED_MODES, vacuum=mode=="native-configured-vacuum-domain",
         initial_inventory=mode in ("native-import-domain", "native-liquid-import-domain"), liquid=mode in ("native-liquid-pressure-read-domain", "native-liquid-domain", "native-liquid-import-domain", "native-configured-water-domain"), liquid_transfers=mode == "native-liquid-transfer-domain",
         solid_heat=mode=="native-solid-heat-domain", heat=mode in ("native-heat-domain", "native-mixed-heat-domain"), liquid_heat=mode == "native-liquid-heat-domain",
         transfers=mode in ("native-transfer-domain", "native-radius-domain", "native-rectangular-domain"), radial_consumption=mode == "native-radius-domain", rectangular_consumption=mode == "native-rectangular-domain", actors=mode in ("native-actor-domain", "native-liquid-actor-domain"),

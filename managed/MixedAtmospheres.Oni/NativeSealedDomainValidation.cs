@@ -116,6 +116,7 @@ namespace MixedAtmospheres.Oni
                     Start(); return;
                 }
                 Capture();
+                TickVacuumFixture();
                 Require(latest.State == 1, "Custom native worker fault: " + latest.Error);
                 Require(BoundaryReady(projectionPrimed), "The sealed domain boundary changed or an unbound actor entered it.");
                 nativeSolidsAdvanced = Grid.Temperature[hotSolid] < initialHot && Grid.Temperature[coldSolid] > initialCold;
@@ -169,7 +170,7 @@ namespace MixedAtmospheres.Oni
                     if (IsDomainSolid(index)) return Grid.Solid[global] && Grid.Element[global].id == SimHashes.Unobtanium;
                     return Math.Abs(Grid.Mass[global] - (float)cells[index].TotalMass) <= 1e-6 &&
                         Math.Abs(Grid.Temperature[global] - (float)cells[index].Temperature) <= 1e-4 &&
-                        Grid.Element[global].id == (Liquid ? SimHashes.Water : SimHashes.Oxygen) &&
+                        Grid.Element[global].id == PublishedElementAt(index) &&
                         !Grid.LiquidImpermeable[global];
                 });
                 Require(gameGridProjectionVerified, "Actual game Grid fields did not consume the physical domain projection.");
@@ -387,7 +388,8 @@ namespace MixedAtmospheres.Oni
                 var solid = wall || IsDomainSolidAt(dx, dy);
                 if (Grid.Solid[index] != solid || (solid && Grid.Element[index].id != (IsSolidHeatBoundary(dx,dy) ? SimHashes.Granite : SimHashes.Unobtanium)) ||
                     (solid && ConfiguredMode && !InsulatingStaticSolid(index)) ||
-                    (!solid && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id != (Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
+                    (!solid && requireFluidIdentity && !InitialInventoryMode && Grid.Element[index].id !=
+                        (ConfiguredVacuumMode && (vacuumFixtureQueued || RestoredConfigured) ? active && projectionPrimed ? PublishedElementAt(dx + dy * Width) : CompatibilityElementAt(dx + dy * Width) : Liquid ? SimHashes.Water : SimHashes.Oxygen))) return false;
                 if (!wall)
                 {
                     if (Grid.DiseaseCount[index] != 0 || Grid.Radiation[index] != 0) return false;
@@ -409,9 +411,10 @@ namespace MixedAtmospheres.Oni
             // First establish that vanilla would move this intentionally
             // unbalanced scalar state. The same projection is then restored
             // under exclusions and must remain byte-identical thereafter.
-            nativeFlowControlObserved = Enumerable.Range(0, Width * Height).Any(index => !IsDomainSolid(index) &&
+            if (!vacuumFixtureQueued) nativeFlowControlObserved = Enumerable.Range(0, Width * Height).Any(index => !IsDomainSolid(index) &&
                 Math.Abs(Grid.Mass[Grid.XYToCell(x + index % Width, y + index / Width)] - ProjectionMass(index % Width)) > .001);
             Require(nativeFlowControlObserved, "Unhooked native pressure-gradient control did not flow.");
+            if (ConfiguredVacuumMode && !vacuumFixtureQueued) { QueueVacuumFixture(); return; }
             ConfigureDomainPresentation();
             arming = true;
             for (var index = 0; index < cells.Length && !InitialInventoryMode && !ConfiguredMode; ++index)
@@ -474,8 +477,8 @@ namespace MixedAtmospheres.Oni
                     // Compatibility projections never enter a native solid.
                     if (IsDomainSolid(index)) continue;
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
-                    SimMessages.ReplaceElement(global, Liquid ? SimHashes.Water : SimHashes.Oxygen,
-                        CellEventLogger.Instance.SandBoxTool, ProjectionMass(index % Width), ProjectionTemperature(index % Width));
+                    SimMessages.ReplaceElement(global, CompatibilityElementAt(index),
+                        CellEventLogger.Instance.SandBoxTool, CompatibilityMassAt(index), CompatibilityTemperatureAt(index));
                 }
             }
             finally { writingProjection = false; }
@@ -534,9 +537,9 @@ namespace MixedAtmospheres.Oni
                 if (!projectionPrimed)
                 {
                     projectionPrimed = nativeFlowFenceVerified && Enumerable.Range(0, cells.Length).All(index => IsDomainSolid(index) ||
-                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionMass(index % Width) &&
-                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == ProjectionTemperature(index % Width) &&
-                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx);
+                        source->mass[Grid.XYToCell(x + index % Width, y + index / Width)] == CompatibilityMassAt(index) &&
+                        source->temperature[Grid.XYToCell(x + index % Width, y + index / Width)] == CompatibilityTemperatureAt(index) &&
+                        source->elementIdx[Grid.XYToCell(x + index % Width, y + index / Width)] == ElementLoader.FindElementByHash(CompatibilityElementAt(index)).idx);
                     if (projectionPrimed) projectionPrimedAtFrame = latest.CompletedFrames;
                 }
                 var readings = new Dictionary<int, MixtureThermodynamicReading>();
@@ -554,7 +557,7 @@ namespace MixedAtmospheres.Oni
                     // An interior solid is native data: it keeps its unchanged
                     // native tuple above and publishes no physical reading.
                     if (IsDomainSolid(index)) { Require(ConfiguredDomainLayout.IsZero(cell), "A configured solid published fluid state."); continue; }
-                    readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global));
+                    readings.Add(global, NativeDomainReading.Create(cell, catalog!, (long)latest.CompletedFrames, global, ConfiguredVacuumMode));
                 }
                 // Capture first and prove every native channel was copied. Only
                 // the owned copy is subsequently overlaid with custom readings.
@@ -572,7 +575,7 @@ namespace MixedAtmospheres.Oni
                     if (IsDomainSolid(index)) continue;
                     var global = Grid.XYToCell(x + index % Width, y + index / Width);
                     masses[global] = checked((float)cells[index].TotalMass); temperatures[global] = checked((float)cells[index].Temperature);
-                    elements[global] = (ushort)ElementLoader.FindElementByHash(Liquid ? SimHashes.Water : SimHashes.Oxygen).idx;
+                    elements[global] = (ushort)ElementLoader.FindElementByHash(PublishedElementAt(index)).idx;
                     // These two flags fence the original native simulator. In
                     // the game-facing copy they would falsely describe fluid
                     // as a blocked tile and suppress ONI's liquid rendering.
@@ -780,11 +783,12 @@ namespace MixedAtmospheres.Oni
         private static void WriteReport() => File.WriteAllText(ReportPath, ReportJson.Serialize(new {
             Kind = "actual-game-sealed-native-fluid-domain", Status = completed ? "passed" : failed ? "failed" : "pending", Error = error,
             Platform = Application.platform.ToString(), Model = "oni-sealed-domain-v2",
-            Scenario = ConfiguredMode ? Liquid ? "configured-pillared-water" : "configured-pillared-gas" : MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
+            Scenario = ConfiguredVacuumMode ? "configured-pillared-vacuum" : ConfiguredMode ? Liquid ? "configured-pillared-water" : "configured-pillared-gas" : MixedPhaseMode ? "gas-liquid-mixture" : Liquid ? GravityMode ? "compressed-liquid-gravity" : "compressed-liquid" : GravityMode ? "mixed-air-gravity" : "mixed-air",
             EnergyRepresentation = (restoredScenarioSelected ? restoredScenario==3 : LiquidGravityMode) ? "water-anomaly-about-300K-plus-original-reference-from-mass" : "full-internal-energy",
             NativeDomain = latest, GasDiffusion = GasDiffusionOptions.Current,
             NativeCellsUnchanged = nativeCellsUnchanged, NativeSnapshotCopied = nativeSnapshotVerified,
             ConfiguredDomain = ConfiguredReport(),
+            Vacuum = VacuumReport(),
             MixedPhase = MixedPhaseReport(),
             PhysicalViscosity = ViscosityReport(),
             NativeBodyHeat = ChunkHeatReport(),
@@ -839,7 +843,8 @@ namespace MixedAtmospheres.Oni
             TargetReading = publishedReadings != null && publishedReadings.TryGetValue(target, out var reading) ? reading : null,
             BoundedFluidAuthority = completed && active && !failed, CustomDomainActivated = active,
             WholeColonyFluidAuthority = false, FirstPlayableColonyPassed = false,
-            OwnershipScope = "Sealed six-cell domain with explicitly admitted point actors; native ONI owns the surrounding colony", SavesAllowed = !SaveBlocked,
+            OwnershipScope = ConfiguredMode ? "Configured development room; native ONI owns surrounding cells" :
+                "Sealed six-cell domain with explicitly admitted point actors; native ONI owns the surrounding colony", SavesAllowed = !SaveBlocked,
             PairedColonySaveAdmissionEnabled=active && !failed,
             Width, Height, X = x, Y = y, TargetCell = target, RenderedRevision = renderedRevision
         }));

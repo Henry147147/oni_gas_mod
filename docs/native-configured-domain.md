@@ -4,7 +4,7 @@ The configured domain is the first native slice of
 [gate 1](playtesting-readiness.md), colony fluid ownership. An additive ABI lets
 the [sealed native owner](sealed-native-domain.md) take explicit physics,
 interior solids and larger rectangles. Scenarios 0–6, their checkpoint bytes
-and every existing entry point are unchanged. A managed adapter and two 7×5
+and every existing entry point are unchanged. A managed adapter and 7×5
 Unity rooms with interior solids (gas and water) use it and pass in the native
 Linux game ([managed adapter](#managed-adapter-and-unity-scenes)), including
 colony saves, fresh-process loads and an 8,401-frame long run
@@ -227,7 +227,7 @@ engine-free room: mask admission, the complete inventory with all-zero solid
 records and the all-zero copy check. Managed tests check the layout; a Python
 test compares the constants and entry points with the native header.
 
-Two development scenes reuse the sealed-scene builder
+Three development modes reuse the sealed-scene builder
 (`NativeSealedDomainValidation.cs`) in one 7×5 room
 (`ConfiguredDomainLayout.PillaredRoom`): a three-cell Unobtanium pillar on the
 floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
@@ -236,6 +236,7 @@ floor at x=3 and a ledge at (5,3), 31 fluid and 4 solid cells.
 | --- | --- | --- |
 | `native-configured-domain` | `GRAVITY\|CONDUCTION`, g = 9.81 | oxygen, 0.6–2.4 kg per column, 280–310 K |
 | `native-configured-water-domain` | `LIQUID\|GRAVITY\|CONDUCTION`, g = 9.81 | filled water, 1000–1120 kg, 280–310 K |
+| `native-configured-vacuum-domain` | `VACUUM\|MIXTURE\|GRAVITY`, g = 9.81 | 500 kg water in each floor fluid cell, vacuum above; 300 K water |
 
 - **Placement.** The arena keeps every active positioned prefab at least four
   cells, and every `Brain` (critter, duplicant) eight cells, away. Burrowed
@@ -273,6 +274,32 @@ rooms accept `--save-colony`/`SaveOnComplete`, `--load-save` and `--long-run`
 ([saves and reloads](#saves-and-reloads)). `tools/configure_visual_demo.py
 --scene pillared` (or `pillared-water`) prepares the same room for manual
 viewing.
+
+### Vacuum scene
+
+The opt-in vacuum mode first preserves the existing unhooked pressure-gradient
+control, then imports a flat half-filled water pool and exact vacuum from a
+completed native frame. It checks ten owned resting frames before routing one
+actual `EmitMass` packet (0.03125 kg oxygen at 300 K) into the vacuum.
+`vacuum-rest.png` and `vacuum-front.png` capture the two stages. The final report
+requires gas in another initially empty cell, partial water, completed physical
+readings, projection, shader-bound GPU checks and the existing conservation
+bounds. Gravity is 9.81 m/s²; conduction, viscosity and phase change stay disabled in
+this scene; native controls separately cover body heat beside partial water/vacuum.
+
+Vacuum readings have zero mass, energy, momentum, pressure and temperature and
+one cubic metre of void. Partly filled material uses its actual liquid volume
+and gas volume inferred from its EOS pressure/temperature; the remaining cell
+volume is void. Gas/void readings require an explicit resolved-interface opt-in;
+the default common-pressure reading rules are unchanged. Native compatibility
+cells keep the initial pool/vacuum tuples behind the flow guards. The published
+copy selects vacuum, water or oxygen from the completed physical record.
+
+Saves retain the same configured wrapper and paired payload formats. Version-9
+void images and version-10 carried-U images are admitted; phase-change version 11
+remains rejected by this game adapter. Restore verifies the exact pool/vacuum
+compatibility tuples and loaded solid mask. Engine-free controls pass 202
+OwnedSnapshotTests; game verification of the new mode is pending.
 
 ### Linux game evidence
 
@@ -325,8 +352,8 @@ payload's geometry, bitwise physics and mask, and the image is checked with
 `NativeConfiguredDomainImage.cs` reads the wrapper back: SHA-256, geometry and
 physics against the native admission rules (disabled values exactly +0), a
 binary mask with at least one fluid cell, and an enclosed `MACCLS01`. Legacy
-solver versions 2/3 follow the viscosity setting; versions 5 (diffusion) and
-6 (production) and 10 (carried U) retain the metadata prefix and pass the same
+solver versions 2/3 follow the viscosity setting; versions 5 (diffusion),
+6 (production), opt-in 9 (void phase) and 10 (carried U) retain the metadata prefix and pass the same
 native settings validation. Full native admission requires the saved void selector and occupied-volume
 vector to agree with the opt-in flag; phase change remains rejected. The `MAONID01` header geometry must
 equal the wrapper's, and saved actors and CO2 origins must be on fluid cells.
@@ -380,14 +407,14 @@ evidence.
   (actors, breathing, transfers, particles) with interior solids; the payload
   format carries actors and particles, but no game run has exercised them.
 - An in-game load of a deliberately tampered configured save; fail-closed
-  rejection is covered by unit tests only. Mixture and viscous configured
-  restores are rejected.
+  rejection is covered by unit tests only. Configured mixtures outside the vacuum scene, and viscous configured
+  restores, remain rejected.
 - `NativeSolidsAdvanced` cannot pass on late saves; it needs a rule that holds
   once the granite pair has nearly equilibrated.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
-- The configured native vacuum/surface path is admitted and covered by
-  `ma_oni_domain_tests --vacuum`; managed scenes and game verification remain.
+- The configured vacuum/surface path has native and managed controls; the
+  new vacuum scene still needs Linux/Proton game verification.
   Passive data, disease and further liquids still need adapters.
 - Materials beyond the five-species catalogue.
 - The production timestep and performance gate.

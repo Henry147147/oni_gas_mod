@@ -369,6 +369,37 @@ def _configured_domain_passed(report: dict, physical: dict, liquid: bool, restor
         return False
 
 
+def _configured_vacuum_passed(report: dict, physical: dict, restored: bool) -> bool:
+    try:
+        value=report['ConfiguredDomain']; void=report['Vacuum']; mask=configured_solid_mask(report)
+        expected=dict(Size=40, Version=1, Flags=41, Reserved=0, GravityMetresPerSecondSquared=9.81,
+                      ShearViscosityPaSeconds=0.0, BulkViscosityPaSeconds=0.0)
+        if (mask is None or len(mask)!=35 or value.get('Width')!=7 or value.get('Height')!=5
+                or value.get('Physics')!=expected or value.get('CopiedPhysics')!=expected or value.get('CopiedMask')!=mask
+                or value.get('Variant')!='vacuum' or value.get('Restored') is not restored
+                or any(value.get(k) is not True for k in ('ConfigurationCopyVerified','CopiesAndReadingsVerified',
+                        'InteriorSolidsVerified','ThermalVerified','GravityVerified','MotionObserved','SolidsAreNativeData'))
+                or not _configured_solids_passed(value.get('InteriorSolids'),mask)
+                or void.get('Required') is not True or void.get('PhaseChangeEnabled') is not False
+                or void.get('Source')!='completed-native-void-phase-publication'
+                or report['ThermalConduction']['Enabled']!=0 or report['Gravity']['Enabled']!=1 or report['Gravity']['Gravity']!=9.81):return False
+        if restored:
+            if value.get('RestoredGridVerified') is not True or value.get('RestoredMaskFromLoadedGrid')!=mask:return False
+        elif (value.get('InventoryVerified') is not True or void.get('WaterRestVerified') is not True
+                or void.get('RestFrames',0)<10 or void.get('VentSubmitted') is not True or void.get('FrontObserved') is not True):return False
+        rows=report['RenderingInputs']['Rows']
+        for row in rows:
+            reading=row['Reading']
+            if row['Solid']:
+                if reading is not None:return False
+                continue
+            if (reading['VolumeCubicMetres']!=1 or abs(reading['GasVolumeCubicMetres']+reading['LiquidVolumeCubicMetres']+
+                    reading['VacuumVolumeCubicMetres']-1)>128*2.220446049250313e-16):return False
+            if reading['TotalMassKg']==0 and any(reading[k]!=0 for k in ('TemperatureKelvin','MechanicalPressurePa','StoredInternalEnergyJoules','ResolvedKineticEnergyJoules')):return False
+        return void.get('PartialLiquidCells',0)>0 and len(void['Cells'])==35
+    except (KeyError,TypeError,ValueError,AttributeError):return False
+
+
 def _persistent_actors_passed(report: dict, physical: dict, restored: bool, required: bool) -> bool:
     try:
         value=report['PersistentActors']
@@ -827,14 +858,17 @@ def _native_solid_heat_passed(report: dict, restored: bool) -> bool:
     except (KeyError,TypeError,AttributeError,ValueError,OverflowError,struct.error):return False
 
 
-def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False, rectangular_consumption: bool = False, configured: bool = False) -> bool:
+def native_domain_passed(report: dict | None, observation: dict | None, frames: int, liquid: bool = False, heat: bool = False, transfers: bool = False, actors: bool = False, carbon: bool = False, expected_platform: str = "LinuxPlayer", conduction: bool = False, gravity: bool = False, checkpoint: bool = False, paired: bool = False, saved: bool = False, restored: bool = False, save_io_recovery: bool = False, liquid_transfers: bool = False, liquid_actors: bool = False, liquid_heat: bool = False, reload_in_process: bool = False, liquid_gravity: bool = False, initial_inventory: bool = False, carbon_particle: bool = False, breathing_read: bool = False, pressure_read: bool = False, natural_autosave: bool = False, persistent_actors: bool = False, mixed_phase: bool = False, radial_consumption: bool = False, live_breathing: bool = False, transient_particles: bool = False, subnormal_carbon_particle: bool = False, solid_heat: bool = False, rectangular_consumption: bool = False, configured: bool = False, vacuum: bool = False) -> bool:
     """Accept bounded physical ownership only; never promote it to a playable colony."""
     if not isinstance(report, dict) or not isinstance(observation, dict):
         return False
     # A configured room is never accepted as, or hidden behind, a legacy scene.
     # A load names its saved room only in the restored report.
     if restored:
-        configured = configured or report.get('Scenario') in ('configured-pillared-gas', 'configured-pillared-water')
+        configured = configured or report.get('Scenario') in ('configured-pillared-gas', 'configured-pillared-water', 'configured-pillared-vacuum')
+    vacuum = vacuum or restored and report.get('Scenario') == 'configured-pillared-vacuum'
+    if vacuum != (report.get('Scenario') == 'configured-pillared-vacuum'):
+        return False
     if configured != (report.get('ConfiguredDomain') is not None):
         return False
     if configured and (heat or transfers or actors or carbon or conduction or gravity or checkpoint or paired
@@ -1282,7 +1316,7 @@ def native_domain_passed(report: dict | None, observation: dict | None, frames: 
                          physical["InitialOxygenKg"] > 0 and physical["CurrentOxygenKg"] > 0 and
                          physical["CurrentOxygenKg"] != physical["InitialOxygenKg"])
     if configured:
-        physics_exercised = _configured_domain_passed(report, physical, liquid, restored)
+        physics_exercised = _configured_vacuum_passed(report, physical, restored) if vacuum else _configured_domain_passed(report, physical, liquid, restored)
     if restored:
         # Exact complete-state replay and the saved-clock checks above cover
         # valid equilibrium restarts as well as moving mixtures.

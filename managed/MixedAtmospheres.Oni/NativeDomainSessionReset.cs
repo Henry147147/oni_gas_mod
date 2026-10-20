@@ -14,6 +14,7 @@ namespace MixedAtmospheres.Oni
             ResetLiveBreathing();
             ResetTransientParticles();
             ResetNativeSolidHeat();
+            ResetVacuumFixture();
             chunkHeatStatus=default;chunkHeatAdvancedObservations=0;
             prepared=arming=completed=failed=active=false;
             x=y=target=hotSolid=coldSolid=preparedFrame=publications=0;

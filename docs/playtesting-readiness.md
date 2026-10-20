@@ -397,7 +397,7 @@ licensed game to verify.
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended gravity and persisted U corrections; volume remainders and game verification remain | M–L | Later |
-| 7 | 1, 2 | Vacuum and partial-water surfaces: standalone physics and configured native admission pass; managed/game verification pending. Further liquid adapters remain | XL | Yes |
+| 7 | 1, 2 | Vacuum and partial-water surfaces: standalone physics and native/managed admission pass; the vacuum scene awaits game verification. Further liquid adapters remain | XL | Yes |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |
 | 10 | 1 | Whole-world import, resolving the compressed-liquid placement failure | L | Yes |

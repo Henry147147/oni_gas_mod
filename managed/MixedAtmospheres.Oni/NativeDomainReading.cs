@@ -11,7 +11,7 @@ namespace MixedAtmospheres.Oni
     internal static class NativeDomainReading
     {
         private static readonly string[] ids = { "nitrogen", "oxygen", "helium", "water", "carbon_dioxide" };
-        internal static MixtureThermodynamicReading Create(OniNativeDomain.Cell cell, FluidMaterialCatalog catalog, long revision, int publicCell)
+        internal static MixtureThermodynamicReading Create(OniNativeDomain.Cell cell, FluidMaterialCatalog catalog, long revision, int publicCell, bool voidPhase = false)
         {
             if (double.IsNaN(cell.LiquidFraction) || double.IsInfinity(cell.LiquidFraction) || cell.LiquidFraction < 0)
                 throw new InvalidDataException("Completed native liquid volume is invalid.");
@@ -28,9 +28,10 @@ namespace MixedAtmospheres.Oni
                 if (k != 3) gasVolume += volume;
             }
             return new MixtureThermodynamicReading(constituents, cell.TotalMass, cell.InternalEnergy, cell.ResolvedKineticEnergy,
-                cell.Temperature, gasVolume > 0 ? cell.Pressure : 0, cell.Pressure, 1, gasVolume, cell.LiquidFraction, 0,
+                cell.Temperature, gasVolume > 0 ? cell.Pressure : 0, cell.Pressure, 1, gasVolume, cell.LiquidFraction,
+                voidPhase ? Math.Max(0, 1 - (gasVolume + cell.LiquidFraction)) : 0,
                 catalog.Version, catalog.Fingerprint, revision, "native-domain:cell:" + publicCell,
-                momentumX: cell.MomentumX, momentumY: cell.MomentumY);
+                momentumX: cell.MomentumX, momentumY: cell.MomentumY, resolvedVacuumInterface: voidPhase);
         }
     }
 }

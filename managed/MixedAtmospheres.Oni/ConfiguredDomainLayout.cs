@@ -59,6 +59,7 @@ namespace MixedAtmospheres.Oni
         // conduction, oxygen gas or filled water (no mixture or viscosity).
         internal static Physics ScenePhysics(bool liquid) =>
             Physics.Create(PhysicsGravity | PhysicsConduction | (liquid ? PhysicsLiquid : 0U), 9.81);
+        internal static Physics VacuumPhysics => Physics.Create(PhysicsVacuum | PhysicsMixture | PhysicsGravity, 9.81);
 
         // A saved configuration has a restore adapter only when it is exactly a
         // scene this adapter builds: the pillared room with the gas or water
@@ -67,7 +68,8 @@ namespace MixedAtmospheres.Oni
         {
             var room = PillaredRoom(); var liquid = (saved.Physics.Flags & PhysicsLiquid) != 0;
             return saved.Geometry.Width == room.Width && saved.Geometry.Height == room.Height && saved.SameMask(room.Mask) &&
-                NativeConfiguredDomainImage.SamePhysics(saved.Physics, ScenePhysics(liquid));
+                (NativeConfiguredDomainImage.SamePhysics(saved.Physics, ScenePhysics(liquid)) ||
+                 NativeConfiguredDomainImage.SamePhysics(saved.Physics, VacuumPhysics));
         }
 
         // Native compatibility projection of the in-game configured scenes for a
@@ -94,17 +96,18 @@ namespace MixedAtmospheres.Oni
 
         // The complete row-major inventory: every solid is the all-zero record
         // (with its size and version), every fluid cell its supplied record.
-        internal InitialCell[] Inventory(Func<int, InitialCell> fluid)
+        internal InitialCell[] Inventory(Func<int, InitialCell> fluid, bool allowVacuum = false)
         {
             var result = new InitialCell[Count];
             for (var index = 0; index < result.Length; ++index)
             {
                 if (IsSolid(index)) { result[index] = new InitialCell { Size = 56, Version = 1 }; continue; }
                 var value = fluid(index);
-                if (value.Size != 56 || value.Version != 1 || !(value.Temperature > 0) || double.IsInfinity(value.Temperature) ||
+                var empty = Enumerable.Range(0, 5).All(species => value.Mass(species) == 0);
+                if (value.Size != 56 || value.Version != 1 || !(value.Temperature >= 0) || double.IsInfinity(value.Temperature) ||
                     Enumerable.Range(0, 5).Any(species => !(value.Mass(species) >= 0) || double.IsInfinity(value.Mass(species))) ||
-                    !(Enumerable.Range(0, 5).Sum(value.Mass) > 0))
-                    throw new InvalidDataException("A configured fluid cell needs an occupied, finite record with a positive temperature.");
+                    (empty ? !allowVacuum : !(value.Temperature > 0)))
+                    throw new InvalidDataException("A configured fluid cell needs a finite inventory and a positive occupied temperature; vacuum requires its explicit opt-in.");
                 result[index] = value;
             }
             return result;
@@ -115,7 +118,7 @@ namespace MixedAtmospheres.Oni
         internal static bool IsZero(Cell cell) => cell.Nitrogen == 0 && cell.Oxygen == 0 && cell.Helium == 0 && cell.Water == 0 &&
             cell.CarbonDioxide == 0 && cell.InternalEnergy == 0 && cell.Pressure == 0 && cell.Temperature == 0 && cell.LiquidFraction == 0 &&
             cell.ResolvedKineticEnergy == 0 && cell.MomentumX == 0 && cell.MomentumY == 0;
-        internal bool CopyMatchesMask(Cell[] cells) => cells.Length == Count && Enumerable.Range(0, Count).All(index =>
-            IsSolid(index) ? IsZero(cells[index]) : cells[index].TotalMass > 0 && cells[index].Temperature > 0);
+        internal bool CopyMatchesMask(Cell[] cells, bool allowVacuum = false) => cells.Length == Count && Enumerable.Range(0, Count).All(index =>
+            IsSolid(index) ? IsZero(cells[index]) : allowVacuum && IsZero(cells[index]) || cells[index].TotalMass > 0 && cells[index].Temperature > 0);
     }
 }

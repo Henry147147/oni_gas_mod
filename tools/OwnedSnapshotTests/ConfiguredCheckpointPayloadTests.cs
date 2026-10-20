@@ -186,6 +186,20 @@ internal static class ConfiguredCheckpointPayloadTests
             var legacyInner=ActorImage(Solver(7,5,2),ConfiguredGeometry(),10+10*64);
             reject(()=>NativeDomainCheckpointPayload.Create(Pair(legacyInner,ConfiguredGeometry()),legacyInner));
         });
+        test("configured vacuum saves admit the exact pool and empty compatibility cells and reject changed tuples",()=> {
+            var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.VacuumPhysics,solverVersion:9);
+            var payload=NativeDomainCheckpointPayload.Create(Pair(image,ConfiguredGeometry()),image);
+            check(ConfiguredDomainLayout.IsSavedScene(payload.Configured!));
+            var native=World(room,false);
+            foreach(var index in room.FluidIndices) Set(native,10+index%7,10+index/7,index/7==0 ? 3 : 1,index/7==0 ? 500 : 0,index/7==0 ? 300 : 0);
+            payload.ValidateNativeInventory(native,Phases,1,2,3,4,5);
+            foreach(var fault in new System.Action<byte[]>[] {
+                bad=>Set(bad,10,10,3,499,300),bad=>Set(bad,10,11,1,1e-30f,300),
+                bad=>Set(bad,10,11,2,0,0),bad=>Set(bad,10,11,1,0,300),bad=>Set(bad,13,10,1,0,300),
+                bad=>Disease(bad,10,11,0,1),bad=>Radiation(bad,10,11,1)}) {
+                var bad=(byte[])native.Clone();fault(bad);reject(()=>payload.ValidateNativeInventory(bad,Phases,1,2,3,4,5));
+            }
+        });
         test("configured native world admission recomputes the saved mask and requires exact compatibility tuples",()=> {
             foreach(var liquid in new[]{false,true}) {
                 var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.ScenePhysics(liquid));

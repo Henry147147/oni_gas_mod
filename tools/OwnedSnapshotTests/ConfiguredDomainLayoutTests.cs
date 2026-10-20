@@ -15,7 +15,7 @@ internal static class ConfiguredDomainLayoutTests
                 Marshal.OffsetOf<Physics>(nameof(Physics.ShearViscosityPaSeconds)).ToInt32()==24 &&
                 Marshal.OffsetOf<Physics>(nameof(Physics.BulkViscosityPaSeconds)).ToInt32()==32);
             check(Marshal.SizeOf<Configuration>()==40 && Marshal.SizeOf<InitialCell>()==56 && Marshal.SizeOf<Cell>()==96 && Marshal.SizeOf<Status>()==440);
-            check(PhysicsGravity==1 && PhysicsConduction==2 && PhysicsViscosity==4 && PhysicsMixture==8 && PhysicsLiquid==16 &&
+            check(PhysicsGravity==1 && PhysicsConduction==2 && PhysicsViscosity==4 && PhysicsMixture==8 && PhysicsLiquid==16 && PhysicsVacuum==32 &&
                 ConfiguredScenario==7 && ConfiguredAbiVersion==1 && ConfiguredMaximumSide==256 && ConfiguredMaximumCells==4096);
             var value=Physics.Create(PhysicsGravity|PhysicsConduction,9.81);
             check(value.Size==40 && value.Version==1 && value.Flags==3 && value.Reserved==0 && value.GravityMetresPerSecondSquared==9.81 &&
@@ -47,6 +47,16 @@ internal static class ConfiguredDomainLayoutTests
                 new InitialCell{Size=56,Version=1,Oxygen=double.NaN,Temperature=300},new InitialCell{Size=56,Version=1,Oxygen=1,Temperature=double.PositiveInfinity},
                 new InitialCell{Size=56,Version=1,Oxygen=-1,Water=2,Temperature=300}})
                 reject(()=>room.Inventory(_=>bad));
+        });
+        test("configured vacuum inventories and copies require an explicit opt-in and exact zero records",()=> {
+            var room=ConfiguredDomainLayout.FromSolids(3,2,(dx,dy)=>dx==1 && dy==0);
+            InitialCell Empty(int index)=>new InitialCell {Size=56,Version=1};
+            reject(()=>room.Inventory(Empty));
+            var inventory=room.Inventory(Empty,true);check(inventory.Length==6 && inventory.All(c=>c.Temperature==0));
+            var cells=new Cell[6];check(!room.CopyMatchesMask(cells) && room.CopyMatchesMask(cells,true));
+            cells[0].InternalEnergy=1e-300;check(!room.CopyMatchesMask(cells,true));
+            reject(()=>room.Inventory(_=>new InitialCell {Size=56,Version=1,Temperature=double.NaN},true));
+            reject(()=>room.Inventory(_=>new InitialCell {Size=56,Version=1,Oxygen=1},true));
         });
         test("configured copies must publish solids as all-zero cells and fluid with positive mass and temperature",()=> {
             var room=ConfiguredDomainLayout.FromSolids(3,2,(dx,dy)=>dx==1 && dy==0);

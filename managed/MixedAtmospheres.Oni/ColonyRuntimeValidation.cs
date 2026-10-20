@@ -205,6 +205,17 @@ namespace MixedAtmospheres.Oni
                 Report.ImportedFluidMassKg = staged.Fluids.Sum(cell => (double)cell.Inventory.MassKg);
                 Report.ImportedMaterialIds = staged.Fluids.Select(cell => cell.MaterialId).Distinct().OrderBy(id => id, StringComparer.Ordinal).ToArray();
 
+                // Private, read-only inputs for retrying native MAC admission.
+                // Never replace unknown materials or publish these inventories.
+                File.WriteAllText(Path.Combine(OutputDirectory, "native-mac-import-input.json"), ReportJson.Serialize(new
+                {
+                    Source = "generated-v15-worlds-before-native-load", PhysicsFlags = OniNativeDomain.PhysicsVacuum | OniNativeDomain.PhysicsMixture,
+                    Worlds = placements, Fluids = staged.Fluids,
+                    Bindings = new[] { OniNitrogenElements.Gas, SimHashes.Oxygen, SimHashes.Helium, SimHashes.Water, SimHashes.CarbonDioxide }
+                        .Select((hash, species) => new { ElementHash = (int)hash, Species = species }).ToArray(),
+                    NativePayloadsUnchanged = true, WholeWorldOwnerActivated = false
+                }));
+
                 var catalog = OniNominalFluidCatalog.Build(ElementLoader.elements, Report.ImportedMaterialIds, cellVolumeCubicMetres: 1);
                 Report.MaterialModel = OniNominalFluidCatalog.ModelDescription;
                 Report.MaterialFingerprint = catalog.Fingerprint;

@@ -76,7 +76,7 @@ namespace MixedAtmospheres.Core
             double volumeCubicMetres, double gasVolumeCubicMetres, double liquidVolumeCubicMetres,
             double vacuumVolumeCubicMetres, string thermodynamicProfileVersion, string thermodynamicProfileFingerprint,
             long revision = 0, string sourceId = "thermodynamic-reading", double momentumX = 0, double momentumY = 0,
-            double volumeClosureRelativeTolerance = MaximumVolumeClosureRelativeTolerance)
+            double volumeClosureRelativeTolerance = MaximumVolumeClosureRelativeTolerance, bool resolvedVacuumInterface = false)
         {
             if (constituents == null) throw new ArgumentNullException(nameof(constituents));
             FluidChecks.Identity(sourceId, nameof(sourceId));
@@ -137,8 +137,8 @@ namespace MixedAtmospheres.Core
             {
                 FluidChecks.Positive(gasVolumeCubicMetres, nameof(gasVolumeCubicMetres));
                 FluidChecks.Positive(gasPressurePa, nameof(gasPressurePa));
-                if (vacuumVolumeCubicMetres != 0 || gasPressurePa != mechanicalPressurePa)
-                    throw new ArgumentException("The common-pressure ideal-gas reading cannot have a separate vacuum or a different mechanical pressure.");
+                if ((vacuumVolumeCubicMetres != 0 && !resolvedVacuumInterface) || gasPressurePa != mechanicalPressurePa)
+                    throw new ArgumentException("A gas/vacuum interface requires an explicit resolved-interface reading; gas and material pressure must agree.");
                 // This is a scalar consistency check, not an EOS inversion. Keep
                 // the supplied state and its signed discrepancy at declared EOS precision.
                 var idealVolume = ProductRatio(GasMoles, FluidMaterialCatalog.GasConstantJoulesPerMolKelvin, temperatureKelvin, gasPressurePa);

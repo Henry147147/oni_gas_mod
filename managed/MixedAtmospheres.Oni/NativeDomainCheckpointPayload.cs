@@ -164,7 +164,7 @@ namespace MixedAtmospheres.Oni
             // Validate every native material, inventory, backwall and guard
             // before allowing the original loader to see the saved bytes.
             NativeWorldBlob.ValidatePreserved(native,phases,vacuumHash);
-            if(Configured!=null) {ValidateConfiguredNativeInventory(native,phases,gasHash,liquidHash,wallHash);return;}
+            if(Configured!=null) {ValidateConfiguredNativeInventory(native,phases,gasHash,liquidHash,wallHash,vacuumHash);return;}
             Require(Geometry.Width==3 && Geometry.Height==2,"Only the six-cell sealed checkpoint has a native restore adapter.");
             var width=checked((int)Geometry.GridWidth+2);var count=checked(width*BinaryPrimitives.ReadInt32LittleEndian(native.Slice(16)));
             for(var y=(int)Geometry.Y-1;y<=(int)Geometry.Y+Geometry.Height;++y)
@@ -208,10 +208,11 @@ namespace MixedAtmospheres.Oni
         // properties are checked against the live element table in the game);
         // fluid cells hold exactly the scene's compatibility projection.
         private void ValidateConfiguredNativeInventory(ReadOnlySpan<byte> native,IReadOnlyDictionary<int,NativeMatterPhase> phases,
-            int gasHash,int liquidHash,int wallHash)
+            int gasHash,int liquidHash,int wallHash,int vacuumHash)
         {
             var room=Configured!;var physics=room.Physics;var liquid=(physics.Flags&PhysicsLiquid)!=0;
-            Require((physics.Flags&PhysicsMixture)==0,"Saved configured mixtures have no native compatibility restore adapter.");
+            var vacuum=(physics.Flags&PhysicsVacuum)!=0;
+            Require(vacuum || (physics.Flags&PhysicsMixture)==0,"Saved configured mixtures have no native compatibility restore adapter.");
             Require(phases.TryGetValue(wallHash,out var wallPhase) && wallPhase==NativeMatterPhase.Solid,"The configured wall element is not a native solid.");
             var width=checked((int)Geometry.GridWidth+2);var count=checked(width*I(native,16));
             var w=(int)Geometry.Width;var h=(int)Geometry.Height;var loaded=new byte[w*h];
@@ -234,8 +235,9 @@ namespace MixedAtmospheres.Oni
                         Require(hash==wallHash && mass>0 && !float.IsInfinity(mass) && temperature>0 && !float.IsInfinity(temperature) && cleared,
                             "Saved configured interior solid is not a filled wall cell with cleared native metadata.");
                     else
-                        Require(hash==(liquid ? liquidHash : gasHash) && mass==ConfiguredDomainLayout.ProjectionMass(liquid,dx) &&
-                            I(native,offset+4)==BitConverter.SingleToInt32Bits(ConfiguredDomainLayout.ProjectionTemperature(dx)) && cleared,
+                        Require(hash==(vacuum ? y==Geometry.Y ? liquidHash : vacuumHash : liquid ? liquidHash : gasHash) &&
+                            mass==(vacuum ? y==Geometry.Y ? 500 : 0 : ConfiguredDomainLayout.ProjectionMass(liquid,dx)) &&
+                            I(native,offset+4)==BitConverter.SingleToInt32Bits(vacuum ? y==Geometry.Y ? 300 : 0 : ConfiguredDomainLayout.ProjectionTemperature(dx)) && cleared,
                             "Saved configured native compatibility cell contains unsupported inventory or metadata.");
                 }
         }
