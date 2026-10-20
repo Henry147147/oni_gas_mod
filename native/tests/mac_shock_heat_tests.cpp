@@ -67,7 +67,14 @@ void grid_case(std::size_t id, MacTransportState state, double dt, bool active, 
     check(ma::testing::fingerprint(unchanged_fields) == held, "Heat grid changes mass, passives, J or geometry");
     ma::testing::export_shock_heat(id, state, result, dt);
 }
-void occupied() { grid_case(0, compressing(false, true, true), .01, true, true); grid_case(1, compressing(true, true, false), .01, true, true); }
+// Shock heat joins gas cells only (MAC_HEAT.md, "Phase interfaces"): the same
+// compressing grid with gas/liquid cells moves nothing.
+void occupied() {
+    grid_case(0, compressing(false, false, true), .01, true, true); grid_case(1, compressing(true, false, false), .01, true, true);
+    const auto& s = ma::testing::setup(); const auto wet = compressing(false, true, true);
+    const auto result = advance_mac_shock_heat(s.registry, *s.eos, wet, .01);
+    check(result.report.events.empty() && ma::testing::fingerprint(result.state) == ma::testing::fingerprint(wet), "Shock heat joined gas/liquid cells");
+}
 MacTransportState chain() {
     const auto& s = ma::testing::setup(); auto state = s.state(3, 1, false);
     for (std::size_t i = 0; i < 3; ++i) state.cells[i].mixture = gas(1, i == 1 ? 600 : 300);
@@ -170,8 +177,10 @@ void entropy_reference_precision() {
             pair(id, left, right, id == 2 ? MacEnergy{} : MacEnergy::from_parts(.75, -1200), volume, volume);
         check(result.after_left_j == left.energy && result.after_right_j == (id == 4 ? left.energy : right.energy) &&
             result.entropy_change_j_per_k == 0, "Unchanged stored heat state has nonzero entropy change");
-        if (id == 3) check(!result.transfer.is_zero() && result.transfer.project().rounded && result.unresolved_updates == 2,
-            "Unresolved reference-cancelling transfer lost its full-range value");
+        // Carried primary U keeps the sub-resolution transfer in both remainders.
+        if (id == 3) check(!result.transfer.is_zero() && result.transfer.project().rounded && result.unresolved_updates == 0 &&
+            !result.after_left_remainder_j.is_zero() && !result.after_right_remainder_j.is_zero(),
+            "Reference-cancelling transfer lost its full-range value");
     }
     std::cout << "PASS unchanged and subrange stored heat entropy\n";
     auto endpoint = left; endpoint.energy -= .001;

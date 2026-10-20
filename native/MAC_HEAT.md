@@ -73,7 +73,8 @@ composition is second order in time.
 - **Mode 2** matches the conductivity to the compression stress
   `q = ρ v (v + a)` with `a = 0.5 · sound_speed · pressure_sensor`, the frozen
   half-sound speed and sensor of [mode 2 compression](MAC_PRESSURE.md#pressure-sensed-acoustic-compression-mode-2),
-  built by the same function. [Cook's derivation](https://www.osti.gov/servlets/purl/1224395)
+  built by the same function. Since 2026-10-20 the acoustic term ramps in with the
+  compression, `a · v / (v + 0.01 c)` (see [below](#compression-ramp)). [Cook's derivation](https://www.osti.gov/servlets/purl/1224395)
   (equations 6–9) gives `κ = c_p β` for bulk viscosity alone; reading v/h as the
   compressive strain rate gives `β = ρ h (v + a)`. Each cell uses
   `Cp = C_intrinsic + nR` (the actual constant-pressure capacity of the
@@ -93,14 +94,31 @@ None of these coefficients was fitted to a benchmark. Mode 3 made the strong-flo
 collision result worse than mode 2 (density/pressure ratios 0.919/0.898 against
 0.856/0.796), so mode 2 stays the default ([results](MAC_STRONG_FLOW.md#results-by-method)).
 
+### Compression ramp
+
+A cell was active for any positive closing speed, and then carried the whole acoustic
+term. Rounding-level motion (1e-12 m/s) therefore switched on a conductivity set by
+the sound speed and the pressure sensor. The sensor also reads structure that is not
+a shock: hydrostatic gradients at walls (a boundary supplies the cell itself, so the
+second difference there is a first difference) and density steps at interfaces.
+
+In a resting stratified water column under air, the regularization moved 32,650 J
+out of a 330 K top layer in 0.05 s, against 0.09 J of physical conduction. The same
+law gives resting gas near a floor about a thousand times air's conductivity. Since
+2026-10-20 the acoustic term is `a · v / (v + c/100)`, with c the frozen sound speed,
+in both kernels. Rest and rounding-level motion move nothing. A Mach 0.1 compression
+keeps 91% of the term, and stronger shocks keep more.
+
 ### Phase interfaces
 
-A shock's numerical heat flux joins only cells of one phase class: gas, liquid, or
-gas/liquid (2026-10-20). Faces from gas to liquid, or from either single phase to a
-cell holding both, conduct no shock heat in either kernel. Along a wet surface,
-gas/liquid cells still exchange it. In the M5 Stefan film the regularization
-activated in the compressing cells beside the boiling interface and moved heat into
-the water.
+A shock's numerical heat flux joins gas cells only (2026-10-20), in both kernels. A
+liquid barely heats in compression, so the regularization had nothing to correct
+there. It only spread heat at the liquid's sound speed:
+- In the M5 Stefan film it moved the compressing interface cells' heat into the
+  water. That first restricted it to one phase class.
+- Liquid-liquid faces then still mixed stratified pools.
+
+Gas/liquid cells and liquids now exchange heat by conduction only.
 
 ### Reusing completed EOS readings
 

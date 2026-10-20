@@ -237,8 +237,13 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
                 const double phi = result.report.compression_coefficients.monotone_limiter(axis, i);
                 diffusion[i] = phi >= 1 ? MacScaled{} : phi == 0 ? sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i)) :
                     sum(closing[i].multiplied(1 - phi * phi), result.report.compression_coefficients.linear_speed(axis, i).multiplied(1 - phi));
-            } else if (sensed && !closing[i].is_zero())
-                diffusion[i] = sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i));
+            } else if (sensed && !closing[i].is_zero()) {
+                // The acoustic term ramps in with the compression, v / (v + c / 100)
+                // (MAC_HEAT.md, "Face conductance laws").
+                const auto& half_sound = result.report.compression_coefficients.source_linear_speeds[i];
+                diffusion[i] = sum(closing[i], result.report.compression_coefficients.linear_speed(axis, i)
+                    .shared(closing[i], sum(closing[i], half_sound.multiplied(.02))));
+            }
         }
         for (std::size_t y = 0; y < height; ++y) for (std::size_t x = 0; x < width; ++x) {
             const auto f = axis == 0 ? g.x_face(x, y) : g.y_face(x, y);
@@ -255,14 +260,10 @@ MacShockHeatAdvance advance_mac_shock_heat(const SpeciesRegistry& registry, cons
             if (l == none || r == none) { require(j[f].is_zero(), "Fixed shock-heat face has normal momentum"); continue; }
             if (current_index[l] == none || current_index[r] == none) continue;
             if (l == r) continue;
-            // A shock's numerical heat flux joins cells of one phase class
-            // (gas, liquid or gas/liquid): it never crosses an interface
-            // between them (MAC_HEAT.md, "Phase interfaces").
-            const auto phase = [&](std::size_t i) {
-                const auto& s = current[current_index[i]];
-                return s.has_gas ? (s.liquid_volume_m3 > 0 ? 2 : 0) : 1;
-            };
-            if (phase(l) != phase(r)) continue;
+            // A shock's numerical heat flux joins gas cells only (MAC_HEAT.md,
+            // "Phase interfaces"): liquids barely heat in compression.
+            const auto gas = [&](std::size_t i) { const auto& s = current[current_index[i]]; return s.has_gas && !(s.liquid_volume_m3 > 0); };
+            if (!gas(l) || !gas(r)) continue;
             const auto w = mac_scaled_difference(closing[l], closing[r]).mantissa() >= 0 ? closing[l] : closing[r];
             auto speed = mac_scaled_difference(diffusion[l], diffusion[r]).mantissa() >= 0 ? diffusion[l] : diffusion[r];
             if (speed.is_zero()) continue;

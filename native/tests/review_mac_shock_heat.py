@@ -197,8 +197,10 @@ def review_grid(data,gid,controls=True,conductance_model=None,activation_model=N
             velocities[axis,f]=rounded_scaled(j/mass) if mass else F(0)
             pairs[axis,f]=(l,r)
     links=[]
+    # Shock heat joins gas cells only: no endpoint may hold liquid.
+    dry=lambda c:not any(data['materials'][s][0] for s,m in masses[0,c].items() if m)
     for (axis,f),(l,r) in pairs.items():
-        if l is None or r is None or l==r:continue
+        if l is None or r is None or l==r or not dry(l) or not dry(r):continue
         jumps=[]
         for i in (l,r):
             x,y=i%w,i//w;a=x+y*xw if axis==0 else x+y*w

@@ -44,7 +44,8 @@ void pure_liquid() {
         std::vector<double> m(s.registry.size()); m[s.registry.index("water")] = 1.02 + .001 * static_cast<double>(i);
         state.cells[i].mixture = s.eos->initialize_at_temperature(m, 300 + 5 * static_cast<double>(i), state.grid.volume_m3()).mixture;
     }
-    velocities(state); static_cast<void>(grid(2, state, 1e-5, true, true));
+    // Liquid cells exchange no shock heat; their frozen Cp and sound speed are still exported.
+    velocities(state); static_cast<void>(grid(2, state, 1e-5, false, false));
 }
 void inactive() {
     auto rest = source(false); rest.momentum_x.assign(rest.momentum_x.size(), 0); rest.momentum_y.assign(rest.momentum_y.size(), 0);
@@ -123,7 +124,8 @@ int main() { try {
     require_mac_energy_environment(); std::cout << std::setprecision(17); const auto& s = ma::testing::setup();
     for (const auto& m : s.eos->reference().materials()) std::cout << "MATERIAL " << s.registry.index(m.id) << ' ' << static_cast<int>(m.phase) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' << m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
     static_cast<void>(grid(0, source(false), .001, true, true)); std::cout << "PASS matched gas heat and frozen pressure coefficients\n";
-    static_cast<void>(grid(1, source(true, true), .001, true, true)); std::cout << "PASS matched wet heat, walls and traces\n";
+    // Shock heat joins gas cells only (MAC_HEAT.md, "Phase interfaces"): wet cells stay inactive.
+    static_cast<void>(grid(1, source(true, true), .001, false, false)); std::cout << "PASS matched wet cells, walls and traces stay inactive\n";
     pure_liquid(); std::cout << "PASS matched compressed-liquid heat capacity and sound speed\n";
     inactive(); std::cout << "PASS inactive rest, shear, contacts and equal temperatures\n";
     subrange(); std::cout << "PASS matched subrange heat and unresolved storage\n";

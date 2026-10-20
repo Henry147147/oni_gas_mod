@@ -52,11 +52,18 @@ def review(data):
             check(p[4+side]==energy,'Captured original stored energy')
         if key in (0,1):
             check(p[14]==conductance and p[-2]>0 and sum(terms,D(0))>0,'Captured positive entropy/actual conductance')
+        elif key==3:
+            # Carried primary U: the sub-resolution transfer moves between the
+            # remainders exactly, with no unresolved update.
+            check(p[6]!=p[4] and p[6]+p[7]==p[4]+p[5] and p[3]==0,'Sub-resolution heat not carried exactly')
         else:check(p[6:8]==p[4:6] and p[-2]==0,'Unchanged stored U has zero entropy increment')
     a,b=data['pairs'][0],data['pairs'][1]
-    check(a[6:8]==(F(-.0033121700131083093),F(-.0033124391079649602)) and b[6:8]==a[6:8][::-1],'Exact captured endpoint regression/reflection')
+    # Exported energies carry their primary-U remainders; the stored binary64
+    # endpoints are their nearest doubles.
+    stored=lambda u:F(float(u))
+    check((stored(a[6]),stored(a[7]))==(F(-.0033121700131083093),F(-.0033124391079649602)) and b[6:8]==a[6:8][::-1],'Exact captured endpoint regression/reflection')
     check((a[6]-a[4])+(a[7]-a[5])==0,'Exact actual pair energy conservation')
-    check(data['pairs'][3][18]>0 and data['pairs'][3][18]<F(2)**-1074 and data['pairs'][3][3]==2,'Unresolved full-range heat retained')
+    check(data['pairs'][3][18]>0 and data['pairs'][3][18]<F(2)**-1074 and data['pairs'][3][3]==0,'Full-range heat retained in the carried remainders')
     v,u0,u1,t0,t1,s0,s1,ds,bound=data['cool'];check(v==volume and u0==a[4] and u1==F(float(u0-F(.001))),'Genuine cooling actual source/endpoint')
     masses={i:m for (case,side,i),m in data['pmasses'].items() if (case,side)==(0,0)}
     capacity=sum((m*data['materials'][i][2] for i,m in masses.items()),F(0));offset=sum((m*data['materials'][i][3] for i,m in masses.items()),F(0))
@@ -65,7 +72,7 @@ def review(data):
     check(ds+bound<0 and expected_ds<0,'Genuine cooling must still fail original entropy sign')
     old=heat.eos(masses,data['materials'],u0,v);new=heat.eos(masses,data['materials'],u1,v)
     for actual,expected_value in ((t0,old[1]),(t1,new[1])):heat.near(actual,expected_value,'Independent cooling EOS')
-    return dict(Pairs=5,PositiveCapturedTransfers=2,UnchangedStoredStates=3,GenuineCoolingRejected=True,PreservedPositiveHeliumTrace=True)
+    return dict(Pairs=5,PositiveCapturedTransfers=2,UnchangedStoredStates=2,CarriedSubresolutionTransfers=1,GenuineCoolingRejected=True,PreservedPositiveHeliumTrace=True)
 
 def run(raw):
     with localcontext() as context:

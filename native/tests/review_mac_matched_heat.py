@@ -108,8 +108,11 @@ def review_component(data, extra, expected_law=1):
                 l = x + y * xw if axis == 0 else x + y * w
                 r = (x + 1) % xw + y * xw if axis == 0 else x + ((y + 1) % yh) * w
                 closing = max(F(0), heat.rounded_scaled(velocities[l] - velocities[r]))
-                c = extra['speeds'][gid, cell] * extra['sensors'][gid, axis, cell]
-                diffusivity[gid, axis, cell] = heat.rounded_scaled(closing + heat.rounded_scaled(c)) if closing else F(0)
+                # The acoustic term ramps in with the compression: v / (v + c / 100).
+                half = extra['speeds'][gid, cell]
+                c = heat.rounded_scaled(half * extra['sensors'][gid, axis, cell])
+                ramp = closing / heat.rounded_scaled(closing + heat.rounded_scaled(half * F(0.02))) if closing else F(0)
+                diffusivity[gid, axis, cell] = heat.rounded_scaled(closing + heat.rounded_scaled(c * ramp)) if closing else F(0)
         expected_events.update((gid, i) for i in range(g[7]))
     check(set(extra['cp']) == set(extra['speeds']) == expected_cells, 'Missing/orphan Cp or sound-speed field')
     check(set(extra['diffusion']) == expected_events, 'Missing/orphan face diffusion field')

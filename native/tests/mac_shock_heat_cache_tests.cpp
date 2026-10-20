@@ -28,8 +28,15 @@ MacTransportState source(bool periodic,bool wet,bool tiny) {
     }
     return result;
 }
-void replay(MacTransportState input,MacShockHeatLaw law,bool tiny,std::size_t& events,std::size_t& stale_witnesses) {
+void replay(MacTransportState input,MacShockHeatLaw law,bool tiny,bool wet,std::size_t& events,std::size_t& stale_witnesses) {
     const auto& s=ma::testing::setup();
+    if(wet) {
+        // Shock heat joins gas cells only (MAC_HEAT.md, "Phase interfaces").
+        const auto held=ma::testing::fingerprint(input);
+        const auto actual=advance_mac_shock_heat(s.registry,*s.eos,input,.001,law);
+        check(actual.report.events.empty() && ma::testing::fingerprint(actual.state)==held,"Shock heat joined gas/liquid cells");
+        return;
+    }
     for(int stage=0;stage<3;++stage) {
         // A caller edit between stages must never reuse a prior call's EOS.
         if(stage==1){input.cells[0].mixture=s.eos->initialize_at_temperature(input.cells[0].mixture.masses,875,1).mixture;input.cells[0].energy_remainder_j={};}
@@ -49,9 +56,10 @@ void replay(MacTransportState input,MacShockHeatLaw law,bool tiny,std::size_t& e
             expected.cells[event.left].energy_remainder_j=fresh.after_left_remainder_j;
             expected.cells[event.right].energy_remainder_j=fresh.after_right_remainder_j;++events;
         }
-        // The sensed laws retain their frozen acoustic speed whenever the
-        // closing velocity is positive, including a below-range velocity.
-        const bool unresolved=tiny && law==MacShockHeatLaw::closing_velocity;
+        // A below-range closing velocity leaves every law's heat unresolved:
+        // the sensed laws' acoustic term ramps in with the compression
+        // (MAC_HEAT.md, "Compression ramp").
+        const bool unresolved=tiny;
         check(positive>0 && (unresolved?changed==0:changed>0),"Cache replay missed resolved or below-range heat updates");
         check(ma::testing::fingerprint(expected)==ma::testing::fingerprint(actual.state) && ma::testing::fingerprint(input)==held,
             "Cached heat stage differs from uncached ordered transfer replay or mutated its source");
@@ -66,9 +74,9 @@ int main(){try{
     require_mac_energy_environment();std::cout<<std::setprecision(17);std::size_t events=0,witnesses=0;
     for(const bool periodic:{false,true})for(const bool wet:{false,true})for(const bool tiny:{false,true})
         for(const auto law:{MacShockHeatLaw::closing_velocity,MacShockHeatLaw::pressure_sensed_viscosity,MacShockHeatLaw::pressure_sensed_series})
-            replay(source(periodic,wet,tiny),law,tiny,events,witnesses);
+            replay(source(periodic,wet,tiny),law,tiny,wet,events,witnesses);
     check(events>0 && witnesses>0,"Cache controls missed changed endpoint reuse");
-    std::cout<<"PASS 72 heat stages with fresh-EOS receipt replay, walls, periodicity, three laws, wet mixtures, traces and below-range transfers\n";
+    std::cout<<"PASS 36 dry heat stages with fresh-EOS receipt replay, walls, periodicity, three laws, traces and below-range transfers; 12 inactive wet mixtures\n";
     std::cout<<"PASS "<<events<<" exact transfer receipts and "<<witnesses<<" changed-inventory reuse witnesses, including edits between stages\n";
     return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL "<<e.what()<<'\n';return 1;}}

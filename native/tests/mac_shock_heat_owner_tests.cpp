@@ -124,7 +124,10 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
         r.unresolved_conduction_updates == expected.conduction_unresolved, "Owner accepted-stage counters differ");
     check(equal(r.absolute_shock_heat_transfer_wide_j, expected.heat.value()) && equal(r.conductive_redistribution_j, expected.physical.value()), "Owner heat totals differ from actual stages");
     MacEnergyAccount budget; budget.add(r.energy_bound_wide_j); budget.add(expected.bounds.value().negated()); check(budget.within_bound(), "Owner omitted a stage operand bound");
-    if (enabled) check(r.shock_heat_stages == 2 * steps && r.shock_heat_events > 0 && r.absolute_shock_heat_transfer_wide_j.mantissa() > 0, "Default heat path was inactive");
+    // Shock heat joins gas cells only: a grid of gas/liquid cells stays inactive.
+    bool wet = false; for (const auto& c : state.cells) wet = wet || c.mixture.masses[s.registry.index("water")] > 0;
+    if (enabled && !wet) check(r.shock_heat_stages == 2 * steps && r.shock_heat_events > 0 && r.absolute_shock_heat_transfer_wide_j.mantissa() > 0, "Default heat path was inactive");
+    else if (enabled) check(r.shock_heat_stages == 2 * steps && r.shock_heat_events == 0, "Shock heat joined gas/liquid cells");
     else check(r.shock_heat_stages == 0 && r.shock_heat_events == 0 && r.absolute_shock_heat_transfer_wide_j.is_zero(), "Disabled heat reference was active");
     if (options.thermal_conduction) check(r.conductive_redistribution_j.mantissa() > 0, "Physical and shock heat were not both exercised");
     const auto owner_frame = ++current; frame(gid, owner_frame, "owner", result.world.state());
@@ -137,7 +140,7 @@ void run_case(std::size_t gid, MacTransportState state, MacClosedSettings option
     std::cout << ' ' << r.entropy_change_j_per_k << ' ' << r.entropy_roundoff_j_per_k << '\n';
 }
 void controls(MacClosedSettings options) {
-    const auto& s = ma::testing::setup(); const auto state = source(true); const auto held = ma::testing::fingerprint(state);
+    const auto& s = ma::testing::setup(); const auto state = source(false); const auto held = ma::testing::fingerprint(state);
     if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || options.shock_heat == MacShockHeatRegularization::pressure_sensed_series)
         std::cout << "SHHEAT 6 " << static_cast<int>(options.shock_heat) << '\n';
     std::cout << "SHLAW 6 " << static_cast<int>(options.compression_viscosity) << '\n';
@@ -175,10 +178,10 @@ int main(int argc, char** argv) { try {
     else if (argc == 2 && std::string_view(argv[1]) == "--series-heat") baseline.shock_heat = MacShockHeatRegularization::pressure_sensed_series;
     else check(argc == 1, "Unknown heat-owner test arguments");
     auto options = baseline;
-    run_case(0, source(true), options, 1); std::cout << "PASS default wet heat, compression and pressure stages\n";
-    run_case(1, source(true, true), options, 1); std::cout << "PASS default wet corner and closed wall accounts\n";
+    run_case(0, source(false), options, 1); std::cout << "PASS default heat, compression and pressure stages\n";
+    run_case(1, source(true, true), options, 1); std::cout << "PASS default wet corner (no shock heat) and closed wall accounts\n";
     options.thermal_conduction = true; run_case(2, source(false), options, 1); std::cout << "PASS physical conduction with default shock heat\n";
-    options.thermal_conduction = false; run_case(3, source(true), options, 2); std::cout << "PASS multiple accepted heat substeps and one owner clock\n";
+    options.thermal_conduction = false; run_case(3, source(false), options, 2); std::cout << "PASS multiple accepted heat substeps and one owner clock\n";
     auto tiny = source(false);
     if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_series) tiny = s.state(4, 2, false);
     if (options.shock_heat == MacShockHeatRegularization::pressure_sensed_acoustic || options.shock_heat == MacShockHeatRegularization::pressure_sensed_series) {
