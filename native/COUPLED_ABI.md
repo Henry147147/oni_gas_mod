@@ -5,7 +5,7 @@ managed code. It is a **validation reference**; the production solver is
 `MacClosedWorld` (2026-10-18 decision, [SOLVER.md](SOLVER.md)). It has no ONI
 frame hook: in game only the `coupled-presentation` validation mode loads it, for
 a six-cell synthetic scene in an otherwise native colony. Vacuum, free surfaces,
-immiscible geometry, phase change, dissolved gases, disease growth, radiation
+immiscible geometry, phase change, disease growth, radiation
 dose, persistence and production performance are unsupported.
 
 `mixed_atmospheres_coupled` (`native/src/coupled_api.cpp`, excluded from the

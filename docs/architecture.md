@@ -6,10 +6,10 @@ The public target is a complete replacement for gas and liquid physics, not a
 second composition table attached to vanilla fluid motion. All fluid-producing
 and fluid-consuming operations must use the authoritative mixture inventory.
 The release target covers the base game, Spaced Out! and all official gameplay
-packs on Windows and Linux, with new colonies only. Dissolved O2/CO2 and aquatic
-gas exchange are required by the [accepted completion plan](completion-plan.md)
-and remain unimplemented. Environmental fires/explosions, microscopic droplets,
-capillary effects and detailed solution chemistry are outside the agreed scope.
+packs on Windows and Linux, with new colonies only; the current work is the
+[base-game playtest plan](playtest-plan.md). Environmental fires/explosions,
+microscopic droplets, capillary effects and detailed solution chemistry are
+outside the agreed scope.
 
 Native calculations use kilograms, metres, seconds, kelvin, pascals, joules,
 and moles. Inspection shows kPa and degrees Celsius with Pa/K equivalents,

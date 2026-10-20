@@ -137,8 +137,26 @@ Amendments:
   regularization no longer crosses gas/liquid interfaces.
 - **Ownership, 2026-10-20 (user decision):** Codex development stopped. Claude owns
   every remaining milestone, continuing to feature completeness on `main`.
+- **Base-game playtest, 2026-10-20 (user decision):** the current work is the
+  [base-game playtest plan](playtest-plan.md): the full base game on one
+  asteroid, playable on Linux, done by one worker through one plan. It
+  supersedes the 2026-10-19 playtest scope (base game and Spaced Out!), the
+  2026-10-19 milestone-by-milestone workflow and the ownership amendment above,
+  and comes before the execution order below. The real-time completion gate does
+  not block this playtest; it still blocks release, with unchanged targets.
+  Spaced Out!, the gameplay packs and the Windows port follow.
+- **Balance, 2026-10-20 (user decision):** keep ONI's rates, power and recipes.
+  Each difference from physical energy balance is booked to a named balance
+  ledger; the user rebalances later.
+- **Breathing, 2026-10-20 (user decision):** the playtest uses easy mode (defaults
+  in [F](#f-player-facing-systems-and-progression)) on vanilla world generation.
+- **Liquids, 2026-10-20 (user decision):** liquids mix like gases, and liquid
+  pipes and filters work like gas ones. Liquids that do not mix in reality keep
+  separate phases. Dissolved gases are removed from the project.
+- **Evidence, 2026-10-20 (user decision):** keep evidence light, as defined in the
+  [playtest plan](playtest-plan.md#evidence).
 
-The current execution order is: production physics and active-cell scaling;
+After the base-game playtest plan, the execution order is: production physics and active-cell scaling;
 materials, generation and whole-world ownership; transactional life support;
 remaining gameplay adapters; progression and presentation; durable colony saves
 and Windows/Linux distribution. The milestone labels below retain their earlier
@@ -151,7 +169,7 @@ The first public release targets Windows and Linux, new colonies in the base
 game and Spaced Out!, and all official gameplay packs (Frosty, Bionic,
 Prehistoric, Aquatic), with cosmetic compatibility. It includes bulk pressure,
 buoyancy, viscosity, mixing, immiscible separation, heat transfer, phase changes,
-dissolved O2/CO2 and aquatic gas exchange, configurable breathing, nitrogen,
+configurable breathing, nitrogen,
 suitable starting resources, and complete progression through endgame.
 
 Microscopic droplets, capillary effects, detailed solution chemistry,
@@ -283,7 +301,7 @@ passes with the opt-in void phase on the reference path. Optional modes that did
 pass remain opt-in experiments; original inputs and acceptance bounds are unchanged.
 The exit above is open.
 
-## C. Materials, thermodynamics and aquatic chemistry
+## C. Materials and thermodynamics
 
 Versioned definitions cover every supported material and phase, including
 density, heat capacity, viscosity, conductivity, phase behavior, chemical
@@ -291,9 +309,8 @@ energy and documented validity ranges. Fictional substances have explicit
 compositions or surrogates. Audit conversions for material balance, required
 work and heat; account separately for external and nuclear sources.
 
-Implement dissolved O2/CO2 transport, temperature-dependent solubility,
-surface exchange and accountable outgassing. Aquatic respiration and
-photosynthesis consume and produce actual inventory.
+Liquids mix like gases; liquids that do not mix in reality keep separate
+phases. Gas and liquid exchange mass only by phase change.
 
 Exit: no supported material or conversion silently uses an unaccounted vanilla
 transformation.
@@ -381,7 +398,7 @@ Register nitrogen and its phases. Generate breathable starting air and finite
 nitrogen reserves. Calculate a ten-cycle life-support bridge for the selected
 population using new consumption rates. Provide early ventilation, scrubbing
 and pressure regulation, mixture overlays, constituent grams, partial
-pressures, liquid fractions, dissolved-gas readings and breathing failure
+pressures, liquid fractions and breathing failure
 explanations. Add sensors, research, recipes, descriptions and configuration
 UI. Use actual liquid geometry for swimming, submersion and atmospheric access.
 
@@ -393,7 +410,7 @@ endgame without developer intervention.
 
 ## G. Persistence and compatibility
 
-Save inventories, geometry, momentum, dissolved gases, pipes, storage, pending
+Save inventories, geometry, momentum, pipes, storage, pending
 transfers, settings and material-model versions. Store native/custom state in
 one atomic versioned container at the same completed frame. Integrate manual
 saves, autosaves, resume, previews and cloud/local handling. A mixture save
@@ -411,7 +428,7 @@ Provide a versioned native ABI and managed wrappers for:
 | Interface | Responsibility |
 | --- | --- |
 | SimulationWorld | Coupled simulation, placement and frame advancement |
-| FluidInventory | Phase/constituent mass, energy, momentum, dissolved gases, disease |
+| FluidInventory | Phase/constituent mass, energy, momentum, disease |
 | FluidTransaction | Atomic transfers, reactions, reservations, work and heat |
 | FrameSnapshot / SimulationEvent | Coherent immutable state, lifetimes, callbacks |
 | MaterialCatalog | Stable identities, properties, reactions, versions |
@@ -422,8 +439,7 @@ Rendering projections are never authoritative for composition or pressure.
 ## Release acceptance
 
 - Physics: hydrostatic stability, buoyant plumes, gas diffusion, vacuum
-  expansion, shocks, liquid settling, miscibility, displacement, phase changes,
-  dissolved-gas exchange.
+  expansion, shocks, liquid settling, miscibility, displacement, phase changes.
 - Conservation: 10,000-step closed systems, relative constituent mass drift
   <= 1e-8 and energy drift <= 1e-6; separate trace checks and source/sink ledgers.
 - Gameplay: complete producers/consumers, blocked outputs, depletion,

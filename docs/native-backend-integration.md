@@ -103,7 +103,7 @@ flowchart LR
 
 | State or service | Required owner |
 | --- | --- |
-| Constituent mass, internal energy, momentum, geometry, dissolved gases | Custom native engine |
+| Constituent mass, internal energy, momentum, geometry | Custom native engine |
 | Pipes, storage, bottles, suits, particles, machine fluid inventories | Custom transactions and persistence |
 | Native scalar fluid cells and dominant element | Compatibility projection only |
 | Solid-only mechanics, buildings, chunks, backwalls | Original services where independently verified |
@@ -323,7 +323,7 @@ documents listed at the top.
    progressing native solids/buildings, balanced events, multiworld scheduling,
    writer coverage and safe teardown on both platforms.
 3. **Production physics:** repair strong-flow/range failures; complete vacuum,
-   free surfaces, immiscible geometry, phase change, dissolved gases,
+   free surfaces, immiscible geometry, phase change,
    compressed liquids and performance without relaxing scientific gates.
 4. **Complete gameplay:** every inventoried producer/consumer and inventory;
    power, enthalpy, chemistry and metabolism; nitrogen starts, life support,

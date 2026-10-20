@@ -13,8 +13,8 @@ struct VaporLiquidPair {
 };
 
 // Closed, rigid container with gas headspace. Uses vapor partial pressure and a
-// bracketed energy solve. Does not represent dissolved gases or supercritical
-// fluids. Unsupported temperatures/filled vessels reject without mutation.
+// bracketed energy solve. Does not represent supercritical fluids.
+// Unsupported temperatures/filled vessels reject without mutation.
 void equilibrate_vapor_liquid(const SpeciesRegistry& registry, MixtureInventory& inventory,
                              const VaporLiquidPair& pair, double container_volume);
 // Constant transition-temperature solid/liquid coexistence; energy determines

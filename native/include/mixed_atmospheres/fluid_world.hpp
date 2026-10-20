@@ -72,7 +72,7 @@ struct FluidStepResult {
 // and implicit conduction. Every non-wall cell must contain gas or be filled
 // with liquid. This integration benchmark is NOT the production runtime:
 // vacuum/free surfaces, immiscible interface reconstruction, phase transitions,
-// dissolved gases, boundary fluxes, persistence and game adapters remain work.
+// boundary fluxes, persistence and game adapters remain work.
 // GasWorld and its existing ABI remain the separate explicit reference path.
 // The explicit FluidGeometry1D overload instead uses occupied intervals and a
 // versioned elastic EOS. Its bounded liquid/free-surface validation and opt-in

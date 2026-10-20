@@ -134,8 +134,8 @@ ASan/UBSan. A WindowsPlayer (Proton) source and two local WindowsPlayer plus two
 native Linux load sessions pass with exact local continuation. The independent
 complete-state comparison of all 119 stored quantities between players has a
 maximum relative difference of 1.91e-9, within the 1e-8 bound. Liquid
-interface rendering, free surfaces, immiscible interface geometry, phase
-conversion and dissolved gases remain open.
+interface rendering, free surfaces, immiscible interface geometry and phase
+conversion remain open.
 
 ## Mixed-cell conduction
 

@@ -54,7 +54,7 @@ separation or capillarity). Momentum is reconstructed onto faces every substep,
 so this is not a finished staggered discretization; shock entropy and high-Mach
 accuracy are unverified, and midpoint dynamics can oscillate at under-resolved
 acoustic scales. Liquids have constant density. There are no phase transitions,
-dissolved gases, open boundaries, persistence or game adapter.
+open boundaries, persistence or game adapter.
 
 **Tests** (pass Windows MSVC Release, Linux GCC 15 Release and ASan/UBSan):
 

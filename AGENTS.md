@@ -8,10 +8,12 @@ few that your task touches, starting here.
 
 ## Where things stand
 
+- [docs/playtest-plan.md](docs/playtest-plan.md): **the current work**, the full
+  base game on one asteroid, playable on Linux. Start here.
 - [docs/completion-plan.md](docs/completion-plan.md): the accepted plan. Its
   **Amendments** list the user's decisions; they override older text anywhere.
-- [docs/playtesting-readiness.md](docs/playtesting-readiness.md#work-plan): the
-  ordered work items (1–21) and what blocks a playable colony.
+- [docs/playtesting-readiness.md](docs/playtesting-readiness.md): gate status and
+  measurements, kept as a record.
 - [native/MAC_SOLVER.md](native/MAC_SOLVER.md): the solver, its settings and the
   links to every `native/MAC_*.md` topic. [native/MAC_KERNEL.md](native/MAC_KERNEL.md)
   covers the production kernel, which the game runs;
@@ -35,6 +37,8 @@ few that your task touches, starting here.
   captures. Never type Steam credentials or bypass Steam's checks; if sign-in is
   needed, ask the user. No public release or Workshop upload without the user's
   authorization.
+- Linux only for now; the Windows port comes later. Keep evidence light
+  ([playtest plan](docs/playtest-plan.md#evidence)).
 - Describe scope and steps, not calendar estimates.
 
 ## Build and verify

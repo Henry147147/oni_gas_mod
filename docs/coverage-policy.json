@@ -41,7 +41,7 @@
     {"id":"bionics","owner":"custom-fluid","adapter":"BionicAdapter","acceptance":"biology","description":"Bionic intake, oxygen storage, oxygen packs and DLC conversions."},
     {"id":"plants","owner":"custom-fluid","adapter":"PlantAdapter","acceptance":"biology","description":"Plant intake, irrigation, transpiration and all DLC plant conversions."},
     {"id":"critters","owner":"custom-fluid","adapter":"CritterAdapter","acceptance":"biology","description":"All critter intake, breathing, excretion and transformations."},
-    {"id":"aquatic-ecosystems","owner":"custom-fluid","adapter":"AquaticAdapter","acceptance":"biology","description":"Dissolved O2/CO2, surface exchange, respiration and photosynthesis."},
+    {"id":"aquatic-ecosystems","owner":"custom-fluid","adapter":"AquaticAdapter","acceptance":"biology","description":"Aquatic critters and plants: intake, excretion and conversions in liquid."},
     {"id":"geysers","owner":"custom-fluid","adapter":"GeyserAdapter","acceptance":"environment","description":"Geysers, volcanoes and geothermal vents with external source ledgers."},
     {"id":"particles","owner":"custom-fluid","adapter":"FluidParticleAdapter","acceptance":"environment","description":"Bubbles, falling liquids, detached inventories and failed placement."},
     {"id":"rockets","owner":"custom-fluid","adapter":"RocketAdapter","acceptance":"transport","description":"Fuel, oxidizer, exhaust, cargo, interiors and inter-asteroid transfers."},
@@ -56,7 +56,7 @@
     {"id":"native-hook-coverage","owner":"native-boundary","adapter":"NativeBackendHooks","acceptance":"native-service","description":"Per-build Windows/Linux native hooks, private ABI, inlined work, all fluid readers/writers, native timestep barriers, original nonfluid services and failure recovery."}
   ],
   "release_requirements": [
-    "coupled-physics-benchmarks", "10000-step-conservation", "trace-preservation", "dissolved-gas-exchange",
+    "coupled-physics-benchmarks", "10000-step-conservation", "trace-preservation",
     "complete-gameplay", "ten-cycle-development-colony", "all-pack-progression", "nitrogen-and-starting-resources",
     "breathing-and-configuration-ui", "overlays-research-recipes", "deterministic-restart", "cross-platform-transfer",
     "interrupted-save-corruption-mod-disabled", "25ms-100000-cells", "sustained-speed-memory-backlog",

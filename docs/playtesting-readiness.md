@@ -1,5 +1,9 @@
 # Playtesting readiness and simulation cost
 
+**Current work (2026-10-20):** the [base-game playtest plan](playtest-plan.md)
+replaces the playtest definition and work plan below. This page keeps the gate
+status and measurements as a record.
+
 The full overhaul is **not ready for an ordinary colony playtest**. The default
 installation remains a development probe. A visible development chamber does
 not establish whole-colony mixture ownership.
@@ -30,7 +34,8 @@ in [production timestep progress](production-timestep-progress.md).
 
 ## Playtest definition (proposed)
 
-Proposed 2026-10-17 to make gate 5 reproducible; not yet accepted. It narrows
+Proposed 2026-10-17 to make gate 5 reproducible; superseded by the
+[base-game playtest plan](playtest-plan.md) (2026-10-20). It narrows
 [milestone D](completion-plan.md#d-first-playable-development-colony) without
 relaxing its exit:
 
@@ -382,11 +387,13 @@ behind `ma_oni_domain_*`.
    ([coupled ABI](../native/COUPLED_ABI.md)), which has no game frame hook, is
    not the production route.
 3. **Decided 2026-10-19:** the first ten-cycle playtest covers the base game
-   and Spaced Out!. The gameplay packs follow later.
+   and Spaced Out!. The gameplay packs follow later. **Superseded 2026-10-20:**
+   the base game on one asteroid comes first ([playtest plan](playtest-plan.md)).
 
 ## Work plan
 
-Ordered by dependency. Size: S < M < L < XL. "Game" marks items that need the
+Superseded 2026-10-20 by the [base-game playtest plan](playtest-plan.md); the
+table is kept as a record of item status. Ordered by dependency. Size: S < M < L < XL. "Game" marks items that need the
 licensed game to verify.
 
 | # | Gate | Item | Size | Game |
