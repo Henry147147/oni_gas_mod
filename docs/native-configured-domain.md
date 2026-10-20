@@ -314,13 +314,16 @@ zero and completes 60 exact physical frames. A same-process load-menu replay
 also completes 60 exact frames and produces the identical final checkpoint;
 restored readers and GPU publication pass.
 
-The 8,400-frame game request fails when all three duplicants in the surrounding
-unowned colony die. Final telemetry records 7,152 owner frames and
-1,430.400021314621 s with no native fault; maximum relative mass/energy errors
-are 8.90e-15/8.61e-19. Both natural autosaves pass paired readback and restore
-the pause state. Its complete 29-line telemetry session records failed
-validation. The long-run acceptance remains open; a supported surrounding
-colony is needed. The separate 8,401-frame native fixture does not certify it.
+The Linux long request passes 8,401 owner frames (1680.200025036931 s), with no
+native fault and maximum relative mass/energy errors 8.90e-15/8.61e-19. Both natural
+autosaves pass paired readback and pause-state restoration. The user authorized
+developer-mode invincibility after the original request stopped on unowned-colony
+death at 7,152 frames. All three duplicants remain alive, and telemetry verifies
+the override in 29 consecutive lines after activation (34 total lines,
+one complete session ending in `final`). The room's geometry, mask, inventory,
+rest state, physics and vent mass are unchanged. This does not certify life support.
+The outer launcher receipt was lost; existing harness validators pass when
+rechecking the saved records. Launcher/player exit statuses are unrecorded.
 Reader observations follow each
 published vacuum/water/oxygen identity and permit the physical zero pressure and
 mass of void cells; legacy gas/water conditions stay unchanged.
@@ -345,7 +348,9 @@ front capture waits three render frames after publication. Vacuum compatibility
 cells exercise blocked liquid, transition and post-processing calls; existing
 scenes keep their native temperature-call requirement. Private source/reload
 reports are `artifacts/vacuum-game-v1/linux-save-v9/result.json` and
-`linux-load-v2/result.json`; the failed long request is `linux-long-v1/result.json`.
+`linux-load-v2/result.json`; the completed long request is
+`linux-long-invincible-v1/revalidated-result.json`. The original colony-loss result stays in
+`linux-long-v1/result.json`.
 Proton/Wine/Windows validation is deferred by the user's
 2026-10-20 decision; previous runs do not certify this revision.
 
@@ -471,8 +476,8 @@ evidence.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
 - The configured vacuum/surface path passes Linux rest, vent, publication,
-  save and exact reload checks. The requested long run stops on unowned-colony
-  death, with no native fault;
-  passive data, disease and further liquids still need adapters.
+  save, exact reload and 8,401-frame continuation checks; the long run uses
+  user-authorized invincibility in the unowned colony and certifies no life
+  support. Passive data, disease and further liquids still need adapters.
 - Materials beyond the five-species catalogue.
 - The production timestep and performance gate.

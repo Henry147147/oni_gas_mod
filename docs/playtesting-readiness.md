@@ -101,11 +101,11 @@ saves, fresh-process loads and natural autosaves
   ten exact resting frames, the real oxygen packet, visible front, Grid/GPU
   publication and ordinary save/readback at frame 121. Fresh-process and
   load-menu replays each pass 60 exact frames with identical final checkpoint
-  hashes. The 8,400-frame request fails when the unowned colony dies: final
-  telemetry reaches 7,152 owner frames with no native fault, relative
-  mass/energy errors 8.90e-15/8.61e-19, and two autosaves passing readback.
-  Long-run acceptance remains open; further Windows/Proton/Wine checks are
-  deferred. Native point transfers
+  hashes. The Linux long continuation passes 8,401 owner frames with relative
+  mass/energy errors 8.90e-15/8.61e-19 and two natural autosaves passing readback.
+  The user-authorized developer invincibility keeps the unowned colony alive;
+  telemetry verifies it, and no life-support acceptance is claimed. Further
+  Windows/Proton/Wine checks are deferred. Native point transfers
   enforce configured phase admission even in empty cells, with atomic rejection.
 - The material catalogue: 5 species against 212 inventoried material
   identities.
@@ -417,7 +417,7 @@ licensed game to verify.
 | 4 | 1 | Production activation and message routing outside the validation classes | M | Yes |
 | 5 | 2 | Pressure/remap convention conversion, strong-flow rerun and default promotion | L | No |
 | 6 | 2 | Range-extended gravity and persisted U corrections; volume remainders and game verification remain | M–L | Later |
-| 7 | 1, 2 | Vacuum/partial water: flag 32 preserves exact geometry; additional flag 64 enables the audited gas closure and version-12 saves. The native 7×5 fixture passes rest, 140 vent frames, conservation and exact reload; 207 managed controls pass. Linux source scene passes rest/front/Grid/GPU/save at frame 121, mass/energy errors 9.58e-16/7.05e-19. Fresh-process and load-menu replays each pass 60 exact frames, restored readers/GPU publication and matching final checkpoint hashes. The 8,400-frame game request fails on unowned-colony death at 7,152 frames, with no native fault (mass/energy errors 8.90e-15/8.61e-19; two autosaves pass readback). Long-run acceptance stays open. Further Proton/Wine/Windows validation is deferred | XL | Yes |
+| 7 | 1, 2 | Vacuum/partial water: flag 32 preserves exact geometry; additional flag 64 enables the audited gas closure and version-12 saves. The native 7×5 fixture passes rest, 140 vent frames, conservation and exact reload; 207 managed controls pass. Linux source scene passes rest/front/Grid/GPU/save at frame 121, mass/energy errors 9.58e-16/7.05e-19. Fresh-process and load-menu replays each pass 60 exact frames, restored readers/GPU publication and matching final checkpoint hashes. Linux long continuation passes 8,401 frames (8.90e-15/8.61e-19 mass/energy errors; two autosaves pass readback), with user-authorized invincibility in the unowned colony; this certifies no life support. Saved-record validators pass; the outer launcher receipt is unavailable. Further Proton/Wine/Windows validation is deferred | XL | Yes |
 | 8 | 1 | Catalogue-driven species table and ONI gas/liquid mapping | XL | Yes |
 | 9 | 1 | Fluid/solid heat at every owned face | L | Yes |
 | 10 | 1 | Whole-world retry: void admission removes 173 mapped partial-water rejections; actual ownership remains blocked by geometry limits, eleven unmapped material identities and unsupported metadata | L | Yes |

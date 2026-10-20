@@ -80,6 +80,8 @@ namespace MixedAtmospheres.Oni
                     TimeInCycles = clock == null ? (double?)null : clock.GetTimeInCycles(),
                     Paused = speed == null ? (bool?)null : speed.IsPaused,
                     Speed = speed == null ? (int?)null : speed.GetSpeed(),
+                    DebugEnabled = DebugHandler.enabled,
+                    DebugInvincible = DebugHandler.InvincibleMode,
                     Duplicants = game == null ? (int?)null : Components.LiveMinionIdentities.Count
                 },
                 Colony = new { Report.SnapshotsPublished, Report.NativeFramesAcknowledged, Report.ObserverTimestepReturns, Report.ObserverPhysicalUpdates },

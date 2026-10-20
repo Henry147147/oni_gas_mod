@@ -253,7 +253,7 @@ below 13,000. Fields:
 | `Kind`, `SchemaVersion`, `DevelopmentOnly`, `Session`, `Sequence`, `Reason` | `mixed-atmospheres-development-telemetry`, schema 1, always `true`, one id per game process, line number, `start`/`interval`/`heartbeat`/`final`/`sim-shutdown` |
 | `NativeFramesProcessed`, `IntervalNativeFrames`, `UnityFrame` | native frames returned by `PrepareGameData` since telemetry started and since the previous line, including world-generation settling and zero-time frames while paused (use `Game` and `NativeDomain` for colony progress); Unity frame |
 | `UtcTime`, `WallSeconds`, `IntervalWallSeconds` | host time and monotonic seconds since telemetry started |
-| `Game` | game started, `TimeSeconds`, `Cycle`, `TimeInCycles`, paused, speed, live duplicants |
+| `Game` | game started, `TimeSeconds`, `Cycle`, `TimeInCycles`, paused, speed, live duplicants, `DebugEnabled`, `DebugInvincible` |
 | `NativeDomain` | for native-domain scenes: state, session, completed and post-priming validation frames, physical time, last timestep, maximum relative mass/energy error, cumulative and per-line substeps and rejected attempts, publications, native error text |
 | `Latency` | per line: `NativeFrameSubmitMs` and `NativeFrameWaitMs` (game-thread wall time inside `SIM_HandleMessage` for `NewGameFrame` and `PrepareGameData`), `ManagedPublicationMs` (owned snapshot, readings, presentation publication and development checks after `PrepareGameData` returns), `PresentationLagMs` (native-domain publication to the first property-texture batch that renders it), `TextureBatchMs`, `UnityFrameMs`; each has `Samples`, `Retained`, `P50`, `P95`, `Max`, `Mean` |
 | `Memory` | `GC.GetTotalMemory`, GC counts, resident and peak resident bytes (`VmRSS`/`VmHWM` on Linux, working set elsewhere) |
@@ -284,9 +284,16 @@ colony, and a long run fails as soon as every duplicant has died, because ONI
 then pauses on its Colony Lost screen and no frame can complete. In the default
 disposable colony (seed 147147, no orders) all three duplicants die in the
 third or fourth cycle; the vacuum room run loses them earlier, at game cycle
-2 / 7,152 owner frames. No run can yet
-pass 10,000 frames or ten cycles: a ten-cycle pass first needs life support (a
-scripted build order or a prepared save).
+2 / 7,152 owner frames. These unmanaged colonies do not certify ten-cycle
+life support; that gate needs a scripted build order or a prepared save.
+
+For the vacuum-owner rerun, the user authorized developer-mode invincibility
+on 2026-10-20 to keep the unowned surrounding colony alive. ONI 744825 toggles
+it with Alt+F7 after developer mode is enabled. Telemetry reads the game's
+actual `DebugHandler.enabled` and `InvincibleMode`; it never sets them. The
+colony-loss check stays active. This survival override certifies no life-support
+adapter or playable-colony gate. The owned room, vent input, requested frame
+count and numerical bounds stay fixed.
 
 **Status.** A native Linux `native-domain` long run (`--frames 10500
 --timeout 14400 --private-display`) accepts the opt-in, runs the six-cell
@@ -310,13 +317,21 @@ managed publication 327 ms and presentation lag 221 ms. RSS went from 6.79 to
 6.65 GiB. An earlier attempt failed at frame 6,386 on a body-heat read race,
 since fixed ([object heat](../docs/native-domain-physics.md#native-object-heat)).
 
-A configured vacuum request (`--mode native-configured-vacuum-domain --long-run
---frames 8400 --timeout 14400 --private-display`) fails when all three duplicants
-die. Final telemetry records 7,152 completed owner frames, 1,430.400021314621 s,
-no native fault, and relative mass/energy errors 8.90e-15/8.61e-19. Two natural
-autosaves pass paired readback and pause-state restoration. All 29 telemetry
-lines form one complete session ending in `final`; `development_telemetry_passed`
-is true, while runtime validation is failed. This is not an 8,400-frame pass.
+The configured vacuum request (`--mode native-configured-vacuum-domain --long-run
+--frames 8400 --timeout 14400 --private-display`) passes with the authorized
+invincibility override: 8,401 owner frames, 1680.200025036931 s, no native fault,
+and relative mass/energy errors 8.90e-15/8.61e-19. Both natural autosaves pass paired
+readback and pause-state restoration. All three duplicants remain alive;
+29 consecutive telemetry lines after activation verify invincibility, in one
+complete 34-line session ending in `final`. Geometry, mask, inventory,
+rest state, physics and vent mass match the original fixture exactly. The
+original request failed on unowned-colony death at 7,152 frames; its failed
+result is retained separately. Neither run certifies life-support adapters.
+The outer launcher receipt for the rerun was lost. Saved-record revalidation
+with the existing classifier, native-domain and telemetry validators passes;
+`revalidated-result.json` distinguishes that checker exit from the unrecorded
+launcher/player exits. The original wrapper host-load series was not retained;
+this run supplies no performance certification.
 
 `tools/configure_visual_demo.py --long-run` prepares the same request for a
 manually started scene: 30,000 frames by default, a 48-hour limit and telemetry.

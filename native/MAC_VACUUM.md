@@ -400,14 +400,19 @@ hash and resaves at frame zero. Fresh-process and same-process load-menu
 replays each pass 60 exact physical frames, including restored readers and GPU
 publication, and produce the same final checkpoint hash.
 
-The 8,400-frame Linux game request ends as `failed-runtime-validation` when
-all three unowned-colony duplicants die. Final telemetry records 7,152 completed
-owner frames (1,430.400021314621 s), no native fault, and maximum relative
-mass/energy errors 8.90e-15/8.61e-19. Two natural autosaves pass paired file
-readback and restore the pause state. The telemetry session closes correctly
-with 29 lines; it records a failed validation, not a long-run pass. Finishing the
-requested run needs a supported surrounding colony. The standalone native
-fixture separately completes 8,401 frames; that is not in-game evidence.
+The Linux long request passes 8,401 completed owner frames (1680.200025036931 s),
+with maximum relative mass/energy errors 8.90e-15/8.61e-19 and no native fault.
+Both natural autosaves pass paired readback and pause-state restoration.
+The user authorized developer-mode invincibility for the unowned surrounding
+colony after the original request stopped on colony death at 7,152 frames.
+All three duplicants remain alive; telemetry verifies invincibility in all 29
+lines after activation, across one complete 34-line session. Geometry, mask,
+inventory, rest state, physics and vent mass match the original fixture exactly.
+This is a fluid-owner control, not life-support acceptance. Phase change stays off.
+The outer launcher receipt was lost. Rechecking the saved records with the
+existing harness validators passes; `revalidated-result.json` records that
+checker result and leaves launcher/player exit statuses unrecorded.
+
 Restored reader observations now follow each published phase, including zero
 pressure/mass, while existing gas/water controls keep their original checks.
 
@@ -423,7 +428,8 @@ Fluid identity changes also publish substance-change events to ONI's cached
 `Grid.Element`; native compatibility tuples remain unchanged.
 
 Private game reports are under
-`artifacts/vacuum-game-v1/linux-save-v9/`, `linux-load-v2/` and `linux-long-v1/`.
+`artifacts/vacuum-game-v1/linux-save-v9/`, `linux-load-v2/` and
+`linux-long-invincible-v1/`; the original colony-loss report stays in `linux-long-v1/`.
 The user deferred further Proton/Wine/Windows
 checks. Flag 32 alone retains exact geometry; no attempt limits or gate bounds
 changed.
