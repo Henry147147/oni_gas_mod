@@ -46,7 +46,7 @@ namespace MixedAtmospheres.Oni
         // row-major solid mask and a complete initial inventory with all-zero
         // records for solids. Legacy entry points keep rejecting scenario 7.
         internal const uint ConfiguredAbiVersion = 1, ConfiguredScenario = 7, ConfiguredMaximumSide = 256, ConfiguredMaximumCells = 4096;
-        internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16;
+        internal const uint PhysicsGravity = 1, PhysicsConduction = 2, PhysicsViscosity = 4, PhysicsMixture = 8, PhysicsLiquid = 16, PhysicsVacuum = 32;
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
         internal struct DiffusionStatus
         {

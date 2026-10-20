@@ -77,7 +77,8 @@ namespace MixedAtmospheres.Oni
             // transport profile. Native admission checks those complete settings
             // against the saved scenario/wrapper. Version 4 (interval kernel) is
             // never selected by the game and stays rejected here.
-            Require(solverVersion==legacyVersion || solverVersion==5U || solverVersion==6U || solverVersion==10U,"Unsupported physical checkpoint format for this scenario.");
+            Require(solverVersion==legacyVersion || solverVersion==5U || solverVersion==6U || solverVersion==10U ||
+                solverVersion==9U && configured && (image!.Physics.Flags&PhysicsVacuum)!=0,"Unsupported physical checkpoint format for this scenario.");
             var identity=BinaryPrimitives.ReadUInt32LittleEndian(physical.Slice(12)); var clock=16L+identity;
             Require(clock+42<=physical.Length-8,"Physical checkpoint metadata is truncated.");
             var offset=checked((int)clock);

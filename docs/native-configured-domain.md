@@ -31,7 +31,8 @@ diagnostics use the existing shared calls.
 | `CONDUCTION` | 2 | `MacClosedSettings.thermal_conduction` |
 | `VISCOSITY` | 4 | shear and bulk `0..1000` Pa s, at least one positive; otherwise both exactly +0 |
 | `MIXTURE` | 8 | occupied gas/liquid admission, transfer topology and EOS liquid fraction of scenarios 4–6 |
-| `LIQUID` | 16 | without `MIXTURE`, filled single-liquid (water) admission; neither flag is gas-only |
+| `LIQUID` | 16 | without `MIXTURE`, single-liquid (water) admission; neither flag is gas-only |
+| `VACUUM` | 32 | production void phase and sharp interfaces; empty fluid cells and partly filled water surfaces |
 
 `MIXTURE|LIQUID`, unknown bits, nonzero reserved words and other struct sizes
 or versions reject. The registry and EOS are those of scenarios 0–2 and 4–6
@@ -52,9 +53,11 @@ Configured liquid gravity uses the unshifted v2 reference.
 
 The mask byte is 0 for fluid and 1 for solid. It covers `width*height` cells
 and keeps at least one fluid cell. Solids become MAC walls, and their initial
-records must be all zero, including temperature. Fluid cells must be occupied,
-with a positive finite temperature and admitted constituents. Vacuum, passive
-quantities and disease remain rejected. Disconnected fluid pockets are admitted.
+records must be all zero, including temperature. Occupied fluid cells need a
+positive finite temperature and admitted constituents. `VACUUM` also admits
+all-zero masses (finite nonnegative input temperature, no physical temperature)
+and liquid-only volumes below one cubic metre. Passive quantities and disease
+remain rejected. Disconnected fluid pockets are admitted.
 
 Point heat, point transfers, radius centres, point actors and durable actors
 that target a solid reject the complete batch; nothing is queued. A rectangle
@@ -64,9 +67,10 @@ and the existing planner skip them. A footprint with no fluid returns one
 zero-mass callback. The regional planner's bound is the configured 256-side,
 4096-cell budget; legacy rooms never exceed 256 cells.
 
-Copies publish each solid as an all-zero `MAOniDomainCell`. A fluid cell always
-has positive mass and EOS temperature, so that record never denotes fluid; the
-configuration copy is the authoritative mask. `MAOniDomainStatus.cells` counts
+Copies publish each solid and each empty fluid cell as an all-zero
+`MAOniDomainCell`; the configuration copy is the authoritative ownership mask.
+Occupied cells publish positive mass and EOS temperature, using their occupied
+volume. With `VACUUM`, `liquid_fraction` is the actual liquid volume. `MAOniDomainStatus.cells` counts
 every cell. Its oxygen, pressure and liquid scalars sample the first fluid cell
 in row-major order, which is cell 0 in every legacy scenario. The managed
 caller must not write native compatibility projections into solid cells, and
@@ -170,8 +174,8 @@ sessions produce exactly their previous bytes. Integers are little-endian.
 Restore and validation require the caller's exact geometry, bitwise physics and
 mask in the wrapper and in any enclosing actor header. The solver image's grid,
 walls, clock, gravity, conduction and viscosity must then agree bitwise. Fluid
-cells must be occupied with admitted phases, and actors must sit on admitted
-fluid cells. The wrapper is never trusted over the solver's walls or settings.
+cells must have admitted phases; `VACUUM` also admits empty cells and occupied
+volumes. Actors must sit on admitted fluid cells, including empty ones. The wrapper is never trusted over the solver's walls or settings.
 Stateless checkpoint, snapshot and input-replay advances read the configuration
 from the wrapper and apply the same checks.
 
@@ -323,8 +327,8 @@ physics against the native admission rules (disabled values exactly +0), a
 binary mask with at least one fluid cell, and an enclosed `MACCLS01`. Legacy
 solver versions 2/3 follow the viscosity setting; versions 5 (diffusion) and
 6 (production) and 10 (carried U) retain the metadata prefix and pass the same
-native settings validation. Full native admission rejects unsupported void
-settings and occupied-volume vectors. The `MAONID01` header geometry must
+native settings validation. Full native admission requires the saved void selector and occupied-volume
+vector to agree with the opt-in flag; phase change remains rejected. The `MAONID01` header geometry must
 equal the wrapper's, and saved actors and CO2 origins must be on fluid cells.
 
 **Native-world admission.** Before ONI's loader runs, the mask is recomputed
@@ -382,6 +386,8 @@ evidence.
   once the granite pair has nearly equilibrated.
 - Interior fluid/solid heat exchange, and melting, sublimation, digging,
   construction and falling solids inside the rectangle.
-- Vacuum, free surfaces, passive data and disease; vacuum is separate solver work.
+- The configured native vacuum/surface path is admitted and covered by
+  `ma_oni_domain_tests --vacuum`; managed scenes and game verification remain.
+  Passive data, disease and further liquids still need adapters.
 - Materials beyond the five-species catalogue.
 - The production timestep and performance gate.

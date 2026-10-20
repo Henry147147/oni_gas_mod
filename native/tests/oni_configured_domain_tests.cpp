@@ -137,7 +137,7 @@ void admission_rejection() {
         if (fault==0) p.struct_size=32;
         if (fault==1) p.abi_version=2;
         if (fault==2) p.reserved=1;
-        if (fault==3) p.flags|=32;
+        if (fault==3) p.flags|=64;
         if (fault==4) p.flags|=MA_ONI_DOMAIN_PHYSICS_MIXTURE|MA_ONI_DOMAIN_PHYSICS_LIQUID;
         if (fault==5) p.gravity_m_per_s2=0;
         if (fault==6) p.gravity_m_per_s2=-9.81;

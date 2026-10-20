@@ -39,7 +39,8 @@ constexpr bool gravity_scenario(std::uint32_t scenario) { return scenario==2 || 
 // never from a scenario number. Legacy scenarios keep the helpers above.
 constexpr bool configured_scenario(std::uint32_t scenario) { return scenario==MA_ONI_DOMAIN_CONFIGURED_SCENARIO; }
 constexpr std::uint32_t configured_physics_flags=MA_ONI_DOMAIN_PHYSICS_GRAVITY|MA_ONI_DOMAIN_PHYSICS_CONDUCTION|
-    MA_ONI_DOMAIN_PHYSICS_VISCOSITY|MA_ONI_DOMAIN_PHYSICS_MIXTURE|MA_ONI_DOMAIN_PHYSICS_LIQUID;
+    MA_ONI_DOMAIN_PHYSICS_VISCOSITY|MA_ONI_DOMAIN_PHYSICS_MIXTURE|MA_ONI_DOMAIN_PHYSICS_LIQUID|MA_ONI_DOMAIN_PHYSICS_VACUUM;
+bool void_domain(const MAOniDomainPhysics& p) { return (p.flags&MA_ONI_DOMAIN_PHYSICS_VACUUM)!=0; }
 bool mixed_domain(const MAOniDomainConfig& g,const MAOniDomainPhysics& p) {
     return configured_scenario(g.scenario) ? (p.flags&MA_ONI_DOMAIN_PHYSICS_MIXTURE)!=0 : mixed_scenario(g.scenario);
 }
@@ -232,19 +233,20 @@ std::vector<MAOniDomainCell> project(const MacClosedWorld& owner,const MAOniDoma
     const auto jy=mac_field_values(state.momentum_y,state.full_momentum_y);
     std::vector<MAOniDomainCell> cells; cells.reserve(owner.state().cells.size());
     for (std::size_t index=0;index<state.cells.size();++index) {
-        // A configured solid publishes an all-zero cell. Every fluid cell is
-        // occupied with a positive EOS temperature, so it cannot be confused
-        // with this record; the configuration copy returns the exact mask.
+        // Solids and exact vacuum publish zero records. The configuration mask
+        // distinguishes an owned empty fluid cell from an unowned solid.
         if (state.grid.walls[index]) { cells.push_back(MAOniDomainCell{}); continue; }
         const auto& source=state.cells[index];
-        const auto reading=owner.thermodynamics().evaluate(source.mixture,1);
+        // A vacuum cell (void phase) also publishes an all-zero record.
+        if (!(source.mixture.mass()>0)) { cells.push_back(MAOniDomainCell{}); continue; }
+        const auto reading=owner.thermodynamics().evaluate(source.mixture,mac_material_volume(state,index));
         MAOniDomainCell cell{};
         for (std::size_t k=0;k<ids.size();++k) cell.masses[k]=source.mixture.masses[owner.registry().index(ids[k])];
         cell.internal_energy=physical_internal_energy(owner,source).value().require_representable(); cell.pressure=reading.mechanical_pressure_pa;
         cell.temperature=reading.temperature_k;
         // Single-phase controls retain their declared filled phase. The
         // explicit mixed scenario publishes the actual elastic liquid volume.
-        cell.liquid_fraction=mixed_domain(g,p) ? reading.liquid_volume_m3 : liquid_domain(g,p) ? 1 : 0;
+        cell.liquid_fraction=mixed_domain(g,p) || void_domain(p) ? reading.liquid_volume_m3 : liquid_domain(g,p) ? 1 : 0;
         const auto x=index%state.grid.width, y=index/state.grid.width;
         const auto half_mass=.5*source.mixture.mass();
         MacEnergySum kinetic; MacScaledSum px, py;
@@ -291,6 +293,8 @@ MacClosedSettings configured_settings(const MAOniDomainPhysics& physics) {
     settings.thermal_conduction=(physics.flags&MA_ONI_DOMAIN_PHYSICS_CONDUCTION)!=0;
     if (physics.flags&MA_ONI_DOMAIN_PHYSICS_VISCOSITY) settings.viscosity={physics.shear_viscosity_pa_s,physics.bulk_viscosity_pa_s};
     settings.gravity_m_per_s2=physics.gravity_m_per_s2;
+    // Vacuum: the void phase with sharp interfaces (native/MAC_VACUUM.md).
+    if (void_domain(physics)) { settings.vacuum=MacVacuumRepresentation::void_phase; settings.reconstruction=MacMaterialReconstruction::interface_plic; }
     return settings;
 }
 MacClosedAdvance advance_owned_world(const MacClosedWorld& source,double seconds,
@@ -629,7 +633,8 @@ std::unique_ptr<MacClosedWorld> restored_configured_owner(const MAOniDomainConfi
     if (candidate->time_s()!=saved_time || grid.width!=config.width || grid.height!=config.height || grid.spacing_m!=1 || grid.depth_m!=1 ||
         grid.periodic_x || grid.periodic_y || !std::equal(grid.walls.begin(),grid.walls.end(),mask.begin(),mask.end()) ||
         !same_bits(actual.gravity_m_per_s2,expected.gravity_m_per_s2) || actual.thermal_conduction!=expected.thermal_conduction ||
-        actual.vacuum!=MacVacuumRepresentation::empty_cells || !state.occupied_volumes_m3.empty() ||
+        actual.vacuum!=expected.vacuum || actual.reconstruction!=expected.reconstruction || actual.phase_change!=expected.phase_change ||
+        (!void_domain(physics) && !state.occupied_volumes_m3.empty()) ||
         !same_bits(actual.viscosity.shear_pa_s,expected.viscosity.shear_pa_s) || !same_bits(actual.viscosity.bulk_pa_s,expected.viscosity.bulk_pa_s))
         throw std::invalid_argument("Configured physical checkpoint clock, grid, solid mask or physics differs from its native domain configuration");
     const auto water=registry.index("water");
@@ -637,7 +642,10 @@ std::unique_ptr<MacClosedWorld> restored_configured_owner(const MAOniDomainConfi
         const auto& cell=state.cells[i];
         if (!cell.passive_quantities.empty()) throw std::invalid_argument("Saved native domain requires a passive-metadata adapter");
         if (grid.walls[i]) continue; // The solver image already requires empty solids.
-        if (!(cell.mixture.mass()>0)) throw std::invalid_argument("Saved configured domain contains a vacuum fluid cell");
+        if (!(cell.mixture.mass()>0)) {
+            if (!void_domain(physics)) throw std::invalid_argument("Saved configured domain contains a vacuum fluid cell");
+            continue;
+        }
         for (std::size_t k=0;k<registry.size();++k)
             if (cell.mixture.masses[k]!=0 && !mixed_domain(config,physics) && liquid_domain(config,physics)!=(k==water))
                 throw std::invalid_argument("Saved configured domain phase differs from its declared physics");
@@ -650,17 +658,17 @@ std::unique_ptr<MacClosedWorld> configured_owner_from_cells(const MAOniDomainCon
     const auto registry=domain_registry(0); const auto eos=model(registry,0);
     MacTransportState state;
     state.grid={config.width,config.height,1,1,false,false,std::vector<std::uint8_t>(mask.begin(),mask.end())};
-    state.cells.reserve(mask.size());
+    state.cells.reserve(mask.size()); std::vector<double> volumes; volumes.reserve(mask.size());
     for (std::size_t index=0;index<mask.size();++index) {
         const auto& input=initial_cells[index];
         if (input.struct_size!=sizeof(input) || input.abi_version!=1) throw std::invalid_argument("Invalid configured initial inventory cell ABI");
         if (mask[index]) {
             if (input.temperature_k!=0 || std::any_of(std::begin(input.masses),std::end(input.masses),[](double mass) { return mass!=0; }))
                 throw std::invalid_argument("Configured solid cell has a nonzero initial inventory record");
-            state.cells.push_back(MacMaterialCell{MixtureInventory(registry.size()),{}});
+            state.cells.push_back(MacMaterialCell{MixtureInventory(registry.size()),{}}); volumes.push_back(0);
             continue;
         }
-        if (!std::isfinite(input.temperature_k) || input.temperature_k<=0) throw std::invalid_argument("Invalid configured initial fluid temperature");
+        if (!std::isfinite(input.temperature_k) || input.temperature_k<0) throw std::invalid_argument("Invalid configured initial fluid temperature");
         std::vector<double> values(registry.size()); bool occupied=false;
         for (std::size_t k=0;k<ids.size();++k) {
             const auto mass=input.masses[k];
@@ -668,9 +676,25 @@ std::unique_ptr<MacClosedWorld> configured_owner_from_cells(const MAOniDomainCon
                 throw std::invalid_argument("Configured initial inventory mass or phase is unsupported");
             values[registry.index(ids[k])]=mass; occupied|=mass>0;
         }
-        if (!occupied) throw std::invalid_argument("Configured initial inventory does not admit vacuum fluid cells");
-        state.cells.push_back({eos->initialize_at_temperature(values,input.temperature_k,1).mixture,{}});
+        if (!occupied) {
+            if (!void_domain(physics)) throw std::invalid_argument("Configured initial inventory does not admit vacuum fluid cells");
+            state.cells.push_back(MacMaterialCell{MixtureInventory(registry.size()),{}}); volumes.push_back(0); continue;
+        }
+        if (!(input.temperature_k>0)) throw std::invalid_argument("Invalid configured initial fluid temperature");
+        // Void phase: a liquid-only cell holding less than a full cell rests at
+        // zero pressure in its nominal liquid volume.
+        double held=1;
+        if (void_domain(physics)) {
+            double nominal=0; bool gas=false;
+            for (std::size_t k=0;k<registry.size();++k) if (values[k]!=0) {
+                if (registry[k].phase==Phase::gas) gas=true;
+                else for (const auto& m : eos->reference().materials()) if (m.id==registry[k].id) nominal+=values[k]/m.zero_pressure_density_kg_per_m3;
+            }
+            if (!gas && nominal<1) held=nominal;
+        }
+        state.cells.push_back({eos->initialize_at_temperature(values,input.temperature_k,held).mixture,{}}); volumes.push_back(held);
     }
+    if (void_domain(physics)) state.occupied_volumes_m3=std::move(volumes); // cleared by the owner when every fluid cell is full
     const auto inertia=mac_face_inertias(registry,state,*eos);
     state.momentum_x.resize(inertia.x.size()); state.momentum_y.resize(inertia.y.size());
     return std::make_unique<MacClosedWorld>(registry,eos,std::move(state),configured_settings(physics));
@@ -1075,7 +1099,9 @@ static DomainChunkHeat exchange_domain_native_heat(int native_cell,float tempera
         const auto cell=domain_index(public_cell);
         const auto& source=pending_world ? *pending_world : *world;
         const auto& mixture=source.state().cells[cell].mixture;
-        const auto reading=source.thermodynamics().evaluate(mixture,source.state().grid.volume_m3());
+        // A vacuum cell (void phase) exchanges no heat with a body.
+        if (!(mixture.mass()>0)) return output;
+        const auto reading=source.thermodynamics().evaluate(mixture,mac_material_volume(source.state(),cell));
         const auto& materials=source.thermodynamics().reference().materials();double numerator=0,volume=0;
         for (std::size_t k=0;k<materials.size();++k) {
             const auto amount=reading.partial_volumes_m3[k];

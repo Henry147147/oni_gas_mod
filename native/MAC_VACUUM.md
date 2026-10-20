@@ -45,8 +45,8 @@ Occupied-state arithmetic and bounds remain unchanged.
 
 Checkpoint layout and numerical selectors are unchanged. An empty inventory is
 already represented by exact zero fields. Restoring an empty-cell checkpoint now
-passes owner validation and resumes exactly. Gameplay point transfers still require
-occupied cells, and complete paired colony persistence remains open.
+passes owner validation and resumes exactly. Gameplay point transfers use the
+opt-in void-phase rules below; complete paired colony persistence remains open.
 
 ## Verified scope
 
@@ -104,7 +104,8 @@ loses precision. A rejected split falls back to the donor's average composition.
 or 3) and midpoint pressure. It rejects gas diffusion, which still assumes filled
 cells. The reference path also rejects conduction and viscosity, and a partly
 filled cell holding liquid ("does not yet hold liquid"); the production kernel
-runs all three. Fluid point transfers reject partly filled states. Checkpoints use [version 9](MAC_CHECKPOINT.md).
+runs all three. Fluid point transfers use the rules below. Checkpoints use [version 9](MAC_CHECKPOINT.md),
+or version 10 when carried U is present.
 
 **Production kernel** (2026-10-20). The production kernel runs the void phase with
 material selectors 1 and 3; selector 2 and coupled compression still use the
@@ -312,3 +313,34 @@ python3 native/tests/review_mac_vacuum_front.py front.stdout front.json
 
 The analytic front follows the ideal-gas rarefaction limit in the
 [Clawpack Euler chapter](https://www.clawpack.org/riemann_book/html/Euler.html#Riemann-problems-with-vacuum).
+
+## Configured game owner
+
+`MA_ONI_DOMAIN_PHYSICS_VACUUM` (32) opts scenario 7 into the production void
+phase with sharp interfaces (material selector 3), midpoint pressure and phase
+change disabled. Empty fluid cells remain owned and publish all-zero physical
+records; the saved mask distinguishes them from unowned solids. Liquid-only
+imports below one cubic metre occupy Σ m/ρ0 at zero pressure. Every EOS read in
+publication and body heat uses the occupied volume; vacuum takes no body heat.
+The existing emitter density limit remains mass per grid-cell volume.
+
+Point transfers can fill vacuum, open a surface or empty a cell. Polling an
+already empty cell returns a zero-mass receipt. Mixture drains still need to
+remove trace constituents with the last bulk constituent: species-by-species
+removal can leave a trace with no positive thermal energy and reject. Restore
+checks the exact vacuum/reconstruction settings and rejects phase change. No
+checkpoint schema changes; the configured wrapper carries the opt-in flag.
+
+`ma_oni_domain_tests --vacuum` checks exact rest for twenty 0.2 s frames of
+500 kg water at half fill, all-zero vacuum publication, empty-cell ownership,
+body heat beside vacuum and partial water, vent expansion, full pump drainage,
+empty consumer polls and exact checkpoint/restore continuation. The measured
+vent mass error is 3.18e-16 relative; recorded relative energy error is zero.
+The full Release suite passes 76 CTests. The vacuum control and eight affected
+domain/transfer suites pass Debug ASan/UBSan, ThreadSanitizer and MinGW/Wine.
+Thirty-nine legacy/configured images and thirty-nine publications remain
+byte-identical to the clean previous revision. All 93 MAC/domain executable
+outputs match scientifically (90 raw-identical; three differ only in measured
+timing/RSS), including the current-default 256-cell wave image SHA-256
+`0363472ea13eb275789bf8a4bbce195191937731e28ae4ad2224835969d4632f`.
+Unity validation is pending.

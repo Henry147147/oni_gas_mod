@@ -63,6 +63,18 @@ internal static class ConfiguredCheckpointPayloadTests
                 }
             }
         });
+        test("void-phase configured images retain their flag and admit solver versions 9 and 10 without enabling phase change",()=> {
+            var room=ConfiguredDomainLayout.PillaredRoom();
+            foreach(var version in new[]{9U,10U}) {
+                var image=Wrapper(room.Mask,Physics.Create(PhysicsVacuum|PhysicsMixture),solverVersion:version);
+                var payload=NativeDomainCheckpointPayload.Create(Pair(image,ConfiguredGeometry()),image);
+                var restored=NativeDomainCheckpointPayload.Parse(payload.CopyEncodedData());
+                check(restored.Configured!.Physics.Flags==(PhysicsVacuum|PhysicsMixture) &&
+                    restored.PhysicalImage.SequenceEqual(image) && restored.CopyEncodedData().SequenceEqual(payload.CopyEncodedData()));
+            }
+            var phase=Wrapper(room.Mask,Physics.Create(PhysicsVacuum|PhysicsMixture),solverVersion:11);
+            reject(()=>NativeDomainCheckpointPayload.Create(Pair(phase,ConfiguredGeometry()),phase));
+        });
         test("configured wrapper exposes the exact saved geometry physics record mask and solver image",()=> {
             var room=ConfiguredDomainLayout.PillaredRoom();var image=Wrapper(room.Mask,ConfiguredDomainLayout.ScenePhysics(false));
             var value=NativeConfiguredDomainImage.Parse(image);
@@ -84,7 +96,7 @@ internal static class ConfiguredCheckpointPayloadTests
             reject(()=>NativeConfiguredDomainImage.Parse(original.Concat(new byte[]{0}).ToArray()));
             var faults=new List<System.Action<byte[]>> {
                 bad=>U(bad,8,2),bad=>U(bad,12,34),bad=>U(bad,16+32,6),bad=>U(bad,16+24,8),bad=>U(bad,16+4,1),bad=>U(bad,16+36,1),
-                bad=>U(bad,16+16,0),bad=>U(bad,16+12,15),bad=>U(bad,56,3|32),bad=>U(bad,56,3|8|16),bad=>U(bad,60,1),bad=>U(bad,92,1),
+                bad=>U(bad,16+16,0),bad=>U(bad,16+12,15),bad=>U(bad,56,3|64),bad=>U(bad,56,3|8|16),bad=>U(bad,60,1),bad=>U(bad,92,1),
                 bad=>D(bad,64,0),bad=>D(bad,64,100.5),bad=>D(bad,64,double.NaN),bad=>{U(bad,56,2);D(bad,64,-0.0);},
                 bad=>D(bad,72,.5),bad=>{U(bad,56,3|4);},bad=>{U(bad,56,3|4);D(bad,72,1001);},bad=>D(bad,80,-0.0),
                 bad=>U(bad,88,1000),bad=>bad[96+3]=2,bad=>Array.Fill(bad,(byte)1,96,35),bad=>bad[96+35]^=1,

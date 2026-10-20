@@ -384,9 +384,88 @@ void certified_thermal_intervals() {
     shutdown_domain();
     std::cout<<"PASS certified idle intervals, later conduction and restored thermal clocks\n";
 }
+void vacuum_domain() {
+    using namespace ma::oni;
+    const MAOniDomainConfig config{40,2,1,64,10,10,3,2,MA_ONI_DOMAIN_CONFIGURED_SCENARIO,0};
+    const MAOniDomainPhysics physics{40,1,MA_ONI_DOMAIN_PHYSICS_VACUUM|MA_ONI_DOMAIN_PHYSICS_MIXTURE|
+        MA_ONI_DOMAIN_PHYSICS_CONDUCTION,0,0,0,0};
+    const std::vector<std::uint8_t> mask{0,0,1,0,0,1};
+    std::vector<MAOniDomainInitialCell> input(6);
+    for (auto& cell:input) { cell.struct_size=56;cell.abi_version=1; }
+    for (const auto i:{0U,1U}) { input[i].masses[3]=500;input[i].temperature_k=300; }
+    auto start=[&](const std::vector<std::uint8_t>& image=std::vector<std::uint8_t>{},double time=0) {
+        start_configured_domain(config,physics,mask,1,image,time,image.empty() ? std::span(input) : std::span<MAOniDomainInitialCell>{});
+    };
+    auto check=[&](std::vector<MAOniDomainCell>& cells) {
+        const auto s=capture(cells);
+        if (s.state!=1) throw std::runtime_error(std::string("Vacuum domain fault: ")+s.error);
+        return s;
+    };
+    auto zero=[](const MAOniDomainCell& cell) { const MAOniDomainCell empty{};return std::memcmp(&cell,&empty,sizeof(cell))==0; };
+    start();std::vector<MAOniDomainCell> cells(6);auto status=check(cells);const auto initial=cells;
+    std::cout<<std::setprecision(17)<<"VACUUM_INITIAL water="<<cells[0].masses[3]<<" volume="<<cells[0].liquid_fraction
+        <<" pressure="<<cells[0].pressure<<" temperature="<<cells[0].temperature<<'\n';
+    require(cells[0].liquid_fraction==.5 && cells[0].pressure==0 && std::abs(cells[0].temperature-300)<=64*std::numeric_limits<double>::epsilon()*300 &&
+        zero(cells[2]) && zero(cells[3]) && zero(cells[4]) && zero(cells[5]),"Vacuum/pool publication changed its physical state");
+    require(suppress_domain_cell(MA_ONI_TEMPERATURE,11+12*66) && !suppress_domain_cell(MA_ONI_TEMPERATURE,13+11*66),
+        "Vacuum was unowned or a solid became owned");
+    const auto empty_heat=exchange_domain_chunk_heat(11+12*66,350,1,2,1,1,.2F);
+    require(empty_heat.handled && empty_heat.temperature==350 && empty_heat.delta_kj==0,"A body exchanged heat with vacuum");
+    for (std::uint64_t frame=1;frame<=20;++frame) advance_domain(frame,.2,2);
+    status=check(cells);
+    require(std::memcmp(cells.data(),initial.data(),cells.size()*sizeof(MAOniDomainCell))==0,"Water under vacuum did not stay at rest");
+    const auto saved=snapshot_domain(status.session,20);const auto time=status.time_seconds;
+    validate_configured_domain_checkpoint(config,physics,mask,saved,time);
+    const auto continued=advance_domain_snapshot(saved,.2);
+    shutdown_domain();start(saved,time);status=check(cells);
+    require(snapshot_domain(status.session,0)==saved,"Vacuum checkpoint failed its exact frame-zero restore");
+    advance_domain(1,.2,2);status=check(cells);
+    require(snapshot_domain(status.session,1)==continued,"Vacuum checkpoint did not continue exactly");
+    const auto liquid_heat=exchange_domain_chunk_heat(11+11*66,350,1,2,1,1,.2F);
+    require(liquid_heat.handled && liquid_heat.temperature<350,"A partly filled liquid did not exchange body heat");
+    advance_domain(2,.2,2);status=check(cells);
+    MAOniDomainChunkHeatStatus heat{};copy_domain_chunk_heat_status(heat);
+    require(heat.transfers==1 && heat.maximum_balance_residual_j<=heat.maximum_balance_bound_j,"Partial-liquid body heat lost its energy account");
+    const MAOniDomainActor vent{80,1,status.session,2,123,2,10+11*64,1,0,0,.03125F,.2,300,1000};
+    MAOniDomainActorStatus actors{};configure_domain_actor(vent,actors);
+    for (std::uint64_t frame=3;frame<=8;++frame) advance_domain(frame,.2,2);
+    status=check(cells);
+    require(cells[3].masses[1]>0 && cells[4].masses[1]>0 && cells[0].masses[3]>0,"Vent gas did not expand into vacuum beside the pool");
+    require(status.maximum_relative_mass_error<=1e-8 && status.maximum_relative_energy_error<=1e-6,"Vacuum vent lost conservation");
+    const auto publication=capture_domain_publication(17);
+    require(publication && publication->cells.size()==cells.size() &&
+        std::memcmp(publication->cells.data(),cells.data(),cells.size()*sizeof(MAOniDomainCell))==0,"Vacuum publication mixed completed frames");
+    std::cout<<std::setprecision(17)<<"VACUUM pool_rest_frames=20 liquid_fraction=0.5 exact_restore=1 vent_oxygen="
+        <<cells[3].masses[1]+cells[4].masses[1]<<" mass_error="<<status.maximum_relative_mass_error
+        <<" energy_error="<<status.maximum_relative_energy_error<<'\n';
+    shutdown_domain();
+    // Isolate a fluid cell so a pump can empty it completely before the next
+    // step; an empty consumer poll is a zero receipt, then a vent fills it.
+    const std::vector<std::uint8_t> isolated{0,1,1,1,1,1};
+    input[1].masses[3]=0;input[1].temperature_k=0;
+    start_configured_domain(config,physics,isolated,1,{},0,input);status=check(cells);
+    MAOniDomainTransfer pump{64,2,status.session,0,10+10*64,3,2,0,1,0,500,0};
+    MAOniDomainTransferStatus transfers{};queue_domain_transfers(&pump,1,transfers);
+    queue_domain_transfers(&pump,1,transfers);advance_domain(1,.2,2);status=check(cells);
+    require(zero(cells[0]),"A fully drained cell retained mass, U or motion");
+    std::array<MAOniDomainReceipt,4> receipts{};std::uint32_t count=0;
+    copy_domain_receipts(status,cells.data(),6,receipts.data(),4,count);
+    require(count==2 && receipts[0].mass_kg==500 && receipts[1].mass_kg==0,"Drain or empty consumer receipts changed their amounts");
+    ack_domain_receipts(status.session,receipts[count-1].sequence);
+    const auto drained=snapshot_domain(status.session,1);const auto drained_time=status.time_seconds;
+    shutdown_domain();start_configured_domain(config,physics,isolated,1,drained,drained_time);status=check(cells);
+    require(snapshot_domain(status.session,0)==drained,"A drained-vacuum checkpoint changed on restore");
+    MAOniDomainTransfer fill{64,2,status.session,0,10+10*64,1,1,0,1,0,.125,300};
+    queue_domain_transfers(&fill,1,transfers);advance_domain(1,.2,2);status=check(cells);
+    require(cells[0].masses[1]==.125 && std::abs(cells[0].temperature-300)<=64*std::numeric_limits<double>::epsilon()*300 &&
+        cells[0].pressure>0,"An emitter could not refill a drained cell");
+    shutdown_domain();
+    std::cout<<"PASS configured vacuum, resting partial water, native publication, body heat, vent expansion, full pump drainage, empty consumer and exact checkpoints\n";
+}
 }
 int main(int argc,char** argv) {
     try {
+        if (argc==2 && std::string(argv[1])=="--vacuum") { vacuum_domain();return 0; }
         if (argc==3 && std::string(argv[1])=="--read-checkpoint") {
             std::ifstream input(argv[2],std::ios::binary); require(input.good(),"Could not open the cross-platform native-domain image");
             const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>(input),{}};

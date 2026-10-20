@@ -101,7 +101,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         const bool was_empty=cell.mixture.mass() == 0;
         const double held=voids && !was_empty ? next.occupied_volumes_m3[edit.cell_index] : grid_volume;
         const auto before=thermodynamics_->evaluate(cell.mixture,held);
-        require((voids && was_empty && edit.inject) || !before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
+        require((voids && was_empty) || !before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
         const double mass=edit.inject ? edit.mass_kg : std::min(edit.mass_kg,cell.mixture.masses[edit.species_index]);
         const auto temperature=edit.inject ? edit.temperature_k : before.temperature_k;
         MacFluidParcel packet{edit.cell_index,edit.species_index,edit.inject,mass,temperature,0,{},{},{},{}};
