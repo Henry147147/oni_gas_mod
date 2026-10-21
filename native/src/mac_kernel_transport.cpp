@@ -25,6 +25,26 @@ double projected_transfer(MacEnergy value, TransferRounding& ledger) {
 }
 // Three-term sum rounded once (the reference's exact correction predictor).
 double sum3(double a, double b, double c) { DD s; s.add(a); s.add(b); s.add(c); return s.value(); }
+// A cell's liquid phases (Model::phase_of): their count and the first two.
+void count_liquid_phases(const Model& model, const Fields& f, std::size_t N, std::size_t i,
+    std::size_t& phases, std::size_t& first, std::size_t& second) {
+    for (const auto k : model.liquids) if (f.m[k * N + i] != 0) {
+        const auto phase = model.phase_of[k];
+        if (phases > 0 && phase == first) continue;
+        if (phases > 1 && phase == second) continue;
+        (phases++ == 0 ? first : second) = phase;
+    }
+}
+// A liquid phase's zero-pressure density in cell i: one present liquid's own,
+// a miscible blend's mass over its zero-pressure volume.
+double phase_density(const Model& model, const Fields& f, std::size_t N, std::size_t i, std::size_t phase) {
+    double mass = 0, volume = 0, only = 0; std::size_t members = 0;
+    for (const auto k : model.liquids) {
+        const double m = f.m[k * N + i]; if (m == 0 || model.phase_of[k] != phase) continue;
+        ++members; only = model.species[k].rho0; mass += m; volume += m / model.species[k].rho0;
+    }
+    return members == 1 ? only : mass / volume;
+}
 
 // Reference limit_mac_momentum_pair (linear heat limiter with transported
 // work budget), in binary64. Returns false when no admissible limiter exists.
@@ -105,13 +125,13 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
     auto& heavy = ws.gravity_heavy; auto& fractions = ws.gravity_fraction; const std::size_t LQ = model.liquids.size();
     alpha.assign(N, 0); total.assign(N, 0); lower.assign(N, .5); mass.assign(N, 0); heavy.assign(N, none);
     if (LQ >= 2) fractions.assign(N * LQ, 0);
-    // Phase A: all liquid beside gas; the denser of exactly two liquids without gas.
+    // Phase A: all liquid beside gas; the denser of exactly two liquid phases without gas.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             const auto stats = cell_stats(model, f, N, i); mass[i] = stats.M;
             std::size_t liquids = 0, first = 0, second = 0;
-            for (std::size_t l = 0; l < LQ; ++l) if (f.m[model.liquids[l] * N + i] != 0) (liquids++ == 0 ? first : second) = l;
+            count_liquid_phases(model, f, N, i, liquids, first, second);
             const auto pressure = [&] {
                 if (cached) return e.p[i];
                 State st;
@@ -121,7 +141,7 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
             const auto partials = [&](double p) {
                 for (std::size_t l = 0; l < LQ; ++l) {
                     const auto k = model.liquids[l]; const double m = f.m[k * N + i]; if (m == 0) continue;
-                    const auto& sp = model.species[k]; fractions[l * N + i] = m / sp.rho0 / (1 + p / sp.bulk) / g.V;
+                    const auto& sp = model.species[k]; fractions[model.phase_of[k] * N + i] += m / sp.rho0 / (1 + p / sp.bulk) / g.V;
                 }
             };
             if (stats.kind == liquid_cell) {
@@ -130,7 +150,7 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
                 if (LQ >= 2 && liquids == 1) fractions[first * N + i] = 1;
                 if (LQ < 2 || liquids != 2) continue;
                 partials(pressure());
-                const auto a = model.species[model.liquids[first]].rho0 >= model.species[model.liquids[second]].rho0 ? first : second;
+                const auto a = phase_density(model, f, N, i, first) >= phase_density(model, f, N, i, second) ? first : second;
                 heavy[i] = static_cast<Index>(a); alpha[i] = fractions[a * N + i];
             } else if (stats.kind == mixed_cell) {
                 const double p = pressure();
@@ -157,7 +177,7 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
             const double liquid_lower = interface_geometry::area_below(nx, ny, offset, -.5, .5, -.5, 0);
             double liquid_mass = 0;
             if (heavy[i] == none) { for (const auto k : model.liquids) liquid_mass += f.m[k * N + i]; }
-            else liquid_mass = f.m[model.liquids[heavy[i]] * N + i];
+            else for (const auto k : model.liquids) if (model.phase_of[k] == heavy[i]) liquid_mass += f.m[k * N + i];
             lower[i] = (liquid_mass * liquid_lower / alpha[i] + (mass[i] - liquid_mass) * (.5 - liquid_lower) / (1 - alpha[i])) / mass[i];
         }
     });
@@ -244,29 +264,30 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
                 if (g.wall[i] || e.kind[i] == empty || e.kind[i] == solid_cell || e.kind[i] == gas_cell) continue;
                 std::size_t liquids = 0, first = 0, second = 0;
-                for (std::size_t l = 0; l < LQ; ++l) if (f.m[model.liquids[l] * N + i] != 0) {
-                    present[i] |= std::uint64_t{1} << std::min<std::size_t>(l, 63); (liquids++ == 0 ? first : second) = l;
-                }
+                for (std::size_t l = 0; l < LQ; ++l) if (f.m[model.liquids[l] * N + i] != 0) present[i] |= std::uint64_t{1} << std::min<std::size_t>(l, 63);
+                count_liquid_phases(model, f, N, i, liquids, first, second);
                 const auto stats = cell_stats(model, f, N, i); State st;
                 // Each liquid's own volume at the cell pressure.
                 const auto partials = [&](double p) {
                     for (std::size_t l = 0; l < LQ; ++l) {
                         const auto k = model.liquids[l]; const double m = f.m[k * N + i]; if (m == 0) continue;
-                        const auto& sp = model.species[k]; fractions[l * N + i] = m / sp.rho0 / (1 + p / sp.bulk) / ws.Vmat[i];
+                        const auto& sp = model.species[k]; fractions[model.phase_of[k] * N + i] += m / sp.rho0 / (1 + p / sp.bulk) / ws.Vmat[i];
                     }
                 };
                 if (e.kind[i] == liquid_cell) {
                     alpha[i] = liquid_total[i] = voids ? filled[i] : 1;
                     if (several && liquids == 1) fractions[first * N + i] = 1;
-                    // Exactly two liquids: the denser one below a PLIC line.
+                    // Exactly two liquid phases: the denser one below a PLIC line.
                     if (!several || liquids != 2 || !evaluate_state(model, f, N, i, stats, f.U[i], ws.Vmat[i], st)) continue;
                     partials(st.p);
-                    const auto a = model.species[model.liquids[first]].rho0 >= model.species[model.liquids[second]].rho0 ? first : second;
+                    const auto a = phase_density(model, f, N, i, first) >= phase_density(model, f, N, i, second) ? first : second;
                     const auto b = a == first ? second : first; heavy[i] = static_cast<Index>(a);
                     alpha[i] = fractions[a * N + i]; gas_fraction[i] = fractions[b * N + i];
                     DD heavy_energy, light_energy;
-                    for (const auto& [l, sum] : {std::pair<std::size_t, DD*>{a, &heavy_energy}, {b, &light_energy}}) {
-                        const auto k = model.liquids[l]; const auto& sp = model.species[k]; const double m = f.m[k * N + i], q = st.p / sp.bulk;
+                    for (const auto k : model.liquids) {
+                        const double m = f.m[k * N + i]; if (m == 0) continue;
+                        const auto& sp = model.species[k]; const double q = st.p / sp.bulk;
+                        auto* sum = model.phase_of[k] == a ? &heavy_energy : &light_energy;
                         sum->add(m * (sp.offset + sp.cv * st.T)); sum->add(m / sp.rho0 * sp.bulk * elastic_shape(q));
                     }
                     liquid_energy[i] = heavy_energy.value(); gas_energy[i] = light_energy.value(); two_phase[i] = 1;
@@ -538,9 +559,8 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                         // gas at the headspace density, both at the donor's EOS state.
                         const double ls = liquid_scale[n], gs = gas_scale[n];
                         DD parcel_mass;
-                        const auto heavy_species = heavy[i] == none ? none : static_cast<Index>(model.liquids[heavy[i]]);
                         for (std::size_t k = 0; k < K; ++k) {
-                            const bool in_a = heavy_species == none ? !model.species[k].gas : k == heavy_species;
+                            const bool in_a = heavy[i] == none ? !model.species[k].gas : model.phase_of[k] == heavy[i];
                             pr[k] = source[k][i] * (in_a ? ls : gs); parcel_mass.add(pr[k]);
                         }
                         pr[K] = ls * liquid_energy[i] + gs * gas_energy[i];

@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -26,13 +27,19 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 16 &&
-    sizeof(MAOniColonyStatus) == 480 && sizeof(MAOniColonyCellView) == 24 && sizeof(MAOniColonyTransfer) == 40 &&
+    sizeof(MAOniColonyStatus) == 584 && sizeof(MAOniColonyCellView) == 24 && sizeof(MAOniColonyTransfer) == 40 &&
     sizeof(MAOniColonyReceipt) == 40 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
 
 namespace ma::oni::colony {
 namespace {
 using namespace experimental;
 constexpr std::uint32_t none32 = std::numeric_limits<std::uint32_t>::max();
+constexpr double phase_relaxation_time_s = 1;
+// Immiscible liquids settle with a 2 s time constant: a 1 mm droplet rises or
+// sinks through another liquid at its Stokes speed, about half a metre per
+// second for oil in water, so it crosses a cell in about two seconds.
+constexpr double settling_time_s = 2;
+constexpr double reservoir_release_kg_per_s = 50;
 void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(why); }
 
 // Unity can use FTZ/DAZ and reduced x87 precision: select the solver's
@@ -63,6 +70,7 @@ struct Published {
 // Conserved-quantity ledger: initial inventory plus every booked flow.
 struct Ledger {
     std::vector<long double> initial, injected, extracted, sunk;
+    std::vector<long double> converted; // phase change: + to the product species
     long double initial_energy = 0, heat = 0, energy_in = 0, energy_out = 0, energy_sunk = 0;
 };
 struct Session {
@@ -71,6 +79,7 @@ struct Session {
     std::shared_ptr<const Catalogue> catalogue;
     std::vector<std::uint8_t> space; // per owned cell
     std::vector<ReservoirEntry> reservoir;
+    std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
     Ledger ledger;
     MAOniColonyStatus status{};
@@ -94,7 +103,10 @@ std::vector<MAOniColonyReceipt> receipts;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
-struct ShadowCell { std::uint16_t element = 0; bool written = false; float mass = 0, temperature = 0; };
+struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false; float mass = 0, temperature = 0; };
+// A cell native froze: its liquid leaves the owner and the cell closes.
+struct Freeze { std::uint32_t public_cell, native_index; double mass_kg; };
+std::vector<Freeze> pending_freezes; // under inputs
 std::vector<ShadowCell> shadow; // native worker only
 struct NativeExchange { double heat_j = 0, mass_in_kg = 0, mass_out_kg = 0; std::uint64_t changes = 0; };
 NativeExchange exchanged; // under inputs
@@ -168,6 +180,12 @@ std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMateria
     }
     return std::make_shared<const Catalogue>(build_catalogue(std::move(elements)));
 }
+// Each pair's critical temperature from the catalogue (no liquid above it).
+std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<MacSaturationPair> pairs) {
+    for (auto& p : pairs) for (const auto& c : cat.pairs)
+        if (c.liquid == p.liquid && c.vapour == p.vapour && c.critical_k > 0) p.critical_temperature_k = c.critical_k;
+    return pairs;
+}
 MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
@@ -229,11 +247,12 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
     }
     return views;
 }
-void publish(const Session& s) {
+void publish(const Session& s, std::vector<MAOniColonyCellView> views) {
     auto p = std::make_shared<Published>();
-    p->status = s.status; p->views = project(s, *s.world); p->world = s.world; p->catalogue = s.catalogue;
+    p->status = s.status; p->views = std::move(views); p->world = s.world; p->catalogue = s.catalogue;
     std::lock_guard lock(publication); latest = std::move(p);
 }
+void publish(const Session& s) { publish(s, project(s, *s.world)); }
 void fault(Session& s, const char* why) noexcept {
     s.status.state = 2; write_error(s.status, why);
     try { auto p = std::make_shared<Published>(); p->status = s.status;
@@ -255,7 +274,8 @@ void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     owned = std::make_unique<std::atomic<std::uint8_t>[]>(owned_count);
     for (std::size_t i = 0; i < owned_count; ++i) owned[i].store(next->world->state().grid.walls[i] ? 0 : 1, std::memory_order_relaxed);
     for (auto& v : suppressed) v.store(0, std::memory_order_relaxed);
-    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); receipts.clear(); receipt_sequence = acknowledged = 0; }
+    { std::lock_guard lock(inputs); pending_transfers.clear(); pending_heat.clear(); pending_terrain.clear(); pending_freezes.clear(); receipts.clear();
+      receipt_sequence = acknowledged = 0; exchanged = {}; }
     publish(*next);
     session = std::move(next);
     enabled.store(true, std::memory_order_release);
@@ -400,6 +420,86 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     return world;
 }
 
+// Audited conversions (docs/colony-owner.md#conversions): a fluid past one of
+// its game transitions whose target is another fluid outside its own
+// liquid/vapour pair (polluted water boiling to steam, crude oil cracking to
+// petroleum) converts at the cell's temperature, 1 - exp(-dt / 1 s) of it per
+// step. A solid byproduct (salt from salt water) leaves the owner and is
+// spawned by the game as debris through a byproduct receipt. Mass moves by
+// booked transfers; the energy difference is booked with them, as the game's
+// own transitions keep the temperature.
+MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double seconds) {
+    const auto& cat = *s.catalogue; const auto& st = world.state();
+    struct Rule { std::size_t from, to; std::int32_t byproduct; double fraction; bool high; double threshold; };
+    std::vector<Rule> rules;
+    for (std::size_t k = 0; k < cat.materials.size(); ++k) {
+        const auto& g = cat.materials[k].game;
+        for (const bool high : {true, false}) {
+            const auto target = high ? g.high_target : g.low_target;
+            if (target == 0) continue;
+            std::size_t to;
+            try { to = cat.species_of_hash(target); } catch (...) { continue; } // a solid target: native freezing
+            bool pair = false;
+            for (const auto& p : s.pairs) pair = pair || (p.liquid == k && p.vapour == to) || (p.vapour == k && p.liquid == to);
+            if (pair || to == k) continue;
+            rules.push_back({k, to, high ? g.high_byproduct : g.low_byproduct, high ? g.high_byproduct_fraction : g.low_byproduct_fraction,
+                high, high ? g.high_temperature_k : g.low_temperature_k});
+        }
+    }
+    if (rules.empty()) return world;
+    const double share = 1 - std::exp(-seconds / phase_relaxation_time_s);
+    std::vector<MacFluidTransfer> edits; struct Product { std::size_t cell, species; double mass; std::int32_t byproduct; double byproduct_kg; };
+    std::vector<Product> products;
+    for (std::size_t i = 0; i < st.cells.size() && edits.size() < 4000; ++i) {
+        if (st.grid.walls[i] || s.space[i]) continue;
+        const auto& m = st.cells[i].mixture;
+        bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
+        if (!candidate) continue;
+        double t = 0;
+        try { t = cat.eos->evaluate(m, mac_material_volume(st, i)).temperature_k; } catch (...) { continue; }
+        for (const auto& r : rules) {
+            if (!(m.masses[r.from] > 0) || (r.high ? !(t > r.threshold) : !(t < r.threshold))) continue;
+            // A conversion too small to change the cell's masses in binary64
+            // waits (traces stay unconverted).
+            const double converted = m.masses[r.from] * share;
+            if (!(converted > 1e-9 * m.mass())) continue;
+            const double byproduct = r.byproduct != 0 ? converted * std::clamp(r.fraction, 0.0, 1.0) : 0;
+            edits.push_back({i, r.from, false, converted, 0});
+            products.push_back({i, r.to, converted - byproduct, r.byproduct, byproduct});
+        }
+    }
+    if (edits.empty()) return world;
+    // The cell's temperature before conversion is the products' temperature.
+    std::vector<double> temperature(edits.size());
+    for (std::size_t q = 0; q < edits.size(); ++q)
+        temperature[q] = cat.eos->evaluate(st.cells[edits[q].cell_index].mixture, mac_material_volume(st, edits[q].cell_index)).temperature_k;
+    auto& L = s.ledger;
+    auto taken = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+    world = std::move(taken.world);
+    std::vector<MacFluidTransfer> given;
+    for (std::size_t q = 0; q < products.size(); ++q) {
+        const auto& parcel = taken.parcels[q];
+        L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel);
+        s.status.converted_kg += parcel.mass_kg;
+        if (products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q]});
+        if (products[q].byproduct_kg > 0) {
+            std::lock_guard lock(inputs);
+            MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
+            r.callback = products[q].byproduct; r.kind = MA_ONI_COLONY_BYPRODUCT;
+            r.public_cell = static_cast<std::uint32_t>((s.config.offset_x + products[q].cell % s.config.width) +
+                (s.config.offset_y + products[q].cell / s.config.width) * s.config.grid_width);
+            r.mass_kg = static_cast<float>(products[q].byproduct_kg); r.temperature_k = static_cast<float>(temperature[q]);
+            receipts.push_back(r);
+        }
+    }
+    if (!given.empty()) {
+        auto result = world.with_fluid_transfers(given, MacFluidTransferTopology::occupied_mixture);
+        world = std::move(result.world);
+        for (const auto& parcel : result.parcels) { L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel); }
+    }
+    return world;
+}
+
 bool active() noexcept { return enabled.load(std::memory_order_acquire); }
 bool busy() noexcept { return solver.busy.load(std::memory_order_acquire); }
 void wait() noexcept { solver.settle(false); }
@@ -428,7 +528,8 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     next->reservoir = std::move(settled.reservoir);
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
-    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk}) v->assign(cat.registry.size(), 0);
+    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted}) v->assign(cat.registry.size(), 0);
+    next->pairs = with_critical(cat, mac_saturation_pairs(cat.registry, *cat.eos));
     activate(std::move(next), thread);
 }
 
@@ -456,6 +557,9 @@ void copy(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capa
         std::copy(p->views.begin(), p->views.end(), views);
     }
     out = p->status;
+    std::lock_guard q(inputs);
+    out.native_heat_j = exchanged.heat_j; out.native_mass_in_kg = exchanged.mass_in_kg; out.native_mass_out_kg = exchanged.mass_out_kg;
+    out.native_changes = exchanged.changes;
 }
 std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -511,7 +615,9 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
 void queue_transfers(std::span<const MAOniColonyTransfer> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
-        require((e.kind == MA_ONI_COLONY_INJECT || e.kind == MA_ONI_COLONY_EXTRACT) && e.reserved == 0 && e.radius <= 64 &&
+        const auto kind = e.kind & ~MA_ONI_COLONY_CONSUMER;
+        require(kind >= MA_ONI_COLONY_INJECT && kind <= MA_ONI_COLONY_EXTRACT_LIQUID && (kind != MA_ONI_COLONY_INJECT || kind == e.kind) &&
+            e.reserved == 0 && e.radius <= 64 &&
             std::isfinite(e.mass_kg) && e.mass_kg >= 0 && std::isfinite(e.temperature_k) && e.temperature_k >= 0, "Invalid colony transfer");
         (void)rect_index(geometry, e.public_cell);
     }
@@ -569,10 +675,11 @@ void write_shadow(const NativeCells& n) noexcept {
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
     try { shadow.assign(owned_count, ShadowCell{}); } catch (...) { return; }
     for (std::size_t i = 0; i < owned_count; ++i) {
-        if (!owned[i].load(std::memory_order_relaxed)) continue;
         const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
-        // A solid native placed this frame (a tile being built) stays native.
         const auto present = n.element[0][c];
+        shadow[i].before = present;
+        if (!owned[i].load(std::memory_order_relaxed)) continue;
+        // A solid native placed this frame (a tile being built) stays native.
         if (present != vacuum && !cat.has_native(present)) continue;
         const auto& v = p->views[i]; const bool empty = !(v.mass_kg > 0);
         auto& sh = shadow[i];
@@ -589,15 +696,30 @@ void capture_shadow(const NativeCells& n) noexcept {
     try {
         const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
         const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
-        std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; NativeExchange sum;
+        std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
+        std::vector<Freeze> froze; NativeExchange sum;
+        const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
         for (std::size_t i = 0; i < owned_count; ++i) {
-            const auto& sh = shadow[i]; if (!sh.written) continue;
+            const auto& sh = shadow[i];
             const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
             const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
-            if (e == sh.element && m == sh.mass && t == sh.temperature) continue;
-            if (e != vacuum && !cat.has_native(e)) continue; // turned solid: a terrain edit
-            if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
             const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
+            if (!sh.written) {
+                // A native solid that melted (or sublimated away) this frame:
+                // the owner opens the cell and takes its fluid.
+                if (owned[i].load(std::memory_order_relaxed) || fluid(sh.before) || !fluid(e)) continue;
+                if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
+                opened.push_back({cell, MA_ONI_COLONY_OPEN});
+                if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t}); sum.mass_in_kg += m; }
+                ++sum.changes; continue;
+            }
+            if (e == sh.element && m == sh.mass && t == sh.temperature) continue;
+            if (!fluid(e)) {
+                // Native froze the cell: its liquid leaves and the cell closes.
+                if (sh.element != vacuum && sh.mass > 0) { froze.push_back({cell, sh.element, sh.mass}); sum.mass_out_kg += sh.mass; }
+                ++sum.changes; continue;
+            }
+            if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
             ++sum.changes;
             if (e == sh.element && m == sh.mass) {
                 // ONI's own heat exchange (tiles, buildings, items, pipes) with the shadow.
@@ -626,9 +748,27 @@ void capture_shadow(const NativeCells& n) noexcept {
         }
         std::lock_guard q(inputs);
         pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
+        pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
         pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
+        pending_freezes.insert(pending_freezes.end(), froze.begin(), froze.end());
         exchanged.heat_j += sum.heat_j; exchanged.mass_in_kg += sum.mass_in_kg; exchanged.mass_out_kg += sum.mass_out_kg; exchanged.changes += sum.changes;
     } catch (...) {}
+}
+
+bool allow_native_transition(int native_cell, std::uint16_t element, float temperature) noexcept {
+    if (!owns(native_cell)) return true;
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    if (!p || !p->catalogue) return false;
+    const auto& cat = *p->catalogue;
+    if (!cat.has_native(element)) return true; // a solid native placed this frame
+    try {
+        const auto& game = cat.materials[cat.species_of_native(element)].game;
+        const std::int32_t target = temperature < game.low_temperature_k ? game.low_target : temperature > game.high_temperature_k ? game.high_target : 0;
+        if (target == 0) return false;
+        // A fluid target is the owner's (phase relaxation); a solid one native's.
+        (void)cat.species_of_hash(target);
+        return false;
+    } catch (...) { return true; }
 }
 
 bool suppress(std::uint32_t hook, int native_cell) noexcept {
@@ -638,11 +778,9 @@ bool suppress(std::uint32_t hook, int native_cell) noexcept {
     if (!nx || !ny) return false;
     const auto x = nx - 1, y = ny - 1;
     if (x < geometry.offset_x || x - geometry.offset_x >= geometry.width || y < geometry.offset_y || y - geometry.offset_y >= geometry.height) return false;
-    // Transitions, sublimation and solid post-processing stay suppressed over
-    // the whole rectangle: a native melt or fall would create fluid the owner
-    // cannot account (terrain coupling is a separate adapter).
-    const bool whole = hook == MA_ONI_STATE_TRANSITION || hook == MA_ONI_LOAD_TRANSITION || hook == MA_ONI_SUBLIMATION || hook == MA_ONI_POST_PROCESS;
-    if (!whole && !owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed)) return false;
+    // Native transitions, sublimation and post-processing act on native
+    // solids; their effect on owned cells is captured through the shadow.
+    if (!owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed)) return false;
     if (hook < suppressed.size()) suppressed[hook].fetch_add(1, std::memory_order_relaxed);
     return true;
 }
@@ -671,6 +809,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
     auto& s = *session;
+    const char* doing = "frame input"; // named in a fault
     try {
         const ArithmeticScope arithmetic;
         const auto started = std::chrono::steady_clock::now();
@@ -678,11 +817,46 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         if (!ticket || ticket <= s.status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 10)
             throw std::runtime_error("Native frame ticket or timestep is invalid");
         std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain;
-        { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); }
+        std::vector<Freeze> freezes;
+        { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes); }
         auto world = *s.world;
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
+        auto mark = std::chrono::steady_clock::now(); double stage[6]{};
+        const auto lap = [&](int k) { const auto now = std::chrono::steady_clock::now(); stage[k] = std::chrono::duration<double, std::milli>(now - mark).count(); mark = now; };
+        // Frozen cells: the liquid native turned solid leaves, then the cell closes.
+        doing = "freezing";
+        if (!freezes.empty()) {
+            std::vector<MacFluidTransfer> taken; const auto& st = world.state();
+            for (const auto& f : freezes) {
+                const auto i = rect_index(s.config, f.public_cell);
+                if (st.grid.walls[i] || !cat.has_native(f.native_index)) continue;
+                // Native froze the cell's whole projected liquid (binary32 of the
+                // owner's mass): all of it leaves, so no rounding residue remains.
+                const auto k = cat.species_of_native(f.native_index);
+                const auto& held = st.cells[i].mixture;
+                const double mass = held.masses[k];
+                // Traces beside the liquid would keep only rounding residue of
+                // the cell's energy: they leave with it, the liquid last, so the
+                // last removal takes exactly what is stored. A real headspace
+                // stays and is displaced when the cell closes.
+                if (held.mass() - mass <= 1e-6 * held.mass())
+                    for (std::size_t q = 0; q < held.masses.size(); ++q)
+                        if (q != k && held.masses[q] > 0 && taken.size() < 4096) taken.push_back({i, q, false, held.masses[q], 0});
+                if (mass > 0 && taken.size() < 4096) taken.push_back({i, k, false, mass, 0});
+                terrain.insert(terrain.begin(), MAOniColonyTerrain{f.public_cell, MA_ONI_COLONY_CLOSE});
+            }
+            if (!taken.empty()) {
+                auto result = world.with_fluid_transfers(taken, MacFluidTransferTopology::occupied_mixture);
+                world = std::move(result.world);
+                for (const auto& parcel : result.parcels) {
+                    L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel); s.status.extracted_kg += parcel.mass_kg;
+                }
+            }
+        }
+        doing = "terrain";
         if (!terrain.empty()) world = apply_terrain(s, std::move(world), terrain);
+        lap(0); doing = "heat";
         // Heat edits.
         for (std::size_t first = 0; first < heat.size(); first += 4096) {
             std::vector<MacCellHeat> edits;
@@ -695,15 +869,80 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             if (!edits.empty()) world = world.with_cell_heat(edits);
             s.status.committed_heat += edits.size();
         }
-        // Transfers: plan against the current state, then one atomic batch.
+        lap(1); doing = "reservoir";
+        // Reservoir release: liquid booked at import (it did not fit its
+        // sealed pocket) or from a sealed closing seeps back once there is room
+        // near its anchor, at most reservoir_release_kg_per_s, at its own
+        // temperature. The anchor's open cells within three take it, the cell
+        // with the least liquid first.
+        if (!s.reservoir.empty()) {
+            const auto& st = world.state(); std::vector<MacFluidTransfer> released; std::vector<std::size_t> from;
+            const auto& eos_materials = cat.eos->reference().materials();
+            for (std::size_t e = 0; e < s.reservoir.size() && released.size() < 4096; ++e) {
+                auto& entry = s.reservoir[e];
+                if (!(entry.mass_kg > 0)) continue;
+                const auto order = nearby(st, entry.region_cell, 3);
+                std::size_t best = SIZE_MAX; double best_volume = 2;
+                for (const auto i : order) {
+                    if (s.space[i]) continue;
+                    double liquid = 0; const auto& m = st.cells[i].mixture;
+                    for (std::size_t k = 0; k < m.masses.size(); ++k) if (!cat.materials[k].game.gas && m.masses[k] > 0)
+                        liquid += m.masses[k] / eos_materials[k].zero_pressure_density_kg_per_m3;
+                    if (liquid < best_volume) { best_volume = liquid; best = i; }
+                }
+                const bool gas = cat.materials[entry.species].game.gas;
+                if (best == SIZE_MAX || (!gas && best_volume > .9)) continue;
+                double mass = std::min(entry.mass_kg, reservoir_release_kg_per_s * seconds);
+                if (!gas) mass = std::min(mass, (.95 - best_volume) * eos_materials[entry.species].zero_pressure_density_kg_per_m3);
+                if (!(mass > 0)) continue;
+                released.push_back({best, entry.species, true, mass, entry.temperature_k}); from.push_back(e);
+            }
+            if (!released.empty()) {
+                auto result = world.with_fluid_transfers(released, MacFluidTransferTopology::occupied_mixture);
+                world = std::move(result.world);
+                for (std::size_t q = 0; q < result.parcels.size(); ++q) {
+                    const auto& parcel = result.parcels[q];
+                    L.injected[parcel.species_index] += parcel.mass_kg; L.energy_in += parcel_energy(parcel);
+                    s.reservoir[from[q]].mass_kg -= parcel.mass_kg; s.status.reservoir_kg -= parcel.mass_kg;
+                    s.status.released_kg += parcel.mass_kg;
+                }
+                std::erase_if(s.reservoir, [](const ReservoirEntry& r) { return !(r.mass_kg > 1e-9); });
+            }
+        }
+        doing = "transfers";
+        // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
         for (const auto& t : transfers) {
             const auto centre = rect_index(s.config, t.public_cell);
+            const auto& st = world.state();
+            const auto kind = t.kind & ~MA_ONI_COLONY_CONSUMER;
+            if (kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID) {
+                // A phase's mixture (a pump or an any-gas consumer): the cells'
+                // totals of that phase, nearest first, each cell's share split
+                // over its constituents by mass.
+                const bool gas = kind == MA_ONI_COLONY_EXTRACT_GAS;
+                const auto order = nearby(st, centre, t.radius);
+                std::vector<double> available(st.cells.size());
+                for (const auto i : order) for (std::size_t k = 0; k < cat.materials.size(); ++k)
+                    if (cat.materials[k].game.gas == gas) available[i] += st.cells[i].mixture.masses[k];
+                const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                const auto first = edits.size();
+                for (const auto& a : plan.allocations) {
+                    const auto& m = st.cells[a.cell].mixture;
+                    for (std::size_t k = 0; k < cat.materials.size(); ++k)
+                        if (cat.materials[k].game.gas == gas && m.masses[k] > 0) {
+                            // All of a cell's phase leaves together, traces included.
+                            const double share = a.mass >= available[a.cell] ? m.masses[k] : a.mass * (m.masses[k] / available[a.cell]);
+                            if (share > 0) edits.push_back({a.cell, k, false, share, 0});
+                        }
+                }
+                plans.push_back({first, edits.size() - first, &t});
+                continue;
+            }
             if (!cat.has_native(t.native_index)) { plans.push_back({edits.size(), 0, &t}); continue; }
             const auto k = cat.species_of_native(t.native_index);
-            const auto& st = world.state();
-            if (t.kind == MA_ONI_COLONY_INJECT) {
+            if (kind == MA_ONI_COLONY_INJECT) {
                 const auto order = nearby(st, centre, 2);
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
                 plans.push_back({edits.size(), 1, &t}); edits.push_back({order.front(), k, true, t.mass_kg, t.temperature_k});
@@ -716,37 +955,88 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 for (const auto& a : plan.allocations) edits.push_back({a.cell, k, false, a.mass, 0});
             }
         }
-        if (!edits.empty()) {
-            auto result = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
+        std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
+        for (std::size_t first = 0; first < edits.size(); first += 4096) {
+            const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
+            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
             world = std::move(result.world);
+            parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
+        }
+        if (!plans.empty()) {
             std::lock_guard q(inputs);
+            const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t) {
+                MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
+                r.callback = t.callback; r.kind = t.kind; r.native_index = native_index; r.public_cell = t.public_cell;
+                r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
+                receipts.push_back(r);
+            };
             for (const auto& p : plans) {
-                long double mass = 0, heat_capacity_t = 0;
+                std::map<std::size_t, std::pair<long double, long double>> by_species; // mass, sum m T
                 for (std::size_t e = p.first; e < p.first + p.count; ++e) {
-                    const auto& parcel = result.parcels[e];
-                    mass += parcel.mass_kg; heat_capacity_t += parcel.mass_kg * parcel.temperature_k;
+                    const auto& parcel = parcels[e];
+                    auto& entry = by_species[parcel.species_index];
+                    entry.first += parcel.mass_kg; entry.second += parcel.mass_kg * parcel.temperature_k;
                     (parcel.injected ? L.injected : L.extracted)[parcel.species_index] += parcel.mass_kg;
                     (parcel.injected ? L.energy_in : L.energy_out) += parcel_energy(parcel);
                     (parcel.injected ? s.status.injected_kg : s.status.extracted_kg) += parcel.mass_kg;
                 }
                 ++s.status.committed_transfers;
                 if (p.source->callback < 0) continue;
-                MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
-                r.callback = p.source->callback; r.kind = p.source->kind; r.native_index = p.source->native_index; r.public_cell = p.source->public_cell;
-                r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
-                receipts.push_back(r);
-            }
-        } else if (!plans.empty()) {
-            std::lock_guard q(inputs);
-            for (const auto& p : plans) if (p.source->callback >= 0) {
-                MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
-                r.callback = p.source->callback; r.kind = p.source->kind; r.native_index = p.source->native_index; r.public_cell = p.source->public_cell;
-                receipts.push_back(r);
+                const auto kind = p.source->kind & ~MA_ONI_COLONY_CONSUMER;
+                const bool phase = kind == MA_ONI_COLONY_EXTRACT_GAS || kind == MA_ONI_COLONY_EXTRACT_LIQUID;
+                if (!phase) {
+                    long double mass = 0, heat_capacity_t = 0;
+                    for (const auto& [k, entry] : by_species) { mass += entry.first; heat_capacity_t += entry.second; }
+                    receipt(*p.source, p.source->native_index, mass, heat_capacity_t);
+                } else if (by_species.empty()) receipt(*p.source, geometry.vacuum_index, 0, 0);
+                // A mixture leaves one receipt per constituent.
+                else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second);
             }
         }
-        // Flow.
-        auto advanced = world.advanced(seconds, 65536, MacExecutionPolicy::production);
+        lap(2); doing = "flow";
+        // Flow. A debugging request (MA_COLONY_FAULT_DUMP=path) writes the
+        // world before a failing flow step and the material records there.
+        // MA_COLONY_DUMP_FRAME=n also writes the world before frame n's flow.
+        const auto dump = [&](const char* path) {
+            if (std::FILE* f = path ? std::fopen(path, "wb") : nullptr) {
+                const auto image = world.checkpoint(); const auto count = static_cast<std::uint32_t>(s.materials.size());
+                std::fwrite(&count, 4, 1, f); std::fwrite(s.materials.data(), sizeof(MAOniColonyMaterial), count, f);
+                std::fwrite(&seconds, 8, 1, f); std::fwrite(image.data(), 1, image.size(), f); std::fclose(f);
+            }
+        };
+        if (const char* frame = std::getenv("MA_COLONY_DUMP_FRAME"); frame && s.status.completed_frames + 1 == std::strtoull(frame, nullptr, 10))
+            dump(std::getenv("MA_COLONY_FAULT_DUMP"));
+        std::optional<MacClosedAdvance> flowed;
+        try { flowed.emplace(world.advanced(seconds, 65536, MacExecutionPolicy::production)); }
+        catch (...) { dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
+        auto advanced = std::move(*flowed);
         world = std::move(advanced.world);
+        // Phase change (the production kernel has none): each cell holding a
+        // liquid/vapour pair relaxes toward saturation at fixed U and volume.
+        doing = "phase change";
+        if (!s.pairs.empty()) {
+            const auto before = totals(world);
+            try {
+                // First-order relaxation with a 1 s time constant: a cell moves
+                // 1 - exp(-dt / 1 s) of the way to equilibrium per frame, so a
+                // superheated pool boils over seconds instead of flashing.
+                auto relaxed = world.with_phase_relaxation(s.pairs, 1 - std::exp(-seconds / phase_relaxation_time_s));
+                if (relaxed.report.evaporated_kg + relaxed.report.condensed_kg > 0) {
+                    const auto after = totals(relaxed.world);
+                    for (std::size_t k = 0; k < after.size(); ++k) L.converted[k] += after[k] - before[k];
+                    s.status.evaporated_kg += relaxed.report.evaporated_kg; s.status.condensed_kg += relaxed.report.condensed_kg;
+                }
+                world = std::move(relaxed.world);
+            } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
+        }
+        doing = "settling";
+        try {
+            auto settled = world.with_liquid_settling(std::min(.25, 1 - std::exp(-seconds / settling_time_s)));
+            s.status.settled_kg += settled.report.moved_kg; world = std::move(settled.world);
+        } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
+        doing = "conversions";
+        world = convert_identities(s, std::move(world), seconds);
+        lap(3); doing = "space sink";
         // Open sky: whatever reaches a space cell leaves through the sink.
         std::vector<MacFluidTransfer> sink;
         for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i]) {
@@ -759,12 +1049,13 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             world = std::move(result.world);
             for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
         }
+        lap(4); doing = "ledger";
         // Ledgers close: every species and U+K+G against the booked flows.
         const auto now = totals(world);
         double mass_error = 0;
         for (std::size_t k = 0; k < now.size(); ++k) {
-            const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k];
-            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k];
+            const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] + L.converted[k];
+            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + std::abs(L.converted[k]);
             if (scale > 0) mass_error = std::max(mass_error, static_cast<double>(std::abs(now[k] - expected) / scale));
             else if (now[k] != 0) throw std::runtime_error("The colony created an unbooked constituent");
         }
@@ -781,8 +1072,10 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
         s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);
-        publish(s);
-    } catch (const std::exception& error) { fault(s, error.what()); }
+        auto views = project(s, *s.world);
+        lap(5); std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
+        publish(s, std::move(views));
+    } catch (const std::exception& error) { fault(s, (std::string(doing) + ": " + error.what()).c_str()); }
       catch (...) { fault(s, "Unknown colony advance failure"); }
 }
 }
@@ -807,8 +1100,10 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
-// Version 2: the stored status gained the native exchange counters.
-constexpr std::uint32_t checkpoint_version = 2;
+// Version 5 adds the inputs queued at the save; version 4 the phase-change
+// conversion ledger; version 3 stored the continuing counters explicitly
+// (version 2 the raw status struct).
+constexpr std::uint32_t checkpoint_version = 5;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -823,9 +1118,32 @@ std::vector<std::uint8_t> checkpoint() {
     w.u32(static_cast<std::uint32_t>(s.reservoir.size()));
     for (const auto& r : s.reservoir) { w.u64(r.region_cell); w.u64(r.species); w.f64(r.mass_kg); w.f64(r.temperature_k); }
     const auto& L = s.ledger;
-    for (const auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk}) for (const auto x : *v) w.ld(x);
+    for (const auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk, &L.converted}) for (const auto x : *v) w.ld(x);
     for (const auto x : {L.initial_energy, L.heat, L.energy_in, L.energy_out, L.energy_sunk}) w.ld(x);
-    w.raw(&s.status, sizeof(s.status));
+    // Counters that continue across a save; the status layout itself is not stored.
+    for (const auto v : {s.status.completed_frames, s.status.substeps, s.status.rejected_attempts, s.status.committed_transfers,
+                         s.status.committed_heat, s.status.opened_cells, s.status.closed_cells}) w.u64(v);
+    for (const auto v : {s.status.maximum_relative_mass_error, s.status.maximum_relative_energy_error, s.status.space_sink_kg,
+                         s.status.injected_kg, s.status.extracted_kg, s.status.evaporated_kg, s.status.condensed_kg}) w.f64(v);
+    // Inputs queued for the next step are in flight at the save. Callbacks do
+    // not survive a load: an extraction answering one (a breath, a consumer)
+    // is dropped and asked again after the load; an injection (exhaled gas, an
+    // emitter's output) and native-side changes without callbacks are kept.
+    std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
+    {
+        std::lock_guard q(inputs);
+        for (auto t : pending_transfers) {
+            const bool answered = t.callback >= 0 || (t.kind & MA_ONI_COLONY_CONSUMER) != 0;
+            if (answered && (t.kind & ~MA_ONI_COLONY_CONSUMER) != MA_ONI_COLONY_INJECT) continue;
+            t.callback = -1; t.kind &= ~MA_ONI_COLONY_CONSUMER; transfers.push_back(t);
+        }
+        heat = pending_heat; terrain = pending_terrain; freezes = pending_freezes;
+    }
+    w.u32(static_cast<std::uint32_t>(transfers.size())); w.raw(transfers.data(), transfers.size() * sizeof(MAOniColonyTransfer));
+    w.u32(static_cast<std::uint32_t>(heat.size())); w.raw(heat.data(), heat.size() * sizeof(MAOniColonyHeat));
+    w.u32(static_cast<std::uint32_t>(terrain.size())); w.raw(terrain.data(), terrain.size() * sizeof(MAOniColonyTerrain));
+    w.u32(static_cast<std::uint32_t>(freezes.size()));
+    for (const auto& f : freezes) { w.u32(f.public_cell); w.u32(f.native_index); w.f64(f.mass_kg); }
     const auto image = s.world->checkpoint();
     w.u64(image.size()); w.raw(image.data(), image.size());
     const auto digest = hash_memory(w.bytes.data(), w.bytes.size());
@@ -856,9 +1174,22 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
         require(e.species < next->catalogue->registry.size(), "Colony checkpoint reservoir names an unknown species"); next->reservoir.push_back(e);
     }
     const auto K = next->catalogue->registry.size(); auto& L = next->ledger;
-    for (auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk}) { v->resize(K); for (auto& x : *v) x = r.ld(); }
+    for (auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk, &L.converted}) { v->resize(K); for (auto& x : *v) x = r.ld(); }
+    next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
     for (auto* x : {&L.initial_energy, &L.heat, &L.energy_in, &L.energy_out, &L.energy_sunk}) *x = r.ld();
-    MAOniColonyStatus saved_status{}; r.raw(&saved_status, sizeof(saved_status));
+    MAOniColonyStatus saved_status{};
+    for (auto* v : {&saved_status.completed_frames, &saved_status.substeps, &saved_status.rejected_attempts, &saved_status.committed_transfers,
+                    &saved_status.committed_heat, &saved_status.opened_cells, &saved_status.closed_cells}) *v = r.u64();
+    for (auto* v : {&saved_status.maximum_relative_mass_error, &saved_status.maximum_relative_energy_error, &saved_status.space_sink_kg,
+                    &saved_status.injected_kg, &saved_status.extracted_kg, &saved_status.evaporated_kg, &saved_status.condensed_kg}) *v = r.f64();
+    const auto read_array = [&](auto& out) {
+        const auto n = r.u32(); require(n <= 1u << 20, "Colony checkpoint holds too many queued inputs");
+        out.resize(n); r.raw(out.data(), n * sizeof(out[0]));
+    };
+    std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain; std::vector<Freeze> freezes;
+    read_array(transfers); read_array(heat); read_array(terrain);
+    freezes.resize(r.u32()); require(freezes.size() <= 1u << 20, "Colony checkpoint holds too many queued inputs");
+    for (auto& f : freezes) { f.public_cell = r.u32(); f.native_index = r.u32(); f.mass_kg = r.f64(); }
     const auto physical = r.u64(); require(physical == r.bytes.size() - r.at, "Colony checkpoint physical image length differs");
     next->world = std::make_shared<const MacClosedWorld>(MacClosedWorld::from_checkpoint(next->catalogue->registry, next->catalogue->eos,
         r.bytes.subspan(r.at, static_cast<std::size_t>(physical))));
@@ -869,6 +1200,12 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     st.committed_transfers = saved_status.committed_transfers; st.committed_heat = saved_status.committed_heat;
     st.maximum_relative_mass_error = saved_status.maximum_relative_mass_error; st.maximum_relative_energy_error = saved_status.maximum_relative_energy_error;
     st.space_sink_kg = saved_status.space_sink_kg; st.injected_kg = saved_status.injected_kg; st.extracted_kg = saved_status.extracted_kg;
+    st.opened_cells = saved_status.opened_cells; st.closed_cells = saved_status.closed_cells;
+    st.evaporated_kg = saved_status.evaporated_kg; st.condensed_kg = saved_status.condensed_kg;
+    {
+        std::lock_guard q(inputs);
+        pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);
+    }
     publish(*session);
 }
 }

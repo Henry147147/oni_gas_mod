@@ -31,6 +31,8 @@ namespace MixedAtmospheres.Oni
         public int TimeoutSeconds = 600;
         public string Seed = "147147";
         public string ColonyName = "MA Visual Test";
+        // colony-owner only: one in-game system check (ColonyScenarios).
+        public string Scenario = "";
         // Ten ONI cycles are about 30,000 native frames of 0.2 s. A long run is
         // a separate explicit request with its own limits and bounded evidence,
         // never a silent widening of the short fixture controls above.
@@ -44,6 +46,8 @@ namespace MixedAtmospheres.Oni
         internal const int MinimumFrames = 1, MaximumFrames = 10000, MaximumLongRunFrames = 100000;
         internal const int MinimumTimeoutSeconds = 30, MaximumTimeoutSeconds = 7200, MaximumLongRunTimeoutSeconds = 48 * 3600;
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
+        internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes",
+            "door", "sublimation", "falling", "breathing" };
         internal static readonly string[] Modes =
         {
             "snapshot-copy", "native-observer", "native-import-domain", "native-liquid-import-domain", "native-domain",
@@ -84,6 +88,9 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (!string.IsNullOrEmpty(configuration.Scenario) &&
+                (configuration.Mode != "colony-owner" || configuration.Scenario.Split(',').Any(name => !Scenarios.Contains(name, StringComparer.Ordinal))))
+                throw new InvalidDataException("A colony scenario needs the colony-owner mode and one of: " + string.Join(", ", Scenarios) + ".");
             if (!longRun && (configuration.CompletedFrames > MaximumFrames || configuration.TimeoutSeconds > MaximumTimeoutSeconds))
                 throw new InvalidDataException("More than " + MaximumFrames + " frames or " + MaximumTimeoutSeconds +
                     " seconds requires the explicit LongRun opt-in.");

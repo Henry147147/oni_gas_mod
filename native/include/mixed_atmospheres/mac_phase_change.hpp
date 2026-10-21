@@ -1,6 +1,7 @@
 #pragma once
 #include "mac_transport.hpp"
 #include "fluid_thermodynamics.hpp"
+#include <limits>
 
 namespace ma::experimental {
 // A liquid constituent and its vapour (registry indices, same composition and
@@ -8,7 +9,9 @@ namespace ma::experimental {
 // equilibrium (equal specific Gibbs energy) at a reference saturation point,
 // so the saturation curve follows from the EOS itself (Clausius-Clapeyron with
 // the EOS's own temperature-dependent latent heat).
-struct MacSaturationPair { std::size_t liquid = 0, vapour = 0; };
+// critical_temperature_k: at or above it the pair has no liquid (none
+// condenses, and liquid evaporates); infinity keeps every temperature.
+struct MacSaturationPair { std::size_t liquid = 0, vapour = 0; double critical_temperature_k = std::numeric_limits<double>::infinity(); };
 // The vapour entropy offset that puts liquid and vapour in equilibrium at the
 // given temperature and pressure (liquid entropy offset zero).
 [[nodiscard]] double mac_saturation_entropy_offset(const ReferenceMaterial& liquid, const ReferenceMaterial& vapour,
@@ -54,6 +57,8 @@ struct MacPhaseChangeAdvance { MacTransportState state; MacPhaseChangeReport rep
 // With skip_sharp_interfaces, cells that sharp-interface boiling converts
 // (mac_interface_phase_fraction, mac_interface_vapour_fraction) are left as
 // they are.
+// With fraction < 1 each cell moves only that fraction of the way to
+// equilibrium (a first-order relaxation over the caller's interval).
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry&, const FluidThermodynamics&,
-    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false);
+    const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1);
 }

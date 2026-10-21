@@ -13,6 +13,31 @@
 namespace ma::experimental {
 namespace {
 constexpr auto none = std::numeric_limits<std::size_t>::max();
+// Each EOS profile's liquid phase: the first liquid profile of its nonzero
+// group (SpeciesDefinition::liquid_phase_group), else itself.
+std::vector<std::size_t> liquid_phases(const SpeciesRegistry& registry, const std::vector<std::size_t>& profile_registry,
+    const std::vector<bool>& liquid) {
+    std::vector<std::size_t> rep(profile_registry.size());
+    for (std::size_t k = 0; k < rep.size(); ++k) {
+        rep[k] = k;
+        const auto group = registry[profile_registry[k]].liquid_phase_group;
+        if (!liquid[profile_registry[k]] || group == 0) continue;
+        for (std::size_t q = 0; q < k; ++q)
+            if (liquid[profile_registry[q]] && registry[profile_registry[q]].liquid_phase_group == group) { rep[k] = q; break; }
+    }
+    return rep;
+}
+// A liquid phase's zero-pressure density: one present liquid's own, a
+// miscible blend's mass over its zero-pressure volume.
+double phase_density(const MixtureInventory& mixture, const std::vector<std::size_t>& profile_registry,
+    const std::vector<double>& density, const std::vector<std::size_t>& rep, std::size_t phase) {
+    double mass = 0, volume = 0, only = 0; std::size_t members = 0;
+    for (std::size_t k = 0; k < profile_registry.size(); ++k) {
+        const double m = mixture.masses[profile_registry[k]]; if (!(m > 0) || rep[k] != phase) continue;
+        ++members; only = density[k]; mass += m; volume += m / density[k];
+    }
+    return members == 1 ? only : mass / volume;
+}
 constexpr double eps = std::numeric_limits<double>::epsilon();
 void require(bool ok, const char* why) { if (!ok) throw std::invalid_argument(why); }
 struct Sum {
@@ -147,6 +172,11 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
         const auto index = registry.index(material.id); profile_registry.push_back(index);
         liquid[index] = material.phase == ReferencePhase::elastic_liquid; profile_density.push_back(material.zero_pressure_density_kg_per_m3);
     }
+    // Liquids of one nonzero group are one phase, named by its first profile.
+    const auto phase_rep = liquid_phases(registry, profile_registry, liquid);
+    std::vector<std::size_t> profile_of(species, none);
+    for (std::size_t k = 0; k < profile_registry.size(); ++k) profile_of[profile_registry[k]] = k;
+    std::vector<std::vector<double>> phase_fraction(count);
     // Two cells hold the same liquids when the same liquid constituents are present.
     const auto same_liquids = [&](std::size_t a, std::size_t b) {
         for (std::size_t k = 0; k < profile_registry.size(); ++k) {
@@ -168,14 +198,20 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
                 alpha[i] = liquid_total[i] = eos.liquid_volume_m3 / volumes[i]; gas_fraction[i] = eos.gas_volume_m3 / volumes[i];
                 const bool gas = eos.has_gas && eos.gas_volume_m3 > 0;
                 two_phase[i] = eos.liquid_volume_m3 > 0 && gas;
-                liquid_fraction[i].assign(profile_registry.size(), 0); std::size_t liquids = 0, first = none, second = none;
+                liquid_fraction[i].assign(profile_registry.size(), 0); phase_fraction[i].assign(profile_registry.size(), 0);
+                std::size_t liquids = 0, first = none, second = none;
                 for (std::size_t k = 0; k < profile_registry.size(); ++k) if (liquid[profile_registry[k]] && eos.partial_volumes_m3[k] > 0) {
-                    liquid_fraction[i][k] = eos.partial_volumes_m3[k] / volumes[i]; (liquids++ == 0 ? first : second) = k;
+                    liquid_fraction[i][k] = eos.partial_volumes_m3[k] / volumes[i]; phase_fraction[i][phase_rep[k]] += liquid_fraction[i][k];
+                    const auto phase = phase_rep[k];
+                    if (!(liquids > 0 && phase == first) && !(liquids > 1 && phase == second)) (liquids++ == 0 ? first : second) = phase;
                 }
                 if (!gas && liquids == 2) {
-                    const auto a = profile_density[first] >= profile_density[second] ? first : second, b = a == first ? second : first;
+                    const auto density = [&](std::size_t phase) {
+                        return phase_density(source.cells[i].mixture, profile_registry, profile_density, phase_rep, phase);
+                    };
+                    const auto a = density(first) >= density(second) ? first : second, b = a == first ? second : first;
                     heavy[i] = profile_registry[a]; heavy_profile[i] = a; two_phase[i] = true;
-                    alpha[i] = liquid_fraction[i][a]; gas_fraction[i] = liquid_fraction[i][b];
+                    alpha[i] = phase_fraction[i][a]; gas_fraction[i] = phase_fraction[i][b];
                 }
                 if (two_phase[i]) {
                     specific[i].assign(species, 0);
@@ -376,7 +412,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const auto fraction = [&](std::size_t cell) {
                 if (cell == none) return alpha[i];
                 if (heavy[i] == none) return liquid_total[cell];
-                return liquid_fraction[cell].empty() ? 0. : liquid_fraction[cell][heavy_profile[i]];
+                return phase_fraction[cell].empty() ? 0. : phase_fraction[cell][heavy_profile[i]];
             };
             const auto diagonal = [&](std::size_t cell, int dy) { return cell == none ? none : neighbor(cell, 1, dy); };
             const double a[3][3] = {{fraction(diagonal(adjacent[0], -1)), fraction(adjacent[0]), fraction(diagonal(adjacent[0], 1))},
@@ -448,7 +484,7 @@ MacParcelPlan reconstruct(const SpeciesRegistry& registry, const FluidThermodyna
             const auto& from = source.cells[i];
             Sum energy, total;
             for (std::size_t s = 0; s < species; ++s) {
-                const bool in_a = heavy[i] == none ? liquid[s] : s == heavy[i];
+                const bool in_a = heavy[i] == none ? liquid[s] : liquid[s] && phase_rep[profile_of[s]] == heavy_profile[i];
                 const double amount = from.mixture.masses[s] * (in_a ? liquid_scale[slot] : gas_scale[slot]);
                 cell.mixture.masses[s] = amount; energy.add(amount * specific[i][s]); total.add(amount);
             }
@@ -567,8 +603,9 @@ std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry& registr
         profile_registry.push_back(registry.index(material.id)); density.push_back(material.zero_pressure_density_kg_per_m3);
         liquid[profile_registry.back()] = material.phase == ReferencePhase::elastic_liquid;
     }
+    const auto phase_rep = liquid_phases(registry, profile_registry, liquid);
     // Phase A fraction (all liquid beside gas; the denser of exactly two
-    // liquids without gas) and each liquid's volume fraction.
+    // liquid phases without gas) and each liquid phase's volume fraction.
     std::vector<double> alpha(count, 0), total(count, 0), mass(count, 0), lower(count, .5);
     std::vector<std::vector<double>> fractions(count); std::vector<std::size_t> heavy(count, none);
     for (std::size_t i = 0; i < count; ++i) {
@@ -578,10 +615,12 @@ std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry& registr
         const auto eos = model.evaluate(m, volume); alpha[i] = total[i] = eos.liquid_volume_m3 / volume;
         fractions[i].assign(profile_registry.size(), 0); std::size_t liquids = 0, first = none, second = none;
         for (std::size_t k = 0; k < profile_registry.size(); ++k) if (liquid[profile_registry[k]] && eos.partial_volumes_m3[k] > 0) {
-            fractions[i][k] = eos.partial_volumes_m3[k] / volume; (liquids++ == 0 ? first : second) = k;
+            const auto phase = phase_rep[k]; fractions[i][phase] += eos.partial_volumes_m3[k] / volume;
+            if (!(liquids > 0 && phase == first) && !(liquids > 1 && phase == second)) (liquids++ == 0 ? first : second) = phase;
         }
         if (!(eos.has_gas && eos.gas_volume_m3 > 0) && liquids == 2) {
-            heavy[i] = density[first] >= density[second] ? first : second; alpha[i] = fractions[i][heavy[i]];
+            const auto dense = [&](std::size_t phase) { return phase_density(m, profile_registry, density, phase_rep, phase); };
+            heavy[i] = dense(first) >= dense(second) ? first : second; alpha[i] = fractions[i][heavy[i]];
         }
     }
     for (std::size_t i = 0; i < count; ++i) {
@@ -602,7 +641,8 @@ std::vector<double> mac_interface_gravity_weights(const SpeciesRegistry& registr
         const double liquid_lower = interface_geometry::area_below(nx, ny, offset, -.5, .5, -.5, 0);
         double liquid_mass = 0;
         if (heavy[i] == none) { for (std::size_t s = 0; s < registry.size(); ++s) if (liquid[s]) liquid_mass += state.cells[i].mixture.masses[s]; }
-        else liquid_mass = state.cells[i].mixture.masses[profile_registry[heavy[i]]];
+        else for (std::size_t k = 0; k < profile_registry.size(); ++k)
+            if (liquid[profile_registry[k]] && phase_rep[k] == heavy[i]) liquid_mass += state.cells[i].mixture.masses[profile_registry[k]];
         lower[i] = (liquid_mass * liquid_lower / alpha[i] + (mass[i] - liquid_mass) * (.5 - liquid_lower) / (1 - alpha[i])) / mass[i];
     }
     std::vector<double> weight(g.width * g.y_height(), 0);

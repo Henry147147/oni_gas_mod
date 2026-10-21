@@ -1,5 +1,6 @@
 #include "mac_fixture.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
+#include "mixed_atmospheres/thermal.hpp"
 #include <bit>
 #include <iomanip>
 
@@ -169,11 +170,35 @@ void checkpoints_and_threads() {
         "Unresolved expansion depends on the execution thread count");
     std::cout << "SUBCELL threads=1,12 events=" << a.report.subcell_void_events << " exact_continuation=1\n";
 }
+// A near-vacuum gas cell (what expansion into void leaves) beside a thin gas
+// conducts at most its free-molecular limit; at full gas conductivity its heat
+// capacity sat below what its face temperatures resolve and rounding drove its
+// temperature negative.
+void rarefied_conduction() {
+    const auto& s = setup();
+    require(ma::free_molecular_conductivity(1.2 * 718, 1, 300, 0.029, 1) > 1e5 * 0.026, "Continuum air reached the free-molecular cap");
+    MacTransportState state;
+    state.grid = {3, 1, 1, 1, false, false, std::vector<std::uint8_t>(3, 0)};
+    const double masses[3] = {5e-25, 3e-9, 1e-8}, temperatures[3] = {2760, 2208, 1918};
+    for (std::size_t i = 0; i < 3; ++i) {
+        MixtureInventory gas(s.registry.size()); gas.masses[s.registry.index("oxygen")] = masses[i];
+        state.cells.push_back({s.eos->initialize_at_temperature(gas.masses, temperatures[i], 1).mixture, {}});
+    }
+    const auto inertia = mac_face_inertias(s.registry, state, *s.eos);
+    state.momentum_x.assign(inertia.x.size(), 0); state.momentum_y.assign(inertia.y.size(), 0);
+    auto conducting = settings(); conducting.thermal_conduction = true;
+    const MacClosedWorld world(s.registry, s.eos, state, conducting);
+    const auto changed = world.advanced(0.2);
+    const auto t = s.eos->evaluate(changed.world.state().cells[0].mixture, 1).temperature_k;
+    require(t > 1918 && t < 2760, "The near-vacuum cell did not approach its neighbours' temperature");
+    require(std::abs(changed.report.energy_residual_j) <= changed.report.energy_bound_j, "Rarefied conduction failed its energy audit");
+    std::cout << "RAREFIED near-vacuum temperature " << t << " K\n";
+}
 }
 int main() {
     try {
         std::cout << std::setprecision(17);
-        conservation_and_entropy(); admission_and_threshold(); checkpoints_and_threads();
+        conservation_and_entropy(); admission_and_threshold(); checkpoints_and_threads(); rarefied_conduction();
         std::cout << "PASS audited opt-in subcell expansion, unchanged conserved fields, complete-EOS entropy and fixed threshold\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }

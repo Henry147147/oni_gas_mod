@@ -93,8 +93,9 @@ std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry& regis
 }
 
 MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces) {
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction) {
     require_mac_energy_environment(); model.validate_registry(registry);
+    require(std::isfinite(fraction) && fraction > 0 && fraction <= 1, "Invalid MAC phase relaxation fraction");
     MacPhaseChangeAdvance result{source, {}}; auto& report = result.report;
     const auto& g = source.grid; MacEnergySum entropy, allowance;
     for (const auto& pair : pairs) {
@@ -146,21 +147,30 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             // superheat at its own pressure, so pressure ripples at saturation
             // cannot flash micro-bubbles. Vapour condenses wherever it is.
             const bool interface = before.has_gas && before.gas_volume_m3 > 1e-6 * volume;
-            const auto start = departure(0); if (!start || *start == 0) continue;
-            // Evaporate toward a positive departure, condense toward a negative one.
-            const bool evaporate = *start < 0;
-            if ((evaporate && ml == 0) || (!evaporate && mv == 0)) continue;
-            if (evaporate && !interface && !(mac_saturation_pressure(model, liquid_profile, vapour_profile,
-                    before.temperature_k - mac_nucleation_superheat_k, before.mechanical_pressure_pa) > before.mechanical_pressure_pa)) continue;
-            double near = 0, far = evaporate ? ml : -mv;
-            // An unevaluable or overshooting end is beyond the root.
-            const auto end = departure(far);
-            if (end && (evaporate ? *end <= 0 : *end >= 0)) near = far;
-            else for (int k = 0; k < 64; ++k) {
-                const double mid = .5 * (near + far); if (mid == near || mid == far) break;
-                const auto value = departure(mid);
-                if (value && (evaporate ? *value < 0 : *value > 0)) near = mid; else far = mid;
+            // At or above the critical temperature the pair has no liquid:
+            // none condenses and liquid evaporates.
+            const bool supercritical = before.temperature_k >= pair.critical_temperature_k;
+            if (supercritical && ml == 0) continue;
+            bool evaporate = true; double near = 0;
+            if (supercritical) near = ml;
+            else {
+                const auto start = departure(0); if (!start || *start == 0) continue;
+                // Evaporate toward a positive departure, condense toward a negative one.
+                evaporate = *start < 0;
+                if ((evaporate && ml == 0) || (!evaporate && mv == 0)) continue;
+                if (evaporate && !interface && !(mac_saturation_pressure(model, liquid_profile, vapour_profile,
+                        before.temperature_k - mac_nucleation_superheat_k, before.mechanical_pressure_pa) > before.mechanical_pressure_pa)) continue;
+                double far = evaporate ? ml : -mv;
+                // An unevaluable or overshooting end is beyond the root.
+                const auto end = departure(far);
+                if (end && (evaporate ? *end <= 0 : *end >= 0)) near = far;
+                else for (int k = 0; k < 64; ++k) {
+                    const double mid = .5 * (near + far); if (mid == near || mid == far) break;
+                    const auto value = departure(mid);
+                    if (value && (evaporate ? *value < 0 : *value > 0)) near = mid; else far = mid;
+                }
             }
+            if (fraction < 1) near *= fraction;
             if (near == 0) continue;
             cell.masses[pair.liquid] = ml - near; cell.masses[pair.vapour] = mv + near;
             if (near == ml) cell.masses[pair.liquid] = 0;

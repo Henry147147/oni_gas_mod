@@ -139,11 +139,13 @@ acceptance.
 ### Sharp gas/liquid interfaces (selector 3)
 
 A donor that holds both gas and liquid places its liquid behind a straight line, a
-piecewise-linear interface (PLIC). A donor holding exactly two liquids and no gas
-places the denser liquid (by zero-pressure density) behind the line in the same
-way; its normal comes from neighbouring fractions of that liquid. Each liquid is a
-phase, so liquids are separated pairwise. A donor holding gas and several liquids
-still blends its liquids behind the gas/liquid line.
+piecewise-linear interface (PLIC). A donor holding exactly two liquid phases and no
+gas places the denser phase (by zero-pressure density) behind the line in the same
+way; its normal comes from neighbouring fractions of that phase. Liquids sharing a
+nonzero `SpeciesDefinition::liquid_phase_group` form one phase and are never split
+(water with polluted water); every other liquid is a phase of its own. A donor
+holding gas and several liquid phases still blends them behind the gas/liquid
+line; [settling](#liquid-settling) separates them again.
 - **Line:** its normal is Youngs' 3×3 gradient of the neighbouring EOS liquid
   fractions (each from the liquid's own volume, never V − V_gas). Its offset
   encloses the donor's liquid fraction, found by bisection.
@@ -224,6 +226,22 @@ Gas/vacuum fronts use the separate [void phase](MAC_VACUUM.md#void-phase),
 which applies the same strip allocation between material and vacuum with any
 reconstruction selector. Still water, the dam break and the standing wave pass their
 gates ([MAC_GATES.md](MAC_GATES.md)).
+
+### Liquid settling
+
+`MacClosedWorld::with_liquid_settling(fraction)` lets immiscible liquids layer by
+density, which a single mixture velocity per face cannot do. Across each vertical
+face of two full liquid-bearing cells, when the lower cell's lightest liquid phase
+is lighter than the upper cell's heaviest, equal zero-pressure volumes of the two
+swap: `fraction` (at most 1/4) of the smaller. Each parcel carries its donor's EOS
+specific energies and its share of passives. The potential energy released is
+heat, half to each cell; momentum is unchanged and the kinetic change of the faces
+whose inertia moved is booked to their cells, so every constituent and U+K+G are
+conserved (audited at 128 epsilons). Cells with void are left alone. The colony
+owner settles once per frame with a 2 s time constant (a 1 mm droplet's Stokes
+speed). `ma_mac_interface_tests` inverts a column of an 800 kg/m³ liquid under
+water: the water ends below, releasing exactly the potential drop (7,848 J), and a
+miscible pair does not move.
 
 ### Limited linear reconstruction (selector 1)
 

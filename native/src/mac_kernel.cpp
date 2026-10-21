@@ -2,6 +2,7 @@
 // the reference substep schedule (or calm stepping), retries, the interval
 // audit and atomic publication through MacClosedWorld.
 #include "mac_kernel_detail.hpp"
+#include <string>
 #include "mac_interval_audit.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include <chrono>
@@ -82,9 +83,16 @@ Model build_model(const SpeciesRegistry& registry, const FluidThermodynamics& eo
         s.gas = found->phase == ReferencePhase::ideal_gas; s.molar_mass = found->molar_mass_kg_per_mol; s.cv = found->cv_j_per_kg_k;
         s.offset = found->energy_offset_j_per_kg; s.rho0 = found->zero_pressure_density_kg_per_m3; s.bulk = found->reference_bulk_modulus_pa;
         s.maximum_ratio = found->maximum_density_ratio; s.tmin = found->minimum_temperature_k; s.tmax = found->maximum_temperature_k;
-        s.conductivity = def.conductivity; s.entropy_offset = found->entropy_offset_j_per_kg_k;
+        s.conductivity = def.conductivity; s.entropy_offset = found->entropy_offset_j_per_kg_k; s.group = s.gas ? 0 : def.liquid_phase_group;
         (s.gas ? m.gases : m.liquids).push_back(m.species.size());
         m.species.push_back(s);
+    }
+    m.phase_of.assign(m.species.size(), std::numeric_limits<std::size_t>::max());
+    for (std::size_t l = 0; l < m.liquids.size(); ++l) {
+        std::size_t first = l;
+        const auto group = m.species[m.liquids[l]].group;
+        if (group != 0) for (std::size_t q = 0; q < l; ++q) if (m.species[m.liquids[q]].group == group) { first = q; break; }
+        m.phase_of[m.liquids[l]] = first;
     }
     m.passive_ids.assign(ids.begin(), ids.end());
     return m;
@@ -669,8 +677,21 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     mac_kernel::require_supported(MacKernelAccess::settings(world));
     const auto fallback = [&](std::size_t consumed) {
-        mac_kernel::require(MacKernelAccess::settings(world).subcell_void == MacSubcellVoidPolicy::exact_geometry,
-            "Unresolved gas expansion cannot continue through reference fallback");
+        if (MacKernelAccess::settings(world).subcell_void != MacSubcellVoidPolicy::exact_geometry) {
+            // Name the trigger (the reference path cannot take this owner).
+            const auto& st = MacKernelAccess::state(world);
+            std::string why = "an EOS range flag during the interval";
+            const auto normal = [](double v) { return std::isfinite(v) && std::abs(v) <= 0x1p450; };
+            for (std::size_t i = 0; i < st.cells.size() && consumed == 0; ++i) {
+                const auto& cell = st.cells[i];
+                if (!cell.energy_remainder_j.full.is_zero()) { why = "a full-range energy remainder in cell " + std::to_string(i); break; }
+                bool bad = !normal(cell.mixture.energy);
+                for (const double m : cell.mixture.masses) bad = bad || !normal(m);
+                if (bad) { why = "an out-of-range energy or mass in cell " + std::to_string(i); break; }
+            }
+            if (consumed > 0) why += " after " + std::to_string(consumed) + " attempts";
+            throw std::invalid_argument("Unresolved gas expansion cannot continue through reference fallback (" + why + ")");
+        }
         mac_kernel::require(MacKernelAccess::settings(world).pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
             "Two-moment pressure integration cannot continue through legacy reference fallback");
         // Flagged range: the complete interval through the reference, with

@@ -27,6 +27,9 @@ struct SpeciesDefinition {
     // Keep molar_mass as given instead of deriving it from atoms. Catalogue
     // materials read from the game use this; atoms then only label identity.
     bool explicit_molar_mass = false;
+    // Liquids sharing a nonzero group mix within one liquid phase (water with
+    // polluted water); a liquid in group 0 is a phase of its own.
+    unsigned liquid_phase_group = 0;
 
     [[nodiscard]] double cv() const;
     [[nodiscard]] double internal_energy(double temperature) const; // J/kg

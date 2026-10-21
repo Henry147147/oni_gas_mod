@@ -34,6 +34,7 @@ struct ReferenceProperties {
     double bulk_modulus_pa = 0;       // liquids
     double viscosity_pa_s = 0;        // informational until per-material viscosity exists
     std::uint32_t miscibility_group = 0; // liquids sharing a nonzero group form one phase
+    double critical_temperature_k = 0;   // liquids: no liquid exists above it
     std::string source;
     bool surrogate_latent = false, surrogate_bulk = false;
 };
@@ -42,7 +43,7 @@ enum class MiscibilityGroup : std::uint32_t { none = 0, aqueous = 1, hydrocarbon
 // transitions point at each other). The vapour's energy offset makes the
 // latent heat at the game's boiling point equal the catalogue value, and its
 // entropy offset puts the pair at saturation there at one atmosphere.
-struct CatalogueSaturationPair { std::size_t liquid = 0, vapour = 0; double boiling_k = 0, latent_heat_j_per_kg = 0; };
+struct CatalogueSaturationPair { std::size_t liquid = 0, vapour = 0; double boiling_k = 0, latent_heat_j_per_kg = 0, critical_k = 0; };
 struct CatalogueMaterial { GameFluidElement game; ReferenceProperties reference; };
 inline constexpr double catalogue_reference_pressure_pa = 101325;
 inline constexpr char catalogue_profile[] = "oni-colony-catalogue-v1";

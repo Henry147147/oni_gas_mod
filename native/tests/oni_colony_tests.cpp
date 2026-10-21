@@ -16,15 +16,21 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
     std::snprintf(m.id, sizeof(m.id), "%s", id);
     return m;
 }
-constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
+constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
 }
 
 int main() {
     try {
-        const std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
-            material("Water", 13, water, false, .018, 4000, 1000)};
+        std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
+            material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
+            material("SaltWater", 15, brine, false, .021, 4100, 1100)};
+        // Salt water boils to steam and leaves 7% salt (hash 777, a solid).
+        materials[4].high_temperature_k = 372.5; materials[4].high_target = 14; materials[4].high_byproduct = 777; materials[4].high_byproduct_fraction = .07;
+        // Water boils to steam at 372.5 K and steam condenses back: a saturation pair.
+        materials[2].high_temperature_k = 372.5; materials[2].high_target = 14; materials[2].low_target = 99;
+        materials[3].low_temperature_k = 372.5; materials[3].low_target = 13;
         MAOniColonyConfig config{}; config.struct_size = sizeof(config); config.abi_version = MA_ONI_COLONY_ABI_VERSION;
         config.flags = MA_ONI_COLONY_PHYSICS_CONDUCTION; config.vacuum_index = vacuum; config.grid_width = GW; config.grid_height = GH;
         config.offset_x = X0; config.offset_y = Y0; config.width = W; config.height = H; config.gravity_m_per_s2 = 9.81; config.maximum_timestep_s = .01;
@@ -42,7 +48,11 @@ int main() {
         // Suppression: owned fluid, solids, outside, and whole-rectangle transitions.
         using ma::oni::colony::suppress;
         require(suppress(MA_ONI_PRESSURE, native_cell(4, 4)) && !suppress(MA_ONI_PRESSURE, native_cell(0, 4)), "owned fluid cells only");
-        require(!suppress(MA_ONI_PRESSURE, 0) && suppress(MA_ONI_STATE_TRANSITION, native_cell(0, 4)), "rectangle and transitions");
+        require(!suppress(MA_ONI_PRESSURE, 0) && !suppress(MA_ONI_STATE_TRANSITION, native_cell(0, 4)) &&
+            suppress(MA_ONI_STATE_TRANSITION, native_cell(4, 4)), "rectangle and transitions");
+        require(ma::oni::colony::allow_native_transition(native_cell(3, 1), water, 200) &&
+            !ma::oni::colony::allow_native_transition(native_cell(3, 1), water, 400) &&
+            !ma::oni::colony::allow_native_transition(native_cell(4, 4), steam, 300), "only freezing runs natively on owned cells");
         // Transfers with receipts and a heat edit, committed at the next frame.
         const std::vector<MAOniColonyTransfer> transfers{{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 7, 0, .5, 310},
             {public_cell(9, 5), carbon, MA_ONI_COLONY_EXTRACT, 2, 8, 0, 3, 0}, {public_cell(9, 5), 77, MA_ONI_COLONY_EXTRACT, 1, 9, 0, 1, 0},
@@ -63,7 +73,10 @@ int main() {
         std::cout << "frames " << s.completed_frames << " substeps " << s.substeps << " rejected " << s.rejected_attempts << " sink " << s.space_sink_kg
                   << " kg mass error " << s.maximum_relative_mass_error << " energy error " << s.maximum_relative_energy_error
                   << " reservoir " << s.reservoir_kg << " last " << s.last_advance_ms << " ms\n";
+        std::cout << "evaporated " << s.evaporated_kg << " kg condensed " << s.condensed_kg << " kg skipped " << s.skipped_relaxations << '\n';
         require(s.completed_frames == 6 && s.committed_transfers == 4 && s.committed_heat == 1, "frames and commits");
+        // The pool's surface evaporates into the air above it toward saturation.
+        require(s.evaporated_kg > 0 && s.skipped_relaxations == 0, "phase change at the pool surface");
         require(s.space_sink_kg > 0, "gas reaching space leaves through the sink");
         require(s.maximum_relative_mass_error < 1e-12 && s.maximum_relative_energy_error < 1e-9, "ledgers close");
         std::vector<MAOniColonyReceipt> receipts(8); const auto count = ma::oni::colony::copy_receipts(receipts.data(), 8);
@@ -118,15 +131,24 @@ int main() {
             require(el[1][warm] != vacuum && mass[1][warm] > 0 && mass[1][drawn] > .5f, "shadow holds the owner's cells");
             const double expected = mass[1][warm] * (el[1][warm] == oxygen ? 1000. : 850.) * 2;
             temperature[1][warm] += 2; mass[1][drawn] -= .1f;
+            // Native froze a pool cell and melted a rock cell beside the gas.
+            const auto frozen = static_cast<std::size_t>(native_cell(3, 1)), melted = static_cast<std::size_t>(native_cell(0, 4));
+            require(el[1][frozen] == water && el[1][melted] == 0, "freeze and melt cells");
+            const double frozen_mass = mass[1][frozen];
+            el[1][frozen] = 1; el[1][melted] = water; mass[1][melted] = 500; temperature[1][melted] = 280;
             const auto before = ma::oni::colony::status();
             ma::oni::colony::capture_shadow(nc);
             ma::oni::colony::advance(8, .2, 2); ma::oni::colony::wait();
             const auto after = ma::oni::colony::status();
             std::cout << "shadow heat " << after.native_heat_j << " J (expected " << expected << ") taken " << after.native_mass_out_kg
                       << " kg changes " << after.native_changes << '\n';
-            require(after.state == 1 && after.native_changes == 2 && std::abs(after.native_heat_j - expected) < 1e-6 * expected &&
-                std::abs(after.native_mass_out_kg - .1) < 1e-6 && after.committed_heat == before.committed_heat + 1 &&
-                std::abs(after.extracted_kg - before.extracted_kg - .1) < 1e-6, "shadow changes are booked");
+            if (after.state != 1) throw std::runtime_error(std::string("shadow faulted: ") + after.error);
+            require(after.native_changes == 4 && std::abs(after.native_heat_j - expected) < 1e-6 * expected &&
+                std::abs(after.native_mass_out_kg - .1 - frozen_mass) < 1e-3 && after.committed_heat == before.committed_heat + 1 &&
+                std::abs(after.extracted_kg - before.extracted_kg - .1 - frozen_mass) < 1e-3, "shadow changes are booked");
+            require(after.closed_cells == before.closed_cells + 1 && after.opened_cells == before.opened_cells + 1 &&
+                std::abs(after.injected_kg - before.injected_kg - 500) < 1e-3, "frozen cell closed, melted cell opened with its water");
+            require(!suppress(MA_ONI_PRESSURE, native_cell(3, 1)) && suppress(MA_ONI_PRESSURE, native_cell(0, 4)), "ownership follows freeze and melt");
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "shadow ledgers close");
         }
         // A different catalogue rejects the image.
@@ -138,6 +160,75 @@ int main() {
         auto corrupt = image; corrupt[corrupt.size() / 2] ^= 1; rejected = false;
         try { ma::oni::colony::restore(config, materials, corrupt, 1); } catch (const std::invalid_argument&) { rejected = true; }
         require(rejected, "corrupt image rejects");
+        // Inputs in flight at a save: an injection survives the load without
+        // its callback; an extraction answering a callback is asked again.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer queued[] = {{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 42, 0, .5, 300},
+                                                  {public_cell(10, 5), oxygen, MA_ONI_COLONY_EXTRACT, 1, 43, 0, .3, 0}};
+            ma::oni::colony::queue_transfers(queued);
+            const auto saved = ma::oni::colony::checkpoint();
+            ma::oni::colony::stop(); ma::oni::colony::restore(config, materials, saved, 1);
+            const auto before = ma::oni::colony::status();
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            const auto after = ma::oni::colony::status();
+            std::vector<MAOniColonyReceipt> got(8); const auto n = ma::oni::colony::copy_receipts(got.data(), 8);
+            require(after.state == 1 && std::abs(after.injected_kg - before.injected_kg - .5) < 1e-6 && after.extracted_kg == before.extracted_kg && n == 0,
+                "queued inputs survive a save without callbacks");
+            ma::oni::colony::stop();
+        }
+        // Hot salt water converts to steam over steps and its salt leaves as debris.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer hot{public_cell(6, 6), brine, MA_ONI_COLONY_INJECT, 0, -1, 0, 20, 420};
+            ma::oni::colony::queue_transfers(std::span(&hot, 1));
+            for (std::uint64_t frame = 5; frame <= 7; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            const auto after = ma::oni::colony::status();
+            std::vector<MAOniColonyReceipt> got(16); const auto n = ma::oni::colony::copy_receipts(got.data(), 16);
+            double salt = 0; for (std::uint32_t q = 0; q < n; ++q) if (got[q].kind == MA_ONI_COLONY_BYPRODUCT && got[q].callback == 777) salt += got[q].mass_kg;
+            std::cout << "converted " << after.converted_kg << " kg, salt " << salt << " kg state " << after.state << " " << after.error << "\n";
+            require(after.state == 1 && after.converted_kg > 1 && std::abs(salt - .07 * after.converted_kg) < 1e-3 * after.converted_kg, "salt water boils to steam and salt");
+            require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "conversion ledgers close");
+            ma::oni::colony::stop();
+        }
+        // A sealed cell's gas goes to the reservoir and seeps back when the
+        // cell reopens.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTerrain walls[] = {{public_cell(13, 7), MA_ONI_COLONY_CLOSE}, {public_cell(14, 6), MA_ONI_COLONY_CLOSE}};
+            ma::oni::colony::queue_terrain(walls);
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            const MAOniColonyTerrain seal{public_cell(14, 7), MA_ONI_COLONY_CLOSE};
+            ma::oni::colony::queue_terrain(std::span(&seal, 1));
+            ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();
+            const auto sealed = ma::oni::colony::status();
+            require(sealed.state == 1 && sealed.reservoir_kg > 1, "sealed gas went to the reservoir");
+            const MAOniColonyTerrain dig{public_cell(14, 7), MA_ONI_COLONY_OPEN};
+            ma::oni::colony::queue_terrain(std::span(&dig, 1));
+            ma::oni::colony::advance(7, .2, 2); ma::oni::colony::wait();
+            const auto reopened = ma::oni::colony::status();
+            std::cout << "reservoir " << sealed.reservoir_kg << " kg, released " << reopened.released_kg << " kg\n";
+            require(reopened.state == 1 && reopened.released_kg > 1 && reopened.reservoir_kg < 1e-6, "the reservoir seeps back");
+            require(reopened.maximum_relative_mass_error < 1e-12 && reopened.maximum_relative_energy_error < 1e-9, "reservoir ledgers close");
+            ma::oni::colony::stop();
+        }
+        // A pump takes the gas mixture around it: one receipt per constituent.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer pump{public_cell(9, 5), 0, MA_ONI_COLONY_EXTRACT_GAS, 2, 11, 0, 2, 0};
+            ma::oni::colony::queue_transfers(std::span(&pump, 1));
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            std::vector<MAOniColonyReceipt> got(8); const auto n = ma::oni::colony::copy_receipts(got.data(), 8);
+            double total = 0; bool oxygen_seen = false, carbon_seen = false;
+            for (std::uint32_t q = 0; q < n; ++q) if (got[q].callback == 11) {
+                total += got[q].mass_kg; oxygen_seen |= got[q].native_index == oxygen; carbon_seen |= got[q].native_index == carbon;
+                require(got[q].kind == MA_ONI_COLONY_EXTRACT_GAS && got[q].temperature_k > 250, "mixture receipt");
+            }
+            std::cout << "pumped " << total << " kg in " << n << " receipts\n";
+            require(oxygen_seen && carbon_seen && std::abs(total - 2) < 1e-5, "the pump takes the mixture");
+            require(ma::oni::colony::status().maximum_relative_mass_error < 1e-12, "pump ledger closes");
+            ma::oni::colony::stop();
+        }
         // Frames posted while a step runs join the next step: no game time is lost.
         ma::oni::colony::restore(config, materials, image, 1);
         ma::oni::colony::advance(5, .2, 2); ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();

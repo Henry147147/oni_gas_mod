@@ -36,6 +36,12 @@ pressure. One-way transitions (polluted water boiling to steam, polluted oxygen
 condensing to liquid oxygen, crude oil cracking to petroleum) are conversions,
 not pairs.
 
+Each pair also has a critical temperature: at or above it no liquid exists, so
+none condenses and any liquid evaporates. The EOS saturation curve (an elastic
+liquid against an ideal gas) otherwise keeps going far past the critical point:
+it gave hydrogen 4.6 MPa at 230 K, so Terra's dense hydrogen pockets condensed
+into liquid hydrogen at room temperature.
+
 ## Reference data
 
 Rows are keyed by the game's element id. Sources:
@@ -50,6 +56,9 @@ Rows are keyed by the game's element id. Sources:
   sound speed and density of molten metals at melting.
 - Lange and Carmichael, *Rev. Mineral.* 24 (1990): silicate melt
   compressibility (magma and molten glass, about 15 GPa).
+- NIST Chemistry WebBook and CRC Handbook: critical temperatures of water,
+  ethanol, carbon dioxide, oxygen, hydrogen, methane, propane, helium, chlorine,
+  sulfur, phosphorus and mercury.
 
 ## Surrogates
 
@@ -59,12 +68,18 @@ Rows are keyed by the game's element id. Sources:
   molten salt or silicate 15 GPa, molten metal 100 GPa. A liquid without a row is
   classed by its name (`Molten…` metal, `Liquid…` cryogenic, water/brine/milk
   aqueous, otherwise organic).
+- **Critical temperature:** Guldberg's rule, 1.6 times the game's boiling
+  temperature (metals, salts, oils, magma).
 - Fictional materials (super coolant, visco-gel) use these rules.
 
 ## Miscibility
 
 Liquids in one nonzero group mix within one liquid phase; others keep separate
-phases and layer by density.
+phases and layer by density. The group becomes `liquid_phase_group` on the
+species: the solver's sharp interfaces never split one group, and
+[settling](../native/MAC_TRANSPORT.md#liquid-settling) sorts different phases by
+density. Molecular diffusion between miscible liquids (about 1e-9 m²/s) moves
+less than a millimetre over ten cycles, so liquids mix by flow only.
 
 | Group | Liquids |
 | --- | --- |

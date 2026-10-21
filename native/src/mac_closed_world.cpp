@@ -628,6 +628,14 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
 }
+MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
+    require_mac_energy_environment();
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state_, pairs, false, fraction);
+    MacClosedWorld candidate(registry_, thermodynamics_, std::move(advanced.state), settings_, transport_);
+    candidate.time_s_ = time_s_; candidate.revision_ = revision_ + 1;
+    return {std::move(candidate), advanced.report};
+}
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");

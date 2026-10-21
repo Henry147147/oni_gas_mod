@@ -50,12 +50,13 @@ Measure translate(MacMaterialReconstruction reconstruction, std::size_t steps, M
 }
 // Two immiscible liquids: a square of a lighter liquid (800 kg/m3) translating
 // through water with no gas. A cell holding both splits them by a PLIC line.
+// With both in one miscibility group they are one phase and are never split.
 struct TwoLiquids {
     SpeciesRegistry registry; std::shared_ptr<const FluidThermodynamics> eos;
-    TwoLiquids() {
+    explicit TwoLiquids(unsigned group) {
         const auto standard = SpeciesRegistry::standard(); std::vector<ReferenceMaterial> materials;
         for (const auto& [id, density] : {std::pair<const char*, double>{"water", 1000}, {"liquid_nitrogen", 800}}) {
-            const auto& sp = standard[standard.index(id)]; registry.add(sp); ReferenceMaterial m;
+            auto sp = standard[standard.index(id)]; sp.liquid_phase_group = group; registry.add(sp); ReferenceMaterial m;
             m.id = id; m.phase = ReferencePhase::elastic_liquid; m.molar_mass_kg_per_mol = sp.molar_mass; m.cv_j_per_kg_k = sp.cv();
             m.energy_offset_j_per_kg = sp.internal_energy(0); m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e6;
             m.zero_pressure_density_kg_per_m3 = density; m.reference_bulk_modulus_pa = 2.2e9; m.maximum_density_ratio = 2;
@@ -64,8 +65,9 @@ struct TwoLiquids {
         eos = std::make_shared<const FluidThermodynamics>(registry, "interface-two-liquids-1", std::move(materials));
     }
 };
-Measure translate_liquids(MacMaterialReconstruction reconstruction, std::size_t steps, MacExecutionPolicy policy = MacExecutionPolicy::reference) {
-    static const TwoLiquids s; constexpr std::size_t n = 16, lo = 5, hi = 11; constexpr double h = .01, ux = .3, uy = .2, p = 101325;
+Measure translate_liquids(MacMaterialReconstruction reconstruction, std::size_t steps, MacExecutionPolicy policy = MacExecutionPolicy::reference,
+    bool miscible = false) {
+    static const TwoLiquids immiscible_pair(0), miscible_pair(1); const auto& s = miscible ? miscible_pair : immiscible_pair; constexpr std::size_t n = 16, lo = 5, hi = 11; constexpr double h = .01, ux = .3, uy = .2, p = 101325;
     const double volume = h * h;
     MacTransportState st; st.grid = {n, n, h, 1, true, true, std::vector<std::uint8_t>(n * n)};
     for (std::size_t y = 0; y < n; ++y) for (std::size_t x = 0; x < n; ++x) {
@@ -167,6 +169,38 @@ void free_surface_gravity(MacMaterialReconstruction reconstruction, const char* 
           a.report.gravity_entropy_bound_j_per_k == b.report.gravity_entropy_bound_j_per_k,
         "Threaded free-surface interval differs from one worker");
 }
+// Buoyant settling: a column of the light liquid under water inverts, with
+// every constituent, U+K+G and momentum kept; one miscible phase never settles.
+void settling() {
+    for (const unsigned group : {0u, 1u}) {
+        const TwoLiquids s(group); constexpr std::size_t n = 4; constexpr double h = 1, p = 101325;
+        MacTransportState st; st.grid = {1, n, h, 1, false, false, std::vector<std::uint8_t>(n)};
+        for (std::size_t y = 0; y < n; ++y) {
+            const bool light = y < 2;
+            const std::vector<double> masses{light ? 0 : 1000 * (1 + p / 2.2e9), light ? 800 * (1 + p / 2.2e9) : 0};
+            st.cells.push_back({s.eos->initialize_at_temperature(masses, 300, h * h).mixture, {}});
+        }
+        const auto faces = mac_face_inertias(s.registry, st, *s.eos);
+        st.momentum_x.assign(faces.x.size(), 0); st.momentum_y.assign(faces.y.size(), 0);
+        MacClosedSettings settings; settings.gravity_m_per_s2 = 9.81;
+        MacClosedWorld world(s.registry, s.eos, st, settings);
+        const auto total = [&](std::size_t k) { long double m = 0; for (const auto& c : world.state().cells) m += c.mixture.masses[k]; return m; };
+        const long double water = total(0), light = total(1); double released = 0; std::size_t faces_moved = 0;
+        for (int step = 0; step < 60; ++step) {
+            const auto settled = world.with_liquid_settling(.25);
+            released += settled.report.released_j; faces_moved += settled.report.faces; world = settled.world;
+        }
+        const auto& bottom = world.state().cells[0].mixture;
+        const double water_below = bottom.masses[0] / (bottom.masses[0] + bottom.masses[1]);
+        const double drift = static_cast<double>(std::max(std::abs(total(0) - water) / water, std::abs(total(1) - light) / light));
+        std::cout << "SETTLE group=" << group << " faces=" << faces_moved << " bottom_water=" << water_below << " released_J=" << released
+                  << " mass_rel=" << drift << '\n';
+        check(drift <= 1e-15, "Liquid settling changed a constituent's mass");
+        if (group == 0) check(water_below > .9 && released > 0, "Water did not settle below the lighter liquid");
+        else check(faces_moved == 0 && released == 0, "A miscible phase settled");
+    }
+    std::cout << "PASS immiscible liquids settle by density; a miscible phase does not\n";
+}
 void print(const char* name, const Measure& m) {
     std::cout << "IFACE " << name << " mixed=" << m.mixed << " mist=" << m.mist << " liquid_rel=" << m.liquid
               << " velocity_rel=" << m.velocity_error << '\n';
@@ -229,7 +263,16 @@ int main() {
                     "Two-liquid interface reconstruction smeared the liquid square");
             }
             std::cout << "PASS translating two-liquid square stays sharp in both kernels\n";
+            // One miscibility group: one phase, so no line keeps the liquids apart.
+            const auto mixing = translate_liquids(MacMaterialReconstruction::interface_plic, 12, MacExecutionPolicy::reference, true);
+            const auto mixing_production = translate_liquids(MacMaterialReconstruction::interface_plic, 12, MacExecutionPolicy::production, true);
+            print("miscible_plic", mixing); print("miscible_plic_production", mixing_production);
+            for (const auto* m : {&mixing, &mixing_production})
+                check(std::abs(m->liquid) <= 1e-14 && m->velocity_error <= 1e-9 && m->mixed >= 4 * sharp_liquids.mixed,
+                    "Miscible liquids were kept apart or lost conservation or uniform motion");
+            std::cout << "PASS miscible liquids translate as one phase in both kernels\n";
         }
+        settling();
         free_surface_gravity(MacMaterialReconstruction::limited_linear, "limited_linear");
         free_surface_gravity(MacMaterialReconstruction::interface_plic, "interface_plic");
         std::cout << "PASS free-surface gravity reconciliation is credited by its entropy bound in both kernels\n";

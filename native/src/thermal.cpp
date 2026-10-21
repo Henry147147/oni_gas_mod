@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <numeric>
 #include <stdexcept>
 
@@ -17,6 +18,13 @@ double thermal_conductance(double first, double second, double da, double db, do
         (static_cast<long double>(da) / first + static_cast<long double>(db) / second));
     require_finite(result, "thermal conductance");
     return result;
+}
+
+double free_molecular_conductivity(double capacity, double volume, double temperature, double molar_mass, double width) {
+    if (!(capacity > 0) || !(volume > 0) || !(temperature > 0) || !(molar_mass > 0) || !(width > 0))
+        return std::numeric_limits<double>::infinity();
+    const double speed = std::sqrt(8 * gas_constant * temperature / (std::numbers::pi * molar_mass));
+    return capacity / volume * speed * width / 4;
 }
 
 ThermalResult conduct_heat(std::span<const ThermalBody> bodies,

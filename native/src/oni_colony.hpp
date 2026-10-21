@@ -36,6 +36,9 @@ struct NativeCells {
 void write_shadow(const NativeCells&) noexcept;
 void capture_shadow(const NativeCells&) noexcept;
 [[nodiscard]] bool owns(int native_cell) noexcept;
+// A native state transition of an owned cell runs only when it freezes the
+// cell (a solid target); fluid targets are the owner's phase change.
+[[nodiscard]] bool allow_native_transition(int native_cell, std::uint16_t element, float temperature) noexcept;
 // Native worker entry points. Never throw; a failure faults the session.
 // advance() hands the frame to the solver thread and returns at once.
 [[nodiscard]] bool suppress(std::uint32_t hook, int native_cell) noexcept;

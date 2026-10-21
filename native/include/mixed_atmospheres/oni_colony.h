@@ -59,6 +59,16 @@ typedef struct MAOniColonyStatus {
     /* Native bodies and actors meeting owned cells (docs/colony-owner.md#native-bodies). */
     double native_heat_j, native_mass_in_kg, native_mass_out_kg;
     uint64_t native_changes;
+    /* Last frame's wall time by stage: terrain, heat, transfers, flow, space
+     * sink, ledger check and publication. */
+    double stage_ms[6];
+    /* Phase change: liquid evaporated and vapour condensed, and frames whose
+     * relaxation was skipped (it would have lowered entropy). */
+    double evaporated_kg, condensed_kg;
+    uint64_t skipped_relaxations, reserved_count;
+    double released_kg; /* from the reservoir back into the asteroid */
+    double converted_kg; /* fluid converted to another identity (byproducts leave as debris) */
+    double settled_kg;   /* immiscible liquid exchanged by buoyant settling */
     char error[256];
 } MAOniColonyStatus;
 
@@ -80,6 +90,17 @@ typedef struct MAOniColonyCellView {
  * up to the mass from the open cells within the radius, nearest first. */
 #define MA_ONI_COLONY_INJECT 1U
 #define MA_ONI_COLONY_EXTRACT 2U
+/* The whole gas or liquid mixture (native_index ignored): the cells' totals of
+ * that phase within the radius, nearest first, each split over its
+ * constituents by mass. A receipt per constituent, with the same callback. */
+#define MA_ONI_COLONY_EXTRACT_GAS 3U
+#define MA_ONI_COLONY_EXTRACT_LIQUID 4U
+/* Flag on an extraction kind: the callback is an element consumer's handle;
+ * receipts keep the flag. */
+#define MA_ONI_COLONY_CONSUMER 0x100U
+/* Receipt only: a solid byproduct of a conversion for the game to spawn as
+ * debris at public_cell; callback holds the element hash. */
+#define MA_ONI_COLONY_BYPRODUCT 5U
 typedef struct MAOniColonyTransfer {
     uint32_t public_cell, native_index, kind, radius;
     int32_t callback; uint32_t reserved;

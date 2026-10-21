@@ -109,11 +109,15 @@ struct Species {
     double molar_mass = 0, cv = 0, offset = 0, rho0 = 0, bulk = 0, maximum_ratio = 1, tmin = 0, tmax = 0;
     double conductivity = 0;
     double entropy_offset = 0; // a saturation calibration's constant specific entropy
+    unsigned group = 0; // liquid phase group (SpeciesDefinition::liquid_phase_group)
 };
 struct Model {
     std::size_t registry_size = 0;
     std::vector<Species> species;      // present constituents, registry order
     std::vector<std::size_t> gases, liquids; // indices into species
+    // Each species' liquid phase: the index into liquids of the first liquid
+    // of its group (itself in group 0); none for gases.
+    std::vector<std::size_t> phase_of;
     std::vector<std::uint64_t> passive_ids; // sorted
     [[nodiscard]] std::size_t K() const { return species.size(); }
     [[nodiscard]] std::size_t P() const { return passive_ids.size(); }

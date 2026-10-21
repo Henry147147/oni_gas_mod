@@ -76,10 +76,75 @@ booked owner input for the next step:
   at the emitted parcel's temperature;
 - another fluid element: the old contents extracted, the new injected.
 
-A cell that native turned solid is left to the terrain edit. The status reports
+- the cell turned solid (native froze it): its liquid leaves (with any traces,
+  which would otherwise keep only rounding residue of the cell's energy) and the
+  cell closes;
+- a native solid cell turned fluid (melted, or sublimated away): the cell opens
+  and takes the fluid.
+
+Native state transitions run on an owned cell only when they freeze it (the
+target is a solid); fluid targets are the owner's [phase change](#phase-change).
+Sublimation and transitions of native solids run natively. A cell native built
+over this frame (a tile) is not written and stays native. The status reports
 the booked heat, mass in and out, and the number of changed cells. A shortfall
 (native took more than the owner cell still holds after its step) is not yet
 reported.
+
+## Element consumers
+
+ONI's native element consumers (pumps, terrariums, skimmers, plants and
+critters that breathe) read one element per cell, the owner's projection, so a
+carbon dioxide consumer in an oxygen-dominated mixed room would find none. The
+owner runs every consumer instead (`ColonyConsumers.cs`): ONI still registers it
+natively, for its handle, but its rate messages (`SetElementConsumerData`) stop
+at the mod, so the native consumer stays at rate zero. At each positive native
+frame each consumer with a positive rate queues rate × dt as an owner
+extraction within its radius: its element, or for an any-gas or any-liquid
+consumer (pumps) the whole mixture of that phase (`MA_ONI_COLONY_EXTRACT_GAS`,
+`_LIQUID`), each cell's share split over its constituents. The receipts carry
+the consumer flag and return as ONI's consumed-mass events for the handle, one
+per constituent, so a pump's storage holds the mixture it drew.
+
+## Sensors
+
+An element sensor (`LogicElementSensor`) on the owned asteroid is true when its
+element is present above the trace threshold, 0.1% of the mass of its phase in
+the cell (`ColonySensors.cs`, a transpiler on its sampler). Pipe element sensors
+read the pipe's packets, which carry one element each as in vanilla. Pressure
+sensors read the owner's pressure through `Grid.Pressure`.
+
+## Phase change
+
+The production kernel has no phase change, so after each step the owner relaxes
+every cell holding a liquid/vapour pair toward saturation at fixed internal
+energy and volume (`MacClosedWorld::with_phase_relaxation`, the reference path's
+`advance_mac_phase_change`): liquid evaporates while its vapour's partial
+pressure is below saturation and vapour condenses while above; a gas-free
+liquid boils only beyond 5 K of superheat at its own pressure. Pairs come from
+the game's transitions (a liquid whose boiling target condenses back to it) and
+boil by pressure from the game's boiling point ([catalogue](material-catalogue.md)).
+Mass moving within a pair is booked per species in a conversion ledger; U is
+unchanged. A cell moves 1 − exp(−dt / 1 s) of the way to equilibrium per step,
+so a superheated pool boils over seconds instead of flashing (Terra's small
+liquid carbon dioxide pools under thin gas otherwise collapse the step to 2 ms).
+
+## Liquids
+
+Liquids of one [miscibility group](material-catalogue.md#miscibility) mix in
+one phase; other liquids keep separate phases. After phase change the owner lets
+them [settle](../native/MAC_TRANSPORT.md#liquid-settling): oil on water rises
+and water sinks, with a 2 s time constant (`SettledKg` counts what moved).
+
+## Conversions
+
+A fluid past one of its game transitions whose target is another fluid outside
+its own pair (polluted water boiling to steam, salt water to steam plus salt,
+crude oil cracking to petroleum) converts at the cell's temperature, the same
+share per step. The source leaves and the product enters as booked transfers,
+so the energy difference is booked with them (the game's own transitions keep
+the temperature too). A solid byproduct (salt) leaves the owner as a byproduct
+receipt and the game spawns it as debris. A conversion too small to change the
+cell's masses waits.
 
 ## Terrain
 
@@ -109,9 +174,13 @@ predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
 ## Saves
 
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
-original native bytes and the colony checkpoint (`MACOLN01`: configuration,
-material records, space mask, reservoir, ledgers, the `MACCLS01` physical image
-and a SHA-256). Loading hands the native bytes to ONI's loader and restores the
+original native bytes and the colony checkpoint (`MACOLN01` version 5:
+configuration, material records, space mask, reservoir, ledgers, continuing
+counters, the inputs queued for the next step, the `MACCLS01` physical image
+and a SHA-256). Inputs in flight at the save keep their mass but not their
+callbacks, which do not survive a load: an injection (exhaled gas, an emitter's
+output) and native-side changes are kept; an extraction answering a callback (a
+breath, a consumer) is dropped and asked again after the load. Loading hands the native bytes to ONI's loader and restores the
 owner at the first completed frame; a different catalogue or geometry rejects
 the save. A game without the mod passes the envelope to its native loader,
 which refuses it.
@@ -143,16 +212,26 @@ whole asteroid starts at rest.
    temperature; it is never deleted. Kept cells keep their temperatures, shifted
    uniformly so the body's sensible heat is unchanged; flooded cells take the
    body's mean.
-3. **Gas.** In each region the gas is laid out again at one pressure without
+3. **Phase equilibrium.** A region's vapour beyond its saturation pressure
+   (whole region room, region temperature) condenses into its liquid, laid from
+   the region's lowest cells up before levelling. Terra's dense cold chlorine and
+   carbon dioxide pockets otherwise rain for minutes after the start.
+4. **Gas.** In each region the gas is laid out again at one pressure without
    mixing: ONI keeps one element per cell and its own simulation sorts gases by
    density, while spreading every species through a region would mix a room's
    CO2 into its air (Terra's starting room holds 33 kg of CO2 at its floor,
-   12.7 mol% of its gas, which mixed would be unbreathable). The region's gas
-   keeps its heat at one common temperature; each species takes the volume
-   n R T / p of a layer, the layers fill the region's gas room from the
-   bottom, heaviest molar mass first, and only cells where two layers meet hold
-   a mixture. This also fills headspaces and vacuum pockets.
-4. Liquid masses depend on the gas pressure above them, so steps 2 and 3 repeat
+   12.7 mol% of its gas, which mixed would be unbreathable). Each cell keeps the
+   temperature it had (its gas, else its liquid, else the region's mean): the
+   game's thermal field matches the rock around it, and one region temperature
+   started fast convection in Terra's dense hydrogen pockets. The region's
+   pressure makes the moles fit, p = n R / sum(V/T); the layers fill the gas
+   room from the bottom, heaviest molar mass first, each cell holding p V/(R T),
+   and only cells where two layers meet hold a mixture. A vapour of a liquid/vapour pair holds at most its saturation
+   partial pressure in a cell, so its layer spreads over more cells and the next
+   layer's gas fills the rest; vapour that still finds no room condenses at the
+   bottom and the layout is redone. This also fills headspaces and vacuum
+   pockets.
+5. Liquid masses depend on the gas pressure above them, so steps 2 and 4 repeat
    three times.
 
 The import ignores the small hydrostatic gradient within gas.
@@ -165,13 +244,42 @@ advances the settled state 0.2 s and requires it to stay near rest.
 
 **Measured on Terra (seed 147147, private capture, standalone).** 30,886 open
 cells in 1,297 regions; the settle takes about 130 ms, leaves a relative
-pressure spread of 6e-16 within regions and a species mass error of 1e-16, and
+pressure spread of about 1e-15 within regions and a species mass error of 1e-16, and
 books 656 t (sealed crude oil and magma) to reservoirs. The starting room keeps
 its CO2 as a floor layer under oxygen. The settled asteroid then takes full
 0.05 s production steps after the first frames.
 
-The reservoir's release (liquid seeping back as its region gains room) is not
-implemented yet.
+**Reservoir release.** Each owner step, every reservoir entry (import overflow,
+or the contents of a cell closed with no open neighbour) seeps back into the
+open cell with the least liquid within three cells of its anchor, at most
+50 kg/s and only while that cell is under 90% liquid, at the entry's
+temperature. A sealed overfull pocket therefore keeps its liquid booked until
+digging gives it room, and then yields the game's amount. Released mass is
+booked as an injection.
+
+## Scenarios
+
+`tools/oni_headless.py run --mode colony-owner --scenario NAME` checks one
+system in game (`managed/MixedAtmospheres.Oni/ColonyScenarios.cs`). Each
+scenario seals an 8 × 6 arena of Unobtanium nine cells right of the printing pod
+through the game's own cell messages, fills it two frames later, runs some owner
+frames and records its checks in `colony-owner.json`; the run fails on a failed
+check or an owner fault. Scenario buildings are built instantly and powered by
+setting their powered flag (harness only).
+
+| Scenario | Checks |
+| --- | --- |
+| `terrain` | Digging a granite column lets gas reach the vacuum beyond it; a built tile closes its cell; both conserve the gas. |
+| `heat` | A 450 K granite floor warms the air above it; the heat is booked from native. |
+| `phase` | Water over a 900 K floor evaporates into the air. |
+| `freeze-melt` | Ice in warm air melts into an owned cell; water on a 40 K block freezes. |
+| `pump` | A gas pump draws the arena's air into its storage; storage equals what the owner lost. |
+| `deoxidizer` | An oxygen diffuser's oxygen from stored algae reaches the owner. |
+| `pipes` | A gas pump in oxygen and carbon dioxide feeds a pipe to a vent in vacuum: both gases arrive, and owner, pipe and pump keep the gas. |
+| `door` | A pneumatic door between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again. |
+| `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
+| `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
+| `breathing` | The colony's duplicants keep full breath; oxygen is taken from the owner and carbon dioxide exhaled into it. |
 
 ## Verification
 

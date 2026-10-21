@@ -10,7 +10,7 @@ namespace MixedAtmospheres.Oni
         private const string Library = "mixed_atmospheres_oni";
         internal const uint AbiVersion = 1, PhysicsConduction = 1;
         internal const uint Solid = 0, Fluid = 1, Space = 2;
-        internal const uint Inject = 1, Extract = 2;
+        internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100;
         internal const uint ViewGas = 1, ViewLiquid = 2, ViewOwned = 4;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -43,9 +43,13 @@ namespace MixedAtmospheres.Oni
             public double ReservoirKg, SpaceSinkKg, InjectedKg, ExtractedKg;
             public double NativeHeatJoules, NativeMassInKg, NativeMassOutKg;
             public ulong NativeChanges;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 6)] public double[] StageMilliseconds;
+            public double EvaporatedKg, CondensedKg;
+            public ulong SkippedRelaxations, ReservedCount;
+            public double ReleasedKg, ConvertedKg, SettledKg;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] private byte[] ErrorBytes;
             public string Error => Encoding.UTF8.GetString(ErrorBytes ?? Array.Empty<byte>()).TrimEnd('\0');
-            internal static Status Empty => new Status { Size = 480, Version = AbiVersion, ErrorBytes = new byte[256] };
+            internal static Status Empty => new Status { Size = 584, Version = AbiVersion, ErrorBytes = new byte[256], StageMilliseconds = new double[6] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct CellView { public uint ElementIndex, Flags; public float MassKg, TemperatureK, PressurePa, LiquidFraction; }
@@ -72,7 +76,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void CheckLayouts()
         {
-            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 16 || Marshal.SizeOf<Status>() != 480 ||
+            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 16 || Marshal.SizeOf<Status>() != 584 ||
                 Marshal.SizeOf<CellView>() != 24 || Marshal.SizeOf<Transfer>() != 40 || Marshal.SizeOf<Receipt>() != 40 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");

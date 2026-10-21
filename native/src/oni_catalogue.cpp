@@ -32,6 +32,7 @@ constexpr double class_bulk_modulus(LiquidClass c) {
 // temperature. Zero means "use the surrogate rule". Viscosity is Pa s.
 struct Row {
     std::string_view id; double latent_kj_per_kg, bulk_gpa, viscosity_pa_s; MiscibilityGroup group; LiquidClass type; std::string_view source;
+    double critical_k = 0; // critical temperature; zero: Guldberg's rule
 };
 constexpr std::string_view nist = "NIST Chemistry WebBook, SRD 69 (enthalpy of vaporization; fluid sound speed and density)";
 constexpr std::string_view toolbox = "Engineering ToolBox, Bulk Modulus and Fluid Elasticity; Liquids - Dynamic Viscosities";
@@ -39,24 +40,27 @@ constexpr std::string_view crc = "CRC Handbook of Chemistry and Physics, 97th ed
 constexpr std::string_view melts = "Iida & Guthrie, The Thermophysical Properties of Metallic Liquids (2015) (sound speed and density at melting)";
 constexpr std::string_view silicate = "Lange & Carmichael, Rev. Mineral. 24 (1990) (silicate melt compressibility, about 15 GPa)";
 constexpr std::string_view fictional = "fictional game material: documented surrogate";
+// Critical temperatures: NIST Chemistry WebBook and CRC Handbook (fluid data).
+// Without a row, Guldberg's rule: about 1.6 times the normal boiling point.
+constexpr double guldberg_ratio = 1.6;
 constexpr Row rows[] = {
-    {"Water", 2257, 2.2, 1.0e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, nist},
-    {"DirtyWater", 2257, 2.2, 1.0e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, nist},
-    {"SaltWater", 2257, 2.34, 1.1e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, toolbox},
-    {"Brine", 2257, 2.6, 1.5e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, toolbox},
-    {"Ethanol", 841, 1.06, 1.1e-3, MiscibilityGroup::aqueous, LiquidClass::organic, nist},
+    {"Water", 2257, 2.2, 1.0e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, nist, 647.1},
+    {"DirtyWater", 2257, 2.2, 1.0e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, nist, 647.1},
+    {"SaltWater", 2257, 2.34, 1.1e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, toolbox, 647.1},
+    {"Brine", 2257, 2.6, 1.5e-3, MiscibilityGroup::aqueous, LiquidClass::aqueous, toolbox, 647.1},
+    {"Ethanol", 841, 1.06, 1.1e-3, MiscibilityGroup::aqueous, LiquidClass::organic, nist, 513.9},
     {"CrudeOil", 0, 1.5, 5e-2, MiscibilityGroup::hydrocarbon, LiquidClass::organic, toolbox},
     {"Petroleum", 0, 1.3, 1.6e-3, MiscibilityGroup::hydrocarbon, LiquidClass::organic, toolbox},
     {"Naphtha", 0, 1.0, 5e-4, MiscibilityGroup::hydrocarbon, LiquidClass::organic, toolbox},
-    {"LiquidCarbonDioxide", 347, 1.0, 2.4e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist},
-    {"LiquidOxygen", 213, 0.92, 1.9e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist},
-    {"LiquidHydrogen", 446, 0.086, 1.3e-5, MiscibilityGroup::none, LiquidClass::cryogenic, nist},
-    {"LiquidMethane", 510, 0.76, 1.2e-4, MiscibilityGroup::light_hydrocarbon, LiquidClass::cryogenic, nist},
-    {"LiquidPropane", 428, 0.77, 2e-4, MiscibilityGroup::light_hydrocarbon, LiquidClass::cryogenic, nist},
-    {"LiquidHelium", 20.7, 0.004, 3.6e-6, MiscibilityGroup::none, LiquidClass::cryogenic, nist},
-    {"Chlorine", 288, 1.1, 3.4e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist},
-    {"LiquidSulfur", 0, 0, 1e-2, MiscibilityGroup::none, LiquidClass::molten_nonmetal, crc},
-    {"LiquidPhosphorus", 0, 0, 2e-3, MiscibilityGroup::none, LiquidClass::molten_nonmetal, crc},
+    {"LiquidCarbonDioxide", 347, 1.0, 2.4e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 304.1},
+    {"LiquidOxygen", 213, 0.92, 1.9e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 154.6},
+    {"LiquidHydrogen", 446, 0.086, 1.3e-5, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 33.2},
+    {"LiquidMethane", 510, 0.76, 1.2e-4, MiscibilityGroup::light_hydrocarbon, LiquidClass::cryogenic, nist, 190.6},
+    {"LiquidPropane", 428, 0.77, 2e-4, MiscibilityGroup::light_hydrocarbon, LiquidClass::cryogenic, nist, 369.8},
+    {"LiquidHelium", 20.7, 0.004, 3.6e-6, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 5.2},
+    {"Chlorine", 288, 1.1, 3.4e-4, MiscibilityGroup::none, LiquidClass::cryogenic, nist, 417.0},
+    {"LiquidSulfur", 0, 0, 1e-2, MiscibilityGroup::none, LiquidClass::molten_nonmetal, crc, 1314},
+    {"LiquidPhosphorus", 0, 0, 2e-3, MiscibilityGroup::none, LiquidClass::molten_nonmetal, crc, 994},
     {"Magma", 0, 15, 100, MiscibilityGroup::none, LiquidClass::molten_nonmetal, silicate},
     {"MoltenGlass", 0, 15, 10, MiscibilityGroup::none, LiquidClass::molten_nonmetal, silicate},
     {"MoltenSalt", 2910, 4.5, 1e-3, MiscibilityGroup::none, LiquidClass::molten_nonmetal, crc},
@@ -73,7 +77,7 @@ constexpr Row rows[] = {
     {"MoltenNickel", 6440, 0, 4.9e-3, MiscibilityGroup::none, LiquidClass::molten_metal, crc},
     {"MoltenZinc", 1760, 51, 3.9e-3, MiscibilityGroup::none, LiquidClass::molten_metal, melts},
     {"MoltenIridium", 2930, 0, 7e-3, MiscibilityGroup::none, LiquidClass::molten_metal, crc},
-    {"Mercury", 295, 28.5, 1.5e-3, MiscibilityGroup::none, LiquidClass::molten_metal, toolbox},
+    {"Mercury", 295, 28.5, 1.5e-3, MiscibilityGroup::none, LiquidClass::molten_metal, toolbox, 1750},
     {"SuperCoolant", 0, 0, 1e-3, MiscibilityGroup::none, LiquidClass::aqueous, fictional},
     {"ViscoGel", 0, 0, 10, MiscibilityGroup::none, LiquidClass::organic, fictional},
 };
@@ -102,6 +106,7 @@ ReferenceProperties reference_properties(const GameFluidElement& element) {
     r.source = row ? std::string(row->source) : "no reference row: class surrogates";
     if (row && row->bulk_gpa > 0) r.bulk_modulus_pa = row->bulk_gpa * 1e9;
     else { r.bulk_modulus_pa = class_bulk_modulus(type); r.surrogate_bulk = true; }
+    r.critical_temperature_k = row && row->critical_k > 0 ? row->critical_k : guldberg_ratio * element.high_temperature_k;
     if (row && row->latent_kj_per_kg > 0) r.latent_heat_j_per_kg = row->latent_kj_per_kg * 1e3;
     else {
         // Trouton's rule at the game's boiling point and molar mass.
@@ -174,6 +179,7 @@ Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
             d.cp = e.specific_heat_j_per_kg_k + (e.gas ? gas_constant / d.molar_mass : 0);
             d.density = e.gas ? 0 : e.density_kg_per_m3; d.conductivity = e.conductivity_w_per_m_k;
             d.formation_enthalpy = formation[i];
+            d.liquid_phase_group = e.gas ? 0 : c.materials[i].reference.miscibility_group;
             r.add(std::move(d));
         }
         return r;
@@ -214,7 +220,7 @@ Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
         materials[v].entropy_offset_j_per_kg_k = mac_saturation_entropy_offset(materials[l], materials[v], tb, catalogue_reference_pressure_pa);
         require(std::isfinite(materials[v].entropy_offset_j_per_kg_k) && materials[v].entropy_offset_j_per_kg_k != 0,
             "Saturation calibration failed for " + elements[l].id);
-        c.pairs.push_back({l, v, tb, c.materials[l].reference.latent_heat_j_per_kg});
+        c.pairs.push_back({l, v, tb, c.materials[l].reference.latent_heat_j_per_kg, c.materials[l].reference.critical_temperature_k});
     }
     c.eos = std::make_shared<const FluidThermodynamics>(c.registry, catalogue_profile, std::move(materials));
     const auto detected = mac_saturation_pairs(c.registry, *c.eos);

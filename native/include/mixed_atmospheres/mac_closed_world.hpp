@@ -7,6 +7,7 @@
 #include "mac_compression.hpp"
 #include "mac_compressive_work.hpp"
 #include "volume_work.hpp"
+#include "mac_phase_change.hpp"
 #include <memory>
 #include <optional>
 
@@ -207,6 +208,9 @@ struct MacClosedAdvance;
 // interval contract. Restored production owners need no execution-policy flag.
 enum class MacExecutionPolicy { reference, exact_equilibrium, production };
 struct MacFluidTransferResult;
+struct MacPhaseRelaxation;
+struct MacLiquidSettling;
+struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, released_j = 0; };
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
@@ -266,6 +270,21 @@ public:
     // empty cells into walls: the normal momentum on their faces is removed and
     // its kinetic energy becomes internal energy of the neighbour that carried
     // it, so U+K is unchanged and mass is untouched.
+    // Frame-level phase change for an owner whose kernel has none (the
+    // production kernel; docs/colony-owner.md#phase-change): every cell holding
+    // a saturation pair relaxes at fixed U and volume (advance_mac_phase_change).
+    // Momentum and the clock are unchanged; species masses move within pairs.
+    // fraction: the share of the way to equilibrium each cell moves.
+    [[nodiscard]] MacPhaseRelaxation with_phase_relaxation(std::span<const MacSaturationPair>, double fraction = 1) const;
+    // Buoyant settling of immiscible liquids (MAC_TRANSPORT.md, "Liquid
+    // settling"): across each vertical face of two full liquid-bearing cells,
+    // the lower cell's lightest liquid phase rises and the upper cell's
+    // heaviest sinks when it is denser, as equal zero-pressure volumes:
+    // fraction (at most 1/2) of the smaller. Each parcel carries its donor's
+    // specific internal energy and passives; the potential energy released is
+    // heat, momentum is unchanged and its kinetic change is booked, so U+K+G
+    // and every constituent are conserved.
+    [[nodiscard]] MacLiquidSettling with_liquid_settling(double fraction) const;
     [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
     [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring
@@ -286,6 +305,8 @@ private:
     std::uint64_t revision_ = 1;
 };
 struct MacClosedAdvance { MacClosedWorld world; MacClosedAdvanceReport report; };
+struct MacPhaseRelaxation { MacClosedWorld world; MacPhaseChangeReport report; };
+struct MacLiquidSettling { MacClosedWorld world; MacLiquidSettlingReport report; };
 struct MacFluidTransferResult {
     MacClosedWorld world;
     std::vector<MacFluidParcel> parcels;

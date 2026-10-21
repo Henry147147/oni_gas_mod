@@ -201,6 +201,13 @@ relinearized against the complete EOS, described in
 declared mole-weighted reference and liquid conductivity is volume-weighted. No heat
 crosses walls or the exterior; species, passives and J are retained.
 
+A gas-only cell's conductivity is capped at its free-molecular limit,
+`(Cv / V) v̄ h / 4` with mean molecular speed `v̄ = sqrt(8 R T / (π M))`
+(`free_molecular_conductivity`, both kernels). Continuum gases sit far below the cap
+and keep their conductivity; a near-vacuum cell left by gas expanding into void
+otherwise conducted with full gas conductivity against a heat capacity below what
+its face temperatures can resolve, and rounding drove its temperature negative.
+
 Independent nearest rounding of each cell's new U can repeatedly cool a hot cell
 while small incoming updates round away. The operator now gathers one shared
 antisymmetric energy transfer per face, adds each cell's carried U correction,

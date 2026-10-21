@@ -3,6 +3,7 @@
 // the grid shape, each block is processed by exactly one thread, and
 // reductions combine per-block partials in block order (MAC_KERNEL.md, "Determinism").
 #include "mac_kernel_detail.hpp"
+#include <chrono>
 #include <map>
 #include <memory>
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
@@ -41,8 +42,12 @@ Grid::Grid(const MacGrid& mg)
 
 namespace {
 // Short pause spin, then yield, then sleep: an oversubscribed host must not
-// burn the cores other threads (including our own workers) need.
-constexpr int pause_spins = 256, yield_spins = 64;
+// burn the cores other threads (including our own workers) need. Workers keep
+// yielding for up to 2 ms before sleeping: regions inside one interval follow
+// each other closely, and a worker woken from sleep in a busy process (the
+// game) arrives after the caller has claimed most blocks.
+constexpr int pause_spins = 256;
+constexpr auto awake_before_sleep = std::chrono::microseconds(2000);
 // Block index of a closed ticket: never below any admissible block count.
 constexpr std::uint64_t closed = 0xffffffffU;
 }
@@ -70,9 +75,10 @@ void Pool::worker() {
     std::uint64_t seen = 0;
     for (;;) {
         std::uint64_t generation = ticket_.load(std::memory_order_acquire) >> 32;
+        const auto idle_since = std::chrono::steady_clock::now();
         for (int spin = 0; generation == seen; ++spin) {
             if (spin < pause_spins) MA_KERNEL_PAUSE();
-            else if (spin < pause_spins + yield_spins) std::this_thread::yield();
+            else if (spin % 64 != 0 || std::chrono::steady_clock::now() - idle_since < awake_before_sleep) std::this_thread::yield();
             else {
                 std::unique_lock lock(mutex_);
                 sleeping_.fetch_add(1);

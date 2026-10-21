@@ -47,6 +47,7 @@ int main() {
         require(c.registry[0].id == "Steam" && c.registry[5].id == "MoltenUnobtainium", "registry order");
         const auto water = c.species_of_native(7), steam = c.species_of_native(3), oxygen = c.species_of_hash(13);
         require(c.pairs.size() == 1 && c.pairs[0].liquid == water && c.pairs[0].vapour == steam, "saturation pair");
+        require(c.pairs[0].critical_k == 647.1, "the pair's critical temperature comes from the reference row");
         require(!c.has_native(8) && c.has_native(20), "native index map");
         // Game specific heat is the constant-volume capacity; molar mass is explicit.
         require(std::abs(c.registry[oxygen].cv() - 1000) <= 1e-12 * 1000 && c.registry[oxygen].molar_mass == .016, "gas cv and molar mass");
@@ -70,6 +71,21 @@ int main() {
         std::vector<double> masses(c.registry.size()); masses[water] = 400; masses[oxygen] = .5;
         const auto state = c.eos->evaluate(c.eos->initialize_at_temperature(masses, 300, 1).mixture, 1);
         require(state.has_gas && state.temperature_k > 299.999 && state.temperature_k < 300.001, "mixed cell");
+        // Above the pair's critical temperature no liquid remains: relaxation
+        // evaporates it all (one cell of water and a little steam at 900 K).
+        {
+            std::vector<double> hot(c.registry.size()); hot[water] = 5; hot[steam] = .05;
+            MacTransportState cell; cell.grid = {1, 1, 1, 1, false, false, {0}};
+            cell.cells.push_back({c.eos->initialize_at_temperature(hot, 900, 1).mixture, {}});
+            const auto inertia = mac_face_inertias(c.registry, cell, *c.eos);
+            cell.momentum_x.assign(inertia.x.size(), 0); cell.momentum_y.assign(inertia.y.size(), 0);
+            auto pairs = mac_saturation_pairs(c.registry, *c.eos);
+            require(pairs.size() == 1, "one pair to relax");
+            pairs[0].critical_temperature_k = c.pairs[0].critical_k;
+            const auto relaxed = advance_mac_phase_change(c.registry, *c.eos, cell, pairs);
+            require(relaxed.state.cells[0].mixture.masses[water] == 0 && std::abs(relaxed.state.cells[0].mixture.masses[steam] - 5.05) < 1e-12,
+                "supercritical liquid evaporates");
+        }
         // Rejections.
         rejects([] { auto e = sample(); e[1].native_index = 7; (void)build_catalogue(e); }, "Duplicate");
         rejects([] { auto e = sample(); e[2].specific_heat_j_per_kg_k = 0; (void)build_catalogue(e); }, "Invalid game properties");

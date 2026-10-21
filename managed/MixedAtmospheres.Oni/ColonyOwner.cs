@@ -13,7 +13,7 @@ namespace MixedAtmospheres.Oni
     // game's data copy and routes mass and heat messages for owned cells.
     internal static unsafe class ColonyOwner
     {
-        private const int PrepareGameData = 1078620451, MassConsumption = 1727657959, MassEmission = 797274363,
+        private const int NewGameFrame = -775326397, PrepareGameData = 1078620451, MassConsumption = 1727657959, MassEmission = 797274363,
             ModifyCell = -1252920804, ModifyCellEnergy = 818320644, Dig = 833038498;
         // Calm asteroids take full steps of this length; flow and the pressure
         // solve shorten them where needed (docs/colony-owner.md#pacing).
@@ -60,7 +60,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
-            ColonyPresentation.Reset();
+            ColonyPresentation.Reset(); ColonyConsumers.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
@@ -75,6 +75,7 @@ namespace MixedAtmospheres.Oni
             if (x < 0 || y < 0 || x >= width || y >= height) return false;
             index = x + y * width; return true;
         }
+        internal static bool OwnsFluidCell(int cell) => OwnsFluid(cell);
         private static bool OwnsFluid(int cell) => Active && InRect(cell, out var index) && (views[index].Flags & OniNativeColony.ViewOwned) != 0;
 
         internal static OniNativeColony.Material[] BuildCatalogue()
@@ -231,16 +232,26 @@ namespace MixedAtmospheres.Oni
             catch { copy.Dispose(); throw; }
         }
 
+        // A conversion's solid byproduct (salt from boiling salt water) becomes debris.
+        private static void SpawnByproduct(in OniNativeColony.Receipt r)
+        {
+            var element = ElementLoader.FindElementByHash((SimHashes)r.Callback);
+            if (element == null || !(r.MassKg > 0)) return;
+            element.substance.SpawnResource(Grid.CellToPosCCC((int)r.PublicCell, Grid.SceneLayer.Ore), r.MassKg, r.TemperatureK, byte.MaxValue, 0);
+        }
         private static void DeliverReceipts(OwnedGameDataSnapshot copy)
         {
             OniNativeColony.Check(OniNativeColony.CopyReceipts(receipts, (uint)receipts.Length, out var count));
             if (count == 0) return;
             var consumed = new List<Sim.MassConsumedCallback>(); var emitted = new List<Sim.MassEmittedCallback>();
+            var removed = new List<Sim.ConsumedMassInfo>();
             var through = 0UL; var delivered = (int)Math.Min(count, (uint)receipts.Length);
             for (var k = 0; k < delivered; ++k)
             {
                 var r = receipts[k]; through = r.Sequence;
-                if (r.Kind == OniNativeColony.Extract)
+                if (ColonyConsumers.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyConsumers.Event(r)); }
+                else if (r.Kind == OniNativeColony.Byproduct) SpawnByproduct(r);
+                else if (r.Kind == OniNativeColony.Extract)
                     consumed.Add(new Sim.MassConsumedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, mass = r.MassKg,
                         temperature = r.MassKg > 0 ? r.TemperatureK : 0, diseaseIdx = 255, diseaseCount = 0 });
                 else
@@ -249,6 +260,7 @@ namespace MixedAtmospheres.Oni
             }
             copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, consumed.ToArray());
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
+            copy.AppendEvents<Sim.ConsumedMassInfo>(SnapshotEventChannel.RemovedMassEntries, removed.ToArray());
             OniNativeColony.Check(OniNativeColony.AckReceipts(through));
         }
 
@@ -257,6 +269,8 @@ namespace MixedAtmospheres.Oni
         internal static bool TryHandle(int message, int length, int count, byte* payload)
         {
             if (!Active || count <= 0 || payload == null) return false;
+            if (message == NewGameFrame && length >= 4) { ColonyConsumers.QueueFrame(*(float*)payload); return false; }
+            if (ColonyConsumers.TryHandle(message, length, count, payload, cell => InRect(cell, out _))) return true;
             switch (message)
             {
                 case MassEmission: return Claim(length, 24, count, payload, (data, list) =>

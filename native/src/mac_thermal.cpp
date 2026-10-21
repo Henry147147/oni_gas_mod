@@ -138,8 +138,13 @@ MacThermalAdvance advance_mac_conduction(const SpeciesRegistry& registry,const F
             const auto weight=reading.partial_volumes_m3[static_cast<std::size_t>(material-materials.begin())];
             numerator+=weight*species.conductivity; denominator+=weight;
         }
-        const auto k=numerator/denominator;
+        auto k=numerator/denominator;
         if (!std::isfinite(k) || k < 0) throw std::invalid_argument("MAC mixture conductivity is unrepresentable");
+        if (reading.has_gas && !(reading.liquid_volume_m3>0)) {
+            double moles=0;
+            for (std::size_t s=0;s<registry.size();++s) if (mixture.masses[s] > 0) moles+=mixture.masses[s]/registry[s].molar_mass;
+            k=std::min(k,free_molecular_conductivity(capacity,grid.volume_m3(),reading.temperature_k,mixture.mass()/moles,grid.spacing_m));
+        }
         nodes[i]=cells.size(); cells.push_back(i); bodies.push_back({capacity,reading.temperature_k}); conductivity.push_back(k);
         variable_cell.push_back(variable);
     }

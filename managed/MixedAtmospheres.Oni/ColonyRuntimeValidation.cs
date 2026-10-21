@@ -393,7 +393,9 @@ namespace MixedAtmospheres.Oni
             if (status.State == 2) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
             var owner = new {
                 SchemaVersion = 1, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
-                status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds,
+                status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
+                status.NativeHeatJoules, status.NativeMassInKg, status.NativeMassOutKg, status.NativeChanges,
+                status.EvaporatedKg, status.CondensedKg, status.SkippedRelaxations, status.ReleasedKg, status.ConvertedKg, status.SettledKg,
                 status.MaximumRelativeMassError, status.MaximumRelativeEnergyError, status.ReservoirKg, status.SpaceSinkKg,
                 status.InjectedKg, status.ExtractedKg, status.CommittedTransfers, status.CommittedHeat, status.OpenedCells, status.ClosedCells,
                 ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
@@ -406,12 +408,22 @@ namespace MixedAtmospheres.Oni
                 BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
+                Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results,
+                Consumers = ColonyConsumers.Count, ConsumerExtractions = ColonyConsumers.Queued, ConsumerEvents = ColonyConsumers.Delivered,
                 Error = status.Error
             };
             File.WriteAllText(Path.Combine(OutputDirectory, "colony-owner.json"), ReportJson.Serialize(owner));
             var loading = configuration!.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
-            if (status.CompletedFrames < colonyOwnerBaseline + (ulong)configuration.CompletedFrames)
+            if (configuration.Scenario.Length != 0)
+            {
+                // A system scenario (ColonyScenarios) decides when the run ends.
+                if (!ColonyScenarios.Update(configuration.Scenario, status)) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+                if (!ColonyScenarios.AllPassed)
+                    throw new InvalidOperationException("Colony scenarios failed: " + string.Join("; ", ColonyScenarios.Results.Where(r => !r.Passed)
+                        .Select(r => r.Name + ": " + string.Join(", ", r.Checks.Where(check => !check.Passed).Select(check => check.Name + " (" + check.Detail + ")")))));
+            }
+            else if (status.CompletedFrames < colonyOwnerBaseline + (ulong)configuration.CompletedFrames)
             {
                 if (colonyOwnerBaseline == 0 && loading) colonyOwnerBaseline = status.CompletedFrames;
                 if (Time.frameCount % 60 == 0) WriteReport();

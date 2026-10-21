@@ -64,8 +64,18 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-LONG_RUN_MODES = ("snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-domain", "native-liquid-domain", "native-mixed-domain",
-                  "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain")
+SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing")
+
+
+def scenario_list(value: str) -> str:
+    names = value.split(",")
+    if not names or any(name not in SCENARIOS for name in names) or len(set(names)) != len(names):
+        raise argparse.ArgumentTypeError("scenarios: comma-separated, distinct, from " + ", ".join(SCENARIOS))
+    return value
+
+
+LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
+                  "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load")
 TELEMETRY_FILE = "development-telemetry.jsonl"
 TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
 # The game writes a telemetry heartbeat at least every 60 s of wall time.
@@ -632,6 +642,7 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"SubnormalCarbonParticle": True} if getattr(args,"subnormal_carbon_particle",False) is True else {}),
         **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
         **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
+        **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -1039,6 +1050,8 @@ def main() -> int:
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
+    play.add_argument("--scenario", type=scenario_list,
+                      help="colony-owner only: in-game system scenarios, comma-separated (docs/colony-owner.md#scenarios)")
     args = parser.parse_args()
     if args.command == "run":
         long_run = args.long_run is True
@@ -1073,6 +1086,8 @@ def main() -> int:
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode == "colony-owner") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
+    if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":
+        parser.error("--scenario needs --mode colony-owner")
     if args.command == "run" and (bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")) or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)

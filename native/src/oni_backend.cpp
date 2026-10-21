@@ -325,6 +325,15 @@ void on_temperature(void* data,void* events,int a,int b) {
 }
 bool on_transition(void* data,void* events,int cell,const void* definition) {
     Call call(MA_ONI_STATE_TRANSITION);
+    if (ma::oni::colony::active()) {
+        // Freezing an owned cell runs natively and is captured by the shadow.
+        ma::oni::colony::NativeCells cells{};
+        if (ma::oni::colony::owns(cell) && (!native_cells(data,cells) ||
+                !ma::oni::colony::allow_native_transition(cell,cells.element[1][cell],cells.temperature[1][cell]))) {
+            (void)ma::oni::colony::suppress(MA_ONI_STATE_TRANSITION,cell); return false;
+        }
+        return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_STATE_TRANSITION)(data,events,cell,definition);
+    }
     if (owned_cell(MA_ONI_STATE_TRANSITION,cell)) return false;
     return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_STATE_TRANSITION)(data,events,cell,definition);
 }

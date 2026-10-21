@@ -137,6 +137,15 @@ Phase-change owners checkpoint as [version 11](MAC_CHECKPOINT.md#version-assignm
 With the void phase, liquid resting in vacuum boils into its cell's void
 ([vacuum](MAC_VACUUM.md#phase-change)).
 
+An owner without phase change in its settings (the colony owner, whose
+production kernel runs the void phase) can relax between intervals with
+`MacClosedWorld::with_phase_relaxation(pairs, fraction)`: the same equilibrium
+relaxation, each cell moving `fraction` of the way to equilibrium. A pair's
+`critical_temperature_k` (infinite by default) bounds its liquid: at or above
+it none condenses and liquid evaporates, since the elastic-liquid saturation
+curve otherwise continues far past the critical point. Neither changes any
+existing owner's arithmetic.
+
 ## Gate M5
 
 M5 passes (2026-10-20). `ma_mac_multiphase_gates M5 --run` runs the full gate on the

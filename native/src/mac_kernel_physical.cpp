@@ -6,6 +6,7 @@
 // Viscosity relaxes the reference rank-one stress modes in multicolour order.
 #include "mac_kernel_detail.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
+#include "mixed_atmospheres/thermal.hpp"
 #include <numeric>
 
 namespace ma::experimental::mac_kernel {
@@ -147,6 +148,8 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
             }
             k[i] = num / den;
             if (!std::isfinite(k[i]) || k[i] < 0) throw std::invalid_argument("Production mixture conductivity is unrepresentable");
+            if (e.kind[i] == gas_cell)
+                k[i] = std::min(k[i], free_molecular_conductivity(e.Cv[i], e.Vg[i], e.T[i], e.M[i] / moles, g.h));
         }
         return found;
     });
