@@ -52,6 +52,12 @@ namespace MixedAtmospheres.Oni
                     }
                     report.Prefabs.Add(record);
                 }
+            // Element identities and phases (no properties); disabled elements
+            // belong to content that is not loaded.
+            if (ElementLoader.elements != null)
+                foreach (var element in ElementLoader.elements.Where(element => element != null).OrderBy(element => element.idx))
+                    report.Elements.Add(new CapturedMaterialIdentity { Name = element.id.ToString(), Disabled = element.disabled,
+                        Phase = element.IsVacuum ? "vacuum" : element.IsSolid ? "solid" : element.IsLiquid ? "liquid" : "gas" });
             // Do not use Get(): it can create a singleton. A missing registry
             // is explicit evidence of incomplete discovery, not an empty game.
             var manager = AccessTools.Field(typeof(ComplexRecipeManager), "_Instance")?.GetValue(null) as ComplexRecipeManager;
@@ -101,6 +107,7 @@ namespace MixedAtmospheres.Oni
         [DataMember] public string[] LoadedDlcIds = Array.Empty<string>();
         [DataMember] public List<CapturedPrefab> Prefabs = new List<CapturedPrefab>();
         [DataMember] public List<CapturedRecipe> Recipes = new List<CapturedRecipe>();
+        [DataMember] public List<CapturedMaterialIdentity> Elements = new List<CapturedMaterialIdentity>();
         [DataMember] public string[] Unresolved =
         {
             "No colony simulation was exercised by this capture.",
@@ -109,6 +116,12 @@ namespace MixedAtmospheres.Oni
             "Recipe tags may represent categories or substitutes; identities do not establish chemical or energy balance.",
             "Native registries, transient sources and unobserved DLC configurations remain unverified."
         };
+    }
+    [DataContract]
+    internal sealed class CapturedMaterialIdentity
+    {
+        [DataMember] public string Name = "", Phase = "";
+        [DataMember] public bool Disabled;
     }
     [DataContract]
     internal sealed class CapturedPrefab

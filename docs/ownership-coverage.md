@@ -8,6 +8,17 @@ and observer attachment cannot satisfy ownership gates. The staging and filter
 code described below comes from the earlier vacuum-shadow work and is not an
 enabled production importer.
 
+## Playtest checklist
+
+The [base-game playtest](playtest-plan.md) scopes this inventory with
+`tools/playtest_checklist.py`: `apply` marks every entry in or out from the
+base-game Linux registry (`runtime-identities-linux-base.json`, captured in game
+with no DLC loaded), assigns each in-scope entry to one gameplay system, and
+copies the system's status from the script's table of implemented systems with
+their sources and in-game check; `status` prints the checklist. Out-of-scope
+entries name their reason (DLC content, Spaced Out! radiation, ONI's unchanged
+light model). Entries without fluid interaction (`native`) need no adapter.
+
 ## Executable inventory
 
 `coverage-inventory.json` contains 3,074 entries: 212 material identities,

@@ -70,12 +70,20 @@ def identities(capture: dict, source_hash: str, contract: dict) -> dict:
             "input_tags": materials(recipe["Inputs"]), "output_tags": materials(recipe["Outputs"])})
     if not capture["Prefabs"] or not capture["Recipes"]:
         raise ValueError("Initialized discovery report contains an empty registry")
+    # Loaded material identities and phases (newer captures): no properties.
+    materials = []
+    for element in capture.get("Elements", []):
+        if element.get("Phase") not in ("solid", "liquid", "gas", "vacuum") or type(element.get("Disabled")) is not bool:
+            raise ValueError("Invalid element identity")
+        if not element["Disabled"]: materials.append({"name": label(element["Name"]), "phase": element["Phase"]})
+    if len({item["name"] for item in materials}) != len(materials): raise ValueError("Duplicate element identity")
     return {"schema_version": 1, "oni_build": contract["scope"]["oniBuild"], "platform": platform,
             "assembly_sha256": assembly_hash, "private_capture_sha256": source_hash,
             "loaded_dlc_ids": sorted(label(item) for item in capture["LoadedDlcIds"]),
             "save_dlc_configuration_known": False, "coverage_complete": False,
             "unresolved": capture["Unresolved"] + ["Duplicate prefab/recipe labels are distinct registrations indexed by occurrence, not collapsed; their dispatch remains to be reviewed."],
-            "entries": sorted(entries, key=lambda item: item["id"])}
+            "entries": sorted(entries, key=lambda item: item["id"]),
+            **({"materials": sorted(materials, key=lambda item: item["name"])} if materials else {})}
 
 
 def main() -> int:

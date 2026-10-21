@@ -18,6 +18,9 @@ INVENTORY = ROOT / "docs/coverage-inventory.json"
 CONTRACT = ROOT / "docs/interop-contract.json"
 POLICY = ROOT / "docs/coverage-policy.json"
 RUNTIME = ROOT / "docs/runtime-identities.json"
+# Base-game Linux registry (docs/playtest-plan.md): identities absent from the
+# Windows capture join the inventory; it also scopes the playtest checklist.
+RUNTIME_BASE = ROOT / "docs/runtime-identities-linux-base.json"
 NATIVE_HOOKS = ROOT / "docs/native-hook-profiles.json"
 PACKS = ("Spaced Out!", "Frosty", "Bionic", "Prehistoric", "Aquatic")
 PLATFORMS = ("windows-x64", "linux-x64")
@@ -82,6 +85,12 @@ def interface_entries(contract: dict, policy: dict) -> list[dict]:
         raise ValueError("Invalid runtime discovery input")
     adapters = {"prefab": ("PrefabFluidAdapters", "callsite-transaction"), "prefab-converter": ("ElementConverterAdapter", "conversion"),
                 "recipe": ("RecipeAdapters", "conversion")}
+    known = {item["id"] for item in runtime["entries"]}
+    if RUNTIME_BASE.exists():
+        base = json.loads(RUNTIME_BASE.read_text(encoding="utf-8"))
+        if base["schema_version"] != 1 or base["oni_build"] != contract["scope"]["oniBuild"] or base["coverage_complete"] is not False:
+            raise ValueError("Invalid base-game runtime discovery input")
+        runtime = dict(runtime, entries=runtime["entries"] + [item for item in base["entries"] if item["id"] not in known])
     for item in runtime["entries"]:
         adapter, acceptance = adapters[item["kind"]]
         add(item["id"], item["kind"], "custom-fluid/native-nonfluid", adapter, acceptance,
@@ -139,7 +148,7 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
     if inventory.get("schema_version") != 1 or inventory.get("oni_build") != contract["scope"]["oniBuild"]:
         raise ValueError("Unsupported inventory schema or game build")
     for key, path in (("interop_contract", contract_path), ("coverage_policy", policy_path), ("runtime_identities", RUNTIME),
-                      ("native_hook_profiles", NATIVE_HOOKS)):
+                      ("native_hook_profiles", NATIVE_HOOKS), *((("runtime_identities_linux_base", RUNTIME_BASE),) if RUNTIME_BASE.exists() else ())):
         if inventory["source_hashes"].get(key) != digest(path):
             raise ValueError(f"Stale inventory: {key} changed; regenerate and review")
     if inventory.get("assembly_hashes") != {"windows-x64": contract["scope"]["assemblySha256"],
@@ -163,6 +172,11 @@ def validate(inventory: dict, contract_path: Path = CONTRACT, policy_path: Path 
         if entry["acceptance"] not in acceptances: raise ValueError(f"Undefined acceptance test: {identity}")
         if entry.get("status") not in ("unimplemented", "implemented"):
             raise ValueError(f"Invalid implementation status: {identity}")
+        # Playtest checklist (tools/playtest_checklist.py): in or out, and why.
+        if "playtest" in entry and (entry["playtest"] not in ("in", "out") or
+                (entry["playtest"] == "out") != bool(entry.get("playtest_reason")) or
+                (entry["playtest"] == "in") != bool(entry.get("playtest_system"))):
+            raise ValueError(f"Invalid playtest scope: {identity}")
         if entry["status"] == "implemented":
             paths = entry.get("implementation", [])
             if not paths: raise ValueError(f"Implemented entry has no source references: {identity}")
