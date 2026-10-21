@@ -3,15 +3,18 @@
 // saturation curve follows from the EOS's own Gibbs energies.
 #include "mac_fixture.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
+#include <array>
 #include <cstring>
 #include <iomanip>
+#include <tuple>
 
 namespace {
 using namespace ma; using namespace ma::experimental;
 void check(bool ok, const char* why) { if (!ok) throw std::runtime_error(why); }
 struct Water {
     SpeciesRegistry registry; std::shared_ptr<const FluidThermodynamics> eos; std::size_t water = 0, steam = 0, air = 0;
-    Water() {
+    Water(bool second_pair = false) {
         const auto standard = SpeciesRegistry::standard(); std::vector<ReferenceMaterial> materials;
         for (const char* id : {"water", "steam", "nitrogen"}) {
             const auto& sp = standard[standard.index(id)]; registry.add(sp); ReferenceMaterial m;
@@ -23,10 +26,50 @@ struct Water {
             m.provenance = "Phase-change test profile"; materials.push_back(m);
         }
         materials[1].entropy_offset_j_per_kg_k = mac_saturation_entropy_offset(materials[0], materials[1], 373.15, 101325);
+        if (second_pair) for (std::size_t k = 0; k < 2; ++k) {
+            auto sp = standard[standard.index(k == 0 ? "water" : "steam")];
+            sp.id = k == 0 ? "water_b" : "steam_b"; registry.add(sp);
+            auto material = materials[k]; material.id = sp.id; materials.push_back(material);
+        }
         eos = std::make_shared<const FluidThermodynamics>(registry, "phase-change-tests-1", std::move(materials));
         water = registry.index("water"); steam = registry.index("steam"); air = registry.index("nitrogen");
     }
 };
+void parallel_control() {
+    const Water s(true); constexpr std::size_t W = 64, H = 35;
+    MacTransportState st; st.grid = {W, H, 1, 1, false, false, std::vector<std::uint8_t>(W * H, 0)};
+    const auto water_b = s.registry.index("water_b"), steam_b = s.registry.index("steam_b");
+    for (std::size_t i = 0; i < W * H; ++i) {
+        const double temperature = i % 3 == 0 ? 380 : i % 3 == 1 ? 360 : 300;
+        std::vector<double> masses(s.registry.size(), 0); masses[s.water] = masses[water_b] = 249.25;
+        if (i % 3 == 2) masses[s.air] = 101325 * .5 * s.registry[s.air].molar_mass / (gas_constant * temperature);
+        else masses[s.steam] = masses[steam_b] = 101325 * .5 * s.registry[s.steam].molar_mass / (gas_constant * temperature);
+        st.cells.push_back({s.eos->initialize_at_temperature(masses, temperature, 1).mixture, {}});
+    }
+    st.momentum_x.assign(st.grid.x_width() * H, 0); st.momentum_y.assign(W * st.grid.y_height(), 0);
+    const std::array<MacSaturationPair, 2> pairs{{{s.water, s.steam}, {water_b, steam_b}}};
+    const auto image = [&](const MacTransportState& state) { return MacClosedWorld(s.registry, s.eos, state).checkpoint(); };
+    const auto held = image(st);
+    const auto saved_options = mac_kernel_default_options();
+    auto options = saved_options; options.threads = 1; options.minimum_blocks_per_thread = 1;
+    set_mac_kernel_default_options(options);
+    const auto serial = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18);
+    const auto first = advance_mac_phase_change(s.registry, *s.eos, st, std::span(pairs).first(1), false, .18);
+    const auto sequential = advance_mac_phase_change(s.registry, *s.eos, first.state, std::span(pairs).last(1), false, .18);
+    check(image(serial.state) == image(sequential.state), "Cell-local phase work changed pair order");
+    options.threads = 12; set_mac_kernel_default_options(options);
+    const auto parallel = advance_mac_phase_change(s.registry, *s.eos, st, pairs, false, .18);
+    const auto fields = [](const MacPhaseChangeReport& r) {
+        return std::tie(r.evaporating_cells, r.condensing_cells, r.eos_evaluations, r.unevaluable_cells,
+            r.evaporated_kg, r.condensed_kg, r.entropy_change_j_per_k, r.entropy_allowance_j_per_k);
+    };
+    check(image(parallel.state) == image(serial.state) && fields(parallel.report) == fields(serial.report),
+        "Phase state or report depends on worker count");
+    check(parallel.report.evaporating_cells > 0 && parallel.report.condensing_cells > 0 &&
+        parallel.report.unevaluable_cells == 0 && image(st) == held, "Phase control did not convert both ways atomically");
+    set_mac_kernel_default_options(saved_options);
+    std::cout << "PASS ordered phase pairs: primary bytes, reports and one/many workers\n";
+}
 double vapour_pressure(const Water& s, const MixtureInventory& m, double volume) {
     const auto e = s.eos->evaluate(m, volume); return e.gas_pressure_pa * e.partial_volumes_m3[1] / e.gas_volume_m3;
 }
@@ -143,8 +186,10 @@ void vacuum_boiling(const Water& s) {
               << " kg, pair mass drift " << static_cast<double>((pair_mass(x) - initial) / initial) << '\n';
     check(steam > first && x.cells[1].mixture.masses[s.steam] > 0 && std::abs(pair_mass(x) - initial) <= 1e-14L * initial, "Vacuum boiling did not spread or lost mass");
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--parallel-only") == 0) { parallel_control(); return 0; }
+        check(argc == 1, "Usage: ma_mac_phase_change_tests [--parallel-only]");
         const Water s; saturation_curve(s);
         const auto masses = [&](double water, double steam, double air) { std::vector<double> m(3); m[s.water] = water; m[s.steam] = steam; m[s.air] = air; return m; };
         // 1 m3: half water, half steam at 1 atm.
@@ -156,6 +201,7 @@ int main() {
         relaxes(s, "subcooled_full", masses(997 * (1 + 101325 / 2.2e9), 0, 0), 350, 1, 0);
         production_column(s);
         vacuum_boiling(s);
+        parallel_control();
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

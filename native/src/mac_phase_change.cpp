@@ -1,4 +1,5 @@
 #include "mixed_atmospheres/mac_phase_change.hpp"
+#include "mac_kernel_detail.hpp"
 #include "mixed_atmospheres/mac_energy.hpp"
 #include <algorithm>
 #include <cmath>
@@ -96,8 +97,8 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
     const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction) {
     require_mac_energy_environment(); model.validate_registry(registry);
     require(std::isfinite(fraction) && fraction > 0 && fraction <= 1, "Invalid MAC phase relaxation fraction");
-    MacPhaseChangeAdvance result{source, {}}; auto& report = result.report;
-    const auto& g = source.grid; MacEnergySum entropy, allowance;
+    MacPhaseChangeAdvance result{source, {}}; auto& total_report = result.report;
+    const auto& g = source.grid; MacEnergySum total_entropy, total_allowance;
     // A filled gas-only cell's temperature and moles in closed form (ideal
     // gases), computed once: a cell holding only a pair's vapour can only
     // condense, which it cannot do above the critical temperature or below
@@ -139,13 +140,24 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
         gas_temperature[i] = std::isfinite(t) && t > 0 ? t : 0; gas_moles[i] = moles;
         return gas_temperature[i] > 0;
     };
+    struct PreparedPair { MacSaturationPair pair; std::size_t liquid, vapour; };
+    std::vector<PreparedPair> prepared; prepared.reserve(pairs.size());
     for (const auto& pair : pairs) {
         require(pair.liquid < registry.size() && pair.vapour < registry.size() && registry[pair.liquid].phase == Phase::liquid &&
             registry[pair.vapour].phase == Phase::gas, "Invalid MAC saturation pair");
-        const auto liquid_profile = profile_of(model, registry, pair.liquid), vapour_profile = profile_of(model, registry, pair.vapour);
-        for (std::size_t i = 0; i < source.cells.size(); ++i) {
-            if (g.walls[i]) continue;
-            auto& cell = result.state.cells[i].mixture;
+        prepared.push_back({pair, profile_of(model, registry, pair.liquid), profile_of(model, registry, pair.vapour)});
+    }
+    struct Partial { MacPhaseChangeReport report; MacEnergySum entropy, allowance; };
+    constexpr std::size_t block_size = 1024;
+    const auto blocks = (source.cells.size() + block_size - 1) / block_size;
+    std::vector<Partial> partials(blocks);
+    const auto advance_cell = [&](std::size_t i, Partial& part) {
+        if (g.walls[i]) return;
+        auto& cell = result.state.cells[i].mixture;
+        auto& report = part.report; auto& entropy = part.entropy; auto& allowance = part.allowance;
+        for (const auto& entry : prepared) {
+            const auto& pair = entry.pair;
+            const auto liquid_profile = entry.liquid, vapour_profile = entry.vapour;
             const double ml = cell.masses[pair.liquid], mv = cell.masses[pair.vapour];
             if (ml == 0 && mv == 0) continue;
             // Void phase (MAC_VACUUM.md, "Phase change"): a partly filled cell
@@ -253,14 +265,30 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             (evaporate ? report.evaporating_cells : report.condensing_cells) += 1;
             (evaporate ? report.evaporated_kg : report.condensed_kg) += std::abs(near);
         }
+    };
+    // Pair order within a cell is unchanged. Fixed cell blocks own disjoint
+    // primary writes; their report/entropy reductions have a fixed order too.
+    const auto options = mac_kernel_default_options();
+    const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads,
+        std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+        for (std::size_t i = block * block_size; i < std::min(source.cells.size(), (block + 1) * block_size); ++i)
+            advance_cell(i, partials[block]);
+    });
+    for (const auto& part : partials) {
+        total_report.eos_evaluations += part.report.eos_evaluations; total_report.unevaluable_cells += part.report.unevaluable_cells;
+        total_report.evaporating_cells += part.report.evaporating_cells; total_report.condensing_cells += part.report.condensing_cells;
+        total_report.evaporated_kg += part.report.evaporated_kg; total_report.condensed_kg += part.report.condensed_kg;
+        for (std::size_t k = 0; k < part.entropy.size(); ++k) total_entropy.add(part.entropy.component(k));
+        for (std::size_t k = 0; k < part.allowance.size(); ++k) total_allowance.add(part.allowance.component(k));
     }
     // A void-phase state whose cells are all filled keeps no occupied volumes.
     auto& occupied = result.state.occupied_volumes_m3; bool partial = false;
     for (std::size_t i = 0; i < occupied.size(); ++i) partial = partial || (result.state.cells[i].mixture.mass() > 0 && occupied[i] < g.volume_m3());
     if (!partial) occupied.clear();
-    MacEnergySum admitted; admitted.add(entropy.value()); admitted.add(allowance.value());
+    MacEnergySum admitted; admitted.add(total_entropy.value()); admitted.add(total_allowance.value());
     if (admitted.sign() < 0) throw std::domain_error("MAC phase change decreased entropy beyond its roundoff allowance");
-    report.entropy_change_j_per_k = entropy.value().project().value; report.entropy_allowance_j_per_k = allowance.value().project().value;
+    total_report.entropy_change_j_per_k = total_entropy.value().project().value; total_report.entropy_allowance_j_per_k = total_allowance.value().project().value;
     return result;
 }
 }

@@ -48,6 +48,24 @@ occupied volume:
 Only the pair's masses change. U, momentum, passives and every energy account hold,
 and an entropy decrease beyond 128 epsilons of |U|/T is rejected.
 
+Relaxation uses the production worker pool in fixed blocks of 1,024 cells.
+Each cell keeps the caller's pair order and owns all its primary writes;
+entropy expansions and diagnostics merge in block order. Worker count changes
+neither primary state nor reports. The focused two-pair control checks ordered
+sequential equivalence, one/many-worker bytes and reports, and source immutability.
+Three asteroid dump controls retain every endpoint checkpoint byte. On the
+frame-50 dump, sixteen workers reduce this stage from 284 ms to 65 ms under the
+whole-machine CPU lock. The trade is more concurrent CPU use; physical laws,
+relaxation fraction, root tolerance and checkpoint fields are unchanged.
+
+A fresh 60-frame Terra pair under the whole-machine lock measures owner
+advance mean 1.029 s → 0.764 s, median 0.939 s → 0.711 s, and p95
+1.554 s → 1.290 s. Both pass; candidate maximum relative mass/energy
+ledger errors are `5.84e-16` / `3.31e-17`. These owner timings exclude view
+publication. Release/83 CTests, the focused ASan/UBSan/TSan control, and clean
+comparisons of 83 short MAC executables plus sixteen variants pass; only timing
+and the added control's PASS line change.
+
 Evaporation needs an interface: a gas phase of at least a millionth of the cell.
 Smaller gas is a trace. Otherwise a liquid evaporates only when superheated by more
 than 5 K at its own pressure (`mac_nucleation_superheat_k`, about the onset of
