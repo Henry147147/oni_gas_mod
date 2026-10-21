@@ -356,7 +356,7 @@ setting their powered flag (harness only).
 | `electrolysis` | An electrolyzer splits stored water into oxygen and hydrogen that reach the owner. |
 | `vent-overpressure` | A pump feeds a vent into air above the vent's limit: the vent stays shut and the pipe holds the gas. |
 | `space-heater` | A powered space heater warms the arena's air. |
-| `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner. |
+| `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner, and a bottle emptier's water falls as particles into owned cells. |
 | `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide exhaust reaches the owner. |
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
@@ -387,3 +387,16 @@ setting their powered flag (harness only).
   colony-owner --frames N` starts a normal new colony and passes after N owner
   frames without a fault; `--save-colony` also saves through ONI's ordinary save,
   and `--mode colony-owner-load --load-save <file>` loads it in a fresh process.
+
+## Diagnostics
+
+Environment variables of the game process (the harness passes them through):
+
+- `MA_COLONY_FAULT_DUMP=path`: on a failing flow step, write the material
+  records and the world before that step; the scratch benchmark loads it.
+- `MA_COLONY_DUMP_FRAME=n` (with the path): also write the world before frame
+  n's flow.
+- `MA_COLONY_SLOW_DUMP=s` (with the path): also write the world before the
+  first flow step slower than s seconds.
+
+A failing transfer names its cell and the cell's contents in the fault.

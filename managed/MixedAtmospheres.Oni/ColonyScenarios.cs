@@ -170,15 +170,19 @@ namespace MixedAtmospheres.Oni
         private static void FreezeMelt(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
-                Arena((x, y) => x < 4 ? (y == 0 ? (SimHashes.Granite, 4000f, 40f) : y == 1 ? (SimHashes.Water, 990f, 274f) : (SimHashes.Oxygen, 1.2f, 280f))
+                Arena((x, y) => x < 4 ? (y == 0 ? (SimHashes.Granite, 4000f, 40f) : y == 1 ? (SimHashes.Water, 20f, 274f) : (SimHashes.Oxygen, 1.2f, 280f))
                     : (y == 2 && x == 6 ? (SimHashes.Ice, 400f, 290f) : (SimHashes.Oxygen, 1.2f, 300f)));
-            if (Once(6, "start")) { recorded["opened"] = status.OpenedCells; recorded["closed"] = status.ClosedCells; recorded["injected"] = status.InjectedKg; }
+            // Before the fill (frame 2): the warm ice melts within frames of being placed.
+            if (Once(1, "start")) { recorded["opened"] = status.OpenedCells; recorded["closed"] = status.ClosedCells; recorded["injected"] = status.InjectedKg; }
             if (Once(42, "check"))
             {
-                Record("ice melted into an owned cell", status.OpenedCells > recorded["opened"] && !Grid.Solid[Cell(6, 2)], $"opened {status.OpenedCells - recorded["opened"]}");
-                Record("melt water booked", status.InjectedKg > recorded["injected"] + 10, $"{status.InjectedKg - recorded["injected"]:G4} kg");
+                string Describe(int cell) => $"{Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg {Grid.Temperature[cell]:F1} K{(Grid.Solid[cell] ? " solid" : "")}{(ColonyOwner.OwnsFluidCell(cell) ? " owned" : "")}";
+                Record("ice melted into an owned cell", status.OpenedCells > recorded["opened"] && !Grid.Solid[Cell(6, 2)],
+                    $"opened {status.OpenedCells - recorded["opened"]}; ice cell {Describe(Cell(6, 2))}");
+                Record("melt water booked", status.InjectedKg > recorded["injected"] + 300, $"{status.InjectedKg - recorded["injected"]:G4} kg");
                 var frozen = Enumerable.Range(0, 4).Count(x => Grid.Solid[Cell(x, 1)]);
-                Record("water froze on the cold block", status.ClosedCells > recorded["closed"] && frozen > 0, $"{frozen} frozen cells");
+                Record("water froze on the cold block", status.ClosedCells > recorded["closed"] && frozen > 0,
+                    $"{frozen} frozen cells; pool {Describe(Cell(1, 1))}, floor {Describe(Cell(1, 0))}");
                 Finish();
             }
         }
@@ -430,13 +434,16 @@ namespace MixedAtmospheres.Oni
             if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .5f, 300f));
             if (Once(6, "build"))
             {
-                recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
-                Build(BottleEmptierGasConfig.ID, Cell(3, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.CarbonDioxide, 5, 300, byte.MaxValue, 0, false, true);
+                recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide); recorded["water"] = ArenaSpecies(SimHashes.Water);
+                Build(BottleEmptierGasConfig.ID, Cell(2, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.CarbonDioxide, 5, 300, byte.MaxValue, 0, false, true);
+                // The liquid emptier pours as falling-water particles that land in owned cells.
+                Build(BottleEmptierConfig.ID, Cell(5, 0)).GetComponent<Storage>().AddLiquid(SimHashes.Water, 50, 300, byte.MaxValue, 0, false, true);
             }
             if (Once(32, "check"))
             {
-                var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
-                Record("the emptier released its gas into the owner", added > .05, $"+{added:G4} kg carbon dioxide");
+                var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"]; var poured = ArenaSpecies(SimHashes.Water) - recorded["water"];
+                Record("the gas emptier released its gas into the owner", added > .05, $"+{added:G4} kg carbon dioxide");
+                Record("the liquid emptier's falling water landed in the owner", poured > .5, $"+{poured:G4} kg water");
                 Finish();
             }
         }
@@ -1061,8 +1068,13 @@ namespace MixedAtmospheres.Oni
                     flags = string.Join(",", all.Where(f => !f.Value).Select(f => f.Key.Name));
             }
             catch (Exception) { }
-            return $"operational {operational?.IsOperational}, active {operational?.IsActive}, unmet [{flags}], powered {power?.IsPowered}, " +
-                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}";
+            var sources = string.Join(" ", generators.Values.Where(g => g != null).Select(g =>
+            {
+                var source = g.GetComponent<Generator>(); var running = g.GetComponent<Operational>();
+                return $"[generator circuit {source?.CircuitID}, operational {running?.IsOperational}, joules {source?.JoulesAvailable:G4}]";
+            }));
+            return $"operational {operational?.IsOperational}, active {operational?.IsActive}, unmet [{flags}], powered {power?.IsPowered}, circuit {power?.CircuitID}, " +
+                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}; {sources}";
         }
         private static double CellMass(int cell)
         {
