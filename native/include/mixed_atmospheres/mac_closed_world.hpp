@@ -46,6 +46,11 @@ enum class MacSubcellVoidPolicy { exact_geometry = 0, expand_unresolved_gas = 1 
 // liquid/vapour pair relaxes to phase equilibrium at its pressure-dependent
 // saturation point (MAC_PHASE_CHANGE.md). Reference path only.
 enum class MacPhaseChange { none = 0, saturation = 1 };
+// Persisted production step control. Value 0 tries twice the last accepted
+// step and halves on every rejection. Value 1 (predictive) also limits the
+// next and retried steps by the measured material-volume CFL ratio, so a
+// flowing region does not spend most attempts on CFL rejections.
+enum class MacStepControl { doubling = 0, predictive = 1 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -70,6 +75,7 @@ struct MacClosedSettings {
     MacVacuumRepresentation vacuum = MacVacuumRepresentation::empty_cells;
     MacPhaseChange phase_change = MacPhaseChange::none;
     MacSubcellVoidPolicy subcell_void = MacSubcellVoidPolicy::exact_geometry;
+    MacStepControl step_control = MacStepControl::doubling;
     void validate() const;
 };
 struct MacClosedSubstep {
@@ -255,6 +261,13 @@ public:
     // contract applies, and the complete result must remain occupied. This
     // does not supply free-surface dynamics or a device work reservation.
     [[nodiscard]] MacFluidTransferResult with_fluid_transfers(std::span<const MacFluidTransfer>, MacFluidTransferTopology) const;
+    // Terrain edits (docs/colony-owner.md#terrain). Opening turns walls into
+    // exact vacuum cells (void phase or empty-cell inventory). Closing turns
+    // empty cells into walls: the normal momentum on their faces is removed and
+    // its kinetic energy becomes internal energy of the neighbour that carried
+    // it, so U+K is unchanged and mass is untouched.
+    [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
+    [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring
     // requires the exact registry/EOS identity and validates the complete image.
     [[nodiscard]] std::vector<std::uint8_t> checkpoint() const;

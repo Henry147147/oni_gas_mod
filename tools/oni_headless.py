@@ -64,7 +64,7 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
+LONG_RUN_MODES = ("snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-domain", "native-liquid-domain", "native-mixed-domain",
                   "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain")
 TELEMETRY_FILE = "development-telemetry.jsonl"
 TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
@@ -781,7 +781,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -1010,7 +1010,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
     play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
                       help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")
     play.add_argument("--timeout", type=int, metavar="30..7200 (30..172800 with --long-run)",
@@ -1068,9 +1068,9 @@ def main() -> int:
         parser.error("--resave-before-resume requires native-load-domain")
     if args.command == "run" and args.verify_save_io_recovery and (args.mode != "native-save-domain" or args.frames<16):
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
-    if args.command == "run" and args.save_colony and (not args.mode.startswith("native-") or args.mode in ("native-observer", "native-load-domain")):
+    if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode == "colony-owner") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
-    if args.command == "run" and (bool(args.load_save) != (args.mode == "native-load-domain") or (args.load_save and not args.load_save.is_file())):
+    if args.command == "run" and (bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")) or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(state, 0o700)

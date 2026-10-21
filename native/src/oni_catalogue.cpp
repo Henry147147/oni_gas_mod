@@ -185,7 +185,7 @@ Catalogue build_catalogue(std::vector<GameFluidElement> elements) {
             ReferenceMaterial m; m.id = s.id;
             m.phase = s.phase == Phase::gas ? ReferencePhase::ideal_gas : ReferencePhase::elastic_liquid;
             m.molar_mass_kg_per_mol = s.molar_mass; m.cv_j_per_kg_k = s.cv(); m.energy_offset_j_per_kg = s.internal_energy(0);
-            m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e5;
+            m.minimum_temperature_k = 1; m.maximum_temperature_k = 1e9;
             m.zero_pressure_density_kg_per_m3 = s.phase == Phase::gas ? 0 : s.density;
             m.reference_bulk_modulus_pa = s.phase == Phase::gas ? 0 : ref.bulk_modulus_pa;
             m.maximum_density_ratio = s.phase == Phase::gas ? 1 : 2;

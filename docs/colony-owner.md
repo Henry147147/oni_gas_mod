@@ -6,6 +6,80 @@ and liquid on the asteroid, with one species per catalogue material
 development rooms of the [configured domain](native-configured-domain.md) for
 play.
 
+## Activation and data flow
+
+- **Activation.** With the native backend attached, the mod starts the owner on
+  a new base-game colony (not a loaded save; no Spaced Out!; exactly one
+  asteroid) at the first completed native frame. It builds the catalogue from
+  the game's element table, reads every cell of the asteroid from that frame
+  (solids are walls; vacuum in the Space zone is open sky) and calls
+  `ma_oni_colony_start` (`native/include/mixed_atmospheres/oni_colony.h`). A
+  fluid cell holding an element outside the catalogue keeps native physics.
+- **Frames.** Each positive native frame hands its timestep to the owner's
+  solver thread after `UpdateData` and returns; the step's result publishes at
+  the first data request after it completes. Native pressure, liquid,
+  displacement and gas-interaction phases are suppressed for owned cells;
+  transitions, sublimation and solid post-processing are suppressed over the
+  whole asteroid until their terrain adapters exist. Item contacts with owned
+  cells are adiabatic until the heat adapter exists.
+- **Publication.** After each data request the mod copies ONI's game data and
+  overwrites every owned cell with the owner's projection: the dominant
+  constituent of the dominant phase, that phase's mass, temperature. Changed
+  identities are announced to ONI's grid caches. `Grid.Pressure` returns the
+  owner's mechanical pressure.
+- **Transactions.** Mass emission, mass consumption (radius), additive cell-mass
+  edits and cell heat in the asteroid go to the owner and commit at the start
+  of the next native frame, with consumed/emitted callbacks returned through the
+  copied game data. Extraction takes up to the requested mass from the open
+  cells within the radius, nearest first, in a binary32-exact total; injection
+  goes to the cell or the nearest open cell within two.
+- **Ledgers.** Every species and U+K+G are reconciled each frame against the
+  imported inventory plus every booked flow (injections, extractions, the
+  space sink, heat); drift beyond 1e-8 (mass) or 1e-6 (energy) faults the owner.
+- **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
+- **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
+  moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
+  500 Pa; polluted oxygen counts as oxygen. A breathable cell offers its oxygen
+  of the more abundant kind.
+
+A faulted owner keeps publishing its last frame (fluids freeze), logs the error
+and refuses saves.
+
+## Terrain
+
+Digging (ONI's `Dig`) opens the cell as exact vacuum and refills it from its gas
+neighbours: with m such neighbours each gives 1/(m+1) of its gas, so the cell
+starts at their pressure. Building a tile (an element replacement with a solid)
+displaces the cell's contents equally into its open neighbours and closes it;
+the normal momentum on its faces becomes heat of the neighbour that carried it.
+A sealed cell's contents go to the reservoir. Replacing a cell with a fluid
+element opens it if needed and books the placed fluid. Moved material keeps its
+U+K+G: each receiving cell gets it at the temperature whose internal energy
+matches, after the potential at its height.
+
+## Pacing
+
+ONI's game thread posts each 200 ms simulation tick and then waits for it, so
+the owner's step runs on its own thread and the game thread never waits for
+it. While a step runs, `Game.SimEveryTick` still runs the 1/60 s sub ticks up
+to the next 200 ms tick and holds there. The game clock (`Time.timeScale`)
+runs at the player's speed or 95% of the owner's measured rate (game seconds
+per second of solving, smoothed), whichever is slower, so play runs in slow
+motion rather than stop-go. Pause, the camera and menus use unscaled time and
+stay responsive. A tick posted while a step runs joins the next step (at most
+10 s of game time waits), so the owner never drops game time. The solver uses
+predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
+
+## Saves
+
+ONI's native section of the save becomes a `MACOLONY` envelope holding the
+original native bytes and the colony checkpoint (`MACOLN01`: configuration,
+material records, space mask, reservoir, ledgers, the `MACCLS01` physical image
+and a SHA-256). Loading hands the native bytes to ONI's loader and restores the
+owner at the first completed frame; a different catalogue or geometry rejects
+the save. A game without the mod passes the envelope to its native loader,
+which refuses it.
+
 ## Import
 
 `settle_import` (`native/src/oni_colony_import.cpp`) turns the game's
@@ -57,3 +131,15 @@ takes mostly full 0.01 s production steps.
 
 The reservoir's release (liquid seeping back as its region gains room) is not
 implemented yet.
+
+## Verification
+
+- `ma_oni_colony_tests` (CTest `oni_colony_owner`): a made-up asteroid with
+  rock, a pool, gases and open sky; transfers with receipts, heat, the space
+  sink, projection, composition, suppression, a dig and a build, ledger closure,
+  exact checkpoint continuation, and rejection of a different catalogue or a
+  corrupt image.
+- In game (Linux, Terra seed 147147): `tools/oni_headless.py run --mode
+  colony-owner --frames N` starts a normal new colony and passes after N owner
+  frames without a fault; `--save-colony` also saves through ONI's ordinary save,
+  and `--mode colony-owner-load --load-save <file>` loads it in a fresh process.

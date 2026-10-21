@@ -439,6 +439,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     try { entropy(c, w.start, s0, allowance0); } catch (const EosRefinement&) { throw RangeFlag{0}; }
     report.timing.audit_ms += since(audit_start);
     double maximum_dt = settings.maximum_timestep_s;
+    const bool predictive = settings.step_control == MacStepControl::predictive;
     for (std::size_t audit_attempt = 0;; ++audit_attempt) {
         copy_fields(c.exec, g, model, w.start, w.current);
         Accounts acc; acc.resize(c.quantities());
@@ -453,6 +454,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                 if (!(dt > 0) || time + dt <= time) throw FluidFatalError(FluidFatalCode::numerical_precision, "Production retry time cannot be represented");
                 copy_fields(c.exec, g, model, w.current, w.trial);
                 w.ws.stats_valid = false; // trial masses come from the accepted state
+                w.ws.cfl_ratio = 0;
                 Accounts stage; stage.resize(c.quantities());
                 try {
                     substep(c, w.trial, dt, stage);
@@ -463,13 +465,19 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     report.minimum_timestep_s = std::min(report.minimum_timestep_s, dt);
                     report.maximum_timestep_s = std::max(report.maximum_timestep_s, dt);
                     next_dt = std::min(maximum_dt, 2 * dt); accepted = true;
+                    // Predictive control: the swept volume grows about linearly
+                    // with the step, so aim the next one at 80% of the CFL limit.
+                    if (predictive && w.ws.cfl_ratio > 0) next_dt = std::min(next_dt, std::max(.5 * dt, .8 * dt / w.ws.cfl_ratio));
                 } catch (const EosRefinement&) {
                     throw RangeFlag{report.attempts};
                 } catch (const ArithmeticRefinement&) {
                     throw RangeFlag{report.attempts};
                 } catch (const std::domain_error& error) {
                     if (kernel_debug()) std::fprintf(stderr, "reject t=%.17g dt=%.17g: %s\n", time, dt, error.what());
-                    ++report.rejected_attempts; dt *= .5;
+                    ++report.rejected_attempts;
+                    // A CFL rejection retries at 80% of the measured limit
+                    // (at most half the step); other rejections halve.
+                    dt *= predictive && w.ws.cfl_ratio > 1 ? std::max(1. / 64, std::min(.5, .8 / w.ws.cfl_ratio)) : .5;
                 }
             }
         }

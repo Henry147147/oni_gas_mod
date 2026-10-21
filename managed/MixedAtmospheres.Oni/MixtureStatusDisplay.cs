@@ -80,27 +80,45 @@ namespace MixedAtmospheres.Oni
                 state = "Loaded · waiting for a colony";
                 scope = NativeSealedDomainValidation.IsMode
                     ? "Development scene enabled. Start a disposable new colony to see the custom fluid region."
+                    : ColonyOwner.Available ? "Start a new base-game colony: Mixed Atmospheres takes over its gases and liquids."
                     : "ONI owns colony physics. Enable the visual development scene to see simulated mixtures (README).";
                 return;
             }
-            if (frame == null || !frame.HasWorld)
+            if (ColonyOwner.Active)
+            {
+                // The colony owner (docs/colony-owner.md) holds every gas and liquid.
+                var owner = ColonyOwner.Status;
+                var paused = SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused;
+                state = owner.State == 2 ? "Fluid simulation stopped" : "Mixed Atmospheres owns the asteroid's fluids" + (paused ? " · paused" : " · running");
+                if (owner.State == 2) failure = owner.Error;
+                scope = "Frame " + owner.CompletedFrames.ToString(CultureInfo.InvariantCulture) + " · " +
+                    (frame?.SuppliedCells.Count ?? 0).ToString(CultureInfo.InvariantCulture) + " cells with readings\n" +
+                    "Solver pace " + ColonyPacing.OwnerRate.ToString("0.00", CultureInfo.InvariantCulture) + "× real time · game clock " +
+                    Time.timeScale.ToString("0.00", CultureInfo.InvariantCulture) + "×\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
+                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
+                if (frame == null || frame.SuppliedCells.Count == 0) return;
+            }
+            else if (frame == null || !frame.HasWorld)
             {
                 state = NativeSealedDomainValidation.Failed ? "Fluid simulation stopped" :
                     NativeSealedDomainValidation.IsMode ? "Preparing the fluid region" : "Loaded · native ONI physics";
                 scope = "No custom world readings are published. Mixture overlays have no data in this colony.";
                 return;
             }
-            var paused = SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused;
-            state = NativeSealedDomainValidation.Failed ? "Fluid simulation stopped" : frame.IsFixture ? "Visual fixture · native ONI physics" :
-                NativeSealedDomainValidation.Active ? "Custom fluid active" : "Mixture readings available";
-            state += paused ? " · paused" : " · running";
-            scope = frame.SuppliedCells.Count.ToString(CultureInfo.InvariantCulture) + " cells with readings · frame " +
-                frame.Revision.ToString(CultureInfo.InvariantCulture) + "\n" +
-                (NativeSealedDomainValidation.Active ? "Bounded development region; surrounding colony uses ONI physics." :
-                 frame.IsFixture ? "Colours and readings are a display fixture." : "Only explicitly supplied cells show mixture data.") + "\n" +
-                GasDiffusionOptions.Description + "\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
-                    MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
-            if (frame.SuppliedCells.Count == 0) return;
+            else
+            {
+                var paused = SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused;
+                state = NativeSealedDomainValidation.Failed ? "Fluid simulation stopped" : frame.IsFixture ? "Visual fixture · native ONI physics" :
+                    NativeSealedDomainValidation.Active ? "Custom fluid active" : "Mixture readings available";
+                state += paused ? " · paused" : " · running";
+                scope = frame.SuppliedCells.Count.ToString(CultureInfo.InvariantCulture) + " cells with readings · frame " +
+                    frame.Revision.ToString(CultureInfo.InvariantCulture) + "\n" +
+                    (NativeSealedDomainValidation.Active ? "Bounded development region; surrounding colony uses ONI physics." :
+                     frame.IsFixture ? "Colours and readings are a display fixture." : "Only explicitly supplied cells show mixture data.") + "\n" +
+                    GasDiffusionOptions.Description + "\nRenderer: " + (MixtureWorldRendering.LastError.Length != 0 ? "error" :
+                        MixtureWorldRendering.Installed && MixtureWorldRendering.SchedulingActive ? "ready" : "waiting for textures");
+                if (frame.SuppliedCells.Count == 0) return;
+            }
             sampleCell = frame.SuppliedCells.Keys.Min();
             var camera = CameraController.Instance?.baseCamera;
             if (camera != null)

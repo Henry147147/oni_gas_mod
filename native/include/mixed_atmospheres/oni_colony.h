@@ -1,0 +1,143 @@
+#ifndef MIXED_ATMOSPHERES_ONI_COLONY_H
+#define MIXED_ATMOSPHERES_ONI_COLONY_H
+#include "oni_backend.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Colony owner (docs/colony-owner.md): one MacClosedWorld owns every gas and
+ * liquid of one asteroid, with one species per catalogue material. Values the
+ * game has arrive at runtime in MAOniColonyMaterial; nothing from the game is
+ * compiled in. Every size and version field must match exactly. Calls are
+ * serialized internally. A positive native frame hands its timestep to the
+ * owner's solver thread and returns; the frame's result publishes when that
+ * step completes. */
+#define MA_ONI_COLONY_ABI_VERSION 1U
+#define MA_ONI_COLONY_MAXIMUM_SIDE 1024U
+#define MA_ONI_COLONY_MAXIMUM_CELLS 1048576U
+#define MA_ONI_COLONY_PHYSICS_CONDUCTION 1U
+
+typedef struct MAOniColonyMaterial {
+    uint32_t struct_size, abi_version;
+    int32_t element_hash;
+    uint32_t native_index;
+    uint32_t phase; /* 1 gas, 2 liquid */
+    uint32_t reserved;
+    double molar_mass_kg_per_mol, specific_heat_j_per_kg_k, conductivity_w_per_m_k, density_kg_per_m3;
+    double low_temperature_k, high_temperature_k;
+    int32_t low_target, high_target, low_byproduct, high_byproduct;
+    double low_byproduct_fraction, high_byproduct_fraction;
+    char id[64]; /* element id, UTF-8, NUL-terminated */
+} MAOniColonyMaterial;
+
+typedef struct MAOniColonyConfig {
+    uint32_t struct_size, abi_version, flags, vacuum_index;
+    uint32_t grid_width, grid_height;       /* the game's public grid */
+    uint32_t offset_x, offset_y, width, height; /* the owned asteroid rectangle */
+    double gravity_m_per_s2, maximum_timestep_s;
+} MAOniColonyConfig;
+
+/* One public cell of the owned rectangle at import, row-major from the bottom. */
+#define MA_ONI_COLONY_SOLID 0U
+#define MA_ONI_COLONY_FLUID 1U
+#define MA_ONI_COLONY_SPACE 2U
+typedef struct MAOniColonyCell {
+    uint32_t native_index; /* element index; ignored for solids */
+    uint32_t kind;
+    float mass_kg, temperature_k;
+} MAOniColonyCell;
+
+typedef struct MAOniColonyStatus {
+    uint32_t struct_size, abi_version, state /* 0 off, 1 running, 2 faulted */, species;
+    uint64_t session, completed_frames, native_ticket, substeps, rejected_attempts, start_thread, solver_thread;
+    uint64_t committed_transfers, committed_heat, receipts_pending;
+    uint64_t opened_cells, closed_cells;
+    double time_seconds, last_frame_seconds, last_advance_ms, maximum_advance_ms;
+    double maximum_relative_mass_error, maximum_relative_energy_error;
+    double reservoir_kg, space_sink_kg, injected_kg, extracted_kg;
+    char error[256];
+} MAOniColonyStatus;
+
+/* Game-facing projection of one public cell of the latest completed frame. */
+#define MA_ONI_COLONY_VIEW_GAS 1U
+#define MA_ONI_COLONY_VIEW_LIQUID 2U
+#define MA_ONI_COLONY_VIEW_OWNED 4U
+typedef struct MAOniColonyCellView {
+    uint32_t element_index; /* dominant constituent of the dominant phase, or vacuum */
+    uint32_t flags;
+    float mass_kg;          /* mass of the dominant phase */
+    float temperature_k;
+    float pressure_pa;
+    float liquid_fraction;  /* liquid volume / cell volume */
+} MAOniColonyCellView;
+
+/* Transfers commit at the start of the next native frame. Injection adds the
+ * element at the cell (or the nearest open cell within two); extraction takes
+ * up to the mass from the open cells within the radius, nearest first. */
+#define MA_ONI_COLONY_INJECT 1U
+#define MA_ONI_COLONY_EXTRACT 2U
+typedef struct MAOniColonyTransfer {
+    uint32_t public_cell, native_index, kind, radius;
+    int32_t callback; uint32_t reserved;
+    double mass_kg, temperature_k;
+} MAOniColonyTransfer;
+typedef struct MAOniColonyReceipt {
+    uint64_t sequence, completed_frame;
+    int32_t callback; uint32_t kind, native_index, public_cell;
+    float mass_kg, temperature_k; /* binary32 exactly equal to the committed amount */
+} MAOniColonyReceipt;
+typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, maximum_temperature_k; } MAOniColonyHeat;
+/* Terrain changes commit at the start of the next native frame, before
+ * transfers. Opening a solid cell (digging) makes it vacuum and refills it
+ * from its gas neighbours at their pressure; closing a fluid cell (building)
+ * displaces its contents into its open neighbours. */
+#define MA_ONI_COLONY_OPEN 1U
+#define MA_ONI_COLONY_CLOSE 2U
+typedef struct MAOniColonyTerrain { uint32_t public_cell, kind; } MAOniColonyTerrain;
+
+MA_ONI_API uint32_t ma_oni_colony_abi_version(void);
+MA_ONI_API MAOniResult ma_oni_colony_start(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,
+    const MAOniColonyCell*, uint32_t cell_count, MAOniColonyStatus*);
+MA_ONI_API MAOniResult ma_oni_colony_restore(const MAOniColonyConfig*, const MAOniColonyMaterial*, uint32_t material_count,
+    const uint8_t* image, uint32_t image_bytes, MAOniColonyStatus*);
+MA_ONI_API MAOniResult ma_oni_colony_status(MAOniColonyStatus*);
+MA_ONI_API MAOniResult ma_oni_colony_copy(MAOniColonyStatus*, MAOniColonyCellView*, uint32_t capacity);
+/* Constituents of one public cell: native element indices and masses. */
+MA_ONI_API MAOniResult ma_oni_colony_composition(uint32_t public_cell, uint32_t* native_indices, double* masses_kg,
+    uint32_t capacity, uint32_t* count);
+MA_ONI_API MAOniResult ma_oni_colony_queue_transfers(const MAOniColonyTransfer*, uint32_t count);
+MA_ONI_API MAOniResult ma_oni_colony_queue_heat(const MAOniColonyHeat*, uint32_t count);
+MA_ONI_API MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain*, uint32_t count);
+MA_ONI_API MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt*, uint32_t capacity, uint32_t* count);
+MA_ONI_API MAOniResult ma_oni_colony_ack_receipts(uint64_t through_sequence);
+/* Size query with a null buffer; the image describes the latest completed frame. */
+MA_ONI_API MAOniResult ma_oni_colony_checkpoint(uint8_t* buffer, uint32_t capacity, uint32_t* bytes);
+MA_ONI_API MAOniResult ma_oni_colony_stop(MAOniColonyStatus*);
+MA_ONI_API uint32_t ma_oni_colony_active(void);
+/* Presentation of the latest completed frame (docs/colony-owner.md#presentation).
+ * Species in registry order, and one reading per open owned cell holding
+ * material with its constituents. Size queries take null buffers. */
+typedef struct MAOniColonySpecies {
+    uint32_t native_index, phase; /* 1 gas, 2 liquid */
+    double molar_mass_kg_per_mol, cv_j_per_kg_k, density_kg_per_m3, energy_offset_j_per_kg;
+} MAOniColonySpecies;
+typedef struct MAOniColonyReading {
+    uint32_t public_cell, first_constituent, constituents, reserved;
+    double temperature_k, mechanical_pressure_pa, gas_pressure_pa, internal_energy_j;
+    double occupied_volume_m3, liquid_volume_m3;
+} MAOniColonyReading;
+typedef struct MAOniColonyConstituent {
+    uint32_t species, reserved;
+    double mass_kg, partial_volume_m3; /* gas: thermodynamic partial volume; liquid: actual volume */
+} MAOniColonyConstituent;
+MA_ONI_API MAOniResult ma_oni_colony_species(MAOniColonySpecies*, uint32_t capacity, uint32_t* count);
+MA_ONI_API MAOniResult ma_oni_colony_readings(uint64_t* completed_frame, MAOniColonyReading*, uint32_t capacity, uint32_t* count,
+    MAOniColonyConstituent*, uint32_t constituent_capacity, uint32_t* constituent_count);
+/* 1 while the solver thread is advancing or has a frame waiting. */
+MA_ONI_API uint32_t ma_oni_colony_busy(void);
+
+#ifdef __cplusplus
+}
+#endif
+#endif

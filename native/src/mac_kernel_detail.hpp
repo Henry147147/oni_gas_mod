@@ -393,6 +393,9 @@ struct Workspace {
     // Per-cell EOS statistics depend only on masses: valid until transport
     // (or a retry) changes them.
     bool stats_valid = false;
+    // Largest outgoing material volume over its CFL limit in the last
+    // pressure/transport trial (MacStepControl::predictive); zero if none ran.
+    double cfl_ratio = 0;
 };
 struct Context {
     Workspace& ws;

@@ -833,8 +833,9 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
     }
     // Material-volume CFL.
     const double limit = c.settings.maximum_outgoing_volume_fraction;
-    auto cfl = c.exec.partials<int>([&](std::size_t y0, std::size_t y1, std::size_t) {
-        int exceeded = 0;
+    struct Cfl { int exceeded = 0; double ratio = 0; };
+    auto cfl = c.exec.partials<Cfl>([&](std::size_t y0, std::size_t y1, std::size_t) {
+        Cfl v;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (g.wall[i]) continue;
             double out = 0;
@@ -843,11 +844,14 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             if (ws.qx[r] > 0) out += ws.qx[r];
             if (ws.qy[b] < 0) out -= ws.qy[b];
             if (ws.qy[t] > 0) out += ws.qy[t];
-            if (out > (voids ? ws.Vswept : ws.Vmat)[i] * limit) exceeded = 1;
+            const double allowed = (voids ? ws.Vswept : ws.Vmat)[i] * limit;
+            if (out > allowed) v.exceeded = 1;
+            if (out > 0 && allowed > 0) v.ratio = std::max(v.ratio, out / allowed);
         }
-        return exceeded;
+        return v;
     });
-    for (const int v : cfl) if (v) reject("Production material-volume CFL exceeded");
+    for (const auto& v : cfl) ws.cfl_ratio = std::max(ws.cfl_ratio, v.ratio);
+    for (const auto& v : cfl) if (v.exceeded) reject("Production material-volume CFL exceeded");
     lap(c.timing.pressure_ms, t_mark);
     transport_after_pressure(c, f, dt, acc);
     lap(c.timing.transport_ms, t_mark);

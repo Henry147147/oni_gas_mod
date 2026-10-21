@@ -20,6 +20,7 @@ namespace MixedAtmospheres.Oni
         internal sealed class ValidationReport
         {
             public string Kind = "actual-game-colony-boundary-validation";
+            public string ColonySavePath = "";
             public string OniBuild = "744825";
             public bool AuthoritativeColonySimulationReady = false;
             public string PhysicsOwner = "native ONI";
@@ -94,11 +95,11 @@ namespace MixedAtmospheres.Oni
                 throw new InvalidDataException("Persistent actor validation requires a gas/water source, at least eighty frames and an ordinary source save or natural autosave.");
             if ((configuration.Mode == "native-actor-domain" || configuration.Mode == "native-liquid-actor-domain") && configuration.CompletedFrames < NativeSealedDomainValidation.MinimumActorValidationFrames)
                 throw new InvalidDataException("The registered actor scene requires at least 80 native frames.");
-            if (NativeSealedDomainValidation.ColonyRestoreMode != !string.IsNullOrEmpty(configuration.LoadSavePath) ||
+            if (configuration.Mode != "colony-owner-load" && NativeSealedDomainValidation.ColonyRestoreMode != !string.IsNullOrEmpty(configuration.LoadSavePath) ||
                 (NativeSealedDomainValidation.ColonyRestoreMode && (!Path.IsPathRooted(configuration.LoadSavePath) ||
                     !File.Exists(configuration.LoadSavePath) || configuration.ReuseGeneratedWorld)))
                 throw new InvalidDataException("Paired colony loading requires its explicit mode, an existing absolute save path and the normal saved-colony lifecycle.");
-            if ((configuration.Mode == "native-observer" || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
+            if ((configuration.Mode == "native-observer" || configuration.Mode.StartsWith("colony-owner", StringComparison.Ordinal) || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
                 throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
                 throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
@@ -110,7 +111,7 @@ namespace MixedAtmospheres.Oni
             if ((configuration.Mode == "load-rejection") != configuration.PrivateOwnedLoadRejection ||
                 (configuration.Mode == "load-rejection" && (configuration.IdleReservoirLeaseOnly || fileProtocolHash.Length != 0)))
                 throw new InvalidDataException("Private load rejection validation requires its explicit flag and a separate native-only colony.");
-            if (configuration.SaveOnComplete && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
+            if (configuration.SaveOnComplete && configuration.Mode != "colony-owner" && (!NativeSealedDomainValidation.IsMode || NativeSealedDomainValidation.ColonyRestoreMode))
                 throw new InvalidDataException("SaveOnComplete requires an initial native domain validation scene.");
             if (configuration.SaveBeforeResume && !NativeSealedDomainValidation.ColonyRestoreMode)
                 throw new InvalidDataException("SaveBeforeResume requires an admitted saved-colony validation scene.");
@@ -130,7 +131,8 @@ namespace MixedAtmospheres.Oni
             Debug.Log("[Mixed Atmospheres] Explicit colony validation enabled: " + configuration.Mode +
                 (configuration.LongRun ? " (long run, " + configuration.CompletedFrames + " frames, development telemetry every " +
                     configuration.TelemetryIntervalFrames + " frames)" : "") +
-                (NativeSealedDomainValidation.IsMode ? ". Experimental sealed-domain ownership checks are required." : ". Colony physics remains native."));
+                (NativeSealedDomainValidation.IsMode ? ". Experimental sealed-domain ownership checks are required." :
+                 ColonyOwner.Available ? ". The colony owner takes the asteroid's fluids." : ". Colony physics remains native."));
         }
 
         internal static bool ObserveMessage => configuration != null && !done;
@@ -289,6 +291,12 @@ namespace MixedAtmospheres.Oni
             {
                 NativeSealedDomainValidation.Tick(); return;
             }
+            if (configuration.Mode.StartsWith("colony-owner", StringComparison.Ordinal))
+            {
+                try { ColonyOwnerScene(); }
+                catch (Exception error) { Fail(error); }
+                return;
+            }
             if (configuration.Mode == "coupled-presentation")
             {
                 try { CoupledPresentationValidation.Tick(); }
@@ -364,6 +372,64 @@ namespace MixedAtmospheres.Oni
             CaptureScreenshot("colony.png");
         }
 
+        // A normal new colony with the colony owner (docs/colony-owner.md): pass
+        // after the requested owner frames without a fault.
+        private static ulong colonyOwnerBaseline;
+        private static System.DateTime colonyOwnerWallStart;
+        private static void ColonyOwnerScene()
+        {
+            Report.Kind = "actual-game-colony-owner-validation";
+            Report.Width = Grid.WidthInCells; Report.Height = Grid.HeightInCells;
+            Report.Duplicants = Components.LiveMinionIdentities.Count;
+            if (ClusterManager.Instance != null) Report.WorldCount = ClusterManager.Instance.WorldContainers.Count;
+            if (!ColonyOwner.Active)
+            {
+                if (ColonyOwner.StartFailure.Length != 0) throw new InvalidOperationException("Colony owner did not start: " + ColonyOwner.StartFailure);
+                return;
+            }
+            var status = ColonyOwner.Status;
+            if (colonyOwnerWallStart == default) colonyOwnerWallStart = System.DateTime.UtcNow;
+            Report.PhysicsOwner = "colony owner (MacClosedWorld); native ONI for solids";
+            if (status.State == 2) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
+            var owner = new {
+                SchemaVersion = 1, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
+                status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds,
+                status.MaximumRelativeMassError, status.MaximumRelativeEnergyError, status.ReservoirKg, status.SpaceSinkKg,
+                status.InjectedKg, status.ExtractedKg, status.CommittedTransfers, status.CommittedHeat, status.OpenedCells, status.ClosedCells,
+                ColonyOwner.OwnedCells, ColonyOwner.Publications, ColonyOwnerPersistence.Saves, ColonyOwnerPersistence.Loads,
+                ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
+                WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
+                BlockedMilliseconds = ColonyOwner.BlockedMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
+                LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
+                Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
+                Error = status.Error
+            };
+            File.WriteAllText(Path.Combine(OutputDirectory, "colony-owner.json"), ReportJson.Serialize(owner));
+            var loading = configuration!.Mode == "colony-owner-load";
+            if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
+            if (status.CompletedFrames < colonyOwnerBaseline + (ulong)configuration.CompletedFrames)
+            {
+                if (colonyOwnerBaseline == 0 && loading) colonyOwnerBaseline = status.CompletedFrames;
+                if (Time.frameCount % 60 == 0) WriteReport();
+                return;
+            }
+            if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0)
+            {
+                // An ordinary manual save, through the game's own save path
+                // (the new colony's first autosave already counted one).
+                SpeedControlScreen.Instance.Pause(false);
+                var path = Path.Combine(OutputDirectory, "colony-owner.sav");
+                var before = ColonyOwnerPersistence.Saves;
+                SaveLoader.Instance.Save(path, false, false);
+                if (ColonyOwnerPersistence.Saves != before + 1 || !File.Exists(path)) throw new InvalidOperationException("The colony owner did not write its save.");
+                Report.ColonySavePath = path;
+            }
+            Report.Status = "passed"; Report.Stage = "completed";
+            Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
+            Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            done = true; WriteReport();
+            CaptureScreenshot("colony.png");
+        }
         internal static void SetStage(string stage) { Report.Stage = stage; WriteReport(); }
         internal static void RecordNativeDomainPublication(Sim.GameDataUpdate* source, OwnedGameDataSnapshot copy)
         {
@@ -468,6 +534,7 @@ namespace MixedAtmospheres.Oni
             ShutdownTelemetry();
             actualColonyActive = false; publisher?.Dispose(); publisher = null;
             if (NativeSealedDomainValidation.IsMode) NativeSealedDomainValidation.Shutdown();
+            ColonyOwner.ResetForNewSession();
             if (configuration?.Mode == "coupled-presentation") CoupledPresentationValidation.Abort();
         }
     }
@@ -526,7 +593,7 @@ namespace MixedAtmospheres.Oni
                 if (menu != null && visited.Add(menu.GetInstanceID()))
                 {
                     ColonyRuntimeValidation.SetStage("starting-disposable-colony");
-                    if (config.Mode == "native-load-domain")
+                    if (config.Mode == "native-load-domain" || config.Mode == "colony-owner-load")
                     {
                         if (string.IsNullOrEmpty(config.LoadSavePath) || !File.Exists(config.LoadSavePath)) throw new FileNotFoundException("A completed native colony save is required.");
                         ColonyRuntimeValidation.ValidateSelectedSaveContent(Path.GetFullPath(config.LoadSavePath));

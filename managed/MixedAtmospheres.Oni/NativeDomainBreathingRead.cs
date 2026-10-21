@@ -32,7 +32,8 @@ namespace MixedAtmospheres.Oni
     {
         private static bool Prefix(int cell, ref SimHashes elementID, ref float __result)
         {
-            if (!NativeSealedDomainValidation.TryReadBreathingCell(cell, out var mass, out var element)) return true;
+            if (!NativeSealedDomainValidation.TryReadBreathingCell(cell, out var mass, out var element) &&
+                !ColonyOwner.TryReadBreathingCell(cell, out mass, out element)) return true;
             __result = mass; elementID = element;
             return false;
         }

@@ -1,0 +1,33 @@
+#pragma once
+// Colony owner internals (docs/colony-owner.md). The C ABI in oni_colony.h
+// forwards here; the native detours call active/suppress/advance.
+#include "mixed_atmospheres/oni_colony.h"
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace ma::oni::colony {
+void start(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const MAOniColonyCell>, std::uint64_t thread);
+void restore(const MAOniColonyConfig&, std::span<const MAOniColonyMaterial>, std::span<const std::uint8_t>, std::uint64_t thread);
+void stop() noexcept;
+[[nodiscard]] bool active() noexcept;
+[[nodiscard]] bool busy() noexcept;
+[[nodiscard]] MAOniColonyStatus status();
+void copy(MAOniColonyStatus&, MAOniColonyCellView*, std::uint32_t capacity);
+std::uint32_t composition(std::uint32_t public_cell, std::uint32_t* indices, double* masses, std::uint32_t capacity);
+void queue_transfers(std::span<const MAOniColonyTransfer>);
+void queue_heat(std::span<const MAOniColonyHeat>);
+void queue_terrain(std::span<const MAOniColonyTerrain>);
+std::uint32_t copy_receipts(MAOniColonyReceipt*, std::uint32_t capacity);
+void ack_receipts(std::uint64_t through);
+[[nodiscard]] std::vector<std::uint8_t> checkpoint();
+std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
+// Readings and constituents of the latest completed frame; returns the frame.
+std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
+// Native worker entry points. Never throw; a failure faults the session.
+// advance() hands the frame to the solver thread and returns at once.
+[[nodiscard]] bool suppress(std::uint32_t hook, int native_cell) noexcept;
+void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcept;
+// Returns once the solver thread has no step running or waiting.
+void wait() noexcept;
+}

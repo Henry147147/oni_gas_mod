@@ -135,9 +135,13 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             // void; added liquid enlarges a mixed cell's material.
             auto& occupied=next.occupied_volumes_m3[edit.cell_index]; const double nominal=nominal_liquid(cell.mixture);
             bool gas=false; for (std::size_t k=0;k<registry_.size();++k) gas=gas || (cell.mixture.masses[k] != 0 && registry_[k].phase == Phase::gas);
+            // Gas injected into a gas-free liquid surface fills the void above
+            // the liquid rather than compressing into the liquid's volume.
+            const bool first_gas=edit.inject && !liquid && old_mass == 0 &&
+                [&] { for (std::size_t k=0;k<registry_.size();++k) if (k != edit.species_index && cell.mixture.masses[k] != 0 && registry_[k].phase == Phase::gas) return false; return true; }();
             if (cell.mixture.mass() == 0) occupied=0;
             else if (!gas) occupied=std::min(grid_volume,nominal);
-            else if (was_empty) occupied=grid_volume;
+            else if (was_empty || first_gas) occupied=grid_volume;
             else if (liquid && edit.inject) occupied=std::min(grid_volume,occupied+mass/density(edit.species_index));
         }
         MacEnergyAccount mass_account; mass_account.add(old_mass); mass_account.add(signed_mass); mass_account.add(-cell.mixture.masses[edit.species_index]);
@@ -201,5 +205,65 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return {std::move(candidate),std::move(parcels),unresolved,rounding};
+}
+
+MacClosedWorld MacClosedWorld::with_opened_cells(std::span<const std::size_t> cells) const {
+    require_mac_energy_environment();
+    require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto next=state_;
+    for (const auto i : cells) {
+        require(i < next.cells.size() && next.grid.walls[i],"Only a wall can be opened");
+        const auto& cell=next.cells[i];
+        require(cell.mixture.mass() == 0 && cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(),
+            "An opened wall must hold no material");
+        next.grid.walls[i]=0;
+        if (!next.occupied_volumes_m3.empty()) next.occupied_volumes_m3[i]=0;
+    }
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    return candidate;
+}
+MacClosedWorld MacClosedWorld::with_closed_cells(std::span<const std::size_t> cells) const {
+    require_mac_energy_environment();
+    require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto next=state_;
+    for (const auto i : cells) {
+        require(i < next.cells.size() && !next.grid.walls[i],"Only an open cell can be closed");
+        const auto& cell=next.cells[i];
+        require(cell.mixture.mass() == 0 && cell.mixture.energy == 0 && cell.energy_remainder_j.is_zero() && cell.passive_quantities.empty(),
+            "A closed cell must first be emptied");
+    }
+    const auto inertia=mac_face_inertias(registry_,next,*thermodynamics_);
+    auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
+    MacEnergyAccount energy; MacPrimaryRoundingCounts rounding;
+    for (const auto i : cells) {
+        const auto x=i%next.grid.width,y=i/next.grid.width;
+        for (std::size_t axis=0;axis<2;++axis) {
+            auto& momenta=axis == 0 ? jx : jy; const auto& inertias=axis == 0 ? inertia.x : inertia.y;
+            const std::array<std::size_t,2> faces=axis == 0 ? std::array<std::size_t,2>{next.grid.x_face(x,y),next.grid.x_face((x+1)%next.grid.x_width(),y)} :
+                std::array<std::size_t,2>{next.grid.y_face(x,y),next.grid.y_face(x,(y+1)%next.grid.y_height())};
+            for (const auto face : faces) {
+                if (!(inertias[face] > 0)) continue;
+                const auto kinetic=MacEnergy::kinetic(inertias[face],momenta[face]);
+                momenta[face]=MacScaled{};
+                const auto carriers=adjacent(next.grid,axis,face);
+                const auto neighbour=carriers.first == i ? carriers.second : carriers.first;
+                if (neighbour == absent) { require(kinetic.is_zero(),"A closed face without a carrier held kinetic energy"); continue; }
+                auto& target=next.cells[neighbour];
+                account_mac_cell_internal_energy(energy,target);
+                (void)add_mac_cell_internal_energy(target,kinetic,&rounding);
+                energy.add(kinetic); account_mac_cell_internal_energy(energy,target,-1);
+            }
+        }
+        next.grid.walls[i]=1;
+        if (!next.occupied_volumes_m3.empty()) next.occupied_volumes_m3[i]=0;
+    }
+    require(energy.within_bound(),"MAC terrain closure energy account failed");
+    store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    return candidate;
 }
 }

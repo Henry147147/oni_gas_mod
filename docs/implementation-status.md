@@ -1,5 +1,23 @@
 # Implementation status
 
+## Base-game playtest ([plan](playtest-plan.md))
+
+Current state on 2026-10-21. One line per system; details in the linked pages.
+
+| System | State |
+| --- | --- |
+| [Material catalogue](material-catalogue.md) | Every game gas and liquid becomes a species from game values read at runtime plus cited reference data; liquid/vapour pairs boil by pressure from the game's boiling point. |
+| [Colony owner](colony-owner.md) | A normal new base-game colony starts one owner for the whole asteroid (Terra: 30,886 open cells, 78 materials). In game it advances, publishes cells, routes emission/consumption/heat, and its ledgers close. |
+| [Import settle](colony-owner.md#import) | Liquid bodies flood their basins to one hydrostatic level, gas regions reach one pressure; liquid that cannot fit goes to a booked reservoir (Terra: 656 t). Reservoir release is open. |
+| [Terrain](colony-owner.md#terrain) | Dig and tile building open and close cells with booked refill and displacement (standalone); doors, mesh/airflow tiles, melting, falling solids and sublimation are open. |
+| [Pacing](colony-owner.md#pacing) | The owner steps on its own thread with predictive step control; the game clock slows to the owner's rate and holds before a tick the owner has not finished. |
+| [Saves](colony-owner.md#saves) | Colony checkpoint inside the save's native section; load restores the owner. |
+| Readers | Pressure and easy-mode breathing read the owner. Hover, overlays and the status panel do not yet. |
+| Speed | Terra: about 2–4 s of solver time per 0.2 s game frame standalone with 0.05 s steps; slower in game on a loaded host. |
+| Open | Heat with solids/buildings/items, phase change in game, conversions, pipes, machines, critters, plants, germs, rockets, sensors, overlays, gas/vacuum fronts under gravity. |
+
+## Earlier development record
+
 Current state on 2026-10-19. This is a private development milestone: the
 overhaul is incomplete and no first-playable or release gate has passed. The
 accepted [completion plan](completion-plan.md) is the execution target and

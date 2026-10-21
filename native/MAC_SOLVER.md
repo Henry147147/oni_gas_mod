@@ -57,6 +57,13 @@ Declared in `mac_closed_world.hpp`:
   retries; after an accepted step the next try is `min(maximum, 2 dt)`. Exhausting the
   shared attempt budget throws and publishes no state, clock or counters.
   `FluidFatalError` (topology or precision) propagates unchanged.
+- `step_control = predictive` (production kernel only; the colony owner uses it)
+  also records the largest outgoing material volume over its CFL limit, r, in
+  each pressure/transport trial. An accepted step's next try is at most
+  `max(dt/2, 0.8 dt/r)`; a CFL rejection retries at `dt * clamp(0.8/r, 1/64, 1/2)`.
+  Other rejections still halve. In a jet into vacuum this cuts rejected attempts
+  about fifteenfold (`ma_mac_step_control_tests`). It persists as checkpoint
+  version 13; the default, `doubling`, keeps every earlier behaviour and byte.
 - `MacExecutionPolicy::exact_equilibrium` (used by stateless checkpoint
   continuation and historical unflagged journal replay) returns one certified interval with no stages when
   all canonical momentum is exactly zero and connected inventories are identical

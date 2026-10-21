@@ -29,7 +29,8 @@ namespace MixedAtmospheres.Oni
     internal static class NativePressureReadBoundary
     {
         internal static float Read(ref Grid.PressureIndexer indexer, int cell)
-            => NativeSealedDomainValidation.TryReadNativePressure(cell, true, out var pressure) ? pressure : indexer[cell];
+            => NativeSealedDomainValidation.TryReadNativePressure(cell, true, out var pressure) ? pressure :
+               ColonyOwner.TryReadPressure(cell, out var owned) ? owned : indexer[cell];
     }
 
     [HarmonyPatch(typeof(Grid.PressureIndexer), "get_Item")]
@@ -37,7 +38,7 @@ namespace MixedAtmospheres.Oni
     {
         private static bool Prefix(int i, ref float __result)
         {
-            if (!NativeSealedDomainValidation.TryReadNativePressure(i, false, out var pressure)) return true;
+            if (!NativeSealedDomainValidation.TryReadNativePressure(i, false, out var pressure) && !ColonyOwner.TryReadPressure(i, out pressure)) return true;
             __result = pressure;
             return false;
         }

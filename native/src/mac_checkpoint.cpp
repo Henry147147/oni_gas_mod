@@ -26,6 +26,9 @@ constexpr std::uint32_t interval_format_version=4,diffusion_format_version=5,pro
 constexpr std::uint32_t moment_format_version=7,coupled_moment_format_version=8,void_format_version=9,primary_format_version=10;
 constexpr std::uint32_t phase_format_version=11;
 constexpr std::uint32_t subcell_void_format_version=12;
+// Version 13 adds the step control after the subcell-void policy; every
+// earlier byte is unchanged when the control is doubling.
+constexpr std::uint32_t step_control_format_version=13;
 void check(bool value,const char* message) { if (!value) throw std::invalid_argument(message); }
 std::uint64_t checksum(std::span<const std::uint8_t> bytes) {
     std::uint64_t result=14695981039346656037ULL;
@@ -116,8 +119,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     // Version 11 (phase change) has version 10's layout plus the phase-change
     // selector, and always carries the primary-U sidecar.
     const bool subcell=settings_.subcell_void!=MacSubcellVoidPolicy::exact_geometry;
-    const bool phase=settings_.phase_change!=MacPhaseChange::none, primary=carried || phase || subcell;
-    out.u32(subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
+    const bool stepped=settings_.step_control!=MacStepControl::doubling;
+    const bool phase=settings_.phase_change!=MacPhaseChange::none, primary=carried || phase || subcell || stepped;
+    out.u32(stepped ? step_control_format_version : subcell ? subcell_void_format_version : phase ? phase_format_version : primary ? primary_format_version : voids ? void_format_version : coupled ? coupled_moment_format_version : moments ? moment_format_version : production ? production_format_version : diffusive ? diffusion_format_version : viscous ? viscous_format_version : legacy_format_version);
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
@@ -136,8 +140,9 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     }
     if (moments || voids || primary) out.u32(static_cast<std::uint32_t>(settings_.pressure_integration));
     if (voids || primary) out.u32(static_cast<std::uint32_t>(settings_.vacuum));
-    if (phase || subcell) out.u32(static_cast<std::uint32_t>(settings_.phase_change));
-    if (subcell) out.u32(static_cast<std::uint32_t>(settings_.subcell_void));
+    if (phase || subcell || stepped) out.u32(static_cast<std::uint32_t>(settings_.phase_change));
+    if (subcell || stepped) out.u32(static_cast<std::uint32_t>(settings_.subcell_void));
+    if (stepped) out.u32(static_cast<std::uint32_t>(settings_.step_control));
     if(diffusive) {
         // Discrete flux formulation. Diffusion images were never released; the
         // earlier version-4 diffusion layouts no longer parse and reject.
@@ -179,7 +184,8 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     const bool moment_version=version==moment_format_version || version==coupled_moment_format_version;
     const bool void_version=version==void_format_version;
     const bool phase_version=version==phase_format_version;
-    const bool subcell_version=version==subcell_void_format_version;
+    const bool stepped_version=version==step_control_format_version;
+    const bool subcell_version=version==subcell_void_format_version || stepped_version;
     const bool primary_version=version==primary_format_version || phase_version || subcell_version;
     const bool complete_settings=void_version || primary_version;
     check(version==legacy_format_version || version==viscous_format_version || version==interval_format_version ||
@@ -232,7 +238,12 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     }
     if (subcell_version) {
         settings.subcell_void=static_cast<MacSubcellVoidPolicy>(in.u32());
-        check(settings.subcell_void==MacSubcellVoidPolicy::expand_unresolved_gas,"Noncanonical saved MAC subcell-void version");
+        check(settings.subcell_void==MacSubcellVoidPolicy::expand_unresolved_gas ||
+            (stepped_version && settings.subcell_void==MacSubcellVoidPolicy::exact_geometry),"Noncanonical saved MAC subcell-void version");
+    }
+    if (stepped_version) {
+        settings.step_control=static_cast<MacStepControl>(in.u32());
+        check(settings.step_control==MacStepControl::predictive,"Noncanonical saved MAC step-control version");
     }
     if (settings.diffusion.mode!=MacDiffusionMode::disabled) {
         check(in.u32()==mac_diffusion_formulation,"Unsupported saved gas diffusion formulation");

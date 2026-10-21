@@ -1,6 +1,7 @@
 #include "mixed_atmospheres/oni_backend.h"
 #include "oni_sha256.hpp"
 #include "oni_domain.hpp"
+#include "oni_colony.hpp"
 #include "oni_funchook_storage.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
 #include <funchook.h>
@@ -84,6 +85,7 @@ std::uint64_t native_thread() noexcept {
 }
 struct PendingTimestep { std::uint64_t ticket{}; float seconds{}; };
 thread_local PendingTimestep pending_timestep;
+// Pacing (docs/colony-owner.md#pacing): positive native frames completed.
 // Cell temperature pairs can execute on native job threads. The outer frame
 // fence owns one interval for all of them; thread-local duration misses those
 // contacts even though body components run on the frame's main worker.
@@ -132,6 +134,7 @@ void on_shutdown() {
     Call call(MA_ONI_SHUTDOWN);
     original<void (*)()>(MA_ONI_SHUTDOWN)();
     ma::oni::shutdown_domain();
+    ma::oni::colony::stop();
     if (pair_pending.load(std::memory_order_acquire)) {
         std::lock_guard lock(pair_mutex);
         if (captured_pair && captured_pair->status.state==1) {
@@ -214,6 +217,11 @@ void observe_completed_solid_cell(void* data) {
           catch(...) {ma::oni::fault_domain_solid_heat("Unknown completed native solid observation failure");}
     }
 }
+// A cell owned by the development domain or the colony owner: its native
+// fluid physics is suppressed.
+bool owned_cell(std::uint32_t hook,int cell) noexcept {
+    return ma::oni::suppress_domain_cell(hook,cell) || ma::oni::colony::suppress(hook,cell);
+}
 void on_update_data(void* self,void* data) {
     Call call(MA_ONI_UPDATE_DATA);
     // UpdateData performs native physics, including ElementChunk contacts.
@@ -227,23 +235,24 @@ void on_update_data(void* self,void* data) {
     native_heat_contact_bits.store(0,std::memory_order_release);
     if (pending.ticket) {
         ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
+        ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread());
     }
     observe_completed_solid_cell(data);
 }
 float on_pressure(void* data,void* events,const void* source,void* target,int cell,std::uint16_t element,std::int8_t direction,float scale,int index) {
     Call call(MA_ONI_PRESSURE);
-    if (ma::oni::suppress_domain_cell(MA_ONI_PRESSURE,cell)) return 0;
+    if (owned_cell(MA_ONI_PRESSURE,cell)) return 0;
     using Function=float (*)(void*,void*,const void*,void*,int,std::uint16_t,std::int8_t,float,int);
     return original<Function>(MA_ONI_PRESSURE)(data,events,source,target,cell,element,direction,scale,index);
 }
 void on_liquid(void* data,void* events,int cell) {
     Call call(MA_ONI_LIQUID);
-    if (!ma::oni::suppress_domain_cell(MA_ONI_LIQUID,cell)) original<void (*)(void*,void*,int)>(MA_ONI_LIQUID)(data,events,cell);
+    if (!owned_cell(MA_ONI_LIQUID,cell)) original<void (*)(void*,void*,int)>(MA_ONI_LIQUID)(data,events,cell);
 }
 void on_temperature(void* data,void* events,int a,int b) {
     Call call(MA_ONI_TEMPERATURE);
-    const auto owned_a=ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,a);
-    const auto owned_b=ma::oni::suppress_domain_cell(MA_ONI_TEMPERATURE,b);
+    const auto owned_a=owned_cell(MA_ONI_TEMPERATURE,a);
+    const auto owned_b=owned_cell(MA_ONI_TEMPERATURE,b);
     if (!owned_a && !owned_b)
         original<void (*)(void*,void*,int,int)>(MA_ONI_TEMPERATURE)(data,events,a,b);
     else if(owned_a!=owned_b) {
@@ -282,37 +291,37 @@ void on_temperature(void* data,void* events,int a,int b) {
 }
 bool on_transition(void* data,void* events,int cell,const void* definition) {
     Call call(MA_ONI_STATE_TRANSITION);
-    if (ma::oni::suppress_domain_cell(MA_ONI_STATE_TRANSITION,cell)) return false;
+    if (owned_cell(MA_ONI_STATE_TRANSITION,cell)) return false;
     return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_STATE_TRANSITION)(data,events,cell,definition);
 }
 void on_load_transition(void* data,int cell) {
     Call call(MA_ONI_LOAD_TRANSITION);
-    if (!ma::oni::suppress_domain_cell(MA_ONI_LOAD_TRANSITION,cell)) original<void (*)(void*,int)>(MA_ONI_LOAD_TRANSITION)(data,cell);
+    if (!owned_cell(MA_ONI_LOAD_TRANSITION,cell)) original<void (*)(void*,int)>(MA_ONI_LOAD_TRANSITION)(data,cell);
 }
 bool on_sublimation(void* data,void* events,int cell,const void* definition) {
     Call call(MA_ONI_SUBLIMATION);
-    if (ma::oni::suppress_domain_cell(MA_ONI_SUBLIMATION,cell)) return false;
+    if (owned_cell(MA_ONI_SUBLIMATION,cell)) return false;
     return original<bool (*)(void*,void*,int,const void*)>(MA_ONI_SUBLIMATION)(data,events,cell,definition);
 }
 void on_post_process(void* data,void* events,int cell) {
     Call call(MA_ONI_POST_PROCESS);
-    if (!ma::oni::suppress_domain_cell(MA_ONI_POST_PROCESS,cell)) original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);
+    if (!owned_cell(MA_ONI_POST_PROCESS,cell)) original<void (*)(void*,void*,int)>(MA_ONI_POST_PROCESS)(data,events,cell);
 }
 bool on_gas(void* data,void* events,int cell) {
     Call call(MA_ONI_GAS);
-    if (ma::oni::suppress_domain_cell(MA_ONI_GAS,cell)) return false;
+    if (owned_cell(MA_ONI_GAS,cell)) return false;
     return original<bool (*)(void*,void*,int)>(MA_ONI_GAS)(data,events,cell);
 }
 bool on_gas_pair(void* data,void* events,int a,int b) {
     Call call(MA_ONI_GAS_PAIR);
-    if (ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,a) || ma::oni::suppress_domain_cell(MA_ONI_GAS_PAIR,b)) return false;
+    if (owned_cell(MA_ONI_GAS_PAIR,a) || owned_cell(MA_ONI_GAS_PAIR,b)) return false;
     return original<bool (*)(void*,void*,int,int)>(MA_ONI_GAS_PAIR)(data,events,a,b);
 }
 template<std::uint32_t Hook>
 float on_displacement(std::uint16_t element,int a,int b,int c,void* data) {
     Call call(Hook);
-    if (ma::oni::suppress_domain_cell(Hook,a) || ma::oni::suppress_domain_cell(Hook,b) ||
-        ma::oni::suppress_domain_cell(Hook,c)) return 0;
+    if (owned_cell(Hook,a) || owned_cell(Hook,b) ||
+        owned_cell(Hook,c)) return 0;
     return original<float (*)(std::uint16_t,int,int,int,void*)>(Hook)(element,a,b,c,data);
 }
 FORWARD(on_step, MA_ONI_STEP, void, (void* self,void* data,void* game,const void* previous), (self,data,game,previous))
@@ -336,8 +345,15 @@ FORWARD(on_building_heat, MA_ONI_BUILDING_HEAT, void, (void* self,float dt,void*
 
 ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float dt,float scale) {
     ma::oni::DomainChunkHeat result{};
-    if (!ma::oni::domain_active()) return result;
     std::int32_t cell{};float temperature{},capacity{},conductivity{},factor{};
+    if (ma::oni::colony::active()) {
+        // Item heat with colony fluid is a separate adapter; until it exists the
+        // contact is adiabatic rather than exchanging with a stale native cell.
+        std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
+        std::memcpy(&temperature,static_cast<const std::uint8_t*>(chunk)+4,4);
+        if (ma::oni::colony::suppress(MA_ONI_CHUNK_HEAT,cell)) { result.handled=true; result.temperature=temperature; result.delta_kj=0; return result; }
+    }
+    if (!ma::oni::domain_active()) return result;
     // The pinned Windows PDB and Linux specialized call independently verify
     // this 16-byte accessor and 44-byte record. Copy fields without aliasing
     // the native compiler's C++ object type or retaining its addresses.
@@ -628,6 +644,7 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
     if (!installed || recovery_required || !image_base)
         throw Failure(MA_ONI_BUSY,"Native domain requires inspected attached hooks");
     if (ma::oni::domain_active()) throw Failure(MA_ONI_BUSY,"Native domain is already active");
+    if (ma::oni::colony::active()) throw Failure(MA_ONI_BUSY,"A colony owner is active");
     std::uintptr_t sim{}, data{};
     std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
     std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
@@ -650,6 +667,25 @@ void start_domain_checked(const MAOniDomainConfig* config,MAOniDomainStatus* out
     if(solid_heat) *output=solid_heat->status;
     else ma::oni::copy_domain(*output,nullptr,0);
 }
+// Colony owner admission: attached hooks, a live simulator whose padded grid is
+// exactly the configured public grid, and no development domain.
+void colony_admitted(const MAOniColonyConfig* config,MAOniColonyStatus* output) {
+    if (!config || !output || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION)
+        throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony configuration or status ABI");
+    std::lock_guard save_lock(native_save_mutex);
+    if (native_save_open) throw Failure(MA_ONI_BUSY,"Finish the outstanding native save before activating the colony owner");
+    if (!installed || recovery_required || !image_base) throw Failure(MA_ONI_BUSY,"The colony owner requires inspected attached hooks");
+    if (ma::oni::domain_active() || ma::oni::colony::active()) throw Failure(MA_ONI_BUSY,"A native fluid owner is already active");
+    std::uintptr_t sim{}, data{};
+    std::memcpy(&sim,reinterpret_cast<const void*>(image_base+sim_rva),sizeof(sim));
+    std::memcpy(&data,reinterpret_cast<const void*>(image_base+data_rva),sizeof(data));
+    if (!sim || !data) throw Failure(MA_ONI_BUSY,"Initialize the native simulator before the colony owner");
+    std::array<std::int32_t,2> dimensions{};
+    std::memcpy(dimensions.data(),reinterpret_cast<const void*>(data),sizeof(dimensions));
+    if (config->grid_width>65535 || config->grid_height>65535 || dimensions[0]!=static_cast<std::int32_t>(config->grid_width+2) ||
+        dimensions[1]!=static_cast<std::int32_t>(config->grid_height+2))
+        throw Failure(MA_ONI_INCOMPATIBLE,"Native padded dimensions disagree with the colony grid");
+}
 void configured_inputs_valid(const MAOniDomainConfig* config,const MAOniDomainPhysics* physics,const std::uint8_t* mask,std::uint32_t count) {
     if (!config || !physics || !mask || !count || count>MA_ONI_DOMAIN_CONFIGURED_MAXIMUM_CELLS ||
         static_cast<std::uint64_t>(config->width)*config->height!=count)
@@ -658,6 +694,122 @@ void configured_inputs_valid(const MAOniDomainConfig* config,const MAOniDomainPh
 }
 
 extern "C" {
+std::uint32_t ma_oni_colony_abi_version() { return MA_ONI_COLONY_ABI_VERSION; }
+MAOniResult ma_oni_colony_start(const MAOniColonyConfig* config,const MAOniColonyMaterial* materials,std::uint32_t material_count,
+    const MAOniColonyCell* cells,std::uint32_t cell_count,MAOniColonyStatus* output) {
+    return boundary([&] {
+        colony_admitted(config,output);
+        if (!materials || !material_count || !cells || !cell_count) throw Failure(MA_ONI_INVALID_ARGUMENT,"The colony owner needs its catalogue and inventory");
+        try { ma::oni::colony::start(*config,std::span(materials,material_count),std::span(cells,cell_count),native_thread()); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *output=ma::oni::colony::status();
+    });
+}
+MAOniResult ma_oni_colony_restore(const MAOniColonyConfig* config,const MAOniColonyMaterial* materials,std::uint32_t material_count,
+    const std::uint8_t* image,std::uint32_t image_bytes,MAOniColonyStatus* output) {
+    return boundary([&] {
+        colony_admitted(config,output);
+        if (!materials || !material_count || !image || !image_bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"The colony restore needs its catalogue and image");
+        try { ma::oni::colony::restore(*config,std::span(materials,material_count),std::span(image,image_bytes),native_thread()); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *output=ma::oni::colony::status();
+    });
+}
+MAOniResult ma_oni_colony_status(MAOniColonyStatus* output) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony status ABI");
+        *output=ma::oni::colony::status();
+    });
+}
+MAOniResult ma_oni_colony_copy(MAOniColonyStatus* output,MAOniColonyCellView* views,std::uint32_t capacity) {
+    return boundary([&] {
+        if (!output || output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony status ABI");
+        try { ma::oni::colony::copy(*output,views,capacity); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_composition(std::uint32_t cell,std::uint32_t* indices,double* masses,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!count || (capacity && (!indices || !masses))) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony composition buffers");
+        try { *count=ma::oni::colony::composition(cell,indices,masses,capacity); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_queue_transfers(const MAOniColonyTransfer* edits,std::uint32_t count) {
+    return boundary([&] {
+        if (!edits || !count) throw Failure(MA_ONI_INVALID_ARGUMENT,"An empty colony transfer batch");
+        try { ma::oni::colony::queue_transfers(std::span(edits,count)); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_queue_heat(const MAOniColonyHeat* edits,std::uint32_t count) {
+    return boundary([&] {
+        if (!edits || !count) throw Failure(MA_ONI_INVALID_ARGUMENT,"An empty colony heat batch");
+        try { ma::oni::colony::queue_heat(std::span(edits,count)); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_queue_terrain(const MAOniColonyTerrain* edits,std::uint32_t count) {
+    return boundary([&] {
+        if (!edits || !count) throw Failure(MA_ONI_INVALID_ARGUMENT,"An empty colony terrain batch");
+        try { ma::oni::colony::queue_terrain(std::span(edits,count)); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_copy_receipts(MAOniColonyReceipt* receipts,std::uint32_t capacity,std::uint32_t* count) {
+    return boundary([&] {
+        if (!count || (capacity && !receipts)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony receipt buffer");
+        *count=ma::oni::colony::copy_receipts(receipts,capacity);
+    });
+}
+MAOniResult ma_oni_colony_ack_receipts(std::uint64_t through) {
+    return boundary([&] {
+        try { ma::oni::colony::ack_receipts(through); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_checkpoint(std::uint8_t* buffer,std::uint32_t capacity,std::uint32_t* bytes) {
+    return boundary([&] {
+        if (!bytes) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony checkpoint size output");
+        std::vector<std::uint8_t> image;
+        try { image=ma::oni::colony::checkpoint(); }
+        catch (const std::invalid_argument& error) { throw Failure(MA_ONI_BUSY,error.what()); }
+        if (image.size()>std::numeric_limits<std::uint32_t>::max()) throw Failure(MA_ONI_INTERNAL_ERROR,"Colony checkpoint exceeds 4 GiB");
+        *bytes=static_cast<std::uint32_t>(image.size());
+        if (!buffer) return;
+        if (capacity<image.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Colony checkpoint buffer is too small");
+        std::memcpy(buffer,image.data(),image.size());
+    });
+}
+MAOniResult ma_oni_colony_stop(MAOniColonyStatus* output) {
+    return boundary([&] {
+        if (output && (output->struct_size!=sizeof(*output) || output->abi_version!=MA_ONI_COLONY_ABI_VERSION)) throw Failure(MA_ONI_INVALID_ARGUMENT,"Invalid colony status ABI");
+        if (output) *output=ma::oni::colony::status();
+        ma::oni::colony::stop();
+    });
+}
+std::uint32_t ma_oni_colony_active() { return ma::oni::colony::active() ? 1U : 0U; }
+MAOniResult ma_oni_colony_species(MAOniColonySpecies* out, std::uint32_t capacity, std::uint32_t* count) {
+    return boundary([&] {
+        if (!count) throw Failure(MA_ONI_INVALID_ARGUMENT,"Null colony species count");
+        try { *count=ma::oni::colony::species(out,capacity); }
+        catch (const std::exception& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+    });
+}
+MAOniResult ma_oni_colony_readings(std::uint64_t* frame, MAOniColonyReading* out, std::uint32_t capacity, std::uint32_t* count,
+    MAOniColonyConstituent* parts, std::uint32_t part_capacity, std::uint32_t* part_count) {
+    return boundary([&] {
+        if (!frame || !count || !part_count) throw Failure(MA_ONI_INVALID_ARGUMENT,"Null colony reading output");
+        std::vector<MAOniColonyReading> readings; std::vector<MAOniColonyConstituent> constituents;
+        try { *frame=ma::oni::colony::readings(readings,constituents); }
+        catch (const std::exception& error) { throw Failure(MA_ONI_INVALID_ARGUMENT,error.what()); }
+        *count=static_cast<std::uint32_t>(readings.size()); *part_count=static_cast<std::uint32_t>(constituents.size());
+        if (!out && !parts) return;
+        if (!out || !parts || capacity<readings.size() || part_capacity<constituents.size()) throw Failure(MA_ONI_BUFFER_TOO_SMALL,"Colony reading buffers are too small");
+        std::copy(readings.begin(),readings.end(),out); std::copy(constituents.begin(),constituents.end(),parts);
+    });
+}
+std::uint32_t ma_oni_colony_busy() { return ma::oni::colony::busy() ? 1U : 0U; }
 std::uint32_t ma_oni_abi_version() { return MA_ONI_ABI_VERSION; }
 const char* ma_oni_last_error() { return last_error.data(); }
 MAOniResult ma_oni_probe(const MAOniObserverConfig* config,MAOniObserverStatus* output) {
