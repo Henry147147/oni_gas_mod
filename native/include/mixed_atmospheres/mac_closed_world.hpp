@@ -315,6 +315,12 @@ public:
         std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
 private:
     [[nodiscard]] MacClosedAdvance advanced_flow(double,std::size_t,MacExecutionPolicy,bool validation_reference = false) const;
+    // The next revision of this owner holding a state its operation already
+    // checked: same registry, EOS identity (shared, not copied), settings and
+    // clock, with void-phase occupied volumes canonical.
+    [[nodiscard]] MacClosedWorld derived(MacTransportState next) const;
+    struct Derived {};
+    MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state);
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;

@@ -30,21 +30,37 @@ Neighbors adjacent(const MacGrid& grid,std::size_t axis,std::size_t face) {
 MacEnergy potential(const MacGrid& grid,std::size_t cell,double mass,double gravity) {
     return MacEnergy::from_double(mass).multiplied(gravity).multiplied((static_cast<double>(cell/grid.width)+.5)*grid.spacing_m);
 }
-void account_state(MacEnergyAccount& energy,MacScaledAccount& px,MacScaledAccount& py,
-    const MacFaceInertias& inertias,const MacTransportState& state,double gravity,bool negative) {
+// The account of only the cells and faces a batch touches: every other term
+// is the same before and after, so the residual is the full one's.
+struct Touched { std::vector<std::size_t> cells,x,y; };
+void account_touched(MacEnergyAccount& energy,MacScaledAccount& px,MacScaledAccount& py,
+    const MacFaceInertias& inertias,const MacTransportState& state,double gravity,bool negative,const Touched& touched) {
     const auto sign=[&](MacEnergy value) { return negative ? value.negated() : value; };
-    for (std::size_t i=0;i<state.cells.size();++i) {
+    for (const auto i : touched.cells) {
         account_mac_cell_internal_energy(energy,state.cells[i],negative ? -1 : 1);
         energy.add(sign(potential(state.grid,i,state.cells[i].mixture.mass(),gravity)));
     }
     for (std::size_t axis=0;axis<2;++axis) {
         const auto j=axis == 0 ? mac_field_values(state.momentum_x,state.full_momentum_x) : mac_field_values(state.momentum_y,state.full_momentum_y);
         const auto& inertia=axis == 0 ? inertias.x : inertias.y;
-        for (std::size_t i=0;i<j.size();++i) {
+        for (const auto i : axis == 0 ? touched.x : touched.y) {
             energy.add(sign(MacEnergy::kinetic(inertia[i],j[i])));
             (axis == 0 ? px : py).add(sign(j[i]));
         }
     }
+}
+// Half the mass of each open cell beside a face.
+double half_mass_inertia(const MacTransportState& state,std::size_t axis,std::size_t face);
+double half_mass_inertia(const MacTransportState& state,std::size_t axis,std::size_t face) {
+    const auto ends=adjacent(state.grid,axis,face);
+    double value=0;
+    for (const auto end : {ends.first,ends.second}) if (end != absent) {
+        const double m=state.cells[end].mixture.mass(), half=.5*m;
+        if (m > 0 && half == 0) throw FluidFatalError(FluidFatalCode::numerical_precision,"Positive MAC half mass is unrepresentable");
+        value+=half;
+    }
+    if (!std::isfinite(value)) throw std::invalid_argument("Non-finite MAC face inertia");
+    return value;
 }
 }
 
@@ -88,12 +104,31 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     };
     std::size_t unresolved=0;MacPrimaryRoundingCounts rounding;
     // One U+K+potential/momentum account spans the batch: the per-edit
-    // accounts telescope, so the intermediate states need not be summed.
-    // Face inertias (half the mass of each adjacent cell) change only on the
-    // edited cell's four faces and are updated there.
-    auto inertia=mac_face_inertias(registry_,next,*thermodynamics_);
+    // accounts telescope, so the intermediate states need not be summed, and
+    // only the edited cells, their neighbours and their faces change. Face
+    // inertias (half the mass of each adjacent cell) change only on the
+    // edited cells' faces and are updated there.
+    Touched touched;
+    {
+        std::vector<std::uint8_t> cell_seen(next.cells.size(),0),x_seen(next.grid.x_width()*next.grid.height,0),y_seen(next.grid.width*next.grid.y_height(),0);
+        for (const auto& edit : edits) {
+            require(edit.cell_index < next.cells.size(),"Invalid MAC fluid transfer request");
+            const auto x=edit.cell_index%next.grid.width,y=edit.cell_index/next.grid.width;
+            const std::array<std::size_t,2> fx{next.grid.x_face(x,y),next.grid.x_face((x+1)%next.grid.x_width(),y)};
+            const std::array<std::size_t,2> fy{next.grid.y_face(x,y),next.grid.y_face(x,(y+1)%next.grid.y_height())};
+            for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? fx : fy) {
+                auto& seen=axis == 0 ? x_seen : y_seen; if (seen[f]) continue; seen[f]=1; (axis == 0 ? touched.x : touched.y).push_back(f);
+                const auto ends=adjacent(next.grid,axis,f);
+                for (const auto c : {ends.first,ends.second}) if (c != absent && !cell_seen[c]) { cell_seen[c]=1; touched.cells.push_back(c); }
+            }
+            if (!cell_seen[edit.cell_index]) { cell_seen[edit.cell_index]=1; touched.cells.push_back(edit.cell_index); }
+        }
+    }
+    MacFaceInertias inertia; inertia.x.assign(next.grid.x_width()*next.grid.height,0); inertia.y.assign(next.grid.width*next.grid.y_height(),0);
+    for (const auto f : touched.x) inertia.x[f]=half_mass_inertia(next,0,f);
+    for (const auto f : touched.y) inertia.y[f]=half_mass_inertia(next,1,f);
     MacEnergyAccount energy; MacScaledAccount px,py;
-    account_state(energy,px,py,inertia,next,settings_.gravity_m_per_s2,false);
+    account_touched(energy,px,py,inertia,next,settings_.gravity_m_per_s2,false,touched);
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.species_index < registry_.size() &&
             (registry_[edit.species_index].phase == Phase::gas || registry_[edit.species_index].phase == Phase::liquid) &&
@@ -234,15 +269,13 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             "Fluid removal would create an unsupported liquid free surface");
         parcels.push_back(std::move(packet));
     }
-    // The full recomputation validates every cell and must equal the
-    // incrementally updated faces.
-    const auto final_inertia=mac_face_inertias(registry_,next,*thermodynamics_);
-    if (final_inertia.x != inertia.x || final_inertia.y != inertia.y)
-        throw std::logic_error("Fluid transfer face inertias differ from their full recomputation");
-    account_state(energy,px,py,final_inertia,next,settings_.gravity_m_per_s2,true);
+    // A recomputation of the touched faces must equal the incrementally updated ones.
+    for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? touched.x : touched.y)
+        if (half_mass_inertia(next,axis,f) != (axis == 0 ? inertia.x : inertia.y)[f])
+            throw std::logic_error("Fluid transfer face inertias differ from their recomputation");
+    account_touched(energy,px,py,inertia,next,settings_.gravity_m_per_s2,true,touched);
     require(energy.within_bound() && px.within_bound() && py.within_bound(),"Fluid transfer U+K+potential/momentum account failed");
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return {std::move(candidate),std::move(parcels),unresolved,rounding};
 }
 
@@ -259,8 +292,7 @@ MacClosedWorld MacClosedWorld::with_opened_cells(std::span<const std::size_t> ce
         next.grid.walls[i]=0;
         if (!next.occupied_volumes_m3.empty()) next.occupied_volumes_m3[i]=0;
     }
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return candidate;
 }
 MacClosedWorld MacClosedWorld::with_closed_cells(std::span<const std::size_t> cells) const {
@@ -301,8 +333,7 @@ MacClosedWorld MacClosedWorld::with_closed_cells(std::span<const std::size_t> ce
     }
     require(energy.within_bound(),"MAC terrain closure energy account failed");
     store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return candidate;
 }
 
@@ -325,12 +356,14 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
         if (group != 0) for (std::size_t q=0;q<k;++q)
             if (registry_[q].phase == Phase::liquid && registry_[q].liquid_phase_group == group) { phase[k]=q; break; }
     }
+    std::vector<std::size_t> liquids;
+    for (std::size_t k=0;k<species;++k) if (phase[k] != absent) liquids.push_back(k);
     // A cell's lightest or heaviest liquid phase with its zero-pressure volume.
     struct Pick { std::size_t phase=absent; double density=0,volume=0; };
     std::vector<Pick> sums;
     const auto pick=[&](const MixtureInventory& m,bool lightest) {
         sums.clear();
-        for (std::size_t k=0;k<species;++k) if (phase[k] != absent && m.masses[k] > 0) {
+        for (const auto k : liquids) if (m.masses[k] > 0) {
             auto it=std::find_if(sums.begin(),sums.end(),[&](const Pick& p) { return p.phase == phase[k]; });
             if (it == sums.end()) { sums.push_back({phase[k],0,0}); it=sums.end()-1; }
             it->density+=m.masses[k]; it->volume+=m.masses[k]/rho[k];
@@ -398,22 +431,32 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
         touched[parcel.from]=touched[parcel.to]=1; report.moved_kg+=mass;
     }
     // Momentum is unchanged; the faces whose inertia (half the mass of each
-    // adjacent cell) changed book their kinetic change to their cells by mass share.
-    const auto before=mac_face_inertias(registry_,state_,*thermodynamics_); auto after=before;
-    for (std::size_t axis=0;axis<2;++axis) {
-        auto& values=axis == 0 ? after.x : after.y;
-        for (std::size_t face=0;face<values.size();++face) {
-            const auto ends=adjacent(grid,axis,face);
-            if (!((ends.first != absent && touched[ends.first]) || (ends.second != absent && touched[ends.second]))) continue;
-            double value=0;
-            for (const auto end : {ends.first,ends.second}) if (end != absent) value+=.5*next.cells[end].mixture.mass();
-            values[face]=value;
+    // adjacent cell) changed book their kinetic change to their cells by mass
+    // share. Only the moved cells' faces and their other cells are accounted.
+    Touched region;
+    {
+        std::vector<std::uint8_t> cell_seen(next.cells.size(),0),x_seen(grid.x_width()*grid.height,0),y_seen(grid.width*grid.y_height(),0);
+        for (std::size_t i=0;i<next.cells.size();++i) if (touched[i]) {
+            const auto x=i%grid.width,y=i/grid.width;
+            const std::array<std::size_t,2> fx{grid.x_face(x,y),grid.x_face((x+1)%grid.x_width(),y)};
+            const std::array<std::size_t,2> fy{grid.y_face(x,y),grid.y_face(x,(y+1)%grid.y_height())};
+            for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? fx : fy) {
+                auto& seen=axis == 0 ? x_seen : y_seen; if (seen[f]) continue; seen[f]=1; (axis == 0 ? region.x : region.y).push_back(f);
+                const auto ends=adjacent(grid,axis,f);
+                for (const auto c : {ends.first,ends.second}) if (c != absent && !cell_seen[c]) { cell_seen[c]=1; region.cells.push_back(c); }
+            }
         }
+    }
+    MacFaceInertias before,after;
+    before.x.assign(grid.x_width()*grid.height,0); before.y.assign(grid.width*grid.y_height(),0); after=before;
+    for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? region.x : region.y) {
+        (axis == 0 ? before.x : before.y)[f]=half_mass_inertia(state_,axis,f);
+        (axis == 0 ? after.x : after.y)[f]=half_mass_inertia(next,axis,f);
     }
     for (std::size_t axis=0;axis<2;++axis) {
         const auto j=axis == 0 ? mac_field_values(next.momentum_x,next.full_momentum_x) : mac_field_values(next.momentum_y,next.full_momentum_y);
         const auto& old_i=axis == 0 ? before.x : before.y; const auto& new_i=axis == 0 ? after.x : after.y;
-        for (std::size_t face=0;face<j.size();++face) {
+        for (const auto face : axis == 0 ? region.x : region.y) {
             if (old_i[face] == new_i[face] || j[face].is_zero()) continue;
             MacEnergySum remainder; remainder.add(MacEnergy::kinetic(old_i[face],j[face])); remainder.add(MacEnergy::kinetic(new_i[face],j[face]).negated());
             const auto ends=adjacent(grid,axis,face);
@@ -431,14 +474,11 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
         if (thermodynamics_->evaluate(next.cells[i].mixture,mac_material_volume(next,i)).has_vacuum)
             throw std::domain_error("MAC liquid settling opened a void");
     }
-    if (const auto final_inertia=mac_face_inertias(registry_,next,*thermodynamics_); final_inertia.x != after.x || final_inertia.y != after.y)
-        throw std::logic_error("Liquid settling face inertias differ from their full recomputation");
     MacEnergyAccount energy; MacScaledAccount px,py;
-    account_state(energy,px,py,before,state_,gravity,false); account_state(energy,px,py,after,next,gravity,true);
+    account_touched(energy,px,py,before,state_,gravity,false,region); account_touched(energy,px,py,after,next,gravity,true,region);
     require(energy.within_bound(),"MAC liquid settling U+K+potential account failed");
     report.released_j=released.value().project().value;
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return {std::move(candidate),report};
 }
 
@@ -473,8 +513,7 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
     require(energy.within_bound(),"MAC face closure energy account failed");
     store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
     next.grid.closed_x=std::move(x); next.grid.closed_y=std::move(y);
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return candidate;
 }
 
@@ -496,8 +535,7 @@ MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit
         it->quantity+=edit.change;
         if (!(it->quantity > 0)) q.erase(it);
     }
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     return candidate;
 }
 }

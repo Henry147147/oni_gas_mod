@@ -92,6 +92,7 @@ namespace MixedAtmospheres.Oni
                     case "filter": Filter(frame); break;
                     case "pacu": Pacu(frame); break;
                     case "liquid-pump": LiquidPump(frame); break;
+                    case "base": Base(frame, status); break;
                     default: throw new InvalidOperationException("Unknown colony scenario " + name);
                 }
             }
@@ -146,11 +147,11 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        // Hot water evaporates into the cooler air above it (no boiling).
+        // Warm water evaporates into the dry air above it at its temperature.
         private static void Phase(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
-                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 360f) : y <= 2 ? (SimHashes.Water, 990f, 360f) : (SimHashes.Oxygen, 1.2f, 300f));
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 330f) : y <= 2 ? (SimHashes.Water, 990f, 330f) : (SimHashes.Oxygen, 1.2f, 330f));
             if (Once(6, "start")) recorded["evaporated"] = status.EvaporatedKg;
             if (Once(32, "check"))
             {
@@ -695,6 +696,122 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // Life support for an unattended colony (the prepared save of
+        // docs/playtest-plan.md#ready-to-play), built around the printing pod:
+        // the pod's room is widened and floored; a coal generator powers an
+        // oxygen diffuser and a carbon dioxide scrubber; the scrubber takes
+        // water from a reservoir and returns polluted water to another; a
+        // ration box holds the food. The duplicants supply coal and algae
+        // from piles beside the machines. Harness only: instant building.
+        private static readonly List<string> placed = new List<string>();
+        private static void Base(int frame, OniNativeColony.Status status)
+        {
+            var pad = GameUtil.GetActiveTelepad();
+            Grid.CellToXY(Grid.PosToCell(pad), out var px, out var py);
+            if (Once(0, "dig"))
+            {
+                Current.Stage = $"pod at {px},{py}";
+                for (var y = py; y <= py + 3; ++y)
+                    for (var x = px - 16; x <= px + 16; ++x)
+                    {
+                        var cell = Grid.XYToCell(x, y);
+                        if (Grid.IsValidCell(cell) && Grid.Solid[cell] && Grid.Element[cell].hardness < 150 && Grid.Objects[cell, (int)ObjectLayer.Building] == null)
+                            SimMessages.Dig(cell);
+                    }
+            }
+            if (Once(4, "floor"))
+                for (var x = px - 16; x <= px + 16; ++x)
+                {
+                    var cell = Grid.XYToCell(x, py - 1);
+                    if (Grid.IsValidCell(cell) && !Grid.Solid[cell] && Grid.Objects[cell, (int)ObjectLayer.Building] == null)
+                        Assets.GetBuildingDef(TileConfig.ID).Build(cell, Orientation.Neutral, null, new[] { SimHashes.Granite.CreateTag() }, 300, playsound: false);
+                }
+            if (Once(8, "build"))
+            {
+                placed.Clear();
+                var left = px - 3; var right = px + 3;
+                // Left of the pod: generator, diffuser, coal and algae.
+                var generator = Place(GeneratorConfig.ID, ref left, -1);
+                var diffuser = Place(MineralDeoxidizerConfig.ID, ref left, -1);
+                Spill(SimHashes.Carbon, left, py, 5000); left -= 2;
+                Spill(SimHashes.Algae, left, py, 4000);
+                // Right of the pod: scrubber, the water reservoirs and the ration box.
+                var scrubber = Place(CO2ScrubberConfig.ID, ref right, 1);
+                var water = Place(LiquidReservoirConfig.ID, ref right, 1);
+                var waste = Place(LiquidReservoirConfig.ID, ref right, 1);
+                var rations = Place(RationBoxConfig.ID, ref right, 1);
+                water?.GetComponent<Storage>().AddLiquid(SimHashes.Water, 4500, 300, byte.MaxValue, 0, false, true);
+                if (rations != null)
+                {
+                    var food = GameUtil.KInstantiate(Assets.GetPrefab(FieldRationConfig.ID), rations.transform.GetPosition(), Grid.SceneLayer.Ore);
+                    food.SetActive(true); food.GetComponent<PrimaryElement>().Units = 45;
+                    rations.GetComponent<Storage>().Store(food, true);
+                }
+                if (generator != null)
+                {
+                    var power = Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset);
+                    foreach (var load in new[] { diffuser, scrubber })
+                        if (load != null) Wire(Route(power, Grid.OffsetCell(Grid.PosToCell(load), load.GetComponent<Building>().Def.PowerInputOffset)));
+                }
+                if (water != null && scrubber != null && waste != null)
+                {
+                    var def = scrubber.GetComponent<Building>().Def;
+                    Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
+                        Grid.OffsetCell(Grid.PosToCell(water), water.GetComponent<Building>().Def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(scrubber), def.UtilityInputOffset)));
+                    Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
+                        Grid.OffsetCell(Grid.PosToCell(scrubber), def.UtilityOutputOffset), Grid.OffsetCell(Grid.PosToCell(waste), waste.GetComponent<Building>().Def.UtilityInputOffset)));
+                }
+                Current.Stage = "built " + string.Join(", ", placed);
+            }
+            if (Once(30, "check"))
+            {
+                Record("the base was built", placed.Count == 7, string.Join(", ", placed));
+                Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
+                    $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
+                Finish();
+            }
+        }
+        // Places a building on the floor row next to the last one, walking
+        // away from the pod; null if the row has no room.
+        private static GameObject? Place(string id, ref int x, int step)
+        {
+            var def = Assets.GetBuildingDef(id);
+            var pad = GameUtil.GetActiveTelepad(); Grid.CellToXY(Grid.PosToCell(pad), out _, out var py);
+            for (var tries = 0; tries < 12; ++tries, x += step)
+            {
+                // The origin is the bottom middle (left of middle for even widths).
+                var x0 = x - (def.WidthInCells - 1) / 2; var fits = true;
+                for (var dx = 0; dx < def.WidthInCells && fits; ++dx)
+                {
+                    var below = Grid.XYToCell(x0 + dx, py - 1); fits = Grid.IsValidCell(below) && Grid.Solid[below];
+                    for (var dy = 0; dy < def.HeightInCells && fits; ++dy)
+                    {
+                        var c = Grid.XYToCell(x0 + dx, py + dy);
+                        fits = Grid.IsValidCell(c) && !Grid.Solid[c] && Grid.Objects[c, (int)ObjectLayer.Building] == null;
+                    }
+                }
+                if (!fits) continue;
+                var building = def.Build(Grid.XYToCell(x, py), Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
+                placed.Add(id + "@" + x); x += step * (def.WidthInCells + 1);
+                return building;
+            }
+            return null;
+        }
+        private static void Spill(SimHashes element, int x, int y, float mass) =>
+            ElementLoader.FindElementByHash(element).substance.SpawnResource(Grid.CellToPosCCC(Grid.XYToCell(x, y), Grid.SceneLayer.Ore), mass, 300, byte.MaxValue, 0);
+        private static void Wire(List<int> path)
+        {
+            var network = Game.Instance.electricalConduitSystem;
+            for (var k = 0; k + 1 < path.Count; ++k)
+            {
+                var direction = UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
+                network.AddConnection(direction, path[k], false);
+                network.AddConnection(direction.InverseDirection(), path[k + 1], false);
+            }
+            var def = Assets.GetBuildingDef(WireConfig.ID);
+            foreach (var cell in path) def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
+        }
+
         private static double OwnedMass(SimHashes element)
         {
             double total = 0;
@@ -782,10 +899,12 @@ namespace MixedAtmospheres.Oni
                 if (x == -2 || x == Width + 1 || y == -2 || y == Height + 1) total += CellMass(Cell(x, y));
             return total;
         }
+        // The arena's gas: liquid booked at import (a reservoir) may seep back
+        // into cells near its anchor, inside an arena too.
         private static double ArenaMass()
         {
             double total = 0;
-            for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x) total += CellMass(Cell(x, y));
+            for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x) total += CellMass(Cell(x, y)) - LiquidMass(Cell(x, y));
             return total;
         }
         private static double GasTemperature(int row) => Enumerable.Range(0, Width).Average(x => (double)Grid.Temperature[Cell(x, row)]);

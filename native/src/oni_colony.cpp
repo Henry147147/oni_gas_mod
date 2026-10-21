@@ -210,17 +210,31 @@ std::vector<long double> totals(const MacClosedWorld& w) {
     for (const auto& cell : w.state().cells) for (std::size_t k = 0; k < out.size(); ++k) out[k] += cell.mixture.masses[k];
     return out;
 }
+// U+K+G for the ledger (checked to a millionth): U with its stored
+// remainder, K from each face's inertia (half the mass of each open cell
+// beside it), G at cell centres.
 long double energy_of(const MacClosedWorld& w) {
-    const auto& st = w.state(); MacEnergySum total;
-    for (const auto& cell : st.cells) account_mac_cell_internal_energy(total, cell);
-    const auto inertia = mac_face_inertias(w.registry(), st, w.thermodynamics());
-    const auto jx = mac_field_values(st.momentum_x, st.full_momentum_x), jy = mac_field_values(st.momentum_y, st.full_momentum_y);
-    for (std::size_t i = 0; i < jx.size(); ++i) if (inertia.x[i] > 0) total.add(MacEnergy::kinetic(inertia.x[i], jx[i]));
-    for (std::size_t i = 0; i < jy.size(); ++i) if (inertia.y[i] > 0) total.add(MacEnergy::kinetic(inertia.y[i], jy[i]));
-    long double value = 0; for (std::size_t k = 0; k < total.size(); ++k) value += mac_energy_long_double(total.component(k));
+    const auto& st = w.state(); const auto& grid = st.grid; long double value = 0;
     const double g = w.settings().gravity_m_per_s2;
-    for (std::size_t i = 0; i < st.cells.size(); ++i)
-        value += static_cast<long double>(st.cells[i].mixture.mass()) * g * ((static_cast<double>(i / st.grid.width) + .5) * st.grid.spacing_m);
+    for (std::size_t i = 0; i < st.cells.size(); ++i) {
+        const auto& cell = st.cells[i];
+        value += static_cast<long double>(cell.mixture.energy) + cell.energy_remainder_j.projected + mac_energy_long_double(cell.energy_remainder_j.full);
+        value += static_cast<long double>(cell.mixture.mass()) * g * ((static_cast<double>(i / grid.width) + .5) * grid.spacing_m);
+    }
+    const auto half = [&](std::size_t cell) { return cell < st.cells.size() && !grid.walls[cell] ? .5L * st.cells[cell].mixture.mass() : 0.L; };
+    const auto jx = mac_field_values(st.momentum_x, st.full_momentum_x), jy = mac_field_values(st.momentum_y, st.full_momentum_y);
+    for (std::size_t y = 0; y < grid.height; ++y) for (std::size_t x = 0; x < grid.x_width(); ++x) {
+        const auto f = grid.x_face(x, y); const long double j = jx[f].project().value;
+        if (j == 0) continue;
+        const long double inertia = (x > 0 || grid.periodic_x ? half((x + grid.width - 1) % grid.width + y * grid.width) : 0.L) + (x < grid.width ? half(x + y * grid.width) : 0.L);
+        if (inertia > 0) value += .5L * j * j / inertia;
+    }
+    for (std::size_t y = 0; y < grid.y_height(); ++y) for (std::size_t x = 0; x < grid.width; ++x) {
+        const auto f = grid.y_face(x, y); const long double j = jy[f].project().value;
+        if (j == 0) continue;
+        const long double inertia = (y > 0 || grid.periodic_y ? half(x + ((y + grid.height - 1) % grid.height) * grid.width) : 0.L) + (y < grid.height ? half(x + y * grid.width) : 0.L);
+        if (inertia > 0) value += .5L * j * j / inertia;
+    }
     return value;
 }
 // The most numerous germ among passives (identity <= 256 is a disease index + 1),

@@ -315,7 +315,7 @@ setting their powered flag (harness only).
 | --- | --- |
 | `terrain` | Digging a granite column lets gas reach the vacuum beyond it; a built tile closes its cell; both conserve the gas. |
 | `heat` | A 450 K granite floor warms the air above it through ONI's own conduction, with the owner's energy ledger closed. |
-| `phase` | 360 K water evaporates into 300 K air above it. |
+| `phase` | 330 K water evaporates into the dry 330 K air above it. |
 | `freeze-melt` | Ice in warm air melts into an owned cell; water on a 40 K block freezes. |
 | `pump` | A gas pump draws the arena's air into its storage; storage equals what the owner lost. |
 | `deoxidizer` | An oxygen diffuser's oxygen from stored algae reaches the owner. |

@@ -98,6 +98,47 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
     require(std::isfinite(fraction) && fraction > 0 && fraction <= 1, "Invalid MAC phase relaxation fraction");
     MacPhaseChangeAdvance result{source, {}}; auto& report = result.report;
     const auto& g = source.grid; MacEnergySum entropy, allowance;
+    // A filled gas-only cell's temperature and moles in closed form (ideal
+    // gases), computed once: a cell holding only a pair's vapour can only
+    // condense, which it cannot do above the critical temperature or below
+    // saturation, so such cells skip the complete EOS (a 1% margin keeps every
+    // borderline cell on the exact path).
+    const auto& materials = model.reference().materials();
+    std::vector<std::size_t> profiles(registry.size());
+    for (std::size_t k = 0; k < registry.size(); ++k) profiles[k] = profile_of(model, registry, k);
+    std::vector<double> gas_temperature(source.cells.size(), -1), gas_moles(source.cells.size(), 0);
+    std::vector<std::uint8_t> changed(source.cells.size(), 0); // by an earlier pair this call
+    // A filled gas-free liquid cell: an upper bound on its temperature (no
+    // elastic energy) and a lower bound on its pressure (the softest liquid's
+    // compression of the whole zero-pressure volume). It boils only beyond the
+    // nucleation superheat at its own pressure, so a cell whose pressure bound
+    // clearly exceeds saturation there skips the complete EOS.
+    const auto liquid_bounds = [&](std::size_t i, double volume, double& t, double& p) {
+        const auto& m = source.cells[i].mixture; double offset = 0, capacity = 0, zero_volume = 0, bulk = std::numeric_limits<double>::infinity();
+        for (std::size_t k = 0; k < registry.size(); ++k) {
+            const double mass = m.masses[k]; if (mass == 0) continue;
+            if (registry[k].phase != Phase::liquid) return false;
+            const auto& material = materials[profiles[k]];
+            offset += mass * material.energy_offset_j_per_kg; capacity += mass * material.cv_j_per_kg_k;
+            zero_volume += mass / material.zero_pressure_density_kg_per_m3; bulk = std::min(bulk, material.reference_bulk_modulus_pa);
+        }
+        t = capacity > 0 ? (m.energy - offset) / capacity : 0;
+        p = bulk * (zero_volume / volume - 1);
+        return std::isfinite(t) && t > 0 && std::isfinite(p);
+    };
+    const auto gas_only = [&](std::size_t i) {
+        if (gas_temperature[i] != -1) return gas_temperature[i] > 0;
+        const auto& m = source.cells[i].mixture; double offset = 0, capacity = 0, moles = 0;
+        for (std::size_t k = 0; k < registry.size(); ++k) {
+            const double mass = m.masses[k]; if (mass == 0) continue;
+            if (registry[k].phase != Phase::gas) { gas_temperature[i] = 0; return false; }
+            const auto& material = materials[profiles[k]];
+            offset += mass * material.energy_offset_j_per_kg; capacity += mass * material.cv_j_per_kg_k; moles += mass / material.molar_mass_kg_per_mol;
+        }
+        const double t = capacity > 0 ? (m.energy - offset) / capacity : 0;
+        gas_temperature[i] = std::isfinite(t) && t > 0 ? t : 0; gas_moles[i] = moles;
+        return gas_temperature[i] > 0;
+    };
     for (const auto& pair : pairs) {
         require(pair.liquid < registry.size() && pair.vapour < registry.size() && registry[pair.liquid].phase == Phase::liquid &&
             registry[pair.vapour].phase == Phase::gas, "Invalid MAC saturation pair");
@@ -114,6 +155,23 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             const double held = mac_material_volume(result.state, i), grid_volume = g.volume_m3();
             const bool fill = held < grid_volume && ml > 0;
             const double volume = fill ? grid_volume : held;
+            if (ml > 0 && mv == 0 && !changed[i] && !(held < grid_volume)) {
+                double t = 0, p = 0;
+                if (liquid_bounds(i, volume, t, p) && t < pair.critical_temperature_k * (1 - 1e-6) && p > 0) {
+                    double saturation = std::numeric_limits<double>::infinity();
+                    try { saturation = mac_saturation_pressure(model, liquid_profile, vapour_profile, t + 5, p); } catch (const std::exception&) {}
+                    if (p > 1.01 * saturation) continue;
+                }
+            }
+            if (ml == 0 && !changed[i] && gas_only(i)) {
+                const double t = gas_temperature[i];
+                if (t >= pair.critical_temperature_k * (1 + 1e-6)) continue;
+                const double vapour = mv / materials[vapour_profile].molar_mass_kg_per_mol * gas_constant * t / volume;
+                const double pressure = gas_moles[i] * gas_constant * t / volume;
+                double saturation = 0;
+                try { saturation = mac_saturation_pressure(model, liquid_profile, vapour_profile, t, pressure); } catch (const std::exception&) { saturation = 0; }
+                if (vapour < .99 * saturation) continue;
+            }
             // A cell the strict EOS cannot read (traces below binary64 range,
             // which the production kernel admits) has no interface to relax.
             ReferenceEquilibriumState before, source_state;
@@ -155,6 +213,15 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
             if (supercritical) near = ml;
             else {
                 const auto start = departure(0); if (!start || *start == 0) continue;
+                // A partial step (an owner's relaxation toward saturation) leaves
+                // a cell within 0.1% of saturation as it is: it is there for any
+                // purpose, and the root search would only move traces.
+                if (fraction < 1) {
+                    double saturation = 0;
+                    try { saturation = mac_saturation_pressure(model, liquid_profile, vapour_profile, before.temperature_k, before.mechanical_pressure_pa); }
+                    catch (const std::exception&) { saturation = 0; }
+                    if (std::abs(*start) <= 1e-3 * saturation) continue;
+                }
                 // Evaporate toward a positive departure, condense toward a negative one.
                 evaporate = *start < 0;
                 if ((evaporate && ml == 0) || (!evaporate && mv == 0)) continue;
@@ -166,13 +233,15 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
                 if (end && (evaporate ? *end <= 0 : *end >= 0)) near = far;
                 else for (int k = 0; k < 64; ++k) {
                     const double mid = .5 * (near + far); if (mid == near || mid == far) break;
+                    // A partial step needs the root only to a thousandth.
+                    if (fraction < 1 && std::abs(far - near) <= 1e-3 * std::max(std::abs(near), std::abs(far)) && near != 0) break;
                     const auto value = departure(mid);
                     if (value && (evaporate ? *value < 0 : *value > 0)) near = mid; else far = mid;
                 }
             }
             if (fraction < 1) near *= fraction;
             if (near == 0) continue;
-            cell.masses[pair.liquid] = ml - near; cell.masses[pair.vapour] = mv + near;
+            cell.masses[pair.liquid] = ml - near; cell.masses[pair.vapour] = mv + near; changed[i] = 1;
             if (near == ml) cell.masses[pair.liquid] = 0;
             if (near == -mv) cell.masses[pair.vapour] = 0;
             const auto after = model.evaluate(cell, volume); ++report.eos_evaluations;

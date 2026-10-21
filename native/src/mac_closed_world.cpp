@@ -628,12 +628,23 @@ MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const F
     validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
     validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
 }
+MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state) : registry_(from.registry_),
+    thermodynamics_(from.thermodynamics_), state_(std::move(state)), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
+    revision_(from.revision_ + 1) {
+    bool partial = false;
+    for (std::size_t i = 0; i < state_.occupied_volumes_m3.size() && !partial; ++i)
+        partial = state_.cells[i].mixture.mass() > 0 && state_.occupied_volumes_m3[i] < state_.grid.volume_m3();
+    if (!partial) state_.occupied_volumes_m3.clear();
+}
+MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    return MacClosedWorld(Derived{}, *this, std::move(next));
+}
 MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state_, pairs, false, fraction);
-    MacClosedWorld candidate(registry_, thermodynamics_, std::move(advanced.state), settings_, transport_);
-    candidate.time_s_ = time_s_; candidate.revision_ = revision_ + 1;
+    auto candidate=derived(std::move(advanced.state));
     return {std::move(candidate), advanced.report};
 }
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
@@ -655,8 +666,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
         account_mac_cell_internal_energy(balance,before); balance.add(edit.joules); account_mac_cell_internal_energy(balance,cell,-1);
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
-    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
-    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    auto candidate=derived(std::move(next));
     if(accepted_rounding)*accepted_rounding=rounding;
     return candidate;
 }
