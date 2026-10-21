@@ -586,6 +586,19 @@ selector 2. The following exact changes continue that work:
   ASan/UBSan/TSan and clean 83-executable/sixteen-variant comparisons pass;
   only timing fields change.
 
+EOS input validation and the colony's read-only view projection also use the
+same pool in fixed 1,024-cell blocks. Cell calculations and view fields are
+unchanged. The execution library owns the existing pool/options once, shared
+by transport and the kernel. This trades concurrent CPU use for elapsed time.
+A fresh whole-lock Terra60 pair measures owner mean 0.665 s → 0.652 s
+and observed frame interval 0.904 s → 0.858 s. The last frame's ledger/view
+stage takes 98 ms → 35 ms. The candidate passes with maximum relative
+mass/energy errors `4.62e-16` / `2.93e-17`. Release/83 CTests and both
+focused ASan/UBSan/TSan controls pass. Clean MAC comparisons preserve every
+existing result; only timings and the new validation-control PASS line differ.
+The cold owner control also covers zero-length checkpoint reads/writes, now
+guarded without changing their bytes or format.
+
 These changes keep the physical model, tolerances and checkpoint format.
 Real-time 0.2 s frames remain open.
 

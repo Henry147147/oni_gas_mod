@@ -1,4 +1,5 @@
 #include "oni_colony.hpp"
+#include "mac_kernel_detail.hpp"
 #include "oni_catalogue.hpp"
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
@@ -252,12 +253,12 @@ long double parcel_energy(const MacFluidParcel& p) {
 std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld& w) {
     const auto& st = w.state(); const auto& registry = w.registry(); const auto& c = *s.catalogue;
     std::vector<MAOniColonyCellView> views(st.cells.size());
-    for (std::size_t i = 0; i < st.cells.size(); ++i) {
+    const auto project_cell = [&](std::size_t i) {
         auto& v = views[i];
-        if (st.grid.walls[i]) continue;
+        if (st.grid.walls[i]) return;
         v.flags = MA_ONI_COLONY_VIEW_OWNED; v.element_index = s.config.vacuum_index;
         const auto& m = st.cells[i].mixture;
-        if (!(m.mass() > 0)) continue;
+        if (!(m.mass() > 0)) return;
         const auto reading = w.thermodynamics().evaluate(m, mac_material_volume(st, i));
         double gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
         for (std::size_t k = 0; k < registry.size(); ++k) {
@@ -274,7 +275,15 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
         v.liquid_fraction = static_cast<float>(reading.liquid_volume_m3 / st.grid.volume_m3());
         const auto germ = dominant_germ(st.cells[i].passive_quantities);
         v.disease = germ.first; v.disease_count = germ.second;
-    }
+    };
+    constexpr std::size_t block_size = 1024;
+    const auto blocks = (st.cells.size() + block_size - 1) / block_size;
+    const auto options = mac_kernel_default_options();
+    const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads,
+        std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+        for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) project_cell(i);
+    });
     return views;
 }
 void publish(const Session& s, std::vector<MAOniColonyCellView> views) {
@@ -1306,7 +1315,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
 namespace {
 struct Writer {
     std::vector<std::uint8_t> bytes;
-    void raw(const void* p, std::size_t n) { const auto* b = static_cast<const std::uint8_t*>(p); bytes.insert(bytes.end(), b, b + n); }
+    void raw(const void* p, std::size_t n) { if (n == 0) return; const auto* b = static_cast<const std::uint8_t*>(p); bytes.insert(bytes.end(), b, b + n); }
     void u32(std::uint32_t v) { raw(&v, 4); }
     void u64(std::uint64_t v) { raw(&v, 8); }
     void f64(double v) { raw(&v, 8); }
@@ -1314,7 +1323,7 @@ struct Writer {
 };
 struct Reader {
     std::span<const std::uint8_t> bytes; std::size_t at = 0;
-    void raw(void* p, std::size_t n) { require(n <= bytes.size() - at, "Truncated colony checkpoint"); std::memcpy(p, bytes.data() + at, n); at += n; }
+    void raw(void* p, std::size_t n) { require(n <= bytes.size() - at, "Truncated colony checkpoint"); if (n != 0) std::memcpy(p, bytes.data() + at, n); at += n; }
     std::uint32_t u32() { std::uint32_t v; raw(&v, 4); return v; }
     std::uint64_t u64() { std::uint64_t v; raw(&v, 8); return v; }
     double f64() { double v; raw(&v, 8); return v; }

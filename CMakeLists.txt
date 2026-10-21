@@ -95,12 +95,24 @@ add_executable(ma_passive_transport_tests EXCLUDE_FROM_ALL native/tests/passive_
 target_link_libraries(ma_passive_transport_tests PRIVATE mixed_atmospheres_coupled ma_core)
 add_executable(ma_coupled_mutation_tests EXCLUDE_FROM_ALL native/tests/coupled_mutation_tests.cpp)
 target_link_libraries(ma_coupled_mutation_tests PRIVATE mixed_atmospheres_coupled ma_core)
+# Shared deterministic execution for the kernel and cell-local validation.
+find_package(Threads REQUIRED)
+add_library(ma_mac_execution STATIC EXCLUDE_FROM_ALL native/src/mac_kernel_parallel.cpp)
+target_include_directories(ma_mac_execution PUBLIC native/include)
+target_link_libraries(ma_mac_execution PUBLIC ma_mac_energy Threads::Threads)
+set_target_properties(ma_mac_execution PROPERTIES POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+if(MSVC)
+    target_compile_options(ma_mac_execution PRIVATE /W4 /WX /permissive- /fp:strict)
+else()
+    target_compile_options(ma_mac_execution PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
+endif()
 # Retained 2-D MAC transport component; no default world/game dispatch.
 add_library(ma_mac_transport STATIC EXCLUDE_FROM_ALL native/src/mac_transport.cpp native/src/mac_parcel.cpp native/src/mac_swept_momentum.cpp)
 target_include_directories(ma_mac_transport PUBLIC native/include)
-target_link_libraries(ma_mac_transport PUBLIC ma_core)
+target_link_libraries(ma_mac_transport PUBLIC ma_core ma_mac_execution)
 add_executable(ma_mac_transport_tests EXCLUDE_FROM_ALL native/tests/mac_transport_tests.cpp)
-target_link_libraries(ma_mac_transport_tests PRIVATE ma_mac_transport)
+target_link_libraries(ma_mac_transport_tests PRIVATE ma_mac_closed_world)
 add_executable(ma_mac_sparse_constituent_tests EXCLUDE_FROM_ALL native/tests/mac_sparse_constituent_tests.cpp)
 target_link_libraries(ma_mac_sparse_constituent_tests PRIVATE ma_mac_reconstruction)
 if(MSVC)
@@ -138,7 +150,7 @@ else()
     target_compile_options(ma_mac_compressive_eos_reuse_tests PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Werror -ffp-contract=off -fno-fast-math)
 endif()
 # Production substep kernel (native/MAC_KERNEL.md), built into the owner library.
-set(MA_MAC_KERNEL_SOURCES native/src/mac_kernel.cpp native/src/mac_kernel_rounding.cpp native/src/mac_kernel_eos.cpp native/src/mac_kernel_parallel.cpp
+set(MA_MAC_KERNEL_SOURCES native/src/mac_kernel.cpp native/src/mac_kernel_rounding.cpp native/src/mac_kernel_eos.cpp
     native/src/mac_kernel_pressure.cpp native/src/mac_kernel_pressure_moments.cpp native/src/mac_kernel_transport.cpp native/src/mac_kernel_regularization.cpp
     native/src/mac_pressure_moment_multigrid.cpp
     native/src/mac_kernel_time.cpp
@@ -179,7 +191,6 @@ endif()
 add_library(ma_mac_closed_world STATIC EXCLUDE_FROM_ALL native/src/mac_closed_world.cpp native/src/mac_interval_fallback.cpp native/src/mac_pressure_multigrid.cpp native/src/mac_diffusion.cpp native/src/mac_diffusion_normal.cpp native/src/mac_boundary_transfer.cpp native/src/mac_thermal.cpp native/src/mac_viscosity.cpp native/src/mac_native_heat.cpp native/src/mac_checkpoint.cpp native/src/mac_phase_change.cpp
     ${MA_MAC_KERNEL_SOURCES})
 target_link_libraries(ma_mac_closed_world PUBLIC ma_mac_reconstruction ma_mac_block_execution)
-find_package(Threads REQUIRED)
 target_link_libraries(ma_mac_closed_world PUBLIC Threads::Threads)
 add_executable(ma_mac_multigrid_tests EXCLUDE_FROM_ALL native/tests/mac_multigrid_tests.cpp)
 target_link_libraries(ma_mac_multigrid_tests PRIVATE ma_mac_closed_world)

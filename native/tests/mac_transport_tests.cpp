@@ -1,3 +1,5 @@
+#include "mac_fixture.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_transport.hpp"
 #include <algorithm>
 #include <cmath>
@@ -226,9 +228,40 @@ void transpose() {
     for (std::size_t y = 0; y < g.height; ++y) for (std::size_t x = 0; x < g.x_width(); ++x)
         near(result.state.momentum_x[g.x_face(x, y)], other.state.momentum_y[t.y_face(y, x)], std::abs(result.state.momentum_x[g.x_face(x, y)]));
 }
+void parallel_validation_control() {
+    const ma::testing::Setup s;
+    const auto saved = mac_kernel_default_options(); auto options = saved; options.threads = 1;
+    set_mac_kernel_default_options(options);
+    const auto source = s.state(64, 35, false, true, true);
+    const auto image = [&] { return MacClosedWorld(s.registry, s.eos, source).checkpoint(); };
+    const auto held = image();
+    const auto serial = mac_face_inertias(s.registry, source, *s.eos);
+    const auto legacy = mac_face_inertias(s.registry, source);
+    options.threads = 12; set_mac_kernel_default_options(options);
+    const auto parallel = mac_face_inertias(s.registry, source, *s.eos);
+    const auto other = mac_face_inertias(s.registry, source);
+    check(serial.x == parallel.x && serial.y == parallel.y && legacy.x == other.x && legacy.y == other.y &&
+        image() == held, "Parallel validation changed inertias or source bytes");
+    auto invalid = source;
+    invalid.cells[10].mixture.energy = std::numeric_limits<double>::quiet_NaN();
+    invalid.cells[2050].passive_quantities[0].quantity = -1;
+    const auto error = [&](unsigned threads) {
+        options.threads = threads; set_mac_kernel_default_options(options);
+        try { static_cast<void>(mac_face_inertias(s.registry, invalid, *s.eos)); }
+        catch (const std::exception& e) { return std::string(e.what()); }
+        return std::string{};
+    };
+    const auto first = error(1), many = error(12);
+    check(!first.empty() && first == many, "Validation errors depend on worker scheduling");
+    set_mac_kernel_default_options(saved);
+    std::cout << "PASS parallel input validation: inertias, primary bytes and first error\n";
 }
-int main() {
+}
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::string(argv[1]) == "--parallel-validation-only") { parallel_validation_control(); return 0; }
+        check(argc == 1, "Usage: ma_mac_transport_tests [--parallel-validation-only]");
+        parallel_validation_control();
         std::cout << std::setprecision(17);
         exact_mixing(); std::cout << "PASS exact kinetic mixing and immutable source\n";
         corner(); std::cout << "PASS solid-corner dual mass, wall impulse and heat\n";

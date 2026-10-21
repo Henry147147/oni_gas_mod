@@ -1,3 +1,4 @@
+#include "mac_kernel_detail.hpp"
 #include "mixed_atmospheres/mac_transport.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
 #include "mixed_atmospheres/fluid_thermodynamics.hpp"
@@ -78,8 +79,8 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
     require(state.occupied_volumes_m3.empty() || state.occupied_volumes_m3.size() == state.cells.size(), "MAC occupied-volume shape differs");
     require(registry.size() > 0, "MAC transport requires a nonempty constituent registry");
     if (thermal) thermal->resize(state.cells.size());
-    std::vector<double> result; result.reserve(state.cells.size());
-    for (std::size_t i = 0; i < state.cells.size(); ++i) {
+    std::vector<double> result(state.cells.size());
+    const auto validate_cell = [&](std::size_t i) {
         const auto& cell = state.cells[i];
         if (!volumes.empty()) require(std::isfinite(volumes[i]) && (g.walls[i] ? volumes[i] == 0 : volumes[i] > 0),
             "Invalid MAC material source volume");
@@ -110,8 +111,16 @@ std::vector<double> masses(const SpeciesRegistry& registry, const MacTransportSt
                     std::abs(liquid - g.volume_m3()) <= 1e-12 * g.volume_m3()), "MAC closed fluid needs gas headspace or filled liquid");
             }
         }
-        result.push_back(mass);
-    }
+        result[i] = mass;
+    };
+    constexpr std::size_t block_size = 1024;
+    const auto blocks = (state.cells.size() + block_size - 1) / block_size;
+    const auto options = mac_kernel_default_options();
+    const auto threads = static_cast<unsigned>(std::min<std::size_t>(options.threads,
+        std::max<std::size_t>(1, blocks / options.minimum_blocks_per_thread)));
+    mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+        for (std::size_t i = block * block_size; i < std::min(state.cells.size(), (block + 1) * block_size); ++i) validate_cell(i);
+    });
     return result;
 }
 std::vector<double> inertias(const std::vector<Neighbors>& faces, const std::vector<double>& m) {

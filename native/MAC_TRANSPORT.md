@@ -10,6 +10,15 @@ beyond donor-cell transport are described in [momentum reconstruction](MAC_MOMEN
 
 Code: `mac_transport.hpp`/`.cpp`, `mac_parcel.cpp`, `mac_reconstruction.hpp`/`.cpp`.
 
+Input validation and mass extraction use the shared deterministic execution
+pool in fixed blocks of 1,024 cells. Checks keep their order within each cell;
+block-ordered exception propagation keeps the first failing cell independent
+of scheduling. Each worker owns its mass and optional thermal-reading entries.
+The focused multi-block control compares EOS/legacy inertias, source checkpoint
+bytes and invalid-input errors between one and many workers. The pool and its
+unchanged execution options live in `ma_mac_execution`, below transport and the
+production solver; transport does not depend on the solver.
+
 ## Primal and dual transport
 
 For each velocity component, an interior face has inertia `(m_left + m_right)/2`; a

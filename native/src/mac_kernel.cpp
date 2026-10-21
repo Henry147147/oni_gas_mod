@@ -625,18 +625,11 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     rt.transport_ms += tm.transport_ms; rt.reconstruction_ms += tm.reconstruction_ms; rt.momentum_ms += tm.momentum_ms;
     return report;
 }
-std::mutex& defaults_mutex() { static std::mutex m; return m; }
-MacKernelOptions& defaults() { static MacKernelOptions o; return o; }
 MacKernelReport& last_report() { static thread_local MacKernelReport r; return r; }
 }
 }
 
 namespace ma::experimental {
-void MacKernelOptions::validate() const {
-    mac_kernel::require(threads >= 1 && threads <= 256, "Production kernel thread count must be 1..256");
-    mac_kernel::require(minimum_blocks_per_thread >= 1 && minimum_blocks_per_thread <= 65536,
-        "Production kernel minimum blocks per thread must be 1..65536");
-}
 bool mac_kernel_supports(const MacClosedSettings& s) {
     return (s.preconditioner != PressurePreconditioner::incomplete_cholesky ||
         s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint) &&
@@ -661,10 +654,6 @@ bool mac_kernel_normal_range(const MacTransportState& state) {
     for (const double j : state.momentum_x) if (!normal(j)) return false;
     for (const double j : state.momentum_y) if (!normal(j)) return false;
     return true;
-}
-MacKernelOptions mac_kernel_default_options() { std::lock_guard lock(mac_kernel::defaults_mutex()); return mac_kernel::defaults(); }
-void set_mac_kernel_default_options(const MacKernelOptions& options) {
-    options.validate(); std::lock_guard lock(mac_kernel::defaults_mutex()); mac_kernel::defaults() = options;
 }
 MacKernelAdvance advance_mac_kernel(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state,
     const MacClosedSettings& settings, double start_time, double seconds, std::size_t budget, const MacKernelOptions& options) {

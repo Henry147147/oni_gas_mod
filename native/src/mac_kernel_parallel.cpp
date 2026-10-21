@@ -14,6 +14,8 @@
 #endif
 
 namespace ma::experimental::mac_kernel {
+std::mutex& defaults_mutex() { static std::mutex m; return m; }
+MacKernelOptions& defaults() { static MacKernelOptions o; return o; }
 Grid::Grid(const MacGrid& mg)
     : W(mg.width), H(mg.height), N(mg.width * mg.height), XW(mg.x_width()), YH(mg.y_height()),
       NX(mg.x_width() * mg.height), NY(mg.width * mg.y_height()), px(mg.periodic_x), py(mg.periodic_y),
@@ -146,5 +148,17 @@ Pool& pool_for(unsigned threads) {
     auto& entry = pools[std::max(1U, threads)];
     if (!entry) entry = std::make_unique<Pool>(std::max(1U, threads));
     return *entry;
+}
+}
+
+namespace ma::experimental {
+void MacKernelOptions::validate() const {
+    mac_kernel::require(threads >= 1 && threads <= 256, "Production kernel thread count must be 1..256");
+    mac_kernel::require(minimum_blocks_per_thread >= 1 && minimum_blocks_per_thread <= 65536,
+        "Production kernel minimum blocks per thread must be 1..65536");
+}
+MacKernelOptions mac_kernel_default_options() { std::lock_guard lock(mac_kernel::defaults_mutex()); return mac_kernel::defaults(); }
+void set_mac_kernel_default_options(const MacKernelOptions& options) {
+    options.validate(); std::lock_guard lock(mac_kernel::defaults_mutex()); mac_kernel::defaults() = options;
 }
 }

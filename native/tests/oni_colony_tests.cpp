@@ -1,6 +1,7 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include "mixed_atmospheres/mac_kernel.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -21,10 +22,47 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+void projection_control() {
+    using namespace ma::experimental;
+    constexpr std::uint32_t width = 64, height = 35;
+    const auto saved = mac_kernel_default_options();
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .016, 1000),
+        material("CarbonDioxide", 12, carbon, true, .044, 850), material("Water", 13, water, false, .018, 4000, 1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index = vacuum; cfg.grid_width = cfg.width = width; cfg.grid_height = cfg.height = height;
+    cfg.maximum_timestep_s = .01;
+    std::vector<MAOniColonyCell> cells(width * height);
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        if (i % 13 == 0) cells[i] = {0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0};
+        else if (i % 7 == 0) cells[i] = {vacuum, MA_ONI_COLONY_FLUID, 0, 0, 0, 0};
+        else cells[i] = {i / width >= height - 3 ? water : i % 2 ? oxygen : carbon, MA_ONI_COLONY_FLUID,
+            i / width >= height - 3 ? 1000.f : 1.2f, 300, 3, 100};
+    }
+    ma::oni::colony::start(cfg, mats, cells, 1);
+    const auto source = ma::oni::colony::checkpoint();
+    std::vector<MAOniColonyCellView> expected(cells.size()), views(cells.size());
+    std::vector<std::uint8_t> endpoint;
+    for (const auto threads : {1u, 12u}) {
+        ma::oni::colony::stop(); ma::oni::colony::restore(cfg, mats, source, 1);
+        auto options = saved; options.threads = threads; options.minimum_blocks_per_thread = 1; set_mac_kernel_default_options(options);
+        ma::oni::colony::advance(1, .01, 2); ma::oni::colony::wait();
+        MAOniColonyStatus st{}; ma::oni::colony::copy(st, views.data(), static_cast<std::uint32_t>(views.size()));
+        require(st.state == 1 && st.completed_frames == 1 && st.maximum_relative_mass_error < 1e-12 &&
+            st.maximum_relative_energy_error < 1e-9, "projection control fault or open ledger");
+        if (threads == 1) { expected = views; endpoint = ma::oni::colony::checkpoint(); }
+        else require(std::memcmp(expected.data(), views.data(), views.size() * sizeof(MAOniColonyCellView)) == 0 &&
+            ma::oni::colony::checkpoint() == endpoint, "projected views or continuation depend on workers");
+    }
+    ma::oni::colony::stop(); set_mac_kernel_default_options(saved);
+    std::cout << "PASS multi-block colony projection: view bytes, cold continuation, germs and ledgers\n";
+}
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
+        require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only]");
+        projection_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};
