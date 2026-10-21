@@ -21,6 +21,9 @@ namespace MixedAtmospheres.Oni
         {
             public string Kind = "actual-game-colony-boundary-validation";
             public string ColonySavePath = "";
+            // Owner frames at the colony saves (an overwrite saves twice to one
+            // path) and at the restore of a loaded save.
+            public ulong FirstColonySaveFrame, ColonySaveFrame, RestoredFrame;
             public string OniBuild = "744825";
             public bool AuthoritativeColonySimulationReady = false;
             public string PhysicsOwner = "native ONI";
@@ -425,26 +428,34 @@ namespace MixedAtmospheres.Oni
             }
             else if (status.CompletedFrames < colonyOwnerBaseline + (ulong)configuration.CompletedFrames)
             {
-                if (colonyOwnerBaseline == 0 && loading) colonyOwnerBaseline = status.CompletedFrames;
+                if (colonyOwnerBaseline == 0 && loading) { colonyOwnerBaseline = status.CompletedFrames; Report.RestoredFrame = status.CompletedFrames; }
+                // Overwriting a save: the first save at half the frames, the
+                // second to the same path at the end.
+                if (configuration.OverwriteSave && Report.FirstColonySaveFrame == 0 &&
+                    status.CompletedFrames >= colonyOwnerBaseline + (ulong)configuration.CompletedFrames / 2)
+                {
+                    SaveColony(); Report.FirstColonySaveFrame = status.CompletedFrames; Report.ColonySavePath = "";
+                }
                 if (Time.frameCount % 60 == 0) WriteReport();
                 return;
             }
-            if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0)
-            {
-                // An ordinary manual save, through the game's own save path
-                // (the new colony's first autosave already counted one).
-                SpeedControlScreen.Instance.Pause(false);
-                var path = Path.Combine(OutputDirectory, "colony-owner.sav");
-                var before = ColonyOwnerPersistence.Saves;
-                SaveLoader.Instance.Save(path, false, false);
-                if (ColonyOwnerPersistence.Saves != before + 1 || !File.Exists(path)) throw new InvalidOperationException("The colony owner did not write its save.");
-                Report.ColonySavePath = path;
-            }
+            if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = status.CompletedFrames; }
             Report.Status = "passed"; Report.Stage = "completed";
             Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             done = true; WriteReport();
             CaptureScreenshot("colony.png");
+        }
+        // An ordinary manual save, through the game's own save path (the new
+        // colony's first autosave already counted one).
+        private static void SaveColony()
+        {
+            SpeedControlScreen.Instance.Pause(false);
+            var path = Path.Combine(OutputDirectory, "colony-owner.sav");
+            var before = ColonyOwnerPersistence.Saves;
+            SaveLoader.Instance.Save(path, false, false);
+            if (ColonyOwnerPersistence.Saves != before + 1 || !File.Exists(path)) throw new InvalidOperationException("The colony owner did not write its save.");
+            Report.ColonySavePath = path;
         }
         internal static void SetStage(string stage) { Report.Stage = stage; WriteReport(); }
         internal static void RecordNativeDomainPublication(Sim.GameDataUpdate* source, OwnedGameDataSnapshot copy)
@@ -640,6 +651,8 @@ namespace MixedAtmospheres.Oni
                 var destination = UnityEngine.Object.FindFirstObjectByType<ColonyDestinationSelectScreen>();
                 if (destination != null && destination.IsActive() && visited.Add(destination.GetInstanceID()))
                 {
+                    if (!string.IsNullOrEmpty(config.Cluster))
+                        CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.ClusterLayout, config.Cluster);
                     CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.WorldgenSeed, config.Seed);
                     CustomGameSettings.Instance.SetQualitySetting(Klei.CustomSettings.CustomGameSettingConfigs.SaveToCloud, "Disabled");
                     Invoke(destination, "LaunchClicked"); return;

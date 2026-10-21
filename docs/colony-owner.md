@@ -105,6 +105,19 @@ consumer (pumps) the whole mixture of that phase (`MA_ONI_COLONY_EXTRACT_GAS`,
 the consumer flag and return as ONI's consumed-mass events for the handle, one
 per constituent, so a pump's storage holds the mixture it drew.
 
+## Germs
+
+ONI's germs are passive quantities of the owner's cells (identity: ONI's
+disease index + 1): the solver carries them with the mass through flow,
+settling and every transfer. A cell's germs come from the game at import; an
+injection brings the germs of its message (emitters, exhaled gas, dumped
+pipe contents); an extraction takes the cell's germs in proportion to the mass
+it removes and its receipt returns the most numerous one, so a breath or a
+pump gets the germs of what it took. Each published frame shows a cell's most
+numerous germ to the game. Growth and death by medium, disease emitters and
+consumers and cell edits stay ONI's: they act on the native shadow, and the
+change is booked to the owner at the next step.
+
 ## Machines
 
 A converter's output into the world (`ElementConverter`, not stored) is a
@@ -298,8 +311,8 @@ setting their powered flag (harness only).
 | Scenario | Checks |
 | --- | --- |
 | `terrain` | Digging a granite column lets gas reach the vacuum beyond it; a built tile closes its cell; both conserve the gas. |
-| `heat` | A 450 K granite floor warms the air above it; the heat is booked from native. |
-| `phase` | Water over a 900 K floor evaporates into the air. |
+| `heat` | A 450 K granite floor warms the air above it through ONI's own conduction, with the owner's energy ledger closed. |
+| `phase` | 360 K water evaporates into 300 K air above it. |
 | `freeze-melt` | Ice in warm air melts into an owned cell; water on a 40 K block freezes. |
 | `pump` | A gas pump draws the arena's air into its storage; storage equals what the owner lost. |
 | `deoxidizer` | An oxygen diffuser's oxygen from stored algae reaches the owner. |
@@ -309,6 +322,18 @@ setting their powered flag (harness only).
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
 | `breathing` | The colony's duplicants keep full breath; oxygen is taken from the owner and carbon dioxide exhaled into it. |
 | `airflow` | A column of airflow tiles between water under air and thinner air passes the air but no water. |
+| `electrolysis` | An electrolyzer splits stored water into oxygen and hydrogen that reach the owner. |
+| `vent-overpressure` | A pump feeds a vent into air above the vent's limit: the vent stays shut and the pipe holds the gas. |
+| `space-heater` | A powered space heater warms the arena's air. |
+| `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner. |
+| `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide exhaust reaches the owner. |
+| `germs` | Slimelung released with polluted oxygen spreads with the gas. |
+| `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
+| `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere. |
+| `geyser` | A steam geyser shifted to its active period erupts into the owner. |
+| `rocket-exhaust` | A steam rocket engine put into its burning state (as at launch) exhausts hot steam into the owner. |
+| `meteor` | A rock meteor falls through the arena's air and strikes its floor with the owner's ledgers closed. |
+| `sensor` | A gas element sensor set to carbon dioxide switches on in a cell where carbon dioxide is a minority (the cell shows oxygen). |
 
 ## Verification
 

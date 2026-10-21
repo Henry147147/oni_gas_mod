@@ -30,7 +30,8 @@ namespace MixedAtmospheres.Oni
             public double GravityMetresPerSecondSquared, MaximumTimestepSeconds;
         }
         [StructLayout(LayoutKind.Sequential)]
-        internal struct Cell { public uint NativeIndex, Kind; public float MassKg, TemperatureK; }
+        // Germs: Disease is ONI's disease index + 1, 0 for none (docs/colony-owner.md#germs).
+        internal struct Cell { public uint NativeIndex, Kind; public float MassKg, TemperatureK; public uint Disease; public int DiseaseCount; }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Status
         {
@@ -52,11 +53,11 @@ namespace MixedAtmospheres.Oni
             internal static Status Empty => new Status { Size = 584, Version = AbiVersion, ErrorBytes = new byte[256], StageMilliseconds = new double[6] };
         }
         [StructLayout(LayoutKind.Sequential)]
-        internal struct CellView { public uint ElementIndex, Flags; public float MassKg, TemperatureK, PressurePa, LiquidFraction; }
+        internal struct CellView { public uint ElementIndex, Flags; public float MassKg, TemperatureK, PressurePa, LiquidFraction; public uint Disease; public int DiseaseCount; }
         [StructLayout(LayoutKind.Sequential)]
-        internal struct Transfer { public uint PublicCell, NativeIndex, Kind, Radius; public int Callback; public uint Reserved; public double MassKg, TemperatureK; }
+        internal struct Transfer { public uint PublicCell, NativeIndex, Kind, Radius; public int Callback; public uint Disease; public double MassKg, TemperatureK, DiseaseCount; }
         [StructLayout(LayoutKind.Sequential)]
-        internal struct Receipt { public ulong Sequence, CompletedFrame; public int Callback; public uint Kind, NativeIndex, PublicCell; public float MassKg, TemperatureK; }
+        internal struct Receipt { public ulong Sequence, CompletedFrame; public int Callback; public uint Kind, NativeIndex, PublicCell; public float MassKg, TemperatureK; public uint Disease; public int DiseaseCount; }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Heat { public uint PublicCell, Reserved; public double Joules, MaximumTemperatureK; }
         internal const uint Open = 1, Close = 2, BlockLiquid = 3, PassLiquid = 4;
@@ -74,10 +75,13 @@ namespace MixedAtmospheres.Oni
         [StructLayout(LayoutKind.Sequential)]
         internal struct Constituent { public uint Species, Reserved; public double MassKg, PartialVolumeCubicMetres; }
 
+        // ONI's disease byte (255: none) and the owner's germ identity.
+        internal static uint Germ(byte diseaseIdx) => diseaseIdx == byte.MaxValue ? 0u : diseaseIdx + 1u;
+        internal static byte DiseaseIdx(uint germ) => germ == 0 || germ > 255 ? byte.MaxValue : (byte)(germ - 1);
         internal static void CheckLayouts()
         {
-            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 16 || Marshal.SizeOf<Status>() != 584 ||
-                Marshal.SizeOf<CellView>() != 24 || Marshal.SizeOf<Transfer>() != 40 || Marshal.SizeOf<Receipt>() != 40 || Marshal.SizeOf<Heat>() != 24 ||
+            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 584 ||
+                Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");
             if (Version() != AbiVersion) throw new InvalidOperationException("Colony owner ABI version differs from the native library.");

@@ -81,7 +81,7 @@ namespace MixedAtmospheres.Oni
         {
             ++Delivered;
             return new Sim.ConsumedMassInfo { simHandle = receipt.Callback, removedElemIdx = (ushort)receipt.NativeIndex, mass = receipt.MassKg,
-                temperature = receipt.MassKg > 0 ? receipt.TemperatureK : 0, diseaseIdx = byte.MaxValue, diseaseCount = 0 };
+                temperature = receipt.MassKg > 0 ? receipt.TemperatureK : 0, diseaseIdx = OniNativeColony.DiseaseIdx(receipt.Disease), diseaseCount = receipt.DiseaseCount };
         }
     }
 }

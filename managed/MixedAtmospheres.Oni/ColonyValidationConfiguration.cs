@@ -19,6 +19,8 @@ namespace MixedAtmospheres.Oni
         public bool PrivateOwnedLoadRejection = false;
         public bool QuitWhenComplete = false;
         public bool SaveOnComplete = false;
+        // colony-owner with SaveOnComplete: save halfway and again at the end to the same file.
+        public bool OverwriteSave = false;
         public bool SaveBeforeResume = false;
         public bool VerifySaveIoRecovery = false;
         public bool VerifyNaturalAutosave = false;
@@ -30,6 +32,8 @@ namespace MixedAtmospheres.Oni
         public int CompletedFrames = 30;
         public int TimeoutSeconds = 600;
         public string Seed = "147147";
+        // A starting cluster layout ("clusters/<name>"); empty keeps the game's default (Terra).
+        public string Cluster = "";
         public string ColonyName = "MA Visual Test";
         // colony-owner only: one in-game system check (ColonyScenarios).
         public string Scenario = "";
@@ -47,7 +51,8 @@ namespace MixedAtmospheres.Oni
         internal const int MinimumTimeoutSeconds = 30, MaximumTimeoutSeconds = 7200, MaximumLongRunTimeoutSeconds = 48 * 3600;
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
         internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes",
-            "door", "sublimation", "falling", "breathing", "airflow" };
+            "door", "sublimation", "falling", "breathing", "airflow", "electrolysis", "vent-overpressure", "space-heater",
+            "bottle-emptier", "gas-generator", "germs", "puft", "plant", "geyser", "rocket-exhaust", "meteor", "sensor" };
         internal static readonly string[] Modes =
         {
             "snapshot-copy", "native-observer", "native-import-domain", "native-liquid-import-domain", "native-domain",
@@ -88,6 +93,8 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" || !configuration.SaveOnComplete))
+                throw new InvalidDataException("OverwriteSave needs the colony-owner mode and SaveOnComplete.");
             if (!string.IsNullOrEmpty(configuration.Scenario) &&
                 (configuration.Mode != "colony-owner" || configuration.Scenario.Split(',').Any(name => !Scenarios.Contains(name, StringComparer.Ordinal))))
                 throw new InvalidDataException("A colony scenario needs the colony-owner mode and one of: " + string.Join(", ", Scenarios) + ".");

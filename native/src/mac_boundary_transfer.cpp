@@ -101,7 +101,8 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             (!edit.inject || edit.temperature_k > 0),"Invalid MAC fluid transfer request");
         auto& cell=next.cells[edit.cell_index];
         const bool liquid=registry_[edit.species_index].phase == Phase::liquid;
-        require(cell.passive_quantities.empty(),"Fluid point transfers require an explicit passive-metadata adapter");
+        validate_passive_quantities(edit.passives);
+        require(edit.inject || edit.passives.empty(),"An extraction cannot bring passives");
         if (topology==MacFluidTransferTopology::single_phase)
             for (std::size_t k=0;k<registry_.size();++k)
                 require(cell.mixture.masses[k] == 0 || (liquid ? k == edit.species_index : registry_[k].phase == Phase::gas),
@@ -130,6 +131,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
         const auto old_mass=cell.mixture.masses[edit.species_index];
         const auto signed_mass=edit.inject ? mass : -mass;
+        const double cell_mass=cell.mixture.mass();
         cell.mixture.masses[edit.species_index]=old_mass+signed_mass;
         if (cell.mixture.masses[edit.species_index] == old_mass)
             throw FluidFatalError(FluidFatalCode::numerical_precision,"Fluid transfer cannot represent its constituent mass change");
@@ -158,6 +160,16 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         const auto material_energy=edit.inject ? packet.internal_energy_j : -packet.internal_energy_j;
         if (emptied) { cell.mixture.energy=0; cell.energy_remainder_j={}; }
         else (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(material_energy),&rounding);
+        if (edit.inject) add_passive_quantities(cell.passive_quantities,edit.passives,1);
+        else if (!cell.passive_quantities.empty()) {
+            if (cell.mixture.mass() == 0) { packet.passives=std::move(cell.passive_quantities); cell.passive_quantities.clear(); }
+            else {
+                for (auto& q : cell.passive_quantities) {
+                    const double taken=q.quantity*(mass/cell_mass); if (!(taken > 0) || !(taken < q.quantity)) continue;
+                    packet.passives.push_back({q.identity,taken}); q.quantity-=taken;
+                }
+            }
+        }
         std::vector<std::pair<std::size_t,MacEnergySum>> heat; MacEnergySum carried_kinetic; MacScaledSum carried_px,carried_py;
         const auto x=edit.cell_index%next.grid.width,y=edit.cell_index/next.grid.width;
         const auto face_inertia=[&](std::size_t axis,std::size_t face) {
@@ -461,6 +473,29 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
     require(energy.within_bound(),"MAC face closure energy account failed");
     store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
     next.grid.closed_x=std::move(x); next.grid.closed_y=std::move(y);
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    return candidate;
+}
+
+MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const {
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto next=state_;
+    for (const auto& edit : edits) {
+        require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),
+            "Invalid MAC passive edit");
+        auto& cell=next.cells[edit.cell_index];
+        if (!(cell.mixture.mass() > 0) || edit.change == 0) continue;
+        auto& q=cell.passive_quantities;
+        auto it=std::find_if(q.begin(),q.end(),[&](const PassiveQuantity& p) { return p.identity == edit.identity; });
+        if (it == q.end()) {
+            if (!(edit.change > 0)) continue;
+            add_passive_quantities(q,std::array<PassiveQuantity,1>{PassiveQuantity{edit.identity,edit.change}},1);
+            continue;
+        }
+        it->quantity+=edit.change;
+        if (!(it->quantity > 0)) q.erase(it);
+    }
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return candidate;

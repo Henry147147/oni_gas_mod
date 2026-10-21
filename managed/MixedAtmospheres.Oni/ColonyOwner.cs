@@ -127,8 +127,10 @@ namespace MixedAtmospheres.Oni
                     uint kind = element.IsSolid ? OniNativeColony.Solid :
                         element.IsVacuum && zones != null && zones.GetSubWorldZoneType(global) == ProcGen.SubWorld.ZoneType.Space ? OniNativeColony.Space :
                         OniNativeColony.Fluid;
+                    var germ = kind == OniNativeColony.Fluid && source->diseaseCount[global] > 0 ? OniNativeColony.Germ(source->diseaseIdx[global]) : 0u;
                     cells[i] = new OniNativeColony.Cell { NativeIndex = element.idx, Kind = kind,
-                        MassKg = kind == OniNativeColony.Fluid ? source->mass[global] : 0, TemperatureK = kind == OniNativeColony.Fluid ? source->temperature[global] : 0 };
+                        MassKg = kind == OniNativeColony.Fluid ? source->mass[global] : 0, TemperatureK = kind == OniNativeColony.Fluid ? source->temperature[global] : 0,
+                        Disease = germ, DiseaseCount = germ != 0 ? source->diseaseCount[global] : 0 };
                     if (kind == OniNativeColony.Fluid && element.idx != vacuum && !catalogued[element.idx])
                         throw new NotSupportedException("Fluid element " + element.id + " has no catalogue entry.");
                 }
@@ -212,6 +214,8 @@ namespace MixedAtmospheres.Oni
                 var masses = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.mass));
                 var temperatures = copy.CellBuffer<float>(nameof(Sim.GameDataUpdate.temperature));
                 var elements = copy.CellBuffer<ushort>(nameof(Sim.GameDataUpdate.elementIdx));
+                var diseases = copy.CellBuffer<byte>(nameof(Sim.GameDataUpdate.diseaseIdx));
+                var germs = copy.CellBuffer<int>(nameof(Sim.GameDataUpdate.diseaseCount));
                 var changes = new List<Sim.SubstanceChangeInfo>();
                 for (var i = 0; i < views.Length; ++i)
                 {
@@ -219,6 +223,7 @@ namespace MixedAtmospheres.Oni
                     var global = (x0 + i % width) + (y0 + i / width) * Grid.WidthInCells;
                     var element = (ushort)view.ElementIndex;
                     masses[global] = view.MassKg; temperatures[global] = view.MassKg > 0 ? view.TemperatureK : 0;
+                    diseases[global] = OniNativeColony.DiseaseIdx(view.Disease); germs[global] = view.Disease != 0 ? view.DiseaseCount : 0;
                     if (elements[global] != element || Grid.Element[global].idx != element)
                         changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = element });
                     elements[global] = element;
@@ -254,10 +259,10 @@ namespace MixedAtmospheres.Oni
                 else if (r.Kind == OniNativeColony.Byproduct) SpawnByproduct(r);
                 else if (r.Kind == OniNativeColony.Extract)
                     consumed.Add(new Sim.MassConsumedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, mass = r.MassKg,
-                        temperature = r.MassKg > 0 ? r.TemperatureK : 0, diseaseIdx = 255, diseaseCount = 0 });
+                        temperature = r.MassKg > 0 ? r.TemperatureK : 0, diseaseIdx = OniNativeColony.DiseaseIdx(r.Disease), diseaseCount = r.DiseaseCount });
                 else
                     emitted.Add(new Sim.MassEmittedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, suceeded = (byte)(r.MassKg > 0 ? 1 : 0),
-                        mass = r.MassKg, temperature = r.TemperatureK, diseaseIdx = 255, diseaseCount = 0 });
+                        mass = r.MassKg, temperature = r.TemperatureK, diseaseIdx = OniNativeColony.DiseaseIdx(r.Disease), diseaseCount = r.DiseaseCount });
             }
             copy.AppendEvents<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, consumed.ToArray());
             copy.AppendEvents<Sim.MassEmittedCallback>(SnapshotEventChannel.MassEmittedCallbacks, emitted.ToArray());
@@ -277,10 +282,13 @@ namespace MixedAtmospheres.Oni
                 case MassEmission: return Claim(length, 24, count, payload, (data, list) =>
                 {
                     var cell = BinaryPrimitives.ReadInt32LittleEndian(data);
+                    // cell, callback, mass, temperature, germs, element, disease
+                    var germs = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(16)); var germ = germs > 0 ? OniNativeColony.Germ(data[22]) : 0u;
                     list.Add(new OniNativeColony.Transfer { PublicCell = (uint)cell, NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(20)),
                         Kind = OniNativeColony.Inject, Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
                         MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))),
-                        TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))) });
+                        TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))),
+                        Disease = germ, DiseaseCount = germ != 0 ? germs : 0 });
                 }, rectAnywhere: true);
                 case MassConsumption: return Claim(length, 16, count, payload, (data, list) =>
                 {
@@ -325,15 +333,15 @@ namespace MixedAtmospheres.Oni
                         if (element.IsSolid) { if (OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Close); continue; }
                         if (!OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Open);
                         if ((element.IsGas || element.IsLiquid) && mass > 0)
-                            OniNativeColony.Check(OniNativeColony.QueueTransfers(new[] { new OniNativeColony.Transfer { PublicCell = (uint)cell,
+                            OniNativeColony.Check(OniNativeColony.QueueTransfers(new[] { WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)cell,
                                 NativeIndex = element.idx, Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
-                                TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) } }, 1));
+                                TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d) }, 1));
                     }
                     return false;
                 }
                 case ModifyCell:
                 {
-                    // Additive mass edits (no callback, replacement or disease).
+                    // Additive mass edits (no callback or replacement), with their germs.
                     if (length != 28) return false;
                     var cell = *(int*)payload;
                     if (!OwnsFluid(cell)) return false;
@@ -345,9 +353,9 @@ namespace MixedAtmospheres.Oni
                         if (!OwnsFluid(BinaryPrimitives.ReadInt32LittleEndian(d)) || d[22] != 0 || d[24] != 1) return false;
                         var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(12)));
                         if (!(mass > 0)) continue;
-                        list.Add(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d),
+                        list.Add(WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d),
                             NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20)), Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,
-                            TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) });
+                            TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(8))) }, d));
                     }
                     if (list.Count > 0) OniNativeColony.Check(OniNativeColony.QueueTransfers(list.ToArray(), (uint)list.Count));
                     return true;
@@ -370,6 +378,13 @@ namespace MixedAtmospheres.Oni
                 }
             }
             return false;
+        }
+        // A ModifyCell message's germs: count at 16, disease at 23.
+        private static OniNativeColony.Transfer WithGerms(OniNativeColony.Transfer t, ReadOnlySpan<byte> d)
+        {
+            var germs = BinaryPrimitives.ReadInt32LittleEndian(d.Slice(16));
+            if (germs > 0 && d[23] != byte.MaxValue) { t.Disease = OniNativeColony.Germ(d[23]); t.DiseaseCount = germs; }
+            return t;
         }
         private static void QueueTerrain(int cell, uint kind) =>
             OniNativeColony.Check(OniNativeColony.QueueTerrain(new[] { new OniNativeColony.Terrain { PublicCell = (uint)cell, Kind = kind } }, 1));

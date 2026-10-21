@@ -27,6 +27,8 @@ std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColony
 // Native cell arrays of one SimData: [0] the frame's old cells, [1] updated.
 struct NativeCells {
     std::uint16_t* element[2]{}; float* mass[2]{}; float* temperature[2]{};
+    // Germs (docs/colony-owner.md#germs); null when the layout is unknown.
+    std::uint8_t* disease[2]{}; std::int32_t* disease_count[2]{};
     std::uint32_t pitch = 0, rows = 0;
 };
 // Native shadow (docs/colony-owner.md#native-bodies). Before a positive

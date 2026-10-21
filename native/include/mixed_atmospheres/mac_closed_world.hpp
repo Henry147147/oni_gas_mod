@@ -211,10 +211,14 @@ struct MacFluidTransferResult;
 struct MacPhaseRelaxation;
 struct MacLiquidSettling;
 struct MacLiquidSettlingReport { std::size_t faces = 0; double moved_kg = 0, released_j = 0; };
+// Passives (germs) move with mass: an injection adds its own, an extraction
+// takes the cell's passives in proportion to the mass it removes (all of them
+// when it empties the cell) and returns them on its parcel.
 struct MacFluidTransfer {
     std::size_t cell_index, species_index;
     bool inject;
     double mass_kg, temperature_k;
+    PassiveQuantities passives{};
 };
 struct MacFluidParcel {
     std::size_t cell_index, species_index;
@@ -222,6 +226,7 @@ struct MacFluidParcel {
     double mass_kg, temperature_k, internal_energy_j;
     MacEnergy resolved_kinetic_energy, potential_energy;
     MacScaled momentum_x, momentum_y;
+    PassiveQuantities passives{};
 };
 using MacGasTransfer = MacFluidTransfer;
 using MacGasParcel = MacFluidParcel;
@@ -230,6 +235,12 @@ enum class MacFluidTransferTopology { single_phase, occupied_mixture };
 struct MacCellHeat {
     std::size_t cell_index;
     double joules, maximum_temperature_k;
+};
+// A change to one passive quantity of a cell (germs growing or dying).
+struct MacPassiveEdit {
+    std::size_t cell_index;
+    std::uint64_t identity;
+    double change;
 };
 // Owns its registry, immutable EOS identity, canonical state and clock. Advance
 // creates a new owner; failed later attempts publish neither time nor state.
@@ -290,6 +301,10 @@ public:
     // loses it, and its kinetic energy becomes internal energy of its two
     // cells by mass share, so U+K is unchanged and mass is untouched.
     [[nodiscard]] MacClosedWorld with_closed_faces(std::vector<std::uint8_t> x, std::vector<std::uint8_t> y) const;
+    // Adds each change to its cell's passive (a cell holding material only);
+    // a quantity that reaches zero or below is removed. Mass, U and momentum
+    // are unchanged.
+    [[nodiscard]] MacClosedWorld with_passive_edits(std::span<const MacPassiveEdit>) const;
     [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
     [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring

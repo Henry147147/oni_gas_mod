@@ -64,7 +64,13 @@ MANIFEST_REVISION = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 FRAME_LIMIT, LONG_RUN_FRAME_LIMIT, LONG_RUN_DEFAULT_FRAMES = 10000, 100000, 30000
 TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
-SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow")
+SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
+             "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
+             "plant", "geyser", "rocket-exhaust", "meteor", "sensor")
+
+
+# Base-game starting cluster layouts (worldgen/clusters names; identities only).
+BASE_CLUSTERS = ("SandstoneDefault", "Oceania", "SandstoneFrozen", "ForestDefault", "ForestLush", "ForestHot", "Volcanic", "Badlands", "Oasis")
 
 
 def scenario_list(value: str) -> str:
@@ -643,6 +649,8 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"VerifySaveIoRecovery": True} if getattr(args, "verify_save_io_recovery", False) else {}),
         **({"ReloadInProcess": True} if getattr(args, "reload_in_process", False) else {}),
         **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
+        **({"Cluster": "clusters/" + args.cluster} if isinstance(getattr(args, "cluster", None), str) else {}),
+        **({"OverwriteSave": True} if getattr(args, "overwrite_save", False) is True else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -1050,6 +1058,9 @@ def main() -> int:
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
+    play.add_argument("--overwrite-save", action="store_true", help="colony-owner --save-colony: save halfway and again at the end to the same file")
+    play.add_argument("--cluster", choices=BASE_CLUSTERS,
+                      help="colony-owner only: the base-game starting asteroid's cluster layout (default Terra, SandstoneDefault)")
     play.add_argument("--scenario", type=scenario_list,
                       help="colony-owner only: in-game system scenarios, comma-separated (docs/colony-owner.md#scenarios)")
     args = parser.parse_args()
@@ -1086,6 +1097,8 @@ def main() -> int:
         parser.error("--verify-save-io-recovery requires native-save-domain and at least sixteen frames")
     if args.command == "run" and args.save_colony and (not (args.mode.startswith("native-") or args.mode == "colony-owner") or args.mode in ("native-observer", "native-load-domain")):
         parser.error("--save-colony requires an initial native domain scene")
+    if args.command == "run" and isinstance(getattr(args, "cluster", None), str) and args.mode != "colony-owner":
+        parser.error("--cluster needs --mode colony-owner")
     if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":
         parser.error("--scenario needs --mode colony-owner")
     if args.command == "run" and (bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")) or (args.load_save and not args.load_save.is_file())):

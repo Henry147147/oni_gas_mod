@@ -38,10 +38,10 @@ int main() {
         for (std::uint32_t y = 0; y < H; ++y) for (std::uint32_t x = 0; x < W; ++x) {
             auto& c = cells[x + y * W];
             const bool rock = x == 0 || x == W - 1 || y == 0 || y == 8 || (x == 11 && y == 5);
-            if (rock) c = {0, MA_ONI_COLONY_SOLID, 0, 0};
-            else if (y >= 9) c = {vacuum, MA_ONI_COLONY_SPACE, 0, 0};
-            else if (y <= 2 && x <= 7) c = {water, MA_ONI_COLONY_FLUID, 1000.f * (1.f + .01f * static_cast<float>(x % 3)), 290};
-            else c = {x % 2 ? oxygen : carbon, MA_ONI_COLONY_FLUID, 1.2f + .1f * static_cast<float>(y), 300};
+            if (rock) c = {0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0};
+            else if (y >= 9) c = {vacuum, MA_ONI_COLONY_SPACE, 0, 0, 0, 0};
+            else if (y <= 2 && x <= 7) c = {water, MA_ONI_COLONY_FLUID, 1000.f * (1.f + .01f * static_cast<float>(x % 3)), 290, 0, 0};
+            else c = {x % 2 ? oxygen : carbon, MA_ONI_COLONY_FLUID, 1.2f + .1f * static_cast<float>(y), 300, 0, 0};
         }
         ma::oni::colony::start(config, materials, cells, 1);
         require(ma::oni::colony::active(), "colony active");
@@ -54,9 +54,9 @@ int main() {
             !ma::oni::colony::allow_native_transition(native_cell(3, 1), water, 400) &&
             !ma::oni::colony::allow_native_transition(native_cell(4, 4), steam, 300), "only freezing runs natively on owned cells");
         // Transfers with receipts and a heat edit, committed at the next frame.
-        const std::vector<MAOniColonyTransfer> transfers{{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 7, 0, .5, 310},
-            {public_cell(9, 5), carbon, MA_ONI_COLONY_EXTRACT, 2, 8, 0, 3, 0}, {public_cell(9, 5), 77, MA_ONI_COLONY_EXTRACT, 1, 9, 0, 1, 0},
-            {public_cell(6, 10), oxygen, MA_ONI_COLONY_INJECT, 0, -1, 0, 1e-3, 300}};
+        const std::vector<MAOniColonyTransfer> transfers{{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 7, 0, .5, 310, 0},
+            {public_cell(9, 5), carbon, MA_ONI_COLONY_EXTRACT, 2, 8, 0, 3, 0, 0}, {public_cell(9, 5), 77, MA_ONI_COLONY_EXTRACT, 1, 9, 0, 1, 0, 0},
+            {public_cell(6, 10), oxygen, MA_ONI_COLONY_INJECT, 0, -1, 0, 1e-3, 300, 0}};
         ma::oni::colony::queue_transfers(transfers);
         const MAOniColonyHeat heat{public_cell(5, 1), 0, 2e5, 0};
         ma::oni::colony::queue_heat(std::span(&heat, 1));
@@ -164,8 +164,8 @@ int main() {
         // its callback; an extraction answering a callback is asked again.
         {
             ma::oni::colony::restore(config, materials, image, 1);
-            const MAOniColonyTransfer queued[] = {{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 42, 0, .5, 300},
-                                                  {public_cell(10, 5), oxygen, MA_ONI_COLONY_EXTRACT, 1, 43, 0, .3, 0}};
+            const MAOniColonyTransfer queued[] = {{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, 42, 0, .5, 300, 0},
+                                                  {public_cell(10, 5), oxygen, MA_ONI_COLONY_EXTRACT, 1, 43, 0, .3, 0, 0}};
             ma::oni::colony::queue_transfers(queued);
             const auto saved = ma::oni::colony::checkpoint();
             ma::oni::colony::stop(); ma::oni::colony::restore(config, materials, saved, 1);
@@ -180,7 +180,7 @@ int main() {
         // Hot salt water converts to steam over steps and its salt leaves as debris.
         {
             ma::oni::colony::restore(config, materials, image, 1);
-            const MAOniColonyTransfer hot{public_cell(6, 6), brine, MA_ONI_COLONY_INJECT, 0, -1, 0, 20, 420};
+            const MAOniColonyTransfer hot{public_cell(6, 6), brine, MA_ONI_COLONY_INJECT, 0, -1, 0, 20, 420, 0};
             ma::oni::colony::queue_transfers(std::span(&hot, 1));
             for (std::uint64_t frame = 5; frame <= 7; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
             const auto after = ma::oni::colony::status();
@@ -215,7 +215,7 @@ int main() {
         // A pump takes the gas mixture around it: one receipt per constituent.
         {
             ma::oni::colony::restore(config, materials, image, 1);
-            const MAOniColonyTransfer pump{public_cell(9, 5), 0, MA_ONI_COLONY_EXTRACT_GAS, 2, 11, 0, 2, 0};
+            const MAOniColonyTransfer pump{public_cell(9, 5), 0, MA_ONI_COLONY_EXTRACT_GAS, 2, 11, 0, 2, 0, 0};
             ma::oni::colony::queue_transfers(std::span(&pump, 1));
             ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
             std::vector<MAOniColonyReceipt> got(8); const auto n = ma::oni::colony::copy_receipts(got.data(), 8);
@@ -229,6 +229,25 @@ int main() {
             require(ma::oni::colony::status().maximum_relative_mass_error < 1e-12, "pump ledger closes");
             ma::oni::colony::stop();
         }
+        // Germs injected with gas travel with it and leave with extracted mass.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            MAOniColonyTransfer sneeze{public_cell(10, 5), oxygen, MA_ONI_COLONY_INJECT, 0, -1, 3, .5, 300, 1e6};
+            ma::oni::colony::queue_transfers(std::span(&sneeze, 1));
+            for (std::uint64_t frame = 5; frame <= 8; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            std::vector<MAOniColonyCellView> germ_views(W * H); MAOniColonyStatus gs{};
+            ma::oni::colony::copy(gs, germ_views.data(), static_cast<std::uint32_t>(germ_views.size()));
+            double total = 0; std::size_t holding = 0;
+            for (const auto& v : germ_views) if (v.disease == 3) { total += v.disease_count; ++holding; }
+            const MAOniColonyTransfer breath{public_cell(10, 5), oxygen, MA_ONI_COLONY_EXTRACT, 1, 77, 0, .05, 0, 0};
+            ma::oni::colony::queue_transfers(std::span(&breath, 1));
+            ma::oni::colony::advance(9, .2, 2); ma::oni::colony::wait();
+            std::vector<MAOniColonyReceipt> got(16); const auto n = ma::oni::colony::copy_receipts(got.data(), 16);
+            std::int32_t breathed = 0; for (std::uint32_t q = 0; q < n; ++q) if (got[q].callback == 77 && got[q].disease == 3) breathed += got[q].disease_count;
+            std::cout << "germs " << total << " in " << holding << " cells, breathed " << breathed << '\n';
+            require(gs.state == 1 && holding > 1 && std::abs(total - 1e6) <= 1e6 * 1e-3 && breathed > 0, "germs travel with gas and leave with it");
+            ma::oni::colony::stop();
+        }
         // An airflow tile column between a pool under air and thinner air
         // passes the gas but no liquid. The column is rock at import and
         // opens as tiles on the first frame.
@@ -237,9 +256,9 @@ int main() {
             std::vector<MAOniColonyCell> chamber(10 * 8);
             for (std::uint32_t y = 0; y < 8; ++y) for (std::uint32_t x = 0; x < 10; ++x) {
                 auto& c = chamber[x + y * 10];
-                if (x == 0 || x == 9 || y == 0 || y == 7 || x == 4) c = {0, MA_ONI_COLONY_SOLID, 0, 0};
-                else if (x < 4 && y <= 3) c = {water, MA_ONI_COLONY_FLUID, 1000, 290};
-                else c = {oxygen, MA_ONI_COLONY_FLUID, x < 4 ? 1.2f : .4f, 290};
+                if (x == 0 || x == 9 || y == 0 || y == 7 || x == 4) c = {0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0};
+                else if (x < 4 && y <= 3) c = {water, MA_ONI_COLONY_FLUID, 1000, 290, 0, 0};
+                else c = {oxygen, MA_ONI_COLONY_FLUID, x < 4 ? 1.2f : .4f, 290, 0, 0};
             }
             ma::oni::colony::start(small, materials, chamber, 1);
             const auto at = [&](std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; };

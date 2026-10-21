@@ -77,6 +77,18 @@ namespace MixedAtmospheres.Oni
                     case "falling": Falling(frame); break;
                     case "breathing": Breathing(frame, status); break;
                     case "airflow": Airflow(frame); break;
+                    case "electrolysis": Electrolysis(frame); break;
+                    case "vent-overpressure": VentOverpressure(frame); break;
+                    case "space-heater": SpaceHeater(frame); break;
+                    case "bottle-emptier": BottleEmptier(frame); break;
+                    case "gas-generator": GasGenerator(frame); break;
+                    case "germs": Germs(frame); break;
+                    case "puft": Puft(frame); break;
+                    case "plant": Plant(frame); break;
+                    case "geyser": Geyser(frame); break;
+                    case "rocket-exhaust": RocketExhaust(frame); break;
+                    case "meteor": Meteor(frame, status); break;
+                    case "sensor": Sensor(frame); break;
                     default: throw new InvalidOperationException("Unknown colony scenario " + name);
                 }
             }
@@ -93,7 +105,7 @@ namespace MixedAtmospheres.Oni
                 Arena((x, y) => x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : x == 4 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Vacuum, 0f, 0f));
             if (Once(6, "dig"))
             {
-                recorded["gas"] = ArenaMass(); recorded["opened"] = ColonyOwner.Status.OpenedCells;
+                recorded["gas"] = ArenaMass(); recorded["opened"] = ColonyOwner.Status.OpenedCells; recorded["outside"] = OutsideMass();
                 for (var y = 0; y < Height; ++y) SimMessages.Dig(Cell(4, y));
             }
             if (Once(14, "build"))
@@ -101,7 +113,9 @@ namespace MixedAtmospheres.Oni
                 var right = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))));
                 Record("dug column opened", ColonyOwner.Status.OpenedCells >= recorded["opened"] + Height, $"opened {ColonyOwner.Status.OpenedCells - recorded["opened"]}");
                 Record("gas reached the far chamber", right > .5, $"{right:G4} kg");
-                Record("dig conserved the gas", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"], $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg");
+                Record("dig conserved the gas", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"],
+                    $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg; columns {string.Join(" ", Enumerable.Range(0, Width).Select(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))).ToString("G4")))}; " +
+                    $"just outside {recorded["outside"]:G6} -> {OutsideMass():G6} kg");
                 recorded["gas"] = ArenaMass(); recorded["closed"] = ColonyOwner.Status.ClosedCells;
                 SimMessages.ReplaceElement(Cell(1, 2), SimHashes.Granite, CellEventLogger.Instance.SandBoxTool, 1000, 300);
             }
@@ -117,21 +131,23 @@ namespace MixedAtmospheres.Oni
         private static void Heat(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 2000f, 450f) : (SimHashes.Oxygen, 1.2f, 300f));
-            if (Once(6, "start")) { recorded["t"] = GasTemperature(1); recorded["heat"] = status.NativeHeatJoules; }
+            if (Once(6, "start")) recorded["t"] = GasTemperature(1);
             if (Once(27, "check"))
             {
+                // The colony-wide native heat counter also holds every other contact
+                // (Terra's magma cooling into its rock), so the ledger is the check.
                 var t = GasTemperature(1);
                 Record("air above the floor warmed", t > recorded["t"] + .2, $"{recorded["t"]:F3} -> {t:F3} K");
-                Record("native heat booked to the owner", status.NativeHeatJoules > recorded["heat"], $"{status.NativeHeatJoules - recorded["heat"]:G4} J");
+                Record("the owner's energy ledger stayed closed", status.MaximumRelativeEnergyError < 1e-9, $"{status.MaximumRelativeEnergyError:G3}");
                 Finish();
             }
         }
 
-        // Water over a very hot floor evaporates into the air above it.
+        // Hot water evaporates into the cooler air above it (no boiling).
         private static void Phase(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
-                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 900f) : y <= 2 ? (SimHashes.Water, 990f, 365f) : (SimHashes.Oxygen, 1.2f, 300f));
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 4000f, 360f) : y <= 2 ? (SimHashes.Water, 990f, 360f) : (SimHashes.Oxygen, 1.2f, 300f));
             if (Once(6, "start")) recorded["evaporated"] = status.EvaporatedKg;
             if (Once(32, "check"))
             {
@@ -356,6 +372,241 @@ namespace MixedAtmospheres.Oni
             return total;
         }
 
+        private static double ArenaSpecies(SimHashes element) =>
+            Enumerable.Range(0, Width).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), element)));
+
+        // An electrolyzer splits stored water into oxygen and hydrogen for the owner.
+        private static void Electrolysis(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .3f, 300f));
+            if (Once(6, "build"))
+            {
+                recorded["o2"] = ArenaSpecies(SimHashes.Oxygen); recorded["h2"] = ArenaSpecies(SimHashes.Hydrogen);
+                Build(ElectrolyzerConfig.ID, Cell(3, 0)).GetComponent<Storage>().AddLiquid(SimHashes.Water, 100, 300, byte.MaxValue, 0, false, true);
+            }
+            if (Once(32, "check"))
+            {
+                var o2 = ArenaSpecies(SimHashes.Oxygen) - recorded["o2"]; var h2 = ArenaSpecies(SimHashes.Hydrogen) - recorded["h2"];
+                Record("oxygen and hydrogen reached the owner", o2 > .05 && h2 > .005, $"oxygen +{o2:G4} kg, hydrogen +{h2:G4} kg");
+                Finish();
+            }
+        }
+
+        // A pump feeds a vent into air above the vent's overpressure limit: the vent stays shut.
+        private static void VentOverpressure(int frame)
+        {
+            if (Once(0, "arena"))
+                Arena((x, y) => x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.Oxygen, 3f, 300f));
+            if (Once(6, "build"))
+            {
+                var pump = Build(GasPumpConfig.ID, Cell(1, 0)); var vent = Build(GasVentConfig.ID, Cell(6, 0));
+                var from = Grid.OffsetCell(Cell(1, 0), pump.GetComponent<Building>().Def.UtilityOutputOffset);
+                var to = Grid.OffsetCell(Cell(6, 0), vent.GetComponent<Building>().Def.UtilityInputOffset);
+                Grid.CellToXY(from, out var fx, out var fy); Grid.CellToXY(to, out var tx, out var ty);
+                var path = new List<int>();
+                for (var x = fx; x != tx; x += Math.Sign(tx - fx)) path.Add(Grid.XYToCell(x, fy));
+                for (var y = fy; y != ty; y += Math.Sign(ty - fy)) path.Add(Grid.XYToCell(tx, y));
+                path.Add(to);
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, path); pipeCells.AddRange(path);
+                recorded["right"] = RightMass();
+            }
+            if (Once(32, "check"))
+            {
+                var inPipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
+                Record("the vent stayed shut above its overpressure", RightMass() - recorded["right"] < .05 && inPipe > .05,
+                    $"right chamber +{RightMass() - recorded["right"]:G4} kg, pipe holds {inPipe:G4} kg");
+                Finish();
+            }
+        }
+
+        // A powered space heater warms the arena's air.
+        private static void SpaceHeater(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, 1.2f, 290f));
+            if (Once(6, "build")) { recorded["t"] = GasTemperature(3); Build(SpaceHeaterConfig.ID, Cell(3, 0)); }
+            if (Once(36, "check"))
+            {
+                var t = GasTemperature(3);
+                Record("the heater warmed the air", t > recorded["t"] + .1, $"{recorded["t"]:F3} -> {t:F3} K");
+                Finish();
+            }
+        }
+
+        // A gas canister emptier releases its stored carbon dioxide into the owner.
+        private static void BottleEmptier(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .5f, 300f));
+            if (Once(6, "build"))
+            {
+                recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
+                Build(BottleEmptierGasConfig.ID, Cell(3, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.CarbonDioxide, 5, 300, byte.MaxValue, 0, false, true);
+            }
+            if (Once(32, "check"))
+            {
+                var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
+                Record("the emptier released its gas into the owner", added > .05, $"+{added:G4} kg carbon dioxide");
+                Finish();
+            }
+        }
+
+        // A natural gas generator burns stored methane and exhausts carbon dioxide.
+        private static void GasGenerator(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .5f, 300f));
+            if (Once(6, "build"))
+            {
+                recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
+                Build(MethaneGeneratorConfig.ID, Cell(3, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.Methane, 5, 300, byte.MaxValue, 0, false, true);
+            }
+            if (Once(32, "check"))
+            {
+                var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
+                Record("the generator's exhaust reached the owner", added > .005, $"+{added:G4} kg carbon dioxide");
+                Finish();
+            }
+        }
+
+        // Slimelung germs released with polluted oxygen spread with the gas.
+        private static void Germs(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.ContaminatedOxygen, 1f, 300f));
+            if (Once(6, "release"))
+            {
+                var slime = Db.Get().Diseases.GetIndex(Db.Get().Diseases.SlimeGerms.id);
+                SimMessages.AddRemoveSubstance(Cell(1, 1), SimHashes.ContaminatedOxygen, CellEventLogger.Instance.OxygenModifierSimUpdate, .5f, 300, slime, 1000000);
+                recorded["slime"] = slime;
+            }
+            if (Once(30, "check"))
+            {
+                var slime = (byte)recorded["slime"]; var cells = 0; double total = 0;
+                for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x)
+                    if (Grid.DiseaseIdx[Cell(x, y)] == slime && Grid.DiseaseCount[Cell(x, y)] > 0) { ++cells; total += Grid.DiseaseCount[Cell(x, y)]; }
+                Record("the germs travelled with the gas", cells > 1 && total > 1000, $"{total:G4} germs in {cells} cells");
+                Finish();
+            }
+        }
+
+        // A puft breathes the arena's polluted oxygen.
+        private static void Puft(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.ContaminatedOxygen, 1f, 300f));
+            if (Once(6, "spawn"))
+            {
+                recorded["po2"] = ArenaSpecies(SimHashes.ContaminatedOxygen);
+                var puft = Util.KInstantiate(Assets.GetPrefab(PuftConfig.ID), Grid.CellToPosCBC(Cell(3, 2), Grid.SceneLayer.Creatures));
+                puft.SetActive(true);
+            }
+            if (Once(36, "check"))
+            {
+                var taken = recorded["po2"] - ArenaSpecies(SimHashes.ContaminatedOxygen);
+                Record("the puft took polluted oxygen from the owner", taken > .001, $"{taken:G4} kg");
+                Finish();
+            }
+        }
+
+        // A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere.
+        private static GameObject? plant;
+        private static void Plant(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "plant"))
+            {
+                plant = GameUtil.KInstantiate(Assets.GetPrefab(BasicSingleHarvestPlantConfig.ID), Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingFront), Grid.SceneLayer.BuildingFront);
+                plant.SetActive(true);
+            }
+            if (Once(26, "check"))
+            {
+                var vulnerable = plant != null ? plant.GetComponent<PressureVulnerable>() : null;
+                Record("the plant reads the owner's air as safe", vulnerable != null && vulnerable.IsNormal && vulnerable.testAreaElementSafe,
+                    vulnerable == null ? "no plant" : $"pressure normal {vulnerable.IsNormal}, atmosphere safe {vulnerable.testAreaElementSafe}");
+                Finish();
+            }
+        }
+
+        // A steam geyser shifted to its active period erupts into the owner.
+        private static void Geyser(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .3f, 300f));
+            if (Once(6, "spawn"))
+            {
+                recorded["water"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water);
+                var geyser = GameUtil.KInstantiate(Assets.GetPrefab(GeyserGenericConfig.ID + "_" + GeyserGenericConfig.Steam),
+                    Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingBack), Grid.SceneLayer.BuildingBack);
+                geyser.SetActive(true);
+                geyser.GetComponent<global::Geyser>().ShiftTimeTo(global::Geyser.TimeShiftStep.ActiveState);
+            }
+            if (Once(40, "check"))
+            {
+                var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) - recorded["water"];
+                Record("the geyser's steam reached the owner", added > .01, $"+{added:G4} kg steam and water");
+                Finish();
+            }
+        }
+
+        // A steam rocket engine put into its burning state (as at launch)
+        // exhausts hot steam into the owner.
+        private static void RocketExhaust(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .3f, 300f));
+            if (Once(6, "burn"))
+            {
+                recorded["steam"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water);
+                var engine = Build(SteamEngineConfig.ID, Cell(3, 1)).GetComponent<RocketEngine>();
+                var smi = engine.GetSMI<RocketEngine.StatesInstance>(); smi.GoTo(smi.sm.burning);
+            }
+            if (Once(30, "check"))
+            {
+                var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) - recorded["steam"];
+                Record("the engine's exhaust reached the owner", added > .01, $"+{added:G4} kg steam and water");
+                Finish();
+            }
+        }
+
+        // A rock meteor falls into the arena's air and strikes its floor; the
+        // owner keeps its ledgers through the impact.
+        private static void Meteor(int frame, OniNativeColony.Status status)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "spawn"))
+            {
+                var comet = GameUtil.KInstantiate(Assets.GetPrefab(RockCometConfig.ID), Grid.CellToPosCCC(Cell(3, Height - 1), Grid.SceneLayer.FXFront),
+                    Grid.SceneLayer.FXFront);
+                comet.SetActive(true); recorded["spawned"] = 1;
+                meteor = comet;
+            }
+            if (Once(30, "check"))
+            {
+                Record("the meteor struck", meteor == null, meteor == null ? "impact" : "still falling");
+                Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
+                    $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
+                Finish();
+            }
+        }
+        private static GameObject? meteor;
+
+        // A gas element sensor set to carbon dioxide reads a cell where carbon
+        // dioxide is a minority of the mixture (ONI's own test sees only oxygen).
+        private static LogicElementSensor? sensor;
+        private static void Sensor(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(4, "mix"))
+                for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x)
+                    SimMessages.AddRemoveSubstance(Cell(x, y), SimHashes.CarbonDioxide, CellEventLogger.Instance.OxygenModifierSimUpdate, .05f, 300, byte.MaxValue, 0);
+            if (Once(8, "build"))
+            {
+                sensor = Build(LogicElementSensorGasConfig.ID, Cell(3, 2)).GetComponent<LogicElementSensor>();
+                AccessTools.Method(typeof(LogicElementSensor), "OnElementSelected").Invoke(sensor, new object[] { ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag });
+            }
+            if (Once(24, "check"))
+            {
+                var on = sensor != null && sensor.IsSwitchedOn;
+                Record("the sensor found the minority carbon dioxide", on && Grid.Element[Cell(3, 2)].id == SimHashes.Oxygen,
+                    $"switched on {on}, cell shows {Grid.Element[Cell(3, 2)].id}, CO2 {SpeciesMass(Cell(3, 2), SimHashes.CarbonDioxide):G3} kg");
+                Finish();
+            }
+        }
+
         private static double OwnedMass(SimHashes element)
         {
             double total = 0;
@@ -428,6 +679,14 @@ namespace MixedAtmospheres.Oni
             var count = ColonyOwner.Composition(cell, out var indices, out var masses);
             for (var k = 0; k < count; ++k) if (ElementLoader.elements[(int)indices[k]].id == element) return masses[k];
             return 0;
+        }
+        // The ring of cells just outside the arena's border.
+        private static double OutsideMass()
+        {
+            double total = 0;
+            for (var y = -2; y <= Height + 1; ++y) for (var x = -2; x <= Width + 1; ++x)
+                if (x == -2 || x == Width + 1 || y == -2 || y == Height + 1) total += CellMass(Cell(x, y));
+            return total;
         }
         private static double ArenaMass()
         {

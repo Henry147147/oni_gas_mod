@@ -42,10 +42,13 @@ typedef struct MAOniColonyConfig {
 #define MA_ONI_COLONY_SOLID 0U
 #define MA_ONI_COLONY_FLUID 1U
 #define MA_ONI_COLONY_SPACE 2U
+/* Germs (docs/colony-owner.md#germs): a disease is ONI's disease index + 1,
+ * 0 for none; counts are ONI's germ counts. */
 typedef struct MAOniColonyCell {
     uint32_t native_index; /* element index; ignored for solids */
     uint32_t kind;
     float mass_kg, temperature_k;
+    uint32_t disease; int32_t disease_count;
 } MAOniColonyCell;
 
 typedef struct MAOniColonyStatus {
@@ -83,6 +86,7 @@ typedef struct MAOniColonyCellView {
     float temperature_k;
     float pressure_pa;
     float liquid_fraction;  /* liquid volume / cell volume */
+    uint32_t disease; int32_t disease_count; /* the cell's most numerous germ */
 } MAOniColonyCellView;
 
 /* Transfers commit at the start of the next native frame. Injection adds the
@@ -101,15 +105,18 @@ typedef struct MAOniColonyCellView {
 /* Receipt only: a solid byproduct of a conversion for the game to spawn as
  * debris at public_cell; callback holds the element hash. */
 #define MA_ONI_COLONY_BYPRODUCT 5U
+/* An injection brings disease_count germs of its disease; an extraction's
+ * receipt returns the most numerous germ the removed mass carried. */
 typedef struct MAOniColonyTransfer {
     uint32_t public_cell, native_index, kind, radius;
-    int32_t callback; uint32_t reserved;
-    double mass_kg, temperature_k;
+    int32_t callback; uint32_t disease;
+    double mass_kg, temperature_k, disease_count;
 } MAOniColonyTransfer;
 typedef struct MAOniColonyReceipt {
     uint64_t sequence, completed_frame;
     int32_t callback; uint32_t kind, native_index, public_cell;
     float mass_kg, temperature_k; /* binary32 exactly equal to the committed amount */
+    uint32_t disease; int32_t disease_count;
 } MAOniColonyReceipt;
 typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, maximum_temperature_k; } MAOniColonyHeat;
 /* Terrain changes commit at the start of the next native frame, before

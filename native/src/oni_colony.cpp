@@ -26,9 +26,9 @@
 #include <xmmintrin.h>
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
-static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 16 &&
-    sizeof(MAOniColonyStatus) == 584 && sizeof(MAOniColonyCellView) == 24 && sizeof(MAOniColonyTransfer) == 40 &&
-    sizeof(MAOniColonyReceipt) == 40 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
+static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
+    sizeof(MAOniColonyStatus) == 584 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
+    sizeof(MAOniColonyReceipt) == 48 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
 
 namespace ma::oni::colony {
 namespace {
@@ -104,7 +104,11 @@ std::vector<MAOniColonyReceipt> receipts;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
 // Native shadow: per owned cell, what write_shadow put there this frame.
-struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false; float mass = 0, temperature = 0; };
+struct ShadowCell { std::uint16_t element = 0, before = 0; bool written = false; float mass = 0, temperature = 0; std::uint32_t germ = 0; std::int32_t germs = 0; };
+// Germ changes native code made on owned cells (growth and death, disease
+// emitters and consumers, cell edits), applied at the start of the next step.
+struct GermEdit { std::uint32_t public_cell, germ; double change; };
+std::vector<GermEdit> pending_germs; // under inputs
 // A cell native froze: its liquid leaves the owner and the cell closes.
 struct Freeze { std::uint32_t public_cell, native_index; double mass_kg; };
 std::vector<Freeze> pending_freezes; // under inputs
@@ -219,6 +223,14 @@ long double energy_of(const MacClosedWorld& w) {
         value += static_cast<long double>(st.cells[i].mixture.mass()) * g * ((static_cast<double>(i / st.grid.width) + .5) * st.grid.spacing_m);
     return value;
 }
+// The most numerous germ among passives (identity <= 256 is a disease index + 1),
+// and its count as ONI holds it.
+std::pair<std::uint32_t, std::int32_t> dominant_germ(std::span<const PassiveQuantity> passives) {
+    std::uint32_t best = 0; double most = 0;
+    for (const auto& q : passives) if (q.identity <= 256 && q.quantity > most) { most = q.quantity; best = static_cast<std::uint32_t>(q.identity); }
+    if (best == 0 || !(most >= .5)) return {0, 0};
+    return {best, static_cast<std::int32_t>(std::min(most, 2147483647.))};
+}
 long double parcel_energy(const MacFluidParcel& p) {
     return static_cast<long double>(p.internal_energy_j) + mac_energy_long_double(p.resolved_kinetic_energy) + mac_energy_long_double(p.potential_energy);
 }
@@ -245,6 +257,8 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
         v.temperature_k = static_cast<float>(reading.temperature_k);
         v.pressure_pa = static_cast<float>(reading.mechanical_pressure_pa);
         v.liquid_fraction = static_cast<float>(reading.liquid_volume_m3 / st.grid.volume_m3());
+        const auto germ = dominant_germ(st.cells[i].passive_quantities);
+        v.disease = germ.first; v.disease_count = germ.second;
     }
     return views;
 }
@@ -309,7 +323,7 @@ struct Move { std::size_t from = 0, to = 0, species = 0; double mass = 0; };
 MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, Ledger& L, MAOniColonyStatus& st) {
     if (moves.empty()) return world;
     const auto& registry = world.registry(); const double g = world.settings().gravity_m_per_s2;
-    struct Target { std::vector<double> masses; long double energy = 0, heat = 0, mass = 0; };
+    struct Target { std::vector<double> masses; long double energy = 0, heat = 0, mass = 0; PassiveQuantities germs; };
     std::map<std::size_t, Target> targets;
     for (std::size_t first = 0; first < moves.size(); first += 4096) {
         std::vector<MacFluidTransfer> edits;
@@ -320,6 +334,7 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
             const auto& p = result.parcels[k]; auto& t = targets[moves[first + k].to];
             if (t.masses.empty()) t.masses.assign(registry.size(), 0);
             t.masses[p.species_index] += p.mass_kg; t.energy += parcel_energy(p); t.heat += p.mass_kg * p.temperature_k; t.mass += p.mass_kg;
+            add_passive_quantities(t.germs, p.passives, 1);
             L.extracted[p.species_index] += p.mass_kg; L.energy_out += parcel_energy(p);
         }
     }
@@ -333,7 +348,12 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
         const long double potential = t.mass * g * ((static_cast<double>(to / world.state().grid.width) + .5) * world.state().grid.spacing_m);
         double temperature = static_cast<double>((t.energy - potential - offset) / capacity);
         if (!std::isfinite(temperature) || !(temperature > 1)) temperature = static_cast<double>(t.heat / t.mass);
-        for (std::size_t k = 0; k < t.masses.size(); ++k) if (t.masses[k] > 0) inject.push_back({to, k, true, t.masses[k], temperature});
+        bool first = true;
+        for (std::size_t k = 0; k < t.masses.size(); ++k) if (t.masses[k] > 0) {
+            inject.push_back({to, k, true, t.masses[k], temperature});
+            if (first) inject.back().passives = t.germs; // germs travel with the moved material
+            first = false;
+        }
     }
     for (std::size_t first = 0; first < inject.size(); first += 4096) {
         const std::span<const MacFluidTransfer> batch(inject.data() + first, std::min<std::size_t>(4096, inject.size() - first));
@@ -412,6 +432,23 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
             const auto& m = world.state().cells[i].mixture; if (!(m.mass() > 0)) continue;
             std::vector<std::size_t> open;
             for (const auto n : neighbours(i)) if (!world.state().grid.walls[n] && !closes[n] && !s.space[n]) open.push_back(n);
+            if (open.empty()) {
+                // Inside a block closing at once, the contents go to the nearest
+                // open cell reached through the block (within 16 steps).
+                std::vector<std::size_t> frontier{i}, seen{i}; std::size_t found = SIZE_MAX;
+                for (int depth = 0; depth < 16 && found == SIZE_MAX && !frontier.empty(); ++depth) {
+                    std::vector<std::size_t> next;
+                    for (const auto c : frontier) for (const auto n : neighbours(c)) {
+                        if (found != SIZE_MAX || std::find(seen.begin(), seen.end(), n) != seen.end()) continue;
+                        seen.push_back(n);
+                        if (world.state().grid.walls[n] || s.space[n]) continue;
+                        if (!closes[n]) { found = n; break; }
+                        next.push_back(n);
+                    }
+                    frontier = std::move(next);
+                }
+                if (found != SIZE_MAX) open.push_back(found);
+            }
             if (open.empty()) {
                 // A sealed cell's contents go to the reservoir.
                 std::vector<MacFluidTransfer> drain;
@@ -524,7 +561,8 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         const auto& parcel = taken.parcels[q];
         L.extracted[parcel.species_index] += parcel.mass_kg; L.energy_out += parcel_energy(parcel);
         s.status.converted_kg += parcel.mass_kg;
-        if (products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q]});
+        // The product keeps the germs the converted mass carried.
+        if (products[q].mass > 0) given.push_back({products[q].cell, products[q].species, true, products[q].mass, temperature[q], parcel.passives});
         if (products[q].byproduct_kg > 0) {
             std::lock_guard lock(inputs);
             MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
@@ -568,6 +606,12 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
         imported[i] = {ImportCellKind::fluid, static_cast<std::uint32_t>(cat.species_of_native(c.native_index)), c.mass_kg, c.temperature_k};
     }
     auto settled = settle_import(cat, config.width, config.height, imported, config.gravity_m_per_s2);
+    // Germs stay in their cell if it still holds fluid after the settle.
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        const auto& c = cells[i]; auto& cell = settled.state.cells[i];
+        require(c.disease <= 256 && c.disease_count >= 0 && (c.disease != 0 || c.disease_count == 0), "Invalid colony import germs");
+        if (c.disease != 0 && c.disease_count > 0 && cell.mixture.mass() > 0) cell.passive_quantities = {{c.disease, static_cast<double>(c.disease_count)}};
+    }
     next->reservoir = std::move(settled.reservoir);
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
@@ -660,7 +704,7 @@ void queue_transfers(std::span<const MAOniColonyTransfer> edits) {
     for (const auto& e : edits) {
         const auto kind = e.kind & ~MA_ONI_COLONY_CONSUMER;
         require(kind >= MA_ONI_COLONY_INJECT && kind <= MA_ONI_COLONY_EXTRACT_LIQUID && (kind != MA_ONI_COLONY_INJECT || kind == e.kind) &&
-            e.reserved == 0 && e.radius <= 64 &&
+            e.disease <= 256 && e.radius <= 64 && std::isfinite(e.disease_count) && e.disease_count >= 0 && (e.disease != 0 || e.disease_count == 0) &&
             std::isfinite(e.mass_kg) && e.mass_kg >= 0 && std::isfinite(e.temperature_k) && e.temperature_k >= 0, "Invalid colony transfer");
         (void)rect_index(geometry, e.public_cell);
     }
@@ -729,6 +773,11 @@ void write_shadow(const NativeCells& n) noexcept {
         sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
         sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;
         for (int b = 0; b < 2; ++b) { n.element[b][c] = sh.element; n.mass[b][c] = sh.mass; n.temperature[b][c] = sh.temperature; }
+        if (n.disease[0] && n.disease[1] && n.disease_count[0] && n.disease_count[1]) {
+            sh.germ = empty ? 0 : v.disease; sh.germs = sh.germ ? v.disease_count : 0;
+            const auto idx = static_cast<std::uint8_t>(sh.germ ? sh.germ - 1 : 255);
+            for (int b = 0; b < 2; ++b) { n.disease[b][c] = idx; n.disease_count[b][c] = sh.germs; }
+        }
     }
 }
 
@@ -740,7 +789,7 @@ void capture_shadow(const NativeCells& n) noexcept {
         const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
         const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
         std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
-        std::vector<Freeze> froze; NativeExchange sum;
+        std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum;
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
         for (std::size_t i = 0; i < owned_count; ++i) {
             const auto& sh = shadow[i];
@@ -753,8 +802,17 @@ void capture_shadow(const NativeCells& n) noexcept {
                 if (owned[i].load(std::memory_order_relaxed) || fluid(sh.before) || !fluid(e)) continue;
                 if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
                 opened.push_back({cell, MA_ONI_COLONY_OPEN});
-                if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t}); sum.mass_in_kg += m; }
+                if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m; }
                 ++sum.changes; continue;
+            }
+            if (n.disease[1] && n.disease_count[1] && fluid(e)) {
+                const std::uint8_t idx = n.disease[1][c]; const std::int32_t count = n.disease_count[1][c];
+                const std::uint32_t germ = idx == 255 || count <= 0 ? 0 : idx + 1u;
+                if (germ == sh.germ && count != sh.germs && germ != 0) germs.push_back({cell, germ, static_cast<double>(count) - sh.germs});
+                else if (germ != sh.germ) {
+                    if (sh.germ != 0) germs.push_back({cell, sh.germ, -static_cast<double>(sh.germs)});
+                    if (germ != 0) germs.push_back({cell, germ, static_cast<double>(count)});
+                }
             }
             if (e == sh.element && m == sh.mass && t == sh.temperature) continue;
             if (!fluid(e)) {
@@ -773,9 +831,9 @@ void capture_shadow(const NativeCells& n) noexcept {
             }
             // Native actors (element consumers and emitters) changed the mass.
             const auto take = [&](std::uint16_t element, double mass) {
-                moves.push_back({cell, element, MA_ONI_COLONY_EXTRACT, 0, -1, 0, mass, 0}); sum.mass_out_kg += mass; };
+                moves.push_back({cell, element, MA_ONI_COLONY_EXTRACT, 0, -1, 0, mass, 0, 0}); sum.mass_out_kg += mass; };
             const auto give = [&](std::uint16_t element, double mass, double temperature) {
-                moves.push_back({cell, element, MA_ONI_COLONY_INJECT, 0, -1, 0, mass, temperature}); sum.mass_in_kg += mass; };
+                moves.push_back({cell, element, MA_ONI_COLONY_INJECT, 0, -1, 0, mass, temperature, 0}); sum.mass_in_kg += mass; };
             if (e == sh.element) {
                 const double delta = static_cast<double>(m) - sh.mass;
                 if (delta < 0) take(e, -delta);
@@ -790,6 +848,7 @@ void capture_shadow(const NativeCells& n) noexcept {
             }
         }
         std::lock_guard q(inputs);
+        pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
         pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
         pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
         pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
@@ -860,8 +919,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         if (!ticket || ticket <= s.status.native_ticket || !std::isfinite(seconds) || seconds <= 0 || seconds > 10)
             throw std::runtime_error("Native frame ticket or timestep is invalid");
         std::vector<MAOniColonyTransfer> transfers; std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTerrain> terrain;
-        std::vector<Freeze> freezes;
-        { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes); }
+        std::vector<Freeze> freezes; std::vector<GermEdit> germ_edits;
+        { std::lock_guard q(inputs); transfers.swap(pending_transfers); heat.swap(pending_heat); terrain.swap(pending_terrain); freezes.swap(pending_freezes);
+          germ_edits.swap(pending_germs); }
         auto world = *s.world;
         const auto& cat = *s.catalogue; const auto& registry = cat.registry;
         auto& L = s.ledger;
@@ -900,6 +960,14 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         doing = "terrain";
         if (!terrain.empty()) world = apply_terrain(s, std::move(world), terrain);
         world = close_blocked_faces(s, std::move(world));
+        if (!germ_edits.empty()) {
+            std::vector<MacPassiveEdit> edits;
+            for (const auto& g : germ_edits) {
+                const auto i = rect_index(s.config, g.public_cell);
+                if (!world.state().grid.walls[i]) edits.push_back({i, g.germ, g.change});
+            }
+            world = world.with_passive_edits(edits);
+        }
         lap(0); doing = "heat";
         // Heat edits.
         for (std::size_t first = 0; first < heat.size(); first += 4096) {
@@ -990,6 +1058,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 const auto order = nearby(st, centre, 2);
                 if (order.empty() || !(t.mass_kg > 0) || !(t.temperature_k > 0)) { plans.push_back({edits.size(), 0, &t}); continue; }
                 plans.push_back({edits.size(), 1, &t}); edits.push_back({order.front(), k, true, t.mass_kg, t.temperature_k});
+                if (t.disease != 0 && t.disease_count >= 1) edits.back().passives = {{t.disease, t.disease_count}};
             } else {
                 const auto order = nearby(st, centre, t.radius);
                 std::vector<double> available(st.cells.size());
@@ -1008,18 +1077,24 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         }
         if (!plans.empty()) {
             std::lock_guard q(inputs);
-            const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t) {
+            const auto receipt = [&](const MAOniColonyTransfer& t, std::uint32_t native_index, long double mass, long double heat_capacity_t,
+                                     const PassiveQuantities& germs) {
                 MAOniColonyReceipt r{}; r.sequence = ++receipt_sequence; r.completed_frame = s.status.completed_frames + 1;
                 r.callback = t.callback; r.kind = t.kind; r.native_index = native_index; r.public_cell = t.public_cell;
                 r.mass_kg = static_cast<float>(mass); r.temperature_k = mass > 0 ? static_cast<float>(heat_capacity_t / mass) : 0;
+                const auto germ = dominant_germ(germs); r.disease = germ.first; r.disease_count = germ.second;
                 receipts.push_back(r);
             };
             for (const auto& p : plans) {
                 std::map<std::size_t, std::pair<long double, long double>> by_species; // mass, sum m T
+                std::map<std::size_t, PassiveQuantities> germs_of; PassiveQuantities all_germs;
                 for (std::size_t e = p.first; e < p.first + p.count; ++e) {
                     const auto& parcel = parcels[e];
                     auto& entry = by_species[parcel.species_index];
                     entry.first += parcel.mass_kg; entry.second += parcel.mass_kg * parcel.temperature_k;
+                    if (!parcel.injected && !parcel.passives.empty()) {
+                        add_passive_quantities(germs_of[parcel.species_index], parcel.passives, 1); add_passive_quantities(all_germs, parcel.passives, 1);
+                    }
                     (parcel.injected ? L.injected : L.extracted)[parcel.species_index] += parcel.mass_kg;
                     (parcel.injected ? L.energy_in : L.energy_out) += parcel_energy(parcel);
                     (parcel.injected ? s.status.injected_kg : s.status.extracted_kg) += parcel.mass_kg;
@@ -1031,10 +1106,10 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 if (!phase) {
                     long double mass = 0, heat_capacity_t = 0;
                     for (const auto& [k, entry] : by_species) { mass += entry.first; heat_capacity_t += entry.second; }
-                    receipt(*p.source, p.source->native_index, mass, heat_capacity_t);
-                } else if (by_species.empty()) receipt(*p.source, geometry.vacuum_index, 0, 0);
+                    receipt(*p.source, p.source->native_index, mass, heat_capacity_t, all_germs);
+                } else if (by_species.empty()) receipt(*p.source, geometry.vacuum_index, 0, 0, {});
                 // A mixture leaves one receipt per constituent.
-                else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second);
+                else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k]);
             }
         }
         lap(2); doing = "flow";

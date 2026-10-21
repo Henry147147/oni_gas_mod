@@ -227,13 +227,19 @@ bool native_cells(void* data,ma::oni::colony::NativeCells& out) noexcept {
 #if defined(_WIN32)
     constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72;
 #else
-    constexpr std::size_t element_offset=0,temperature_offset=24,mass_offset=48;
+    // Each field is a vector (three pointers); germs: disease index bytes
+    // (255 none) and int32 counts, found by matching the two arrays at runtime.
+    constexpr std::size_t element_offset=0,temperature_offset=24,mass_offset=48,disease_offset=144,disease_count_offset=168;
 #endif
     for (int b=0;b<2;++b) {
         std::memcpy(&out.element[b],static_cast<std::byte*>(arrays[b])+element_offset,sizeof(void*));
         std::memcpy(&out.temperature[b],static_cast<std::byte*>(arrays[b])+temperature_offset,sizeof(void*));
         std::memcpy(&out.mass[b],static_cast<std::byte*>(arrays[b])+mass_offset,sizeof(void*));
         if (!out.element[b] || !out.temperature[b] || !out.mass[b]) return false;
+#if !defined(_WIN32)
+        std::memcpy(&out.disease[b],static_cast<std::byte*>(arrays[b])+disease_offset,sizeof(void*));
+        std::memcpy(&out.disease_count[b],static_cast<std::byte*>(arrays[b])+disease_count_offset,sizeof(void*));
+#endif
     }
     out.pitch=static_cast<std::uint32_t>(pitch);out.rows=static_cast<std::uint32_t>(rows);
     return true;
