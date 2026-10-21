@@ -11,8 +11,9 @@ namespace MixedAtmospheres.Oni
     // carves a sealed arena of Unobtanium beside the printing pod through the
     // game's own cell messages, sets it up, runs some owner frames and checks
     // what the system should do. The owner's ledgers must stay closed
-    // throughout. Harness only: scenario buildings are powered by setting
-    // their powered flag.
+    // throughout. Harness only: scenario buildings are built instantly and a
+    // building that needs power is wired to a dev generator in the top corner
+    // on its side of the arena's middle column.
     internal static class ColonyScenarios
     {
 
@@ -38,7 +39,7 @@ namespace MixedAtmospheres.Oni
         private static readonly List<GameObject> powered = new List<GameObject>();
 
         internal static void Reset() { Results.Clear(); index = 0; Next(); }
-        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); }
+        private static void Next() { Current = new Result(); started = 0; step = 0; recorded.Clear(); powered.Clear(); filling = null; pipeCells.Clear(); generators.Clear(); }
 
         // Called every Unity frame while the owner runs. Returns true when
         // every scenario of the list is done.
@@ -55,8 +56,6 @@ namespace MixedAtmospheres.Oni
         {
             Current.Name = name;
             if (Current.Finished) return true;
-            foreach (var building in powered)
-                if (building != null) building.GetComponent<Operational>()?.SetFlag(EnergyConsumer.PoweredFlag, true);
             if (status.CompletedFrames == 0) return false;
             if (started == 0) { started = status.CompletedFrames; Anchor(); }
             var frame = (int)(status.CompletedFrames - started);
@@ -69,7 +68,6 @@ namespace MixedAtmospheres.Oni
                     case "heat": Heat(frame, status); break;
                     case "phase": Phase(frame, status); break;
                     case "freeze-melt": FreezeMelt(frame, status); break;
-                    case "pump": Pump(frame); break;
                     case "deoxidizer": Deoxidizer(frame, status); break;
                     case "pipes": Pipes(frame); break;
                     case "door": DoorCycle(frame, status); break;
@@ -178,23 +176,6 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        // A gas pump draws the arena's air into its storage through ONI's
-        // native element consumer, which the shadow books.
-        private static void Pump(int frame)
-        {
-            if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, 1.2f, 300f));
-            if (Once(6, "build")) { recorded["gas"] = ArenaMass(); Build(GasPumpConfig.ID, Cell(3, 1)); }
-            if (Once(27, "check"))
-            {
-                var pump = powered.FirstOrDefault();
-                var stored = pump == null ? 0 : pump.GetComponents<Storage>().Sum(s => s.items.Where(i => i != null).Sum(i => i.GetComponent<PrimaryElement>()?.Mass ?? 0));
-                var drawn = recorded["gas"] - ArenaMass();
-                Record("the pump drew gas", drawn > .05, $"{drawn:G4} kg");
-                Record("the pump stores what the owner lost", Math.Abs(stored - drawn) <= .02 * drawn + 1e-3, $"stored {stored:G4} kg");
-                Finish();
-            }
-        }
-
         // An oxygen diffuser (mineral deoxidizer) turns stored algae into oxygen
         // that ONI emits into its cell; the owner takes it.
         private static void Deoxidizer(int frame, OniNativeColony.Status status)
@@ -209,7 +190,7 @@ namespace MixedAtmospheres.Oni
             if (Once(32, "check"))
             {
                 var added = ArenaMass() - recorded["gas"];
-                Record("the machine's oxygen reached the owner", status.InjectedKg > recorded["injected"] + .01 && added > .01, $"{added:G4} kg");
+                Record("the machine's oxygen reached the owner", status.InjectedKg > recorded["injected"] + .01 && added > .01, $"{added:G4} kg; {MachineState(powered.FirstOrDefault())}");
                 Finish();
             }
         }
@@ -244,7 +225,7 @@ namespace MixedAtmospheres.Oni
                 var carbon = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.CarbonDioxide)));
                 var inPipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
                 var stored = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
-                Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber");
+                Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber; pump {MachineState(powered.FirstOrDefault())}");
                 Record("the pipe carried both gases", oxygen > 0 && carbon > 0, $"oxygen {oxygen:G4} kg, carbon dioxide {carbon:G4} kg");
                 var total = ArenaMass() + inPipe + stored;
                 Record("owner, pipe and pump keep the gas", Math.Abs(total - recorded["gas"]) < .01 * recorded["gas"], $"{recorded["gas"]:G6} -> {total:G6} kg");
@@ -391,7 +372,7 @@ namespace MixedAtmospheres.Oni
             if (Once(32, "check"))
             {
                 var o2 = ArenaSpecies(SimHashes.Oxygen) - recorded["o2"]; var h2 = ArenaSpecies(SimHashes.Hydrogen) - recorded["h2"];
-                Record("oxygen and hydrogen reached the owner", o2 > .05 && h2 > .005, $"oxygen +{o2:G4} kg, hydrogen +{h2:G4} kg");
+                Record("oxygen and hydrogen reached the owner", o2 > .05 && h2 > .005, $"oxygen +{o2:G4} kg, hydrogen +{h2:G4} kg; {MachineState(powered.FirstOrDefault())}");
                 Finish();
             }
         }
@@ -681,17 +662,26 @@ namespace MixedAtmospheres.Oni
             }
         }
 
-        // A liquid pump in a pool draws water into its storage.
+        // A liquid pump in a pool sends its water through a pipe into a
+        // reservoir: what the owner lost is in the pump, the pipe and the reservoir.
         private static void LiquidPump(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => y <= 2 ? (SimHashes.Water, 990f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
-            if (Once(6, "build")) { recorded["water"] = ArenaSpecies(SimHashes.Water); Build(LiquidPumpConfig.ID, Cell(3, 0)); }
+            if (Once(6, "build"))
+            {
+                recorded["water"] = ArenaSpecies(SimHashes.Water);
+                var pump = Build(LiquidPumpConfig.ID, Cell(2, 0)); var tank = Build(LiquidReservoirConfig.ID, Cell(6, 3));
+                var path = Route(Grid.OffsetCell(Cell(2, 0), pump.GetComponent<Building>().Def.UtilityOutputOffset),
+                    Grid.OffsetCell(Cell(6, 3), tank.GetComponent<Building>().Def.UtilityInputOffset));
+                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, path); pipeCells.AddRange(path);
+            }
             if (Once(30, "check"))
             {
-                var pump = powered.LastOrDefault();
-                var stored = pump == null ? 0 : pump.GetComponents<Storage>().Sum(s => s.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0)));
+                var held = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(s => s.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
+                var inPipe = pipeCells.Sum(c => (double)Game.Instance.liquidConduitFlow.GetContents(c).mass);
                 var drawn = recorded["water"] - ArenaSpecies(SimHashes.Water);
-                Record("the pump drew the pool's water", drawn > 1 && Math.Abs(stored - drawn) <= .02 * drawn + .01, $"drawn {drawn:G4} kg, stored {stored:G4} kg");
+                Record("the pump drew the pool's water", drawn > 1 && Math.Abs(held + inPipe - drawn) <= .02 * drawn + .01,
+                    $"drawn {drawn:G4} kg, in storage {held:G4} kg, in the pipe {inPipe:G4} kg; {MachineState(powered.FirstOrDefault())}");
                 Finish();
             }
         }
@@ -805,8 +795,12 @@ namespace MixedAtmospheres.Oni
             for (var k = 0; k + 1 < path.Count; ++k)
             {
                 var direction = UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
-                network.AddConnection(direction, path[k], false);
-                network.AddConnection(direction.InverseDirection(), path[k + 1], false);
+                // Physical connections form the network; visual ones draw it.
+                foreach (var physical in new[] { true, false })
+                {
+                    network.AddConnection(direction, path[k], physical);
+                    network.AddConnection(direction.InverseDirection(), path[k + 1], physical);
+                }
             }
             var def = Assets.GetBuildingDef(WireConfig.ID);
             foreach (var cell in path) def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
@@ -825,8 +819,12 @@ namespace MixedAtmospheres.Oni
             for (var k = 0; k + 1 < path.Count; ++k)
             {
                 var direction = UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
-                network.AddConnection(direction, path[k], false);
-                network.AddConnection(direction.InverseDirection(), path[k + 1], false);
+                // Physical connections form the network; visual ones draw it.
+                foreach (var physical in new[] { true, false })
+                {
+                    network.AddConnection(direction, path[k], physical);
+                    network.AddConnection(direction.InverseDirection(), path[k + 1], physical);
+                }
             }
             var def = Assets.GetBuildingDef(id);
             foreach (var cell in path) def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
@@ -877,7 +875,36 @@ namespace MixedAtmospheres.Oni
             var def = Assets.GetBuildingDef(id);
             var building = def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
             powered.Add(building);
+            if (def.RequiresPowerInput)
+            {
+                Grid.CellToXY(cell, out var bx, out _); var right = bx - x0 > 4;
+                if (!generators.TryGetValue(right, out var generator))
+                {
+                    var dev = Assets.GetBuildingDef(DevGeneratorConfig.ID);
+                    generator = dev.Build(Cell(right ? Width - 1 : 0, Height - 1), Orientation.Neutral, null, dev.DefaultElements(), 300, playsound: false);
+                    generators[right] = generator;
+                }
+                Wire(Route(Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset),
+                    Grid.OffsetCell(Grid.PosToCell(building), def.PowerInputOffset)));
+            }
             return building;
+        }
+        private static readonly Dictionary<bool, GameObject> generators = new Dictionary<bool, GameObject>();
+        // A machine's operating state for a check's detail.
+        private static string MachineState(GameObject? building)
+        {
+            if (building == null) return "no building";
+            var operational = building.GetComponent<Operational>(); var power = building.GetComponent<EnergyConsumer>();
+            var consumer = building.GetComponent<ElementConsumer>();
+            var flags = "?";
+            try
+            {
+                if (operational != null && AccessTools.Field(typeof(Operational), "Flags").GetValue(operational) is IDictionary<Operational.Flag, bool> all)
+                    flags = string.Join(",", all.Where(f => !f.Value).Select(f => f.Key.Name));
+            }
+            catch (Exception) { }
+            return $"operational {operational?.IsOperational}, active {operational?.IsActive}, unmet [{flags}], powered {power?.IsPowered}, " +
+                $"consumer rate {consumer?.consumptionRate}, element available {consumer?.IsElementAvailable}";
         }
         private static double CellMass(int cell)
         {

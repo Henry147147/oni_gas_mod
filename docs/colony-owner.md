@@ -317,7 +317,6 @@ setting their powered flag (harness only).
 | `heat` | A 450 K granite floor warms the air above it through ONI's own conduction, with the owner's energy ledger closed. |
 | `phase` | 330 K water evaporates into the dry 330 K air above it. |
 | `freeze-melt` | Ice in warm air melts into an owned cell; water on a 40 K block freezes. |
-| `pump` | A gas pump draws the arena's air into its storage; storage equals what the owner lost. |
 | `deoxidizer` | An oxygen diffuser's oxygen from stored algae reaches the owner. |
 | `pipes` | A gas pump in oxygen and carbon dioxide feeds a pipe to a vent in vacuum: both gases arrive, and owner, pipe and pump keep the gas. |
 | `door` | A pneumatic door between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again. |
@@ -339,7 +338,7 @@ setting their powered flag (harness only).
 | `sensor` | A gas element sensor set to carbon dioxide switches on in a cell where carbon dioxide is a minority (the cell shows oxygen). |
 | `filter` | A pump sends oxygen and carbon dioxide through a carbon dioxide filter: its filtered port carries only carbon dioxide, its output only oxygen. |
 | `pacu` | A pacu in an owned pool stays in its water. |
-| `liquid-pump` | A liquid pump in a pool draws water into its storage; storage equals what the owner lost. |
+| `liquid-pump` | A liquid pump in a pool sends its water through a pipe into a reservoir; pump, pipe and reservoir hold what the owner lost. |
 
 ## Verification
 

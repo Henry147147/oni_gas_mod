@@ -8,18 +8,20 @@ Current state on 2026-10-21. One line per system; details in the linked pages.
 | --- | --- |
 | [Material catalogue](material-catalogue.md) | Every game gas and liquid becomes a species from game values read at runtime plus cited reference data; liquid/vapour pairs boil by pressure from the game's boiling point. |
 | [Colony owner](colony-owner.md) | A normal new base-game colony starts one owner for the whole asteroid (Terra: 30,886 open cells, 78 materials). In game it advances, publishes cells, routes emission/consumption/heat, and its ledgers close. |
-| [Import settle](colony-owner.md#import) | Liquid bodies flood their basins to one hydrostatic level, gas regions reach one pressure layered by density (no mixing); liquid that cannot fit goes to a booked reservoir (Terra: 656 t) that seeps back as its pocket gains room; supersaturated vapour condenses at import. |
-| [Terrain](colony-owner.md#terrain) | Dig and tile building open and close cells with booked refill and displacement; doors close by displacement and open by digging; in-game checks are the [scenarios](colony-owner.md#scenarios). Airflow tiles (gas-only faces) and meteors are open. |
+| [Import settle](colony-owner.md#import) | Liquid bodies flood their basins to one hydrostatic level, gas regions reach one pressure layered by density (no mixing); liquid that cannot fit goes to a booked reservoir (Terra: 656 t) that seeps back as its pocket gains room; supersaturated vapour condenses, and a liquid beside vacuum starts under its saturated vapour. |
+| [Terrain](colony-owner.md#terrain) | Dig and tile building open and close cells with booked refill and displacement; ONI's replacement replaces a cell's fluid; doors close by displacement and open by digging; [airflow tiles](colony-owner.md#airflow-tiles) close their faces to liquid; in-game checks are the [scenarios](colony-owner.md#scenarios). |
 | [Pacing](colony-owner.md#pacing) | The owner steps on its own thread with predictive step control; the game clock slows to the owner's rate and holds before a tick the owner has not finished. |
 | [Saves](colony-owner.md#saves) | Colony checkpoint inside the save's native section; load restores the owner. |
 | Readers | Pressure and easy-mode breathing read the owner; the [mixture renderer, hover, overlays and status panel](colony-owner.md#presentation) show the owner's mixtures. |
 | [Liquids](colony-owner.md#liquids) | Liquids of one miscibility group mix in one phase; other liquids keep sharp interfaces and settle by density (standalone controls). |
 | [Phase change](colony-owner.md#phase-change) | Liquid/vapour pairs evaporate and condense toward saturation (1 s relaxation) at fixed U, with no liquid above a pair's critical temperature; native freezing and melting open and close cells; [conversions](colony-owner.md#conversions) change identity with booked transfers and debris byproducts (standalone controls). |
 | [Element consumers](colony-owner.md#element-consumers) | Every element consumer runs in the owner: by element, or the whole gas/liquid mixture for pumps, with consumed-mass events per constituent (standalone control). |
+| [Germs](colony-owner.md#germs) | Germs are passives of the owner's cells: they travel with flow and every transfer, come back on receipts (breaths, pumps), and ONI's growth, emitters and consumers act through the native shadow. |
+| [Machines](colony-owner.md#machines) | A converter whose world output has no room does not run; a wrong pipe element is dumped where ONI would destroy it; pipes carry ONI's single-element packets, so a pumped mixture travels as a train of them. |
 | [Sensors](colony-owner.md#sensors) | Element sensors read the mixture (element above 0.1% of its phase); pressure sensors read the owner. |
 | [Native bodies](colony-owner.md#native-bodies) | Tiles, buildings, items, pipes and element consumers/emitters act on a native shadow of the owner's cells; their heat and mass changes are booked to the owner (standalone control). |
-| Speed | Terra: about 2–4 s of solver time per 0.2 s game frame standalone with 0.05 s steps; slower in game on a loaded host. |
-| Open | Machine conversions as reserved transactions, mixture pipes, machines, critters, plants, germs, rockets, sensors, gas/vacuum fronts under gravity. |
+| Speed | Terra, settled: about 2 s of solver time per 0.2 s game frame standalone (0.05 s steps, 16 threads), 4–6 s in game; large edits (arenas, floods) cut steps to milliseconds for some frames. |
+| Open | In-game checks for the remaining systems, every base-game asteroid, save edge cases, the prepared base and its ten-cycle run. |
 
 ## Earlier development record
 

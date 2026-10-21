@@ -52,7 +52,7 @@ namespace MixedAtmospheres.Oni
         internal const int MinimumFrames = 1, MaximumFrames = 10000, MaximumLongRunFrames = 100000;
         internal const int MinimumTimeoutSeconds = 30, MaximumTimeoutSeconds = 7200, MaximumLongRunTimeoutSeconds = 48 * 3600;
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
-        internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes",
+        internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes",
             "door", "sublimation", "falling", "breathing", "airflow", "electrolysis", "vent-overpressure", "space-heater",
             "bottle-emptier", "gas-generator", "germs", "puft", "plant", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump", "base" };
         internal static readonly string[] Modes =
