@@ -126,21 +126,28 @@ namespace {
 // its own Krylov stream: a stiff liquid pocket must not make every gas cavern
 // perform its iterations. Components and their row/face orders depend only on
 // the operator; each worker owns one solve and disjoint output cells.
-LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const std::vector<double>& b,
-    std::vector<double>& x, double rtol, double atol, std::size_t maximum) {
+struct ComponentLayout {
+    struct Part {
+        std::vector<PressureFace> faces;
+        std::vector<std::size_t> cells;
+        std::vector<std::pair<std::size_t, double>> boundary;
+    };
+    std::vector<Part> parts;
+};
+ComponentLayout component_layout(const Context& c, const LinearSystem& sys) {
     const auto& g = c.g; const auto N = g.N;
     std::vector<std::size_t> nodes(N, N), cells;
-    std::vector<double> diagonal, rhs;
+    std::vector<std::pair<std::size_t, double>> boundary;
     for (std::size_t i = 0; i < N; ++i) if (sys.active[i]) {
-        nodes[i] = cells.size(); cells.push_back(i); diagonal.push_back(sys.diag[i]); rhs.push_back(b[i]);
+        nodes[i] = cells.size(); cells.push_back(i);
     }
     std::vector<PressureFace> faces;
     const auto face = [&](Index l, Index r, double weight) {
         if (weight == 0) return;
         const auto a = l == none ? N : nodes[l], bb = r == none ? N : nodes[r];
         if (a != N && bb != N) faces.push_back({a, bb, weight});
-        else if (a != N) diagonal[a] += weight;
-        else if (bb != N) diagonal[bb] += weight;
+        else if (a != N) boundary.emplace_back(a, weight);
+        else if (bb != N) boundary.emplace_back(bb, weight);
     };
     for (std::size_t fidx = 0; fidx < g.NX; ++fidx) face(g.xl[fidx], g.xr[fidx], sys.wx[fidx]);
     for (std::size_t fidx = 0; fidx < g.NY; ++fidx) face(g.yl[fidx], g.yr[fidx], sys.wy[fidx]);
@@ -154,31 +161,38 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
         const auto l = root(edge.left), r = root(edge.right);
         if (l != r) parent[r] = l;
     }
-    struct Component {
-        std::vector<double> diagonal, rhs;
-        std::vector<PressureFace> faces;
-        std::vector<std::size_t> cells;
-    };
-    std::vector<Component> parts;
+    ComponentLayout layout; auto& parts = layout.parts;
     std::vector<std::size_t> labels(M, M), which(M), local(M);
     for (std::size_t i = 0; i < M; ++i) {
         const auto r = root(i);
         if (labels[r] == M) { labels[r] = parts.size(); parts.emplace_back(); }
         which[i] = labels[r]; auto& part = parts[which[i]]; local[i] = part.cells.size();
-        part.cells.push_back(cells[i]); part.diagonal.push_back(diagonal[i]); part.rhs.push_back(rhs[i]);
+        part.cells.push_back(cells[i]);
     }
     for (const auto& edge : faces)
         parts[which[edge.left]].faces.push_back({local[edge.left], local[edge.right], edge.conductance});
+    for (const auto& [node, weight] : boundary)
+        parts[which[node]].boundary.emplace_back(local[node], weight);
+    return layout;
+}
+LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const std::vector<double>& b,
+    std::vector<double>& x, double rtol, double atol, std::size_t maximum, const ComponentLayout* cached = nullptr) {
+    const auto transient = cached ? ComponentLayout{} : component_layout(c, sys);
+    const auto& parts = cached ? cached->parts : transient.parts;
+    const auto N = c.g.N;
     struct Solved { LinearSolveResult linear; bool ic = false, fallback = false; };
     std::vector<Solved> results(parts.size()); x.assign(N, 0);
     // Sum of squared component residual limits is at most half the squared
     // original global limit, including when relative and absolute terms mix.
     const double local_atol = parts.empty() ? atol : .5 * atol / std::sqrt(static_cast<double>(parts.size()));
     c.exec.pool.run(parts.size(), [&](std::size_t index) {
-        auto& part = parts[index];
-        PressureSystem matrix(std::move(part.diagonal), std::move(part.faces), PressurePreconditioner::incomplete_cholesky);
+        const auto& part = parts[index];
+        std::vector<double> diagonal, rhs; diagonal.reserve(part.cells.size()); rhs.reserve(part.cells.size());
+        for (const auto cell : part.cells) { diagonal.push_back(sys.diag[cell]); rhs.push_back(b[cell]); }
+        for (const auto& [node, weight] : part.boundary) diagonal[node] += weight;
+        PressureSystem matrix(std::move(diagonal), part.faces, PressurePreconditioner::incomplete_cholesky);
         PressureSolveResult solved;
-        try { solved = matrix.solve(part.rhs, std::vector<double>(part.rhs.size(), 0), .5 * rtol, local_atol, maximum); }
+        try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum); }
         catch (const std::runtime_error&) { reject("Production component pressure solve did not converge"); }
         for (std::size_t j = 0; j < part.cells.size(); ++j) x[part.cells[j]] = solved.pressure[j];
         results[index] = {{solved.iterations, solved.residual_norm, true},
@@ -728,6 +742,10 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
             for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) sys.active[i] = occupied(static_cast<Index>(i)) ? 1 : 0;
         });
+        // The active cells and face weights stay fixed throughout this root.
+        // Reuse their ordered graph; only the nonlinear diagonal and RHS vary.
+        const auto layout = norm > tolerance && c.settings.preconditioner == PressurePreconditioner::incomplete_cholesky ?
+            std::make_unique<ComponentLayout>(component_layout(c, sys)) : nullptr;
         std::size_t newton = 0;
         const std::size_t linear_limit = 4000;
         while (norm > tolerance) {
@@ -739,7 +757,8 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             // quadratically convergent nonlinear residual (relative tolerance
             // ~0.1 * norm), with an absolute floor at a fraction of the target.
             const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3), previous = norm;
-            const auto solved = solve_linear(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit);
+            const auto solved = layout ? solve_component_ic(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit, layout.get()) :
+                solve_linear(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit);
             c.counters.linear += solved.iterations;
             double fraction = 1; bool accepted = false;
             for (int attempt = 0; attempt < 48; ++attempt) {

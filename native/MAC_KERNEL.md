@@ -565,7 +565,29 @@ comparisons preserve all 83 short MAC executable and sixteen variant exits;
 the coarse Stefan worst error moves from 2.745% to 2.773% and still passes its
 unchanged bound. Other differences are counters, timing and the new controls.
 Checkpoint serialization is unchanged; new owner images store existing IC
-selector 2. Real-time 0.2 s frames remain open.
+selector 2. The following exact changes continue that work:
+
+- [Cell-local phase relaxation](MAC_PHASE_CHANGE.md) uses the existing pool:
+  matched Terra60 mean owner advance 1.029 s → 0.764 s, closed ledgers.
+- Component geometry is prepared once per nonlinear pressure root. Face order,
+  component row order and boundary-diagonal addition order stay fixed; every
+  Newton iteration still rebuilds its current diagonal and RHS. Void active-set
+  changes rebuild the geometry. There is no cache across roots or worlds.
+  A frame-50 profile spends 132 ms preparing component graphs and 78 ms solving
+  them; reuse reduces a matched high-half dump advance from 599 ms to 425 ms
+  (pressure 226 ms → 75 ms), with identical steps and linear iterations.
+  Four dump endpoints keep every checkpoint byte; the existing focused room
+  control exercises nonlinear updates, workers, cold continuation and rollback.
+  Terra60 under the same whole-machine lock improves owner mean
+  0.764 s → 0.665 s, median 0.711 s → 0.637 s, and p95 1.290 s → 1.054 s.
+  Observed completed-frame intervals average 0.996 s → 0.904 s, including
+  publication and game-side waiting. The candidate passes with relative
+  mass/energy ledger errors `5.61e-16` / `9.06e-14`. Release/83 CTests,
+  ASan/UBSan/TSan and clean 83-executable/sixteen-variant comparisons pass;
+  only timing fields change.
+
+These changes keep the physical model, tolerances and checkpoint format.
+Real-time 0.2 s frames remain open.
 
 ## Current active-cell baseline
 
