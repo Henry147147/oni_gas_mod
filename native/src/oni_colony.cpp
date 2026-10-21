@@ -26,7 +26,7 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 16 &&
-    sizeof(MAOniColonyStatus) == 448 && sizeof(MAOniColonyCellView) == 24 && sizeof(MAOniColonyTransfer) == 40 &&
+    sizeof(MAOniColonyStatus) == 480 && sizeof(MAOniColonyCellView) == 24 && sizeof(MAOniColonyTransfer) == 40 &&
     sizeof(MAOniColonyReceipt) == 40 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
 
 namespace ma::oni::colony {
@@ -93,6 +93,11 @@ std::vector<MAOniColonyTerrain> pending_terrain;
 std::vector<MAOniColonyReceipt> receipts;
 std::uint64_t receipt_sequence = 0, acknowledged = 0, sessions = 0;
 std::atomic<std::uint64_t> start_thread{};
+// Native shadow: per owned cell, what write_shadow put there this frame.
+struct ShadowCell { std::uint16_t element = 0; bool written = false; float mass = 0, temperature = 0; };
+std::vector<ShadowCell> shadow; // native worker only
+struct NativeExchange { double heat_j = 0, mass_in_kg = 0, mass_out_kg = 0; std::uint64_t changes = 0; };
+NativeExchange exchanged; // under inputs
 
 // Solver thread (docs/colony-owner.md#pacing). ONI's game thread waits for
 // each native frame right after posting it, so a positive frame only hands its
@@ -237,6 +242,11 @@ void fault(Session& s, const char* why) noexcept {
 }
 void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     require(!enabled.load(std::memory_order_acquire), "A colony owner is already active");
+    // Execution only: the kernel's results never depend on its thread count.
+    // Leave two cores for the game's own threads.
+    auto options = mac_kernel_default_options();
+    options.threads = std::clamp(std::thread::hardware_concurrency(), 3U, 18U) - 2;
+    set_mac_kernel_default_options(options);
     next->status = empty_status(); next->status.state = 1; next->status.session = ++sessions; next->status.start_thread = thread;
     start_thread.store(thread, std::memory_order_relaxed);
     next->status.species = static_cast<std::uint32_t>(next->catalogue->registry.size()); next->status.time_seconds = next->world->time_s();
@@ -434,6 +444,8 @@ MAOniColonyStatus status() {
     std::lock_guard lock(publication);
     auto s = latest ? latest->status : empty_status();
     std::lock_guard q(inputs); s.receipts_pending = receipts.size();
+    s.native_heat_j = exchanged.heat_j; s.native_mass_in_kg = exchanged.mass_in_kg; s.native_mass_out_kg = exchanged.mass_out_kg;
+    s.native_changes = exchanged.changes;
     return s;
 }
 void copy(MAOniColonyStatus& out, MAOniColonyCellView* views, std::uint32_t capacity) {
@@ -538,6 +550,85 @@ void ack_receipts(std::uint64_t through) {
     require(through >= acknowledged && through <= receipt_sequence, "Colony receipt acknowledgement is out of order");
     std::erase_if(receipts, [&](const MAOniColonyReceipt& r) { return r.sequence <= through; });
     acknowledged = through;
+}
+
+bool owns(int native_cell) noexcept {
+    if (!enabled.load(std::memory_order_acquire) || native_cell < 0) return false;
+    const auto pitch = geometry.grid_width + 2, position = static_cast<std::uint32_t>(native_cell);
+    const auto nx = position % pitch, ny = position / pitch;
+    if (!nx || !ny) return false;
+    const auto x = nx - 1, y = ny - 1;
+    if (x < geometry.offset_x || x - geometry.offset_x >= geometry.width || y < geometry.offset_y || y - geometry.offset_y >= geometry.height) return false;
+    return owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) != 0;
+}
+
+void write_shadow(const NativeCells& n) noexcept {
+    if (!enabled.load(std::memory_order_acquire)) return;
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
+    const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
+    try { shadow.assign(owned_count, ShadowCell{}); } catch (...) { return; }
+    for (std::size_t i = 0; i < owned_count; ++i) {
+        if (!owned[i].load(std::memory_order_relaxed)) continue;
+        const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
+        // A solid native placed this frame (a tile being built) stays native.
+        const auto present = n.element[0][c];
+        if (present != vacuum && !cat.has_native(present)) continue;
+        const auto& v = p->views[i]; const bool empty = !(v.mass_kg > 0);
+        auto& sh = shadow[i];
+        sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
+        sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;
+        for (int b = 0; b < 2; ++b) { n.element[b][c] = sh.element; n.mass[b][c] = sh.mass; n.temperature[b][c] = sh.temperature; }
+    }
+}
+
+void capture_shadow(const NativeCells& n) noexcept {
+    if (!enabled.load(std::memory_order_acquire) || shadow.size() != owned_count || n.pitch != geometry.grid_width + 2) return;
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    if (!p || !p->catalogue) return;
+    try {
+        const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
+        const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
+        std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; NativeExchange sum;
+        for (std::size_t i = 0; i < owned_count; ++i) {
+            const auto& sh = shadow[i]; if (!sh.written) continue;
+            const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
+            const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
+            if (e == sh.element && m == sh.mass && t == sh.temperature) continue;
+            if (e != vacuum && !cat.has_native(e)) continue; // turned solid: a terrain edit
+            if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
+            const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
+            ++sum.changes;
+            if (e == sh.element && m == sh.mass) {
+                // ONI's own heat exchange (tiles, buildings, items, pipes) with the shadow.
+                if (e == vacuum || !(m > 0)) continue;
+                const double joules = static_cast<double>(m) * heat_capacity(e) * (static_cast<double>(t) - sh.temperature);
+                heat.push_back({cell, 0, joules, 0}); sum.heat_j += joules;
+                continue;
+            }
+            // Native actors (element consumers and emitters) changed the mass.
+            const auto take = [&](std::uint16_t element, double mass) {
+                moves.push_back({cell, element, MA_ONI_COLONY_EXTRACT, 0, -1, 0, mass, 0}); sum.mass_out_kg += mass; };
+            const auto give = [&](std::uint16_t element, double mass, double temperature) {
+                moves.push_back({cell, element, MA_ONI_COLONY_INJECT, 0, -1, 0, mass, temperature}); sum.mass_in_kg += mass; };
+            if (e == sh.element) {
+                const double delta = static_cast<double>(m) - sh.mass;
+                if (delta < 0) take(e, -delta);
+                else {
+                    // The emitted parcel's temperature, from the mixed endpoint.
+                    const double emitted = (static_cast<double>(m) * t - static_cast<double>(sh.mass) * sh.temperature) / delta;
+                    give(e, delta, emitted > 0 && std::isfinite(emitted) ? emitted : t);
+                }
+            } else {
+                if (sh.element != vacuum && sh.mass > 0) take(sh.element, sh.mass);
+                if (e != vacuum && m > 0 && t > 0) give(e, m, t);
+            }
+        }
+        std::lock_guard q(inputs);
+        pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
+        pending_transfers.insert(pending_transfers.end(), moves.begin(), moves.end());
+        exchanged.heat_j += sum.heat_j; exchanged.mass_in_kg += sum.mass_in_kg; exchanged.mass_out_kg += sum.mass_out_kg; exchanged.changes += sum.changes;
+    } catch (...) {}
 }
 
 bool suppress(std::uint32_t hook, int native_cell) noexcept {
@@ -716,6 +807,8 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
+// Version 2: the stored status gained the native exchange counters.
+constexpr std::uint32_t checkpoint_version = 2;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -724,7 +817,7 @@ std::vector<std::uint8_t> checkpoint() {
     require(session->status.state == 1, "A faulted colony owner cannot be saved");
     const ArithmeticScope arithmetic;
     const auto& s = *session; Writer w;
-    w.raw(magic, 8); w.u32(1); w.raw(&s.config, sizeof(s.config));
+    w.raw(magic, 8); w.u32(checkpoint_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
     w.u32(static_cast<std::uint32_t>(s.reservoir.size()));
@@ -747,7 +840,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     const auto digest = hash_memory(image.data(), image.size() - 64);
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
-    char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0 && r.u32() == 1, "Unsupported colony checkpoint");
+    char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0 && r.u32() == checkpoint_version, "Unsupported colony checkpoint");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");

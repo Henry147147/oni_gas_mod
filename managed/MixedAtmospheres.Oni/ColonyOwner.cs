@@ -51,8 +51,16 @@ namespace MixedAtmospheres.Oni
         internal static bool Available => NativeBackendObservation.Enabled &&
             (ColonyRuntimeValidation.Settings == null || ColonyRuntimeValidation.Settings.Mode.StartsWith("colony-owner", StringComparison.Ordinal));
 
+        // Presentation is a reader: its failure leaves the vanilla projection.
+        private static void ConfigurePresentation()
+        {
+            try { ColonyPresentation.Configure(); }
+            catch (Exception error) { Debug.LogWarning("[Mixed Atmospheres] Colony presentation unavailable: " + error.Message); }
+        }
+
         internal static void ResetForNewSession()
         {
+            ColonyPresentation.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
@@ -125,7 +133,7 @@ namespace MixedAtmospheres.Oni
                 var started = System.Diagnostics.Stopwatch.StartNew();
                 var output = OniNativeColony.Status.Empty;
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
-                status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure();
+                status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
                 Debug.Log($"[Mixed Atmospheres] Colony owner started: {width}x{height} cells, {OwnedCells} owned, {materials.Length} materials, " +
                     $"reservoir {status.ReservoirKg:G6} kg, {started.ElapsedMilliseconds} ms.");
@@ -174,7 +182,7 @@ namespace MixedAtmospheres.Oni
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
             var output = OniNativeColony.Status.Empty;
             OniNativeColony.Check(OniNativeColony.Restore(ref config, materials, (uint)materials.Length, image, (uint)image.Length, ref output));
-            status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure();
+            status = output; views = new OniNativeColony.CellView[width * height]; considered = true; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
             OniNativeColony.Check(OniNativeColony.Copy(ref status, views, (uint)views.Length));
             OwnedCells = views.Count(v => (v.Flags & OniNativeColony.ViewOwned) != 0);
             Debug.Log($"[Mixed Atmospheres] Colony owner restored at frame {status.CompletedFrames}: {OwnedCells} owned cells.");
@@ -217,6 +225,7 @@ namespace MixedAtmospheres.Oni
                 DeliverReceipts(copy);
                 var previous = current; current = copy; previous?.Dispose();
                 ++Publications;
+                ColonyPresentation.Publish(status.CompletedFrames);
                 return (IntPtr)copy.Pointer;
             }
             catch { copy.Dispose(); throw; }

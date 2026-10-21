@@ -41,9 +41,11 @@ namespace MixedAtmospheres.Oni
             public double TimeSeconds, LastFrameSeconds, LastAdvanceMilliseconds, MaximumAdvanceMilliseconds;
             public double MaximumRelativeMassError, MaximumRelativeEnergyError;
             public double ReservoirKg, SpaceSinkKg, InjectedKg, ExtractedKg;
+            public double NativeHeatJoules, NativeMassInKg, NativeMassOutKg;
+            public ulong NativeChanges;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] private byte[] ErrorBytes;
             public string Error => Encoding.UTF8.GetString(ErrorBytes ?? Array.Empty<byte>()).TrimEnd('\0');
-            internal static Status Empty => new Status { Size = 448, Version = AbiVersion, ErrorBytes = new byte[256] };
+            internal static Status Empty => new Status { Size = 480, Version = AbiVersion, ErrorBytes = new byte[256] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct CellView { public uint ElementIndex, Flags; public float MassKg, TemperatureK, PressurePa, LiquidFraction; }
@@ -70,7 +72,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void CheckLayouts()
         {
-            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 16 || Marshal.SizeOf<Status>() != 448 ||
+            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 16 || Marshal.SizeOf<Status>() != 480 ||
                 Marshal.SizeOf<CellView>() != 24 || Marshal.SizeOf<Transfer>() != 40 || Marshal.SizeOf<Receipt>() != 40 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");

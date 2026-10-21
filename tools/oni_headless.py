@@ -208,6 +208,9 @@ def desktop_env(state: Path, session: dict) -> dict:
     desktop = state / "tools/desktop/usr"
     env = dict(os.environ, DISPLAY=session["display"], XAUTHORITY=str(session.get("xauthority") or state / "Xauthority"),
                LIBGL_ALWAYS_SOFTWARE="1",
+               # Software rendering otherwise takes every core from the fluid
+               # solver while the paced game keeps drawing.
+               LP_NUM_THREADS=os.environ.get("LP_NUM_THREADS", "4"),
                LD_LIBRARY_PATH=f"{desktop}/lib/x86_64-linux-gnu:{desktop}/lib/i386-linux-gnu",
                IMLIB2_LOADER_PATH=f"{desktop}/lib/x86_64-linux-gnu/imlib2/loaders",
                XDG_DATA_DIRS=f"{desktop}/share:/usr/share")

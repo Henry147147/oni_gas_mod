@@ -102,6 +102,33 @@ int main() {
         require(built.flags == 0, "built cell is solid");
         require(suppress(MA_ONI_PRESSURE, native_cell(11, 5)) && !suppress(MA_ONI_PRESSURE, native_cell(13, 6)), "terrain ownership follows");
         require(st.maximum_relative_mass_error < 1e-12 && st.maximum_relative_energy_error < 1e-9, "terrain ledgers close");
+        // Native shadow: a body warms one owned gas cell by 2 K and an actor
+        // takes 0.1 kg from another; both become booked owner inputs.
+        {
+            const std::size_t N = (GW + 2) * (GH + 2);
+            std::vector<std::uint16_t> el[2]; std::vector<float> mass[2], temperature[2];
+            ma::oni::colony::NativeCells nc; nc.pitch = GW + 2; nc.rows = GH + 2;
+            for (int b = 0; b < 2; ++b) {
+                el[b].assign(N, 0); mass[b].assign(N, 0); temperature[b].assign(N, 300);
+                for (std::size_t c = 0; c < N; ++c) if (ma::oni::colony::owns(static_cast<int>(c))) el[b][c] = vacuum;
+                nc.element[b] = el[b].data(); nc.mass[b] = mass[b].data(); nc.temperature[b] = temperature[b].data();
+            }
+            ma::oni::colony::write_shadow(nc);
+            const auto warm = static_cast<std::size_t>(native_cell(4, 4)), drawn = static_cast<std::size_t>(native_cell(5, 5));
+            require(el[1][warm] != vacuum && mass[1][warm] > 0 && mass[1][drawn] > .5f, "shadow holds the owner's cells");
+            const double expected = mass[1][warm] * (el[1][warm] == oxygen ? 1000. : 850.) * 2;
+            temperature[1][warm] += 2; mass[1][drawn] -= .1f;
+            const auto before = ma::oni::colony::status();
+            ma::oni::colony::capture_shadow(nc);
+            ma::oni::colony::advance(8, .2, 2); ma::oni::colony::wait();
+            const auto after = ma::oni::colony::status();
+            std::cout << "shadow heat " << after.native_heat_j << " J (expected " << expected << ") taken " << after.native_mass_out_kg
+                      << " kg changes " << after.native_changes << '\n';
+            require(after.state == 1 && after.native_changes == 2 && std::abs(after.native_heat_j - expected) < 1e-6 * expected &&
+                std::abs(after.native_mass_out_kg - .1) < 1e-6 && after.committed_heat == before.committed_heat + 1 &&
+                std::abs(after.extracted_kg - before.extracted_kg - .1) < 1e-6, "shadow changes are booked");
+            require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "shadow ledgers close");
+        }
         // A different catalogue rejects the image.
         ma::oni::colony::stop();
         auto altered = materials; altered[0].specific_heat_j_per_kg_k = 1001;

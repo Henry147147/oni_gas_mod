@@ -33,6 +33,9 @@ play.
   copied game data. Extraction takes up to the requested mass from the open
   cells within the radius, nearest first, in a binary32-exact total; injection
   goes to the cell or the nearest open cell within two.
+- **Native bodies and actors** ([below](#native-bodies)): ONI's own heat and
+  element-consumer/emitter code meets a shadow of the owner's cells and its
+  changes are booked to the owner.
 - **Ledgers.** Every species and U+K+G are reconciled each frame against the
   imported inventory plus every booked flow (injections, extractions, the
   space sink, heat); drift beyond 1e-8 (mass) or 1e-6 (energy) faults the owner.
@@ -44,6 +47,39 @@ play.
 
 A faulted owner keeps publishing its last frame (fluids freeze), logs the error
 and refuses saves.
+
+## Presentation
+
+After each completed owner frame the mod builds one mixture reading per open
+owned cell holding material (`ma_oni_colony_readings`: temperature, pressures,
+internal energy, occupied and liquid volume, each constituent's mass and
+volume) and hands the frame to the mixture presentation runtime. The gas
+renderer, hover, overlays and status display then show the real mixture; each
+species uses the game's element id, name and substance colour, and breathing
+follows the easy-mode rule. A cell whose reading fails validation keeps the
+vanilla projection and is counted.
+
+## Native bodies
+
+ONI's tiles, buildings, items (element chunks), pipes and element
+consumers/emitters exchange heat and mass with cells inside the native frame.
+Before each positive frame's `UpdateData` the backend writes the latest
+completed owner cells (element, mass and temperature of the projection) into
+both native cell arrays, a shadow. Native code then runs unchanged against it,
+at vanilla rates, except that conduction between two owned cells stays the
+owner's. After `UpdateData` every change native made to an owned cell becomes a
+booked owner input for the next step:
+
+- same element and mass, new temperature: heat `m c ΔT` (ONI's own capacity, so
+  the owner gains exactly what the native body lost);
+- same element, less mass: an extraction at that cell; more mass: an injection
+  at the emitted parcel's temperature;
+- another fluid element: the old contents extracted, the new injected.
+
+A cell that native turned solid is left to the terrain edit. The status reports
+the booked heat, mass in and out, and the number of changed cells. A shortfall
+(native took more than the owner cell still holds after its step) is not yet
+reported.
 
 ## Terrain
 
@@ -107,11 +143,15 @@ whole asteroid starts at rest.
    temperature; it is never deleted. Kept cells keep their temperatures, shifted
    uniformly so the body's sensible heat is unchanged; flooded cells take the
    body's mean.
-3. **Gas.** In each region, gas moves along a breadth-first spanning tree until
-   every cell with gas room has the region's pressure, at the cell's equilibrium
-   temperature (a headspace takes its liquid's temperature). Moving a fraction of
-   a cell's gas moves that fraction of each species and of its heat, so species
-   are conserved exactly. This fills headspaces and vacuum pockets.
+3. **Gas.** In each region the gas is laid out again at one pressure without
+   mixing: ONI keeps one element per cell and its own simulation sorts gases by
+   density, while spreading every species through a region would mix a room's
+   CO2 into its air (Terra's starting room holds 33 kg of CO2 at its floor,
+   12.7 mol% of its gas, which mixed would be unbreathable). The region's gas
+   keeps its heat at one common temperature; each species takes the volume
+   n R T / p of a layer, the layers fill the region's gas room from the
+   bottom, heaviest molar mass first, and only cells where two layers meet hold
+   a mixture. This also fills headspaces and vacuum pockets.
 4. Liquid masses depend on the gas pressure above them, so steps 2 and 3 repeat
    three times.
 
@@ -120,14 +160,15 @@ The import ignores the small hydrostatic gradient within gas.
 **Control.** `ma_oni_colony_import_tests` (CTest `oni_colony_import_settle`)
 settles a made-up world with an overfull pool, a high-pressure pocket, a sealed
 overfull oil pocket, a vacuum pocket and open sky, checks conservation, the
-reservoir, the level and one pressure per region, then advances the settled
-state 0.2 s and requires it to stay near rest.
+reservoir, the level, one pressure per region and the density layering, then
+advances the settled state 0.2 s and requires it to stay near rest.
 
 **Measured on Terra (seed 147147, private capture, standalone).** 30,886 open
 cells in 1,297 regions; the settle takes about 130 ms, leaves a relative
-pressure spread of 2e-12 within regions and a species mass error of 1e-16, and
-books 656 t (sealed crude oil and magma) to reservoirs. The settled asteroid then
-takes mostly full 0.01 s production steps.
+pressure spread of 6e-16 within regions and a species mass error of 1e-16, and
+books 656 t (sealed crude oil and magma) to reservoirs. The starting room keeps
+its CO2 as a floor layer under oxygen. The settled asteroid then takes full
+0.05 s production steps after the first frames.
 
 The reservoir's release (liquid seeping back as its region gains room) is not
 implemented yet.

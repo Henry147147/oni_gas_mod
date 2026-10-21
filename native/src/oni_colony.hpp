@@ -24,6 +24,18 @@ void ack_receipts(std::uint64_t through);
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
+// Native cell arrays of one SimData: [0] the frame's old cells, [1] updated.
+struct NativeCells {
+    std::uint16_t* element[2]{}; float* mass[2]{}; float* temperature[2]{};
+    std::uint32_t pitch = 0, rows = 0;
+};
+// Native shadow (docs/colony-owner.md#native-bodies). Before a positive
+// frame's UpdateData, write() puts the latest completed owner cells into both
+// arrays; after it, capture() books every change native code made to them as
+// owner heat or transfers.
+void write_shadow(const NativeCells&) noexcept;
+void capture_shadow(const NativeCells&) noexcept;
+[[nodiscard]] bool owns(int native_cell) noexcept;
 // Native worker entry points. Never throw; a failure faults the session.
 // advance() hands the frame to the solver thread and returns at once.
 [[nodiscard]] bool suppress(std::uint32_t hook, int native_cell) noexcept;

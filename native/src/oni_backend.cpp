@@ -217,6 +217,27 @@ void observe_completed_solid_cell(void* data) {
           catch(...) {ma::oni::fault_domain_solid_heat("Unknown completed native solid observation failure");}
     }
 }
+// The native cell arrays of a SimData (layouts in on_temperature below).
+bool native_cells(void* data,ma::oni::colony::NativeCells& out) noexcept {
+    if (!data) return false;
+    auto* sim=static_cast<std::byte*>(data);int pitch{},rows{};void* arrays[2]{};
+    std::memcpy(&pitch,sim,sizeof(pitch));std::memcpy(&rows,sim+4,sizeof(rows));
+    std::memcpy(&arrays[0],sim+32,sizeof(void*));std::memcpy(&arrays[1],sim+40,sizeof(void*));
+    if (pitch<=2 || rows<=2 || !arrays[0] || !arrays[1]) return false;
+#if defined(_WIN32)
+    constexpr std::size_t element_offset=8,temperature_offset=40,mass_offset=72;
+#else
+    constexpr std::size_t element_offset=0,temperature_offset=24,mass_offset=48;
+#endif
+    for (int b=0;b<2;++b) {
+        std::memcpy(&out.element[b],static_cast<std::byte*>(arrays[b])+element_offset,sizeof(void*));
+        std::memcpy(&out.temperature[b],static_cast<std::byte*>(arrays[b])+temperature_offset,sizeof(void*));
+        std::memcpy(&out.mass[b],static_cast<std::byte*>(arrays[b])+mass_offset,sizeof(void*));
+        if (!out.element[b] || !out.temperature[b] || !out.mass[b]) return false;
+    }
+    out.pitch=static_cast<std::uint32_t>(pitch);out.rows=static_cast<std::uint32_t>(rows);
+    return true;
+}
 // A cell owned by the development domain or the colony owner: its native
 // fluid physics is suppressed.
 bool owned_cell(std::uint32_t hook,int cell) noexcept {
@@ -230,9 +251,15 @@ void on_update_data(void* self,void* data) {
     std::unique_lock<std::mutex> frame_lock;
     if (!worker_frame_fence.owns_lock()) frame_lock=std::unique_lock<std::mutex>(ma::oni::domain_frame_mutex());
     const auto pending=pending_timestep; pending_timestep={};
+    // Colony shadow: native bodies and actors meet the owner's cells during
+    // UpdateData, and what they change there is booked to the owner.
+    ma::oni::colony::NativeCells shadow{};
+    const bool shadowed=pending.ticket && ma::oni::colony::active() && native_cells(data,shadow);
+    if (shadowed) ma::oni::colony::write_shadow(shadow);
     native_heat_contact_bits.store(std::bit_cast<std::uint32_t>(pending.seconds),std::memory_order_release);
     original<void (*)(void*,void*)>(MA_ONI_UPDATE_DATA)(self,data);
     native_heat_contact_bits.store(0,std::memory_order_release);
+    if (shadowed && native_cells(data,shadow)) ma::oni::colony::capture_shadow(shadow);
     if (pending.ticket) {
         ma::oni::advance_domain(pending.ticket,pending.seconds,native_thread());
         ma::oni::colony::advance(pending.ticket,pending.seconds,native_thread());
@@ -251,6 +278,13 @@ void on_liquid(void* data,void* events,int cell) {
 }
 void on_temperature(void* data,void* events,int a,int b) {
     Call call(MA_ONI_TEMPERATURE);
+    if (ma::oni::colony::active()) {
+        // Conduction between owned cells is the owner's; a pair with a native
+        // cell exchanges natively with the shadow and is booked at capture.
+        if (ma::oni::colony::owns(a) && ma::oni::colony::owns(b)) { (void)ma::oni::colony::suppress(MA_ONI_TEMPERATURE,a); return; }
+        original<void (*)(void*,void*,int,int)>(MA_ONI_TEMPERATURE)(data,events,a,b);
+        return;
+    }
     const auto owned_a=owned_cell(MA_ONI_TEMPERATURE,a);
     const auto owned_b=owned_cell(MA_ONI_TEMPERATURE,b);
     if (!owned_a && !owned_b)
@@ -346,13 +380,7 @@ FORWARD(on_building_heat, MA_ONI_BUILDING_HEAT, void, (void* self,float dt,void*
 ma::oni::DomainChunkHeat prepare_chunk_contact(void* accessor,void* chunk,float dt,float scale) {
     ma::oni::DomainChunkHeat result{};
     std::int32_t cell{};float temperature{},capacity{},conductivity{},factor{};
-    if (ma::oni::colony::active()) {
-        // Item heat with colony fluid is a separate adapter; until it exists the
-        // contact is adiabatic rather than exchanging with a stale native cell.
-        std::memcpy(&cell,static_cast<const std::uint8_t*>(accessor)+8,4);
-        std::memcpy(&temperature,static_cast<const std::uint8_t*>(chunk)+4,4);
-        if (ma::oni::colony::suppress(MA_ONI_CHUNK_HEAT,cell)) { result.handled=true; result.temperature=temperature; result.delta_kj=0; return result; }
-    }
+    // Colony cells: items exchange natively with the shadow (booked at capture).
     if (!ma::oni::domain_active()) return result;
     // The pinned Windows PDB and Linux specialized call independently verify
     // this 16-byte accessor and 44-byte record. Copy fields without aliasing

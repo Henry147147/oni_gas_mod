@@ -212,62 +212,66 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
         for (const auto i : body) require(liquid[i].mass == 0 || (std::isfinite(liquid[i].temperature) && liquid[i].temperature > 0),
             "Import liquid levelling left a nonpositive temperature");
     }
-    // Gas: per connected component of open cells, one pressure.
+    // Gas: per connected component of open cells, one pressure, without
+    // mixing. ONI keeps one element per cell and its own simulation sorts
+    // gases by density; spreading every species through the region would mix
+    // a room's CO2 into its air. The region's gas keeps its heat at one common
+    // temperature; each species takes the volume n R T / p of a layer, layers
+    // fill the region's gas room from the bottom, heaviest molar mass first,
+    // and only the cells where two layers meet hold a mixture.
     report.maximum_relative_pressure_spread = 0;
     for (std::size_t r = 0; r < regions.size(); ++r) {
-        const auto& members = regions[r];
-        // Spanning tree (BFS from the first member with gas room).
-        std::size_t root = none; for (const auto i : members) if (gas_volume(i) > 0) { root = i; break; }
-        if (root == none) continue;
-        std::vector<std::size_t> order{root};
-        for (const auto i : members) parent[i] = none;
-        parent[root] = root;
-        for (std::size_t q = 0; q < order.size(); ++q) g.neighbours(order[q], [&](std::size_t n) {
-            if (open(n) && parent[n] == none) { parent[n] = order[q]; order.push_back(n); }
-        });
-        double room = 0; for (const auto i : order) room += gas_volume(i);
-        for (int pass = 0; pass < 6; ++pass) {
-            double moles = 0, inverse = 0, fallback_heat = 0, fallback_capacity = 0;
-            for (const auto i : order) { fallback_heat += gas[i].heat; fallback_capacity += gas[i].capacity; }
-            const double fallback = fallback_capacity > 0 ? fallback_heat / fallback_capacity : region_temperature[r];
-            for (const auto i : order) {
-                // The cell's equilibrium temperature: gas in a headspace takes
-                // its liquid's temperature, which dominates the heat capacity.
-                const double lc = liquid[i].mass > 0 ? registry[liquid[i].species].cv() * liquid[i].mass : 0;
-                const double capacity = gas[i].capacity + lc;
-                temperature[i] = capacity > 0 ? (gas[i].heat + lc * liquid[i].temperature) / capacity : fallback;
-                moles += gas[i].moles(registry); inverse += gas_volume(i) / (R * temperature[i]);
-            }
-            if (!(moles > 0) || !(room > 0)) break;
-            const double pressure = moles / inverse;
-            // Subtree excess flows to the parent (positive) or from it.
-            for (const auto i : order) excess[i] = gas[i].moles(registry) - pressure * gas_volume(i) / (R * temperature[i]);
-            for (std::size_t q = order.size(); q-- > 1;) excess[parent[order[q]]] += excess[order[q]];
-            const auto move = [&](std::size_t from, std::size_t to, double mol) {
-                const double available = gas[from].moles(registry); if (!(mol > 0) || !(available > 0)) return;
-                const double fraction = std::min(1., mol / available);
-                for (auto& [k, m] : gas[from].masses) { const double d = fraction >= 1 ? m : m * fraction; m -= d; gas[to].add(k, d); }
-                const double heat = fraction >= 1 ? gas[from].heat : gas[from].heat * fraction;
-                const double capacity = fraction >= 1 ? gas[from].capacity : gas[from].capacity * fraction;
-                gas[from].heat -= heat; gas[from].capacity -= capacity; gas[to].heat += heat; gas[to].capacity += capacity;
-                std::erase_if(gas[from].masses, [](const auto& p) { return p.second == 0; });
-                report.moved_gas_mol += mol;
-            };
-            for (std::size_t q = order.size(); q-- > 1;) if (excess[order[q]] > 0) move(order[q], parent[order[q]], excess[order[q]]);
-            for (std::size_t q = 1; q < order.size(); ++q) if (excess[order[q]] < 0) move(parent[order[q]], order[q], -excess[order[q]]);
+        std::vector<std::size_t> order;
+        for (const auto i : regions[r]) if (gas_volume(i) > 0) order.push_back(i);
+        std::vector<long double> moles(registry.size()), heat(registry.size());
+        std::vector<std::uint32_t> present;
+        for (const auto i : regions[r]) for (const auto& [k, m] : gas[i].masses) {
+            if (moles[k] == 0) present.push_back(k);
+            moles[k] += m / registry[k].molar_mass;
+            heat[k] += gas[i].capacity > 0 ? gas[i].heat * (registry[k].cv() * m / gas[i].capacity) : 0;
         }
-        // Final spread over cells with gas room.
+        if (present.empty() || order.empty()) continue;
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) { return a / width < b / width; });
+        std::sort(present.begin(), present.end(), [&](std::uint32_t a, std::uint32_t b) {
+            return registry[a].molar_mass != registry[b].molar_mass ? registry[a].molar_mass > registry[b].molar_mass : a < b; });
+        long double room = 0, nrt = 0;
+        for (const auto i : order) room += gas_volume(i);
+        long double total_heat = 0, total_capacity = 0;
+        for (const auto k : present) { total_heat += heat[k]; total_capacity += registry[k].cv() * moles[k] * registry[k].molar_mass; }
+        const long double common = total_heat > 0 ? total_heat / total_capacity : region_temperature[r];
+        for (const auto k : present) nrt += moles[k] * R * common;
+        const long double pressure = nrt / room;
+        for (const auto i : regions[r]) for (const auto& [k, m] : gas[i].masses) report.moved_gas_mol += m / registry[k].molar_mass;
+        for (const auto i : regions[r]) gas[i] = Gas{};
+        // Lay each species' volume into the ordered cells; the last cell takes
+        // the remainder of every species, so no mass is left over.
+        std::size_t at = 0; long double free = order.empty() ? 0 : gas_volume(order[0]);
+        for (std::size_t q = 0; q < present.size(); ++q) {
+            const auto k = present[q]; long double left = moles[k];
+            const long double per_volume = pressure / (R * common); // mol per m^3
+            while (left > 0) {
+                const bool last = at + 1 == order.size();
+                const long double take = last ? left : std::min(left, free * per_volume);
+                if (take > 0) {
+                    const auto mass = static_cast<double>(take * registry[k].molar_mass);
+                    auto& cell = gas[order[at]]; cell.add(k, mass);
+                    cell.capacity += registry[k].cv() * mass; cell.heat += registry[k].cv() * mass * static_cast<double>(common);
+                    left -= take; free -= take / per_volume;
+                }
+                if (left > 0 && !last) { ++at; free = gas_volume(order[at]); }
+                else if (left > 0) break;
+            }
+        }
+        // Spread over cells with gas: boundary cells mix at one temperature.
         double lo = std::numeric_limits<double>::infinity(), hi = 0;
         for (const auto i : order) {
-            const double v = gas_volume(i); if (v <= 0 || gas[i].capacity <= 0) continue;
-            const double lc = liquid[i].mass > 0 ? registry[liquid[i].species].cv() * liquid[i].mass : 0;
-            const double t = (gas[i].heat + lc * liquid[i].temperature) / (gas[i].capacity + lc);
-            const double p = gas[i].moles(registry) * R * t / v;
+            if (gas[i].capacity <= 0) continue;
+            const double p = gas[i].moles(registry) * R * (gas[i].heat / gas[i].capacity) / gas_volume(i);
             lo = std::min(lo, p); hi = std::max(hi, p);
         }
         if (hi > 0) {
             report.maximum_relative_pressure_spread = std::max(report.maximum_relative_pressure_spread, (hi - lo) / hi);
-            region_pressure[r] = .5 * (lo + hi);
+            region_pressure[r] = static_cast<double>(pressure);
         }
     }
     }

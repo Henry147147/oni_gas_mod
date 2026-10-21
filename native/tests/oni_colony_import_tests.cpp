@@ -2,6 +2,7 @@
 // inventories, not game data.
 #include "../src/oni_colony_import.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -64,7 +65,17 @@ int main() {
         require(std::abs(water_after - imported_water) <= 1e-12L * imported_water, "water conserved");
         require(st.cells[8 + 2 * W].mixture.masses[oxygen] > 0, "vacuum pocket filled");
         for (std::size_t x = 1; x <= 10; ++x) require(st.cells[x + 9 * W].mixture.mass() == 0, "space stays empty");
-        require(r.maximum_relative_pressure_spread < 1e-3, "one gas pressure per region");
+        require(r.maximum_relative_pressure_spread < 1e-12, "one gas pressure per region");
+        // Gas is layered by density, not mixed: hydrogen above oxygen, with at
+        // most one cell holding both.
+        std::size_t shared = 0, lowest_hydrogen = H, highest_oxygen = 0;
+        for (std::size_t i = 0; i < W * H; ++i) {
+            const double o = st.cells[i].mixture.masses[oxygen], h = st.cells[i].mixture.masses[hydrogen];
+            if (o > 0 && h > 0) ++shared;
+            if (h > 0) lowest_hydrogen = std::min(lowest_hydrogen, i / W);
+            if (o > 0 && h == 0) highest_oxygen = std::max(highest_oxygen, i / W);
+        }
+        require(shared <= 1 && lowest_hydrogen >= highest_oxygen, "gas layered by density");
         // The settled state is close to rest: a void-phase production owner
         // advances 0.2 s with small speeds.
         MacClosedSettings settings; settings.numerical_kernel = MacNumericalKernel::production; settings.gravity_m_per_s2 = 9.81;

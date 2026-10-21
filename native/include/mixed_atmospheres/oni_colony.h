@@ -56,6 +56,9 @@ typedef struct MAOniColonyStatus {
     double time_seconds, last_frame_seconds, last_advance_ms, maximum_advance_ms;
     double maximum_relative_mass_error, maximum_relative_energy_error;
     double reservoir_kg, space_sink_kg, injected_kg, extracted_kg;
+    /* Native bodies and actors meeting owned cells (docs/colony-owner.md#native-bodies). */
+    double native_heat_j, native_mass_in_kg, native_mass_out_kg;
+    uint64_t native_changes;
     char error[256];
 } MAOniColonyStatus;
 
