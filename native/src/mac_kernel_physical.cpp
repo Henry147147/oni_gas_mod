@@ -335,7 +335,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     };
     const bool equilibrium = mixed && isothermal();
     if (!equilibrium) {
-        const auto solved = solve_linear(c, sys, rhs, dT, 1e-13, 0, 4000);
+        const auto solved = solve_linear(c, sys, rhs, dT, 1e-13, 0, 4000, true);
         c.counters.linear += solved.iterations;
         acc.physical.conduction_iterations += solved.iterations;
         if (!solved.converged) reject("Production conductive solve did not converge");
@@ -403,7 +403,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                     rhs[i] = r;
                 }
             });
-            const auto corrected = solve_linear(c, sys, rhs, correction, 0, 1e-13 * scale, 4000);
+            const auto corrected = solve_linear(c, sys, rhs, correction, 0, 1e-13 * scale, 4000, true);
             c.counters.linear += corrected.iterations;
             acc.physical.conduction_iterations += corrected.iterations;
             if (!corrected.converged) reject("Production conductive solve did not converge");

@@ -1,8 +1,10 @@
 # Geometric pressure preconditioner
 
 The [production kernel](MAC_KERNEL.md) uses `mac_pressure_multigrid.*` for its
-matrix-free PCG pressure solve. Saved `automatic` selects it on grids of at
-least 256 cells; explicit `jacobi` keeps Jacobi. The former interval solver is
+matrix-free PCG pressure solve. Saved `automatic` selects it on pressure grids
+of at least 256 cells. Conduction first tries 32 Jacobi-PCG iterations at its
+unchanged tolerance; if needed, the geometric solve then starts from zero.
+Explicit `jacobi` keeps Jacobi. The former interval solver is
 [retired](MAC_INTERVAL_KERNEL.md). Its hierarchy implementation and independent
 saved-data reviewer are retained. No physical selector or timestep is changed.
 The generic settings default remains the strict reference. The native ONI owner
@@ -78,6 +80,22 @@ Production controls cover gas, filled liquids, mixtures, gravity, conduction,
 viscosity, vacuum masks and ordinary restore into twelve workers. These component
 and owner controls do not close the strong-flow, free-surface or colony gates.
 Platform verification and remaining work are recorded in [MAC_KERNEL.md](MAC_KERNEL.md#validation).
+
+## Independent IC(0) components
+
+The production midpoint also supports the saved `incomplete_cholesky` selector.
+It finds connected components of the actual linear operator and runs each
+component's retained `PressureSystem` solve on the production pool. Components
+use fixed cell/face order and separate mutable storage. With C components,
+local relative tolerance is rtol/2 and absolute tolerance atol/(2 sqrt(C));
+their squared residual limits sum to at most half the original global limit
+squared. The true residual is checked before publishing each correction.
+The outer pressure equation and closure tolerance remain unchanged.
+
+The colony owner selects this route; automatic multigrid and explicit Jacobi
+keep their existing pressure choices. The focused disconnected-room control
+checks agreement with geometric pressure, closed energy accounts, exact
+one/many-worker bytes, cold continuation and atomic budget failure.
 
 Earlier measurements of the removed serial donor-cell port took 6,626.66 ms median
 and 6,738.52 ms maximum for five fully changing 250,000-cell intervals of 0.1 s,

@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
         // Unsupported selectors keep their physical laws through an audited
         // reference interval, while retaining selection 2 for the next step.
         auto scene = wave(8, 8); scene.settings.numerical_kernel = MacNumericalKernel::production;
-        scene.settings.preconditioner = PressurePreconditioner::incomplete_cholesky;
+        scene.settings.reconstruction = MacMaterialReconstruction::swept_first_moment;
         const MacClosedWorld selected(s.registry, s.eos, scene.state, scene.settings);
         const auto fallback = selected.advanced(.002);
         scene.settings.numerical_kernel = MacNumericalKernel::reference;

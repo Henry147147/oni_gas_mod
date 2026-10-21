@@ -76,7 +76,10 @@ Declared in `mac_closed_world.hpp`:
   selects version 10), including the certificate path. Ordinary restored
   advances select the same kernel without a caller flag. Its saved automatic
   pressure setting uses geometric multigrid on grids of at least 256 cells;
-  explicit Jacobi is retained. With midpoint pressure, unported settings take an
+  conduction first tries a bounded Jacobi solve at the unchanged tolerance.
+  Explicit Jacobi is retained; explicit incomplete Cholesky solves disconnected
+  midpoint components independently, as selected by new colony owners.
+  With midpoint pressure, unported settings take an
   audited reference interval without changing physical selectors or saved kernel.
   New native ONI owners and each live worker frame explicitly select production;
   journal flag 4 records migration from a supported reference save.

@@ -27,7 +27,8 @@ struct MacKernelOptions {
     std::size_t minimum_blocks_per_thread = 1;
     // Numerical choices belong to MacClosedSettings and its checkpoint.
     // Automatic preconditioning uses geometric multigrid on large systems;
-    // explicit Jacobi remains available through the saved pressure setting.
+    // explicit Jacobi and midpoint IC components remain available through
+    // the saved pressure setting.
     // Diagnostics only: wall-clock stage timing (does not affect results).
     bool collect_stage_timing = false;
     void validate() const;
@@ -91,6 +92,7 @@ struct MacKernelPhysicalReport {
 struct MacKernelReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0, audit_retries = 0;
     std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
+    std::size_t incomplete_cholesky_solves = 0, incomplete_cholesky_fallbacks = 0, maximum_linear_components = 0;
     std::size_t newton_iterations = 0, linear_iterations = 0, line_search_backtracks = 0;
     std::size_t eos_evaluations = 0, isentropic_evaluations = 0;
     std::size_t reconstruction_backtracks = 0, limited_momentum_corrections = 0;

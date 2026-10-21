@@ -47,9 +47,14 @@ and [remaining work](#remaining-work).
   reject as retired. They are never restored under a different kernel.
 
 Numerical preconditioning belongs to the saved `MacClosedSettings`:
-`automatic` uses geometric multigrid for grids of at least 256 cells, otherwise
-Jacobi; explicit `jacobi` stays Jacobi. Explicit incomplete Cholesky is
-unported. `MacKernelOptions` contains thread scheduling and diagnostics, with no
+`automatic` uses geometric multigrid for pressure grids of at least 256 cells,
+otherwise Jacobi. With automatic or IC pressure, conduction first tries up to
+32 Jacobi-PCG iterations; if they do not reach the original tolerance, it starts
+the selected pressure preconditioner's solve from
+zero. This avoids hierarchy construction and pressure-cache eviction for
+heat-capacity-dominated systems. Explicit `jacobi` stays Jacobi. Explicit
+`incomplete_cholesky` uses independent component solves for midpoint pressure
+(below); new colony owners select it. `MacKernelOptions` contains thread scheduling and diagnostics, with no
 unsaved preconditioner override. Supported legacy reference images keep their
 bytes and continuation; selector-1 images explicitly reject. Version 6 rejects every kernel
 value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
@@ -87,8 +92,8 @@ policy paths.
 | Closed faces | `MacGrid::closed_x/closed_y` between two open cells: fixed like a wall face (no flow, pressure and weight go to the wall account, no viscous slip) but still conducting; set by `MacClosedWorld::with_closed_faces`, not persisted, discrete-gradient pressure only, no reference fallback |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
-compressive pressure (3) and explicit
-incomplete Cholesky are rejected by the flow-only helper. A selected production owner uses the audited reference for
+compressive pressure (3), and incomplete Cholesky with moment pressure are
+rejected by the flow-only helper. A selected production owner uses the audited reference for
 these settings, retaining their selectors and selection 2 in its next image.
 
 Range: a nonfinite or overflow-range value (above `2^450`) in the input or
@@ -156,6 +161,21 @@ its fixed-block pool to the V-cycle; no interval workers execute this path.
 An invalid preparation selects Jacobi before PCG; a failed application rejects
 the candidate. The old aggregation implementation has been removed. Workspace
 bytes include retained multigrid topology and numerical arrays.
+
+**Independent component solves.** Saved `incomplete_cholesky` (existing value 2)
+compacts the midpoint operator into connected components and solves them in
+parallel with the retained `PressureSystem` IC(0) implementation. Uncoupled
+boundary weights stay in the diagonal. Component cell/face order is fixed;
+each job owns its factor, Krylov vectors and disjoint output cells. There is
+no cached continuation history. Per-component tolerances are tightened so their
+combined residual satisfies the original global linear target; each solve
+checks the actual matrix residual. The nonlinear closure, physical fluxes and
+interval audits are unchanged. Linear iteration counts sum component iterations;
+`maximum_linear_components` and IC solve/fallback counts identify this route.
+The main benefit is on disconnected asteroid caverns: a stiff pocket no longer
+makes all other cells repeat its Krylov iterations. A single connected room
+still uses a serial IC solve. Unsupported moment-pressure combinations retain
+their previous admission rules. Checkpoint fields and versions are unchanged.
 
 **Transport** (`mac_kernel_transport.cpp`). Limited-linear reconstruction with
 the reference stencil, limiter points, positive-field and EOS admission
@@ -519,6 +539,33 @@ The playtest benchmark compares against the reference automatically:
 `tools/run_mac_playtest_benchmark.py --kernel production --profile reference
 --scene wave --continuation` gave 8.2e-11 of the disturbance after three
 consecutive intervals at 4,096 cells and 8.0e-11 at 16,384.
+
+## Terra colony frame
+
+Matched Linux Release new-colony runs complete 60 frames each, advancing
+0.2 game seconds per frame with sixteen workers under the whole-machine CPU
+lock. New owners select component IC; physical selectors, timestep, closure
+and audit bounds are unchanged.
+
+| Owner advance | Parent | Component IC + cheap conduction |
+| --- | ---: | ---: |
+| Median | 3.784 s | 0.961 s |
+| Mean | 4.430 s | 0.998 s |
+| p95 | 10.873 s | 1.526 s |
+| Maximum | 16.238 s | 1.679 s |
+
+Both runs close their ledgers. Candidate maximum relative mass/energy errors
+are `5.18e-16` / `2.77e-17`, with zero IC fallbacks. Matched high-half dump
+advances take 4.30–4.59 s → 0.65–0.97 s at frame 50; the severe pocket-opening
+dump takes 43.45 s → 3.48 s. These measure the evolving colony owner. Connected active-cell workloads
+follow below.
+
+Release/83 CTests and the focused ASan/UBSan/TSan control pass. Clean-build
+comparisons preserve all 83 short MAC executable and sixteen variant exits;
+the coarse Stefan worst error moves from 2.745% to 2.773% and still passes its
+unchanged bound. Other differences are counters, timing and the new controls.
+Checkpoint serialization is unchanged; new owner images store existing IC
+selector 2. Real-time 0.2 s frames remain open.
 
 ## Current active-cell baseline
 

@@ -197,6 +197,7 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     s.vacuum = MacVacuumRepresentation::void_phase; s.reconstruction = MacMaterialReconstruction::interface_plic;
     s.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;
     s.step_control = MacStepControl::predictive;
+    s.preconditioner = PressurePreconditioner::incomplete_cholesky;
     return s;
 }
 std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {

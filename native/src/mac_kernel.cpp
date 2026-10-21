@@ -55,8 +55,9 @@ void require_supported(const MacClosedSettings& s) {
         s.reconstruction == MacMaterialReconstruction::interface_plic, "Production kernel supports material reconstruction selectors 0, 1 and 3");
     require(s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear,
         "Production kernel supports momentum reconstruction selectors 0 and 1");
-    require(s.preconditioner != PressurePreconditioner::incomplete_cholesky,
-        "Production kernel does not support explicit incomplete Cholesky");
+    require(s.preconditioner != PressurePreconditioner::incomplete_cholesky ||
+        s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
+        "Production incomplete Cholesky requires midpoint pressure integration");
     require(s.compression_viscosity != MacCompressionViscosity::coupled_pressure,
         "Production kernel does not support coupled compressive pressure (compression selector 3)");
     require(!sharp_gravity_moments(s), "Sharp-interface gravity weights require midpoint pressure integration");
@@ -606,6 +607,12 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     report.multigrid_solves = c.counters.multigrid_solves; report.multigrid_cycles = c.counters.multigrid_cycles;
     report.multigrid_fallbacks = c.counters.multigrid_fallbacks; report.multigrid_levels = c.counters.multigrid_levels;
     report.topology_builds = c.counters.topology_builds;
+    report.incomplete_cholesky_solves = c.counters.incomplete_cholesky_solves;
+    report.incomplete_cholesky_fallbacks = c.counters.incomplete_cholesky_fallbacks;
+    report.maximum_linear_components = c.counters.maximum_linear_components;
+    if (kernel_debug() && report.incomplete_cholesky_solves != 0)
+        std::fprintf(stderr, "IC components %zu solves %zu fallbacks %zu\n", report.maximum_linear_components,
+            report.incomplete_cholesky_solves, report.incomplete_cholesky_fallbacks);
     report.newton_iterations = c.counters.newton; report.linear_iterations = c.counters.linear;
     report.line_search_backtracks = c.counters.line_search; report.eos_evaluations = c.counters.eos;
     report.isentropic_evaluations = c.counters.isentropic; report.reconstruction_backtracks = c.counters.reconstruction_backtracks;
@@ -631,7 +638,9 @@ void MacKernelOptions::validate() const {
         "Production kernel minimum blocks per thread must be 1..65536");
 }
 bool mac_kernel_supports(const MacClosedSettings& s) {
-    return s.preconditioner != PressurePreconditioner::incomplete_cholesky && (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
+    return (s.preconditioner != PressurePreconditioner::incomplete_cholesky ||
+        s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint) &&
+        (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
         s.reconstruction == MacMaterialReconstruction::interface_plic) &&
         (s.momentum_reconstruction == MacMomentumReconstruction::donor_cell || s.momentum_reconstruction == MacMomentumReconstruction::limited_linear) &&
         s.compression_viscosity != MacCompressionViscosity::coupled_pressure && !mac_kernel::sharp_gravity_moments(s) &&

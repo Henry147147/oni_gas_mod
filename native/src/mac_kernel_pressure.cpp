@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <numeric>
 
 namespace ma::experimental::mac_kernel {
 namespace {
@@ -120,12 +121,92 @@ static bool prepare_multigrid(Context& c, const LinearSystem& sys) {
     }
     ++c.counters.multigrid_solves; return true;
 }
+namespace {
+// Disconnected pressure graphs have independent equations. Give each component
+// its own Krylov stream: a stiff liquid pocket must not make every gas cavern
+// perform its iterations. Components and their row/face orders depend only on
+// the operator; each worker owns one solve and disjoint output cells.
+LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const std::vector<double>& b,
+    std::vector<double>& x, double rtol, double atol, std::size_t maximum) {
+    const auto& g = c.g; const auto N = g.N;
+    std::vector<std::size_t> nodes(N, N), cells;
+    std::vector<double> diagonal, rhs;
+    for (std::size_t i = 0; i < N; ++i) if (sys.active[i]) {
+        nodes[i] = cells.size(); cells.push_back(i); diagonal.push_back(sys.diag[i]); rhs.push_back(b[i]);
+    }
+    std::vector<PressureFace> faces;
+    const auto face = [&](Index l, Index r, double weight) {
+        if (weight == 0) return;
+        const auto a = l == none ? N : nodes[l], bb = r == none ? N : nodes[r];
+        if (a != N && bb != N) faces.push_back({a, bb, weight});
+        else if (a != N) diagonal[a] += weight;
+        else if (bb != N) diagonal[bb] += weight;
+    };
+    for (std::size_t fidx = 0; fidx < g.NX; ++fidx) face(g.xl[fidx], g.xr[fidx], sys.wx[fidx]);
+    for (std::size_t fidx = 0; fidx < g.NY; ++fidx) face(g.yl[fidx], g.yr[fidx], sys.wy[fidx]);
+    const auto M = cells.size();
+    std::vector<std::size_t> parent(M); std::iota(parent.begin(), parent.end(), 0);
+    const auto root = [&](std::size_t i) {
+        while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; }
+        return i;
+    };
+    for (const auto& edge : faces) {
+        const auto l = root(edge.left), r = root(edge.right);
+        if (l != r) parent[r] = l;
+    }
+    struct Component {
+        std::vector<double> diagonal, rhs;
+        std::vector<PressureFace> faces;
+        std::vector<std::size_t> cells;
+    };
+    std::vector<Component> parts;
+    std::vector<std::size_t> labels(M, M), which(M), local(M);
+    for (std::size_t i = 0; i < M; ++i) {
+        const auto r = root(i);
+        if (labels[r] == M) { labels[r] = parts.size(); parts.emplace_back(); }
+        which[i] = labels[r]; auto& part = parts[which[i]]; local[i] = part.cells.size();
+        part.cells.push_back(cells[i]); part.diagonal.push_back(diagonal[i]); part.rhs.push_back(rhs[i]);
+    }
+    for (const auto& edge : faces)
+        parts[which[edge.left]].faces.push_back({local[edge.left], local[edge.right], edge.conductance});
+    struct Solved { LinearSolveResult linear; bool ic = false, fallback = false; };
+    std::vector<Solved> results(parts.size()); x.assign(N, 0);
+    // Sum of squared component residual limits is at most half the squared
+    // original global limit, including when relative and absolute terms mix.
+    const double local_atol = parts.empty() ? atol : .5 * atol / std::sqrt(static_cast<double>(parts.size()));
+    c.exec.pool.run(parts.size(), [&](std::size_t index) {
+        auto& part = parts[index];
+        PressureSystem matrix(std::move(part.diagonal), std::move(part.faces), PressurePreconditioner::incomplete_cholesky);
+        PressureSolveResult solved;
+        try { solved = matrix.solve(part.rhs, std::vector<double>(part.rhs.size(), 0), .5 * rtol, local_atol, maximum); }
+        catch (const std::runtime_error&) { reject("Production component pressure solve did not converge"); }
+        for (std::size_t j = 0; j < part.cells.size(); ++j) x[part.cells[j]] = solved.pressure[j];
+        results[index] = {{solved.iterations, solved.residual_norm, true},
+            solved.preconditioner_used == PressurePreconditioner::incomplete_cholesky, solved.preconditioner_fallback};
+    });
+    LinearSolveResult result; result.converged = true; DD squared;
+    c.counters.maximum_linear_components = std::max(c.counters.maximum_linear_components, parts.size());
+    for (const auto& solved : results) {
+        result.iterations += solved.linear.iterations; squared.add(solved.linear.residual * solved.linear.residual);
+        c.counters.incomplete_cholesky_solves += solved.ic ? 1 : 0;
+        c.counters.incomplete_cholesky_fallbacks += solved.fallback ? 1 : 0;
+    }
+    result.residual = std::sqrt(squared.value()); return result;
+}
+}
 LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::vector<double>& b, std::vector<double>& x,
-    double rtol, double atol, std::size_t maximum) {
+    double rtol, double atol, std::size_t maximum, bool try_jacobi) {
+    if (c.settings.preconditioner == PressurePreconditioner::incomplete_cholesky && !(try_jacobi && c.g.N >= 256))
+        return solve_component_ic(c, sys, b, x, rtol, atol, maximum);
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
     for (auto* v : {&ws.lr, &ws.lz, &ws.lp, &ws.lq, &ws.lAp, &ws.ldiag}) v->resize(N);
     x.assign(N, 0);
-    const bool multigrid = c.settings.preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
+    // Heat-capacity-dominated conduction usually needs only a few Jacobi-PCG
+    // iterations. Avoid building a hierarchy (and evicting pressure topology)
+    // for it. A bounded probe retains the full geometric solve for stiff heat
+    // systems, from the same zero correction and at the original tolerance.
+    const bool probe = try_jacobi && c.settings.preconditioner != PressurePreconditioner::jacobi && g.N >= 256;
+    const bool multigrid = !probe && c.settings.preconditioner == PressurePreconditioner::automatic && g.N >= 256 && prepare_multigrid(c, sys);
     // Jacobi: inverse of the full operator diagonal.
     c.exec.rows([&](std::size_t y0, std::size_t y1, std::size_t) {
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -158,7 +239,7 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
     std::copy(ws.lz.begin(), ws.lz.end(), ws.lp.begin());
     double rz = dot(ws.lr, ws.lz);
     double beta = 0;
-    for (std::size_t it = 1; it <= maximum; ++it) {
+    for (std::size_t it = 1; it <= (probe ? std::min<std::size_t>(32, maximum) : maximum); ++it) {
         // p = z + beta p_old (double buffered) fused with A p and p.Ap.
         double pAp = 0;
         if (it == 1) apply(c, sys, ws.lp, ws.lAp, &ws.lp, &pAp);
@@ -199,6 +280,11 @@ LinearSolveResult solve_linear(Context& c, const LinearSystem& sys, const std::v
         if (result.residual <= threshold) { result.converged = true; break; }
         precondition();
         const double rz1 = dot(ws.lr, ws.lz); beta = rz1 / rz; rz = rz1;
+    }
+    if (probe && !result.converged) {
+        auto geometric = solve_linear(c, sys, b, x, rtol, atol, maximum);
+        geometric.iterations += result.iterations;
+        return geometric;
     }
     return result;
 }

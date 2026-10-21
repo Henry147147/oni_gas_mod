@@ -331,6 +331,7 @@ struct Accounts {
 };
 struct Counters {
     std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
+    std::size_t incomplete_cholesky_solves = 0, incomplete_cholesky_fallbacks = 0, maximum_linear_components = 0;
     std::size_t newton = 0, linear = 0, line_search = 0, eos = 0, isentropic = 0, reconstruction_backtracks = 0,
         limited_momentum = 0, compression_events = 0, shock_events = 0, conduction_stages = 0, viscosity_modes = 0;
     double maximum_volume_closure = 0;
@@ -476,5 +477,5 @@ struct LinearSystem {
 };
 struct LinearSolveResult { std::size_t iterations = 0; double residual = 0; bool converged = false; };
 LinearSolveResult solve_linear(Context&, const LinearSystem&, const std::vector<double>& b, std::vector<double>& x,
-    double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations);
+    double relative_tolerance, double absolute_tolerance, std::size_t maximum_iterations, bool try_jacobi = false);
 }
