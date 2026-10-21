@@ -204,8 +204,10 @@ mass drifts 6e-17.
 Fluid point transfers read every cell at its occupied volume. An empty cell may
 receive fluid: gas fills it, and liquid rests at zero pressure as a surface cell.
 A removal may empty a cell, taking exactly its stored energy, or open a liquid
-surface; gas keeps the cell's occupied volume, and added liquid enlarges a mixed
-cell's material. Removing a mixture species by species can leave a trace
+surface, also by taking a wet cell's last gas (the liquid then occupies its
+nominal volume at zero pressure, and a void the EOS reports there within
+rounding is accepted); gas keeps the cell's occupied volume, and added liquid
+enlarges a mixed cell's material. Removing a mixture species by species can leave a trace
 constituent holding only the rounding residue of the larger removals, which no
 temperature resolves: the trace then rejects ("No positive thermal energy"). An
 adapter draining a cell should remove its traces with its last bulk constituent.

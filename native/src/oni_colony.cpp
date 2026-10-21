@@ -867,21 +867,28 @@ void capture_shadow(const NativeCells& n) noexcept {
                 heat.push_back({cell, 0, joules, 0}); sum.heat_j += joules;
                 continue;
             }
-            // Native actors (element consumers and emitters) changed the mass.
-            const auto take = [&](std::uint16_t element, double mass) {
-                moves.push_back({cell, element, MA_ONI_COLONY_EXTRACT, 0, -1, 0, mass, 0, 0}); sum.mass_out_kg += mass; };
+            // Native processes changed the mass (the owner runs element
+            // consumers and emitters). A take from the gas projection (ONI
+            // deleting gas exposed to space) takes the cell's gas mixture by
+            // mass; a cell left at no mass gives up all of its gas, traces
+            // included (the binary32 projection would leave a residue).
+            const auto take = [&](std::uint16_t element, double mass, bool all = false) {
+                const bool gas = cat.materials[cat.species_of_native(element)].game.gas;
+                moves.push_back({cell, gas ? 0u : element, gas ? MA_ONI_COLONY_EXTRACT_GAS : MA_ONI_COLONY_EXTRACT, 0, -1, 0,
+                    all && gas ? 2 * mass + 1 : mass, 0, 0});
+                sum.mass_out_kg += mass; };
             const auto give = [&](std::uint16_t element, double mass, double temperature) {
                 moves.push_back({cell, element, MA_ONI_COLONY_INJECT, 0, -1, 0, mass, temperature, 0}); sum.mass_in_kg += mass; };
             if (e == sh.element) {
                 const double delta = static_cast<double>(m) - sh.mass;
-                if (delta < 0) take(e, -delta);
+                if (delta < 0) take(e, -delta, !(m > 0));
                 else {
                     // The emitted parcel's temperature, from the mixed endpoint.
                     const double emitted = (static_cast<double>(m) * t - static_cast<double>(sh.mass) * sh.temperature) / delta;
                     give(e, delta, emitted > 0 && std::isfinite(emitted) ? emitted : t);
                 }
             } else {
-                if (sh.element != vacuum && sh.mass > 0) take(sh.element, sh.mass);
+                if (sh.element != vacuum && sh.mass > 0) take(sh.element, sh.mass, true);
                 if (e != vacuum && m > 0 && t > 0) give(e, m, t);
             }
         }
@@ -1063,6 +1070,19 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
+        // One cell's removals, smallest constituent first. A cell that would
+        // keep less than the plan's binary32 quantum (rounding-sized traces of
+        // any phase) gives those up too: a trace left beside nothing would
+        // keep only rounding residue of the cell's energy.
+        const auto remove = [&](std::size_t cell, std::vector<std::pair<std::size_t, double>> take, double quantum) {
+            const auto& m = world.state().cells[cell].mixture;
+            double kept = m.mass(); for (const auto& [k, x] : take) kept -= x;
+            if (kept < quantum)
+                for (std::size_t q = 0; q < m.masses.size(); ++q)
+                    if (m.masses[q] > 0 && std::none_of(take.begin(), take.end(), [&](const auto& t) { return t.first == q; })) take.push_back({q, m.masses[q]});
+            std::stable_sort(take.begin(), take.end(), [&](const auto& a, const auto& b) { return m.masses[a.first] < m.masses[b.first]; });
+            for (const auto& [k, x] : take) if (x > 0) edits.push_back({cell, k, false, x, 0});
+        };
         for (const auto& t : transfers) {
             const auto centre = rect_index(s.config, t.public_cell);
             const auto& st = world.state();
@@ -1077,15 +1097,17 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 for (const auto i : order) for (std::size_t k = 0; k < cat.materials.size(); ++k)
                     if (cat.materials[k].game.gas == gas) available[i] += st.cells[i].mixture.masses[k];
                 const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
+                const double quantum = std::ldexp(1.0, plan.quantum_exponent);
                 const auto first = edits.size();
                 for (const auto& a : plan.allocations) {
                     const auto& m = st.cells[a.cell].mixture;
+                    // A cell the plan empties to within its binary32 quantum
+                    // gives up all of its phase together, traces included.
+                    const bool whole = available[a.cell] - a.mass < quantum;
+                    std::vector<std::pair<std::size_t, double>> take;
                     for (std::size_t k = 0; k < cat.materials.size(); ++k)
-                        if (cat.materials[k].game.gas == gas && m.masses[k] > 0) {
-                            // All of a cell's phase leaves together, traces included.
-                            const double share = a.mass >= available[a.cell] ? m.masses[k] : a.mass * (m.masses[k] / available[a.cell]);
-                            if (share > 0) edits.push_back({a.cell, k, false, share, 0});
-                        }
+                        if (cat.materials[k].game.gas == gas && m.masses[k] > 0) take.push_back({k, whole ? m.masses[k] : a.mass * (m.masses[k] / available[a.cell])});
+                    remove(a.cell, std::move(take), quantum);
                 }
                 plans.push_back({first, edits.size() - first, &t});
                 continue;
@@ -1102,16 +1124,45 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 std::vector<double> available(st.cells.size());
                 for (const auto i : order) available[i] = st.cells[i].mixture.masses[k];
                 const auto plan = radial::allocate_order(available, order, static_cast<double>(static_cast<float>(t.mass_kg)));
-                plans.push_back({edits.size(), plan.allocations.size(), &t});
-                for (const auto& a : plan.allocations) edits.push_back({a.cell, k, false, a.mass, 0});
+                const double quantum = std::ldexp(1.0, plan.quantum_exponent);
+                const auto first = edits.size();
+                for (const auto& a : plan.allocations) {
+                    const auto& m = st.cells[a.cell].mixture;
+                    if (available[a.cell] - a.mass >= quantum) { edits.push_back({a.cell, k, false, a.mass, 0}); continue; }
+                    // The constituent leaves whole; what its phase keeps below
+                    // the quantum (rounding residue) leaves with it.
+                    std::vector<std::pair<std::size_t, double>> take{{k, m.masses[k]}};
+                    double rest = 0;
+                    for (std::size_t q = 0; q < cat.materials.size(); ++q) if (q != k && cat.materials[q].game.gas == cat.materials[k].game.gas) rest += m.masses[q];
+                    if (rest < quantum)
+                        for (std::size_t q = 0; q < cat.materials.size(); ++q)
+                            if (q != k && cat.materials[q].game.gas == cat.materials[k].game.gas && m.masses[q] > 0) take.push_back({q, m.masses[q]});
+                    remove(a.cell, std::move(take), quantum);
+                }
+                plans.push_back({first, edits.size() - first, &t});
             }
         }
         std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
         for (std::size_t first = 0; first < edits.size(); first += 4096) {
             const std::span<const MacFluidTransfer> batch(edits.data() + first, std::min<std::size_t>(4096, edits.size() - first));
-            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
-            world = std::move(result.world);
-            parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
+            try {
+                auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+                world = std::move(result.world);
+                parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
+            } catch (const std::exception& error) {
+                // Name the first failing edit and its cell's contents.
+                auto probe = world; std::string where;
+                for (const auto& e : batch) {
+                    try { probe = probe.with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture).world; continue; }
+                    catch (...) {}
+                    const auto& m = probe.state().cells[e.cell_index].mixture; const auto W = probe.state().grid.width;
+                    where = " (" + std::string(e.inject ? "injecting " : "extracting ") + std::to_string(e.mass_kg) + " kg " + cat.materials[e.species_index].game.id +
+                        " at " + std::to_string(s.config.offset_x + e.cell_index % W) + "," + std::to_string(s.config.offset_y + e.cell_index / W) + " holding";
+                    for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) { char b[64]; std::snprintf(b, sizeof b, " %s %.3g", cat.materials[k].game.id.c_str(), m.masses[k]); where += b; }
+                    where += ")"; break;
+                }
+                throw std::runtime_error(error.what() + where);
+            }
         }
         if (!plans.empty()) {
             std::lock_guard q(inputs);

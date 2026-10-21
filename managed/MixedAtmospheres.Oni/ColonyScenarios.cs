@@ -83,6 +83,12 @@ namespace MixedAtmospheres.Oni
                     case "germs": Germs(frame); break;
                     case "puft": Puft(frame); break;
                     case "plant": Plant(frame); break;
+                    case "wheezewort": Wheezewort(frame); break;
+                    case "life-support": LifeSupport(frame); break;
+                    case "mask-station": MaskStation(frame); break;
+                    case "polymer-press": PolymerPress(frame); break;
+                    case "oxyfern": Oxyfern(frame); break;
+                    case "debris-heat": DebrisHeat(frame, status); break;
                     case "geyser": Geyser(frame); break;
                     case "rocket-exhaust": RocketExhaust(frame); break;
                     case "meteor": Meteor(frame, status); break;
@@ -504,6 +510,129 @@ namespace MixedAtmospheres.Oni
                 var vulnerable = plant != null ? plant.GetComponent<PressureVulnerable>() : null;
                 Record("the plant reads the owner's air as safe", vulnerable != null && vulnerable.IsNormal && vulnerable.testAreaElementSafe,
                     vulnerable == null ? "no plant" : $"pressure normal {vulnerable.IsNormal}, atmosphere safe {vulnerable.testAreaElementSafe}");
+                Finish();
+            }
+        }
+
+        // A Wheezewort draws the owner's gas through its consumer and returns it
+        // colder: what it took is back in the arena or held by the plant.
+        private static GameObject? wheezewort;
+        private static void Wheezewort(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "plant"))
+            {
+                recorded["gas"] = ArenaMass(); recorded["events"] = ColonyActors.Delivered;
+                wheezewort = GameUtil.KInstantiate(Assets.GetPrefab(ColdBreatherConfig.ID), Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingFront), Grid.SceneLayer.BuildingFront);
+                wheezewort.SetActive(true);
+            }
+            if (Once(40, "check"))
+            {
+                var held = wheezewort == null ? 0 : wheezewort.GetComponents<Storage>().Sum(s => s.MassStored());
+                Record("the owner runs the plant's consumer", ColonyActors.Delivered > recorded["events"], $"{ColonyActors.Delivered - recorded["events"]} consumed-mass events");
+                Record("the plant returned the gas it took", Math.Abs(ArenaMass() + held - recorded["gas"]) < 1e-3 * recorded["gas"],
+                    $"{recorded["gas"]:G6} -> {ArenaMass():G6} kg in the arena, {held:G4} kg held");
+                Finish();
+            }
+        }
+
+        // The dev life-support building's consumer and emitter run through the
+        // owner: carbon dioxide goes in, oxygen comes out until the output cell
+        // holds the emitter's maximum, and the building sees itself blocked.
+        private static GameObject? lifeSupport;
+        private static void LifeSupport(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.CarbonDioxide, 1.5f, 300f));
+            if (Once(6, "build"))
+            {
+                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
+                recorded["emitters"] = ColonyActors.Emitters; recorded["consumers"] = ColonyActors.Consumers; recorded["blocked"] = 0;
+                lifeSupport = Build(DevLifeSupportConfig.ID, Cell(3, 1));
+            }
+            var emitter = lifeSupport != null ? lifeSupport.GetComponent<ElementEmitter>() : null;
+            if (emitter != null && emitter.isEmitterBlocked) recorded["blocked"] = 1;
+            if (Once(30, "check"))
+            {
+                var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"]; var co2 = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
+                Record("the owner runs the building's emitter and consumer", ColonyActors.Emitters > recorded["emitters"] && ColonyActors.Consumers > recorded["consumers"] && ColonyActors.Native == 0,
+                    $"{ColonyActors.Emitters} emitters and {ColonyActors.Consumers} consumers owned, {ColonyActors.Native} native");
+                Record("oxygen came out and carbon dioxide went in", oxygen > 1 && co2 < -1, $"oxygen {oxygen:+0.###;-0.###} kg, carbon dioxide {co2:+0.###;-0.###} kg");
+                Record("the emitter saw its full cell", recorded["blocked"] == 1, $"blocked {emitter?.isEmitterBlocked}, maximum {emitter?.maxPressure} kg");
+                Finish();
+            }
+        }
+
+        // An oxygen mask station draws the owner's oxygen into its storage.
+        private static GameObject? station;
+        private static void MaskStation(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.5f, 300f));
+            if (Once(6, "build")) { recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); station = Build(OxygenMaskStationConfig.ID, Cell(3, 1)); }
+            if (Once(36, "check"))
+            {
+                var held = station == null ? 0 : station.GetComponents<Storage>().Sum(s => s.GetMassAvailable(SimHashes.Oxygen));
+                var taken = recorded["oxygen"] - ArenaSpecies(SimHashes.Oxygen);
+                Record("the station filled with the owner's oxygen", held > .01 && Math.Abs(taken - held) < .01 * held + 1e-4,
+                    $"took {taken:G4} kg, holds {held:G4} kg; {MachineState(station)}");
+                Finish();
+            }
+        }
+
+        // A polymer press turns stored petroleum into plastic and exhausts its
+        // steam and carbon dioxide into the owner.
+        private static GameObject? press;
+        private static void PolymerPress(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, .5f, 300f));
+            if (Once(6, "build"))
+            {
+                recorded["out"] = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) + ArenaSpecies(SimHashes.CarbonDioxide);
+                press = Build(PolymerizerConfig.ID, Cell(3, 1));
+                press.GetComponent<Storage>().AddLiquid(SimHashes.Petroleum, 20, 300, byte.MaxValue, 0);
+            }
+            if (Once(40, "check"))
+            {
+                var added = ArenaSpecies(SimHashes.Steam) + ArenaSpecies(SimHashes.Water) + ArenaSpecies(SimHashes.CarbonDioxide) - recorded["out"];
+                var left = press == null ? 0 : press.GetComponents<Storage>().Sum(s => s.GetMassAvailable(SimHashes.Petroleum));
+                Record("the press's exhaust reached the owner", added > 1e-3, $"+{added:G4} kg steam, water and carbon dioxide; petroleum left {left:G4} kg; {MachineState(press)}");
+                Finish();
+            }
+        }
+
+        // A wild oxyfern draws the owner's carbon dioxide through its consumer.
+        private static GameObject? fern;
+        private static void Oxyfern(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Dirt, 1000f, 300f) : (SimHashes.CarbonDioxide, 1.5f, 300f));
+            if (Once(6, "plant"))
+            {
+                recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide); recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["events"] = ColonyActors.Delivered;
+                fern = GameUtil.KInstantiate(Assets.GetPrefab(OxyfernConfig.ID), Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingFront), Grid.SceneLayer.BuildingFront);
+                fern.SetActive(true);
+            }
+            if (Once(36, "check"))
+            {
+                var taken = recorded["co2"] - ArenaSpecies(SimHashes.CarbonDioxide); var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"];
+                Record("the fern took carbon dioxide from the owner", ColonyActors.Delivered > recorded["events"] && taken > 0,
+                    $"{ColonyActors.Delivered - recorded["events"]} consumed-mass events, carbon dioxide -{taken:G4} kg, oxygen {oxygen:+0.####;-0.####} kg");
+                Finish();
+            }
+        }
+
+        // Hot debris on the floor warms the owner's gas through the native shadow.
+        private static void DebrisHeat(int frame, OniNativeColony.Status status)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "drop"))
+            {
+                recorded["t"] = GasTemperature(1);
+                ElementLoader.FindElementByHash(SimHashes.IronOre).substance.SpawnResource(Grid.CellToPosCCC(Cell(3, 1), Grid.SceneLayer.Ore), 200, 500, byte.MaxValue, 0);
+            }
+            if (Once(30, "check"))
+            {
+                var t = GasTemperature(1);
+                Record("the debris warmed the air around it", t > recorded["t"] + .05, $"{recorded["t"]:F3} -> {t:F3} K");
+                Record("the owner's energy ledger stayed closed", status.MaximumRelativeEnergyError < 1e-9, $"{status.MaximumRelativeEnergyError:G3}");
                 Finish();
             }
         }

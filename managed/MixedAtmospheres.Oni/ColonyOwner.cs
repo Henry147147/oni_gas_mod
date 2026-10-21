@@ -61,7 +61,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void ResetForNewSession()
         {
-            ColonyPresentation.Reset(); ColonyConsumers.Reset();
+            ColonyPresentation.Reset(); ColonyActors.Reset();
             current?.Dispose(); current = null;
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset();
@@ -198,6 +198,7 @@ namespace MixedAtmospheres.Oni
         {
             if (message != PrepareGameData || pointer == IntPtr.Zero || !Available) return pointer;
             var source = (Sim.GameDataUpdate*)pointer;
+            ColonyActors.Observe(source);
             if (!Active && ClusterManager.Instance != null && ColonyOwnerPersistence.TakePending() is var (saved, image)) Restore(saved, image);
             if (!Active) { TryStart(source); if (!Active) return pointer; }
             var output = OniNativeColony.Status.Empty;
@@ -230,6 +231,7 @@ namespace MixedAtmospheres.Oni
                 }
                 copy.AppendEvents<Sim.SubstanceChangeInfo>(SnapshotEventChannel.SubstanceChangeInfo, changes.ToArray());
                 DeliverReceipts(copy);
+                ColonyActors.Publish(copy);
                 var previous = current; current = copy; previous?.Dispose();
                 ++Publications;
                 ColonyPresentation.Publish(status.CompletedFrames);
@@ -255,7 +257,7 @@ namespace MixedAtmospheres.Oni
             for (var k = 0; k < delivered; ++k)
             {
                 var r = receipts[k]; through = r.Sequence;
-                if (ColonyConsumers.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyConsumers.Event(r)); }
+                if (ColonyActors.IsConsumerReceipt(r)) { if (r.MassKg > 0) removed.Add(ColonyActors.Event(r)); }
                 else if (r.Kind == OniNativeColony.Byproduct) SpawnByproduct(r);
                 else if (r.Kind == OniNativeColony.Extract)
                     consumed.Add(new Sim.MassConsumedCallback { callbackIdx = r.Callback, elemIdx = (ushort)r.NativeIndex, mass = r.MassKg,
@@ -274,9 +276,10 @@ namespace MixedAtmospheres.Oni
         // true when the whole batch was claimed.
         internal static bool TryHandle(int message, int length, int count, byte* payload)
         {
-            if (!Active || count <= 0 || payload == null) return false;
-            if (message == NewGameFrame && length >= 4) { ColonyConsumers.QueueFrame(*(float*)payload); return false; }
-            if (ColonyConsumers.TryHandle(message, length, count, payload, cell => InRect(cell, out _))) return true;
+            if (count <= 0 || payload == null || !Available) return false;
+            if (ColonyActors.TryHandle(message, length, count, payload, Active)) return true;
+            if (!Active) return false;
+            if (message == NewGameFrame && length >= 4) { ColonyActors.QueueFrame(*(float*)payload); return false; }
             switch (message)
             {
                 case MassEmission: return Claim(length, 24, count, payload, (data, list) =>

@@ -1,6 +1,8 @@
 // Colony owner control (docs/colony-owner.md). Made-up materials and
 // inventories, not game data.
 #include "../src/oni_colony.hpp"
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -115,9 +117,24 @@ int main() {
         require(built.flags == 0, "built cell is solid");
         require(suppress(MA_ONI_PRESSURE, native_cell(11, 5)) && !suppress(MA_ONI_PRESSURE, native_cell(13, 6)), "terrain ownership follows");
         require(st.maximum_relative_mass_error < 1e-12 && st.maximum_relative_energy_error < 1e-9, "terrain ledgers close");
-        // Native shadow: a body warms one owned gas cell by 2 K and an actor
-        // takes 0.1 kg from another; both become booked owner inputs.
+        // Native shadow: a body warms one owned gas cell by 2 K, a native
+        // process takes 0.1 kg from a mixed gas cell and empties another; all
+        // become booked owner inputs, and the takes leave as gas mixtures.
         {
+            const auto mix = [](std::uint32_t x, std::uint32_t y) {
+                std::uint32_t idx[8]; double m[8]; std::array<double, 3> t{};
+                const auto n = std::min<std::uint32_t>(ma::oni::colony::composition(public_cell(x, y), idx, m, 8), 8);
+                for (std::uint32_t q = 0; q < n; ++q) if (idx[q] != water) t[idx[q] == oxygen ? 0 : idx[q] == carbon ? 1 : 2] += m[q];
+                return t; // oxygen, carbon dioxide, steam
+            };
+            const auto gas_totals = [&] {
+                std::array<double, 3> t{};
+                for (std::uint32_t y = 0; y < H; ++y) for (std::uint32_t x = 0; x < W; ++x) { const auto c = mix(x, y); for (int q = 0; q < 3; ++q) t[q] += c[q]; }
+                return t;
+            };
+            // Seal (14, 7) off: native empties it, and no neighbour refills it.
+            const MAOniColonyTerrain seal[] = {{public_cell(13, 7), MA_ONI_COLONY_CLOSE}, {public_cell(14, 6), MA_ONI_COLONY_CLOSE}};
+            ma::oni::colony::queue_terrain(seal); ma::oni::colony::advance(8, .2, 2); ma::oni::colony::wait();
             const std::size_t N = (GW + 2) * (GH + 2);
             std::vector<std::uint16_t> el[2]; std::vector<float> mass[2], temperature[2];
             ma::oni::colony::NativeCells nc; nc.pitch = GW + 2; nc.rows = GH + 2;
@@ -130,7 +147,14 @@ int main() {
             const auto warm = static_cast<std::size_t>(native_cell(4, 4)), drawn = static_cast<std::size_t>(native_cell(5, 5));
             require(el[1][warm] != vacuum && mass[1][warm] > 0 && mass[1][drawn] > .5f, "shadow holds the owner's cells");
             const double expected = mass[1][warm] * (el[1][warm] == oxygen ? 1000. : 850.) * 2;
-            temperature[1][warm] += 2; mass[1][drawn] -= .1f;
+            const auto emptied = static_cast<std::size_t>(native_cell(14, 7));
+            const auto drawn_mix = mix(5, 5), emptied_mix = mix(14, 7), totals = gas_totals();
+            require(drawn_mix[0] > 0 && drawn_mix[1] > 0 && emptied_mix[0] > 0 && emptied_mix[1] > 0, "mixed gas cells for native takes");
+            const float drawn_before = mass[1][drawn], emptied_shadow = mass[1][emptied];
+            // The emptied cell keeps its element at no mass, as ONI leaves a
+            // cell whose last gas it deleted.
+            temperature[1][warm] += 2; mass[1][drawn] -= .1f; mass[1][emptied] = 0;
+            const double taken = static_cast<double>(drawn_before) - mass[1][drawn];
             // Native froze a pool cell and melted a rock cell beside the gas.
             const auto frozen = static_cast<std::size_t>(native_cell(3, 1)), melted = static_cast<std::size_t>(native_cell(0, 4));
             require(el[1][frozen] == water && el[1][melted] == 0, "freeze and melt cells");
@@ -138,18 +162,38 @@ int main() {
             el[1][frozen] = 1; el[1][melted] = water; mass[1][melted] = 500; temperature[1][melted] = 280;
             const auto before = ma::oni::colony::status();
             ma::oni::colony::capture_shadow(nc);
-            ma::oni::colony::advance(8, .2, 2); ma::oni::colony::wait();
+            ma::oni::colony::advance(9, .2, 2); ma::oni::colony::wait();
             const auto after = ma::oni::colony::status();
             std::cout << "shadow heat " << after.native_heat_j << " J (expected " << expected << ") taken " << after.native_mass_out_kg
                       << " kg changes " << after.native_changes << '\n';
             if (after.state != 1) throw std::runtime_error(std::string("shadow faulted: ") + after.error);
-            require(after.native_changes == 4 && std::abs(after.native_heat_j - expected) < 1e-6 * expected &&
-                std::abs(after.native_mass_out_kg - .1 - frozen_mass) < 1e-3 && after.committed_heat == before.committed_heat + 1 &&
-                std::abs(after.extracted_kg - before.extracted_kg - .1 - frozen_mass) < 1e-3, "shadow changes are booked");
+            // The take splits over the cell's gases (with the pool's vapour) by
+            // mass; the emptied cell's minority gas leaves with its bulk.
+            const auto left = gas_totals(); const double share = taken / (drawn_mix[0] + drawn_mix[1] + drawn_mix[2]);
+            for (int q = 0; q < 2; ++q)
+                require(std::abs(left[q] - (totals[q] - share * drawn_mix[q] - emptied_mix[q])) < 1e-9 * totals[q], "native takes leave as gas mixtures");
+            const auto residue = mix(14, 7);
+            require(residue[0] == 0 && residue[1] == 0 && residue[2] == 0, "an emptied cell keeps no gas");
+            const double emptied_gas = emptied_mix[0] + emptied_mix[1] + emptied_mix[2];
+            require(after.native_changes == 5 && std::abs(after.native_heat_j - expected) < 1e-6 * expected &&
+                std::abs(after.native_mass_out_kg - taken - frozen_mass - emptied_shadow) < 1e-3 && after.committed_heat == before.committed_heat + 1 &&
+                std::abs(after.extracted_kg - before.extracted_kg - taken - frozen_mass - emptied_gas) < 1e-3, "shadow changes are booked");
             require(after.closed_cells == before.closed_cells + 1 && after.opened_cells == before.opened_cells + 1 &&
                 std::abs(after.injected_kg - before.injected_kg - 500) < 1e-3, "frozen cell closed, melted cell opened with its water");
             require(!suppress(MA_ONI_PRESSURE, native_cell(3, 1)) && suppress(MA_ONI_PRESSURE, native_cell(0, 4)), "ownership follows freeze and melt");
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "shadow ledgers close");
+            // Taking a sealed cell's last oxygen takes the rounding-sized
+            // carbon dioxide trace beside it too.
+            const MAOniColonyTransfer fill[] = {{public_cell(14, 7), oxygen, MA_ONI_COLONY_INJECT, 0, -1, 0, .5, 300, 0},
+                                                {public_cell(14, 7), carbon, MA_ONI_COLONY_INJECT, 0, -1, 0, 1e-12, 300, 0}};
+            ma::oni::colony::queue_transfers(fill); ma::oni::colony::advance(10, .2, 2); ma::oni::colony::wait();
+            const auto filled = mix(14, 7);
+            require(filled[0] > .4 && filled[1] > 0, "sealed cell holds oxygen and a carbon dioxide trace");
+            const MAOniColonyTransfer breath{public_cell(14, 7), oxygen, MA_ONI_COLONY_EXTRACT, 0, -1, 0, 1, 0, 0};
+            ma::oni::colony::queue_transfers(std::span(&breath, 1)); ma::oni::colony::advance(11, .2, 2); ma::oni::colony::wait();
+            const auto drained = mix(14, 7); const auto end = ma::oni::colony::status();
+            require(end.state == 1 && drained[0] == 0 && drained[1] == 0 && drained[2] == 0, "the trace leaves with the last oxygen");
+            require(end.maximum_relative_mass_error < 1e-12 && end.maximum_relative_energy_error < 1e-9, "trace ledgers close");
         }
         // A different catalogue rejects the image.
         ma::oni::colony::stop();

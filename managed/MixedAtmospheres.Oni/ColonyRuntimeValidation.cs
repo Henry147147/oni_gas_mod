@@ -396,6 +396,9 @@ namespace MixedAtmospheres.Oni
             if (colonyOwnerWallStart == default) colonyOwnerWallStart = System.DateTime.UtcNow;
             Report.PhysicsOwner = "colony owner (MacClosedWorld); native ONI for solids";
             if (status.State == 2) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
+            // A system scenario (ColonyScenarios) decides when the run ends;
+            // its checks of this frame go into the report below.
+            var scenarioDone = configuration!.Scenario.Length != 0 && ColonyScenarios.Update(configuration.Scenario, status);
             var owner = new {
                 SchemaVersion = 1, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
@@ -414,16 +417,15 @@ namespace MixedAtmospheres.Oni
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results,
-                Consumers = ColonyConsumers.Count, ConsumerExtractions = ColonyConsumers.Queued, ConsumerEvents = ColonyConsumers.Delivered,
+                Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
             File.WriteAllText(Path.Combine(OutputDirectory, "colony-owner.json"), ReportJson.Serialize(owner));
-            var loading = configuration!.Mode == "colony-owner-load";
+            var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
             if (configuration.Scenario.Length != 0)
             {
-                // A system scenario (ColonyScenarios) decides when the run ends.
-                if (!ColonyScenarios.Update(configuration.Scenario, status)) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+                if (!scenarioDone) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
                 if (!ColonyScenarios.AllPassed)
                     throw new InvalidOperationException("Colony scenarios failed: " + string.Join("; ", ColonyScenarios.Results.Where(r => !r.Passed)
                         .Select(r => r.Name + ": " + string.Join(", ", r.Checks.Where(check => !check.Passed).Select(check => check.Name + " (" + check.Detail + ")")))));

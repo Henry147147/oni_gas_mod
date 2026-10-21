@@ -355,6 +355,31 @@ void transfers() {
     }
     std::cout << "void transfers: emptied, filled and two water surfaces; advanced 0.04 s\n";
 }
+// Removing a wet cell's last gas opens a zero-pressure liquid surface: the
+// water keeps its nominal volume and the owner advances.
+void gas_removal_surface() {
+    const auto& s = setup(); const auto nitrogen = s.registry.index("nitrogen"), water = s.registry.index("water");
+    auto settings = void_settings(1e-3); settings.reconstruction = MacMaterialReconstruction::limited_linear;
+    settings.compression_viscosity = MacCompressionViscosity{};
+    auto start = expansion(4, 1, [](std::size_t x, std::size_t) { return x < 2; });
+    std::vector<double> m(s.registry.size()); m[water] = .685; m[nitrogen] = .01;
+    start.cells[1].mixture = s.eos->initialize_at_temperature(m, 300, 1).mixture;
+    for (auto& c : start.cells) c.passive_quantities.clear();
+    const auto inertia = mac_face_inertias(s.registry, start, *s.eos); start.momentum_x.assign(inertia.x.size(), 0);
+    const MacClosedWorld owner(s.registry, s.eos, start, settings);
+    const MacFluidTransfer take{1, nitrogen, false, 1e9, 0};
+    const auto result = owner.with_fluid_transfers(std::span(&take, 1), MacFluidTransferTopology::occupied_mixture);
+    const auto& st = result.world.state();
+    require(st.cells[1].mixture.masses[nitrogen] == 0 && std::abs(mac_material_volume(st, 1) - .685e-3) <= 1e-15,
+        "Removing a wet cell's last gas did not open a liquid surface");
+    auto world = result.world;
+    for (int k = 0; k < 4; ++k) {
+        auto r = world.advanced(1e-2, 65536, MacExecutionPolicy::production); world = std::move(r.world);
+        require(r.report.interval_reference_fallbacks == 0 && std::abs(r.report.energy_residual_j) <= r.report.energy_bound_j, "The opened surface did not advance");
+        static_cast<void>(check_state(world.state()));
+    }
+    std::cout << "void transfers: a wet cell's last gas removed; advanced 0.04 s\n";
+}
 void rejections() {
     const auto& s = setup(); const auto start = expansion(8, 1, [](std::size_t x, std::size_t) { return x < 4; });
     for (const auto& change : std::vector<std::function<void(MacClosedSettings&)>>{
@@ -382,7 +407,7 @@ void rejections() {
 int main() {
     try {
         one_dimensional(); two_dimensional(); gravity(); checkpoint_and_policy(); production();
-        liquid_surfaces(MacMaterialReconstruction::limited_linear); liquid_surfaces(MacMaterialReconstruction::interface_plic); void_conduction(); transfers(); rejections();
+        liquid_surfaces(MacMaterialReconstruction::limited_linear); liquid_surfaces(MacMaterialReconstruction::interface_plic); void_conduction(); transfers(); gas_removal_surface(); rejections();
         std::cout << "MAC void-phase tests passed\n"; return 0;
     } catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }

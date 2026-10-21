@@ -32,10 +32,17 @@ play.
   of the next native frame, with consumed/emitted callbacks returned through the
   copied game data. Extraction takes up to the requested mass from the open
   cells within the radius, nearest first, in a binary32-exact total; injection
-  goes to the cell or the nearest open cell within two.
-- **Native bodies and actors** ([below](#native-bodies)): ONI's own heat and
-  element-consumer/emitter code meets a shadow of the owner's cells and its
-  changes are booked to the owner.
+  goes to the cell or the nearest open cell within two. A cell an extraction
+  empties to within the total's binary32 quantum gives up all of that
+  constituent, and the rest of its phase when that is below the quantum; a cell
+  that would keep less than the quantum in all gives that up too. The cell's
+  smallest constituents leave first, so no trace is left holding only rounding
+  residue of the cell's energy. Taking a wet cell's last gas opens a liquid
+  surface.
+- **Native bodies** ([below](#native-bodies)): ONI's own heat code and other
+  native processes meet a shadow of the owner's cells and their changes are
+  booked to the owner; the owner runs element consumers and emitters
+  ([below](#element-consumers-and-emitters)).
 - **Ledgers.** Every species and U+K+G are reconciled each frame against the
   imported inventory plus every booked flow (injections, extractions, the
   space sink, heat); drift beyond 1e-8 (mass) or 1e-6 (energy) faults the owner.
@@ -72,9 +79,11 @@ booked owner input for the next step:
 
 - same element and mass, new temperature: heat `m c ΔT` (ONI's own capacity, so
   the owner gains exactly what the native body lost);
-- same element, less mass: an extraction at that cell; more mass: an injection
-  at the emitted parcel's temperature;
-- another fluid element: the old contents extracted, the new injected.
+- same element, less mass: an extraction at that cell (from a gas cell, of its
+  gas mixture by mass; a cell left at no mass gives up all of its gas); more
+  mass: an injection at the emitted parcel's temperature;
+- another fluid element: the old contents extracted (a gas cell's whole gas),
+  the new injected.
 
 - the cell turned solid (native froze it): its liquid leaves (with any traces,
   which would otherwise keep only rounding residue of the cell's energy) and the
@@ -90,20 +99,40 @@ the booked heat, mass in and out, and the number of changed cells. A shortfall
 (native took more than the owner cell still holds after its step) is not yet
 reported.
 
-## Element consumers
+## Element consumers and emitters
 
-ONI's native element consumers (pumps, terrariums, skimmers, plants and
-critters that breathe) read one element per cell, the owner's projection, so a
+ONI's native element consumers (pumps, terrariums, skimmers, scrubbers, plants)
+and emitters read and write one element per cell, the owner's projection, so a
 carbon dioxide consumer in an oxygen-dominated mixed room would find none. The
-owner runs every consumer instead (`ColonyConsumers.cs`): ONI still registers it
-natively, for its handle, but its rate messages (`SetElementConsumerData`) stop
-at the mod, so the native consumer stays at rate zero. At each positive native
-frame each consumer with a positive rate queues rate × dt as an owner
-extraction within its radius: its element, or for an any-gas or any-liquid
-consumer (pumps) the whole mixture of that phase (`MA_ONI_COLONY_EXTRACT_GAS`,
-`_LIQUID`), each cell's share split over its constituents. The receipts carry
-the consumer flag and return as ONI's consumed-mass events for the handle, one
-per constituent, so a pump's storage holds the mixture it drew.
+owner runs every one (`ColonyActors.cs`) and ONI's native simulation holds
+none of them:
+
+- While the owner runs, a registration (`AddElementConsumer`,
+  `AddElementEmitter`) stops at the mod, which answers it with its own handle
+  through the frame's component-state messages; the actor's rate, modify and
+  remove messages stop there too.
+- Registrations from before the owner started (a loaded save's buildings, a new
+  world's plants) are watched from the game's start, with their native handles.
+  At the owner's first frame the mod removes them from the native simulation
+  and runs them under those handles.
+
+At each positive native frame each consumer with a positive rate queues
+rate × dt as an owner extraction within its radius: its element, or for an
+any-gas or any-liquid consumer (pumps) the whole mixture of that phase
+(`MA_ONI_COLONY_EXTRACT_GAS`, `_LIQUID`), each cell's share split over its
+constituents. The receipts carry the consumer flag and return as ONI's
+consumed-mass events for the handle, one per constituent, so a pump's storage
+holds the mixture it drew. An emitter injects its rate × dt at its cell (ONI
+sends the output element's generation rate in kg/s; its germs count per
+emission interval), unless the cell's dominant phase already holds the
+emitter's maximum (kg), and answers its blocked and unblocked callbacks on
+each change.
+
+Left native, a consumer ate the projection's one element. The shadow's other
+mass changes ([above](#native-bodies)) are chiefly ONI deleting gas exposed to
+space; booked as takes of the projected element, they left the other gases of
+Terra's space-exposed pockets as near-empty traces, and frames took 17 to 90 s
+by frame 50.
 
 ## Germs
 
@@ -332,6 +361,12 @@ setting their powered flag (harness only).
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
 | `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere. |
+| `wheezewort` | A Wheezewort's gas consumer runs through the owner, and the gas it takes returns to the arena or is held by the plant. |
+| `life-support` | The dev life-support building's consumer and emitter run through the owner: carbon dioxide in, oxygen out, and the emitter sees its full cell. |
+| `mask-station` | An oxygen mask station fills its storage with the owner's oxygen; the arena loses what the station holds. |
+| `polymer-press` | A polymer press works stored petroleum and exhausts steam and carbon dioxide into the owner. |
+| `oxyfern` | A wild oxyfern's consumer takes the owner's carbon dioxide. |
+| `debris-heat` | Hot debris warms the owner's air through the native shadow; the energy ledger stays closed. |
 | `geyser` | A steam geyser shifted to its active period erupts into the owner. |
 | `rocket-exhaust` | A steam rocket engine put into its burning state (as at launch) exhausts hot steam into the owner. |
 | `meteor` | A rock meteor falls through the arena's air and strikes its floor with the owner's ledgers closed. |

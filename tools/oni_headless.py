@@ -66,7 +66,7 @@ TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
-             "plant", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump", "base")
+             "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump", "base")
 
 
 # Base-game starting cluster layouts (worldgen/clusters names; identities only).

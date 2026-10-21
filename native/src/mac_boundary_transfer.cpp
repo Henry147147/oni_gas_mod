@@ -264,9 +264,15 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         }
         energy.add(material_energy); energy.add(edit.inject ? packet.potential_energy : packet.potential_energy.negated());
         if (!edit.inject) { energy.add(packet.resolved_kinetic_energy.negated()); px.add(packet.momentum_x.negated()); py.add(packet.momentum_y.negated()); }
-        require((voids && cell.mixture.mass() == 0) ||
-            !thermodynamics_->evaluate(cell.mixture,voids ? next.occupied_volumes_m3[edit.cell_index] : grid_volume).has_vacuum,
-            "Fluid removal would create an unsupported liquid free surface");
+        if (!(voids && cell.mixture.mass() == 0)) {
+            const double occupied=voids ? next.occupied_volumes_m3[edit.cell_index] : grid_volume;
+            const auto after=thermodynamics_->evaluate(cell.mixture,occupied);
+            // A gas-free liquid cell in the void phase occupies its nominal
+            // liquid volume at zero pressure: a void it reports is the
+            // rounding between the two sums of that volume.
+            const bool surface=voids && !after.has_gas && after.vacuum_volume_m3 <= 64*std::numeric_limits<double>::epsilon()*occupied;
+            require(!after.has_vacuum || surface,"Fluid removal would create an unsupported liquid free surface");
+        }
         parcels.push_back(std::move(packet));
     }
     // A recomputation of the touched faces must equal the incrementally updated ones.
