@@ -356,6 +356,9 @@ namespace MixedAtmospheres.Oni
                     {
                         var d = data.Slice(k * length, length);
                         if (!OwnsFluid(BinaryPrimitives.ReadInt32LittleEndian(d)) || d[22] != 0 || d[24] != 1) return false;
+                        // A solid (landing sand, debris) stays ONI's: it fills the cell natively.
+                        var added = ElementLoader.elements[BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20))];
+                        if (!(added.IsGas || added.IsLiquid)) return false;
                         var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(12)));
                         if (!(mass > 0)) continue;
                         list.Add(WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d),

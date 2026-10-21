@@ -53,10 +53,11 @@ namespace MixedAtmospheres.Oni
         internal static int Native => native.Count + registering.Count;
         internal static long Queued { get; private set; }
         internal static long Delivered { get; private set; }
+        internal static double DeliveredKg { get; private set; }
         internal static void Reset()
         {
             registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear();
-            issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0;
+            issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0;
         }
 
         // The message layouts, from the game's own message structs.
@@ -238,7 +239,7 @@ namespace MixedAtmospheres.Oni
         internal static bool IsConsumerReceipt(in OniNativeColony.Receipt receipt) => (receipt.Kind & OniNativeColony.ConsumerFlag) != 0;
         internal static Sim.ConsumedMassInfo Event(in OniNativeColony.Receipt receipt)
         {
-            ++Delivered;
+            ++Delivered; DeliveredKg += receipt.MassKg;
             return new Sim.ConsumedMassInfo { simHandle = receipt.Callback, removedElemIdx = (ushort)receipt.NativeIndex, mass = receipt.MassKg,
                 temperature = receipt.MassKg > 0 ? receipt.TemperatureK : 0, diseaseIdx = OniNativeColony.DiseaseIdx(receipt.Disease), diseaseCount = receipt.DiseaseCount };
         }

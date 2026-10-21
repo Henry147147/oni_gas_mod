@@ -101,7 +101,12 @@ namespace MixedAtmospheres.Oni
                     default: throw new InvalidOperationException("Unknown colony scenario " + name);
                 }
             }
-            catch (Exception error) { Record("scenario ran", false, error.Message); Finish(); }
+            catch (Exception error)
+            {
+                var cause = error is System.Reflection.TargetInvocationException && error.InnerException != null ? error.InnerException : error;
+                Debug.LogWarning("[Mixed Atmospheres] Colony scenario " + name + " threw: " + cause);
+                Record("scenario ran", false, cause.GetType().Name + ": " + cause.Message); Finish();
+            }
             return Current.Finished;
         }
 
@@ -180,9 +185,14 @@ namespace MixedAtmospheres.Oni
                 Record("ice melted into an owned cell", status.OpenedCells > recorded["opened"] && !Grid.Solid[Cell(6, 2)],
                     $"opened {status.OpenedCells - recorded["opened"]}; ice cell {Describe(Cell(6, 2))}");
                 Record("melt water booked", status.InjectedKg > recorded["injected"] + 300, $"{status.InjectedKg - recorded["injected"]:G4} kg");
+                // A small cell of water freezes into ice debris, a larger one into a tile.
                 var frozen = Enumerable.Range(0, 4).Count(x => Grid.Solid[Cell(x, 1)]);
-                Record("water froze on the cold block", status.ClosedCells > recorded["closed"] && frozen > 0,
-                    $"{frozen} frozen cells; pool {Describe(Cell(1, 1))}, floor {Describe(Cell(1, 0))}");
+                var ice = Components.Pickupables.Items.Where(item => item != null && item.GetComponent<PrimaryElement>()?.ElementID == SimHashes.Ice)
+                    .Where(item => { Grid.CellToXY(Grid.PosToCell(item), out var ix, out var iy); return ix >= x0 && ix < x0 + 4 && iy >= y0 && iy < y0 + Height; })
+                    .Sum(item => (double)item.GetComponent<PrimaryElement>().Mass);
+                var water = Enumerable.Range(0, 4).Sum(x => SpeciesMass(Cell(x, 1), SimHashes.Water));
+                Record("water froze on the cold block", frozen > 0 || ice > 1,
+                    $"{frozen} frozen cells, {ice:G4} kg ice debris, {water:G4} kg water left; pool {Describe(Cell(1, 1))}, floor {Describe(Cell(1, 0))}");
                 Finish();
             }
         }
@@ -216,7 +226,8 @@ namespace MixedAtmospheres.Oni
                     ((x + y) % 2 == 0 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.CarbonDioxide, 1.6f, 300f)));
             if (Once(6, "build"))
             {
-                recorded["gas"] = ArenaMass();
+                recorded["gas"] = ArenaMass(); recorded["consumed"] = ColonyActors.DeliveredKg; recorded["injected"] = ColonyOwner.Status.InjectedKg;
+                recorded["extracted"] = ColonyOwner.Status.ExtractedKg;
                 var pump = Build(GasPumpConfig.ID, Cell(1, 0));
                 var vent = Build(GasVentConfig.ID, Cell(6, 0));
                 var from = Grid.OffsetCell(Cell(1, 0), pump.GetComponent<Building>().Def.UtilityOutputOffset);
@@ -229,6 +240,14 @@ namespace MixedAtmospheres.Oni
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, path);
                 pipeCells.AddRange(path);
             }
+            if (frame >= 8 && frame <= 39 && Once(frame, "trace" + frame))
+            {
+                double Side(int from, int to) => Enumerable.Range(from, to - from).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))));
+                var pipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
+                var held = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
+                Debug.Log($"[Mixed Atmospheres] pipes frame {frame}: left {Side(0, 4):G6} right {Side(5, 8):G6} pipe {pipe:G4} stored {held:G4} receipts {ColonyActors.DeliveredKg - recorded["consumed"]:G4} " +
+                    $"injected {ColonyOwner.Status.InjectedKg - recorded["injected"]:G4} extracted {ColonyOwner.Status.ExtractedKg - recorded["extracted"]:G4}");
+            }
             if (Once(40, "check"))
             {
                 var right = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))));
@@ -239,7 +258,9 @@ namespace MixedAtmospheres.Oni
                 Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber; pump {MachineState(powered.FirstOrDefault())}");
                 Record("the pipe carried both gases", oxygen > 0 && carbon > 0, $"oxygen {oxygen:G4} kg, carbon dioxide {carbon:G4} kg");
                 var total = ArenaMass() + inPipe + stored;
-                Record("owner, pipe and pump keep the gas", Math.Abs(total - recorded["gas"]) < .01 * recorded["gas"], $"{recorded["gas"]:G6} -> {total:G6} kg");
+                Record("owner, pipe and pump keep the gas", Math.Abs(total - recorded["gas"]) < .01 * recorded["gas"],
+                    $"{recorded["gas"]:G6} -> {total:G6} kg (arena {ArenaMass():G5}, pipe {inPipe:G4}, stored {stored:G4}; consumer receipts {ColonyActors.DeliveredKg - recorded["consumed"]:G4} kg, " +
+                    $"owner extracted {ColonyOwner.Status.ExtractedKg - recorded["extracted"]:G4} kg, injected {ColonyOwner.Status.InjectedKg - recorded["injected"]:G4} kg)");
                 Finish();
             }
         }
@@ -251,7 +272,9 @@ namespace MixedAtmospheres.Oni
             if (Once(0, "arena"))
                 Arena((x, y) => x == 4 ? (y >= 2 ? (SimHashes.Unobtanium, 20000f, 300f) : (SimHashes.Vacuum, 0f, 0f)) :
                     x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.Vacuum, 0f, 0f));
-            if (Once(6, "build")) { door = Build(DoorConfig.ID, Cell(4, 0)).GetComponent<Door>(); SetDoor(Door.ControlState.Locked); }
+            // The door takes control-state changes once it has spawned (a frame later).
+            if (Once(6, "build")) door = Build(DoorConfig.ID, Cell(4, 0)).GetComponent<Door>();
+            if (Once(7, "lock")) SetDoor(Door.ControlState.Locked);
             if (Once(10, "closed")) { recorded["gas"] = ArenaMass(); recorded["right"] = RightMass(); }
             if (Once(16, "open"))
             {
@@ -306,14 +329,23 @@ namespace MixedAtmospheres.Oni
             if (Once(6, "place"))
             {
                 recorded["gas"] = ArenaMass(); recorded["opened"] = ColonyOwner.Status.OpenedCells; recorded["closed"] = ColonyOwner.Status.ClosedCells;
+                recorded["nativeIn"] = ColonyOwner.Status.NativeMassInKg; recorded["nativeOut"] = ColonyOwner.Status.NativeMassOutKg;
+                recorded["injected"] = ColonyOwner.Status.InjectedKg; recorded["extracted"] = ColonyOwner.Status.ExtractedKg;
                 SimMessages.ReplaceElement(Cell(3, 4), SimHashes.Sand, CellEventLogger.Instance.SandBoxTool, 500, 300);
             }
+            if (frame >= 6 && frame <= 16 && Once(frame, "trace" + frame))
+                Debug.Log($"[Mixed Atmospheres] falling frame {frame}: gas {ArenaMass():G9} kg, opened {ColonyOwner.Status.OpenedCells}, closed {ColonyOwner.Status.ClosedCells}, column " +
+                    string.Join(" ", Enumerable.Range(0, Height).Select(y => $"{Grid.Element[Cell(3, y)].id}:{Grid.Mass[Cell(3, y)]:G4}{(Grid.Solid[Cell(3, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(3, y)) ? "o" : "")}")) +
+                    $"; falling objects {Components.Pickupables.Items.Count(p => p != null && p.GetComponent<PrimaryElement>()?.ElementID == SimHashes.Sand)}");
             if (Once(30, "check"))
             {
                 Record("the sand fell", !Grid.Solid[Cell(3, 4)] && Grid.Solid[Cell(3, 0)], $"top solid {Grid.Solid[Cell(3, 4)]}, floor solid {Grid.Solid[Cell(3, 0)]}");
                 Record("the falling cell reopened and the landing cell closed", ColonyOwner.Status.OpenedCells > recorded["opened"] &&
                     ColonyOwner.Status.ClosedCells > recorded["closed"] + 1, $"opened {ColonyOwner.Status.OpenedCells - recorded["opened"]}, closed {ColonyOwner.Status.ClosedCells - recorded["closed"]}");
-                Record("the gas was kept", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"], $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg");
+                var st = ColonyOwner.Status;
+                Record("the gas was kept", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"],
+                    $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg; native in {st.NativeMassInKg - recorded["nativeIn"]:G4} out {st.NativeMassOutKg - recorded["nativeOut"]:G4}, " +
+                    $"injected {st.InjectedKg - recorded["injected"]:G4}, extracted {st.ExtractedKg - recorded["extracted"]:G4} kg; sand at {string.Join(" ", Enumerable.Range(0, Height).Select(y => Grid.Element[Cell(3, y)].id.ToString()))}");
                 Finish();
             }
         }
@@ -954,22 +986,7 @@ namespace MixedAtmospheres.Oni
         }
         private static void Spill(SimHashes element, int x, int y, float mass) =>
             ElementLoader.FindElementByHash(element).substance.SpawnResource(Grid.CellToPosCCC(Grid.XYToCell(x, y), Grid.SceneLayer.Ore), mass, 300, byte.MaxValue, 0);
-        private static void Wire(List<int> path)
-        {
-            var network = Game.Instance.electricalConduitSystem;
-            for (var k = 0; k + 1 < path.Count; ++k)
-            {
-                var direction = UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
-                // Physical connections form the network; visual ones draw it.
-                foreach (var physical in new[] { true, false })
-                {
-                    network.AddConnection(direction, path[k], physical);
-                    network.AddConnection(direction.InverseDirection(), path[k + 1], physical);
-                }
-            }
-            var def = Assets.GetBuildingDef(WireConfig.ID);
-            foreach (var cell in path) def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
-        }
+        private static void Wire(List<int> path) => Pipe(Game.Instance.electricalConduitSystem, WireConfig.ID, path);
 
         private static double OwnedMass(SimHashes element)
         {
@@ -979,20 +996,23 @@ namespace MixedAtmospheres.Oni
         }
 
         private static readonly List<int> pipeCells = new List<int>();
+        // A utility path as ONI's build tool lays it: each segment records its
+        // connections (KAnimGraphTileVisualizer.UpdateConnections), which also
+        // joins it to the network and survives a save and load.
+        private static readonly System.Reflection.MethodInfo? updateConnections = AccessTools.Method(typeof(KAnimGraphTileVisualizer), "UpdateConnections");
         private static void Pipe(IUtilityNetworkMgr network, string id, List<int> path)
         {
-            for (var k = 0; k + 1 < path.Count; ++k)
-            {
-                var direction = UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
-                // Physical connections form the network; visual ones draw it.
-                foreach (var physical in new[] { true, false })
-                {
-                    network.AddConnection(direction, path[k], physical);
-                    network.AddConnection(direction.InverseDirection(), path[k + 1], physical);
-                }
-            }
             var def = Assets.GetBuildingDef(id);
-            foreach (var cell in path) def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false);
+            var segments = path.Select(cell => def.Build(cell, Orientation.Neutral, null, def.DefaultElements(), 300, playsound: false)).ToList();
+            for (var k = 0; k < path.Count; ++k)
+            {
+                var connections = (UtilityConnections)0;
+                if (k > 0) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k - 1]);
+                if (k + 1 < path.Count) connections |= UtilityConnectionsExtensions.DirectionFromToCell(path[k], path[k + 1]);
+                var visualizer = segments[k] != null ? segments[k].GetComponent<KAnimGraphTileVisualizer>() : null;
+                if (visualizer == null || updateConnections == null) throw new InvalidOperationException("A utility segment cannot record its connections.");
+                updateConnections.Invoke(visualizer, new object[] { connections });
+            }
         }
 
         // ---- helpers

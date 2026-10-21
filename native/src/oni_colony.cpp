@@ -836,9 +836,13 @@ void capture_shadow(const NativeCells& n) noexcept {
             const auto e = n.element[1][c]; const float m = n.mass[1][c], t = n.temperature[1][c];
             const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
             if (!sh.written) {
+                if (fluid(sh.before) || !fluid(e)) continue;
+                // A solid placed in an owned cell this frame and gone within it
+                // (unstable sand falling at once): the owner's pending close is
+                // undone. The fluid native put back is its copy of the owner's.
+                if (owned[i].load(std::memory_order_relaxed)) { opened.push_back({cell, MA_ONI_COLONY_OPEN}); ++sum.changes; continue; }
                 // A native solid that melted (or sublimated away) this frame:
                 // the owner opens the cell and takes its fluid.
-                if (owned[i].load(std::memory_order_relaxed) || fluid(sh.before) || !fluid(e)) continue;
                 if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
                 opened.push_back({cell, MA_ONI_COLONY_OPEN});
                 if (e != vacuum && m > 0 && t > 0) { moves.push_back({cell, e, MA_ONI_COLONY_INJECT, 0, -1, 0, m, t, 0}); sum.mass_in_kg += m; }
