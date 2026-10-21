@@ -66,7 +66,7 @@ TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
-             "plant", "geyser", "rocket-exhaust", "meteor", "sensor")
+             "plant", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump")
 
 
 # Base-game starting cluster layouts (worldgen/clusters names; identities only).
@@ -651,6 +651,7 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"Scenario": args.scenario} if getattr(args, "scenario", None) else {}),
         **({"Cluster": "clusters/" + args.cluster} if isinstance(getattr(args, "cluster", None), str) else {}),
         **({"OverwriteSave": True} if getattr(args, "overwrite_save", False) is True else {}),
+        **({"VanillaLoad": True} if getattr(args, "vanilla_load", False) is True else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -1058,6 +1059,7 @@ def main() -> int:
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
+    play.add_argument("--vanilla-load", action="store_true", help="colony-owner-load: hand the save to ONI's own loader, which must refuse it")
     play.add_argument("--overwrite-save", action="store_true", help="colony-owner --save-colony: save halfway and again at the end to the same file")
     play.add_argument("--cluster", choices=BASE_CLUSTERS,
                       help="colony-owner only: the base-game starting asteroid's cluster layout (default Terra, SandstoneDefault)")

@@ -21,6 +21,8 @@ namespace MixedAtmospheres.Oni
         public bool SaveOnComplete = false;
         // colony-owner with SaveOnComplete: save halfway and again at the end to the same file.
         public bool OverwriteSave = false;
+        // colony-owner-load: hand the save to ONI's own loader, as a game without the mod would.
+        public bool VanillaLoad = false;
         public bool SaveBeforeResume = false;
         public bool VerifySaveIoRecovery = false;
         public bool VerifyNaturalAutosave = false;
@@ -52,7 +54,7 @@ namespace MixedAtmospheres.Oni
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
         internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes",
             "door", "sublimation", "falling", "breathing", "airflow", "electrolysis", "vent-overpressure", "space-heater",
-            "bottle-emptier", "gas-generator", "germs", "puft", "plant", "geyser", "rocket-exhaust", "meteor", "sensor" };
+            "bottle-emptier", "gas-generator", "germs", "puft", "plant", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump" };
         internal static readonly string[] Modes =
         {
             "snapshot-copy", "native-observer", "native-import-domain", "native-liquid-import-domain", "native-domain",
@@ -93,6 +95,8 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if (configuration.VanillaLoad && configuration.Mode != "colony-owner-load")
+                throw new InvalidDataException("VanillaLoad needs the colony-owner-load mode.");
             if (configuration.OverwriteSave && (configuration.Mode != "colony-owner" || !configuration.SaveOnComplete))
                 throw new InvalidDataException("OverwriteSave needs the colony-owner mode and SaveOnComplete.");
             if (!string.IsNullOrEmpty(configuration.Scenario) &&

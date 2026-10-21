@@ -177,8 +177,11 @@ neighbours: with m such neighbours each gives 1/(m+1) of its gas, so the cell
 starts at their pressure. Building a tile (an element replacement with a solid)
 displaces the cell's contents equally into its open neighbours and closes it;
 the normal momentum on its faces becomes heat of the neighbour that carried it.
-A sealed cell's contents go to the reservoir. Replacing a cell with a fluid
-element opens it if needed and books the placed fluid. Moved material keeps its
+A cell inside a block closing at once sends its contents to the nearest
+open cell through the block (within 16); only a sealed cell's contents go to
+the reservoir. Replacing a cell with a fluid element (ONI's `ReplaceElement`)
+replaces it: the owner removes the cell's fluid, booked as extracted, then
+books the placed fluid; replace-and-displace adds the placed fluid instead. Moved material keeps its
 U+K+G: each receiving cell gets it at the temperature whose internal energy
 matches, after the potential at its height.
 
@@ -334,6 +337,9 @@ setting their powered flag (harness only).
 | `rocket-exhaust` | A steam rocket engine put into its burning state (as at launch) exhausts hot steam into the owner. |
 | `meteor` | A rock meteor falls through the arena's air and strikes its floor with the owner's ledgers closed. |
 | `sensor` | A gas element sensor set to carbon dioxide switches on in a cell where carbon dioxide is a minority (the cell shows oxygen). |
+| `filter` | A pump sends oxygen and carbon dioxide through a carbon dioxide filter: its filtered port carries only carbon dioxide, its output only oxygen. |
+| `pacu` | A pacu in an owned pool stays in its water. |
+| `liquid-pump` | A liquid pump in a pool draws water into its storage; storage equals what the owner lost. |
 
 ## Verification
 

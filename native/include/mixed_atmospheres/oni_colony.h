@@ -128,6 +128,9 @@ typedef struct MAOniColonyHeat { uint32_t public_cell, reserved; double joules, 
 /* An airflow tile: the cell passes gas but no liquid (docs/colony-owner.md#airflow-tiles). */
 #define MA_ONI_COLONY_BLOCK_LIQUID 3U
 #define MA_ONI_COLONY_PASS_LIQUID 4U
+/* ONI's element replacement with a fluid: the cell's fluid is removed (booked
+ * as extracted) before the placed fluid arrives. */
+#define MA_ONI_COLONY_CLEAR 5U
 typedef struct MAOniColonyTerrain { uint32_t public_cell, kind; } MAOniColonyTerrain;
 
 MA_ONI_API uint32_t ma_oni_colony_abi_version(void);

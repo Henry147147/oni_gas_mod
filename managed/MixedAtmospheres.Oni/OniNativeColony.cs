@@ -60,7 +60,7 @@ namespace MixedAtmospheres.Oni
         internal struct Receipt { public ulong Sequence, CompletedFrame; public int Callback; public uint Kind, NativeIndex, PublicCell; public float MassKg, TemperatureK; public uint Disease; public int DiseaseCount; }
         [StructLayout(LayoutKind.Sequential)]
         internal struct Heat { public uint PublicCell, Reserved; public double Joules, MaximumTemperatureK; }
-        internal const uint Open = 1, Close = 2, BlockLiquid = 3, PassLiquid = 4;
+        internal const uint Open = 1, Close = 2, BlockLiquid = 3, PassLiquid = 4, Clear = 5;
         [StructLayout(LayoutKind.Sequential)]
         internal struct Terrain { public uint PublicCell, Kind; }
 

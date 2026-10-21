@@ -98,6 +98,10 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyOwnerLoadPatch
     {
         private static IEnumerable<MethodBase> TargetMethods() => new[] { AccessTools.Method(typeof(Sim), nameof(Sim.LoadWorld)), AccessTools.Method(typeof(Sim), nameof(Sim.Load)) };
-        private static bool Prefix(IReader __0, ref int __result) => !ColonyOwnerPersistence.TryLoad(__0, ref __result);
+        // VanillaLoad (validation only) leaves the save to ONI's own loader, as a
+        // game without the mod would: its native loader must refuse the envelope.
+        private static bool Prefix(IReader __0, ref int __result) =>
+            ColonyRuntimeValidation.Settings?.VanillaLoad == true || !ColonyOwnerPersistence.TryLoad(__0, ref __result);
+        private static void Postfix(int __result) { if (ColonyRuntimeValidation.Settings?.VanillaLoad == true) ColonyRuntimeValidation.RecordVanillaLoad(__result); }
     }
 }

@@ -229,6 +229,22 @@ int main() {
             require(ma::oni::colony::status().maximum_relative_mass_error < 1e-12, "pump ledger closes");
             ma::oni::colony::stop();
         }
+        // ONI's element replacement with a fluid empties the cell first.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            std::uint32_t idx[8]; double m[8]; double held = 0;
+            const auto n = ma::oni::colony::composition(public_cell(9, 6), idx, m, 8);
+            for (std::uint32_t q = 0; q < n; ++q) held += m[q];
+            const auto before = ma::oni::colony::status().extracted_kg;
+            const MAOniColonyTerrain clear{public_cell(9, 6), MA_ONI_COLONY_CLEAR};
+            ma::oni::colony::queue_terrain(std::span(&clear, 1));
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            const auto cs = ma::oni::colony::status();
+            std::cout << "cleared " << cs.extracted_kg - before << " kg of the cell's " << held << " kg\n";
+            require(cs.state == 1 && std::abs(cs.extracted_kg - before - held) <= 1e-9 * held && cs.maximum_relative_mass_error < 1e-12,
+                "a replaced cell loses its fluid");
+            ma::oni::colony::stop();
+        }
         // Germs injected with gas travel with it and leave with extracted mass.
         {
             ma::oni::colony::restore(config, materials, image, 1);

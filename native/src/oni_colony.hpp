@@ -38,6 +38,9 @@ struct NativeCells {
 void write_shadow(const NativeCells&) noexcept;
 void capture_shadow(const NativeCells&) noexcept;
 [[nodiscard]] bool owns(int native_cell) noexcept;
+// A native cell next to an owned one (a dug cell before the owner opens it):
+// native gas flow there would move owned gas outside the owner's books.
+[[nodiscard]] bool beside_owned(int native_cell) noexcept;
 // A native state transition of an owned cell runs only when it freezes the
 // cell (a solid target); fluid targets are the owner's phase change.
 [[nodiscard]] bool allow_native_transition(int native_cell, std::uint16_t element, float temperature) noexcept;

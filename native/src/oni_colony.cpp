@@ -410,13 +410,31 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
     std::vector<std::size_t> opening, closing;
     std::vector<std::uint8_t> touched(st0.cells.size());
+    std::vector<MacFluidTransfer> cleared;
     for (const auto& e : edits) {
         const auto i = rect_index(s.config, e.public_cell);
         if (e.kind == MA_ONI_COLONY_BLOCK_LIQUID || e.kind == MA_ONI_COLONY_PASS_LIQUID) { s.blocking[i] = e.kind == MA_ONI_COLONY_BLOCK_LIQUID; continue; }
+        if (e.kind == MA_ONI_COLONY_CLEAR) {
+            if (st0.grid.walls[i]) continue;
+            const auto& m = st0.cells[i].mixture;
+            for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) cleared.push_back({i, k, false, m.masses[k], 0});
+            continue;
+        }
         if (touched[i]) continue;
         touched[i] = 1;
         if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) opening.push_back(i);
         if (e.kind == MA_ONI_COLONY_CLOSE && !st0.grid.walls[i]) closing.push_back(i);
+    }
+    if (!cleared.empty()) {
+        // Replaced cells lose their fluid (traces first, the bulk last).
+        std::stable_sort(cleared.begin(), cleared.end(), [](const MacFluidTransfer& a, const MacFluidTransfer& b) {
+            return a.cell_index != b.cell_index ? a.cell_index < b.cell_index : a.mass_kg < b.mass_kg; });
+        for (std::size_t first = 0; first < cleared.size(); first += 4096) {
+            const std::span<const MacFluidTransfer> batch(cleared.data() + first, std::min<std::size_t>(4096, cleared.size() - first));
+            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            world = std::move(result.world);
+            for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
+        }
     }
     const auto neighbours = [&](std::size_t i) {
         std::vector<std::size_t> out; const auto x = i % w, y = i / w;
@@ -725,7 +743,7 @@ void queue_heat(std::span<const MAOniColonyHeat> edits) {
 void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
-        require(e.kind >= MA_ONI_COLONY_OPEN && e.kind <= MA_ONI_COLONY_PASS_LIQUID, "Invalid colony terrain edit");
+        require(e.kind >= MA_ONI_COLONY_OPEN && e.kind <= MA_ONI_COLONY_CLEAR, "Invalid colony terrain edit");
         (void)rect_index(geometry, e.public_cell);
     }
     std::lock_guard lock(inputs);
@@ -753,6 +771,12 @@ bool owns(int native_cell) noexcept {
     const auto x = nx - 1, y = ny - 1;
     if (x < geometry.offset_x || x - geometry.offset_x >= geometry.width || y < geometry.offset_y || y - geometry.offset_y >= geometry.height) return false;
     return owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) != 0;
+}
+
+bool beside_owned(int native_cell) noexcept {
+    if (!enabled.load(std::memory_order_acquire) || native_cell < 0) return false;
+    const auto pitch = static_cast<int>(geometry.grid_width + 2);
+    return owns(native_cell - 1) || owns(native_cell + 1) || owns(native_cell - pitch) || owns(native_cell + pitch);
 }
 
 void write_shadow(const NativeCells& n) noexcept {

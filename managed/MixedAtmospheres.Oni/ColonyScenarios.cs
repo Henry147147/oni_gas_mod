@@ -89,6 +89,9 @@ namespace MixedAtmospheres.Oni
                     case "rocket-exhaust": RocketExhaust(frame); break;
                     case "meteor": Meteor(frame, status); break;
                     case "sensor": Sensor(frame); break;
+                    case "filter": Filter(frame); break;
+                    case "pacu": Pacu(frame); break;
+                    case "liquid-pump": LiquidPump(frame); break;
                     default: throw new InvalidOperationException("Unknown colony scenario " + name);
                 }
             }
@@ -607,6 +610,91 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // A pump sends the left chamber's oxygen and carbon dioxide through a
+        // carbon dioxide filter: its filtered port carries only carbon dioxide
+        // and its main output only oxygen.
+        private static readonly List<int> filteredPipe = new List<int>(), passedPipe = new List<int>();
+        private static void Filter(int frame)
+        {
+            if (Once(0, "arena"))
+                Arena((x, y) => x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : x > 4 ? (SimHashes.Vacuum, 0f, 0f) :
+                    ((x + y) % 2 == 0 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.CarbonDioxide, 1.6f, 300f)));
+            if (Once(6, "build"))
+            {
+                filteredPipe.Clear(); passedPipe.Clear();
+                var pump = Build(GasPumpConfig.ID, Cell(1, 0));
+                var filter = Build(GasFilterConfig.ID, Cell(6, 3));
+                filter.GetComponent<Filterable>().SelectedTag = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag;
+                var into = (int)AccessTools.Field(typeof(ElementFilter), "inputCell").GetValue(filter.GetComponent<ElementFilter>());
+                var output = (int)AccessTools.Field(typeof(ElementFilter), "outputCell").GetValue(filter.GetComponent<ElementFilter>());
+                var filtered = (int)AccessTools.Field(typeof(ElementFilter), "filteredCell").GetValue(filter.GetComponent<ElementFilter>());
+                var from = Grid.OffsetCell(Cell(1, 0), pump.GetComponent<Building>().Def.UtilityOutputOffset);
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(from, into));
+                var a = Build(GasVentConfig.ID, Cell(7, 0)); var b = Build(GasVentConfig.ID, Cell(5, 0));
+                passedPipe.AddRange(Route(output, Grid.OffsetCell(Cell(7, 0), a.GetComponent<Building>().Def.UtilityInputOffset)));
+                filteredPipe.AddRange(Route(filtered, Grid.OffsetCell(Cell(5, 0), b.GetComponent<Building>().Def.UtilityInputOffset)));
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, passedPipe);
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, filteredPipe);
+            }
+            if (Once(40, "check"))
+            {
+                var flow = Game.Instance.gasConduitFlow;
+                double co2 = 0, o2InFiltered = 0, o2 = 0, co2InPassed = 0;
+                foreach (var c in filteredPipe) { var x = flow.GetContents(c); if (x.element == SimHashes.CarbonDioxide) co2 += x.mass; else if (x.mass > 0) o2InFiltered += x.mass; }
+                foreach (var c in passedPipe) { var x = flow.GetContents(c); if (x.element == SimHashes.Oxygen) o2 += x.mass; else if (x.mass > 0) co2InPassed += x.mass; }
+                var vented = ArenaSpecies(SimHashes.CarbonDioxide, 5) + ArenaSpecies(SimHashes.Oxygen, 5);
+                Record("the filter separated the pumped mixture", (co2 > 0 || vented > .05) && o2InFiltered == 0 && co2InPassed == 0,
+                    $"filtered port: CO2 {co2:G3} kg, other {o2InFiltered:G3} kg; output: O2 {o2:G3} kg, other {co2InPassed:G3} kg; vented {vented:G3} kg");
+                Finish();
+            }
+        }
+        // An L-shaped pipe route from one cell to another, both included.
+        private static List<int> Route(int from, int to)
+        {
+            Grid.CellToXY(from, out var fx, out var fy); Grid.CellToXY(to, out var tx, out var ty);
+            var path = new List<int>();
+            for (var x = fx; x != tx; x += Math.Sign(tx - fx)) path.Add(Grid.XYToCell(x, fy));
+            for (var y = fy; y != ty; y += Math.Sign(ty - fy)) path.Add(Grid.XYToCell(tx, y));
+            path.Add(to);
+            return path;
+        }
+        private static double ArenaSpecies(SimHashes element, int fromColumn) =>
+            Enumerable.Range(fromColumn, Width - fromColumn).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), element)));
+
+        // A pacu in an owned pool stays in its water.
+        private static GameObject? pacu;
+        private static void Pacu(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y <= 3 ? (SimHashes.Water, 990f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "spawn"))
+            {
+                pacu = Util.KInstantiate(Assets.GetPrefab(PacuConfig.ID), Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.Creatures));
+                pacu.SetActive(true);
+            }
+            if (Once(30, "check"))
+            {
+                var cell = pacu != null ? Grid.PosToCell(pacu) : -1;
+                Record("the pacu swims in the owner's water", pacu != null && Grid.IsValidCell(cell) && Grid.IsSubstantialLiquid(cell),
+                    pacu == null ? "gone" : $"at {cell}: {Grid.Element[cell].id} {Grid.Mass[cell]:G4} kg");
+                Finish();
+            }
+        }
+
+        // A liquid pump in a pool draws water into its storage.
+        private static void LiquidPump(int frame)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y <= 2 ? (SimHashes.Water, 990f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "build")) { recorded["water"] = ArenaSpecies(SimHashes.Water); Build(LiquidPumpConfig.ID, Cell(3, 0)); }
+            if (Once(30, "check"))
+            {
+                var pump = powered.LastOrDefault();
+                var stored = pump == null ? 0 : pump.GetComponents<Storage>().Sum(s => s.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0)));
+                var drawn = recorded["water"] - ArenaSpecies(SimHashes.Water);
+                Record("the pump drew the pool's water", drawn > 1 && Math.Abs(stored - drawn) <= .02 * drawn + .01, $"drawn {drawn:G4} kg, stored {stored:G4} kg");
+                Finish();
+            }
+        }
+
         private static double OwnedMass(SimHashes element)
         {
             double total = 0;
@@ -638,15 +726,21 @@ namespace MixedAtmospheres.Oni
             Current.Stage = $"arena at {x0},{y0}";
         }
         private static int Cell(int x, int y) => Grid.XYToCell(x0 + x, y0 + y);
-        // The arena is sealed first (every cell solid, so the owner moves
-        // whatever fluid was there out of it) and filled two frames later, so
-        // placed fluid never mixes with what the terrain held.
+        // The arena's border is sealed first (its fluid displaced outward)
+        // and its inside replaced with vacuum (the owner removes what was
+        // there), then filled two frames later, so placed fluid never mixes
+        // with what the terrain held and no gas is squeezed out at once.
         private static Func<int, int, (SimHashes element, float mass, float temperature)>? filling;
         private static void Arena(Func<int, int, (SimHashes element, float mass, float temperature)> inside)
         {
             var tool = CellEventLogger.Instance.SandBoxTool;
             for (var y = -1; y <= Height; ++y)
-                for (var x = -1; x <= Width; ++x) SimMessages.ReplaceElement(Cell(x, y), SimHashes.Unobtanium, tool, 20000, 300);
+                for (var x = -1; x <= Width; ++x)
+                {
+                    var border = x == -1 || y == -1 || x == Width || y == Height;
+                    if (border) SimMessages.ReplaceElement(Cell(x, y), SimHashes.Unobtanium, tool, 20000, 300);
+                    else SimMessages.ReplaceElement(Cell(x, y), SimHashes.Vacuum, tool, 0, 0);
+                }
             filling = inside;
         }
         private static void Fill()

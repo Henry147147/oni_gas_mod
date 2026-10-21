@@ -332,6 +332,8 @@ namespace MixedAtmospheres.Oni
                         var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(12)));
                         if (element.IsSolid) { if (OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Close); continue; }
                         if (!OwnsFluid(cell)) QueueTerrain(cell, OniNativeColony.Open);
+                        // A plain replacement replaces the cell's fluid; replace-and-displace adds to it.
+                        else if (d[22] == 1) QueueTerrain(cell, OniNativeColony.Clear);
                         if ((element.IsGas || element.IsLiquid) && mass > 0)
                             OniNativeColony.Check(OniNativeColony.QueueTransfers(new[] { WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)cell,
                                 NativeIndex = element.idx, Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,

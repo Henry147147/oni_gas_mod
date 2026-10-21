@@ -24,6 +24,8 @@ namespace MixedAtmospheres.Oni
             // Owner frames at the colony saves (an overwrite saves twice to one
             // path) and at the restore of a loaded save.
             public ulong FirstColonySaveFrame, ColonySaveFrame, RestoredFrame;
+            // ONI's own Sim.Load result for a colony save loaded without the mod's loader (-1: refused).
+            public int? VanillaLoadResult;
             public string OniBuild = "744825";
             public bool AuthoritativeColonySimulationReady = false;
             public string PhysicsOwner = "native ONI";
@@ -511,6 +513,15 @@ namespace MixedAtmospheres.Oni
                 .Select(screen => screen.GetType().FullName + ":" + screen.IsActive()).Distinct().OrderBy(name => name).ToArray();
             WriteReport();
             CaptureScreenshot("waiting.png");
+        }
+        internal static void RecordVanillaLoad(int result)
+        {
+            if (done) return;
+            Report.VanillaLoadResult = result;
+            if (result != -1) { Fail(new InvalidOperationException("ONI's own loader accepted the colony save (" + result + ").")); return; }
+            Report.Status = "passed"; Report.Stage = "vanilla-load-refused";
+            Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            done = true; WriteReport();
         }
         internal static void Fail(Exception error)
         {
