@@ -86,6 +86,12 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     // cell or open a liquid surface; liquid-only cells hold their liquid at zero
     // pressure when that leaves void.
     const bool voids=settings_.vacuum == MacVacuumRepresentation::void_phase;
+    // A gas-free liquid cell in the void phase occupies its nominal liquid
+    // volume at zero pressure: a void it reports there is the rounding
+    // between the two sums of that volume.
+    const auto rounding_void=[&](const auto& state,double occupied) {
+        return voids && !state.has_gas && state.vacuum_volume_m3 <= 64*std::numeric_limits<double>::epsilon()*occupied;
+    };
     auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
     const double grid_volume=next.grid.volume_m3();
     if (voids && next.occupied_volumes_m3.empty()) {
@@ -145,7 +151,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         const bool was_empty=cell.mixture.mass() == 0;
         const double held=voids && !was_empty ? next.occupied_volumes_m3[edit.cell_index] : grid_volume;
         const auto before=thermodynamics_->evaluate(cell.mixture,held);
-        require((voids && was_empty) || !before.has_vacuum,"Fluid point transfers require an occupied cell without a void");
+        require((voids && was_empty) || !before.has_vacuum || rounding_void(before,held),"Fluid point transfers require an occupied cell without a void");
         const double mass=edit.inject ? edit.mass_kg : std::min(edit.mass_kg,cell.mixture.masses[edit.species_index]);
         const auto temperature=edit.inject ? edit.temperature_k : before.temperature_k;
         MacFluidParcel packet{edit.cell_index,edit.species_index,edit.inject,mass,temperature,0,{},{},{},{}};
@@ -267,11 +273,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         if (!(voids && cell.mixture.mass() == 0)) {
             const double occupied=voids ? next.occupied_volumes_m3[edit.cell_index] : grid_volume;
             const auto after=thermodynamics_->evaluate(cell.mixture,occupied);
-            // A gas-free liquid cell in the void phase occupies its nominal
-            // liquid volume at zero pressure: a void it reports is the
-            // rounding between the two sums of that volume.
-            const bool surface=voids && !after.has_gas && after.vacuum_volume_m3 <= 64*std::numeric_limits<double>::epsilon()*occupied;
-            require(!after.has_vacuum || surface,"Fluid removal would create an unsupported liquid free surface");
+            require(!after.has_vacuum || rounding_void(after,occupied),"Fluid removal would create an unsupported liquid free surface");
         }
         parcels.push_back(std::move(packet));
     }

@@ -2001,6 +2001,7 @@ class LongRunLimitTests(unittest.TestCase):
         for mode in runner.LONG_RUN_MODES:
             self.assertIsNone(runner.run_limits_error(_run_args(mode=mode, frames=30000, timeout=172800, long_run=True)))
             self.assertIsNone(runner.run_limits_error(_run_args(mode=mode, frames=100000, timeout=30, long_run=True, telemetry_interval_frames=10)))
+        self.assertIsNone(runner.run_limits_error(_run_args(mode="colony-owner-load", frames=30000, timeout=172800, long_run=True, load_save=Path("/x.sav"))))
         for values in ({"frames": 100001}, {"timeout": 172801}, {"telemetry_interval_frames": 9}, {"telemetry_interval_frames": 10001},
                        {"telemetry_interval_frames": True}, {"mode": "menu"}, {"mode": "native-heat-domain"},
                        {"mode": "native-load-domain"}, {"mode": "presentation"}, {"save_colony": True}, {"load_save": Path("/x.sav")},

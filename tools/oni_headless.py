@@ -66,7 +66,7 @@ TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("terrain", "heat", "phase", "freeze-melt", "deoxidizer", "pipes", "door", "sublimation", "falling", "breathing", "airflow",
              "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "germs", "puft",
-             "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump", "base")
+             "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "geyser", "rocket-exhaust", "meteor", "sensor", "filter", "pacu", "liquid-pump", "base")
 
 
 # Base-game starting cluster layouts (worldgen/clusters names; identities only).
@@ -626,7 +626,9 @@ def run_limits_error(args) -> str | None:
         return "--long-run admits only " + ", ".join(LONG_RUN_MODES)
     fixtures = ("save_colony", "resave_before_resume", "verify_save_io_recovery", "verify_natural_autosave", "verify_persistent_actors",
                 "verify_live_breathing", "verify_transient_particles", "subnormal_carbon_particle", "reload_in_process")
-    if long_run and (any(getattr(args, name, False) is True for name in fixtures) or getattr(args, "load_save", None)):
+    # A colony-owner long run may start from a prepared save (the ten-cycle run).
+    if long_run and (any(getattr(args, name, False) is True for name in fixtures) or
+                     (getattr(args, "load_save", None) and args.mode != "colony-owner-load")):
         return "--long-run excludes fixed-window save, reload, actor, breathing and particle controls"
     return None
 

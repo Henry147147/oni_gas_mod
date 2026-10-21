@@ -367,6 +367,7 @@ setting their powered flag (harness only).
 | `polymer-press` | A polymer press works stored petroleum and exhausts steam and carbon dioxide into the owner. |
 | `oxyfern` | A wild oxyfern's consumer takes the owner's carbon dioxide. |
 | `debris-heat` | Hot debris warms the owner's air through the native shadow; the energy ledger stays closed. |
+| `building-melt` | A lead ladder melting (the game's melt path) gives its mass to the owner as liquid. |
 | `geyser` | A steam geyser shifted to its active period erupts into the owner. |
 | `rocket-exhaust` | A steam rocket engine put into its burning state (as at launch) exhausts hot steam into the owner. |
 | `meteor` | A rock meteor falls through the arena's air and strikes its floor with the owner's ledgers closed. |

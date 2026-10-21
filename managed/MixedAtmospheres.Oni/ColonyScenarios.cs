@@ -89,6 +89,7 @@ namespace MixedAtmospheres.Oni
                     case "polymer-press": PolymerPress(frame); break;
                     case "oxyfern": Oxyfern(frame); break;
                     case "debris-heat": DebrisHeat(frame, status); break;
+                    case "building-melt": BuildingMelt(frame, status); break;
                     case "geyser": Geyser(frame); break;
                     case "rocket-exhaust": RocketExhaust(frame); break;
                     case "meteor": Meteor(frame, status); break;
@@ -637,6 +638,32 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // A melting building (the game's StructureTemperatureComponents.DoMelt,
+        // as when it overheats past its melting point) gives its metal to the
+        // owner as liquid.
+        private static GameObject? ladder;
+        private static void BuildingMelt(int frame, OniNativeColony.Status status)
+        {
+            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            if (Once(6, "build"))
+                ladder = Assets.GetBuildingDef(LadderConfig.ID).Build(Cell(3, 1), Orientation.Neutral, null, new[] { SimHashes.Lead.CreateTag() }, 300, playsound: false);
+            if (Once(8, "melt"))
+            {
+                var element = ladder != null ? ladder.GetComponent<PrimaryElement>() : null;
+                if (element == null) { Record("the ladder was built", false, "no ladder"); Finish(); return; }
+                element.Temperature = element.Element.highTemp + 50;
+                recorded["mass"] = element.Mass; recorded["injected"] = status.InjectedKg;
+                AccessTools.Method(typeof(StructureTemperatureComponents), "DoMelt").Invoke(null, new object[] { element });
+            }
+            if (Once(14, "check"))
+            {
+                var added = status.InjectedKg - recorded["injected"];
+                Record("the melted ladder's metal reached the owner", ladder == null && Math.Abs(added - recorded["mass"]) < .01 * recorded["mass"],
+                    $"ladder {(ladder == null ? "gone" : "still standing")}, {recorded["mass"]:G4} kg melted, {added:G4} kg injected");
+                Finish();
+            }
+        }
+
         // A steam geyser shifted to its active period erupts into the owner.
         private static void Geyser(int frame)
         {
@@ -849,11 +876,13 @@ namespace MixedAtmospheres.Oni
             {
                 placed.Clear();
                 var left = px - 3; var right = px + 3;
-                // Left of the pod: generator, diffuser, coal and algae.
+                // Left of the pod: generator, diffuser, coal and algae, enough
+                // for the ten-cycle run with margin (the generator burns its
+                // coal whenever its loads draw power).
                 var generator = Place(GeneratorConfig.ID, ref left, -1);
                 var diffuser = Place(MineralDeoxidizerConfig.ID, ref left, -1);
-                Spill(SimHashes.Carbon, left, py, 5000); left -= 2;
-                Spill(SimHashes.Algae, left, py, 4000);
+                Spill(SimHashes.Carbon, left, py, 5000); Spill(SimHashes.Carbon, left - 1, py, 5000); left -= 3;
+                Spill(SimHashes.Algae, left, py, 4500); Spill(SimHashes.Algae, left - 1, py, 4500);
                 // Right of the pod: scrubber, the water reservoirs and the ration box.
                 var scrubber = Place(CO2ScrubberConfig.ID, ref right, 1);
                 var water = Place(LiquidReservoirConfig.ID, ref right, 1);
@@ -863,7 +892,7 @@ namespace MixedAtmospheres.Oni
                 if (rations != null)
                 {
                     var food = GameUtil.KInstantiate(Assets.GetPrefab(FieldRationConfig.ID), rations.transform.GetPosition(), Grid.SceneLayer.Ore);
-                    food.SetActive(true); food.GetComponent<PrimaryElement>().Units = 45;
+                    food.SetActive(true); food.GetComponent<PrimaryElement>().Units = 60;
                     rations.GetComponent<Storage>().Store(food, true);
                 }
                 if (generator != null)
