@@ -840,7 +840,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
             if (xc) return y + 1 < ch ? fidx + cw : (transverse_periodic ? fidx + cw - NF : NF);
             return x + 1 < cw ? fidx + 1 : (transverse_periodic ? fidx + 1 - cw : NF);
         };
-        const auto is_free = [&](std::size_t fidx) { return fidx != NF && fl[fidx] != none && fr[fidx] != none && m0[fidx] > 0; };
+        const auto is_free = [&](std::size_t fidx) { return fidx != NF && fl[fidx] != none && fr[fidx] != none && m0[fidx] > 0 && !g.closed(!xc, fidx); };
         auto& s0 = ws.slope0; auto& s1 = ws.slope1; auto& c0 = ws.cour0; auto& c1 = ws.cour1;
         for (auto* v : {&s0, &s1, &c0, &c1}) v->resize(NF);
         struct GatherOut { int failed = 0; double wall = 0; TransferRounding momentum, energy; };
@@ -897,7 +897,7 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                     if (!donor) heat += variance(std::abs(a), v0[touches[k].other] - vp);
                 }
                 mix[fidx] = heat;
-                const bool fixed = fl[fidx] == none || fr[fidx] == none;
+                const bool fixed = fl[fidx] == none || fr[fidx] == none || g.closed(!xc, fidx);
                 if (fixed) {
                     if (js != 0 && !(m1[fidx] > 0)) o.failed = 3;
                     wheat[fidx] = m1[fidx] > 0 ? kinetic(m1[fidx], js) : 0;
@@ -1028,11 +1028,11 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 // Void phase: a weight change beyond the face's remaining inertia
                 // means the material that carried it has left, perhaps leaving a
                 // trace; the correction would throw that trace, so it is skipped.
-                const bool fixed = g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0);
+                const bool fixed = g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0) || g.closed(true, fidx);
                 if (voids && !fixed && std::abs(change) > ws.iy1[fidx]) continue;
                 const double kick = -gk * change * (.5 * dt);
                 k.body += kick;
-                if (g.yl[fidx] == none || g.yr[fidx] == none || !(ws.iy1[fidx] > 0)) { k.wall -= kick; continue; }
+                if (fixed) { k.wall -= kick; continue; }
                 const double before = f.jy[fidx], after = before + kick, inertia = ws.iy1[fidx];
                 f.jy[fidx] = after; k.primary.addition(before, kick, after);
                 if (kick != 0 && after == before) ++k.unresolved;

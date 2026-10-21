@@ -229,6 +229,41 @@ int main() {
             require(ma::oni::colony::status().maximum_relative_mass_error < 1e-12, "pump ledger closes");
             ma::oni::colony::stop();
         }
+        // An airflow tile column between a pool under air and thinner air
+        // passes the gas but no liquid. The column is rock at import and
+        // opens as tiles on the first frame.
+        {
+            auto small = config; small.width = 10; small.height = 8;
+            std::vector<MAOniColonyCell> chamber(10 * 8);
+            for (std::uint32_t y = 0; y < 8; ++y) for (std::uint32_t x = 0; x < 10; ++x) {
+                auto& c = chamber[x + y * 10];
+                if (x == 0 || x == 9 || y == 0 || y == 7 || x == 4) c = {0, MA_ONI_COLONY_SOLID, 0, 0};
+                else if (x < 4 && y <= 3) c = {water, MA_ONI_COLONY_FLUID, 1000, 290};
+                else c = {oxygen, MA_ONI_COLONY_FLUID, x < 4 ? 1.2f : .4f, 290};
+            }
+            ma::oni::colony::start(small, materials, chamber, 1);
+            const auto at = [&](std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; };
+            std::vector<MAOniColonyTerrain> tiles;
+            for (std::uint32_t y = 1; y <= 6; ++y) { tiles.push_back({at(4, y), MA_ONI_COLONY_OPEN}); tiles.push_back({at(4, y), MA_ONI_COLONY_BLOCK_LIQUID}); }
+            ma::oni::colony::queue_terrain(tiles);
+            const auto right = [&](bool liquid, std::uint32_t from) {
+                double total = 0; std::uint32_t idx[8]; double m[8];
+                for (std::uint32_t y = 1; y <= 6; ++y) for (std::uint32_t x = from; x <= 8; ++x) {
+                    const auto n = ma::oni::colony::composition(at(x, y), idx, m, 8);
+                    for (std::uint32_t q = 0; q < n; ++q) if ((idx[q] == water) == liquid) total += m[q];
+                }
+                return total;
+            };
+            const double gas_before = right(false, 5);
+            for (std::uint64_t frame = 1; frame <= 8; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            const auto after = ma::oni::colony::status();
+            std::cout << "airflow tiles: liquid in or beyond " << right(true, 4) << " kg, gas beyond " << gas_before << " -> " << right(false, 5)
+                      << " kg, state " << after.state << " " << after.error << "\n";
+            require(after.state == 1 && right(true, 4) == 0, "liquid crossed an airflow tile");
+            require(right(false, 5) > gas_before + .5, "gas did not pass the airflow tiles");
+            require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "airflow tile ledgers close");
+            ma::oni::colony::stop();
+        }
         // Frames posted while a step runs join the next step: no game time is lost.
         ma::oni::colony::restore(config, materials, image, 1);
         ma::oni::colony::advance(5, .2, 2); ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();

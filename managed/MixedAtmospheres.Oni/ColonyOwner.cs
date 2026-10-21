@@ -14,7 +14,8 @@ namespace MixedAtmospheres.Oni
     internal static unsafe class ColonyOwner
     {
         private const int NewGameFrame = -775326397, PrepareGameData = 1078620451, MassConsumption = 1727657959, MassEmission = 797274363,
-            ModifyCell = -1252920804, ModifyCellEnergy = 818320644, Dig = 833038498;
+            ModifyCell = -1252920804, ModifyCellEnergy = 818320644, Dig = 833038498, CellProperties = -469311643;
+        private const byte LiquidImpermeable = 2;
         // Calm asteroids take full steps of this length; flow and the pressure
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         internal const double MaximumTimestepSeconds = .05;
@@ -288,6 +289,19 @@ namespace MixedAtmospheres.Oni
                         Kind = OniNativeColony.Extract, Radius = Math.Max((uint)data[14], (uint)data[15]), Callback = BinaryPrimitives.ReadInt32LittleEndian(data.Slice(4)),
                         MassKg = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(8))) });
                 }, rectAnywhere: true);
+                case CellProperties when length == 12:
+                {
+                    // An airflow tile (liquid-impermeable, not solid) passes gas
+                    // but no liquid; ONI still records the property natively.
+                    for (var k = 0; k < count; ++k)
+                    {
+                        var d = payload + k * length;
+                        var cell = *(int*)d;
+                        if ((d[8] & LiquidImpermeable) != 0 && InRect(cell, out _))
+                            QueueTerrain(cell, d[9] != 0 ? OniNativeColony.BlockLiquid : OniNativeColony.PassLiquid);
+                    }
+                    return false;
+                }
                 case Dig:
                 {
                     // ONI digs the tile natively; the owner opens the cell.

@@ -81,6 +81,12 @@ struct Grid {
     std::vector<std::uint8_t> wall;
     // Face endpoints (cell index, or none for exterior/solid).
     std::vector<Index> xl, xr, yl, yr;
+    // Closed faces between two open cells (MacGrid::closed_x/y): their
+    // endpoints and inertia stay, but they are fixed like a wall face.
+    std::vector<std::uint8_t> shut_x, shut_y;
+    [[nodiscard]] bool closed(bool vertical, std::size_t f) const {
+        const auto& s = vertical ? shut_y : shut_x; return !s.empty() && s[f] != 0;
+    }
     // Rows per deterministic block; blocks partition cell rows, x-face rows
     // and y-face rows identically (the extra nonperiodic y-face row belongs
     // to the last block).

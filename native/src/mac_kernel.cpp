@@ -694,6 +694,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
         }
         mac_kernel::require(MacKernelAccess::settings(world).pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
             "Two-moment pressure integration cannot continue through legacy reference fallback");
+        const auto& grid = MacKernelAccess::state(world).grid;
+        mac_kernel::require(grid.closed_x.empty() && grid.closed_y.empty(), "Closed faces cannot continue through reference fallback");
         // Flagged range: the complete interval through the reference, with
         // the attempts already consumed charged to the shared budget.
         if (consumed >= budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");

@@ -2,6 +2,7 @@
 // inventories, not game data.
 #include "../src/oni_colony_import.hpp"
 #include "mixed_atmospheres/mac_closed_world.hpp"
+#include "mixed_atmospheres/mac_phase_change.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -89,6 +90,27 @@ int main() {
         for (std::size_t f = 0; f < next.momentum_x.size(); ++f) if (inertia.x[f] > 1e-2) speed = std::max(speed, std::abs(next.momentum_x[f] / inertia.x[f]));
         std::cout << "settled advance: substeps " << advanced.report.substeps << " rejected " << advanced.report.rejected_attempts << " max speed " << speed << " m/s\n";
         require(speed < 5, "settled state stays near rest");
+        // A pool beside vacuum starts under its saturated vapour; a pool under
+        // air keeps its air and is left to evaporate in the owner.
+        {
+            auto liquid = element("Water", 3, 0, false, .018, 4000, 1000), vapour = element("Steam", 5, 1, true, .018, 2000);
+            liquid.high_temperature_k = 372.5; liquid.high_target = 5; vapour.low_temperature_k = 372.5; vapour.low_target = 3;
+            const auto paired = build_catalogue({liquid, vapour, element("Oxygen", 1, 2, true, .016, 1000)});
+            const auto w = static_cast<std::uint32_t>(paired.species_of_hash(3)), v = static_cast<std::uint32_t>(paired.species_of_hash(5));
+            const auto o = static_cast<std::uint32_t>(paired.species_of_hash(1));
+            constexpr std::size_t PW = 11, PH = 6;
+            std::vector<ImportCell> pools(PW * PH);
+            for (std::size_t x = 1; x <= 9; ++x) if (x != 5) for (std::size_t y = 1; y <= 4; ++y)
+                pools[x + y * PW] = y == 1 ? ImportCell{ImportCellKind::fluid, w, 1000, 330} :
+                    x < 5 ? ImportCell{ImportCellKind::fluid, import_vacuum, 0, 0} : ImportCell{ImportCellKind::fluid, o, 1.2, 330};
+            const auto settled = settle_import(paired, PW, PH, pools, 9.81);
+            double beside = 0, under_air = 0;
+            for (std::size_t i = 0; i < pools.size(); ++i) (i % PW < 5 ? beside : under_air) += settled.state.cells[i].mixture.masses[v];
+            const double expected = mac_saturation_pressure(*paired.eos, w, v, 330, catalogue_reference_pressure_pa) * 12 * .018 / (8.31446261815324 * 330);
+            std::cout << "vapour beside vacuum " << beside << " kg (saturation " << expected << " kg), under air " << under_air << " kg\n";
+            require(std::abs(beside - expected) <= .02 * expected && under_air == 0, "a pool beside vacuum starts saturated");
+            require(settled.report.maximum_relative_mass_error <= 1e-14, "evaporation at import conserves mass");
+        }
         std::cout << "IMPORT PASS\n";
         return 0;
     } catch (const std::exception& e) {

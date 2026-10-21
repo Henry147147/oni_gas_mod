@@ -33,6 +33,8 @@ Grid::Grid(const MacGrid& mg)
         if (row > 0 || py) yl[f] = fluid(col + ((row + H - 1) % H) * W);
         if (row < H) yr[f] = fluid(col + row * W);
     }
+    require((mg.closed_x.empty() || mg.closed_x.size() == NX) && (mg.closed_y.empty() || mg.closed_y.size() == NY), "Invalid production kernel closed faces");
+    shut_x = mg.closed_x; shut_y = mg.closed_y;
     cell_faces.resize(N);
     for (std::size_t row = 0; row < H; ++row) for (std::size_t col = 0; col < W; ++col)
         cell_faces[col + row * W] = {xface(col, row), xface(col + 1 == XW ? 0 : col + 1, row), yface(col, row), yface(col, row + 1 == YH ? 0 : row + 1)};

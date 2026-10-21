@@ -338,7 +338,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     std::vector<Parcel> parcels;
     for (std::size_t y=0;y+1<grid.height;++y) for (std::size_t x=0;x<grid.width;++x) {
         const auto lower=x+y*grid.width,upper=lower+grid.width;
-        if (!full(lower) || !full(upper)) continue;
+        if (!full(lower) || !full(upper) || (!grid.closed_y.empty() && grid.closed_y[grid.y_face(x,y+1)])) continue;
         const auto light=pick(state_.cells[lower].mixture,true); if (light.phase == absent) continue;
         const auto heavy=pick(state_.cells[upper].mixture,false); if (heavy.phase == absent) continue;
         if (light.phase == heavy.phase || !(light.density < heavy.density)) continue;
@@ -428,5 +428,41 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
     candidate.time_s_=time_s_; candidate.revision_=revision_+1;
     return {std::move(candidate),report};
+}
+
+MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std::vector<std::uint8_t> y) const {
+    require_mac_energy_environment();
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    const auto& grid=state_.grid;
+    require((x.empty() || x.size() == grid.x_width()*grid.height) && (y.empty() || y.size() == grid.width*grid.y_height()),
+        "Invalid MAC closed-face masks");
+    auto next=state_;
+    const auto inertia=mac_face_inertias(registry_,state_,*thermodynamics_);
+    auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
+    MacEnergyAccount energy; MacPrimaryRoundingCounts rounding;
+    for (std::size_t axis=0;axis<2;++axis) {
+        const auto& mask=axis == 0 ? x : y; auto& momenta=axis == 0 ? jx : jy; const auto& inertias=axis == 0 ? inertia.x : inertia.y;
+        for (std::size_t face=0;face<mask.size();++face) {
+            if (!mask[face] || momenta[face].is_zero()) continue;
+            const auto ends=adjacent(grid,axis,face);
+            require(ends.first != absent && ends.second != absent && inertias[face] > 0,"Momentum on a face without two open cells");
+            const auto kinetic=MacEnergy::kinetic(inertias[face],momenta[face]); momenta[face]=MacScaled{};
+            const auto first=kinetic.shared(.5*next.cells[ends.first].mixture.mass(),inertias[face]);
+            MacEnergySum second; second.add(kinetic); second.add(first.negated());
+            energy.add(kinetic);
+            for (const auto& [index,share] : {std::pair{ends.first,first},std::pair{ends.second,second.value()}}) {
+                auto& target=next.cells[index];
+                account_mac_cell_internal_energy(energy,target);
+                (void)add_mac_cell_internal_energy(target,share,&rounding);
+                account_mac_cell_internal_energy(energy,target,-1);
+            }
+        }
+    }
+    require(energy.within_bound(),"MAC face closure energy account failed");
+    store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
+    next.grid.closed_x=std::move(x); next.grid.closed_y=std::move(y);
+    MacClosedWorld candidate(registry_,thermodynamics_,std::move(next),settings_,transport_);
+    candidate.time_s_=time_s_; candidate.revision_=revision_+1;
+    return candidate;
 }
 }

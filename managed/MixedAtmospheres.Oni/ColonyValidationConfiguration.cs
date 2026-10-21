@@ -47,7 +47,7 @@ namespace MixedAtmospheres.Oni
         internal const int MinimumTimeoutSeconds = 30, MaximumTimeoutSeconds = 7200, MaximumLongRunTimeoutSeconds = 48 * 3600;
         internal const int DefaultTelemetryIntervalFrames = 300, MinimumTelemetryIntervalFrames = 10, MaximumTelemetryIntervalFrames = 10000;
         internal static readonly string[] Scenarios = { "terrain", "heat", "phase", "freeze-melt", "pump", "deoxidizer", "pipes",
-            "door", "sublimation", "falling", "breathing" };
+            "door", "sublimation", "falling", "breathing", "airflow" };
         internal static readonly string[] Modes =
         {
             "snapshot-copy", "native-observer", "native-import-domain", "native-liquid-import-domain", "native-domain",

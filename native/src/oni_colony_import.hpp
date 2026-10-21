@@ -21,7 +21,7 @@ struct ImportCell {
 struct ReservoirEntry { std::size_t region_cell = 0; std::size_t species = 0; double mass_kg = 0, temperature_k = 0; };
 struct ImportReport {
     std::size_t regions = 0, liquid_bodies = 0, raised_cells = 0, headspaces_filled = 0, vacuum_cells_filled = 0;
-    double reservoir_kg = 0, moved_gas_mol = 0, condensed_kg = 0;
+    double reservoir_kg = 0, moved_gas_mol = 0, condensed_kg = 0, evaporated_kg = 0;
     double maximum_relative_pressure_spread = 0; // after settling, over regions with gas
     double maximum_relative_mass_error = 0;      // per species, imported against settled plus reservoir
 };
@@ -32,7 +32,9 @@ struct ImportResult { experimental::MacTransportState state; std::vector<Reservo
 // hydrostatic mass, the body's remaining liquid fills its surface cells to a
 // common level, and liquid beyond the surface rises into the gas above or, in
 // a sealed region, goes to the reservoir. Vapour beyond its saturation
-// pressure first condenses into its liquid at the bottom of its region. Gas in
+// pressure first condenses into its liquid at the bottom of its region, and a
+// liquid under less gas pressure than its own vapour pressure (a pool beside
+// vacuum) gives its region saturated vapour. Gas in
 // each connected region is then laid out in density layers at one pressure,
 // filling the headspace of partly filled liquid cells and vacuum pockets.
 [[nodiscard]] ImportResult settle_import(const Catalogue&, std::size_t width, std::size_t height,

@@ -810,6 +810,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     }
     require(settings_.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
         "Two-moment pressure integration cannot continue through the legacy reference path");
+    require(state_.grid.closed_x.empty() && state_.grid.closed_y.empty(), "Closed faces need the production kernel");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;

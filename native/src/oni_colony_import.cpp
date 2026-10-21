@@ -147,6 +147,38 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
             report.condensed_kg += condensed; converted[V] -= condensed; converted[L] += condensed;
         }
     }
+    // A liquid under less gas pressure than its vapour pressure boils until
+    // its region holds saturated vapour; beside vacuum that takes moments (its
+    // vapour leaves at the Hertz-Knudsen rate) and its first expansion into the
+    // void would otherwise start the owner with fast fronts. Under a gas at
+    // higher pressure evaporation is slow and stays with the owner's dynamics.
+    for (const auto& pair : catalogue.pairs) {
+        const auto L = static_cast<std::uint32_t>(pair.liquid), V = static_cast<std::uint32_t>(pair.vapour);
+        for (std::size_t r = 0; r < regions.size(); ++r) {
+            const auto& members = regions[r];
+            long double vapour = 0, room = 0, held = 0, heat = 0;
+            std::size_t into = none;
+            for (const auto i : members) {
+                const double v = gas_volume(i); room += v;
+                if (v > 0 && (into == none || i / width > into / width)) into = i;
+                for (const auto& [k, m] : gas[i].masses) if (k == V) vapour += m / registry[k].molar_mass;
+                if (liquid[i].mass > 0 && liquid[i].species == L) { held += liquid[i].mass; heat += liquid[i].mass * liquid[i].temperature; }
+            }
+            if (!(held > 0) || !(room > 0) || into == none) continue;
+            const double t = static_cast<double>(heat / held);
+            if (pair.critical_k > 0 && t >= pair.critical_k) continue;
+            double saturation = 0;
+            try { saturation = mac_saturation_pressure(*catalogue.eos, L, V, t, catalogue_reference_pressure_pa); }
+            catch (const std::exception&) { continue; }
+            if (!(region_pressure[r] < saturation)) continue;
+            const long double missing = saturation * room / (R * t) - vapour;
+            const double mass = std::min(static_cast<double>(missing * registry[V].molar_mass), .5 * static_cast<double>(held));
+            if (!(mass > 0)) continue;
+            for (const auto i : members) if (liquid[i].mass > 0 && liquid[i].species == L) liquid[i].mass -= mass * (liquid[i].mass / static_cast<double>(held));
+            auto& cell = gas[into]; cell.add(V, mass); cell.capacity += registry[V].cv() * mass; cell.heat += registry[V].cv() * mass * t;
+            report.evaporated_kg += mass; converted[V] += mass; converted[L] -= mass;
+        }
+    }
     std::vector<double> hydrostatic(N, 0), temperature(N, 0), excess(N, 0);
     std::vector<std::size_t> parent(N, none);
     std::vector<std::uint8_t> visited(N);

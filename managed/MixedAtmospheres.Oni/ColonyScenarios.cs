@@ -76,6 +76,7 @@ namespace MixedAtmospheres.Oni
                     case "sublimation": Sublimation(frame, status); break;
                     case "falling": Falling(frame); break;
                     case "breathing": Breathing(frame, status); break;
+                    case "airflow": Airflow(frame); break;
                     default: throw new InvalidOperationException("Unknown colony scenario " + name);
                 }
             }
@@ -325,6 +326,36 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
         }
+        // A column of airflow tiles between water under air and thinner air:
+        // the air passes, the water does not. The column starts as rock; the
+        // tiles are built on it and it is dug, so no water crosses first.
+        private static void Airflow(int frame)
+        {
+            if (Once(0, "arena"))
+                Arena((x, y) => x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : x < 4 ? (y <= 2 ? (SimHashes.Water, 990f, 300f) : (SimHashes.Oxygen, 1.2f, 300f)) :
+                    (SimHashes.Oxygen, .3f, 300f));
+            if (Once(6, "build"))
+            {
+                for (var y = 0; y < Height; ++y) Build(GasPermeableMembraneConfig.ID, Cell(4, y));
+                for (var y = 0; y < Height; ++y) SimMessages.Dig(Cell(4, y));
+            }
+            if (Once(8, "start")) recorded["right"] = RightGas();
+            if (Once(32, "check"))
+            {
+                var liquid = Enumerable.Range(4, 4).Sum(x => Enumerable.Range(0, Height).Sum(y => LiquidMass(Cell(x, y))));
+                Record("no water entered or crossed the airflow tiles", liquid == 0, $"{liquid:G4} kg");
+                Record("air passed the airflow tiles", RightGas() > recorded["right"] + .05, $"{recorded["right"]:G4} -> {RightGas():G4} kg");
+                Finish();
+            }
+        }
+        private static double RightGas() => Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y)) - LiquidMass(Cell(x, y))));
+        private static double LiquidMass(int cell)
+        {
+            var count = ColonyOwner.Composition(cell, out var indices, out var masses);
+            double total = 0; for (var k = 0; k < count; ++k) if (ElementLoader.elements[(int)indices[k]].IsLiquid) total += masses[k];
+            return total;
+        }
+
         private static double OwnedMass(SimHashes element)
         {
             double total = 0;

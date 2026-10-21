@@ -36,6 +36,7 @@ MomentSweep moment_sweep(double j0, double j1, double f1, double inertia, double
 }
 
 void stage_pressure_transport_moments(Context& c, Fields& f, double dt, Accounts& acc) {
+    require(c.g.shut_x.empty() && c.g.shut_y.empty(), "Closed faces need the discrete-gradient pressure integration");
     prepare_primary_remainders(f);
     const auto& g = c.g; auto& ws = c.ws; const auto N = g.N;
     auto mark = std::chrono::steady_clock::now();

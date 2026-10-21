@@ -463,8 +463,8 @@ void stage_viscosity(Context& c, Fields& f, double seconds, Accounts& acc) {
     const double grad = 1 / g.h;
     const double shear_weight = visc.shear_pa_s * g.V;
     const double div_weight = shear_weight / 3 + visc.bulk_pa_s * g.V;
-    const auto fixed_x = [&](Index fidx) { return g.xl[fidx] == none || g.xr[fidx] == none; };
-    const auto fixed_y = [&](Index fidx) { return g.yl[fidx] == none || g.yr[fidx] == none; };
+    const auto fixed_x = [&](Index fidx) { return g.xl[fidx] == none || g.xr[fidx] == none || g.closed(false, fidx); };
+    const auto fixed_y = [&](Index fidx) { return g.yl[fidx] == none || g.yr[fidx] == none || g.closed(true, fidx); };
     struct Dof { int axis; Index face; double gradient; };
     const auto occupied = [&](std::size_t i) { return !g.wall[i] && ws.cell_mass[i] > 0; };
     // Void phase: a partly filled cell's modes act on its material only.

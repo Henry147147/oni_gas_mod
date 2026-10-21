@@ -23,6 +23,10 @@ struct MacGrid {
     double spacing_m = 1, depth_m = 1;
     bool periodic_x = false, periodic_y = false;
     std::vector<std::uint8_t> walls;
+    // Faces closed between two open cells (x faces then y faces, in
+    // x_face/y_face order); empty when none. Production kernel only, and not
+    // persisted: an owner closes them each step (MacClosedWorld::with_closed_faces).
+    std::vector<std::uint8_t> closed_x{}, closed_y{};
     [[nodiscard]] std::size_t x_width() const { return width + (periodic_x ? 0 : 1); }
     [[nodiscard]] std::size_t y_height() const { return height + (periodic_y ? 0 : 1); }
     [[nodiscard]] std::size_t x_face(std::size_t x, std::size_t y) const { return x + y * x_width(); }

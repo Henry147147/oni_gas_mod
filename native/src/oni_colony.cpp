@@ -78,6 +78,7 @@ struct Session {
     std::vector<MAOniColonyMaterial> materials;
     std::shared_ptr<const Catalogue> catalogue;
     std::vector<std::uint8_t> space; // per owned cell
+    std::vector<std::uint8_t> blocking; // per owned cell: passes gas, not liquid (airflow tile)
     std::vector<ReservoirEntry> reservoir;
     std::vector<MacSaturationPair> pairs; // liquid/vapour pairs that boil and condense
     std::shared_ptr<const MacClosedWorld> world;
@@ -343,6 +344,47 @@ MacClosedWorld move_material(MacClosedWorld world, std::span<const Move> moves, 
     (void)st;
     return world;
 }
+// Airflow tiles (docs/colony-owner.md#airflow-tiles): for this step every face
+// of a liquid-blocking cell closes while liquid is on either side of it.
+double liquid_mass(const MacClosedWorld& world, std::size_t i) {
+    const auto& m = world.state().cells[i].mixture; const auto& registry = world.registry(); double total = 0;
+    for (std::size_t k = 0; k < m.masses.size(); ++k) if (registry[k].phase == Phase::liquid) total += m.masses[k];
+    return total;
+}
+MacClosedWorld close_blocked_faces(const Session& s, MacClosedWorld world) {
+    const auto& grid = world.state().grid; const auto w = grid.width, h = grid.height;
+    std::vector<std::uint8_t> x(grid.x_width() * h, 0), y(w * grid.y_height(), 0); bool any = false;
+    const auto check = [&](std::size_t a, std::size_t b) {
+        if (!(s.blocking[a] || s.blocking[b]) || grid.walls[a] || grid.walls[b]) return false;
+        return liquid_mass(world, a) > 0 || liquid_mass(world, b) > 0;
+    };
+    for (std::size_t row = 0; row < h; ++row) for (std::size_t col = 1; col < w; ++col)
+        if (check(col - 1 + row * w, col + row * w)) { x[grid.x_face(col, row)] = 1; any = true; }
+    for (std::size_t row = 1; row < h; ++row) for (std::size_t col = 0; col < w; ++col)
+        if (check(col + (row - 1) * w, col + row * w)) { y[grid.y_face(col, row)] = 1; any = true; }
+    if (!any) { x.clear(); y.clear(); }
+    if (x == grid.closed_x && y == grid.closed_y) return world;
+    return world.with_closed_faces(std::move(x), std::move(y));
+}
+// Liquid that reached a blocking cell during a step (its faces close only at
+// the next step) moves on to the open neighbour holding the most liquid, or
+// the one below.
+MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
+    const auto& grid = world.state().grid; const auto w = grid.width, h = grid.height; std::vector<struct Move> moves;
+    for (std::size_t i = 0; i < s.blocking.size(); ++i) {
+        if (!s.blocking[i] || grid.walls[i] || !(liquid_mass(world, i) > 0)) continue;
+        const auto x = i % w, yy = i / w; std::size_t best = SIZE_MAX; double most = -1;
+        for (const auto n : {yy > 0 ? i - w : SIZE_MAX, x > 0 ? i - 1 : SIZE_MAX, x + 1 < w ? i + 1 : SIZE_MAX, yy + 1 < h ? i + w : SIZE_MAX}) {
+            if (n == SIZE_MAX || grid.walls[n] || s.blocking[n] || s.space[n]) continue;
+            const double held = liquid_mass(world, n);
+            if (held > most) { most = held; best = n; }
+        }
+        if (best == SIZE_MAX) continue;
+        const auto& m = world.state().cells[i].mixture; const auto& registry = world.registry();
+        for (std::size_t k = 0; k < m.masses.size(); ++k) if (registry[k].phase == Phase::liquid && m.masses[k] > 0) moves.push_back({i, best, k, m.masses[k]});
+    }
+    return moves.empty() ? world : move_material(std::move(world), moves, s.ledger, s.status);
+}
 // Terrain edits at the start of a frame (docs/colony-owner.md#terrain).
 MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits) {
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
@@ -350,6 +392,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     std::vector<std::uint8_t> touched(st0.cells.size());
     for (const auto& e : edits) {
         const auto i = rect_index(s.config, e.public_cell);
+        if (e.kind == MA_ONI_COLONY_BLOCK_LIQUID || e.kind == MA_ONI_COLONY_PASS_LIQUID) { s.blocking[i] = e.kind == MA_ONI_COLONY_BLOCK_LIQUID; continue; }
         if (touched[i]) continue;
         touched[i] = 1;
         if (e.kind == MA_ONI_COLONY_OPEN && st0.grid.walls[i]) opening.push_back(i);
@@ -512,7 +555,7 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     auto next = std::make_unique<Session>();
     next->config = config; next->materials.assign(materials.begin(), materials.end()); next->catalogue = catalogue_of(materials);
     const auto& cat = *next->catalogue;
-    std::vector<ImportCell> imported(cells.size()); next->space.assign(cells.size(), 0);
+    std::vector<ImportCell> imported(cells.size()); next->space.assign(cells.size(), 0); next->blocking.assign(cells.size(), 0);
     for (std::size_t i = 0; i < cells.size(); ++i) {
         const auto& c = cells[i];
         require(c.kind <= MA_ONI_COLONY_SPACE && std::isfinite(c.mass_kg) && c.mass_kg >= 0 && std::isfinite(c.temperature_k) && c.temperature_k >= 0,
@@ -638,7 +681,7 @@ void queue_heat(std::span<const MAOniColonyHeat> edits) {
 void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     require(active(), "No colony owner is active");
     for (const auto& e : edits) {
-        require(e.kind == MA_ONI_COLONY_OPEN || e.kind == MA_ONI_COLONY_CLOSE, "Invalid colony terrain edit");
+        require(e.kind >= MA_ONI_COLONY_OPEN && e.kind <= MA_ONI_COLONY_PASS_LIQUID, "Invalid colony terrain edit");
         (void)rect_index(geometry, e.public_cell);
     }
     std::lock_guard lock(inputs);
@@ -856,6 +899,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         }
         doing = "terrain";
         if (!terrain.empty()) world = apply_terrain(s, std::move(world), terrain);
+        world = close_blocked_faces(s, std::move(world));
         lap(0); doing = "heat";
         // Heat edits.
         for (std::size_t first = 0; first < heat.size(); first += 4096) {
@@ -1034,6 +1078,8 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             auto settled = world.with_liquid_settling(std::min(.25, 1 - std::exp(-seconds / settling_time_s)));
             s.status.settled_kg += settled.report.moved_kg; world = std::move(settled.world);
         } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
+        doing = "airflow tiles";
+        world = expel_blocked_liquid(s, std::move(world));
         doing = "conversions";
         world = convert_identities(s, std::move(world), seconds);
         lap(3); doing = "space sink";
@@ -1100,10 +1146,10 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
-// Version 5 adds the inputs queued at the save; version 4 the phase-change
+// Version 6 adds the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 5;
+constexpr std::uint32_t checkpoint_version = 6;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -1115,6 +1161,7 @@ std::vector<std::uint8_t> checkpoint() {
     w.raw(magic, 8); w.u32(checkpoint_version); w.raw(&s.config, sizeof(s.config));
     w.u32(static_cast<std::uint32_t>(s.materials.size())); w.raw(s.materials.data(), s.materials.size() * sizeof(MAOniColonyMaterial));
     w.u32(static_cast<std::uint32_t>(s.space.size())); w.raw(s.space.data(), s.space.size());
+    w.u32(static_cast<std::uint32_t>(s.blocking.size())); w.raw(s.blocking.data(), s.blocking.size());
     w.u32(static_cast<std::uint32_t>(s.reservoir.size()));
     for (const auto& r : s.reservoir) { w.u64(r.region_cell); w.u64(r.species); w.f64(r.mass_kg); w.f64(r.temperature_k); }
     const auto& L = s.ledger;
@@ -1168,6 +1215,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     next->config = config; next->materials = std::move(stored); next->catalogue = catalogue_of(next->materials);
     const auto cells = r.u32(); require(cells == static_cast<std::size_t>(config.width) * config.height, "Colony checkpoint space mask differs");
     next->space.resize(cells); r.raw(next->space.data(), cells);
+    require(r.u32() == cells, "Colony checkpoint blocking mask differs"); next->blocking.resize(cells); r.raw(next->blocking.data(), cells);
     const auto entries = r.u32();
     for (std::uint32_t k = 0; k < entries; ++k) {
         ReservoirEntry e; e.region_cell = r.u64(); e.species = r.u64(); e.mass_kg = r.f64(); e.temperature_k = r.f64();

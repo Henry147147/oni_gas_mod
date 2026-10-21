@@ -105,6 +105,17 @@ consumer (pumps) the whole mixture of that phase (`MA_ONI_COLONY_EXTRACT_GAS`,
 the consumer flag and return as ONI's consumed-mass events for the handle, one
 per constituent, so a pump's storage holds the mixture it drew.
 
+## Machines
+
+A converter's output into the world (`ElementConverter`, not stored) is a
+reserved transaction (`ColonyMachines.cs`): when no owned cell within two of
+the output can take it the converter does not run, so it takes neither its
+inputs nor, through its building's idle state, its power. A gas always fits an
+open cell, after which ONI's own overpressure limits apply; a liquid needs a
+cell within two that is under 98% liquid. A wrong element arriving at a pipe
+input is stored or dumped as ONI configures it, and dumped into the
+building's cell where ONI would destroy it, so nothing is deleted.
+
 ## Sensors
 
 An element sensor (`LogicElementSensor`) on the owned asteroid is true when its
@@ -157,6 +168,17 @@ A sealed cell's contents go to the reservoir. Replacing a cell with a fluid
 element opens it if needed and books the placed fluid. Moved material keeps its
 U+K+G: each receiving cell gets it at the temperature whose internal energy
 matches, after the potential at its height.
+
+## Airflow tiles
+
+ONI marks an airflow tile's cell liquid-impermeable (`SetCellProperties`); the
+owner keeps that mark per cell (saved with the colony). At the start of each
+step every face of a marked cell with liquid on either side is
+[closed](../native/MAC_KERNEL.md#coverage-and-admission) for that step, so gas
+passes through the tile and liquid cannot enter it. Liquid that still reached a
+marked cell during a step (its faces close only at the next step) moves on to
+the open neighbour holding the most liquid. Mesh tiles change nothing: both
+phases pass.
 
 ## Pacing
 
@@ -215,7 +237,13 @@ whole asteroid starts at rest.
 3. **Phase equilibrium.** A region's vapour beyond its saturation pressure
    (whole region room, region temperature) condenses into its liquid, laid from
    the region's lowest cells up before levelling. Terra's dense cold chlorine and
-   carbon dioxide pockets otherwise rain for minutes after the start.
+   carbon dioxide pockets otherwise rain for minutes after the start. The
+   reverse holds where a liquid sits under less gas pressure than its own
+   vapour pressure (magma beside a vacuum pocket): it boils in moments, so the
+   region starts holding saturated vapour at the liquid's mean temperature.
+   Otherwise its first expansion into the void starts the owner with fast thin
+   fronts (Terra's magma: 35 substeps a frame). Under gas at higher pressure
+   evaporation is slow and stays with the owner.
 4. **Gas.** In each region the gas is laid out again at one pressure without
    mixing: ONI keeps one element per cell and its own simulation sorts gases by
    density, while spreading every species through a region would mix a room's
@@ -280,6 +308,7 @@ setting their powered flag (harness only).
 | `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
 | `breathing` | The colony's duplicants keep full breath; oxygen is taken from the owner and carbon dioxide exhaled into it. |
+| `airflow` | A column of airflow tiles between water under air and thinner air passes the air but no water. |
 
 ## Verification
 

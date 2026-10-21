@@ -285,6 +285,11 @@ public:
     // heat, momentum is unchanged and its kinetic change is booked, so U+K+G
     // and every constituent are conserved.
     [[nodiscard]] MacLiquidSettling with_liquid_settling(double fraction) const;
+    // Faces closed for the next steps (MacGrid::closed_x/closed_y; empty
+    // masks open every face). A face that closes while carrying momentum
+    // loses it, and its kinetic energy becomes internal energy of its two
+    // cells by mass share, so U+K is unchanged and mass is untouched.
+    [[nodiscard]] MacClosedWorld with_closed_faces(std::vector<std::uint8_t> x, std::vector<std::uint8_t> y) const;
     [[nodiscard]] MacClosedWorld with_opened_cells(std::span<const std::size_t>) const;
     [[nodiscard]] MacClosedWorld with_closed_cells(std::span<const std::size_t>) const;
     // Physical owner checkpoint, not a scalar/display projection. Restoring

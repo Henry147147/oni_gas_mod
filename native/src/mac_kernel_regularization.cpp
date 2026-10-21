@@ -97,7 +97,7 @@ void stage_compression(Context& c, Fields& f, double dt, Accounts& acc) {
             const auto r = axis == 0 ? g.right_face(i) : g.top_face(i);
             const double closing = J[l] * inv[l] - J[r] * inv[r];
             if (!(closing > 0)) return;
-            const bool fixl = fl[l] == none || fr[l] == none, fixr = fl[r] == none || fr[r] == none;
+            const bool fixl = fl[l] == none || fr[l] == none || g.closed(axis != 0, l), fixr = fl[r] == none || fr[r] == none || g.closed(axis != 0, r);
             const double B = e.M[i] * half / g.h;
             if (B == 0) return;
             const double a = (fixl ? 0 : inv[l]) + (fixr ? 0 : inv[r]);

@@ -84,6 +84,7 @@ policy paths.
 | Cells | gas, filled liquid (single or several liquids), gas/liquid mixtures, exact empty cells, solids |
 | Vacuum representation | 0 empty cells, 1 [void phase](MAC_VACUUM.md#void-phase) (gas and [liquid surfaces](MAC_VACUUM.md#liquid-surfaces); midpoint pressure) |
 | Unresolved subcell void | 0 exact geometry (default), 1 [audited gas expansion](MAC_VACUUM.md#unresolved-gas-opt-in), persisted in version 12; supported production void-phase selectors only, no reference fallback |
+| Closed faces | `MacGrid::closed_x/closed_y` between two open cells: fixed like a wall face (no flow, pressure and weight go to the wall account, no viscous slip) but still conducting; set by `MacClosedWorld::with_closed_faces`, not persisted, discrete-gradient pressure only, no reference fallback |
 
 Swept (2) material reconstruction, momentum selectors 2–5, coupled
 compressive pressure (3) and explicit
@@ -136,7 +137,9 @@ mixtures the reference divided differences. Node pressure differences gather
 `(p0_l - p0_r) + (dW_l - dW_r)`, so there is no absolute-pressure roundoff
 floor; the root reaches the reference 16-epsilon closure. A residual within 256
 times that target that no line-search step can reduce (rounding noise of stiff
-liquid/gas coupling) is accepted as converged rather than retried smaller. Each Newton
+liquid/gas coupling) is accepted as converged rather than retried smaller, and so is
+one there that a step no longer halves (at quadratic convergence one step from that
+band would land far below the floor; Terra crawled 15 more steps at 1% each). Each Newton
 correction is a matrix-free PCG solve honoring the saved pressure setting
 (automatic geometric multigrid, or explicit Jacobi) with an inexact-Newton tolerance
 (`0.1 * residual`). Canonical J, wall and body impulses and midpoint sweeps

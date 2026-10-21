@@ -467,14 +467,14 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
         std::vector<double>& dp0, std::vector<double>& w, std::size_t fidx) {
         const auto l = fl[fidx], r = fr[fidx];
         if (I[fidx] > 0) dp0[fidx] = p0(l) - p0(r);
-        if (l != none && r != none && I[fidx] > 0 && occupied(l) && occupied(r)) w[fidx] = weight(I[fidx]);
+        if (l != none && r != none && I[fidx] > 0 && occupied(l) && occupied(r) && !g.closed(&fl == &g.yl, fidx)) w[fidx] = weight(I[fidx]);
     };
     // Midpoint sweep of a movable face with work-pressure increments:
     // swept = A dt (u0 + dt (A dp + I a) / (2 I)) = c0 + c1 (dW_l - dW_r),
     // c0 = A dt u0 + (A dt^2 / (2 I)) (A dp0 + I a), c1 = A^2 dt^2 / (2 I).
     // J and I are fixed during the root, so both coefficients are formed once.
-    const auto movable_x = [&](std::size_t fidx) { return g.xl[fidx] != none && g.xr[fidx] != none && ws.ix[fidx] > 0; };
-    const auto movable_y = [&](std::size_t fidx) { return g.yl[fidx] != none && g.yr[fidx] != none && ws.iy[fidx] > 0; };
+    const auto movable_x = [&](std::size_t fidx) { return g.xl[fidx] != none && g.xr[fidx] != none && ws.ix[fidx] > 0 && !g.closed(false, fidx); };
+    const auto movable_y = [&](std::size_t fidx) { return g.yl[fidx] != none && g.yr[fidx] != none && ws.iy[fidx] > 0 && !g.closed(true, fidx); };
     const auto coefficients = [&](double J, double I, double dp0, double accel, double& c0, double& c1, double W) {
         const double half = A * dt * dt / (2 * I);
         c0 = A * dt * (J / I) + half * (A * dp0 + W * accel);
@@ -652,7 +652,7 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             // Inexact Newton: the linear error only needs to stay below the
             // quadratically convergent nonlinear residual (relative tolerance
             // ~0.1 * norm), with an absolute floor at a fraction of the target.
-            const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3);
+            const double rtol = std::clamp(.1 * norm, 1e-13, 1e-3), previous = norm;
             const auto solved = solve_linear(c, sys, ws.res, ws.sol, rtol, .05 * tolerance * g.V, linear_limit);
             c.counters.linear += solved.iterations;
             double fraction = 1; bool accepted = false;
@@ -674,6 +674,10 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
             if (!accepted && norm <= 256 * tolerance) break;
             if (!accepted) reject("Production pressure line search failed; retry smaller timestep");
             ++newton;
+            // Within that band a step that does not halve the residual only
+            // re-rounds it (one step from 1e-13 at quadratic convergence would
+            // reach far below the floor): the root is converged.
+            if (norm <= 256 * tolerance && norm > .5 * previous) break;
         }
         c.counters.newton += newton;
         if (!voids) break;
