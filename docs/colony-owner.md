@@ -66,8 +66,8 @@ play.
 - **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
   `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
   below its threshold (provisionally 1e-6 kg per cell) leave through the
-  solver's audited trace sink before the flow, at the flow's interval ends and
-  after the owner's own edits. Their mass per species, U+K+G and momentum are
+  solver's audited trace sink at both ends of the flow's interval and after
+  the owner's edits that follow it. Their mass per species, U+K+G and momentum are
   booked as their own ledger term (`trace_sink_kg`, `trace_sink_j` in the
   status), apart from the space sink. The game does not select the profile yet.
 - **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by

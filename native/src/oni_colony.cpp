@@ -1177,8 +1177,9 @@ void book_trace(Session& s, const MacTraceSinkReport& r) {
     L.energy_trace += joules; L.trace_momentum_x += mac_energy_long_double(r.momentum_x); L.trace_momentum_y += mac_energy_long_double(r.momentum_y);
     s.status.trace_sink_kg += static_cast<double>(kg); s.status.trace_sink_j += static_cast<double>(joules);
 }
-// The profile's sink outside the flow step (whose interval endpoints the
-// world applies itself): traces imported or made by the owner's own edits.
+// The profile's sink after the owner's own edits that follow the flow step
+// (the flow applies it at both ends of its interval, so traces imported or
+// made by the edits before it leave there).
 MacClosedWorld sink_traces(Session& s, MacClosedWorld world) {
     if (!(world.settings().trace_sink_threshold_kg > 0)) return world;
     auto sunk = world.with_trace_sink();
@@ -1499,9 +1500,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k]);
             }
         }
-        lap(2); step("trace sink");
-        world = sink_traces(s, std::move(world));
-        step("flow");
+        // The profile's trace sink before the flow is the flow's own (advanced()
+        // applies it at both ends of its interval).
+        lap(2); step("flow");
         // Flow. A debugging request (MA_COLONY_FAULT_DUMP=path) writes the
         // world before a failing flow step and the material records there.
         // MA_COLONY_DUMP_FRAME=n also writes the world before frame n's flow.
