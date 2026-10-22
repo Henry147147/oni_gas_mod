@@ -103,13 +103,14 @@ void trace_sink_control() {
     cfg.maximum_timestep_s = .01;
     std::vector<MAOniColonyCell> cells(15, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
     cells[1 + 1 * 5] = {oxygen, MA_ONI_COLONY_FLUID, 1, 300, 0, 0};
-    cells[3 + 1 * 5] = {carbon, MA_ONI_COLONY_FLUID, 1e-8f, 300, 0, 0};
+    constexpr float trace_kg=1e-12f;
+    cells[3 + 1 * 5] = {carbon, MA_ONI_COLONY_FLUID, trace_kg, 300, 0, 0};
     ma::oni::colony::start(cfg, mats, cells, 1);
     ma::oni::colony::advance(1, .2, 2); ma::oni::colony::wait();
     const auto st = ma::oni::colony::status();
     std::cout << "trace sink: state " << st.state << " " << st.error << ", sunk " << st.trace_sink_kg << " kg " << st.trace_sink_j
               << " J, mass error " << st.maximum_relative_mass_error << ", energy error " << st.maximum_relative_energy_error << "\n";
-    require(st.state == 1 && std::abs(st.trace_sink_kg - static_cast<double>(1e-8f)) < 1e-15 && st.maximum_relative_mass_error < 1e-12 &&
+    require(st.state == 1 && st.trace_sink_kg == static_cast<double>(trace_kg) && st.maximum_relative_mass_error < 1e-12 &&
         st.maximum_relative_energy_error < 1e-12, "the profile sinks a sealed trace and books it");
     const auto image = ma::oni::colony::checkpoint();
     ma::oni::colony::stop();

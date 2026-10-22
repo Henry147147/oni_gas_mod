@@ -159,8 +159,9 @@ The [2026-10-22 decision](../docs/completion-plan.md) permits numerical
 tradeoffs down to the measured [base-game floor](../docs/base-game-floor.md),
 for saved game profiles only. Gates retain their settings and bounds. Profile
 family 0 is legacy; family 1 (`base_game_floor`, checkpoint 16) saves an
-explicit per-constituent trace threshold, at most 1e-6 kg. New colonies have
-not selected this profile yet. A fresh prepared base will be used for its
+explicit per-constituent trace threshold, at most 1e-6 kg. Default colonies
+retain profile 0; test colonies opt in with `MA_COLONY_GAME_FLOOR=1`.
+A fresh prepared base will be used for its
 ten-cycle acceptance; old saves keep their existing profile.
 
 `with_trace_sink()` removes constituents strictly below that saved threshold.
@@ -185,9 +186,9 @@ volume or the grid volume. Empty cells retain no U, remainder or passives.
 | --- | --- | --- |
 | Existing regional schedules, maximum step 0.1f s, gas expansion fraction 0.001 | Different adaptive trajectory and unresolved geometry; quantitative F1–F5 errors pending | Current baseline; floor unmeasured |
 | Existing tiny-capacity conduction/gravity entropy treatment | Thermal detail below component resolution; conservative heat repair and final EOS/entropy checks retained | Current baseline; floor unmeasured |
-| Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Threshold sweep/control in progress; not a new-colony default |
-| Compatible void pressure work | Uses geometric face sweeps for U work when an initial liquid void closes, matching canonical J/K; changes those trajectories | Opt-in, not yet selected; floor measurements pending |
-| Mixed-EOS endpoint recovery | After the original 200 iterations fail, accepts a bracket endpoint satisfying the unchanged Newton criterion; successful old roots are unchanged | Opt-in, not yet selected; floor measurements pending |
+| Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Opt-in threshold 1e-11 kg; full floor acceptance pending |
+| Compatible void pressure work | Uses geometric face sweeps for U work when an initial liquid void closes, matching canonical J/K; changes those trajectories | Selected by the opt-in profile; floor measurements pending |
+| Mixed-EOS endpoint recovery | After the original 200 iterations fail, accepts a bracket endpoint satisfying the unchanged Newton criterion; successful old roots are unchanged | Selected by the opt-in profile; floor measurements pending |
 
 The latter policies persist in checkpoint version 17. The void control takes
 one step with no rejection instead of four with three, under unchanged audits.
@@ -200,7 +201,22 @@ At a provisional `1e-60 kg` threshold, five captured fault worlds complete
 30 cold-restored intervals: total sink masses are `5.49e-59`, `6.63e-59`,
 `2.63e-58`, `5.46e-58` and `1.53e-58 kg`. The largest booked energy magnitude
 is `5.49e-65 J`. The new liquid-floor captures still fail later in continuation;
-threshold selection and floor acceptance remain open.
+floor acceptance remains open.
+
+The opt-in colony profile selects both policies and `1e-11 kg`, the smallest
+tested decade clearing all seven captured starts (the levelling start fails
+later at `1e-12 kg`). Each control below advances thirty 0.2 s flow intervals,
+restoring the checkpoint after every interval; these are not full arena runs.
+
+| Captured start | Total trace sink kg | Booked U+K+G J |
+| --- | ---: | ---: |
+| Terra 1071 | 1.1943e-9 | 0.002455 |
+| Terra 1866 | 8.4571e-10 | 0.002419 |
+| Volcanea | 1.4010e-8 | 0.004695 |
+| Oceania | 1.6483e-8 | 0.008063 |
+| Filter | 1.2865e-8 | 0.015318 |
+| F3 levelling start | 2.1537e-8 | 0.007906 |
+| F5 layering start | 2.0490e-8 | 0.008264 |
 
 The four feature-removal variants in the floor protocol remain scratch-only
 measurements requiring a user adoption decision. Momentum and per-cell

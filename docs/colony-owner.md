@@ -65,7 +65,8 @@ play.
 - **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
 - **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
   `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
-  below its threshold (provisionally 1e-6 kg per cell) leave through the
+  below its threshold (1e-11 kg per cell, the smallest passing tested decade)
+  leave through the
   solver's audited trace sink at both ends of the flow's interval and after
   the owner's edits that follow it. Their mass per species, U+K+G and momentum are
   booked as their own ledger term (`trace_sink_kg`, `trace_sink_j` in the

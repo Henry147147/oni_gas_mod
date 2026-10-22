@@ -210,8 +210,9 @@ std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<M
     return pairs;
 }
 // The game-floor profile's per-constituent trace threshold (at most 1 mg by
-// the user's decision); provisional until the floor measurements select it.
-constexpr double game_floor_trace_kg = 1e-6;
+// the user's decision). Smallest tested decade clearing the captured faults,
+// including both liquid-floor starts; new-colony selection stays opt-in.
+constexpr double game_floor_trace_kg = 1e-11;
 MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
@@ -220,7 +221,10 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     s.gas_expansion_volume_fraction = .001;
     s.step_control = MacStepControl::regional_predictive;
     s.preconditioner = PressurePreconditioner::incomplete_cholesky;
-    if (c.flags & MA_ONI_COLONY_GAME_FLOOR) { s.game_profile = MacGameProfile::base_game_floor; s.trace_sink_threshold_kg = game_floor_trace_kg; }
+    if (c.flags & MA_ONI_COLONY_GAME_FLOOR) {
+        s.game_profile = MacGameProfile::base_game_floor; s.trace_sink_threshold_kg = game_floor_trace_kg;
+        s.compatible_void_pressure_work = true; s.recover_mixed_eos_endpoint = true;
+    }
     return s;
 }
 std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {
