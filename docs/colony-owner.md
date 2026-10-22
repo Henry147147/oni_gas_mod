@@ -25,8 +25,10 @@ play.
 - **Publication.** After each data request the mod copies ONI's game data and
   overwrites every owned cell with the owner's projection: the dominant
   constituent of the dominant phase, that phase's mass, temperature. Changed
-  identities are announced to ONI's grid caches. `Grid.Pressure` returns the
-  owner's mechanical pressure.
+  identities are announced to ONI's grid caches (`Grid.Element` follows only
+  these announcements, so a cell the owner leaves is announced back with
+  ONI's element). A cell a solid has just replaced shows the solid at once.
+  `Grid.Pressure` returns the owner's mechanical pressure.
 - **Transactions.** Mass emission, mass consumption (radius), additive cell-mass
   edits and cell heat in the asteroid go to the owner and commit at the start
   of the next native frame, with consumed/emitted callbacks returned through the
@@ -371,7 +373,7 @@ setting their powered flag (harness only).
 | `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide exhaust reaches the owner. |
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
-| `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere. |
+| `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere; one in thinner air beyond a wall reads low pressure. |
 | `wheezewort` | A Wheezewort's gas consumer runs through the owner, and the gas it takes returns to the arena or is held by the plant. |
 | `life-support` | The dev life-support building's consumer and emitter run through the owner: carbon dioxide in, oxygen out, and the emitter sees its full cell. |
 | `mask-station` | An oxygen mask station fills its storage with the owner's oxygen; the arena loses what the station holds. |

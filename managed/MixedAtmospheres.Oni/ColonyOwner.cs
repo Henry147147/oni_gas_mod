@@ -139,8 +139,11 @@ namespace MixedAtmospheres.Oni
                 OniNativeColony.Check(OniNativeColony.Start(ref config, materials, (uint)materials.Length, cells, (uint)cells.Length, ref output));
                 status = output; views = new OniNativeColony.CellView[cells.Length]; Active = true; ColonyPacingDriver.Ensure(); ConfigurePresentation();
                 OwnedCells = cells.Count(c => c.Kind != OniNativeColony.Solid);
+                // Backwall cells are a native layer behind the cells; their transitions emit through AddRemoveSubstance.
+                var backwalls = 0;
+                for (var i = 0; i < cells.Length; ++i) if (BackwallManager.HasBackwall((x0 + i % width) + (y0 + i / width) * Grid.WidthInCells)) ++backwalls;
                 Debug.Log($"[Mixed Atmospheres] Colony owner started: {width}x{height} cells, {OwnedCells} owned, {materials.Length} materials, " +
-                    $"reservoir {status.ReservoirKg:G6} kg, {started.ElapsedMilliseconds} ms.");
+                    $"reservoir {status.ReservoirKg:G6} kg, {backwalls} backwall cells, {started.ElapsedMilliseconds} ms.");
             }
             catch (Exception error)
             {
@@ -220,8 +223,18 @@ namespace MixedAtmospheres.Oni
                 var changes = new List<Sim.SubstanceChangeInfo>();
                 for (var i = 0; i < views.Length; ++i)
                 {
-                    var view = views[i]; if ((view.Flags & OniNativeColony.ViewOwned) == 0) continue;
+                    var view = views[i];
                     var global = (x0 + i % width) + (y0 + i / width) * Grid.WidthInCells;
+                    // A cell the owner does not publish shows native's cell, as
+                    // does one a solid has just replaced (the owner displaces its
+                    // fluid at its next step). ONI's Grid.Element follows only
+                    // substance-change events, so a cell the owner left gets one.
+                    if ((view.Flags & OniNativeColony.ViewOwned) == 0 || ElementLoader.elements[elements[global]].IsSolid)
+                    {
+                        if (Grid.Element[global] != null && Grid.Element[global].idx != elements[global])
+                            changes.Add(new Sim.SubstanceChangeInfo { cellIdx = global, newElemIdx = elements[global] });
+                        continue;
+                    }
                     var element = (ushort)view.ElementIndex;
                     masses[global] = view.MassKg; temperatures[global] = view.MassKg > 0 ? view.TemperatureK : 0;
                     diseases[global] = OniNativeColony.DiseaseIdx(view.Disease); germs[global] = view.Disease != 0 ? view.DiseaseCount : 0;

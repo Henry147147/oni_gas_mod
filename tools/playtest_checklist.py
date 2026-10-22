@@ -46,6 +46,49 @@ SYSTEMS: dict[str, dict] = {
         "implementation": ["native/src/oni_colony.cpp", "native/src/oni_backend.cpp"],
         "check": "colony-owner run: native heat contacts booked to the owner, ledgers closed (docs/colony-owner.md#native-bodies)"},
 }
+# Systems checked by in-game scenarios (docs/colony-owner.md#scenarios): the
+# adapter sources and the scenarios that show each one working. A system is
+# implemented once all of its scenarios are in PASSED_SCENARIOS (Linux harness).
+OWNER = ["managed/MixedAtmospheres.Oni/ColonyOwner.cs", "native/src/oni_colony.cpp"]
+ACTORS = ["managed/MixedAtmospheres.Oni/ColonyActors.cs", "native/src/oni_colony.cpp"]
+SHADOW = ["native/src/oni_colony.cpp", "native/src/oni_backend.cpp"]
+MACHINES = ["managed/MixedAtmospheres.Oni/ColonyMachines.cs", *ACTORS]
+SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
+    "terrain-construction": (OWNER, ("terrain", "door", "airflow")),
+    "heating-cooling": ([*SHADOW, *ACTORS[:1]], ("heat", "space-heater", "wheezewort")),
+    "cell-transitions": (OWNER, ("phase", "freeze-melt")),
+    "pumps": (ACTORS, ("pipes", "liquid-pump")),
+    "conduits": (MACHINES, ("pipes", "liquid-pump", "vent-overpressure")),
+    "fans-vents": (OWNER, ("pipes", "vent-overpressure")),
+    "element-converters": (MACHINES, ("deoxidizer", "life-support")),
+    "refineries": (MACHINES, ("polymer-press",)),
+    "electrolysis": (MACHINES, ("electrolysis",)),
+    "generators": (MACHINES, ("gas-generator",)),
+    "emitters-consumers": (ACTORS, ("life-support", "wheezewort", "oxyfern")),
+    "sublimation": (SHADOW, ("sublimation",)),
+    "duplicants": (ACTORS, ("breathing",)),
+    "storage": (OWNER, ("bottle-emptier",)),
+    "suits-masks": (ACTORS, ("mask-station",)),
+    "disease": ([*OWNER, *SHADOW[1:]], ("germs",)),
+    "critters": (ACTORS, ("puft",)),
+    "aquatic-ecosystems": (OWNER, ("pacu",)),
+    "liquid-access": (OWNER, ("pacu",)),
+    "plants": (ACTORS, ("plant", "oxyfern")),
+    "pressure-damage": (OWNER, ("plant",)),
+    "geysers": (ACTORS, ("geyser",)),
+    "rockets": (OWNER, ("rocket-exhaust",)),
+    "meteors": (OWNER, ("meteor",)),
+    "sensors": (["managed/MixedAtmospheres.Oni/ColonySensors.cs"], ("sensor",)),
+    "filters-separators": (MACHINES, ("filter",)),
+    "chunks": (SHADOW, ("debris-heat",)),
+    "building-melting": (OWNER, ("building-melt",)),
+    "particles": (OWNER, ("falling", "bottle-emptier")),
+}
+PASSED_SCENARIOS: set[str] = set()
+for _system, (_files, _scenarios) in SCENARIO_SYSTEMS.items():
+    if set(_scenarios) <= PASSED_SCENARIOS:
+        SYSTEMS[_system] = {"implementation": _files, "check": "in-game scenarios " + ", ".join(f"`{name}`" for name in _scenarios) +
+                            " (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"}
 FLUID_PHASES = ("gas", "liquid")
 
 # Prefab component -> system, first match wins. Prefabs matching nothing
@@ -147,9 +190,6 @@ CLASS_SYSTEMS = {
     "particles": {"FallingWater", "BubbleManager"},
     "storage": {"Dumpable"},
     "chunks": {"SubstanceChunk"},
-    "native": {
-        "implementation": ["managed/MixedAtmospheres.Oni/ColonyOwner.cs", "native/src/oni_colony.cpp"],
-        "check": "colony-owner run: no fluid adapter is needed; these read the published cells and exchange heat through the native shadow"},
     "solid-heat": {"SimTemperatureTransfer", "StructureTemperatureComponents", "SandboxHeatTool"},
     "colony-save": {"SaveLoader"},
     "backwalls": {"BackwallManager"},

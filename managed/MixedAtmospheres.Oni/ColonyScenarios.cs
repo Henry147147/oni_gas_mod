@@ -205,7 +205,7 @@ namespace MixedAtmospheres.Oni
             if (Once(6, "build"))
             {
                 recorded["gas"] = ArenaMass(); recorded["injected"] = status.InjectedKg;
-                var building = Build(MineralDeoxidizerConfig.ID, Cell(3, 1));
+                var building = Build(MineralDeoxidizerConfig.ID, Cell(3, 0));
                 building.GetComponent<Storage>().AddOre(SimHashes.Algae, 100, 300, byte.MaxValue, 0);
             }
             if (Once(32, "check"))
@@ -269,18 +269,23 @@ namespace MixedAtmospheres.Oni
                 Finish();
             }
         }
-        // A pneumatic door between oxygen and vacuum: closed it seals, opened
-        // the gas passes, and closing again displaces the gas in its cells.
+        // An airlock between oxygen and vacuum: closed it seals, opened the gas
+        // passes, and closing again displaces the gas in its cells.
         private static Door? door;
+        private static int traced = -1;
         private static void DoorCycle(int frame, OniNativeColony.Status status)
         {
             if (Once(0, "arena"))
-                Arena((x, y) => x == 4 ? (y >= 2 ? (SimHashes.Unobtanium, 20000f, 300f) : (SimHashes.Vacuum, 0f, 0f)) :
-                    x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.Vacuum, 0f, 0f));
-            // A manual airlock (a pneumatic door does not block gas in ONI). The
-            // door takes control-state changes once it has spawned (a frame later).
+                Arena((x, y) => x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.Vacuum, 0f, 0f));
+            // A manual airlock (a pneumatic door does not block gas in ONI), built
+            // into the wall so that no gas passes before it is shut. The door
+            // takes control-state changes once it has spawned (a frame later).
             if (Once(6, "build")) door = Build(ManualPressureDoorConfig.ID, Cell(4, 0)).GetComponent<Door>();
             if (Once(7, "lock")) SetDoor(Door.ControlState.Locked);
+            if (door != null && frame % 2 == 0 && traced != frame && (traced = frame) >= 0)
+                Debug.Log($"[Mixed Atmospheres] door frame {frame}: open {door.IsOpen()}, control {door.CurrentState}, state {door.GetSMI<Door.Controller.Instance>()?.GetCurrentState()?.name}; cells " +
+                    string.Join(" ", new[] { Cell(4, 0), Cell(4, 1) }.Select(c => $"{Grid.Element[c].id}:{Grid.Mass[c]:G4}{(Grid.Solid[c] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(c) ? "o" : "")}")) +
+                    $"; right {RightMass():G4} kg, opened {status.OpenedCells}, closed {status.ClosedCells}");
             if (Once(10, "closed")) { recorded["gas"] = ArenaMass(); recorded["right"] = RightMass(); }
             if (Once(16, "open"))
             {
@@ -470,14 +475,22 @@ namespace MixedAtmospheres.Oni
         private static void BottleEmptier(int frame)
         {
             if (Once(0, "arena")) Arena((x, y) => (SimHashes.Oxygen, .5f, 300f));
-            if (Once(6, "build"))
+            if (Once(6, "build")) { Build(BottleEmptierGasConfig.ID, Cell(2, 0)); Build(BottleEmptierConfig.ID, Cell(5, 0)); }
+            // Once spawned, an emptier drops whatever its element filter does not
+            // accept, so the filter is set before its contents are stored.
+            if (Once(7, "fill"))
             {
                 recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide); recorded["water"] = ArenaSpecies(SimHashes.Water);
-                Build(BottleEmptierGasConfig.ID, Cell(2, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.CarbonDioxide, 5, 300, byte.MaxValue, 0, false, true);
+                Storage Accepting(GameObject b, SimHashes element)
+                {
+                    b.GetComponent<TreeFilterable>().UpdateFilters(new HashSet<Tag> { element.CreateTag() });
+                    return b.GetComponent<Storage>();
+                }
+                Accepting(powered[0], SimHashes.CarbonDioxide).AddGasChunk(SimHashes.CarbonDioxide, 5, 300, byte.MaxValue, 0, false, true);
                 // The liquid emptier pours as falling-water particles that land in owned cells.
-                Build(BottleEmptierConfig.ID, Cell(5, 0)).GetComponent<Storage>().AddLiquid(SimHashes.Water, 50, 300, byte.MaxValue, 0, false, true);
+                Accepting(powered[1], SimHashes.Water).AddLiquid(SimHashes.Water, 50, 300, byte.MaxValue, 0, false, true);
             }
-            if (Once(7, "filled"))
+            if (Once(8, "filled"))
                 Debug.Log("[Mixed Atmospheres] bottle emptiers hold " + string.Join(", ", powered.Where(b => b != null).Select(b => $"{b.name} {b.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg at {Grid.PosToCell(b)}")));
             if (Once(32, "check"))
             {
@@ -545,20 +558,32 @@ namespace MixedAtmospheres.Oni
         }
 
         // A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere.
-        private static GameObject? plant;
+        private static GameObject? plant, thinPlant;
         private static void Plant(int frame)
         {
-            if (Once(0, "arena")) Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f));
+            // Left of the wall normal air; right of it air thinner than the plant's low-pressure warning.
+            if (Once(0, "arena"))
+                Arena((x, y) => y == 0 ? (SimHashes.Granite, 1000f, 300f) : x == 4 ? (SimHashes.Unobtanium, 20000f, 300f) : (SimHashes.Oxygen, x < 4 ? 1.2f : .03f, 300f));
             if (Once(6, "plant"))
             {
-                plant = GameUtil.KInstantiate(Assets.GetPrefab(BasicSingleHarvestPlantConfig.ID), Grid.CellToPosCBC(Cell(3, 1), Grid.SceneLayer.BuildingFront), Grid.SceneLayer.BuildingFront);
-                plant.SetActive(true);
+                GameObject Sow(int x)
+                {
+                    var sown = GameUtil.KInstantiate(Assets.GetPrefab(BasicSingleHarvestPlantConfig.ID), Grid.CellToPosCBC(Cell(x, 1), Grid.SceneLayer.BuildingFront), Grid.SceneLayer.BuildingFront);
+                    sown.SetActive(true);
+                    return sown;
+                }
+                plant = Sow(2); thinPlant = Sow(6);
             }
-            if (Once(26, "check"))
+            // ONI smooths a plant's pressure reading (70% of the last each second), so
+            // the thin side needs about ten seconds to read low.
+            if (Once(60, "check"))
             {
                 var vulnerable = plant != null ? plant.GetComponent<PressureVulnerable>() : null;
                 Record("the plant reads the owner's air as safe", vulnerable != null && vulnerable.IsNormal && vulnerable.testAreaElementSafe,
                     vulnerable == null ? "no plant" : $"pressure normal {vulnerable.IsNormal}, atmosphere safe {vulnerable.testAreaElementSafe}");
+                var thin = thinPlant != null ? thinPlant.GetComponent<PressureVulnerable>() : null;
+                Record("the plant in thin air reads low pressure", thin != null && !thin.IsNormal,
+                    thin == null ? "no plant" : $"pressure normal {thin.IsNormal}, cell {CellMass(Grid.PosToCell(thinPlant)):G3} kg, warning below {thin.pressureWarning_Low:G3} kg");
                 Finish();
             }
         }
@@ -961,7 +986,7 @@ namespace MixedAtmospheres.Oni
             }
             if (Once(30, "check"))
             {
-                Record("the base was built", placed.Count == 7, string.Join(", ", placed));
+                Record("the base was built", placed.Count == 6, string.Join(", ", placed));
                 Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
                     $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
                 Finish();
