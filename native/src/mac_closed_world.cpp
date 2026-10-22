@@ -611,30 +611,35 @@ MacClosedSubstep advance_mac_closed_substep(const SpeciesRegistry& registry, con
 }
 MacClosedWorld::MacClosedWorld(SpeciesRegistry registry, std::shared_ptr<const FluidThermodynamics> model,
     MacTransportState state, MacClosedSettings settings,std::shared_ptr<const GasTransportProfile> transport) : registry_(std::move(registry)),
-    thermodynamics_(model ? std::make_shared<const FluidThermodynamics>(*model) : nullptr), state_(std::move(state)), settings_(settings),transport_(std::move(transport)) {
+    thermodynamics_(model ? std::make_shared<const FluidThermodynamics>(*model) : nullptr), settings_(settings),transport_(std::move(transport)) {
     require_mac_energy_environment();
     require(thermodynamics_ != nullptr && transport_!=nullptr, "MAC closed owner requires immutable EOS and transport profiles"); settings_.validate();
-    require(settings_.vacuum == MacVacuumRepresentation::void_phase || state_.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
+    require(settings_.vacuum == MacVacuumRepresentation::void_phase || state.occupied_volumes_m3.empty(), "MAC occupied volumes require the void phase");
     require(settings_.phase_change == MacPhaseChange::none || !mac_saturation_pairs(registry_, *thermodynamics_).empty(),
         "MAC saturation phase change requires a calibrated liquid/vapour pair");
-    const auto inertia = mac_face_inertias(registry_, state_, *thermodynamics_); const Topology topology(state_.grid);
+    const auto inertia = mac_face_inertias(registry_, state, *thermodynamics_); const Topology topology(state.grid);
     // A void-phase state whose occupied cells are all filled has no occupied volumes.
     bool partial = false;
-    for (std::size_t i = 0; i < state_.occupied_volumes_m3.size(); ++i)
-        partial = partial || (state_.cells[i].mixture.mass() > 0 && state_.occupied_volumes_m3[i] < state_.grid.volume_m3());
-    if (!partial) state_.occupied_volumes_m3.clear();
-    require_diffusion_scope(registry_,state_,settings_.diffusion);
-    require(settings_.gravity_m_per_s2 == 0 || !state_.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
-    validate_momentum(topology.x, inertia.x, mac_field_values(state_.momentum_x, state_.full_momentum_x));
-    validate_momentum(topology.y, inertia.y, mac_field_values(state_.momentum_y, state_.full_momentum_y));
+    for (std::size_t i = 0; i < state.occupied_volumes_m3.size(); ++i)
+        partial = partial || (state.cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3());
+    if (!partial) state.occupied_volumes_m3.clear();
+    require_diffusion_scope(registry_,state,settings_.diffusion);
+    require(settings_.gravity_m_per_s2 == 0 || !state.grid.periodic_y, "Constant MAC gravity requires nonperiodic vertical boundaries");
+    validate_momentum(topology.x, inertia.x, mac_field_values(state.momentum_x, state.full_momentum_x));
+    validate_momentum(topology.y, inertia.y, mac_field_values(state.momentum_y, state.full_momentum_y));
+    replace_state(std::move(state));
 }
 MacClosedWorld::MacClosedWorld(Derived, const MacClosedWorld& from, MacTransportState state) : registry_(from.registry_),
-    thermodynamics_(from.thermodynamics_), state_(std::move(state)), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
+    thermodynamics_(from.thermodynamics_), settings_(from.settings_), transport_(from.transport_), time_s_(from.time_s_),
     revision_(from.revision_ + 1) {
     bool partial = false;
-    for (std::size_t i = 0; i < state_.occupied_volumes_m3.size() && !partial; ++i)
-        partial = state_.cells[i].mixture.mass() > 0 && state_.occupied_volumes_m3[i] < state_.grid.volume_m3();
-    if (!partial) state_.occupied_volumes_m3.clear();
+    for (std::size_t i = 0; i < state.occupied_volumes_m3.size() && !partial; ++i)
+        partial = state.cells[i].mixture.mass() > 0 && state.occupied_volumes_m3[i] < state.grid.volume_m3();
+    if (!partial) state.occupied_volumes_m3.clear();
+    replace_state(std::move(state));
+}
+void MacClosedWorld::replace_state(MacTransportState next) {
+    state_snapshot_ = std::make_shared<const MacTransportState>(std::move(next));
 }
 MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
@@ -643,7 +648,7 @@ MacClosedWorld MacClosedWorld::derived(MacTransportState next) const {
 MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSaturationPair> pairs, double fraction) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state_, pairs, false, fraction);
+    auto advanced = advance_mac_phase_change(registry_, *thermodynamics_, state(), pairs, false, fraction);
     auto candidate=derived(std::move(advanced.state));
     return {std::move(candidate), advanced.report};
 }
@@ -651,7 +656,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto next=state_; MacEnergyAccount balance; MacPrimaryRoundingCounts rounding;
+    auto next=state(); MacEnergyAccount balance; MacPrimaryRoundingCounts rounding;
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] &&
             std::isfinite(edit.joules) && std::isfinite(edit.maximum_temperature_k) && edit.maximum_temperature_k > 0,
@@ -672,7 +677,7 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
 }
 MacClosedWorld MacClosedWorld::with_diffusion(MacDiffusionSettings setting) const {
     setting.validate();
-    require_diffusion_scope(registry_,state_,setting);
+    require_diffusion_scope(registry_,state(),setting);
     if(revision_==std::numeric_limits<std::uint64_t>::max())throw std::overflow_error("MAC revision overflow");
     auto candidate=*this;candidate.settings_.diffusion=setting;++candidate.revision_;return candidate;
 }
@@ -747,13 +752,13 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacE
     while(result.world.time_s_<endpoint) {
         const double dt=std::min(.1,endpoint-result.world.time_s_);
         const auto diffuse=[&] {
-            if(mac_diffusion_stationary(registry_,result.world.state_))return;
+            if(mac_diffusion_stationary(registry_,result.world.state()))return;
             if(used>=budget)throw std::runtime_error("MAC diffusion interval exhausted its shared attempt budget");
-            auto next=advance_mac_diffusion(registry_,*thermodynamics_,result.world.state_,.5*dt,settings_.diffusion,*transport_,budget-used,
+            auto next=advance_mac_diffusion(registry_,*thermodynamics_,result.world.state(),.5*dt,settings_.diffusion,*transport_,budget-used,
                 settings_.numerical_kernel==MacNumericalKernel::production ? MacDiffusionRounding::counted:MacDiffusionRounding::reference);
             used+=next.report.substeps+next.report.rejected_attempts;
             result.report.interval_rounded_updates+=next.report.rounded_mass_transfers+next.report.rounded_energy_transfers;
-            result.world.state_=std::move(next.state);combine_diffusion(result.report.diffusion,next.report);
+            result.world.replace_state(std::move(next.state));combine_diffusion(result.report.diffusion,next.report);
         };
         diffuse();
         if(used>=budget)throw std::runtime_error("MAC diffusion interval exhausted its shared attempt budget");
@@ -767,9 +772,9 @@ MacClosedAdvance MacClosedWorld::advanced(double seconds,std::size_t budget,MacE
     result.report.energy_bound_j=result.report.energy_bound_wide_j.project().value;
     result.report.entropy_change_j_per_k+=result.report.diffusion.entropy_change_j_per_k;
     result.report.entropy_roundoff_j_per_k+=result.report.diffusion.entropy_roundoff_j_per_k;
-    const auto before_inertia=mac_face_inertias(registry_,state_,*thermodynamics_);
-    const auto after_inertia=mac_face_inertias(registry_,result.world.state_,*thermodynamics_);
-    const auto balance=energy_difference(state_,result.world.state_,before_inertia,after_inertia,settings_.gravity_m_per_s2);
+    const auto before_inertia=mac_face_inertias(registry_,state(),*thermodynamics_);
+    const auto after_inertia=mac_face_inertias(registry_,result.world.state(),*thermodynamics_);
+    const auto balance=energy_difference(state(),result.world.state(),before_inertia,after_inertia,settings_.gravity_m_per_s2);
     MacEnergySum allowance;allowance.add(result.report.energy_bound_wide_j);
     if(!within_energy_budget(balance.terms(),allowance))throw std::runtime_error("Diffusion/flow composed energy account failed");
     return result;
@@ -784,8 +789,8 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     if (!std::isfinite(endpoint) || endpoint <= time_s_) throw FluidFatalError(FluidFatalCode::numerical_precision, "MAC closed time advance cannot be represented");
     auto equilibrium=!validation_reference &&
         (policy!=MacExecutionPolicy::reference || settings_.numerical_kernel==MacNumericalKernel::production) &&
-        (settings_.diffusion.mode==MacDiffusionMode::disabled || mac_diffusion_stationary(registry_,state_)) ?
-        exact_static_equilibrium(registry_,state_,settings_,*thermodynamics_) : std::nullopt;
+        (settings_.diffusion.mode==MacDiffusionMode::disabled || mac_diffusion_stationary(registry_,state())) ?
+        exact_static_equilibrium(registry_,state(),settings_,*thermodynamics_) : std::nullopt;
     MacScaled equilibrium_body;
     if (equilibrium) equilibrium_body=equilibrium->body_force_y.multiplied(seconds);
     if (equilibrium) {
@@ -807,9 +812,9 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         // (with conduction on); its interval is followed by one equilibrium
         // relaxation of every other pair cell (operator splitting per interval).
         if (settings_.phase_change == MacPhaseChange::saturation) {
-            auto changed = advance_mac_phase_change(registry_, *thermodynamics_, produced.world.state_, mac_saturation_pairs(registry_, *thermodynamics_),
+            auto changed = advance_mac_phase_change(registry_, *thermodynamics_, produced.world.state(), mac_saturation_pairs(registry_, *thermodynamics_),
                 settings_.thermal_conduction);
-            produced.world.state_ = std::move(changed.state); ++produced.report.phase_change_stages;
+            produced.world.replace_state(std::move(changed.state)); ++produced.report.phase_change_stages;
             produced.report.evaporating_cells += changed.report.evaporating_cells; produced.report.condensing_cells += changed.report.condensing_cells;
             produced.report.evaporated_kg += changed.report.evaporated_kg; produced.report.condensed_kg += changed.report.condensed_kg;
             produced.report.phase_change_entropy_j_per_k += changed.report.entropy_change_j_per_k;
@@ -820,13 +825,13 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     }
     require(settings_.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
         "Two-moment pressure integration cannot continue through the legacy reference path");
-    require(state_.grid.closed_x.empty() && state_.grid.closed_y.empty(), "Closed faces need the production kernel");
+    require(state().grid.closed_x.empty() && state().grid.closed_y.empty(), "Closed faces need the production kernel");
     MacClosedAdvance result{*this, {}}; MacEnergySum bounds, mix, wall, compression_heat, conductive_redistribution, shock_heat_transfer, remap_work;
     if (settings_.numerical_kernel != MacNumericalKernel::reference) result.report.interval_reference_fallbacks = 1;
     Account conductive_entropy,viscous_entropy;
     MacEnergySum viscous_heat,viscous_stored_heat;
     MacScaledSum wx, wy,viscous_wx,viscous_wy,body_impulse; MacEnergySum gravity_change; Account gravity_entropy, gravity_entropy_operands;
-    const auto initial_inertia = mac_face_inertias(registry_, state_, *thermodynamics_);
+    const auto initial_inertia = mac_face_inertias(registry_, state(), *thermodynamics_);
     const auto saturation_pairs = settings_.phase_change == MacPhaseChange::saturation ?
         mac_saturation_pairs(registry_, *thermodynamics_) : std::vector<MacSaturationPair>{};
     double next_dt = settings_.maximum_timestep_s;
@@ -843,7 +848,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                 MacThermalReport before_conduction, after_conduction;
                 MacViscousReport before_viscosity, after_viscosity;
                 MacShockHeatReport before_shock_heat, after_shock_heat;
-                const MacTransportState* pressure_source = &result.world.state_;
+                const MacTransportState* pressure_source = &result.world.state();
                 if (settings_.viscosity.shear_pa_s>0 || settings_.viscosity.bulk_pa_s>0) {
                     auto damped=advance_mac_viscosity(registry_,*thermodynamics_,*pressure_source,.5*dt,settings_.viscosity);
                     before_viscosity=std::move(damped.report);prepared=std::move(damped.state);pressure_source=&prepared;
@@ -972,13 +977,13 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
                     result.report.evaporated_kg += phase.evaporated_kg; result.report.condensed_kg += phase.condensed_kg;
                     result.report.phase_change_entropy_j_per_k += phase.entropy_change_j_per_k;
                 }
-                result.world.state_ = std::move(candidate.state); result.world.time_s_ += dt;
+                result.world.replace_state(std::move(candidate.state)); result.world.time_s_ += dt;
                 ++result.report.substeps; next_dt = std::min(settings_.maximum_timestep_s, 2 * dt); accepted = true;
             } catch (const std::domain_error&) { ++result.report.rejected_attempts; dt *= .5; }
         }
     }
     result.world.time_s_ = endpoint; result.world.revision_ = revision_ + 1;
-    const auto total = energy_difference(state_, result.world.state_, initial_inertia, mac_face_inertias(registry_, result.world.state_, *thermodynamics_), settings_.gravity_m_per_s2);
+    const auto total = energy_difference(state(), result.world.state(), initial_inertia, mac_face_inertias(registry_, result.world.state(), *thermodynamics_), settings_.gravity_m_per_s2);
     if (!within_energy_budget(total.terms(), bounds)) throw std::domain_error("MAC closed interval energy exceeds accumulated stage bounds");
     result.report.energy_residual_wide_j = total.residual(); result.report.energy_bound_wide_j = bounds.value();
     result.report.mixing_heat_wide_j = mix.value(); result.report.wall_heat_wide_j = wall.value();
@@ -1005,14 +1010,14 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
     // Report the requested interval's actual endpoints for every gravity mode.
     // Individual stage entropy diagnostics remain in their own reports.
     Account entropy, entropy_roundoff;
-    for (std::size_t cell = 0; cell < state_.cells.size(); ++cell) if (!state_.grid.walls[cell]) {
-        const auto& old = state_.cells[cell].mixture; const auto& next = result.world.state_.cells[cell].mixture;
+    for (std::size_t cell = 0; cell < state().cells.size(); ++cell) if (!state().grid.walls[cell]) {
+        const auto& old = state().cells[cell].mixture; const auto& next = result.world.state().cells[cell].mixture;
         // An empty cell's reading is the EOS sentinel at its grid volume.
-        const auto a = thermodynamics_->evaluate(old, old.mass() > 0 ? mac_material_volume(state_, cell) : state_.grid.volume_m3());
-        const auto b = thermodynamics_->evaluate(next, next.mass() > 0 ? mac_material_volume(result.world.state_, cell) : state_.grid.volume_m3());
+        const auto a = thermodynamics_->evaluate(old, old.mass() > 0 ? mac_material_volume(state(), cell) : state().grid.volume_m3());
+        const auto b = thermodynamics_->evaluate(next, next.mass() > 0 ? mac_material_volume(result.world.state(), cell) : state().grid.volume_m3());
         entropy.add(b.entropy_j_per_k); entropy.add(-a.entropy_j_per_k);
-        if(old.mass()>0)entropy.add(mac_stored_remainder_value(state_.cells[cell].energy_remainder_j).shared(1,a.temperature_k).negated().project().value);
-        if(next.mass()>0)entropy.add(mac_stored_remainder_value(result.world.state_.cells[cell].energy_remainder_j).shared(1,b.temperature_k).project().value);
+        if(old.mass()>0)entropy.add(mac_stored_remainder_value(state().cells[cell].energy_remainder_j).shared(1,a.temperature_k).negated().project().value);
+        if(next.mass()>0)entropy.add(mac_stored_remainder_value(result.world.state().cells[cell].energy_remainder_j).shared(1,b.temperature_k).project().value);
         if (old.mass() > 0 && next.mass() > 0)
             entropy_roundoff.add(128 * eps * (std::abs(old.energy) / a.temperature_k + std::abs(next.energy) / b.temperature_k));
         else {
@@ -1027,7 +1032,7 @@ MacClosedAdvance MacClosedWorld::advanced_flow(double seconds, std::size_t budge
         if (!total.within_bound()) throw std::domain_error("MAC reference fallback failed its interval energy audit");
         result.report.energy_bound_wide_j = total.bound();
         result.report.energy_bound_j = projected_energy(total.bound(), result.report.rounded_energy_projections);
-        validate_mac_interval_fallback(state_, result.world.state_, result.report);
+        validate_mac_interval_fallback(state(), result.world.state(), result.report);
     }
     return result;
 }

@@ -6,6 +6,7 @@
 #include <limits>
 #include <numbers>
 #include <sstream>
+#include <string_view>
 
 namespace {
 using namespace ma;
@@ -144,6 +145,31 @@ void transpose() {
     for (std::size_t y = 0; y < g.height; ++y) for (std::size_t x = 0; x < g.x_width(); ++x)
         near(a.state.momentum_x[g.x_face(x, y)], b.state.momentum_y[tg.y_face(y, x)], std::abs(a.state.momentum_x[g.x_face(x, y)]));
 }
+void snapshot_branches() {
+    const auto& set = setup(); auto initial = corner_state();
+    MacClosedSettings settings; settings.numerical_kernel = MacNumericalKernel::production;
+    const MacClosedWorld source(set.registry, set.eos, initial, settings);
+    const auto before = source.checkpoint(); auto sibling = source;
+    const MacCellHeat heat{0, .5, 1e5};
+    auto heated = sibling.with_cell_heat(std::span(&heat, 1));
+    const auto heated_image = heated.checkpoint();
+    auto survivor = [&] { auto temporary = heated; return temporary; }();
+    heated = source;
+    const auto evolved = sibling.advanced(.001, 1024, MacExecutionPolicy::production);
+    const auto restored = MacClosedWorld::from_checkpoint(set.registry, set.eos, before);
+    check(source.checkpoint() == before && sibling.checkpoint() == before && heated.checkpoint() == before,
+        "Editing or advancing a world changed a copied source");
+    check(survivor.checkpoint() == heated_image && heated_image != before,
+        "World state did not survive sibling replacement");
+    check(restored.advanced(.001, 1024, MacExecutionPolicy::production).world.checkpoint() == evolved.world.checkpoint(),
+        "Copied world lost exact checkpoint continuation");
+    bool rejected = false;
+    const MacCellHeat invalid{initial.cells.size(), 1, 1e5};
+    try { static_cast<void>(sibling.with_cell_heat(std::span(&invalid, 1))); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    check(rejected && sibling.checkpoint() == before && survivor.checkpoint() == heated_image,
+        "Rejected branch changed another owner");
+}
 void rejected_domains() {
     const auto& set = setup(); const auto original = set.state(2, 1, false); const auto held = fingerprint(original);
     for (int control = 0; control < 10; ++control) {
@@ -188,12 +214,16 @@ void rejected_domains() {
     }
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         std::cout << std::setprecision(17);
+        if (argc == 2 && std::string_view(argv[1]) == "--snapshot-only") {
+            snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
+        }
         for (const auto& m : setup().eos->reference().materials()) std::cout << "MATERIAL " << setup().registry.index(m.id) << ' ' <<
             (m.phase == ReferencePhase::ideal_gas ? 0 : 1) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' <<
             m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
+        snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n";
         gas_pressure(); std::cout << "PASS pressure-driven retained gas momentum and trace transport\n";
         wet_corner(); std::cout << "PASS elastic gas-liquid pressure transport at a solid corner\n";
         constant_contact(); std::cout << "PASS constant-p/T variable-density mixture contact\n";

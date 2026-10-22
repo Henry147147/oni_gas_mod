@@ -92,7 +92,7 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     const auto rounding_void=[&](const auto& state,double occupied) {
         return voids && !state.has_gas && state.vacuum_volume_m3 <= 64*std::numeric_limits<double>::epsilon()*occupied;
     };
-    auto next=state_; std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
+    auto next=state(); std::vector<MacFluidParcel> parcels; parcels.reserve(edits.size());
     const double grid_volume=next.grid.volume_m3();
     if (voids && next.occupied_volumes_m3.empty()) {
         next.occupied_volumes_m3.assign(next.cells.size(),0);
@@ -291,7 +291,7 @@ MacClosedWorld MacClosedWorld::with_opened_cells(std::span<const std::size_t> ce
     require_mac_energy_environment();
     require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto next=state_;
+    auto next=state();
     for (const auto i : cells) {
         require(i < next.cells.size() && next.grid.walls[i],"Only a wall can be opened");
         const auto& cell=next.cells[i];
@@ -307,7 +307,7 @@ MacClosedWorld MacClosedWorld::with_closed_cells(std::span<const std::size_t> ce
     require_mac_energy_environment();
     require(!cells.empty() && cells.size() <= 4096,"MAC terrain batch must contain 1..4096 cells");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto next=state_;
+    auto next=state();
     for (const auto i : cells) {
         require(i < next.cells.size() && !next.grid.walls[i],"Only an open cell can be closed");
         const auto& cell=next.cells[i];
@@ -351,7 +351,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     MacLiquidSettlingReport report; const double gravity=settings_.gravity_m_per_s2;
     if (fraction == 0 || gravity == 0) return {*this,report};
-    const auto& grid=state_.grid; const double volume=grid.volume_m3(); const auto species=registry_.size();
+    const auto& grid=state().grid; const double volume=grid.volume_m3(); const auto species=registry_.size();
     const auto& materials=thermodynamics_->reference().materials();
     // Registry order: each constituent's EOS profile; each liquid's zero-pressure
     // density and phase (the first liquid of its nonzero group, else itself).
@@ -384,16 +384,16 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
         return best;
     };
     const auto full=[&](std::size_t i) {
-        return !grid.walls[i] && state_.cells[i].mixture.mass() > 0 &&
-            (state_.occupied_volumes_m3.empty() || state_.occupied_volumes_m3[i] == volume);
+        return !grid.walls[i] && state().cells[i].mixture.mass() > 0 &&
+            (state().occupied_volumes_m3.empty() || state().occupied_volumes_m3[i] == volume);
     };
     struct Parcel { std::size_t from,to,phase; double share; };
     std::vector<Parcel> parcels;
     for (std::size_t y=0;y+1<grid.height;++y) for (std::size_t x=0;x<grid.width;++x) {
         const auto lower=x+y*grid.width,upper=lower+grid.width;
         if (!full(lower) || !full(upper) || (!grid.closed_y.empty() && grid.closed_y[grid.y_face(x,y+1)])) continue;
-        const auto light=pick(state_.cells[lower].mixture,true); if (light.phase == absent) continue;
-        const auto heavy=pick(state_.cells[upper].mixture,false); if (heavy.phase == absent) continue;
+        const auto light=pick(state().cells[lower].mixture,true); if (light.phase == absent) continue;
+        const auto heavy=pick(state().cells[upper].mixture,false); if (heavy.phase == absent) continue;
         if (light.phase == heavy.phase || !(light.density < heavy.density)) continue;
         const double exchanged=fraction*std::min(light.volume,heavy.volume);
         parcels.push_back({lower,upper,light.phase,exchanged/light.volume}); parcels.push_back({upper,lower,heavy.phase,exchanged/heavy.volume});
@@ -402,13 +402,13 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     if (parcels.empty()) return {*this,report};
     // Each parcel leaves at its donor's EOS specific energies; a cell takes at
     // most a quarter of a phase out through each of its two vertical faces.
-    auto next=state_; std::vector<MacEnergySum> change(next.cells.size()); std::vector<std::uint8_t> touched(next.cells.size(),0);
+    auto next=state(); std::vector<MacEnergySum> change(next.cells.size()); std::vector<std::uint8_t> touched(next.cells.size(),0);
     std::vector<std::vector<double>> specific(next.cells.size());
     MacEnergySum released;
     for (const auto& parcel : parcels) {
-        const auto& donor=state_.cells[parcel.from];
+        const auto& donor=state().cells[parcel.from];
         if (specific[parcel.from].empty())
-            specific[parcel.from]=thermodynamics_->evaluate(donor.mixture,mac_material_volume(state_,parcel.from)).specific_internal_energies_j_per_kg;
+            specific[parcel.from]=thermodynamics_->evaluate(donor.mixture,mac_material_volume(state(),parcel.from)).specific_internal_energies_j_per_kg;
         double mass=0; MacEnergySum energy;
         for (std::size_t k=0;k<species;++k) if (phase[k] == parcel.phase && donor.mixture.masses[k] > 0) {
             auto& from=next.cells[parcel.from].mixture.masses[k];
@@ -458,7 +458,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     MacFaceInertias before,after;
     before.x.assign(grid.x_width()*grid.height,0); before.y.assign(grid.width*grid.y_height(),0); after=before;
     for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? region.x : region.y) {
-        (axis == 0 ? before.x : before.y)[f]=half_mass_inertia(state_,axis,f);
+        (axis == 0 ? before.x : before.y)[f]=half_mass_inertia(state(),axis,f);
         (axis == 0 ? after.x : after.y)[f]=half_mass_inertia(next,axis,f);
     }
     for (std::size_t axis=0;axis<2;++axis) {
@@ -474,7 +474,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
     }
     MacPrimaryRoundingCounts rounding;
     for (std::size_t i=0;i<next.cells.size();++i) if (change[i].size() != 0) {
-        MacEnergySum total=change[i]; account_mac_cell_internal_energy(total,state_.cells[i]);
+        MacEnergySum total=change[i]; account_mac_cell_internal_energy(total,state().cells[i]);
         (void)store_mac_cell_internal_energy(next.cells[i],total,&rounding);
     }
     for (std::size_t i=0;i<next.cells.size();++i) if (touched[i]) {
@@ -483,7 +483,7 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
             throw std::domain_error("MAC liquid settling opened a void");
     }
     MacEnergyAccount energy; MacScaledAccount px,py;
-    account_touched(energy,px,py,before,state_,gravity,false,region); account_touched(energy,px,py,after,next,gravity,true,region);
+    account_touched(energy,px,py,before,state(),gravity,false,region); account_touched(energy,px,py,after,next,gravity,true,region);
     require(energy.within_bound(),"MAC liquid settling U+K+potential account failed");
     report.released_j=released.value().project().value;
     auto candidate=derived(std::move(next));
@@ -493,11 +493,11 @@ MacLiquidSettling MacClosedWorld::with_liquid_settling(double fraction) const {
 MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std::vector<std::uint8_t> y) const {
     require_mac_energy_environment();
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    const auto& grid=state_.grid;
+    const auto& grid=state().grid;
     require((x.empty() || x.size() == grid.x_width()*grid.height) && (y.empty() || y.size() == grid.width*grid.y_height()),
         "Invalid MAC closed-face masks");
-    auto next=state_;
-    const auto inertia=mac_face_inertias(registry_,state_,*thermodynamics_);
+    auto next=state();
+    const auto inertia=mac_face_inertias(registry_,state(),*thermodynamics_);
     auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
     MacEnergyAccount energy; MacPrimaryRoundingCounts rounding;
     for (std::size_t axis=0;axis<2;++axis) {
@@ -527,7 +527,7 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
 
 MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
-    auto next=state_;
+    auto next=state();
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),
             "Invalid MAC passive edit");

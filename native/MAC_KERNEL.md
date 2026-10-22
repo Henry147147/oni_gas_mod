@@ -599,6 +599,16 @@ existing result; only timings and the new validation-control PASS line differ.
 The cold owner control also covers zero-length checkpoint reads/writes, now
 guarded without changing their bytes or format.
 
+World copies share immutable state; an edit or advance publishes a new state
+after its checks. Clocks, revisions and rollback remain independent. A matched
+high-half frame-50 copy takes 9.5 ms → less than 0.1 ms; flow-only time is
+unchanged. Four dump endpoint checkpoints remain byte-identical. Clean
+83-executable/sixteen-variant comparisons retain existing outputs, and the
+branch/lifetime/continuation control passes ASan/UBSan/TSan.
+Whole-lock Terra60 owner mean is 0.649 s → 0.638 s; observed frame interval
+is 0.848 s → 0.830 s. Both pass; candidate relative mass/energy errors are
+`5.25e-16` / `3.35e-17`.
+
 These changes keep the physical model, tolerances and checkpoint format.
 Real-time 0.2 s frames remain open.
 

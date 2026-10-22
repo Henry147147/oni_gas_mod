@@ -114,7 +114,7 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const bool coupled=settings_.pressure_integration==MacPressureIntegration::two_moment_coupled;
     const bool moments=settings_.pressure_integration!=MacPressureIntegration::discrete_gradient_midpoint;
     const bool voids=settings_.vacuum==MacVacuumRepresentation::void_phase;
-    const bool carried=std::any_of(state_.cells.begin(),state_.cells.end(),
+    const bool carried=std::any_of(state().cells.begin(),state().cells.end(),
         [](const auto& cell) { return !cell.energy_remainder_j.is_zero(); });
     // Version 11 (phase change) has version 10's layout plus the phase-change
     // selector, and always carries the primary-U sidecar.
@@ -125,8 +125,8 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
     const auto model=identity(registry_,*thermodynamics_); out.count(model.size());
     for (auto value : model) out.byte(value);
     out.number(time_s_); out.u64(revision_);
-    out.count(state_.grid.width); out.count(state_.grid.height); out.number(state_.grid.spacing_m); out.number(state_.grid.depth_m);
-    out.byte(state_.grid.periodic_x ? 1 : 0); out.byte(state_.grid.periodic_y ? 1 : 0);
+    out.count(state().grid.width); out.count(state().grid.height); out.number(state().grid.spacing_m); out.number(state().grid.depth_m);
+    out.byte(state().grid.periodic_x ? 1 : 0); out.byte(state().grid.periodic_y ? 1 : 0);
     out.number(settings_.maximum_timestep_s); out.number(settings_.maximum_outgoing_volume_fraction);
     out.u32(static_cast<std::uint32_t>(settings_.preconditioner)); out.number(settings_.gravity_m_per_s2);
     out.u32(static_cast<std::uint32_t>(settings_.reconstruction)); out.u32(static_cast<std::uint32_t>(settings_.compression_viscosity));
@@ -154,17 +154,17 @@ std::vector<std::uint8_t> MacClosedWorld::checkpoint() const {
             out.byte(p.estimated ? 1:0);out.string(p.source);
         }
     }
-    out.count(state_.cells.size()); for (auto wall : state_.grid.walls) out.byte(wall);
-    for (const auto& cell : state_.cells) {
+    out.count(state().cells.size()); for (auto wall : state().grid.walls) out.byte(wall);
+    for (const auto& cell : state().cells) {
         out.number(cell.mixture.energy); for (auto mass : cell.mixture.masses) out.number(mass);
         out.count(cell.passive_quantities.size());
         for (const auto& passive : cell.passive_quantities) { out.u64(passive.identity); out.number(passive.quantity); }
     }
-    write_field(out,state_.momentum_x,state_.full_momentum_x); write_field(out,state_.momentum_y,state_.full_momentum_y);
-    if (voids || primary) { out.count(state_.occupied_volumes_m3.size()); for (auto value : state_.occupied_volumes_m3) out.number(value); }
+    write_field(out,state().momentum_x,state().full_momentum_x); write_field(out,state().momentum_y,state().full_momentum_y);
+    if (voids || primary) { out.count(state().occupied_volumes_m3.size()); for (auto value : state().occupied_volumes_m3) out.number(value); }
     if (primary) {
-        out.count(state_.cells.size());
-        for (const auto& cell : state_.cells) {
+        out.count(state().cells.size());
+        for (const auto& cell : state().cells) {
             out.number(cell.energy_remainder_j.projected);
             out.byte(cell.energy_remainder_j.full.is_zero() ? 0 : 1);
             if (!cell.energy_remainder_j.full.is_zero()) out.scaled(cell.energy_remainder_j.full);
@@ -296,7 +296,7 @@ MacClosedWorld MacClosedWorld::from_checkpoint(SpeciesRegistry registry,std::sha
     check(in.remaining()==0,"Trailing MAC checkpoint data");
     const bool saved_occupied=!state.occupied_volumes_m3.empty();
     MacClosedWorld result(std::move(registry),std::move(eos),std::move(state),settings,std::move(transport));
-    check(saved_occupied==!result.state_.occupied_volumes_m3.empty(),"Noncanonical saved MAC occupied volumes");
+    check(saved_occupied==!result.state().occupied_volumes_m3.empty(),"Noncanonical saved MAC occupied volumes");
     result.time_s_=time; result.revision_=revision; return result;
 }
 }

@@ -248,7 +248,7 @@ class MacClosedWorld {
 public:
     MacClosedWorld(SpeciesRegistry, std::shared_ptr<const FluidThermodynamics>, MacTransportState, MacClosedSettings = {},
         std::shared_ptr<const GasTransportProfile> = GasTransportProfile::standard());
-    [[nodiscard]] const MacTransportState& state() const noexcept { return state_; }
+    [[nodiscard]] const MacTransportState& state() const noexcept { return *state_snapshot_; }
     [[nodiscard]] const SpeciesRegistry& registry() const noexcept { return registry_; }
     [[nodiscard]] const FluidThermodynamics& thermodynamics() const noexcept { return *thermodynamics_; }
     [[nodiscard]] const MacClosedSettings& settings() const noexcept { return settings_; }
@@ -324,7 +324,8 @@ private:
     friend struct MacKernelAccess; // production kernel publication (mac_kernel.cpp)
     SpeciesRegistry registry_;
     std::shared_ptr<const FluidThermodynamics> thermodynamics_;
-    MacTransportState state_;
+    void replace_state(MacTransportState);
+    std::shared_ptr<const MacTransportState> state_snapshot_;
     MacClosedSettings settings_;
     std::shared_ptr<const GasTransportProfile> transport_;
     double time_s_ = 0;

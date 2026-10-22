@@ -14,8 +14,8 @@
 
 namespace ma::experimental {
 struct MacKernelAccess {
-    static const MacTransportState& state(const MacClosedWorld& w) { return w.state_; }
-    static MacTransportState& state(MacClosedWorld& w) { return w.state_; }
+    static const MacTransportState& state(const MacClosedWorld& w) { return w.state(); }
+    static void publish_state(MacClosedWorld& w, MacTransportState next) { w.replace_state(std::move(next)); }
     static const SpeciesRegistry& registry(const MacClosedWorld& w) { return w.registry_; }
     static const FluidThermodynamics& eos(const MacClosedWorld& w) { return *w.thermodynamics_; }
     static const MacClosedSettings& settings(const MacClosedWorld& w) { return w.settings_; }
@@ -707,12 +707,14 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     };
     if (!mac_kernel_normal_range(MacKernelAccess::state(world))) return fallback(0);
     MacClosedAdvance result{world, {}};
+    MacTransportState endpoint = world.state();
     const auto start = MacKernelAccess::time(world);
     MacKernelReport k;
     try {
         k = mac_kernel::run_interval(MacKernelAccess::registry(world), MacKernelAccess::eos(world), MacKernelAccess::state(world),
-            MacKernelAccess::settings(world), start, seconds, budget, options, MacKernelAccess::state(result.world));
+            MacKernelAccess::settings(world), start, seconds, budget, options, endpoint);
     } catch (const mac_kernel::RangeFlag& flag) { return fallback(flag.consumed_attempts); }
+    MacKernelAccess::publish_state(result.world, std::move(endpoint));
     MacKernelAccess::stamp(result.world, start + seconds, revision + 1);
     auto& r = result.report;
     r.interval_kernel_intervals = 1;
