@@ -232,6 +232,24 @@ int main(int argc, char** argv) {
             const auto drained = mix(14, 7); const auto end = ma::oni::colony::status();
             require(end.state == 1 && drained[0] == 0 && drained[1] == 0 && drained[2] == 0, "the trace leaves with the last oxygen");
             require(end.maximum_relative_mass_error < 1e-12 && end.maximum_relative_energy_error < 1e-9, "trace ledgers close");
+            // A queued close leaves the cell to ONI at once: the shadow keeps
+            // the solid that replaced the gas. A solid gone again before the
+            // owner closes the cell (falling sand) cancels the close.
+            const auto falling = static_cast<std::size_t>(native_cell(10, 4));
+            const MAOniColonyTerrain close{public_cell(10, 4), MA_ONI_COLONY_CLOSE};
+            ma::oni::colony::queue_terrain(std::span(&close, 1));
+            require(!ma::oni::colony::owns(native_cell(10, 4)) && !suppress(MA_ONI_PRESSURE, native_cell(10, 4)), "a closing cell is ONI's");
+            for (int b = 0; b < 2; ++b) { el[b][falling] = 1; mass[b][falling] = 500; temperature[b][falling] = 300; }
+            ma::oni::colony::write_shadow(nc);
+            require(el[1][falling] == 1 && mass[1][falling] == 500, "the shadow keeps the solid in a closing cell");
+            el[1][falling] = oxygen; mass[1][falling] = 1.2f;
+            const auto held = ma::oni::colony::status();
+            ma::oni::colony::capture_shadow(nc);
+            require(ma::oni::colony::owns(native_cell(10, 4)), "the solid's departure cancels the close");
+            ma::oni::colony::advance(12, .2, 2); ma::oni::colony::wait();
+            const auto after_fall = ma::oni::colony::status();
+            require(after_fall.state == 1 && after_fall.closed_cells == held.closed_cells && after_fall.injected_kg == held.injected_kg,
+                "nothing closed or injected for the cancelled close");
         }
         // A different catalogue rejects the image.
         ma::oni::colony::stop();

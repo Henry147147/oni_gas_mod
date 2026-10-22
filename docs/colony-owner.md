@@ -204,7 +204,12 @@ cell's masses waits.
 Digging (ONI's `Dig`) opens the cell as exact vacuum and refills it from its gas
 neighbours: with m such neighbours each gives 1/(m+1) of its gas, so the cell
 starts at their pressure. Building a tile (an element replacement with a solid)
-displaces the cell's contents equally into its open neighbours and closes it;
+leaves the cell to ONI at once (the shadow no longer writes it and native
+physics is no longer suppressed there, so the native solid stays as placed);
+at its next step the owner displaces the cell's contents equally into its open
+neighbours and closes it. A solid gone again before that step (unstable sand
+falling at once) cancels the close; the fluid ONI puts back there is its copy of
+the owner's, so nothing is injected;
 the normal momentum on its faces becomes heat of the neighbour that carried it.
 A cell inside a block closing at once sends its contents to the nearest
 open cell through the block (within 16); only a sealed cell's contents go to

@@ -12,6 +12,9 @@
 #include <atomic>
 #include <cfenv>
 #include <chrono>
+#if defined(__linux__)
+#include <sched.h>
+#endif
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
@@ -95,6 +98,9 @@ std::unique_ptr<Session> session;
 std::shared_ptr<const Published> latest;
 // Geometry and ownership are published before enabled and unchanged while it is set.
 MAOniColonyConfig geometry{};
+// Per cell: 0 closed (native), 1 owned, 2 closing (a solid replaced the
+// owned fluid and the owner closes the cell at its next step; the shadow and
+// native suppression already leave it to ONI).
 std::unique_ptr<std::atomic<std::uint8_t>[]> owned;
 std::size_t owned_count = 0;
 std::array<std::atomic<std::uint64_t>, MA_ONI_HOOK_COUNT> suppressed{};
@@ -299,12 +305,20 @@ void fault(Session& s, const char* why) noexcept {
         { std::lock_guard lock(publication); if (latest) { p->views = latest->views; p->world = latest->world; p->catalogue = latest->catalogue; } latest = std::move(p); } }
     catch (...) {}
 }
+// The CPUs this process may run on (its affinity, as when the game is pinned).
+unsigned available_cpus() {
+#if defined(__linux__)
+    cpu_set_t set; CPU_ZERO(&set);
+    if (sched_getaffinity(0, sizeof(set), &set) == 0 && CPU_COUNT(&set) > 0) return static_cast<unsigned>(CPU_COUNT(&set));
+#endif
+    return std::max(1U, std::thread::hardware_concurrency());
+}
 void activate(std::unique_ptr<Session> next, std::uint64_t thread) {
     require(!enabled.load(std::memory_order_acquire), "A colony owner is already active");
     // Execution only: the kernel's results never depend on its thread count.
     // Leave two cores for the game's own threads.
     auto options = mac_kernel_default_options();
-    options.threads = std::clamp(std::thread::hardware_concurrency(), 3U, 18U) - 2;
+    options.threads = std::clamp(available_cpus(), 3U, 18U) - 2;
     set_mac_kernel_default_options(options);
     next->status = empty_status(); next->status.state = 1; next->status.session = ++sessions; next->status.start_thread = thread;
     start_thread.store(thread, std::memory_order_relaxed);
@@ -540,6 +554,12 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
         world = move_material(std::move(world), moves, s.ledger, s.status);
         s.status.opened_cells += opening.size();
     }
+    // A queued close that did not happen (another edit of the cell came first)
+    // returns the cell to the owner.
+    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE) {
+        const auto i = rect_index(s.config, e.public_cell); std::uint8_t closing_state = 2;
+        if (!world.state().grid.walls[i]) owned[i].compare_exchange_strong(closing_state, 1, std::memory_order_relaxed);
+    }
     return world;
 }
 
@@ -773,6 +793,11 @@ void queue_terrain(std::span<const MAOniColonyTerrain> edits) {
     }
     std::lock_guard lock(inputs);
     require(pending_terrain.size() + edits.size() <= 1u << 20, "Too many queued colony terrain edits");
+    // A queued close leaves the cell to ONI at once (the solid that replaced
+    // it is native); the owner displaces its fluid at its next step.
+    for (const auto& e : edits) if (e.kind == MA_ONI_COLONY_CLOSE) {
+        std::uint8_t open = 1; owned[rect_index(geometry, e.public_cell)].compare_exchange_strong(open, 2, std::memory_order_relaxed);
+    }
     pending_terrain.insert(pending_terrain.end(), edits.begin(), edits.end());
 }
 std::uint32_t copy_receipts(MAOniColonyReceipt* out, std::uint32_t capacity) {
@@ -795,7 +820,7 @@ bool owns(int native_cell) noexcept {
     if (!nx || !ny) return false;
     const auto x = nx - 1, y = ny - 1;
     if (x < geometry.offset_x || x - geometry.offset_x >= geometry.width || y < geometry.offset_y || y - geometry.offset_y >= geometry.height) return false;
-    return owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) != 0;
+    return owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) == 1;
 }
 
 bool beside_owned(int native_cell) noexcept {
@@ -810,13 +835,20 @@ void write_shadow(const NativeCells& n) noexcept {
     if (!p || !p->catalogue || p->views.size() != owned_count || p->status.state != 1 || n.pitch != geometry.grid_width + 2) return;
     const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
     try { shadow.assign(owned_count, ShadowCell{}); } catch (...) { return; }
+    std::vector<MAOniColonyTerrain> closes;
     for (std::size_t i = 0; i < owned_count; ++i) {
         const std::size_t c = (geometry.offset_x + i % geometry.width + 1) + (geometry.offset_y + i / geometry.width + 1) * static_cast<std::size_t>(n.pitch);
         const auto present = n.element[0][c];
         shadow[i].before = present;
-        if (!owned[i].load(std::memory_order_relaxed)) continue;
-        // A solid native placed this frame (a tile being built) stays native.
-        if (present != vacuum && !cat.has_native(present)) continue;
+        if (owned[i].load(std::memory_order_relaxed) != 1) continue;
+        // A solid native placed in an owned cell (landing sand, a tile) stays
+        // native, and the owner closes the cell at its next step.
+        if (present != vacuum && !cat.has_native(present)) {
+            std::uint8_t open = 1;
+            if (owned[i].compare_exchange_strong(open, 2, std::memory_order_relaxed))
+                closes.push_back({static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width), MA_ONI_COLONY_CLOSE});
+            continue;
+        }
         const auto& v = p->views[i]; const bool empty = !(v.mass_kg > 0);
         auto& sh = shadow[i];
         sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
@@ -828,6 +860,10 @@ void write_shadow(const NativeCells& n) noexcept {
             for (int b = 0; b < 2; ++b) { n.disease[b][c] = idx; n.disease_count[b][c] = sh.germs; }
         }
     }
+    if (!closes.empty()) {
+        std::lock_guard q(inputs);
+        try { pending_terrain.insert(pending_terrain.end(), closes.begin(), closes.end()); } catch (...) {}
+    }
 }
 
 void capture_shadow(const NativeCells& n) noexcept {
@@ -838,7 +874,7 @@ void capture_shadow(const NativeCells& n) noexcept {
         const auto& cat = *p->catalogue; const auto vacuum = geometry.vacuum_index;
         const auto heat_capacity = [&](std::uint16_t e) { return cat.materials[cat.species_of_native(e)].game.specific_heat_j_per_kg_k; };
         std::vector<MAOniColonyHeat> heat; std::vector<MAOniColonyTransfer> moves; std::vector<MAOniColonyTerrain> opened;
-        std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum;
+        std::vector<Freeze> froze; std::vector<GermEdit> germs; NativeExchange sum; std::vector<std::pair<std::size_t, std::uint32_t>> undone;
         const auto fluid = [&](std::uint16_t e) { return e == vacuum || cat.has_native(e); };
         for (std::size_t i = 0; i < owned_count; ++i) {
             const auto& sh = shadow[i];
@@ -847,10 +883,10 @@ void capture_shadow(const NativeCells& n) noexcept {
             const auto cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
             if (!sh.written) {
                 if (fluid(sh.before) || !fluid(e)) continue;
-                // A solid placed in an owned cell this frame and gone within it
-                // (unstable sand falling at once): the owner's pending close is
+                // A solid placed over owned fluid and gone before the owner
+                // closed the cell (unstable sand falling at once): the close is
                 // undone. The fluid native put back is its copy of the owner's.
-                if (owned[i].load(std::memory_order_relaxed)) { opened.push_back({cell, MA_ONI_COLONY_OPEN}); ++sum.changes; continue; }
+                if (owned[i].load(std::memory_order_relaxed) != 0) { undone.push_back({i, cell}); ++sum.changes; continue; }
                 // A native solid that melted (or sublimated away) this frame:
                 // the owner opens the cell and takes its fluid.
                 if (!(std::isfinite(m) && m >= 0 && std::isfinite(t) && t >= 0)) continue;
@@ -908,6 +944,14 @@ void capture_shadow(const NativeCells& n) noexcept {
             }
         }
         std::lock_guard q(inputs);
+        for (const auto& [i, cell] : undone) {
+            // Cancel a close not yet taken by the owner; one already taken is
+            // followed by an open at the next step.
+            const auto before = pending_terrain.size();
+            std::erase_if(pending_terrain, [&](const MAOniColonyTerrain& t) { return t.public_cell == cell && t.kind == MA_ONI_COLONY_CLOSE; });
+            if (pending_terrain.size() != before) owned[i].store(1, std::memory_order_relaxed);
+            else opened.push_back({cell, MA_ONI_COLONY_OPEN});
+        }
         pending_germs.insert(pending_germs.end(), germs.begin(), germs.end());
         pending_heat.insert(pending_heat.end(), heat.begin(), heat.end());
         pending_terrain.insert(pending_terrain.end(), opened.begin(), opened.end());
@@ -942,7 +986,7 @@ bool suppress(std::uint32_t hook, int native_cell) noexcept {
     if (x < geometry.offset_x || x - geometry.offset_x >= geometry.width || y < geometry.offset_y || y - geometry.offset_y >= geometry.height) return false;
     // Native transitions, sublimation and post-processing act on native
     // solids; their effect on owned cells is captured through the shadow.
-    if (!owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed)) return false;
+    if (owned[(x - geometry.offset_x) + static_cast<std::size_t>(y - geometry.offset_y) * geometry.width].load(std::memory_order_relaxed) != 1) return false;
     if (hook < suppressed.size()) suppressed[hook].fetch_add(1, std::memory_order_relaxed);
     return true;
 }
@@ -1018,7 +1062,22 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             }
         }
         doing = "terrain";
-        if (!terrain.empty()) world = apply_terrain(s, std::move(world), terrain);
+        if (!terrain.empty()) {
+            const auto before_terrain = world;
+            try { world = apply_terrain(s, std::move(world), terrain); }
+            catch (const std::exception& error) {
+                // Name the edits and the cells they touch.
+                std::string where; const auto& st = before_terrain.state(); const auto W = st.grid.width;
+                for (std::size_t q = 0; q < terrain.size() && q < 12; ++q) {
+                    const auto i = rect_index(s.config, terrain[q].public_cell); const auto& m = st.cells[i].mixture;
+                    where += " [" + std::to_string(terrain[q].kind) + " at " + std::to_string(s.config.offset_x + i % W) + "," + std::to_string(s.config.offset_y + i / W) +
+                        (st.grid.walls[i] ? " wall" : "") + ":";
+                    for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) { char b[64]; std::snprintf(b, sizeof b, " %s %.3g", cat.materials[k].game.id.c_str(), m.masses[k]); where += b; }
+                    where += "]";
+                }
+                throw std::runtime_error(std::string(error.what()) + " (" + std::to_string(terrain.size()) + " edits:" + where + ")");
+            }
+        }
         world = close_blocked_faces(s, std::move(world));
         if (!germ_edits.empty()) {
             std::vector<MacPassiveEdit> edits;

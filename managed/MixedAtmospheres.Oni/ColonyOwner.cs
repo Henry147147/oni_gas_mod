@@ -349,17 +349,35 @@ namespace MixedAtmospheres.Oni
                     // Additive mass edits (no callback or replacement), with their germs.
                     if (length != 28) return false;
                     var cell = *(int*)payload;
+                    // A solid added to an owned cell (falling sand or snow landing)
+                    // becomes a tile there, as in ONI: the owner displaces the
+                    // cell's fluid and closes it, and ONI places the tile as a
+                    // plain replacement (its native addition never lands).
+                    if (count == 1 && payload[22] == 0 && ElementLoader.elements[*(ushort*)(payload + 20)].IsSolid)
+                    {
+                        if (OwnsFluid(cell) && *(float*)(payload + 12) > 0) { QueueTerrain(cell, OniNativeColony.Close); payload[22] = 1; }
+                        return false;
+                    }
                     if (!OwnsFluid(cell)) return false;
                     var data = new ReadOnlySpan<byte>(payload, length * count);
                     var list = new List<OniNativeColony.Transfer>();
                     for (var k = 0; k < count; ++k)
                     {
                         var d = data.Slice(k * length, length);
-                        if (!OwnsFluid(BinaryPrimitives.ReadInt32LittleEndian(d)) || d[22] != 0 || d[24] != 1) return false;
-                        // A solid (landing sand, debris) stays ONI's: it fills the cell natively.
+                        // Byte 24 is ONI's vertical-solid-displacement flag, not
+                        // the edit kind: landing water particles leave it clear.
+                        if (!OwnsFluid(BinaryPrimitives.ReadInt32LittleEndian(d)) || d[22] != 0) return false;
+                        // A solid in a batch stays ONI's.
                         var added = ElementLoader.elements[BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20))];
                         if (!(added.IsGas || added.IsLiquid)) return false;
                         var mass = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(d.Slice(12)));
+                        if (mass < 0)
+                        {
+                            // A negative edit removes that element there.
+                            list.Add(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d), NativeIndex = added.idx,
+                                Kind = OniNativeColony.Extract, Callback = -1, MassKg = -mass });
+                            continue;
+                        }
                         if (!(mass > 0)) continue;
                         list.Add(WithGerms(new OniNativeColony.Transfer { PublicCell = (uint)BinaryPrimitives.ReadInt32LittleEndian(d),
                             NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(d.Slice(20)), Kind = OniNativeColony.Inject, Callback = -1, MassKg = mass,

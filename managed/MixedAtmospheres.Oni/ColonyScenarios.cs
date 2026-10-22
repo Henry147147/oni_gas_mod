@@ -246,7 +246,9 @@ namespace MixedAtmospheres.Oni
                 var pipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
                 var held = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
                 Debug.Log($"[Mixed Atmospheres] pipes frame {frame}: left {Side(0, 4):G6} right {Side(5, 8):G6} pipe {pipe:G4} stored {held:G4} receipts {ColonyActors.DeliveredKg - recorded["consumed"]:G4} " +
-                    $"injected {ColonyOwner.Status.InjectedKg - recorded["injected"]:G4} extracted {ColonyOwner.Status.ExtractedKg - recorded["extracted"]:G4}");
+                    $"injected {ColonyOwner.Status.InjectedKg - recorded["injected"]:G4} extracted {ColonyOwner.Status.ExtractedKg - recorded["extracted"]:G4}; wall " +
+                    string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(4, y)].id}:{Grid.Mass[Cell(4, y)]:G4}{(Grid.Solid[Cell(4, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(4, y)) ? "o" : "")}")) +
+                    "; far row 2 " + string.Join(" ", Enumerable.Range(4, 5).Select(x => $"{Grid.Element[Cell(x, 2)].id}:{Grid.Mass[Cell(x, 2)]:G4}{(ColonyOwner.OwnsFluidCell(Cell(x, 2)) ? "o" : "")}")));
             }
             if (Once(40, "check"))
             {
@@ -255,7 +257,10 @@ namespace MixedAtmospheres.Oni
                 var carbon = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.CarbonDioxide)));
                 var inPipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
                 var stored = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
-                Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber; pump {MachineState(powered.FirstOrDefault())}");
+                var vent = powered.FirstOrDefault(b => b != null && b.GetComponent<Vent>() != null);
+                var ventState = vent == null ? "no vent" : $"blocked {vent.GetComponent<Vent>().IsBlocked}, stored {vent.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg; {MachineState(vent)}";
+                string Column(int x) => string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(x, y)].id}:{Grid.Mass[Cell(x, y)]:G3}{(Grid.Solid[Cell(x, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(x, y)) ? "o" : "")}"));
+                Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber; pump {MachineState(powered.FirstOrDefault())}; vent {ventState}; left border {Column(-1)}; right border {Column(Width)}");
                 Record("the pipe carried both gases", oxygen > 0 && carbon > 0, $"oxygen {oxygen:G4} kg, carbon dioxide {carbon:G4} kg");
                 var total = ArenaMass() + inPipe + stored;
                 Record("owner, pipe and pump keep the gas", Math.Abs(total - recorded["gas"]) < .01 * recorded["gas"],
