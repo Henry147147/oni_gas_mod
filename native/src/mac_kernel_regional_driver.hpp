@@ -116,7 +116,8 @@ MacKernelReport run_regional(const SpeciesRegistry& registry, const FluidThermod
     const auto started = Clock::now(); const Grid g(source.grid);
     require(!g.px && !g.py,"Regional stepping requires nonperiodic boundaries");
     require(source.cells.size() == g.N,"Regional cell shape differs");
-    const Model model = build_model(registry,eos,source);
+    Model model = build_model(registry,eos,source);
+    model.recover_mixed_eos_endpoint = settings.recover_mixed_eos_endpoint;
     std::vector<std::size_t> labels; auto parts = closed_regions(source,labels);
     const double geometry_ms = since(started);
     SharedAttempts shared{budget};

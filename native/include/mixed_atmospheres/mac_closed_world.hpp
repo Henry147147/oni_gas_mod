@@ -90,6 +90,9 @@ struct MacClosedSettings {
     // Per constituent per cell, strictly below the threshold. Zero disables
     // the booked trace sink; the user-authorized ceiling is one milligram.
     double trace_sink_threshold_kg = 0;
+    // Saved game-profile policies; older images retain both original rules.
+    bool compatible_void_pressure_work = false;
+    bool recover_mixed_eos_endpoint = false;
     void validate() const;
 };
 struct MacClosedSubstep {

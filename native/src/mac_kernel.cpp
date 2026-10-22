@@ -427,7 +427,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     const Grid g(source.grid);
     if (!std::isnormal(g.V) || !std::isnormal(g.A)) throw RangeFlag{0};
     require(source.cells.size() == g.N, "Production kernel cell shape differs");
-    const Model model = build_model(registry, eos, source);
+    Model model = build_model(registry, eos, source);
+    model.recover_mixed_eos_endpoint = settings.recover_mixed_eos_endpoint;
     auto& w = workspaces();
     w.ws.caloric_labels.clear(); w.ws.caloric_mask.clear(); w.ws.caloric_regions = 0;
     MacKernelReport report;

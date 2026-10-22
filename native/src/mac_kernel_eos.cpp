@@ -139,6 +139,21 @@ bool evaluate_state(const Model& model, const Fields& f, std::size_t N, std::siz
             if (std::abs(next - p) <= 8 * eps * p) { p = next; converged = true; break; }
             p = next;
         }
+        // A safeguarded iteration can find a trace-gas root at a bracket
+        // endpoint, then bisect away from it because the bracket is strict.
+        // Recover only after the original sequence fails, with the same
+        // relative Newton criterion and normal, positive residual operands.
+        if (!converged && model.recover_mixed_eos_endpoint) for (const double endpoint : {hi, lo}) {
+            if (!(endpoint > 0) || !std::isfinite(endpoint)) continue;
+            const auto at = liquid_at(model, f, N, i, endpoint);
+            const double gasv = headspace + at.contracted;
+            const double left = endpoint * gasv, right = s.nR * (A - at.energy) / s.Cv;
+            const double derivative = gasv + endpoint * at.compliance + s.nR * endpoint * at.compliance / s.Cv;
+            const double next = endpoint - (left - right) / derivative;
+            if (std::isnormal(endpoint) && left > 0 && right > 0 && std::isnormal(left) && std::isnormal(right) &&
+                derivative > 0 && std::isnormal(derivative) && next >= lo && next <= hi &&
+                std::abs(next - endpoint) <= 8 * eps * endpoint) { p = next; converged = true; break; }
+        }
         if (!converged || !(p > 0)) return false;
         const auto l = liquid_at(model, f, N, i, p);
         r.p = p; r.Eel = l.energy; r.T = (A - l.energy) / s.Cv;

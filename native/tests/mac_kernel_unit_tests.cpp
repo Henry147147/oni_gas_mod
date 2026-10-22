@@ -231,10 +231,74 @@ void caloric_resolution_control() {
         "regional sub-resolution mixed cell skips ill-conditioned heat graph");
 }
 
+void game_numerics_control() {
+    namespace k = ma::experimental::mac_kernel;
+    k::Model model; k::Species liquid;
+    liquid.registry=0; liquid.gas=false; liquid.cv=1; liquid.rho0=1; liquid.bulk=0x1p20;
+    liquid.maximum_ratio=2; liquid.tmin=1; liquid.tmax=1e9;
+    model.species.push_back(liquid); model.liquids.push_back(0);
+    k::Species gas; gas.registry=1; gas.gas=true; gas.cv=1;
+    gas.molar_mass=ma::experimental::reference_gas_constant; gas.tmin=1; gas.tmax=1e9;
+    model.species.push_back(gas); model.gases.push_back(1);
+    k::Fields fields; fields.m={1,0x1p-336}; fields.U={256};
+    const auto stats=k::cell_stats(model,fields,1,0); k::State endpoint;
+    const bool old=k::evaluate_state(model,fields,1,0,stats,256,1,endpoint);
+    model.recover_mixed_eos_endpoint=true;
+    const bool recovered=k::evaluate_state(model,fields,1,0,stats,256,1,endpoint);
+    check(!old && recovered && endpoint.T==256 &&
+        std::abs(endpoint.p/0x1p-154-1)<=8*k::eps && std::abs(endpoint.Vg/0x1p-174-1)<=8*k::eps,
+        "game mixed EOS recovers the analytic tiny-gas endpoint");
+    check(!k::evaluate_state(model,fields,1,0,stats,.5,1,endpoint),
+        "game mixed EOS endpoint recovery keeps temperature admission");
+
+    const auto& s=setup(); auto state=s.state(2,32,false);
+    state.occupied_volumes_m3.assign(state.cells.size(),0);
+    const auto water=s.registry.index("water");
+    for (std::size_t i=0;i<state.cells.size();++i) {
+        auto& cell=state.cells[i]; cell.mixture=MixtureInventory(s.registry.size()); cell.passive_quantities.clear();
+        if ((i/2)%2) { state.grid.walls[i]=1; continue; }
+        const double volume=i%2 ? 1 : .98663;
+        state.occupied_volumes_m3[i]=volume;
+        std::vector<double> masses(s.registry.size()); masses[water]=1000*volume;
+        cell.mixture=s.eos->initialize_at_temperature(masses,300,volume).mixture;
+    }
+    const auto inertia=mac_face_inertias(s.registry,state,*s.eos);
+    for (std::size_t y=0;y<32;y+=2) state.momentum_x[state.grid.x_face(1,y)]=-20*inertia.x[state.grid.x_face(1,y)];
+    MacClosedSettings settings; settings.maximum_timestep_s=.001;
+    settings.reconstruction=MacMaterialReconstruction::interface_plic;
+    settings.vacuum=MacVacuumRepresentation::void_phase; settings.numerical_kernel=MacNumericalKernel::production;
+    settings.step_control=MacStepControl::regional_predictive; settings.game_profile=MacGameProfile::base_game_floor;
+    settings.compression_viscosity=MacCompressionViscosity::none; settings.shock_heat=MacShockHeatRegularization::none;
+    const auto saved_options=mac_kernel_default_options(); auto options=saved_options; options.threads=1;
+    set_mac_kernel_default_options(options);
+    const MacClosedWorld legacy(s.registry,s.eos,state,settings);
+    const auto old_step=legacy.advanced(.001,65536);
+    settings.compatible_void_pressure_work=true; settings.recover_mixed_eos_endpoint=true;
+    const MacClosedWorld source(s.registry,s.eos,state,settings);
+    const auto advanced=source.advanced(.001,65536); const auto report=last_mac_production_report();
+    check(old_step.report.rejected_attempts>0 && advanced.report.rejected_attempts==0 &&
+        advanced.report.substeps==16 && !report.audits.empty() &&
+        std::all_of(report.audits.begin(),report.audits.end(),[](const auto& a) { return a.passed; }) && !report.reference_fallback,
+        "game void pressure work closes without conservation retries");
+    options.threads=12; set_mac_kernel_default_options(options);
+    auto restored=MacClosedWorld::from_checkpoint(s.registry,s.eos,source.checkpoint()).advanced(.001,65536);
+    check(last_mac_production_report().threads_used==12 && advanced.world.checkpoint()==restored.world.checkpoint() &&
+        advanced.report.substeps==restored.report.substeps && advanced.report.rejected_attempts==restored.report.rejected_attempts &&
+        source.checkpoint().at(8)==17 && legacy.checkpoint().at(8)==16,
+        "game root/work policies continue byte-exactly across cold restore and workers");
+    const auto one=advanced.world.advanced(.001,65536);
+    const auto cold=MacClosedWorld::from_checkpoint(s.registry,s.eos,restored.world.checkpoint()).advanced(.001,65536);
+    check(one.world.checkpoint()==cold.world.checkpoint(),"game void pressure work keeps the next cold continuation");
+    set_mac_kernel_default_options(saved_options);
+}
 }
 
 int main(int argc, char** argv) {
     try {
+        if (argc > 1 && std::string(argv[1]) == "--game-numerics-only") {
+            game_numerics_control();
+            return failures == 0 ? 0 : 1;
+        }
         if (argc > 1 && std::string(argv[1]) == "--regional-only") {
             regional_control(); caloric_resolution_control();
             return failures == 0 ? 0 : 1;
@@ -350,7 +414,7 @@ int main(int argc, char** argv) {
             }
             check(all && k.entropy_change_j_per_k >= -k.entropy_allowance_j_per_k, "interval audit covers every quantity");
         }
-        conduction_entropy_control(); regional_control(); caloric_resolution_control();
+        conduction_entropy_control(); regional_control(); caloric_resolution_control(); game_numerics_control();
         std::cout << (failures == 0 ? "ALL PASS" : "SOME FAILED") << '\n';
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }

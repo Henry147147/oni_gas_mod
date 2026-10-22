@@ -66,6 +66,41 @@ void game_profile_checkpoint(const ma::testing::Setup& setup) {
     require(old_restored.settings().game_profile==MacGameProfile::legacy && old_restored.settings().trace_sink_threshold_kg==0 &&
         old_restored.checkpoint()==old_image && legacy.checkpoint()==old_image,
         "An old save acquired a game profile or changed bytes");
+    const MacClosedWorld version16(setup.registry,setup.eos,state,settings);
+    const auto version16_image=version16.checkpoint();
+    for (unsigned policies=1;policies<4;++policies) {
+        settings.compatible_void_pressure_work=(policies&1)!=0;
+        settings.recover_mixed_eos_endpoint=(policies&2)!=0;
+        const MacClosedWorld source(setup.registry,setup.eos,state,settings);
+        const auto image=source.checkpoint();
+        const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
+        require(image.at(8)==17 && restored.checkpoint()==image &&
+            restored.settings().compatible_void_pressure_work==settings.compatible_void_pressure_work &&
+            restored.settings().recover_mixed_eos_endpoint==settings.recover_mixed_eos_endpoint &&
+            source.advanced(.02).world.checkpoint()==restored.advanced(.02).world.checkpoint(),
+            "Saved game root/work policies changed on restore or continuation");
+        std::uint32_t identity_bytes=0;
+        for (std::size_t i=0;i<4;++i) identity_bytes|=static_cast<std::uint32_t>(image[12+i])<<(8*i);
+        const std::size_t flags=16+identity_bytes+16+26+45+16+4+12+4+4+4+4+4+8+12;
+        require(image.at(flags)==(policies&1) && image.at(flags+1)==((policies>>1)&1),
+            "Saved game root/work policy wire position changed");
+        for (unsigned malformed=0;malformed<4;++malformed) {
+            auto corrupt=image;
+            if (malformed<2) corrupt.at(flags+malformed)=2;
+            else if (malformed==2) { corrupt.at(flags)=0; corrupt.at(flags+1)=0; }
+            else put(corrupt,8,16,4);
+            seal(corrupt); bool refused=false;
+            try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,corrupt); }
+            catch (const std::exception&) { refused=true; }
+            require(refused,"Malformed or noncanonical game root/work policies were accepted");
+        }
+    }
+    const auto restored16=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,version16_image);
+    require(!restored16.settings().compatible_void_pressure_work && !restored16.settings().recover_mixed_eos_endpoint &&
+        restored16.checkpoint()==version16_image &&
+        version16.advanced(.02).world.checkpoint()==restored16.advanced(.02).world.checkpoint(),
+        "Version16 acquired new game root/work policies or changed continuation");
+    settings.compatible_void_pressure_work=false; settings.recover_mixed_eos_endpoint=false;
     for (const double invalid : {-1.,std::nextafter(1e-6,1.),std::numeric_limits<double>::infinity(),
                                  std::numeric_limits<double>::quiet_NaN()}) {
         settings.trace_sink_threshold_kg=invalid; bool rejected=false;
@@ -76,6 +111,14 @@ void game_profile_checkpoint(const ma::testing::Setup& setup) {
     bool rejected=false;
     try { settings.validate(); } catch (const std::invalid_argument&) { rejected=true; }
     require(rejected,"Legacy profile enabled a trace sink");
+    settings.trace_sink_threshold_kg=0;
+    for (unsigned policy=0;policy<2;++policy) {
+        settings.compatible_void_pressure_work=policy==0; settings.recover_mixed_eos_endpoint=policy==1;
+        rejected=false;
+        try { settings.validate(); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected,"Legacy profile enabled a new game root/work policy");
+    }
+    std::cout << "PASS saved game root/work policies, old continuation and malformed settings\n";
 }
 }
 int main(int argc,char** argv) {

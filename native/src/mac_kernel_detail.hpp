@@ -119,6 +119,7 @@ struct Species {
 };
 struct Model {
     std::size_t registry_size = 0;
+    bool recover_mixed_eos_endpoint = false;
     std::vector<Species> species;      // present constituents, registry order
     std::vector<std::size_t> gases, liquids; // indices into species
     // Each species' liquid phase: the index into liquids of the first liquid

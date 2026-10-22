@@ -186,6 +186,21 @@ volume or the grid volume. Empty cells retain no U, remainder or passives.
 | Existing regional schedules, maximum step 0.1f s, gas expansion fraction 0.001 | Different adaptive trajectory and unresolved geometry; quantitative F1–F5 errors pending | Current baseline; floor unmeasured |
 | Existing tiny-capacity conduction/gravity entropy treatment | Thermal detail below component resolution; conservative heat repair and final EOS/entropy checks retained | Current baseline; floor unmeasured |
 | Booked trace sink | Removes sub-threshold composition and its booked mechanics; elastic energy shared by heat capacity | Threshold sweep/control in progress; not a new-colony default |
+| Compatible void pressure work | Uses geometric face sweeps for U work when an initial liquid void closes, matching canonical J/K; changes those trajectories | Opt-in, not yet selected; floor measurements pending |
+| Mixed-EOS endpoint recovery | After the original 200 iterations fail, accepts a bracket endpoint satisfying the unchanged Newton criterion; successful old roots are unchanged | Opt-in, not yet selected; floor measurements pending |
+
+The latter policies persist in checkpoint version 17. The void control takes
+one step with no rejection instead of four with three, under unchanged audits.
+A synthetic liquid with trace gas recovers its analytic pressure `2^-154 Pa`;
+temperature admission stays enforced. Cold continuation across 1/12 workers
+is byte-identical. These controls establish correctness of the policies,
+not a Terra speed claim or a floor pass.
+
+At a provisional `1e-60 kg` threshold, five captured fault worlds complete
+30 cold-restored intervals: total sink masses are `5.49e-59`, `6.63e-59`,
+`2.63e-58`, `5.46e-58` and `1.53e-58 kg`. The largest booked energy magnitude
+is `5.49e-65 J`. The new liquid-floor captures still fail later in continuation;
+threshold selection and floor acceptance remain open.
 
 The four feature-removal variants in the floor protocol remain scratch-only
 measurements requiring a user adoption decision. Momentum and per-cell

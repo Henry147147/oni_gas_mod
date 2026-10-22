@@ -891,8 +891,14 @@ void stage_pressure_transport(Context& c, Fields& f, double dt, Accounts& acc) {
                 continue;
             }
             const double before = f.U[i];
-            if (add_internal_energy(f, i, ws.dU[i], o.energy_rounding)) ++o.unresolved;
-            o.energy += std::abs(before) + std::abs(ws.dU[i]);
+            double pressure_work = ws.dU[i];
+            // Closing an initial liquid void changes material volume without
+            // sweeping that void through a face. Pair U with the geometric
+            // pressure work used by canonical J/K, not with that volume change.
+            if (c.settings.compatible_void_pressure_work && ws.void0[i] != 0)
+                pressure_work = -(p0(static_cast<Index>(i)) + ws.dW[i]) * sweeps.value();
+            if (add_internal_energy(f, i, pressure_work, o.energy_rounding)) ++o.unresolved;
+            o.energy += std::abs(before) + std::abs(pressure_work);
 
             ws.Vmat[i] = ws.anchor[i].V0 + ws.dV[i];
             if (voids) ws.Vswept[i] = !f.Vo.empty() && f.Vo[i] < g.V ? std::max(swept.value(), ws.Vmat[i]) : ws.Vmat[i];
