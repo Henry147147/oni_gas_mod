@@ -531,6 +531,9 @@ def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed
         return "missing-completed-colony-report", 2
     if report["Status"] == "failed":
         return "failed-colony-validation", 2
+    # A vanilla-load check passes when ONI's own loader refused the save.
+    if mode == "colony-owner-load" and report.get("Stage") == "vanilla-load-refused":
+        return "passed-vanilla-load-refused", 0 if report.get("VanillaLoadResult") == -1 else 2
     if report.get("GameStarted") is not True:
         return "failed-colony-not-started", 2
     return "passed-" + mode, 0

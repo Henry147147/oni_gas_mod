@@ -1390,6 +1390,12 @@ class EvidenceTests(unittest.TestCase):
         status, code = runner.classify("menu", "Steam not initialized in time", self.probe, None, False)
         self.assertEqual((status, code), ("blocked-steam-authentication", 3))
 
+    def test_vanilla_load_passes_only_on_refusal(self):
+        refused = {"Status": "passed", "Stage": "vanilla-load-refused", "VanillaLoadResult": -1}
+        self.assertEqual(runner.classify("colony-owner-load", self.log, self.probe, refused, False),
+                         ("passed-vanilla-load-refused", 0))
+        self.assertNotEqual(runner.classify("colony-owner-load", self.log, self.probe, dict(refused, VanillaLoadResult=0), False)[1], 0)
+
     def test_crashes_timeout_and_late_failures_override_completed_report(self):
         report = {"Status": "passed", "GameStarted": True}
         for timed_out, player_exit, extra in ((True, 0, ""), (False, 139, ""),
