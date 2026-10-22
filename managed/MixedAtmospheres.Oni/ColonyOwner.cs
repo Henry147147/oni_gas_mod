@@ -20,6 +20,10 @@ namespace MixedAtmospheres.Oni
         // solve shorten them where needed (docs/colony-owner.md#pacing).
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
+        // New colonies run the saved base-game accuracy-floor profile
+        // (docs/base-game-floor.md) once its threshold is selected; a restored
+        // colony keeps the profile its save holds.
+        internal const bool NewColoniesUseGameFloor = false;
         // Native messages seen while the owner runs, by hash (development census).
         internal static readonly Dictionary<int, long> Census = new Dictionary<int, long>();
         internal static void Count(int message, int count) { if (Active) Census[message] = (Census.TryGetValue(message, out var n) ? n : 0) + count; }
@@ -175,7 +179,8 @@ namespace MixedAtmospheres.Oni
             var world = ClusterManager.Instance.WorldContainers[0];
             var described = new OniNativeColony.Config
             {
-                Size = 56, Version = OniNativeColony.AbiVersion, Flags = OniNativeColony.PhysicsConduction,
+                Size = 56, Version = OniNativeColony.AbiVersion,
+                Flags = OniNativeColony.PhysicsConduction | (NewColoniesUseGameFloor ? OniNativeColony.GameFloor : 0),
                 VacuumIndex = ElementLoader.FindElementByHash(SimHashes.Vacuum).idx,
                 GridWidth = (uint)Grid.WidthInCells, GridHeight = (uint)Grid.HeightInCells,
                 OffsetX = (uint)world.WorldOffset.x, OffsetY = (uint)world.WorldOffset.y, Width = (uint)world.WorldSize.x, Height = (uint)world.WorldSize.y,
@@ -191,6 +196,7 @@ namespace MixedAtmospheres.Oni
             var (live, catalogue) = Describe();
             // New-colony defaults may change; the native image validates its saved timestep.
             live.MaximumTimestepSeconds = saved.MaximumTimestepSeconds;
+            live.Flags = (live.Flags & ~OniNativeColony.GameFloor) | (saved.Flags & OniNativeColony.GameFloor);
             if (!live.Equals(saved)) throw new NotSupportedException("The saved colony geometry differs from the loaded asteroid.");
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;

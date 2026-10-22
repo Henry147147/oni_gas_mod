@@ -8,7 +8,7 @@ namespace MixedAtmospheres.Oni
     internal static class OniNativeColony
     {
         private const string Library = "mixed_atmospheres_oni";
-        internal const uint AbiVersion = 1, PhysicsConduction = 1;
+        internal const uint AbiVersion = 1, PhysicsConduction = 1, GameFloor = 2;
         internal const uint Solid = 0, Fluid = 1, Space = 2;
         internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100;
         internal const uint ViewGas = 1, ViewLiquid = 2, ViewOwned = 4;
