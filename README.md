@@ -74,7 +74,6 @@ Keep a copy of any colony you value.
 - **Asteroids:** Terra is the tested asteroid. Rime, Arboria, Aridio, The
   Badlands and Oasisse start and run; on Oceania, Verdante and Volcanea the
   solver can fault in the first seconds.
-- **Gas filters:** a gas filter fed a mixed pipe can stall the solver.
 - If the solver faults, fluids freeze in place, the log names the error and
   saving is refused; reload the last save.
 

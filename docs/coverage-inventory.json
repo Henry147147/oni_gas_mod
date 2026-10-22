@@ -12938,12 +12938,18 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/AirFilter/0"
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/AirFilterPreview/0",
@@ -15267,12 +15273,18 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/CO2Scrubber/0"
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/CO2ScrubberPreview/0",
@@ -24084,12 +24096,18 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/GasFilter/0"
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/GasFilterPreview/0",
@@ -30431,12 +30449,18 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/LiquidFilter/0"
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/LiquidFilterPreview/0",
@@ -43975,12 +43999,18 @@
       "owner": "custom-fluid/native-nonfluid",
       "adapter": "PrefabFluidAdapters",
       "acceptance": "callsite-transaction",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "runtime_identity": "prefab/SolidFilter/0"
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "prefab/SolidFilterPreview/0",
@@ -56125,12 +56155,18 @@
       "owner": "custom-fluid",
       "adapter": "SeparationAdapter",
       "acceptance": "transport",
-      "status": "unimplemented",
+      "status": "implemented",
       "fact": {
         "description": "Selective extraction with trace preservation, rejected heat and required work."
       },
       "playtest": "in",
-      "playtest_system": "filters-separators"
+      "playtest_system": "filters-separators",
+      "implementation": [
+        "managed/MixedAtmospheres.Oni/ColonyMachines.cs",
+        "managed/MixedAtmospheres.Oni/ColonyActors.cs",
+        "native/src/oni_colony.cpp"
+      ],
+      "playtest_check": "in-game scenarios `filter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/frame-publication",
