@@ -8,6 +8,27 @@ still require separate authorization.
 
 Amendments:
 
+- **Base-game accuracy floor, 2026-10-22 (user decision):** for the game's
+  saved solver profile only, replace the "within 0.1 K and 1% of resolved
+  references" bound, the prohibition on a production `balanced` configuration,
+  and the ordering that leaves low-Mach treatment until last with the measured
+  [base-game floor](base-game-floor.md). Numerical detail may be reduced while
+  retaining per-cell gas/miscible-liquid composition, momentum and inertia.
+  Constituent traces below a per-cell threshold of at most 1 mg may enter a
+  named trace sink; book their mass, energy and momentum, and report totals.
+  Choose the smallest threshold that clears the captured trace faults.
+  Physical pressure, pressure-dependent boiling/latent heat, sharp liquid
+  interfaces and acoustic detail require separate scratch-only measurements
+  and a user adoption decision; do not remove momentum. Persist each tradeoff
+  in a new game profile/checkpoint version; old saves retain their profile.
+  Unchanged: physics-gate inputs, grids, bounds and settings; the reference
+  oracle; determinism; checkpoint rules and exact save continuation; never
+  adapting physics to momentary wall-clock load; and selecting the least
+  approximate configuration that passes performance acceptance. The target is
+  a new Terra colony sustaining 2× for at least 60 frames under the whole CPU
+  lock, with closed ledgers and no faults or fallbacks. If vanilla cannot hold
+  2× in the same harness, its measured rate becomes the target. Stop numerical
+  degradation when the target is met; still measure all four feature variants.
 - **Validation platforms, 2026-10-20 (user decision):** continue development
   and acceptance on Linux. Defer Proton, Wine and Windows validation to the
   user until the Linux mod is complete. Earlier measurements remain evidence
