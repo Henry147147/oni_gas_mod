@@ -258,7 +258,7 @@ namespace MixedAtmospheres.Oni
                 var inPipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
                 var stored = powered.Where(b => b != null).Sum(b => b.GetComponents<Storage>().Sum(st => st.items.Where(i => i != null).Sum(i => (double)(i.GetComponent<PrimaryElement>()?.Mass ?? 0))));
                 var vent = powered.FirstOrDefault(b => b != null && b.GetComponent<Vent>() != null);
-                var ventState = vent == null ? "no vent" : $"blocked {vent.GetComponent<Vent>().IsBlocked}, stored {vent.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg; {MachineState(vent)}";
+                var ventState = vent == null ? "no vent" : $"blocked {vent.GetComponent<Vent>().IsBlocked}, cell solid {Grid.Solid[Grid.PosToCell(vent)]}, stored {vent.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg; {MachineState(vent)}";
                 string Column(int x) => string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(x, y)].id}:{Grid.Mass[Cell(x, y)]:G3}{(Grid.Solid[Cell(x, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(x, y)) ? "o" : "")}"));
                 Record("gas crossed through the pipe", right > .05, $"{right:G4} kg in the far chamber; pump {MachineState(powered.FirstOrDefault())}; vent {ventState}; left border {Column(-1)}; right border {Column(Width)}");
                 Record("the pipe carried both gases", oxygen > 0 && carbon > 0, $"oxygen {oxygen:G4} kg, carbon dioxide {carbon:G4} kg");
@@ -277,8 +277,9 @@ namespace MixedAtmospheres.Oni
             if (Once(0, "arena"))
                 Arena((x, y) => x == 4 ? (y >= 2 ? (SimHashes.Unobtanium, 20000f, 300f) : (SimHashes.Vacuum, 0f, 0f)) :
                     x < 4 ? (SimHashes.Oxygen, 1.2f, 300f) : (SimHashes.Vacuum, 0f, 0f));
-            // The door takes control-state changes once it has spawned (a frame later).
-            if (Once(6, "build")) door = Build(DoorConfig.ID, Cell(4, 0)).GetComponent<Door>();
+            // A manual airlock (a pneumatic door does not block gas in ONI). The
+            // door takes control-state changes once it has spawned (a frame later).
+            if (Once(6, "build")) door = Build(ManualPressureDoorConfig.ID, Cell(4, 0)).GetComponent<Door>();
             if (Once(7, "lock")) SetDoor(Door.ControlState.Locked);
             if (Once(10, "closed")) { recorded["gas"] = ArenaMass(); recorded["right"] = RightMass(); }
             if (Once(16, "open"))
@@ -476,11 +477,14 @@ namespace MixedAtmospheres.Oni
                 // The liquid emptier pours as falling-water particles that land in owned cells.
                 Build(BottleEmptierConfig.ID, Cell(5, 0)).GetComponent<Storage>().AddLiquid(SimHashes.Water, 50, 300, byte.MaxValue, 0, false, true);
             }
+            if (Once(7, "filled"))
+                Debug.Log("[Mixed Atmospheres] bottle emptiers hold " + string.Join(", ", powered.Where(b => b != null).Select(b => $"{b.name} {b.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg at {Grid.PosToCell(b)}")));
             if (Once(32, "check"))
             {
                 var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"]; var poured = ArenaSpecies(SimHashes.Water) - recorded["water"];
-                Record("the gas emptier released its gas into the owner", added > .05, $"+{added:G4} kg carbon dioxide");
-                Record("the liquid emptier's falling water landed in the owner", poured > .5, $"+{poured:G4} kg water");
+                string Emptier(GameObject? b) => b == null ? "missing" : $"cell solid {Grid.Solid[Grid.PosToCell(b)]}, stored {b.GetComponents<Storage>().Sum(st => st.MassStored()):G4} kg; {MachineState(b)}";
+                Record("the gas emptier released its gas into the owner", added > .05, $"+{added:G4} kg carbon dioxide; {Emptier(powered.ElementAtOrDefault(0))}");
+                Record("the liquid emptier's falling water landed in the owner", poured > .5, $"+{poured:G4} kg water; {Emptier(powered.ElementAtOrDefault(1))}");
                 Finish();
             }
         }

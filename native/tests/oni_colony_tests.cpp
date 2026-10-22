@@ -291,6 +291,21 @@ int main(int argc, char** argv) {
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "conversion ledgers close");
             ma::oni::colony::stop();
         }
+        // Cold water the projection hides (a puddle on rock under gas) freezes
+        // into its solid as debris, booked like a conversion byproduct.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer cold{public_cell(11, 6), water, MA_ONI_COLONY_INJECT, 0, -1, 0, 5, 150, 0};
+            ma::oni::colony::queue_transfers(std::span(&cold, 1));
+            for (std::uint64_t frame = 5; frame <= 8; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            const auto after = ma::oni::colony::status();
+            std::vector<MAOniColonyReceipt> got(16); const auto n = ma::oni::colony::copy_receipts(got.data(), 16);
+            double ice = 0; for (std::uint32_t q = 0; q < n; ++q) if (got[q].kind == MA_ONI_COLONY_BYPRODUCT && got[q].callback == 99) ice += got[q].mass_kg;
+            std::cout << "frozen " << ice << " kg of 5 kg\n";
+            require(after.state == 1 && ice > 2 && ice <= 5.0001, "hidden cold water freezes into debris");
+            require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "freezing ledgers close");
+            ma::oni::colony::stop();
+        }
         // A sealed cell's gas goes to the reservoir and seeps back when the
         // cell reopens.
         {

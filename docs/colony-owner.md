@@ -199,6 +199,12 @@ the temperature too). A solid byproduct (salt) leaves the owner as a byproduct
 receipt and the game spawns it as debris. A conversion too small to change the
 cell's masses waits.
 
+A liquid below its freezing point freezes natively when the projection shows it
+(the cell closes, see [native bodies](#native-bodies)). A liquid the projection
+hides (a puddle under gas, a minority liquid) would never freeze that way, so it
+freezes here: the same share per step leaves the owner and the game spawns it
+as debris of its solid at the cell's temperature.
+
 ## Terrain
 
 Digging (ONI's `Dig`) opens the cell as exact vacuum and refills it from its gas
@@ -353,7 +359,7 @@ setting their powered flag (harness only).
 | `freeze-melt` | Ice in warm air melts into an owned cell; water on a 40 K block freezes. |
 | `deoxidizer` | An oxygen diffuser's oxygen from stored algae reaches the owner. |
 | `pipes` | A gas pump in oxygen and carbon dioxide feeds a pipe to a vent in vacuum: both gases arrive, and owner, pipe and pump keep the gas. |
-| `door` | A pneumatic door between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again. |
+| `door` | A manual airlock between oxygen and vacuum seals when closed, passes gas when opened and displaces its cells' gas when closed again (a pneumatic door does not block gas in ONI). |
 | `sublimation` | Oxylite dropped in thin oxygen releases oxygen into the owner. |
 | `falling` | A sand tile placed over gas falls: its cell reopens, it lands and closes a floor cell, and the gas is kept. |
 | `breathing` | The colony's duplicants keep full breath; oxygen is taken from the owner and carbon dioxide exhaled into it. |

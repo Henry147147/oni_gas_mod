@@ -483,7 +483,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
     };
     if (!closing.empty()) {
         // Displace each closing cell's contents equally into its open neighbours.
-        std::vector<Move> moves; std::vector<std::uint8_t> closes(st0.cells.size());
+        std::vector<Move> moves; std::vector<std::uint8_t> closes(st0.cells.size()); std::vector<MacFluidTransfer> traces;
         for (const auto i : closing) closes[i] = 1;
         for (const auto i : closing) {
             const auto& m = world.state().cells[i].mixture; if (!(m.mass() > 0)) continue;
@@ -520,17 +520,27 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
                 continue;
             }
             // Smallest constituents first: a trace left beside nothing would
-            // keep only rounding residue of the cell's energy.
+            // keep only rounding residue of the cell's energy. Rounding-sized
+            // traces (below 1e-12 of the cell) cannot be added to a neighbour
+            // holding more of them: they leave, booked as extracted.
             std::vector<std::size_t> held;
             for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) held.push_back(k);
             std::stable_sort(held.begin(), held.end(), [&](std::size_t a, std::size_t b) { return m.masses[a] < m.masses[b]; });
+            for (const auto k : held) if (m.masses[k] < 1e-12 * m.mass()) traces.push_back({i, k, false, m.masses[k], 0});
             for (const auto k : held) {
+                if (m.masses[k] < 1e-12 * m.mass()) continue;
                 double left = m.masses[k];
                 for (std::size_t q = 0; q < open.size(); ++q) {
                     const double share = q + 1 == open.size() ? left : m.masses[k] / static_cast<double>(open.size());
                     moves.push_back({i, open[q], k, share}); left -= share;
                 }
             }
+        }
+        for (std::size_t first = 0; first < traces.size(); first += 4096) {
+            const std::span<const MacFluidTransfer> batch(traces.data() + first, std::min<std::size_t>(4096, traces.size() - first));
+            auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
+            world = std::move(result.world);
+            for (const auto& p : result.parcels) { s.ledger.extracted[p.species_index] += p.mass_kg; s.ledger.energy_out += parcel_energy(p); s.status.extracted_kg += p.mass_kg; }
         }
         world = move_material(std::move(world), moves, s.ledger, s.status);
         world = world.with_closed_cells(closing);
@@ -579,7 +589,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
 // own transitions keep the temperature.
 MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double seconds) {
     const auto& cat = *s.catalogue; const auto& st = world.state();
-    struct Rule { std::size_t from, to; std::int32_t byproduct; double fraction; bool high; double threshold; };
+    struct Rule { std::size_t from, to; std::int32_t byproduct; double fraction; bool high; double threshold; bool unseen = false; };
     std::vector<Rule> rules;
     for (std::size_t k = 0; k < cat.materials.size(); ++k) {
         const auto& g = cat.materials[k].game;
@@ -587,7 +597,14 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
             const auto target = high ? g.high_target : g.low_target;
             if (target == 0) continue;
             std::size_t to;
-            try { to = cat.species_of_hash(target); } catch (...) { continue; } // a solid target: native freezing
+            try { to = cat.species_of_hash(target); }
+            catch (...) {
+                // A solid target: ONI freezes the liquid its projection shows;
+                // a liquid the projection hides (a puddle under gas, a minority
+                // liquid) freezes here, all of it into the solid as debris.
+                if (!high && !g.gas) rules.push_back({k, k, target, 1.0, false, g.low_temperature_k, true});
+                continue;
+            }
             bool pair = false;
             for (const auto& p : s.pairs) pair = pair || (p.liquid == k && p.vapour == to) || (p.vapour == k && p.liquid == to);
             if (pair || to == k) continue;
@@ -604,15 +621,20 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         const auto& m = st.cells[i].mixture;
         bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
         if (!candidate) continue;
-        double t = 0;
-        try { t = cat.eos->evaluate(m, mac_material_volume(st, i)).temperature_k; } catch (...) { continue; }
+        double t = 0, liquid_volume = 0;
+        try { const auto e = cat.eos->evaluate(m, mac_material_volume(st, i)); t = e.temperature_k; liquid_volume = e.liquid_volume_m3; } catch (...) { continue; }
+        // The liquid the projection shows (as project() picks it).
+        std::size_t shown = SIZE_MAX; double best = 0;
+        if (liquid_volume >= .5 * st.grid.volume_m3())
+            for (std::size_t k = 0; k < m.masses.size(); ++k) if (!cat.materials[k].game.gas && m.masses[k] > best) { best = m.masses[k]; shown = k; }
         for (const auto& r : rules) {
             if (!(m.masses[r.from] > 0) || (r.high ? !(t > r.threshold) : !(t < r.threshold))) continue;
+            if (r.unseen && r.from == shown) continue;
             // A conversion too small to change the cell's masses in binary64
             // waits (traces stay unconverted).
             const double converted = m.masses[r.from] * share;
             if (!(converted > 1e-9 * m.mass())) continue;
-            const double byproduct = r.byproduct != 0 ? converted * std::clamp(r.fraction, 0.0, 1.0) : 0;
+            const double byproduct = r.byproduct != 0 ? (r.unseen ? converted : converted * std::clamp(r.fraction, 0.0, 1.0)) : 0;
             edits.push_back({i, r.from, false, converted, 0});
             products.push_back({i, r.to, converted - byproduct, r.byproduct, byproduct});
         }
