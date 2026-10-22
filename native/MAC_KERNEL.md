@@ -61,7 +61,7 @@ value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
 enabled diffusion metadata.
 
 The native ONI domain now creates selection-2 owners and explicitly selects
-production on each live frame, requesting up to sixteen workers, limited by
+production on each live frame, requesting up to twelve workers, limited by
 available CPU affinity and fixed block count. Loading a supported reference save preserves
 its idle bytes; its first live frame migrates to selection 2/version 6. Frame
 journals record this request in flag 4. Historical unflagged journals and
@@ -750,6 +750,18 @@ sixteen-variant comparisons pass. Legacy outputs retain their values except
 timing and the new configured-control PASS line.
 
 ## Current active-cell baseline
+
+With NVIDIA harness rendering and fast speed selected, a matched whole-lock
+Terra60 pair caps the regional owner at 12 rather than 16 workers. Mean owner
+time is 0.4505 → 0.4486 s (no clear throughput gain); p95 is 0.5027 → 0.4894 s.
+Mean observed interval is 0.5481 → 0.5326 s, including startup, or
+0.5025 → 0.4899 s over frames 10–60. Maximum relative mass/energy errors are
+2.38e-16/3.45e-17 and 2.21e-16/3.09e-17; neither run faults or falls back.
+The trace sink is disabled. This exact scheduling change keeps checkpoint
+bytes and solver arithmetic; a 12-CPU affinity still selects 10 workers.
+The new fast-speed target remains unmet. Vanilla fast in the same GPU harness
+measures 0.1081 s per tick; older software-rendered results retain their
+original measurement context.
 
 At `06e88fd`, including persisted primary U and the pressure-storage rounding
 ledger, the production kernel with automatic geometric multigrid, limited-linear
