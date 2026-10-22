@@ -1154,6 +1154,16 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
     if (!session || session->status.state != 1) return;
     auto& s = *session;
     const char* doing = "frame input"; // named in a fault
+    // MA_COLONY_STAGE_LOG=1: every tenth frame, each stage's wall time (stderr).
+    static const bool stage_log = std::getenv("MA_COLONY_STAGE_LOG") != nullptr;
+    std::vector<std::pair<const char*, double>> steps; auto step_mark = std::chrono::steady_clock::now();
+    const auto step = [&](const char* next) {
+        if (stage_log) {
+            const auto now = std::chrono::steady_clock::now();
+            steps.emplace_back(doing, std::chrono::duration<double, std::milli>(now - step_mark).count()); step_mark = now;
+        }
+        doing = next;
+    };
     try {
         const ArithmeticScope arithmetic;
         const auto started = std::chrono::steady_clock::now();
@@ -1170,7 +1180,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         auto mark = std::chrono::steady_clock::now(); double stage[6]{};
         const auto lap = [&](int k) { const auto now = std::chrono::steady_clock::now(); stage[k] = std::chrono::duration<double, std::milli>(now - mark).count(); mark = now; };
         // Frozen cells: the liquid native turned solid leaves, then the cell closes.
-        doing = "freezing";
+        step("freezing");
         if (!freezes.empty()) {
             std::vector<MacFluidTransfer> taken; const auto& st = world.state();
             for (const auto& f : freezes) {
@@ -1199,7 +1209,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 }
             }
         }
-        doing = "terrain";
+        step("terrain");
         if (!terrain.empty()) {
             const auto before_terrain = world; const Session before_session = s;
             try { world = apply_terrain(s, std::move(world), terrain); }
@@ -1226,7 +1236,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             }
             world = world.with_passive_edits(edits);
         }
-        lap(0); doing = "heat";
+        lap(0); step("heat");
         // Heat edits. A batch the solver refuses is split until the refused
         // edits are found (a cell the reference EOS cannot evaluate, as for a
         // liquid trace below binary64's normal range); the rest apply. A
@@ -1271,7 +1281,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             s.status.committed_heat += edits.size() - deferred.size();
         }
         if (!deferred.empty()) { std::lock_guard q(inputs); pending_heat.insert(pending_heat.end(), deferred.begin(), deferred.end()); }
-        lap(1); doing = "reservoir";
+        lap(1); step("reservoir");
         // Reservoir release: liquid booked at import (it did not fit its
         // sealed pocket) or from a sealed closing seeps back once there is room
         // near its anchor, at most reservoir_release_kg_per_s, at its own
@@ -1311,7 +1321,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 std::erase_if(s.reservoir, [](const ReservoirEntry& r) { return !(r.mass_kg > 1e-9); });
             }
         }
-        doing = "transfers";
+        step("transfers");
         // Transfers: plan against the current state, then commit in batches.
         std::vector<MacFluidTransfer> edits; struct Pending { std::size_t first, count; const MAOniColonyTransfer* source; };
         std::vector<Pending> plans;
@@ -1453,9 +1463,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k]);
             }
         }
-        lap(2); doing = "trace sink";
+        lap(2); step("trace sink");
         world = sink_traces(s, std::move(world));
-        doing = "flow";
+        step("flow");
         // Flow. A debugging request (MA_COLONY_FAULT_DUMP=path) writes the
         // world before a failing flow step and the material records there.
         // MA_COLONY_DUMP_FRAME=n also writes the world before frame n's flow.
@@ -1492,7 +1502,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         world = std::move(advanced.world);
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
-        doing = "phase change";
+        step("phase change");
         if (!s.pairs.empty()) {
             const auto before = totals(world);
             try {
@@ -1520,18 +1530,18 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 }
             }
         }
-        doing = "settling";
+        step("settling");
         try {
             auto settled = world.with_liquid_settling(std::min(.25, 1 - std::exp(-seconds / settling_time_s)));
             s.status.settled_kg += settled.report.moved_kg; world = std::move(settled.world);
         } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
-        doing = "airflow tiles";
+        step("airflow tiles");
         world = expel_blocked_liquid(s, std::move(world));
-        doing = "conversions";
+        step("conversions");
         world = convert_identities(s, std::move(world), seconds);
-        doing = "trace sink";
+        step("trace sink");
         world = sink_traces(s, std::move(world));
-        lap(3); doing = "space sink";
+        lap(3); step("space sink");
         // Open sky: whatever reaches a space cell leaves through the sink.
         std::vector<MacFluidTransfer> sink;
         for (std::size_t i = 0; i < s.space.size(); ++i) if (s.space[i]) {
@@ -1544,7 +1554,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             world = std::move(result.world);
             for (const auto& parcel : result.parcels) { L.sunk[parcel.species_index] += parcel.mass_kg; L.energy_sunk += parcel_energy(parcel); s.status.space_sink_kg += parcel.mass_kg; }
         }
-        lap(4); doing = "ledger";
+        lap(4); step("ledger");
         // Ledgers close: every species and U+K+G against the booked flows.
         const auto now = totals(world);
         double mass_error = 0; std::size_t worst = 0;
@@ -1577,8 +1587,17 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
         s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);
+        step("projection");
         auto projection = project(s, *s.world);
         lap(5); std::copy(std::begin(stage), std::end(stage), s.status.stage_ms);
+        step("publication");
+        if (stage_log && s.status.completed_frames % 10 == 0) {
+            std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
+            char item[96];
+            for (const auto& [name, ms] : steps) { std::snprintf(item, sizeof item, " %s %.1f", name, ms); line += item; }
+            std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu", heat.size(), transfers.size(), terrain.size()); line += item;
+            std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
+        }
         publish(s, std::move(projection));
     } catch (const std::exception& error) { fault(s, (std::string(doing) + ": " + error.what()).c_str()); }
       catch (...) { fault(s, "Unknown colony advance failure"); }

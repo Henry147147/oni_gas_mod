@@ -59,17 +59,34 @@ namespace MixedAtmospheres.Oni
             if (filled < 0 || samples == null || release >= 0 && ticks > release + Duration) return;
             var line = new System.Text.StringBuilder(32 * width * height);
             line.Append(ticks.ToString(CultureInfo.InvariantCulture));
+            var fluid = false;
+            // Per cell: its constituents (count, then element and kg each) and
+            // its temperature. ONI's cell holds one element; an owned cell
+            // holds the owner's mixture (the published element is only its
+            // dominant one).
             for (var y = 1; y < height - 1; ++y)
                 for (var x = 1; x < width - 1; ++x)
                 {
-                    var cell = Cell(x, y); int element = update->elementIdx[cell];
-                    if (!seen.ContainsKey(element)) seen[element] = Describe(ElementLoader.elements[element]);
-                    line.Append(' ').Append(element).Append(' ').Append(update->mass[cell].ToString("R", CultureInfo.InvariantCulture))
-                        .Append(' ').Append(update->temperature[cell].ToString("R", CultureInfo.InvariantCulture));
+                    var cell = Cell(x, y);
+                    if (ColonyOwner.OwnsFluidCell(cell))
+                    {
+                        var count = ColonyOwner.Composition(cell, out var indices, out var masses);
+                        line.Append(' ').Append(count);
+                        for (var k = 0; k < count; ++k) Part((int)indices[k], masses[k]);
+                    }
+                    else { line.Append(" 1"); Part(update->elementIdx[cell], update->mass[cell]); }
+                    line.Append(' ').Append(update->temperature[cell].ToString("R", CultureInfo.InvariantCulture));
                 }
+            void Part(int element, double kg)
+            {
+                if (kg > 0 && (ElementLoader.elements[element].IsGas || ElementLoader.elements[element].IsLiquid)) fluid = true;
+                if (!seen.ContainsKey(element)) seen[element] = Describe(ElementLoader.elements[element]);
+                line.Append(' ').Append(element).Append(' ').Append(kg.ToString("R", CultureInfo.InvariantCulture));
+            }
             samples.WriteLine(line.ToString());
-            // F4: heat exchange starts with the fill; its first sample is t = 0.
-            if (Id == "f4" && release < 0) release = ticks;
+            // F4: heat exchange starts with the fill; t = 0 is the first sample
+            // holding it (the game applies the fill at its next step).
+            if (Id == "f4" && release < 0 && fluid) release = ticks;
             // F2: t = 0 is the first sample after the door is fully open.
             if (commanded >= 0 && opened < 0 && !ElementLoader.elements[update->elementIdx[Cell(9, 4)]].IsSolid &&
                 !ElementLoader.elements[update->elementIdx[Cell(9, 5)]].IsSolid) opened = release = ticks;
@@ -228,7 +245,7 @@ namespace MixedAtmospheres.Oni
             {
                 ["arena"] = Id, ["width"] = width, ["height"] = height, ["tick_seconds"] = .2,
                 ["simulation"] = ColonyOwner.Active ? "colony owner" : "ONI native",
-                ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: element index, mass kg, temperature K",
+                ["cells"] = "interior, rows y=1..height-2, x=1..width-2; per cell: constituent count, (element index, kg) each, temperature K",
                 ["elements"] = seen.ToDictionary(e => e.Key.ToString(CultureInfo.InvariantCulture), e => (object)e.Value),
                 ["placed"] = placed,
                 ["ticks"] = new Dictionary<string, long> { ["built"] = built, ["filled"] = filled, ["locked"] = locked, ["commanded"] = commanded,

@@ -29,11 +29,16 @@ class Arena:
         self.rows = rows  # [tick, (element, mass, temperature) per interior cell]
 
     def cells(self, row):
-        """{(x, y): (element description, mass, temperature)} of one sample."""
+        """{(x, y): ([(element description, kg), ...], temperature)} of one sample."""
         out, k = {}, 1
+        # Records before constituent lists hold one element per cell.
+        listed = "constituent count" in self.record.get("cells", "")
         for y in range(1, self.height - 1):
             for x in range(1, self.width - 1):
-                out[(x, y)] = (self.elements[int(row[k])], row[k + 1], row[k + 2]); k += 3
+                n = int(row[k]) if listed else 1; k += 1 if listed else 0
+                parts = [(self.elements[int(row[k + 2 * j])], row[k + 2 * j + 1]) for j in range(n)]
+                k += 2 * n
+                out[(x, y)] = (parts, row[k]); k += 1
         return out
 
     def series(self, start: int):
@@ -48,15 +53,21 @@ def pressure(cells, region) -> float:
     """Volume-average ideal pressure of a region, empty cells included (1 m^3 each)."""
     total = 0.0
     for c in region:
-        element, mass, temperature = cells[c]
-        if element["phase"] == "gas" and mass > 0:
-            total += mass * GAS_CONSTANT * temperature / element["molar_mass_kg_per_mol"]
+        parts, temperature = cells[c]
+        for element, m in parts:
+            if element["phase"] == "gas" and m > 0:
+                total += m * GAS_CONSTANT * temperature / element["molar_mass_kg_per_mol"]
     return total / len(region)
 
 
 def mass(cells, region, phase=None, element_id=None) -> float:
-    return sum(m for c in region for e, m, _ in [cells[c]]
+    return sum(m for c in region for e, m in cells[c][0]
                if (phase is None or e["phase"] == phase) and (element_id is None or e["id"] == element_id))
+
+
+def constituents(cells, region):
+    """(element, kg, temperature) of every constituent in the region."""
+    return [(e, m, cells[c][1]) for c in region for e, m in cells[c][0]]
 
 
 def event(series, holds):
@@ -78,8 +89,9 @@ def rect(x0, x1, y0, y1):
 
 
 def gas_totals(cells, region):
-    moles = sum(m / e["molar_mass_kg_per_mol"] for c in region for e, m, _ in [cells[c]] if e["phase"] == "gas" and m > 0)
-    heat = sum(m * e["specific_heat_j_per_kg_k"] * t for c in region for e, m, t in [cells[c]] if e["phase"] != "vacuum" and m > 0)
+    parts = constituents(cells, region)
+    moles = sum(m / e["molar_mass_kg_per_mol"] for e, m, _ in parts if e["phase"] == "gas" and m > 0)
+    heat = sum(m * e["specific_heat_j_per_kg_k"] * t for e, m, t in parts if e["phase"] != "vacuum" and m > 0)
     return moles, heat
 
 
@@ -87,7 +99,7 @@ def gas_rooms(arena: Arena, start: int, left, right, open_cells):
     series = arena.series(start)
     first = series[0][1]
     moles, _ = gas_totals(first, open_cells)
-    temperature = sum(m * t for c in open_cells for e, m, t in [first[c]] if e["phase"] == "gas") / max(mass(first, open_cells, "gas"), 1e-300)
+    temperature = sum(m * t for e, m, t in constituents(first, open_cells) if e["phase"] == "gas") / max(mass(first, open_cells, "gas"), 1e-300)
     target = moles * GAS_CONSTANT * temperature / len(open_cells)
     near = lambda cells: all(abs(pressure(cells, room) - target) <= .05 * target for room in (left, right))
     total = mass(first, open_cells, "gas")
@@ -121,7 +133,7 @@ def f2(arena: Arena):
 
 
 def depths(cells, columns, rows, element_id, full):
-    return [sum(cells[(x, y)][1] / full for y in rows if cells[(x, y)][0]["id"] == element_id) for x in columns]
+    return [mass(cells, [(x, y) for y in rows], element_id=element_id) / full for x in columns]
 
 
 def f3(arena: Arena):
@@ -139,14 +151,14 @@ def f3(arena: Arena):
 def f4(arena: Arena):
     hot, cold, divider = rect(1, 2, 1, 2), rect(4, 5, 1, 2), rect(3, 3, 1, 2)
     series = arena.series(arena.ticks["release"])
-    room_t = lambda cells, room: sum(m * t for c in room for e, m, t in [cells[c]] if e["phase"] == "gas") / mass(cells, room, "gas")
+    room_t = lambda cells, room: sum(m * t for e, m, t in constituents(cells, room) if e["phase"] == "gas") / mass(cells, room, "gas")
     first = series[0][1]
     everything = hot + cold + divider
-    capacity = sum(m * e["specific_heat_j_per_kg_k"] for c in everything for e, m, _ in [first[c]] if m > 0)
-    heat = sum(m * e["specific_heat_j_per_kg_k"] * t for c in everything for e, m, t in [first[c]] if m > 0)
+    capacity = sum(m * e["specific_heat_j_per_kg_k"] for e, m, _ in constituents(first, everything) if m > 0)
+    heat = sum(m * e["specific_heat_j_per_kg_k"] * t for e, m, t in constituents(first, everything) if m > 0)
     common = heat / capacity
     gas = hot + cold
-    final_t = final(series, lambda cells: sum(m * t for c in gas for e, m, t in [cells[c]] if e["phase"] == "gas") / mass(cells, gas, "gas"))
+    final_t = final(series, lambda cells: room_t(cells, gas))
     return {"converged_35k": event(series, lambda cells: room_t(cells, hot) - room_t(cells, cold) <= 35),
             "final_gas_temperature_k": final_t, "common_temperature_k": common, "temperature_error_k": abs(final_t - common),
             "initial_heat_j": heat, "initial_gas_kg": mass(first, gas, "gas")}
@@ -159,7 +171,7 @@ def f5(arena: Arena):
 
     def profile(cells, liquid):
         """Volume of the liquid per row (m^3), bottom row first."""
-        return [sum(cells[(x, y)][1] / full[liquid] for x in columns if cells[(x, y)][0]["id"] == liquid) for y in rows]
+        return [mass(cells, [(x, y) for x in columns], element_id=liquid) / full[liquid] for y in rows]
 
     def height_below(volumes, fraction):
         total = sum(volumes); need = fraction * total; acc = 0.0
@@ -174,7 +186,7 @@ def f5(arena: Arena):
         return sum((k + .5) * v for k, v in enumerate(volumes)) / total if total > 0 else math.nan
 
     def columns_height(cells):
-        return [sum(cells[(x, y)][1] / full[cells[(x, y)][0]["id"]] for y in rows if cells[(x, y)][0]["id"] in full) for x in columns]
+        return [sum(m / full[e["id"]] for e, m, _ in constituents(cells, [(x, y) for y in rows]) if e["id"] in full) for x in columns]
 
     def settled(cells):
         w, o = profile(cells, "Water"), profile(cells, "CrudeOil")
@@ -202,15 +214,16 @@ def load(path: Path) -> Arena:
 
 
 def initial(arena: Arena) -> dict:
-    """The first sample after the fill: mass and heat (m c T) per element, and each material's properties."""
-    first = arena.cells(arena.rows[0])
+    """The t = 0 sample (F2: the start of the closed hold): mass and heat (m c T) per element, and each material's properties."""
+    tick = arena.ticks["locked"] if arena.record["arena"] == "f2" else arena.ticks["release"]
+    first = arena.row_at(tick)
     out = {}
-    for element, m, t in first.values():
+    for element, m, t in constituents(first, list(first)):
         if element["phase"] == "vacuum" or m <= 0:
             continue
         entry = out.setdefault(element["id"], {"kg": 0.0, "heat_j": 0.0, "cells": 0, **{k: v for k, v in element.items() if k != "id"}})
         entry["kg"] += m; entry["heat_j"] += m * element["specific_heat_j_per_kg_k"] * t; entry["cells"] += 1
-    return {"tick": arena.rows[0][0], "elements": out, "placed": arena.record.get("placed", {})}
+    return {"tick": tick, "elements": out, "placed": arena.record.get("placed", {})}
 
 
 def metrics(path: Path) -> dict:
