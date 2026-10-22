@@ -121,7 +121,7 @@ namespace MixedAtmospheres.Oni
                 {
                     var callback = Int(payload, message == AddConsumer ? addCallback : emitterCallback); if (callback == -1) return false;
                     var actor = message == AddConsumer
-                        ? new Actor { Cell = Int(payload, addCell), Kind = Configuration(payload[addConfiguration]), Radius = payload[addRadius], NativeIndex = UShort(payload, addElement) }
+                        ? new Actor { Cell = Int(payload, addCell), Kind = Configuration(payload[addConfiguration], UShort(payload, addElement)), Radius = payload[addRadius], NativeIndex = UShort(payload, addElement) }
                         : new Actor { Emitter = true, MaximumKg = Float(payload, emitterPressure), OnBlocked = Int(payload, emitterBlocked), OnUnblocked = Int(payload, emitterUnblocked) };
                     if (!running) { registering[callback] = actor; return false; }
                     var handle = OwnedHandles + ++issued;
@@ -154,12 +154,17 @@ namespace MixedAtmospheres.Oni
                 }
             }
         }
-        private static uint Configuration(byte value) => (ElementConsumer.Configuration)value switch
-        {
-            ElementConsumer.Configuration.AllGas => OniNativeColony.ExtractGas,
-            ElementConsumer.Configuration.AllLiquid => OniNativeColony.ExtractLiquid,
-            _ => OniNativeColony.Extract
-        };
+        // An any-gas or any-liquid consumer that names an element (a mask
+        // station's oxygen and polluted-oxygen consumers) takes only that
+        // element: ONI stores a receipt only of its element and would delete
+        // the rest. A pump names none (vacuum) and takes the mixture.
+        private static uint Configuration(byte value, ushort element) =>
+            element < ElementLoader.elements.Count && !ElementLoader.elements[element].IsVacuum ? OniNativeColony.Extract : (ElementConsumer.Configuration)value switch
+            {
+                ElementConsumer.Configuration.AllGas => OniNativeColony.ExtractGas,
+                ElementConsumer.Configuration.AllLiquid => OniNativeColony.ExtractLiquid,
+                _ => OniNativeColony.Extract
+            };
         private static void Own(int handle, Actor actor) { owned[handle] = actor; if (actor.Emitter) ++Emitters; else ++Consumers; }
 
         // Native registration answers, in every native frame's data.

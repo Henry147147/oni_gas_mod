@@ -332,6 +332,20 @@ int main(int argc, char** argv) {
             require(shown.state == 1 && std::memcmp(&before[k], &after[k], sizeof(MAOniColonyCellView)) == 0, "a refused reading keeps the cell's previous view");
             ma::oni::colony::stop();
         }
+        // An injection too small to change its cell in binary64 (1e-14 kg on
+        // a tonne of water) is dropped with a zero receipt instead of faulting.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyTransfer speck{public_cell(3, 1), water, MA_ONI_COLONY_INJECT, 0, 55, 0, 1e-14, 300, 0};
+            ma::oni::colony::queue_transfers(std::span(&speck, 1));
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            const auto after = ma::oni::colony::status();
+            std::vector<MAOniColonyReceipt> got(8); const auto n = ma::oni::colony::copy_receipts(got.data(), 8);
+            bool zero = false; for (std::uint32_t q = 0; q < n; ++q) zero = zero || (got[q].callback == 55 && got[q].mass_kg == 0);
+            std::cout << "unrepresentable injection: state " << after.state << " " << after.error << "\n";
+            require(after.state == 1 && zero && after.maximum_relative_mass_error < 1e-12, "an unrepresentable injection is dropped with a zero receipt");
+            ma::oni::colony::stop();
+        }
         // A heat edit the cell cannot take (here more cooling than its gas
         // holds) stays queued, unbooked, instead of faulting the owner.
         {

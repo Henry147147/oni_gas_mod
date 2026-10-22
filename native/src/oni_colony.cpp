@@ -1302,19 +1302,26 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 auto result = world.with_fluid_transfers(batch, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 parcels.insert(parcels.end(), result.parcels.begin(), result.parcels.end());
-            } catch (const std::exception& error) {
-                // Name the first failing edit and its cell's contents.
-                auto probe = world; std::string where;
+            } catch (const std::exception&) {
+                // One by one: an edit too small to change its cell in binary64
+                // (a few nanograms on a full liquid cell) is dropped as a zero
+                // parcel; any other failing edit faults, naming its cell.
                 for (const auto& e : batch) {
-                    try { probe = probe.with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture).world; continue; }
-                    catch (...) {}
-                    const auto& m = probe.state().cells[e.cell_index].mixture; const auto W = probe.state().grid.width;
-                    where = " (" + std::string(e.inject ? "injecting " : "extracting ") + std::to_string(e.mass_kg) + " kg " + cat.materials[e.species_index].game.id +
+                    std::string failure;
+                    try {
+                        auto one = world.with_fluid_transfers(std::span(&e, 1), MacFluidTransferTopology::occupied_mixture);
+                        world = std::move(one.world); parcels.push_back(one.parcels.front()); continue;
+                    } catch (const std::exception& single) { failure = single.what(); }
+                    if (e.mass_kg <= 1e-9 * world.state().cells[e.cell_index].mixture.mass()) {
+                        MacFluidParcel zero{}; zero.cell_index = e.cell_index; zero.species_index = e.species_index; zero.injected = e.inject;
+                        parcels.push_back(zero); continue;
+                    }
+                    const auto& m = world.state().cells[e.cell_index].mixture; const auto W = world.state().grid.width;
+                    std::string where = " (" + std::string(e.inject ? "injecting " : "extracting ") + std::to_string(e.mass_kg) + " kg " + cat.materials[e.species_index].game.id +
                         " at " + std::to_string(s.config.offset_x + e.cell_index % W) + "," + std::to_string(s.config.offset_y + e.cell_index / W) + " holding";
                     for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) { char b[64]; std::snprintf(b, sizeof b, " %s %.3g", cat.materials[k].game.id.c_str(), m.masses[k]); where += b; }
-                    where += ")"; break;
+                    throw std::runtime_error(failure + where + ")");
                 }
-                throw std::runtime_error(error.what() + where);
             }
         }
         if (!plans.empty()) {

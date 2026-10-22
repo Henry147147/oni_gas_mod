@@ -519,14 +519,17 @@ namespace MixedAtmospheres.Oni
                 var generator = Build(MethaneGeneratorConfig.ID, Cell(3, 0));
                 generator.GetComponent<Storage>().AddGasChunk(SimHashes.Methane, 5, 300, byte.MaxValue, 0, false, true);
                 // A generator runs only on a circuit (a wire on its output) and
-                // with its polluted-water output piped (here to a reservoir).
-                Wire(new List<int> { Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset) });
-                var tank = Build(LiquidReservoirConfig.ID, Cell(6, 0));
-                Pipe(Game.Instance.liquidConduitSystem, LiquidConduitConfig.ID, Route(
-                    Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.UtilityOutputOffset),
-                    Grid.OffsetCell(Grid.PosToCell(tank), tank.GetComponent<Building>().Def.UtilityInputOffset)));
+                // with its output port piped, here to a vent of that port's kind.
+                var def = generator.GetComponent<Building>().Def;
+                Wire(new List<int> { Grid.OffsetCell(Grid.PosToCell(generator), def.PowerOutputOffset) });
+                var gas = def.OutputConduitType == ConduitType.Gas;
+                var vent = Build(gas ? GasVentConfig.ID : LiquidVentConfig.ID, Cell(6, 0));
+                Pipe(gas ? Game.Instance.gasConduitSystem : Game.Instance.liquidConduitSystem, gas ? GasConduitConfig.ID : LiquidConduitConfig.ID, Route(
+                    Grid.OffsetCell(Grid.PosToCell(generator), def.UtilityOutputOffset),
+                    Grid.OffsetCell(Grid.PosToCell(vent), vent.GetComponent<Building>().Def.UtilityInputOffset)));
             }
-            if (Once(32, "check"))
+            // The exhaust reaches the vent after ONI's pipe transit.
+            if (Once(90, "check"))
             {
                 var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
                 var gen = powered.FirstOrDefault(); var def = gen?.GetComponent<Building>().Def;

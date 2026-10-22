@@ -43,7 +43,8 @@ play.
   that would keep less than the quantum in all gives that up too. The cell's
   smallest constituents leave first, so no trace is left holding only rounding
   residue of the cell's energy. Taking a wet cell's last gas opens a liquid
-  surface.
+  surface. A transfer too small to change its cell in binary64 (a few
+  nanograms on a full liquid cell) is dropped with a zero receipt.
 - **Heat edits** a cell cannot take (the reference EOS refuses it, as for a
   liquid trace below binary64's normal range) stay queued, unbooked, for the
   next frame instead of faulting the owner.
@@ -128,9 +129,11 @@ At each positive native frame each consumer with a positive rate queues
 rate × dt as an owner extraction within its radius: its element, or for an
 any-gas or any-liquid consumer (pumps) the whole mixture of that phase
 (`MA_ONI_COLONY_EXTRACT_GAS`, `_LIQUID`), each cell's share split over its
-constituents. The receipts carry the consumer flag and return as ONI's
-consumed-mass events for the handle, one per constituent, so a pump's storage
-holds the mixture it drew. An emitter injects its rate × dt at its cell (ONI
+constituents. An any-gas or any-liquid consumer that names an element (a mask
+station's oxygen and polluted-oxygen consumers) takes only that element, since
+ONI stores a receipt only of its element and deletes the rest. The receipts
+carry the consumer flag and return as ONI's consumed-mass events for the
+handle, one per constituent, so a pump's storage holds the mixture it drew. An emitter injects its rate × dt at its cell (ONI
 sends the output element's generation rate in kg/s; its germs count per
 emission interval), unless the cell's dominant phase already holds the
 emitter's maximum (kg), and answers its blocked and unblocked callbacks on
@@ -376,7 +379,7 @@ setting their powered flag (harness only).
 | `vent-overpressure` | A pump feeds a vent into air above the vent's limit: the vent stays shut and the pipe holds the gas. |
 | `space-heater` | A powered space heater warms the arena's air. |
 | `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner, and a bottle emptier's water falls as particles into owned cells. |
-| `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide exhaust reaches the owner. |
+| `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide goes through its exhaust pipe and a vent into the owner. |
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
 | `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere; one in thinner air beyond a wall reads low pressure. |
