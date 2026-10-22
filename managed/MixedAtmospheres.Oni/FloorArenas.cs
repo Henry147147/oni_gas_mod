@@ -144,6 +144,14 @@ namespace MixedAtmospheres.Oni
             ["molar_mass_kg_per_mol"] = e.molarMass / 1000.0, ["specific_heat_j_per_kg_k"] = e.specificHeatCapacity * 1000.0,
             ["conductivity_w_per_m_k"] = e.thermalConductivity,
         };
+        // The cells a floor run under the owner owns: the arena with its border.
+        internal static bool OwnerRectangle(out int x, out int y, out int w, out int h)
+        {
+            x = y = w = h = 0;
+            if (Id.Length == 0) return false;
+            Anchor(); x = x0; y = y0; w = width; h = height;
+            return true;
+        }
         private static void Anchor()
         {
             var pad = GameUtil.GetActiveTelepad();

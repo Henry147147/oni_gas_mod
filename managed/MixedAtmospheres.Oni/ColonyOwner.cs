@@ -187,6 +187,12 @@ namespace MixedAtmospheres.Oni
                 OffsetX = (uint)world.WorldOffset.x, OffsetY = (uint)world.WorldOffset.y, Width = (uint)world.WorldSize.x, Height = (uint)world.WorldSize.y,
                 GravityMetresPerSecondSquared = 9.81, MaximumTimestepSeconds = MaximumTimestepSeconds
             };
+            // A floor measurement under the owner owns only its arena, border
+            // included; the rest of the asteroid stays native.
+            if (FloorArenas.OwnerRectangle(out var ax, out var ay, out var aw, out var ah))
+            {
+                described.OffsetX = (uint)ax; described.OffsetY = (uint)ay; described.Width = (uint)aw; described.Height = (uint)ah;
+            }
             return (described, BuildCatalogue());
         }
         // Resume a saved owner after the native simulator has started.

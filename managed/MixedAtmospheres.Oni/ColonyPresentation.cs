@@ -102,7 +102,12 @@ namespace MixedAtmospheres.Oni
                     RejectedCells = rejected;
                     if (cells.Count != 0 && MixturePresentationRuntime.PublishNativeDomainFrame(width, height, (long)frame, cells)) Interlocked.Increment(ref publications);
                 }
-                catch (Exception error) { Failed(error, frame); }
+                catch (Exception error)
+                {
+                    // A frame still building when the owner stops or the game
+                    // shuts the presentation down is dropped, not a failure.
+                    if (catalog == table.Catalog && MixturePresentationRuntime.CurrentModel != null) Failed(error, frame);
+                }
                 finally { LastBuildMilliseconds = Milliseconds(begun); Volatile.Write(ref building, 0); }
             });
         }
