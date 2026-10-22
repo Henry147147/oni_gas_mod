@@ -135,6 +135,10 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
     for (const auto f : touched.y) inertia.y[f]=half_mass_inertia(next,1,f);
     MacEnergyAccount energy; MacScaledAccount px,py;
     account_touched(energy,px,py,inertia,next,settings_.gravity_m_per_s2,false,touched);
+    // Edits update the same canonical values in their original order. Only
+    // the final touched-face account needs their projected/sidecar encoding.
+    std::vector<MacScaled> batch_jx,batch_jy;
+    bool have_momentum=false;
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.species_index < registry_.size() &&
             (registry_[edit.species_index].phase == Phase::gas || registry_[edit.species_index].phase == Phase::liquid) &&
@@ -169,7 +173,12 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         } else packet.internal_energy_j=thermodynamics_->initialize_at_temperature(contents,temperature,next.grid.volume_m3()).mixture.energy;
         require(std::isfinite(packet.internal_energy_j),"Fluid parcel internal energy is outside the numerical range");
         packet.potential_energy=potential(next.grid,edit.cell_index,mass,settings_.gravity_m_per_s2);
-        auto jx=mac_field_values(next.momentum_x,next.full_momentum_x),jy=mac_field_values(next.momentum_y,next.full_momentum_y);
+        if (!have_momentum) {
+            batch_jx=mac_field_values(next.momentum_x,next.full_momentum_x);
+            batch_jy=mac_field_values(next.momentum_y,next.full_momentum_y);
+            have_momentum=true;
+        }
+        auto& jx=batch_jx; auto& jy=batch_jy;
         const auto old_mass=cell.mixture.masses[edit.species_index];
         const auto signed_mass=edit.inject ? mass : -mass;
         const double cell_mass=cell.mixture.mass();
@@ -258,7 +267,6 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
         // Cells in ascending order, as the full-grid pass applied them.
         std::sort(heat.begin(),heat.end(),[](const auto& a,const auto& b) { return a.first < b.first; });
         packet.resolved_kinetic_energy=carried_kinetic.value(); packet.momentum_x=carried_px.value(); packet.momentum_y=carried_py.value();
-        store_mac_field(next.momentum_x,next.full_momentum_x,jx); store_mac_field(next.momentum_y,next.full_momentum_y,jy);
         for (const auto& [i,amount] : heat) if (amount.sign() != 0) {
             const auto old=next.cells[i]; MacEnergySum value=amount; account_mac_cell_internal_energy(value,old);
             (void)store_mac_cell_internal_energy(next.cells[i],value,&rounding);
@@ -276,6 +284,11 @@ MacFluidTransferResult MacClosedWorld::with_fluid_transfers(std::span<const MacF
             require(!after.has_vacuum || rounding_void(after,occupied),"Fluid removal would create an unsupported liquid free surface");
         }
         parcels.push_back(std::move(packet));
+    }
+    // A batch of zero-mass requests keeps the original encoding too.
+    if (have_momentum) {
+        store_mac_field(next.momentum_x,next.full_momentum_x,batch_jx);
+        store_mac_field(next.momentum_y,next.full_momentum_y,batch_jy);
     }
     // A recomputation of the touched faces must equal the incrementally updated ones.
     for (std::size_t axis=0;axis<2;++axis) for (const auto f : axis == 0 ? touched.x : touched.y)
@@ -527,6 +540,7 @@ MacClosedWorld MacClosedWorld::with_closed_faces(std::vector<std::uint8_t> x,std
 
 MacClosedWorld MacClosedWorld::with_passive_edits(std::span<const MacPassiveEdit> edits) const {
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    if (edits.empty()) { auto candidate=*this; ++candidate.revision_; return candidate; }
     auto next=state();
     for (const auto& edit : edits) {
         require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] && edit.identity != 0 && std::isfinite(edit.change),

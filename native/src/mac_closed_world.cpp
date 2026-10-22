@@ -3,6 +3,7 @@
 #include "mixed_atmospheres/mac_kernel.hpp"
 #include "mixed_atmospheres/mac_parcel.hpp"
 #include "mac_interval_fallback.hpp"
+#include "mac_kernel_detail.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -834,18 +835,50 @@ MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");
     if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     auto next=state(); MacEnergyAccount balance; MacPrimaryRoundingCounts rounding;
-    for (const auto& edit : edits) {
-        require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] &&
-            std::isfinite(edit.joules) && std::isfinite(edit.maximum_temperature_k) && edit.maximum_temperature_k > 0,
-            "Invalid MAC fluid heat exchange");
-        auto& cell=next.cells[edit.cell_index]; const auto before=cell;
-        (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(edit.joules),&rounding);
-        if (edit.joules != 0 && same_mac_cell_internal_energy(before,cell))
-            throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U and remainder");
-        const auto reading=thermodynamics_->evaluate(cell.mixture,cell.mixture.mass() > 0 ? mac_material_volume(next,edit.cell_index) : next.grid.volume_m3());
-        require(edit.joules <= 0 || reading.temperature_k <= edit.maximum_temperature_k,
-            "MAC heat exchange exceeds its reserved temperature limit");
-        account_mac_cell_internal_energy(balance,before); balance.add(edit.joules); account_mac_cell_internal_energy(balance,cell,-1);
+    struct Receipt {
+        MacMaterialCell before, after; // only U and its remainder are needed
+        MacPrimaryRoundingCounts rounding;
+        std::exception_ptr error;
+    };
+    std::vector<Receipt> receipts(edits.size());
+    std::vector<std::size_t> order(edits.size()); std::iota(order.begin(),order.end(),0);
+    std::stable_sort(order.begin(),order.end(),[&](std::size_t a,std::size_t b) {
+        return edits[a].cell_index < edits[b].cell_index;
+    });
+    std::vector<std::size_t> groups;
+    for (std::size_t n=0;n<order.size();++n)
+        if (n==0 || edits[order[n]].cell_index!=edits[order[n-1]].cell_index) groups.push_back(n);
+    const auto options=mac_kernel_default_options();
+    const auto threads=static_cast<unsigned>(std::min<std::size_t>(options.threads,groups.size()));
+    // Distinct cells are independent; repeated edits of one cell retain their
+    // original sequence, including every intermediate EOS/temperature check.
+    mac_kernel::pool_for(threads).run(groups.size(),[&](std::size_t group) {
+        const auto stop=group+1<groups.size() ? groups[group+1] : order.size();
+        for (auto n=groups[group];n<stop;++n) {
+            const auto index=order[n]; const auto& edit=edits[index]; auto& receipt=receipts[index];
+            try {
+                require(edit.cell_index < next.cells.size() && !next.grid.walls[edit.cell_index] &&
+                    std::isfinite(edit.joules) && std::isfinite(edit.maximum_temperature_k) && edit.maximum_temperature_k > 0,
+                    "Invalid MAC fluid heat exchange");
+                auto& cell=next.cells[edit.cell_index];
+                receipt.before.mixture.energy=cell.mixture.energy; receipt.before.energy_remainder_j=cell.energy_remainder_j;
+                (void)add_mac_cell_internal_energy(cell,MacEnergy::from_double(edit.joules),&receipt.rounding);
+                if (edit.joules != 0 && same_mac_cell_internal_energy(receipt.before,cell))
+                    throw FluidFatalError(FluidFatalCode::numerical_precision,"MAC heat exchange cannot be represented in cell U and remainder");
+                const auto reading=thermodynamics_->evaluate(cell.mixture,cell.mixture.mass() > 0 ? mac_material_volume(next,edit.cell_index) : next.grid.volume_m3());
+                require(edit.joules <= 0 || reading.temperature_k <= edit.maximum_temperature_k,
+                    "MAC heat exchange exceeds its reserved temperature limit");
+                receipt.after.mixture.energy=cell.mixture.energy; receipt.after.energy_remainder_j=cell.energy_remainder_j;
+            } catch (...) { receipt.error=std::current_exception(); break; }
+        }
+    });
+    // Keep the audit operand order and report the first invalid input edit,
+    // regardless of which worker finished first. Failed candidates stay local.
+    for (std::size_t n=0;n<edits.size();++n) {
+        const auto& receipt=receipts[n]; if (receipt.error) std::rethrow_exception(receipt.error);
+        account_mac_cell_internal_energy(balance,receipt.before); balance.add(edits[n].joules);
+        account_mac_cell_internal_energy(balance,receipt.after,-1);
+        rounding.merge(receipt.rounding);
     }
     require(balance.within_bound(), "MAC heat exchange energy account failed");
     auto candidate=derived(std::move(next));

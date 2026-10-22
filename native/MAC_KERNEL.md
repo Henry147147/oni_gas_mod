@@ -766,6 +766,24 @@ timing and the new configured-control PASS line.
 
 ## Current active-cell baseline
 
+External edit batches now avoid repeated full-field work. Independent heat
+cells run on the existing pool, retaining each cell's edit sequence and the
+original global audit/error order. Fluid transfers decode canonical momentum
+once per batch and encode it once before the endpoint audit; injections keep J
+and extractions only reduce it. Empty passive batches share their unchanged
+state while retaining the revision increment. Admission checks stay enabled.
+
+Matched high-half warm edit controls measure 3,753 heat edits at about
+42 → 15 ms, and 40/80 fluid edits at 74.7/135.7 → 20.2/21.6 ms. Every paired
+checkpoint and rounding count matches. Whole-lock GPU Terra60 at fast speed
+measures mean owner advance 0.3498 → 0.2586 s, p95 0.3960 → 0.3050 s;
+observed intervals average 0.4284 → 0.3411 s including startup, or
+0.3909 → 0.2963 s over frames 10–60. Relative mass/energy errors are
+9.00e-16/4.61e-17 and 4.96e-16/4.61e-17; both pass without faults.
+The sink is disabled (0 kg). Release/83 CTests and clean 99-command MAC
+comparisons pass; only two new PASS lines and timings differ. Solver arithmetic,
+saved settings and checkpoint bytes are unchanged. Fast-speed acceptance remains open.
+
 With NVIDIA harness rendering and fast speed selected, a matched whole-lock
 Terra60 pair caps the regional owner at 12 rather than 16 workers. Mean owner
 time is 0.4505 → 0.4486 s (no clear throughput gain); p95 is 0.5027 → 0.4894 s.

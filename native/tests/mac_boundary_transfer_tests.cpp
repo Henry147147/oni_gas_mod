@@ -90,6 +90,49 @@ void liquid_controls(const ma::testing::Setup& fixture) {
     try { (void)gas_world.with_fluid_transfers(std::span(&injection,1)); } catch (const std::invalid_argument&) { mixed_rejected=true; }
     require(mixed_rejected,"Liquid injection silently created a gas/liquid topology");
 }
+void batch_controls(const ma::testing::Setup& fixture) {
+    auto state=fixture.state(4,2,false);
+    auto x=mac_field_values(state.momentum_x,state.full_momentum_x);
+    auto y=mac_field_values(state.momentum_y,state.full_momentum_y);
+    x[state.grid.x_face(1,0)]=MacScaled::from_parts(.75,MacExponent::from_decimal("-4096"));
+    x[state.grid.x_face(2,0)]=MacScaled::from_double(.25);
+    y[state.grid.y_face(1,1)]=MacScaled::from_double(-.125);
+    store_mac_field(state.momentum_x,state.full_momentum_x,x);
+    store_mac_field(state.momentum_y,state.full_momentum_y,y);
+    const MacClosedWorld source(fixture.registry,fixture.eos,state);
+    const auto saved=source.checkpoint(); const auto oxygen=fixture.registry.index("oxygen");
+    const std::array edits{MacFluidTransfer{0,oxygen,true,.01,300},MacFluidTransfer{1,oxygen,false,.002,0},
+        MacFluidTransfer{0,oxygen,false,.003,0},MacFluidTransfer{1,oxygen,true,.004,301}};
+    const auto batched=source.with_fluid_transfers(edits); account(source,batched);
+    auto serial=source;
+    const auto same=[](const MacScaled& a,const MacScaled& b) {
+        return a.mantissa()==b.mantissa() && a.exponent()==b.exponent();
+    };
+    for (std::size_t n=0;n<edits.size();++n) {
+        const auto next=serial.with_fluid_transfers(std::span(&edits[n],1));
+        const auto& a=batched.parcels[n]; const auto& b=next.parcels.front();
+        require(a.mass_kg==b.mass_kg && a.internal_energy_j==b.internal_energy_j &&
+            same(a.resolved_kinetic_energy,b.resolved_kinetic_energy) && same(a.momentum_x,b.momentum_x) && same(a.momentum_y,b.momentum_y),
+            "Fluid batch changed parcel mechanics or edit ordering");
+        serial=next.world;
+    }
+    require(ma::testing::fingerprint(serial.state())==ma::testing::fingerprint(batched.world.state()) &&
+        !batched.world.state().full_momentum_x.empty() && source.checkpoint()==saved,
+        "Fluid batch lost full-range momentum or changed an overlapping edit");
+    const auto cold=MacClosedWorld::from_checkpoint(fixture.registry,fixture.eos,saved).with_fluid_transfers(edits);
+    require(cold.world.checkpoint()==batched.world.checkpoint(),"Fluid batch changed cold continuation");
+    const MacFluidTransfer zero{0,oxygen,false,0,0};
+    const auto unchanged=source.with_fluid_transfers(std::span(&zero,1));
+    require(ma::testing::fingerprint(unchanged.world.state())==ma::testing::fingerprint(source.state()) &&
+        unchanged.world.revision()==source.revision()+1,"Zero-mass batch changed a canonical field");
+    const auto passive=source.with_passive_edits({});
+    require(&passive.state()==&source.state() && passive.revision()==source.revision()+1 &&
+        passive.time_s()==source.time_s() && source.checkpoint()==saved,
+        "Empty passive edit lost immutable sharing or its revision");
+    auto bad=edits; bad.back().cell_index=state.cells.size(); bool refused=false;
+    try { (void)source.with_fluid_transfers(bad); } catch (const std::invalid_argument&) { refused=true; }
+    require(refused && source.checkpoint()==saved,"Invalid fluid batch escaped rollback");
+}
 }
 int main() {
     try {
@@ -125,6 +168,8 @@ int main() {
         try { (void)source.with_gas_transfers(batch); } catch (const std::invalid_argument&) { rejected=true; }
         require(rejected && ma::testing::fingerprint(source.state())==held,"Invalid later transfer partially changed source");
         liquid_controls(fixture);
+        batch_controls(fixture);
+        std::cout << "PASS batched canonical momentum, overlapping/full-range transfers, cold continuation and empty passive sharing\n";
         std::cout << "PASS immutable gas/liquid point transfers, elastic parcel U, carried mechanics/potential, checkpoint continuation and atomic topology rejection\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }

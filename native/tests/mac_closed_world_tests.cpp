@@ -20,6 +20,46 @@ void near(double a, double b, double scale, double relative = 2e-11) {
 using ma::testing::setup;
 using ma::testing::fingerprint;
 using ma::testing::export_case;
+void heat_batch_control() {
+    const auto& s=setup();
+    const MacClosedWorld source(s.registry,s.eos,s.state(16,8,false));
+    const auto held=source.checkpoint();
+    std::vector<MacCellHeat> edits;
+    for (std::size_t i=0;i<128;++i) edits.push_back({i,.125*static_cast<double>(i%7+1),1e6});
+    for (std::size_t i=0;i<64;++i) edits.push_back({127-i,-.0625,1e6});
+    const auto saved_options=mac_kernel_default_options(); auto options=saved_options; options.threads=1;
+    set_mac_kernel_default_options(options);
+    auto serial=source; MacPrimaryRoundingCounts serial_rounding;
+    for (const auto& edit : edits) {
+        MacPrimaryRoundingCounts rounding;
+        serial=serial.with_cell_heat(std::span(&edit,1),&rounding); serial_rounding.merge(rounding);
+    }
+    MacPrimaryRoundingCounts one_rounding;
+    const auto one=source.with_cell_heat(edits,&one_rounding);
+    options.threads=12; set_mac_kernel_default_options(options);
+    MacPrimaryRoundingCounts parallel_rounding;
+    const auto parallel=MacClosedWorld::from_checkpoint(s.registry,s.eos,held).with_cell_heat(edits,&parallel_rounding);
+    MacEnergySum error=serial_rounding.error_j;
+    for (std::size_t i=0;i<parallel_rounding.error_j.size();++i) error.add(parallel_rounding.error_j.component(i).negated());
+    check(fingerprint(serial.state())==fingerprint(one.state()) && one.checkpoint()==parallel.checkpoint() &&
+        parallel.revision()==source.revision()+1 && parallel.time_s()==source.time_s() && error.sign()==0 &&
+        serial_rounding.rounded==parallel_rounding.rounded && serial_rounding.discarded==parallel_rounding.discarded &&
+        one_rounding.rounded==parallel_rounding.rounded && one_rounding.discarded==parallel_rounding.discarded,
+        "Heat batch changed repeated-cell order, rounding, clock or cold/worker continuation");
+    const std::array invalid{MacCellHeat{127,-1e20,1e6},MacCellHeat{0,1,-1}};
+    std::string expected;
+    try { (void)source.with_cell_heat(std::span(&invalid[0],1)); }
+    catch (const std::exception& e) { expected=e.what(); }
+    std::string actual; MacPrimaryRoundingCounts untouched; untouched.rounded=97;
+    try { (void)source.with_cell_heat(invalid,&untouched); }
+    catch (const std::exception& e) { actual=e.what(); }
+    check(!expected.empty() && actual==expected && untouched.rounded==97 && source.checkpoint()==held,
+        "Heat batch did not retain first-input failure, admission or rollback");
+    const MacCellHeat capped{0,1,1}; bool refused=false;
+    try { (void)source.with_cell_heat(std::span(&capped,1)); } catch (const std::invalid_argument&) { refused=true; }
+    check(refused && source.checkpoint()==held,"Heat batch skipped a temperature cap");
+    set_mac_kernel_default_options(saved_options);
+}
 MacTransportState corner_state() {
     const auto& set = setup(); auto s = set.state(4, 3, false, true, true); const auto& g = s.grid;
     for (std::size_t i = 0; i < s.cells.size(); ++i) if (!g.walls[i])
@@ -309,6 +349,9 @@ void rejected_domains() {
 int main(int argc, char** argv) {
     try {
         std::cout << std::setprecision(17);
+        if (argc == 2 && std::string_view(argv[1]) == "--heat-batch-only") {
+            heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n"; return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--snapshot-only") {
             snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n"; return 0;
         }
@@ -319,6 +362,7 @@ int main(int argc, char** argv) {
             (m.phase == ReferencePhase::ideal_gas ? 0 : 1) << ' ' << m.molar_mass_kg_per_mol << ' ' << m.cv_j_per_kg_k << ' ' <<
             m.energy_offset_j_per_kg << ' ' << m.zero_pressure_density_kg_per_m3 << ' ' << m.reference_bulk_modulus_pa << '\n';
         snapshot_branches(); std::cout << "PASS copied world branches, lifetime, rollback and cold continuation\n";
+        heat_batch_control(); std::cout << "PASS independent heat batches, ordered repeats/audits, cold/workers and first-error rollback\n";
         trace_sink_receipt(); std::cout << "PASS booked trace sink, mass/energy/momentum/passives, rollback and exact cold/thread continuation\n";
         gas_pressure(); std::cout << "PASS pressure-driven retained gas momentum and trace transport\n";
         wet_corner(); std::cout << "PASS elastic gas-liquid pressure transport at a solid corner\n";
