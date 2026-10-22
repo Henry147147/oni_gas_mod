@@ -158,7 +158,9 @@ namespace MixedAtmospheres.Oni
         private static int longRunDuplicantsPeak;
         private static bool LongRunColonyLost()
         {
-            if (configuration?.LongRun != true) return false;
+            // A floor arena measures only its sealed arena; the untended
+            // colony around it need not outlive F4's 20000 s.
+            if (configuration?.LongRun != true || configuration.Floor.Length != 0) return false;
             var living = Components.LiveMinionIdentities.Count;
             if (living > 0) longRunDuplicantsSeen = true;
             if (living >= longRunDuplicantsPeak) { longRunDuplicantsPeak = living; return false; }
