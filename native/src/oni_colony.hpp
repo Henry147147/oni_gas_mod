@@ -24,6 +24,9 @@ void ack_receipts(std::uint64_t through);
 std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity);
 // Readings and constituents of the latest completed frame; returns the frame.
 std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColonyConstituent>&);
+// Control hook: the temperature read for one cell of the latest frame with
+// one constituent replaced by trace_kg.
+double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native_index, double trace_kg);
 // Native cell arrays of one SimData: [0] the frame's old cells, [1] updated.
 struct NativeCells {
     std::uint16_t* element[2]{}; float* mass[2]{}; float* temperature[2]{};

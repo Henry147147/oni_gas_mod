@@ -85,6 +85,30 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "particles": (OWNER, ("falling", "bottle-emptier")),
 }
 PASSED_SCENARIOS: set[str] = set()
+# Systems checked by whole-colony runs rather than one scenario.
+RUN_SYSTEMS: dict[str, dict] = {
+    "native-hook-coverage": {
+        "implementation": ["native/src/oni_backend.cpp", "native/src/oni_colony.cpp"],
+        "check": "every Linux colony-owner run: the backend hooks ONI's native frame, suppresses its fluid stages for owned cells and books "
+                 "every native change to an owned cell through the shadow, with the ledgers closed (docs/colony-owner.md); Windows follows the port"},
+    "element-interactions": {
+        "implementation": ["native/src/oni_backend.cpp", "native/src/oni_colony.cpp"],
+        "check": "the base game registers no native element interactions (no managed CreateElementInteractions call, docs/interop-contract.md); "
+                 "the native gas-interaction stages are suppressed for owned cells and any native change to one is booked by the shadow"},
+}
+RUN_EVIDENCE: dict[str, dict] = {
+    "backwalls": {
+        "implementation": ["managed/MixedAtmospheres.Oni/ColonyOwner.cs"],
+        "check": "the owner counts backwall cells at start: none on any base-game starting asteroid (the import runs); a backwall's "
+                 "transition would emit through AddRemoveSubstance, which the owner takes"},
+    "colony-save": {
+        "implementation": ["managed/MixedAtmospheres.Oni/ColonyOwnerPersistence.cs", "native/src/oni_colony.cpp"],
+        "check": "the prepared base saves through ONI's ordinary save, loads in a fresh process with its owner, overwrites in place, "
+                 "and ONI's own loader refuses it (docs/colony-owner.md#saves)"},
+}
+PASSED_RUNS: set[str] = set()
+SYSTEMS.update(RUN_SYSTEMS)
+SYSTEMS.update({name: entry for name, entry in RUN_EVIDENCE.items() if name in PASSED_RUNS})
 for _system, (_files, _scenarios) in SCENARIO_SYSTEMS.items():
     if set(_scenarios) <= PASSED_SCENARIOS:
         SYSTEMS[_system] = {"implementation": _files, "check": "in-game scenarios " + ", ".join(f"`{name}`" for name in _scenarios) +

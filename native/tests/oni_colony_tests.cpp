@@ -306,6 +306,16 @@ int main(int argc, char** argv) {
             require(after.maximum_relative_mass_error < 1e-12 && after.maximum_relative_energy_error < 1e-9, "freezing ledgers close");
             ma::oni::colony::stop();
         }
+        // A liquid trace below binary64's normal range (a rounding product
+        // of the kernel) leaves the cell's reading as it was.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const double plain = ma::oni::colony::trace_reading_temperature(public_cell(4, 7), water, 0);
+            const double traced = ma::oni::colony::trace_reading_temperature(public_cell(4, 7), water, 1e-321);
+            std::cout << "subnormal water trace reads " << traced << " K against " << plain << " K\n";
+            require(traced == plain, "a subnormal liquid trace keeps the cell readable");
+            ma::oni::colony::stop();
+        }
         // A sealed cell's gas goes to the reservoir and seeps back when the
         // cell reopens.
         {

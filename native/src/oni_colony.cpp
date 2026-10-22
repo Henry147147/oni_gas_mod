@@ -219,6 +219,19 @@ std::vector<long double> totals(const MacClosedWorld& w) {
     for (const auto& cell : w.state().cells) for (std::size_t k = 0; k < out.size(); ++k) out[k] += cell.mixture.masses[k];
     return out;
 }
+// A cell's reading. A trace far below binary64's normal range (a rounding
+// product of the production kernel) has no representable volume in the
+// reference EOS; the reading leaves such traces out, as their mass and energy
+// are far below the resolution of the cell's.
+experimental::ReferenceEquilibriumState evaluate_cell(const FluidThermodynamics& eos, const MixtureInventory& m, double volume) {
+    try { return eos.evaluate(m, volume); }
+    catch (const std::exception&) {
+        auto kept = m; bool dropped = false;
+        for (auto& x : kept.masses) if (x > 0 && x < 1e-300) { x = 0; dropped = true; }
+        if (!dropped) throw;
+        return eos.evaluate(kept, volume);
+    }
+}
 // U+K+G for the ledger (checked to a millionth): U with its stored
 // remainder, K from each face's inertia (half the mass of each open cell
 // beside it), G at cell centres.
@@ -266,7 +279,7 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
         v.flags = MA_ONI_COLONY_VIEW_OWNED; v.element_index = s.config.vacuum_index;
         const auto& m = st.cells[i].mixture;
         if (!(m.mass() > 0)) return;
-        const auto reading = w.thermodynamics().evaluate(m, mac_material_volume(st, i));
+        const auto reading = evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i));
         double gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
         for (std::size_t k = 0; k < registry.size(); ++k) {
             const double mass = m.masses[k]; if (mass == 0) continue;
@@ -623,7 +636,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
         bool candidate = false; for (const auto& r : rules) candidate = candidate || m.masses[r.from] > 0;
         if (!candidate) continue;
         double t = 0, liquid_volume = 0;
-        try { const auto e = cat.eos->evaluate(m, mac_material_volume(st, i)); t = e.temperature_k; liquid_volume = e.liquid_volume_m3; } catch (...) { continue; }
+        try { const auto e = evaluate_cell(*cat.eos, m, mac_material_volume(st, i)); t = e.temperature_k; liquid_volume = e.liquid_volume_m3; } catch (...) { continue; }
         // The liquid the projection shows (as project() picks it).
         std::size_t shown = SIZE_MAX; double best = 0;
         if (liquid_volume >= .5 * st.grid.volume_m3())
@@ -644,7 +657,7 @@ MacClosedWorld convert_identities(Session& s, MacClosedWorld world, double secon
     // The cell's temperature before conversion is the products' temperature.
     std::vector<double> temperature(edits.size());
     for (std::size_t q = 0; q < edits.size(); ++q)
-        temperature[q] = cat.eos->evaluate(st.cells[edits[q].cell_index].mixture, mac_material_volume(st, edits[q].cell_index)).temperature_k;
+        temperature[q] = evaluate_cell(*cat.eos, st.cells[edits[q].cell_index].mixture, mac_material_volume(st, edits[q].cell_index)).temperature_k;
     auto& L = s.ledger;
     auto taken = world.with_fluid_transfers(edits, MacFluidTransferTopology::occupied_mixture);
     world = std::move(taken.world);
@@ -765,6 +778,14 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
     }
     return n;
 }
+double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native_index, double trace_kg) {
+    std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
+    require(p != nullptr && p->world != nullptr, "No colony owner is active");
+    const ArithmeticScope arithmetic;
+    const auto& w = *p->world; const auto i = rect_index(geometry, public_cell);
+    auto m = w.state().cells[i].mixture; m.masses[p->catalogue->species_of_native(native_index)] = trace_kg;
+    return evaluate_cell(w.thermodynamics(), m, mac_material_volume(w.state(), i)).temperature_k;
+}
 std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniColonyConstituent>& parts) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
     require(p != nullptr && p->world != nullptr, "No colony owner is active");
@@ -775,7 +796,7 @@ std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniCo
         const auto& m = st.cells[i].mixture;
         if (st.grid.walls[i] || !(m.mass() > 0)) continue;
         const double volume = mac_material_volume(st, i);
-        const auto e = eos.evaluate(m, volume);
+        const auto e = evaluate_cell(eos, m, volume);
         MAOniColonyReading r{};
         r.public_cell = static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width);
         r.first_constituent = static_cast<std::uint32_t>(parts.size());

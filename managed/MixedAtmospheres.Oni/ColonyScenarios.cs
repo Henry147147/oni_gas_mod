@@ -240,7 +240,7 @@ namespace MixedAtmospheres.Oni
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, path);
                 pipeCells.AddRange(path);
             }
-            if (frame >= 8 && frame <= 39 && Once(frame, "trace" + frame))
+            if (frame >= 8 && frame <= 99 && frame % 5 == 0 && Once(frame, "trace" + frame))
             {
                 double Side(int from, int to) => Enumerable.Range(from, to - from).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))));
                 var pipe = pipeCells.Sum(c => (double)Game.Instance.gasConduitFlow.GetContents(c).mass);
@@ -250,7 +250,9 @@ namespace MixedAtmospheres.Oni
                     string.Join(" ", Enumerable.Range(-1, Height + 2).Select(y => $"{Grid.Element[Cell(4, y)].id}:{Grid.Mass[Cell(4, y)]:G4}{(Grid.Solid[Cell(4, y)] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(Cell(4, y)) ? "o" : "")}")) +
                     "; far row 2 " + string.Join(" ", Enumerable.Range(4, 5).Select(x => $"{Grid.Element[Cell(x, 2)].id}:{Grid.Mass[Cell(x, 2)]:G4}{(ColonyOwner.OwnsFluidCell(Cell(x, 2)) ? "o" : "")}")));
             }
-            if (Once(40, "check"))
+            // ONI's pipes move a packet one segment per second: the first
+            // reaches the vent after about eight seconds.
+            if (Once(100, "check"))
             {
                 var right = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => CellMass(Cell(x, y))));
                 var oxygen = Enumerable.Range(5, 3).Sum(x => Enumerable.Range(0, Height).Sum(y => SpeciesMass(Cell(x, y), SimHashes.Oxygen)));
@@ -282,7 +284,7 @@ namespace MixedAtmospheres.Oni
             // takes control-state changes once it has spawned (a frame later).
             if (Once(6, "build")) door = Build(ManualPressureDoorConfig.ID, Cell(4, 0)).GetComponent<Door>();
             if (Once(7, "lock")) SetDoor(Door.ControlState.Locked);
-            if (door != null && frame % 2 == 0 && traced != frame && (traced = frame) >= 0)
+            if (door != null && frame >= 8 && frame % 2 == 0 && traced != frame && (traced = frame) >= 0)
                 Debug.Log($"[Mixed Atmospheres] door frame {frame}: open {door.IsOpen()}, control {door.CurrentState}, state {door.GetSMI<Door.Controller.Instance>()?.GetCurrentState()?.name}; cells " +
                     string.Join(" ", new[] { Cell(4, 0), Cell(4, 1) }.Select(c => $"{Grid.Element[c].id}:{Grid.Mass[c]:G4}{(Grid.Solid[c] ? "S" : "")}{(ColonyOwner.OwnsFluidCell(c) ? "o" : "")}")) +
                     $"; right {RightMass():G4} kg, opened {status.OpenedCells}, closed {status.ClosedCells}");
@@ -509,12 +511,15 @@ namespace MixedAtmospheres.Oni
             if (Once(6, "build"))
             {
                 recorded["co2"] = ArenaSpecies(SimHashes.CarbonDioxide);
-                Build(MethaneGeneratorConfig.ID, Cell(3, 0)).GetComponent<Storage>().AddGasChunk(SimHashes.Methane, 5, 300, byte.MaxValue, 0, false, true);
+                var generator = Build(MethaneGeneratorConfig.ID, Cell(3, 0));
+                generator.GetComponent<Storage>().AddGasChunk(SimHashes.Methane, 5, 300, byte.MaxValue, 0, false, true);
+                // A generator runs only on a circuit: a wire on its output.
+                Wire(new List<int> { Grid.OffsetCell(Grid.PosToCell(generator), generator.GetComponent<Building>().Def.PowerOutputOffset) });
             }
             if (Once(32, "check"))
             {
                 var added = ArenaSpecies(SimHashes.CarbonDioxide) - recorded["co2"];
-                Record("the generator's exhaust reached the owner", added > .005, $"+{added:G4} kg carbon dioxide");
+                Record("the generator's exhaust reached the owner", added > .005, $"+{added:G4} kg carbon dioxide; {MachineState(powered.FirstOrDefault())}");
                 Finish();
             }
         }
@@ -931,7 +936,7 @@ namespace MixedAtmospheres.Oni
             {
                 Current.Stage = $"pod at {px},{py}";
                 for (var y = py; y <= py + 3; ++y)
-                    for (var x = px - 16; x <= px + 16; ++x)
+                    for (var x = px - 24; x <= px + 24; ++x)
                     {
                         var cell = Grid.XYToCell(x, y);
                         if (Grid.IsValidCell(cell) && Grid.Solid[cell] && Grid.Element[cell].hardness < 150 && Grid.Objects[cell, (int)ObjectLayer.Building] == null)
@@ -939,7 +944,7 @@ namespace MixedAtmospheres.Oni
                     }
             }
             if (Once(4, "floor"))
-                for (var x = px - 16; x <= px + 16; ++x)
+                for (var x = px - 24; x <= px + 24; ++x)
                 {
                     var cell = Grid.XYToCell(x, py - 1);
                     if (Grid.IsValidCell(cell) && !Grid.Solid[cell] && Grid.Objects[cell, (int)ObjectLayer.Building] == null)
@@ -961,6 +966,8 @@ namespace MixedAtmospheres.Oni
                 var water = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var waste = Place(LiquidReservoirConfig.ID, ref right, 1);
                 var rations = Place(RationBoxConfig.ID, ref right, 1);
+                // A cot each keeps the duplicants' stress down over the ten cycles.
+                for (var bed = 0; bed < 3; ++bed) Place(BedConfig.ID, ref right, 1);
                 water?.GetComponent<Storage>().AddLiquid(SimHashes.Water, 4500, 300, byte.MaxValue, 0, false, true);
                 if (rations != null)
                 {
@@ -986,7 +993,7 @@ namespace MixedAtmospheres.Oni
             }
             if (Once(30, "check"))
             {
-                Record("the base was built", placed.Count == 6, string.Join(", ", placed));
+                Record("the base was built", placed.Count == 9, string.Join(", ", placed));
                 Record("the owner's ledgers stayed closed", status.MaximumRelativeMassError < 1e-9 && status.MaximumRelativeEnergyError < 1e-9,
                     $"mass {status.MaximumRelativeMassError:G3}, energy {status.MaximumRelativeEnergyError:G3}");
                 Finish();
