@@ -218,6 +218,24 @@ observed duration; it does not attest any image or hover result. The
 `tile-hover` scene requires reviewing each actual PNG before publishing its
 receipt ([procedure](../docs/mixture-presentation.md#tile-hover-acceptance-procedure)).
 
+## GPU display
+
+By default the game renders with Mesa's software rasteriser on the Xvfb
+desktop, which takes CPU from the fluid solver and caps Unity at a few frames
+per second on a full asteroid. `--gpu-display :N` (or `ONI_GPU_DISPLAY=:N`)
+renders the game on a hardware X display instead, without the software
+renderer settings and with that display's own access control; the result
+records the renderer Unity reported (`renderer`). Steam stays on the desktop.
+
+On this host `:99` is the NVIDIA headless X server of
+`nvidia-headless-x.service` (RTX 5090). Its screen is 640x480 (no monitor), so
+in-game screenshots there show only that corner of the 1280x720 window, and
+the shared VNC view does not show the game. Measured on Terra, whole machine:
+vanilla at fast speed 421 ms per 200 ms tick with software rendering, 108 ms on
+the GPU; under the colony owner Unity runs at about 67 instead of 3 frames per
+second, and a frame's interval exceeds its solver time by about 40 ms (frames
+10-60).
+
 ## Long development runs
 
 Ten ONI cycles are about 30,000 native frames of 0.2 s. `--long-run` is a

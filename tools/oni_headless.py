@@ -220,7 +220,7 @@ def read_session(state: Path) -> dict:
     return read_json(session_file) if session_file.exists() else {}
 
 
-def desktop_env(state: Path, session: dict) -> dict:
+def desktop_env(state: Path, session: dict, gpu: bool = False) -> dict:
     desktop = state / "tools/desktop/usr"
     env = dict(os.environ, DISPLAY=session["display"], XAUTHORITY=str(session.get("xauthority") or state / "Xauthority"),
                LIBGL_ALWAYS_SOFTWARE="1",
@@ -231,6 +231,11 @@ def desktop_env(state: Path, session: dict) -> dict:
                IMLIB2_LOADER_PATH=f"{desktop}/lib/x86_64-linux-gnu/imlib2/loaders",
                XDG_DATA_DIRS=f"{desktop}/share:/usr/share")
     env.pop("WAYLAND_DISPLAY", None)
+    if gpu:
+        # A hardware X display (the NVIDIA driver's GLX): no software
+        # rasteriser, and the display's own access control.
+        for name in ("LIBGL_ALWAYS_SOFTWARE", "LP_NUM_THREADS", "XAUTHORITY"):
+            env.pop(name, None)
     return env
 
 
@@ -282,12 +287,15 @@ def stop_private_display(record: dict | None) -> None:
 
 
 @contextmanager
-def run_display(state: Path, session: dict, output: Path, private: bool = False):
+def run_display(state: Path, session: dict, output: Path, private: bool = False, gpu_display: str | None = None):
     record = None
     screen = session
     env = desktop_env(state, session)
     try:
-        if private:
+        if gpu_display:
+            screen = dict(session, display=gpu_display, xauthority="", gpu=True)
+            env = desktop_env(state, screen, gpu=True)
+        elif private:
             record, display, env = start_private_display(state, output, window_manager=True)
             screen = dict(session, display=display, xauthority=str(output / "Xauthority"))
         yield screen, env, record
@@ -596,8 +604,17 @@ def revision_fields(manifest: dict) -> dict:
             "runner_git_status": git_output("status", "--short")}
 
 
+def player_renderer(output: Path) -> str | None:
+    """The renderer Unity reported in Player.log ("llvmpipe ..." or the GPU)."""
+    try:
+        match = re.search(r"^Renderer: (.+)$", (output / "Player.log").read_text(errors="replace"), re.M)
+    except OSError:
+        return None
+    return match.group(1).strip() if match else None
+
+
 def screenshot(state: Path, session: dict, path: Path) -> None:
-    run_checked([str(state / "tools/desktop/usr/bin/scrot"), "-o", str(path)], env=desktop_env(state, session))
+    run_checked([str(state / "tools/desktop/usr/bin/scrot"), "-o", str(path)], env=desktop_env(state, session, session.get("gpu") is True))
 
 
 def native_observer_passed(manifest: dict, report: dict | None) -> bool:
@@ -808,6 +825,9 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("Completed inspection requires 1..300 seconds, a colony mode and automatic cleanup.")
     if private_display and args.keep_open:
         raise ValueError("A private test display requires automatic game cleanup; omit --keep-open.")
+    gpu_display = getattr(args, "gpu_display", None)
+    if gpu_display and private_display:
+        raise ValueError("--gpu-display and --private-display are alternatives.")
     package = args.package.resolve()
     manifest = verify_package(package)
     if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
@@ -866,7 +886,7 @@ def playtest(args, state: Path, session: dict) -> int:
     # Standard Steamworks development launch identifier. Steam still checks
     # the running client's account/license; this is not an authentication bypass.
     (thin / "steam_appid.txt").write_text("457140\n")
-    with run_display(state, session, output, private_display) as (screen, env, display_record):
+    with run_display(state, session, output, private_display, gpu_display) as (screen, env, display_record):
         env.update(SteamAppId="457140", SteamGameId="457140")
         # ONI's Linux root is Unity persistentDataPath. Bind a fresh home and set
         # all XDG roots; the actual user's saves and mods are never writable.
@@ -988,7 +1008,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "status": status, "exit_code": code, "mode": args.mode, "output": str(output), "mod_id": mod_id,
                 "observed_player_exit_code": player_exit, "timed_out": timed_out,
                 "platform": "native Linux", "display": screen["display"], "steam_display": session["display"],
-                "private_display": private_display, "private_display_process": display_record, "software_rendering": True,
+                "private_display": private_display, "private_display_process": display_record, "software_rendering": not gpu_display,
+                "renderer": player_renderer(output),
                 "inspection_seconds_requested": inspection_seconds,
                 "inspection_seconds_held": time.monotonic() - inspection_started if inspection_started is not None else 0,
                 "steam_blocked": steam_blocked(log),
@@ -1054,6 +1075,9 @@ def main() -> int:
     play.add_argument("--inspection-seconds", type=int, choices=range(0,301), default=0, metavar="0..300",
                       help="Keep a completed colony visible for bounded mouse/visual inspection, then clean up normally")
     play.add_argument("--private-display", action="store_true", help="Keep the game on a separate disposable display, leaving Steam available for login")
+    play.add_argument("--gpu-display", metavar="DISPLAY", default=os.environ.get("ONI_GPU_DISPLAY") or None,
+                      help="Render the game on this hardware X display (e.g. :99, an NVIDIA headless server) instead of the "
+                           "software-rendered desktop; defaults to $ONI_GPU_DISPLAY")
     play.add_argument("--resave-before-resume", action="store_true", help="Verify ordinary saving of an initially paused restored colony")
     play.add_argument("--save-colony", action="store_true", help="Also exercise ordinary colony save admission after a native scene")
     play.add_argument("--verify-natural-autosave",action="store_true",help="Wait for a real day-rollover autosave; requires native-domain and 3100..5000 frames")

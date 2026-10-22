@@ -1391,6 +1391,18 @@ class EvidenceTests(unittest.TestCase):
         status, code = runner.classify("menu", "Steam not initialized in time", self.probe, None, False)
         self.assertEqual((status, code), ("blocked-steam-authentication", 3))
 
+    def test_gpu_display_drops_the_software_renderer_and_records_the_renderer(self):
+        state = Path("/state")
+        software = runner.desktop_env(state, {"display": ":121"})
+        gpu = runner.desktop_env(state, {"display": ":99"}, gpu=True)
+        self.assertEqual(software["LIBGL_ALWAYS_SOFTWARE"], "1")
+        self.assertEqual(gpu["DISPLAY"], ":99")
+        self.assertFalse({"LIBGL_ALWAYS_SOFTWARE", "LP_NUM_THREADS", "XAUTHORITY"} & set(gpu))
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(runner.player_renderer(Path(folder)))
+            (Path(folder) / "Player.log").write_text("GfxDevice: x\nRenderer: NVIDIA GeForce RTX 5090/PCIe/SSE2\n")
+            self.assertEqual(runner.player_renderer(Path(folder)), "NVIDIA GeForce RTX 5090/PCIe/SSE2")
+
     def test_speed_reaches_the_configuration_only_when_requested(self):
         args = argparse.Namespace(mode="colony-owner", frames=60, timeout=600, keep_open=False)
         self.assertNotIn("Speed", runner.colony_configuration(args, "c", None, 0))
