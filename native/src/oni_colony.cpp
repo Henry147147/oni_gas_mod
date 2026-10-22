@@ -1120,6 +1120,11 @@ void capture_shadow(const NativeCells& n) noexcept {
                 if (e == vacuum || !(m > 0)) continue;
                 const double joules = static_cast<double>(m) * heat_capacity(e) * (static_cast<double>(t) - sh.temperature);
                 heat.push_back({cell, 0, joules, 0}); sum.heat_j += joules;
+                static const bool heat_log = std::getenv("MA_COLONY_HEAT_LOG") != nullptr;
+                if (heat_log)
+                    std::fprintf(stderr, "[Mixed Atmospheres] native heat at %u,%u: element %u, %.6g kg, %.6f -> %.6f K, %.6g J\n",
+                        cell % geometry.grid_width, cell / geometry.grid_width, static_cast<unsigned>(e), static_cast<double>(m),
+                        static_cast<double>(sh.temperature), static_cast<double>(t), joules);
                 continue;
             }
             // Native processes changed the mass (the owner runs element
@@ -1318,7 +1323,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 if (!waiting.empty()) { std::lock_guard q(inputs); pending_terrain.insert(pending_terrain.end(), waiting.begin(), waiting.end()); }
             }
         }
+        step("blocked faces");
         world = close_blocked_faces(s, std::move(world));
+        step("germs");
         if (!germ_edits.empty()) {
             std::vector<MacPassiveEdit> edits;
             for (const auto& g : germ_edits) {
@@ -1690,7 +1697,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             std::string line = "[Mixed Atmospheres] stages frame " + std::to_string(s.status.completed_frames) + ":";
             char item[96];
             for (const auto& [name, ms] : steps) { std::snprintf(item, sizeof item, " %s %.1f", name, ms); line += item; }
-            std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu", heat.size(), transfers.size(), terrain.size()); line += item;
+            std::snprintf(item, sizeof item, "; heat %zu transfers %zu terrain %zu germs %zu", heat.size(), transfers.size(), terrain.size(), germ_edits.size()); line += item;
             std::fprintf(stderr, "%s\n", line.c_str()); std::fflush(stderr);
         }
         publish(s, std::move(projection));

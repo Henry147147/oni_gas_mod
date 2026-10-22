@@ -466,6 +466,9 @@ Environment variables of the game process (the harness passes them through):
 - `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
   health, calories and stress with the air at its cell and the cell above
   (mass, composition, breathability), and the prepared base's machines.
+- `MA_COLONY_HEAT_LOG=1`: each heat change ONI's native update made to an owned
+  cell (its cell, element, mass, temperatures and booked joules); for small
+  arenas, since it writes a line per changed cell and frame.
 - `MA_COLONY_GAME_FLOOR=1`: new colonies run the game-floor profile (test runs
   only until the profile is selected).
 
