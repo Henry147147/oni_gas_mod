@@ -37,6 +37,9 @@ namespace MixedAtmospheres.Oni
         // A starting cluster layout ("clusters/<name>"); empty keeps the game's default (Terra).
         public string Cluster = "";
         public string ColonyName = "MA Visual Test";
+        // One fixed comparison arena of docs/base-game-floor.md (f1..f5), under
+        // the colony owner or, in mode colony-vanilla, ONI's own simulation.
+        public string Floor = "";
         // The game speed the colony keeps once it plays: 1 normal, 2 fast, 3 ultra.
         public int Speed = 1;
         // colony-owner only: one in-game system check (ColonyScenarios).
@@ -67,7 +70,8 @@ namespace MixedAtmospheres.Oni
             "native-breathing-read-domain", "native-carbon-particle-domain", "native-carbon-domain", "native-conduction-domain",
             "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain",
             "native-save-domain", "native-load-domain", "presentation", "tile-hover", "coupled-presentation", "load-rejection",
-            "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load"
+            "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load",
+            "colony-vanilla"
         };
         // Scenes whose retained evidence was audited as bounded per frame.
         // Fixture variants keep their short, exact windows; saved-colony replay
@@ -76,7 +80,8 @@ namespace MixedAtmospheres.Oni
         // state only and their natural autosaves use the paired configured save.
         internal static readonly string[] LongRunModes =
             { "snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
-              "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load" };
+              "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load",
+              "colony-vanilla" };
 
         internal static ColonyValidationConfiguration Parse(string text)
         {
@@ -97,6 +102,9 @@ namespace MixedAtmospheres.Oni
                 configuration.CompletedFrames < MinimumFrames || configuration.CompletedFrames > MaximumLongRunFrames ||
                 configuration.TimeoutSeconds < MinimumTimeoutSeconds || configuration.TimeoutSeconds > MaximumLongRunTimeoutSeconds)
                 throw new InvalidDataException("Unsupported colony validation mode or limits.");
+            if ((configuration.Mode == "colony-vanilla") != (configuration.Floor.Length != 0 && configuration.Mode != "colony-owner") ||
+                configuration.Floor.Length != 0 && (Array.IndexOf(FloorArenas.Ids, configuration.Floor) < 0 || configuration.Scenario.Length != 0))
+                throw new InvalidDataException("colony-vanilla runs one floor arena (f1..f5); colony-owner may run one instead of scenarios.");
             if (configuration.Speed < 1 || configuration.Speed > 3)
                 throw new InvalidDataException("Speed is 1 (normal), 2 (fast) or 3 (ultra).");
             if (configuration.VanillaLoad && configuration.Mode != "colony-owner-load")

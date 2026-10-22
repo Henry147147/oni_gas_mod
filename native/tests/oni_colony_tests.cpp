@@ -93,6 +93,33 @@ void flooded_pocket_control() {
     require(st.state == 1 && st.reservoir_kg > 499, "a flooded pocket starts, its overflow and gas in the reservoir");
     ma::oni::colony::stop();
 }
+// The game-floor profile's trace sink: a sealed cell holding only a trace
+// below the threshold loses it at the next frame, booked as its own ledger
+// term (the ledgers stay closed), and the total survives a save and restore.
+void trace_sink_control() {
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION; cfg.flags = MA_ONI_COLONY_GAME_FLOOR;
+    cfg.vacuum_index = vacuum; cfg.grid_width = cfg.width = 5; cfg.grid_height = cfg.height = 3; cfg.gravity_m_per_s2 = 9.81;
+    cfg.maximum_timestep_s = .01;
+    std::vector<MAOniColonyCell> cells(15, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+    cells[1 + 1 * 5] = {oxygen, MA_ONI_COLONY_FLUID, 1, 300, 0, 0};
+    cells[3 + 1 * 5] = {carbon, MA_ONI_COLONY_FLUID, 1e-8f, 300, 0, 0};
+    ma::oni::colony::start(cfg, mats, cells, 1);
+    ma::oni::colony::advance(1, .2, 2); ma::oni::colony::wait();
+    const auto st = ma::oni::colony::status();
+    std::cout << "trace sink: state " << st.state << " " << st.error << ", sunk " << st.trace_sink_kg << " kg " << st.trace_sink_j
+              << " J, mass error " << st.maximum_relative_mass_error << ", energy error " << st.maximum_relative_energy_error << "\n";
+    require(st.state == 1 && std::abs(st.trace_sink_kg - static_cast<double>(1e-8f)) < 1e-15 && st.maximum_relative_mass_error < 1e-12 &&
+        st.maximum_relative_energy_error < 1e-12, "the profile sinks a sealed trace and books it");
+    const auto image = ma::oni::colony::checkpoint();
+    ma::oni::colony::stop();
+    ma::oni::colony::restore(cfg, mats, image, 1);
+    ma::oni::colony::advance(2, .2, 2); ma::oni::colony::wait();
+    const auto restored = ma::oni::colony::status();
+    require(restored.state == 1 && restored.trace_sink_kg == st.trace_sink_kg && restored.maximum_relative_mass_error < 1e-12,
+        "a restored owner keeps its trace-sink ledger and stays closed");
+    ma::oni::colony::stop();
+}
 }
 
 int main(int argc, char** argv) {
@@ -103,6 +130,7 @@ int main(int argc, char** argv) {
         timestep_control();
         projection_control();
         flooded_pocket_control();
+        trace_sink_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};
@@ -111,6 +139,16 @@ int main(int argc, char** argv) {
         // Water boils to steam at 372.5 K and steam condenses back: a saturation pair.
         materials[2].high_temperature_k = 372.5; materials[2].high_target = 14; materials[2].low_target = 99;
         materials[3].low_temperature_k = 372.5; materials[3].low_target = 13;
+        // A full cell of water at one atmosphere: the reference density, just
+        // above the zero-pressure density; a gas has none.
+        {
+            const double atmosphere = ma::oni::colony::liquid_density(materials, water, 101325), zero = ma::oni::colony::liquid_density(materials, water, 0);
+            std::cout << "water full cell: " << atmosphere << " kg at 1 atm, " << zero << " kg at 0 Pa\n";
+            require(atmosphere > zero && atmosphere < zero * 1.001, "a full cell of water holds slightly more at one atmosphere");
+            bool refused = false;
+            try { (void)ma::oni::colony::liquid_density(materials, oxygen, 101325); } catch (const std::exception&) { refused = true; }
+            require(refused, "a gas has no liquid density");
+        }
         MAOniColonyConfig config{}; config.struct_size = sizeof(config); config.abi_version = MA_ONI_COLONY_ABI_VERSION;
         config.flags = MA_ONI_COLONY_PHYSICS_CONDUCTION; config.vacuum_index = vacuum; config.grid_width = GW; config.grid_height = GH;
         config.offset_x = X0; config.offset_y = Y0; config.width = W; config.height = H; config.gravity_m_per_s2 = 9.81; config.maximum_timestep_s = .01;

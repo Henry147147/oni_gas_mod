@@ -48,9 +48,10 @@ namespace MixedAtmospheres.Oni
             public double EvaporatedKg, CondensedKg;
             public ulong SkippedRelaxations, ReservedCount;
             public double ReleasedKg, ConvertedKg, SettledKg;
+            public double TraceSinkKg, TraceSinkJoules;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] private byte[] ErrorBytes;
             public string Error => Encoding.UTF8.GetString(ErrorBytes ?? Array.Empty<byte>()).TrimEnd('\0');
-            internal static Status Empty => new Status { Size = 584, Version = AbiVersion, ErrorBytes = new byte[256], StageMilliseconds = new double[6] };
+            internal static Status Empty => new Status { Size = 600, Version = AbiVersion, ErrorBytes = new byte[256], StageMilliseconds = new double[6] };
         }
         [StructLayout(LayoutKind.Sequential)]
         internal struct CellView { public uint ElementIndex, Flags; public float MassKg, TemperatureK, PressurePa, LiquidFraction; public uint Disease; public int DiseaseCount; }
@@ -80,7 +81,7 @@ namespace MixedAtmospheres.Oni
         internal static byte DiseaseIdx(uint germ) => germ == 0 || germ > 255 ? byte.MaxValue : (byte)(germ - 1);
         internal static void CheckLayouts()
         {
-            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 584 ||
+            if (Marshal.SizeOf<Material>() != 168 || Marshal.SizeOf<Config>() != 56 || Marshal.SizeOf<Cell>() != 24 || Marshal.SizeOf<Status>() != 600 ||
                 Marshal.SizeOf<CellView>() != 32 || Marshal.SizeOf<Transfer>() != 48 || Marshal.SizeOf<Receipt>() != 48 || Marshal.SizeOf<Heat>() != 24 ||
                 Marshal.SizeOf<Species>() != 40 || Marshal.SizeOf<Reading>() != 64 || Marshal.SizeOf<Constituent>() != 24)
                 throw new InvalidOperationException("Colony owner ABI layouts differ from the native library.");
@@ -116,6 +117,8 @@ namespace MixedAtmospheres.Oni
         internal static extern int Readings(out ulong frame, [Out] Reading[]? readings, uint capacity, out uint count,
             [Out] Constituent[]? constituents, uint constituentCapacity, out uint constituentCount);
         [DllImport(Library, EntryPoint = "ma_oni_colony_busy", CallingConvention = CallingConvention.Cdecl)] internal static extern uint Busy();
+        [DllImport(Library, EntryPoint = "ma_oni_colony_liquid_density", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int LiquidDensity([In] Material[] materials, uint count, uint nativeIndex, double pressurePa, out double densityKgPerCubicMetre);
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr LastError();
         internal static void Check(int result)
         {

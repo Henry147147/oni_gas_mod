@@ -1403,6 +1403,12 @@ class EvidenceTests(unittest.TestCase):
             (Path(folder) / "Player.log").write_text("GfxDevice: x\nRenderer: NVIDIA GeForce RTX 5090/PCIe/SSE2\n")
             self.assertEqual(runner.player_renderer(Path(folder)), "NVIDIA GeForce RTX 5090/PCIe/SSE2")
 
+    def test_floor_reaches_the_configuration_with_its_mode(self):
+        args = argparse.Namespace(mode="colony-vanilla", frames=30, timeout=600, keep_open=False, floor="f3")
+        configuration = runner.colony_configuration(args, "c", None, 0)
+        self.assertEqual((configuration["Mode"], configuration["Floor"]), ("colony-vanilla", "f3"))
+        self.assertIn("colony-vanilla", runner.LONG_RUN_MODES)
+
     def test_speed_reaches_the_configuration_only_when_requested(self):
         args = argparse.Namespace(mode="colony-owner", frames=60, timeout=600, keep_open=False)
         self.assertNotIn("Speed", runner.colony_configuration(args, "c", None, 0))

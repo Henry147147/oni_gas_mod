@@ -58,11 +58,18 @@ play.
   ([below](#element-consumers-and-emitters)).
 - **Ledgers.** Every species and U+K+G are reconciled each frame against the
   imported inventory plus every booked flow (injections, extractions, the
-  space sink, heat, phase change); drift beyond 1e-8 (mass, relative to the
+  space sink, the trace sink, heat, phase change); drift beyond 1e-8 (mass, relative to the
   species' booked flows, its phase change counted gross) or 1e-6 (energy)
   faults the owner. `MA_COLONY_LEDGER_LOG=1` reports on stderr each frame
   that raises the worst species' mass drift above 1e-12.
 - **Open sky.** Whatever reaches a Space cell leaves through the sink, booked.
+- **Trace sink** ([base-game floor](base-game-floor.md)). A colony started with
+  `MA_ONI_COLONY_GAME_FLOOR` runs the saved game-floor profile: constituents
+  below its threshold (provisionally 1e-6 kg per cell) leave through the
+  solver's audited trace sink before the flow, at the flow's interval ends and
+  after the owner's own edits. Their mass per species, U+K+G and momentum are
+  booked as their own ledger term (`trace_sink_kg`, `trace_sink_j` in the
+  status), apart from the space sink. The game does not select the profile yet.
 - **Breathing** (easy mode): a cell is breathable with at least 15% oxygen by
   moles and 15 kPa oxygen partial pressure, carbon dioxide below 0.5% and
   500 Pa; polluted oxygen counts as oxygen. A breathable cell offers its oxygen
@@ -274,8 +281,9 @@ predictive step control ([MAC_SOLVER.md](../native/MAC_SOLVER.md)).
 ## Saves
 
 ONI's native section of the save becomes a `MACOLONY` envelope holding the
-original native bytes and the colony checkpoint (`MACOLN01` version 5:
-configuration, material records, space mask, reservoir, ledgers, continuing
+original native bytes and the colony checkpoint (`MACOLN01` version 7, which
+also reads version 6 saves: configuration, material records, space and
+liquid-blocking masks, reservoir, ledgers including the trace sink's, continuing
 counters, the inputs queued for the next step, the `MACCLS01` physical image
 and a SHA-256). Inputs in flight at the save keep their mass but not their
 callbacks, which do not survive a load: an injection (exhaled gas, an emitter's
@@ -409,6 +417,22 @@ setting their powered flag (harness only).
 | `filter` | A pump sends oxygen and carbon dioxide through a carbon dioxide filter: its filtered port carries only carbon dioxide, its output only oxygen. |
 | `pacu` | A pacu in an owned pool stays in its water. |
 | `liquid-pump` | A liquid pump in a pool sends its water through a pipe into a reservoir; pump, pipe and reservoir hold what the owner lost. |
+
+### Floor arenas
+
+`--floor f1..f5` runs one fixed comparison arena of
+[docs/base-game-floor.md](base-game-floor.md) instead of scenarios
+(`managed/MixedAtmospheres.Oni/FloorArenas.cs`): under the owner
+(`--mode colony-owner`) or under ONI's own simulation (`--mode colony-vanilla`,
+where the owner never starts). The arena is carved nine cells right of the
+printing pod, filled two ticks later (oxygen from the ideal-gas law at the
+stated pressure, liquid as full cells at the catalogue's reference density at
+1 atm, `ma_oni_colony_liquid_density`) and released by the protocol. Every
+200 ms tick's published game data is sampled for the arena's interior into
+`floor-<id>.txt`, with `floor-<id>.json` holding the event ticks, the placed
+masses and each sampled element's properties read from the game.
+`tools/floor_metrics.py floor-<id>.json` computes the protocol's metrics.
+Numbers only: no saves or captures are kept.
 
 ## Verification
 

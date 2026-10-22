@@ -236,6 +236,17 @@ the GPU; under the colony owner Unity runs at about 67 instead of 3 frames per
 second, and a frame's interval exceeds its solver time by about 40 ms (frames
 10-60).
 
+## Floor arenas
+
+`run --mode colony-vanilla --floor f1` runs a fixed comparison arena of
+[docs/base-game-floor.md](../docs/base-game-floor.md) under ONI's own
+simulation (the colony owner never starts); `--mode colony-owner --floor f1`
+runs it under the owner. F1, F2, F3 and F5 last 120 s after release; F4 lasts
+20000 s (100,000 ticks), so it needs `--long-run` and a matching `--timeout`
+(about three hours at `--speed 3` on the GPU display). The samples land in the
+run's `colony-validation/floor-<id>.txt` and `.json`; `python3
+tools/floor_metrics.py <that>.json` prints the metrics.
+
 ## Long development runs
 
 Ten ONI cycles are about 30,000 native frames of 0.2 s. `--long-run` is a

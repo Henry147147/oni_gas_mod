@@ -17,6 +17,10 @@ extern "C" {
 #define MA_ONI_COLONY_MAXIMUM_SIDE 1024U
 #define MA_ONI_COLONY_MAXIMUM_CELLS 1048576U
 #define MA_ONI_COLONY_PHYSICS_CONDUCTION 1U
+/* The saved base-game accuracy-floor profile (docs/base-game-floor.md), with
+ * its booked trace sink. New colonies only; a restored colony keeps the
+ * profile its save holds. */
+#define MA_ONI_COLONY_GAME_FLOOR 2U
 
 typedef struct MAOniColonyMaterial {
     uint32_t struct_size, abi_version;
@@ -72,6 +76,9 @@ typedef struct MAOniColonyStatus {
     double released_kg; /* from the reservoir back into the asteroid */
     double converted_kg; /* fluid converted to another identity (byproducts leave as debris) */
     double settled_kg;   /* immiscible liquid exchanged by buoyant settling */
+    /* Removed by the saved game profile's trace sink (its own ledger term,
+     * apart from the space sink): mass and U+K+G. */
+    double trace_sink_kg, trace_sink_j;
     char error[256];
 } MAOniColonyStatus;
 
@@ -171,6 +178,10 @@ typedef struct MAOniColonyConstituent {
 MA_ONI_API MAOniResult ma_oni_colony_species(MAOniColonySpecies*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_colony_readings(uint64_t* completed_frame, MAOniColonyReading*, uint32_t capacity, uint32_t* count,
     MAOniColonyConstituent*, uint32_t constituent_capacity, uint32_t* constituent_count);
+/* A catalogue liquid's reference density (kg/m^3) at a pressure, from the
+ * same material records as start: the mass of one full cell. Needs no owner. */
+MA_ONI_API MAOniResult ma_oni_colony_liquid_density(const MAOniColonyMaterial*, uint32_t material_count, uint32_t native_index,
+    double pressure_pa, double* density_kg_per_m3);
 /* 1 while the solver thread is advancing or has a frame waiting. */
 MA_ONI_API uint32_t ma_oni_colony_busy(void);
 

@@ -31,7 +31,7 @@
 
 static_assert(sizeof(MAOniColonySpecies) == 40 && sizeof(MAOniColonyReading) == 64 && sizeof(MAOniColonyConstituent) == 24);
 static_assert(sizeof(MAOniColonyMaterial) == 168 && sizeof(MAOniColonyConfig) == 56 && sizeof(MAOniColonyCell) == 24 &&
-    sizeof(MAOniColonyStatus) == 584 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
+    sizeof(MAOniColonyStatus) == 600 && sizeof(MAOniColonyCellView) == 32 && sizeof(MAOniColonyTransfer) == 48 &&
     sizeof(MAOniColonyReceipt) == 48 && sizeof(MAOniColonyHeat) == 24, "Colony ABI layout changed");
 
 namespace ma::oni::colony {
@@ -83,6 +83,10 @@ struct Ledger {
     // starts it at |converted|.
     std::vector<long double> converted_gross;
     long double initial_energy = 0, heat = 0, energy_in = 0, energy_out = 0, energy_sunk = 0;
+    // The saved game profile's trace sink (MacTraceSinkReport): removed mass
+    // per species, U+K+G and canonical momentum, booked apart from the space sink.
+    std::vector<long double> trace;
+    long double energy_trace = 0, trace_momentum_x = 0, trace_momentum_y = 0;
 };
 struct Session {
     MAOniColonyConfig config{};
@@ -173,7 +177,7 @@ void write_error(MAOniColonyStatus& s, const char* text) { std::snprintf(s.error
 
 void validate(const MAOniColonyConfig& c) {
     require(c.struct_size == sizeof(c) && c.abi_version == MA_ONI_COLONY_ABI_VERSION, "Invalid colony configuration ABI");
-    require((c.flags & ~MA_ONI_COLONY_PHYSICS_CONDUCTION) == 0, "Unknown colony physics flag");
+    require((c.flags & ~(MA_ONI_COLONY_PHYSICS_CONDUCTION | MA_ONI_COLONY_GAME_FLOOR)) == 0, "Unknown colony physics flag");
     require(c.grid_width >= 3 && c.grid_height >= 3 && c.grid_width <= 65535 && c.grid_height <= 65535, "Invalid colony grid");
     require(c.width >= 2 && c.height >= 2 && c.width <= MA_ONI_COLONY_MAXIMUM_SIDE && c.height <= MA_ONI_COLONY_MAXIMUM_SIDE &&
         static_cast<std::uint64_t>(c.width) * c.height <= MA_ONI_COLONY_MAXIMUM_CELLS, "Colony rectangle is outside its size bounds");
@@ -205,6 +209,9 @@ std::vector<MacSaturationPair> with_critical(const Catalogue& cat, std::vector<M
         if (c.liquid == p.liquid && c.vapour == p.vapour && c.critical_k > 0) p.critical_temperature_k = c.critical_k;
     return pairs;
 }
+// The game-floor profile's per-constituent trace threshold (at most 1 mg by
+// the user's decision); provisional until the floor measurements select it.
+constexpr double game_floor_trace_kg = 1e-6;
 MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     MacClosedSettings s; s.maximum_timestep_s = c.maximum_timestep_s; s.numerical_kernel = MacNumericalKernel::production;
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
@@ -213,6 +220,7 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     s.gas_expansion_volume_fraction = .001;
     s.step_control = MacStepControl::regional_predictive;
     s.preconditioner = PressurePreconditioner::incomplete_cholesky;
+    if (c.flags & MA_ONI_COLONY_GAME_FLOOR) { s.game_profile = MacGameProfile::base_game_floor; s.trace_sink_threshold_kg = game_floor_trace_kg; }
     return s;
 }
 std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {
@@ -778,7 +786,8 @@ void start(const MAOniColonyConfig& config, std::span<const MAOniColonyMaterial>
     next->reservoir = std::move(settled.reservoir);
     next->world = std::make_shared<const MacClosedWorld>(cat.registry, cat.eos, std::move(settled.state), settings_of(config));
     next->ledger.initial = totals(*next->world); next->ledger.initial_energy = energy_of(*next->world);
-    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross}) v->assign(cat.registry.size(), 0);
+    for (auto* v : {&next->ledger.injected, &next->ledger.extracted, &next->ledger.sunk, &next->ledger.converted, &next->ledger.converted_gross,
+                    &next->ledger.trace}) v->assign(cat.registry.size(), 0);
     next->pairs = with_critical(cat, mac_saturation_pairs(cat.registry, *cat.eos));
     activate(std::move(next), thread);
 }
@@ -851,6 +860,15 @@ double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native
     const auto& w = *p->world; const auto i = rect_index(geometry, public_cell);
     auto m = w.state().cells[i].mixture; m.masses[p->catalogue->species_of_native(native_index)] = trace_kg;
     return evaluate_cell(w.thermodynamics(), m, mac_material_volume(w.state(), i)).temperature_k;
+}
+// The reference liquid has no thermal expansion: its density depends on
+// pressure only.
+double liquid_density(std::span<const MAOniColonyMaterial> materials, std::uint32_t native_index, double pressure_pa) {
+    require(std::isfinite(pressure_pa) && pressure_pa >= 0, "Invalid liquid density pressure");
+    const auto c = catalogue_of(materials);
+    const auto k = c->species_of_native(native_index);
+    require(!c->materials[k].game.gas, "Liquid density of a gas");
+    return 1 / c->eos->reference().liquid_response(k, pressure_pa).specific_volume_m3_per_kg;
 }
 std::uint64_t readings(std::vector<MAOniColonyReading>& out, std::vector<MAOniColonyConstituent>& parts) {
     std::shared_ptr<const Published> p; { std::lock_guard lock(publication); p = latest; }
@@ -1111,6 +1129,26 @@ void advance(std::uint64_t ticket, double seconds, std::uint64_t thread) noexcep
 }
 
 namespace {
+// What the saved game profile's trace sink removed leaves the ledgers as its
+// own term. Germs on removed traces leave with them (reported, not booked).
+void book_trace(Session& s, const MacTraceSinkReport& r) {
+    if (r.constituents == 0) return;
+    auto& L = s.ledger;
+    require(r.mass_kg.size() == L.trace.size(), "A trace sink report names a different species list");
+    long double kg = 0;
+    for (std::size_t k = 0; k < r.mass_kg.size(); ++k) { const auto m = mac_energy_long_double(r.mass_kg[k]); L.trace[k] += m; kg += m; }
+    const auto joules = mac_energy_long_double(r.internal_energy_j) + mac_energy_long_double(r.kinetic_energy_j) + mac_energy_long_double(r.potential_energy_j);
+    L.energy_trace += joules; L.trace_momentum_x += mac_energy_long_double(r.momentum_x); L.trace_momentum_y += mac_energy_long_double(r.momentum_y);
+    s.status.trace_sink_kg += static_cast<double>(kg); s.status.trace_sink_j += static_cast<double>(joules);
+}
+// The profile's sink outside the flow step (whose interval endpoints the
+// world applies itself): traces imported or made by the owner's own edits.
+MacClosedWorld sink_traces(Session& s, MacClosedWorld world) {
+    if (!(world.settings().trace_sink_threshold_kg > 0)) return world;
+    auto sunk = world.with_trace_sink();
+    book_trace(s, sunk.report);
+    return std::move(sunk.world);
+}
 void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::uint64_t thread) noexcept {
     std::lock_guard lock(lifecycle);
     if (!session || session->status.state != 1) return;
@@ -1415,7 +1453,9 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 else for (const auto& [k, entry] : by_species) receipt(*p.source, cat.materials[k].game.native_index, entry.first, entry.second, germs_of[k]);
             }
         }
-        lap(2); doing = "flow";
+        lap(2); doing = "trace sink";
+        world = sink_traces(s, std::move(world));
+        doing = "flow";
         // Flow. A debugging request (MA_COLONY_FAULT_DUMP=path) writes the
         // world before a failing flow step and the material records there.
         // MA_COLONY_DUMP_FRAME=n also writes the world before frame n's flow.
@@ -1448,6 +1488,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         stop_watchdog();
         auto advanced = std::move(*flowed);
+        book_trace(s, advanced.report.trace_sink);
         world = std::move(advanced.world);
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
@@ -1488,6 +1529,8 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         world = expel_blocked_liquid(s, std::move(world));
         doing = "conversions";
         world = convert_identities(s, std::move(world), seconds);
+        doing = "trace sink";
+        world = sink_traces(s, std::move(world));
         lap(3); doing = "space sink";
         // Open sky: whatever reaches a space cell leaves through the sink.
         std::vector<MacFluidTransfer> sink;
@@ -1506,22 +1549,23 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         const auto now = totals(world);
         double mass_error = 0; std::size_t worst = 0;
         for (std::size_t k = 0; k < now.size(); ++k) {
-            const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] + L.converted[k];
-            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + L.converted_gross[k];
+            const long double expected = L.initial[k] + L.injected[k] - L.extracted[k] - L.sunk[k] - L.trace[k] + L.converted[k];
+            const long double scale = L.initial[k] + L.injected[k] + L.extracted[k] + L.sunk[k] + L.trace[k] + L.converted_gross[k];
             if (scale > 0) { const auto e = static_cast<double>(std::abs(now[k] - expected) / scale); if (e > mass_error) { mass_error = e; worst = k; } }
             else if (now[k] != 0) throw std::runtime_error("The colony created an unbooked constituent");
         }
         // MA_COLONY_LEDGER_LOG=1: report each frame that raises the worst
         // relative mass error above 1e-12, with its species (stderr).
         if (mass_error > 1e-12 && mass_error > s.status.maximum_relative_mass_error && std::getenv("MA_COLONY_LEDGER_LOG")) {
-            const long double expected = L.initial[worst] + L.injected[worst] - L.extracted[worst] - L.sunk[worst] + L.converted[worst];
+            const long double expected = L.initial[worst] + L.injected[worst] - L.extracted[worst] - L.sunk[worst] - L.trace[worst] + L.converted[worst];
             std::fprintf(stderr, "[Mixed Atmospheres] ledger frame %llu (%s): %s relative mass error %.3g (held %.17Lg, booked %.17Lg; injected %.6Lg extracted %.6Lg sunk %.6Lg converted %.6Lg)\n",
                 static_cast<unsigned long long>(s.status.completed_frames + 1), doing, cat.materials[worst].game.id.c_str(), mass_error, now[worst], expected,
                 L.injected[worst], L.extracted[worst], L.sunk[worst], L.converted[worst]);
             std::fflush(stderr);
         }
-        const long double expected_energy = L.initial_energy + L.heat + L.energy_in - L.energy_out - L.energy_sunk;
-        const long double energy_scale = std::abs(L.initial_energy) + std::abs(L.heat) + std::abs(L.energy_in) + std::abs(L.energy_out) + std::abs(L.energy_sunk);
+        const long double expected_energy = L.initial_energy + L.heat + L.energy_in - L.energy_out - L.energy_sunk - L.energy_trace;
+        const long double energy_scale = std::abs(L.initial_energy) + std::abs(L.heat) + std::abs(L.energy_in) + std::abs(L.energy_out) +
+            std::abs(L.energy_sunk) + std::abs(L.energy_trace);
         const double energy_error = static_cast<double>(std::abs(energy_of(world) - expected_energy) / energy_scale);
         s.status.maximum_relative_mass_error = std::max(s.status.maximum_relative_mass_error, mass_error);
         s.status.maximum_relative_energy_error = std::max(s.status.maximum_relative_energy_error, energy_error);
@@ -1561,10 +1605,10 @@ struct Reader {
     long double ld() { const double hi = f64(), lo = f64(); return static_cast<long double>(hi) + lo; }
 };
 constexpr char magic[8] = {'M', 'A', 'C', 'O', 'L', 'N', '0', '1'};
-// Version 6 adds the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
+// Version 7 adds the trace-sink ledger; version 6 the liquid-blocking cells; version 5 the inputs queued at the save; version 4 the phase-change
 // conversion ledger; version 3 stored the continuing counters explicitly
 // (version 2 the raw status struct).
-constexpr std::uint32_t checkpoint_version = 6;
+constexpr std::uint32_t checkpoint_version = 7;
 }
 std::vector<std::uint8_t> checkpoint() {
     solver.settle(false);
@@ -1582,6 +1626,9 @@ std::vector<std::uint8_t> checkpoint() {
     const auto& L = s.ledger;
     for (const auto* v : {&L.initial, &L.injected, &L.extracted, &L.sunk, &L.converted}) for (const auto x : *v) w.ld(x);
     for (const auto x : {L.initial_energy, L.heat, L.energy_in, L.energy_out, L.energy_sunk}) w.ld(x);
+    for (const auto x : L.trace) w.ld(x);
+    for (const auto x : {L.energy_trace, L.trace_momentum_x, L.trace_momentum_y}) w.ld(x);
+    w.f64(s.status.trace_sink_kg); w.f64(s.status.trace_sink_j);
     // Counters that continue across a save; the status layout itself is not stored.
     for (const auto v : {s.status.completed_frames, s.status.substeps, s.status.rejected_attempts, s.status.committed_transfers,
                          s.status.committed_heat, s.status.opened_cells, s.status.closed_cells}) w.u64(v);
@@ -1620,7 +1667,8 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     const auto digest = hash_memory(image.data(), image.size() - 64);
     require(std::memcmp(digest.data(), image.data() + image.size() - 64, 64) == 0, "Colony checkpoint checksum differs");
     Reader r{image.first(image.size() - 64)};
-    char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0 && r.u32() == checkpoint_version, "Unsupported colony checkpoint");
+    char head[8]; r.raw(head, 8); require(std::memcmp(head, magic, 8) == 0, "Unsupported colony checkpoint");
+    const auto version = r.u32(); require(version == 6 || version == checkpoint_version, "Unsupported colony checkpoint");
     MAOniColonyConfig saved{}; r.raw(&saved, sizeof(saved));
     require(std::memcmp(&saved, &config, sizeof(config)) == 0, "Colony checkpoint geometry or physics differs from the loaded game");
     const auto count = r.u32(); require(count == materials.size(), "Colony checkpoint catalogue differs from the running game");
@@ -1641,6 +1689,13 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     L.converted_gross.resize(K); for (std::size_t k = 0; k < K; ++k) L.converted_gross[k] = std::abs(L.converted[k]);
     next->pairs = with_critical(*next->catalogue, mac_saturation_pairs(next->catalogue->registry, *next->catalogue->eos));
     for (auto* x : {&L.initial_energy, &L.heat, &L.energy_in, &L.energy_out, &L.energy_sunk}) *x = r.ld();
+    L.trace.assign(K, 0);
+    double trace_kg = 0, trace_j = 0;
+    if (version >= 7) {
+        for (auto& x : L.trace) x = r.ld();
+        for (auto* x : {&L.energy_trace, &L.trace_momentum_x, &L.trace_momentum_y}) *x = r.ld();
+        trace_kg = r.f64(); trace_j = r.f64();
+    }
     MAOniColonyStatus saved_status{};
     for (auto* v : {&saved_status.completed_frames, &saved_status.substeps, &saved_status.rejected_attempts, &saved_status.committed_transfers,
                     &saved_status.committed_heat, &saved_status.opened_cells, &saved_status.closed_cells}) *v = r.u64();
@@ -1666,6 +1721,7 @@ void restore(const MAOniColonyConfig& config, std::span<const MAOniColonyMateria
     st.space_sink_kg = saved_status.space_sink_kg; st.injected_kg = saved_status.injected_kg; st.extracted_kg = saved_status.extracted_kg;
     st.opened_cells = saved_status.opened_cells; st.closed_cells = saved_status.closed_cells;
     st.evaporated_kg = saved_status.evaporated_kg; st.condensed_kg = saved_status.condensed_kg;
+    st.trace_sink_kg = trace_kg; st.trace_sink_j = trace_j;
     {
         std::lock_guard q(inputs);
         pending_transfers = std::move(transfers); pending_heat = std::move(heat); pending_terrain = std::move(terrain); pending_freezes = std::move(freezes);

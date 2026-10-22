@@ -81,7 +81,9 @@ def scenario_list(value: str) -> str:
 
 
 LONG_RUN_MODES = ("snapshot-copy", "native-observer", "native-domain", "native-liquid-domain", "native-mixed-domain",
-                  "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load")
+                  "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "colony-owner", "colony-owner-load",
+                  "colony-vanilla")
+FLOOR_ARENAS = ("f1", "f2", "f3", "f4", "f5")
 TELEMETRY_FILE = "development-telemetry.jsonl"
 TELEMETRY_KIND = "mixed-atmospheres-development-telemetry"
 # The game writes a telemetry heartbeat at least every 60 s of wall time.
@@ -675,6 +677,7 @@ def colony_configuration(args, name: str, load_fixture: Path | None, inspection_
         **({"OverwriteSave": True} if getattr(args, "overwrite_save", False) is True else {}),
         **({"VanillaLoad": True} if getattr(args, "vanilla_load", False) is True else {}),
         **({"Speed": args.speed} if isinstance(getattr(args, "speed", None), int) else {}),
+        **({"Floor": args.floor} if isinstance(getattr(args, "floor", None), str) else {}),
     }
     if getattr(args, "long_run", False) is True:
         interval = getattr(args, "telemetry_interval_frames", None)
@@ -830,7 +833,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("--gpu-display and --private-display are alternatives.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
+    if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "colony-vanilla", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
     game = args.game_dir.resolve()
     if (game / "OxygenNotIncluded").read_bytes()[:4] != b"\x7fELF":
@@ -1060,7 +1063,7 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
-    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection"), default="menu")
+    play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection", "colony-vanilla"), default="menu")
     play.add_argument("--frames", type=int, metavar="1..10000 (1..100000 with --long-run)",
                       help="Native frames to complete (default 30, or 30000 = ten ONI cycles with --long-run)")
     play.add_argument("--timeout", type=int, metavar="30..7200 (30..172800 with --long-run)",
@@ -1093,6 +1096,8 @@ def main() -> int:
     play.add_argument("--overwrite-save", action="store_true", help="colony-owner --save-colony: save halfway and again at the end to the same file")
     play.add_argument("--cluster", choices=BASE_CLUSTERS,
                       help="colony-owner only: the base-game starting asteroid's cluster layout (default Terra, SandstoneDefault)")
+    play.add_argument("--floor", choices=FLOOR_ARENAS,
+                      help="one fixed comparison arena of docs/base-game-floor.md: colony-vanilla (ONI's own simulation) or colony-owner")
     play.add_argument("--speed", type=int, choices=(1, 2, 3),
                       help="the game speed the colony keeps: 1 normal, 2 fast, 3 ultra (default: the game's own)")
     play.add_argument("--scenario", type=scenario_list,
@@ -1135,6 +1140,9 @@ def main() -> int:
         parser.error("--cluster needs --mode colony-owner")
     if args.command == "run" and getattr(args, "scenario", None) and args.mode != "colony-owner":
         parser.error("--scenario needs --mode colony-owner")
+    if args.command == "run" and ((args.mode == "colony-vanilla") != (getattr(args, "floor", None) is not None and args.mode != "colony-owner") or
+                                  getattr(args, "floor", None) and getattr(args, "scenario", None)):
+        parser.error("--mode colony-vanilla needs --floor; --floor needs colony-vanilla or colony-owner, without --scenario")
     if args.command == "run" and (bool(args.load_save) != (args.mode in ("native-load-domain", "colony-owner-load")) or (args.load_save and not args.load_save.is_file())):
         parser.error("native-load-domain requires --load-save pointing to a completed colony save; other modes cannot use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)

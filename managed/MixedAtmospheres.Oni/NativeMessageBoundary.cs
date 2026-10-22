@@ -79,6 +79,7 @@ namespace MixedAtmospheres.Oni
                 if (NativeSealedDomainValidation.TryHandleTransfers(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.TryHandleActorMessage(message, length, payload)) return IntPtr.Zero;
                 ColonyOwner.Count(message, 1);
+                if (message == DevelopmentTelemetrySampler.NewGameFrameMessage && length >= 4) FloorArenas.OnFrame(*(float*)payload);
                 if (ColonyOwner.TryHandle(message, length, 1, payload)) return IntPtr.Zero;
                 if (NativeSealedDomainValidation.Active) NativeSealedDomainValidation.BeforeNativeMutation(message, length, payload);
                 // Development telemetry only: wall time of the game thread in

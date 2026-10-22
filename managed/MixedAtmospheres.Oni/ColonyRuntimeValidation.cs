@@ -104,7 +104,7 @@ namespace MixedAtmospheres.Oni
                 (NativeSealedDomainValidation.ColonyRestoreMode && (!Path.IsPathRooted(configuration.LoadSavePath) ||
                     !File.Exists(configuration.LoadSavePath) || configuration.ReuseGeneratedWorld)))
                 throw new InvalidDataException("Paired colony loading requires its explicit mode, an existing absolute save path and the normal saved-colony lifecycle.");
-            if ((configuration.Mode == "native-observer" || configuration.Mode.StartsWith("colony-owner", StringComparison.Ordinal) || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
+            if ((configuration.Mode == "native-observer" || configuration.Mode == "colony-vanilla" || configuration.Mode.StartsWith("colony-owner", StringComparison.Ordinal) || NativeSealedDomainValidation.IsMode) && !NativeBackendObservation.Enabled)
                 throw new InvalidDataException("Native observer validation requires an explicitly enabled observer package.");
             if (configuration.IdleReservoirLeaseOnly && configuration.Mode != "presentation")
                 throw new InvalidDataException("Idle reservoir eligibility requires the explicit private presentation test.");
@@ -125,6 +125,7 @@ namespace MixedAtmospheres.Oni
             if(configuration.ReloadInProcess && (!NativeSealedDomainValidation.ColonyRestoreMode || !configuration.SaveBeforeResume))
                 throw new InvalidDataException("In-process reload requires a saved-colony load and the paused initial autosave control.");
             Directory.CreateDirectory(OutputDirectory);
+            if (configuration.Floor.Length != 0) FloorArenas.Configure(configuration.Floor, OutputDirectory);
             if (NativeSealedDomainValidation.IsMode)
             {
                 Report.SnapshotCopiesIncludeCustomProjections = true;
@@ -144,6 +145,7 @@ namespace MixedAtmospheres.Oni
 
         internal static IntPtr AfterNativeMessage(int message, IntPtr result)
         {
+            if (FloorArenas.Id.Length != 0 && actualColonyActive) FloorArenas.OnNativeMessage(message, result);
             if (configuration?.Mode == "presentation" && ObserveMessage && actualColonyActive && result != IntPtr.Zero &&
                 (message == -931446686 || message == 1078620451))
             {
@@ -306,6 +308,12 @@ namespace MixedAtmospheres.Oni
                 catch (Exception error) { Fail(error); }
                 return;
             }
+            if (configuration.Mode == "colony-vanilla")
+            {
+                try { ColonyVanillaScene(); }
+                catch (Exception error) { Fail(error); }
+                return;
+            }
             if (configuration.Mode == "coupled-presentation")
             {
                 try { CoupledPresentationValidation.Tick(); }
@@ -431,7 +439,11 @@ namespace MixedAtmospheres.Oni
             // ONI pauses a colony when it loads it and after a save; an
             // unattended run plays on.
             if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
-            if (configuration.Scenario.Length != 0)
+            if (configuration.Floor.Length != 0)
+            {
+                if (!FloorArenas.Update()) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+            }
+            else if (configuration.Scenario.Length != 0)
             {
                 if (!scenarioDone) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
                 if (!ColonyScenarios.AllPassed)
@@ -457,6 +469,20 @@ namespace MixedAtmospheres.Oni
             Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
             done = true; WriteReport();
             CaptureScreenshot("colony.png");
+        }
+        // A floor arena under ONI's own simulation: the owner never starts
+        // (ColonyOwner.Available), so the arena is ONI's.
+        private static void ColonyVanillaScene()
+        {
+            if (ColonyOwner.Active) throw new InvalidOperationException("The colony owner started in a vanilla run.");
+            Report.PhysicsOwner = "ONI native simulation (colony owner off)";
+            Report.Duplicants = Components.LiveMinionIdentities.Count;
+            if (SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
+            if (!FloorArenas.Update()) { if (Time.frameCount % 60 == 0) WriteReport(); return; }
+            Report.Status = "passed"; Report.Stage = "completed";
+            Report.ActiveDlcIds = SaveLoader.Instance.GameInfo.dlcIds.ToArray();
+            Report.FinishedUtc = System.DateTime.UtcNow.ToString("O");
+            done = true; WriteReport();
         }
         // An ordinary manual save, through the game's own save path (the new
         // colony's first autosave already counted one).
