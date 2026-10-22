@@ -27,10 +27,61 @@ MacClosedWorld owner(const ma::testing::Setup& setup,bool wet,
     settings.shock_heat=heat; settings.compression_viscosity=compression;
     return MacClosedWorld(setup.registry,setup.eos,std::move(state),settings).advanced(.02).world;
 }
+void game_profile_checkpoint(const ma::testing::Setup& setup) {
+    MacClosedSettings settings;
+    settings.numerical_kernel=MacNumericalKernel::production;
+    settings.vacuum=MacVacuumRepresentation::void_phase;
+    settings.step_control=MacStepControl::regional_predictive;
+    const auto state=setup.state(4,3,false);
+    const MacClosedWorld legacy(setup.registry,setup.eos,state,settings);
+    const auto old_image=legacy.checkpoint();
+    require(old_image.at(8)==15,"Legacy regional owner changed its checkpoint version");
+    for (const double threshold : {0.,std::numeric_limits<double>::denorm_min(),1e-6}) {
+        settings.game_profile=MacGameProfile::base_game_floor;
+        settings.trace_sink_threshold_kg=threshold;
+        const MacClosedWorld source(setup.registry,setup.eos,state,settings);
+        const auto image=source.checkpoint();
+        const auto restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,image);
+        require(image.at(8)==16 && restored.checkpoint()==image &&
+            restored.settings().game_profile==MacGameProfile::base_game_floor &&
+            restored.settings().trace_sink_threshold_kg==threshold,
+            "Saved game profile or trace threshold changed on restore");
+        require(source.advanced(.02).world.checkpoint()==restored.advanced(.02).world.checkpoint(),
+            "Saved game profile continuation changed checkpoint bytes");
+        std::uint32_t identity_bytes=0;
+        for (std::size_t i=0;i<4;++i) identity_bytes|=static_cast<std::uint32_t>(image[12+i])<<(8*i);
+        const std::size_t profile=16+identity_bytes+16+26+45+16+4+12+4+4+4+4+4+8;
+        require(image.at(profile)==1,"Saved game profile has the wrong wire position");
+        for (int malformed=0;malformed<4;++malformed) {
+            auto corrupt=image;
+            if (malformed<2) put(corrupt,profile,malformed==0 ? 0 : 2,4);
+            else put(corrupt,profile+4,std::bit_cast<std::uint64_t>(malformed==2 ? -1. : 1e-5));
+            seal(corrupt); bool rejected=false;
+            try { (void)MacClosedWorld::from_checkpoint(setup.registry,setup.eos,corrupt); }
+            catch (const std::exception&) { rejected=true; }
+            require(rejected,"Malformed saved game profile or trace threshold was accepted");
+        }
+    }
+    const auto old_restored=MacClosedWorld::from_checkpoint(setup.registry,setup.eos,old_image);
+    require(old_restored.settings().game_profile==MacGameProfile::legacy && old_restored.settings().trace_sink_threshold_kg==0 &&
+        old_restored.checkpoint()==old_image && legacy.checkpoint()==old_image,
+        "An old save acquired a game profile or changed bytes");
+    for (const double invalid : {-1.,std::nextafter(1e-6,1.),std::numeric_limits<double>::infinity(),
+                                 std::numeric_limits<double>::quiet_NaN()}) {
+        settings.trace_sink_threshold_kg=invalid; bool rejected=false;
+        try { settings.validate(); } catch (const std::invalid_argument&) { rejected=true; }
+        require(rejected,"Invalid trace-sink threshold was accepted");
+    }
+    settings.game_profile=MacGameProfile::legacy; settings.trace_sink_threshold_kg=1e-9;
+    bool rejected=false;
+    try { settings.validate(); } catch (const std::invalid_argument&) { rejected=true; }
+    require(rejected,"Legacy profile enabled a trace sink");
+}
 }
 int main(int argc,char** argv) {
     try {
         const auto& setup=ma::testing::setup();
+        game_profile_checkpoint(setup);
         for (const bool wet : {false,true}) for (const auto heat : {MacShockHeatRegularization::none,MacShockHeatRegularization::compression_activated,MacShockHeatRegularization::pressure_sensed_acoustic,MacShockHeatRegularization::pressure_sensed_series})
             for (const auto compression : {MacCompressionViscosity::none,MacCompressionViscosity::quadratic,MacCompressionViscosity::acoustic_quadratic}) {
             const auto source=owner(setup,wet,heat,compression); const auto image=source.checkpoint(); const auto fingerprint=ma::testing::fingerprint(source.state());
@@ -111,6 +162,7 @@ int main(int argc,char** argv) {
             } else throw std::invalid_argument("Unknown checkpoint fixture operation");
         } else require(argc==1,"Invalid checkpoint test arguments");
         std::cout<<"PASS physical checkpoint, exact continuation for all compression/heat modes, trace/passive/full momentum, model identity and malformed/truncated images\n";
+        std::cout<<"PASS saved game profile and trace threshold, legacy identity, exact continuation and malformed settings\n";
         return 0;
     } catch (const std::exception& error) { std::cerr<<error.what()<<'\n'; return 1; }
 }

@@ -183,6 +183,12 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(std::isfinite(trace_sink_threshold_kg) && trace_sink_threshold_kg >= 0 && trace_sink_threshold_kg <= 1e-6 &&
+        ((game_profile == MacGameProfile::legacy && trace_sink_threshold_kg == 0) ||
+         (game_profile == MacGameProfile::base_game_floor && numerical_kernel == MacNumericalKernel::production &&
+          step_control == MacStepControl::regional_predictive && vacuum == MacVacuumRepresentation::void_phase &&
+          phase_change == MacPhaseChange::none && diffusion.mode == MacDiffusionMode::disabled)),
+        "Invalid MAC game profile or trace-sink threshold");
     require(std::isfinite(gas_expansion_volume_fraction) &&
         gas_expansion_volume_fraction >= 16 * eps && gas_expansion_volume_fraction <= 1 &&
         (gas_expansion_volume_fraction == 16 * eps || subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas),

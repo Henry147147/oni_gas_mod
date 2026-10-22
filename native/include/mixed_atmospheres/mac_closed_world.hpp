@@ -55,6 +55,9 @@ enum class MacPhaseChange { none = 0, saturation = 1 };
 // advances closed fluid components independently, with one shared attempt
 // budget and a final full-grid audit. Nonperiodic production void phase only.
 enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 2 };
+// Saved game-profile family. Legacy retains every pre-profile trajectory;
+// scientific gates never select the base-game accuracy-floor profile.
+enum class MacGameProfile { legacy = 0, base_game_floor = 1 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.
@@ -83,6 +86,10 @@ struct MacClosedSettings {
     // Opt-in free expansion below this occupied/grid volume fraction.
     // The legacy threshold retains its original substep schedule and bytes.
     double gas_expansion_volume_fraction = 16 * std::numeric_limits<double>::epsilon();
+    MacGameProfile game_profile = MacGameProfile::legacy;
+    // Per constituent per cell, strictly below the threshold. Zero disables
+    // the booked trace sink; the user-authorized ceiling is one milligram.
+    double trace_sink_threshold_kg = 0;
     void validate() const;
 };
 struct MacClosedSubstep {
