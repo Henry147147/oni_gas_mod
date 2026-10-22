@@ -256,7 +256,7 @@ void expand_unresolved_gas(Context& c, Fields& f, Accounts& acc) {
     if (c.settings.subcell_void != MacSubcellVoidPolicy::expand_unresolved_gas || f.Vo.empty()) return;
     const auto& g = c.g;
     for (std::size_t i = 0; i < g.N; ++i) {
-        if (g.wall[i] || !(f.Vo[i] > 0 && f.Vo[i] <= 16 * eps * g.V)) continue;
+        if (g.wall[i] || !(f.Vo[i] > 0 && f.Vo[i] <= c.settings.gas_expansion_volume_fraction * g.V)) continue;
         const auto stats = cell_stats(c.model, f, g.N, i);
         if (!(stats.nR > 0)) continue;
         State before, after;
@@ -452,6 +452,14 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     for (std::size_t audit_attempt = 0;; ++audit_attempt) {
         copy_fields(c.exec, g, model, w.start, w.current);
         Accounts acc; acc.resize(c.quantities());
+        // Configured coarse geometry also resolves an incoming tiny gas cell
+        // before its pressure step can require an unrepresentable timestep.
+        // Legacy owners retain their original after-substep expansion only.
+        if (settings.gas_expansion_volume_fraction != 16 * eps) {
+            const auto expansion_start = Clock::now();
+            expand_unresolved_gas(c, w.current, acc);
+            if (options.collect_stage_timing) report.timing.eos_ms += since(expansion_start);
+        }
         double time = start_time, next_dt = maximum_dt;
         report.minimum_timestep_s = std::numeric_limits<double>::infinity(); report.maximum_timestep_s = 0;
         while (time < endpoint) {

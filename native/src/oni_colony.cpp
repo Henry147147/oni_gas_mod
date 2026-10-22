@@ -197,6 +197,7 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     s.gravity_m_per_s2 = c.gravity_m_per_s2; s.thermal_conduction = (c.flags & MA_ONI_COLONY_PHYSICS_CONDUCTION) != 0;
     s.vacuum = MacVacuumRepresentation::void_phase; s.reconstruction = MacMaterialReconstruction::interface_plic;
     s.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;
+    s.gas_expansion_volume_fraction = .001;
     s.step_control = MacStepControl::predictive;
     s.preconditioner = PressurePreconditioner::incomplete_cholesky;
     return s;

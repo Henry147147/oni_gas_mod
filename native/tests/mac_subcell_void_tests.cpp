@@ -3,6 +3,7 @@
 #include "mixed_atmospheres/thermal.hpp"
 #include <bit>
 #include <iomanip>
+#include <string_view>
 
 namespace {
 using namespace ma::testing;
@@ -174,6 +175,70 @@ void checkpoints_and_threads() {
 // conducts at most its free-molecular limit; at full gas conductivity its heat
 // capacity sat below what its face temperatures resolve and rounding drove its
 // temperature negative.
+void configured_expansion() {
+    const auto& s = setup();
+    const auto previous = mac_kernel_default_options();
+    const auto state = isolated(1e-4, true, false, 2050);
+    auto cfg = settings(); cfg.gas_expansion_volume_fraction = .001;
+    for (const auto control : {MacStepControl::doubling, MacStepControl::predictive}) {
+        cfg.step_control = control;
+        std::vector<std::uint8_t> expected;
+        for (const unsigned threads : {1U, 12U}) {
+            auto options = previous; options.threads = threads; set_mac_kernel_default_options(options);
+            const MacClosedWorld source(s.registry, s.eos, state, cfg);
+            const auto image = source.checkpoint();
+            require(image[8] == 14, "Configured gas fraction did not select version14");
+            const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, image);
+            require(restored.settings().gas_expansion_volume_fraction == .001 &&
+                restored.settings().step_control == control && restored.checkpoint() == image,
+                "Configured gas fraction/controller lost exact restore");
+            const auto changed = source.advanced(1e-4);
+            require(changed.report.subcell_void_events == 1025 && changed.report.subcell_void_entropy_j_per_k > 0 &&
+                changed.world.state().occupied_volumes_m3.empty(), "Configured expansion did not fill its gas cells");
+            const auto& next = changed.world.state();
+            require(next.momentum_x == state.momentum_x && next.momentum_y == state.momentum_y,
+                "Configured expansion changed momentum");
+            for (std::size_t i = 0; i < state.cells.size(); ++i) {
+                require(next.cells[i].mixture.masses == state.cells[i].mixture.masses &&
+                    same_mac_cell_internal_energy(next.cells[i], state.cells[i]) &&
+                    next.cells[i].passive_quantities.size() == state.cells[i].passive_quantities.size(),
+                    "Configured expansion changed a conserved inventory");
+                for (std::size_t p = 0; p < state.cells[i].passive_quantities.size(); ++p)
+                    require(next.cells[i].passive_quantities[p].identity == state.cells[i].passive_quantities[p].identity &&
+                        next.cells[i].passive_quantities[p].quantity == state.cells[i].passive_quantities[p].quantity,
+                        "Configured expansion changed a passive quantity");
+            }
+            const auto endpoint = changed.world.checkpoint();
+            require(source.checkpoint() == image && restored.advanced(1e-4).world.checkpoint() == endpoint,
+                "Configured expansion changed its source or cold continuation");
+            require(std::abs(changed.report.energy_residual_j) <= changed.report.energy_bound_j,
+                "Configured expansion failed its unchanged energy audit");
+            if (expected.empty()) expected = endpoint;
+            else require(endpoint == expected, "Configured expansion depends on worker count");
+            auto corrupt = image;
+            std::uint32_t identity = 0;
+            for (std::size_t i = 0; i < 4; ++i) identity |= static_cast<std::uint32_t>(image[12+i]) << (8*i);
+            const std::size_t fraction = 16 + identity + 16 + 26 + 89 + 8;
+            for (const double invalid : {0., 16 * std::numeric_limits<double>::epsilon(), 2.,
+                    std::numeric_limits<double>::quiet_NaN()}) {
+                corrupt = image; put(corrupt, fraction, std::bit_cast<std::uint64_t>(invalid), 8); seal(corrupt);
+                rejects([&] { (void)MacClosedWorld::from_checkpoint(s.registry,s.eos,corrupt); },
+                    "Noncanonical configured gas fraction was accepted");
+            }
+        }
+    }
+    set_mac_kernel_default_options(previous);
+    const auto liquid = isolated(1e-4, false, true);
+    const auto kept = MacClosedWorld(s.registry,s.eos,liquid,cfg).advanced(1e-4);
+    require(kept.report.subcell_void_events == 0 && kept.world.state().occupied_volumes_m3 == liquid.occupied_volumes_m3,
+        "Configured gas expansion changed liquid-only geometry");
+    auto legacy = cfg; legacy.gas_expansion_volume_fraction = 16 * std::numeric_limits<double>::epsilon();
+    const MacClosedWorld old(s.registry,s.eos,isolated(1e-4,true,false),legacy);
+    require(old.checkpoint()[8] == 13 && old.advanced(1e-4).report.subcell_void_events == 0,
+        "Legacy gas fraction lost its format or threshold");
+    auto invalid = cfg; invalid.subcell_void = MacSubcellVoidPolicy::exact_geometry;
+    rejects([&] { invalid.validate(); }, "Configured gas fraction without expansion was accepted");
+}
 void rarefied_conduction() {
     const auto& s = setup();
     require(ma::free_molecular_conductivity(1.2 * 718, 1, 300, 0.029, 1) > 1e5 * 0.026, "Continuum air reached the free-molecular cap");
@@ -195,11 +260,16 @@ void rarefied_conduction() {
     std::cout << "RAREFIED near-vacuum temperature " << t << " K\n";
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         std::cout << std::setprecision(17);
+        if (argc == 2 && std::string_view(argv[1]) == "--configured-only") {
+            configured_expansion(); std::cout << "PASS configured gas expansion: conservation, liquid exclusion, workers and version14 continuation\n";
+            return 0;
+        }
         conservation_and_entropy(); admission_and_threshold(); checkpoints_and_threads(); rarefied_conduction();
         std::cout << "PASS audited opt-in subcell expansion, unchanged conserved fields, complete-EOS entropy and fixed threshold\n";
+        configured_expansion(); std::cout << "PASS configured gas expansion: conservation, liquid exclusion, workers and version14 continuation\n";
         return 0;
     } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 }

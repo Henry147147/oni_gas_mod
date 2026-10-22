@@ -183,6 +183,10 @@ std::optional<StaticEquilibrium> exact_static_equilibrium(const SpeciesRegistry&
 void MacClosedSettings::validate() const {
     viscosity.validate();
     diffusion.validate();
+    require(std::isfinite(gas_expansion_volume_fraction) &&
+        gas_expansion_volume_fraction >= 16 * eps && gas_expansion_volume_fraction <= 1 &&
+        (gas_expansion_volume_fraction == 16 * eps || subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas),
+        "Invalid MAC gas-expansion volume fraction");
     require(subcell_void == MacSubcellVoidPolicy::exact_geometry ||
         (subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas &&
             vacuum == MacVacuumRepresentation::void_phase && numerical_kernel == MacNumericalKernel::production && mac_kernel_supports(*this)),

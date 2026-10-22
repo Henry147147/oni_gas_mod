@@ -35,7 +35,8 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
    [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U; 11 for
    [phase change](MAC_PHASE_CHANGE.md); 12 for the [unresolved gas opt-in](MAC_VACUUM.md#unresolved-gas-opt-in);
-   13 for predictive step control), and a length-prefixed binary model identity.
+   13 for predictive step control; 14 for a configured gas-expansion fraction),
+   and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
 4. Maximum timestep, outgoing-volume limit, pressure preconditioner, gravity,
@@ -64,21 +65,25 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    canonical value 1). It requires supported production void-phase settings.
    Version 13 stores the version-12 fields (the subcell policy may also be 0)
    followed by the step control (unsigned 32-bit, canonical value 1, predictive).
+   Version 14 stores that prefix with step control 0 or 1, followed by the
+   binary64 gas-expansion volume fraction. It requires unresolved expansion and
+   a fraction above the legacy `16 * epsilon`, at most 1. Older versions restore
+   the legacy fraction.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Versions 9–13: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9–14: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Versions 10–13: the cell count followed by each correction's projected binary64
+9. Versions 10–14: the cell count followed by each correction's projected binary64
    value and boolean full-value flag. A flagged value adds its normalized binary64
    significand and length-prefixed canonical decimal exponent. The full value is
    required exactly when its projection rounds. High/low overlap, scalar negative
    zero and incomplete coverage reject; so does an entirely zero correction vector
-   in version 10, which versions 11–13 (selected by their opt-in setting) admit.
+   in version 10, which versions 11–14 (selected by their opt-in setting) admit.
 10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
@@ -116,6 +121,11 @@ fetch onto `988ee34`. Any owner with `step_control = predictive` writes it;
 `ma_mac_step_control_tests` checks the selector's position, rejection of values
 0 and 2, and byte-identical continuation.
 
+Version **14 is a configured gas-expansion volume fraction**,
+allocated after a fresh fetch onto `d62ac3a`. The legacy fraction keeps all
+older formats and continuation. Configured owners store the fraction and their
+step controller explicitly; new colony owners select `0.001`.
+
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without
 U corrections writes version 9. Any owner with nonzero corrections writes version
@@ -135,6 +145,7 @@ U corrections writes version 9. Any owner with nonzero corrections writes versio
 | 11 | reference (0) or production (2), explicit saturation phase change and primary-U sidecar | according to physical settings | according to physical settings |
 | 12 | supported production (2), void phase, explicit unresolved gas expansion | either | disabled |
 | 13 | supported production (2), predictive step control | either | disabled |
+| 14 | supported production (2), configured gas-expansion fraction | either | disabled |
 
 Version 4 and version-5 images carrying selector 1 reject explicitly as retired.
 The old wire layout and selector meaning are reserved, never remapped to

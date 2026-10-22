@@ -8,6 +8,7 @@
 #include "mac_compressive_work.hpp"
 #include "volume_work.hpp"
 #include "mac_phase_change.hpp"
+#include <limits>
 #include <memory>
 #include <optional>
 
@@ -77,6 +78,9 @@ struct MacClosedSettings {
     MacPhaseChange phase_change = MacPhaseChange::none;
     MacSubcellVoidPolicy subcell_void = MacSubcellVoidPolicy::exact_geometry;
     MacStepControl step_control = MacStepControl::doubling;
+    // Opt-in free expansion below this occupied/grid volume fraction.
+    // The legacy threshold retains its original substep schedule and bytes.
+    double gas_expansion_volume_fraction = 16 * std::numeric_limits<double>::epsilon();
     void validate() const;
 };
 struct MacClosedSubstep {

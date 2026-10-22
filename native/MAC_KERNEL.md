@@ -609,8 +609,25 @@ Whole-lock Terra60 owner mean is 0.649 s → 0.638 s; observed frame interval
 is 0.848 s → 0.830 s. Both pass; candidate relative mass/energy errors are
 `5.25e-16` / `3.35e-17`.
 
-These changes keep the physical model, tolerances and checkpoint format.
+The optimizations above keep the physical model, tolerances and checkpoint format.
 Real-time 0.2 s frames remain open.
+
+New colony owners also select the saved gas-expansion volume fraction `0.001`
+([subcell gas](MAC_VACUUM.md#unresolved-gas-opt-in)). Eligible input cells expand
+before pressure as well as after substeps. This resolves a door-arena case whose
+tiny occupied gas volumes otherwise reach the clock's resolution while cooling.
+The trade is earlier filling of thin gas fronts; every species, primary U and
+momentum is retained, and free-expansion entropy is accounted. The legacy
+fraction and all gate settings retain their behavior. Configured owners write
+checkpoint version 14.
+Matched high-half dump timing is 2.125 s → 0.874 s for the severe pocket
+(23 substeps/22 rejections → 13/6); the door fault dump completes in 5.496 s
+with 105 substeps/31 rejections. Whole-lock Terra60 passes: owner mean
+0.638 s → 0.623 s, observed interval 0.830 s → 0.817 s. Candidate p95 is
+1.035 s; relative mass/energy errors are `5.32e-16` / `3.75e-17`.
+Release/83 CTests, the focused ASan/UBSan control and clean 83-executable/
+sixteen-variant comparisons pass. Legacy outputs retain their values except
+timing and the new configured-control PASS line.
 
 ## Current active-cell baseline
 

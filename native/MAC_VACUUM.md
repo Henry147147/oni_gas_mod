@@ -245,6 +245,19 @@ Liquid-only material and resolved occupied volumes keep their geometry. No
 constituent, passive quantity, primary U/remainder or face momentum is changed.
 This is free expansion, not a discarded transfer or a rounding correction.
 
+`MacClosedSettings::gas_expansion_volume_fraction` can select a larger cutoff.
+Its default is the legacy `16 * epsilon`; these owners retain their original
+schedule and checkpoint bytes. A configured cutoff also expands eligible input
+cells before pressure. New colony owners select `0.001`, preventing tiny gas
+volumes from forcing clock steps below representable resolution. This trades
+subcell front timing for playability: gas occupying at most 0.1% of a voxel fills
+its available void sooner. Liquid-only cells keep their geometry, and every
+conserved field stays unchanged. The positive entropy change is accounted as
+above. Version 14 saves the fraction and step controller. Older images retain
+their stored legacy behavior; the physics gates use their existing settings.
+The configured control checks conservation, liquid exclusion, one/twelve-worker
+identity and cold continuation with both controllers.
+
 Each event evaluates the complete EOS before and after at fixed U. Its entropy
 increase is counted separately in `subcell_void_events` and
 `subcell_void_entropy_j_per_k`; it contributes to the unchanged interval entropy
