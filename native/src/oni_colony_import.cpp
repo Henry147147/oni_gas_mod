@@ -314,7 +314,17 @@ ImportResult settle_import(const Catalogue& catalogue, std::size_t width, std::s
         }
         std::vector<std::size_t> order;
         for (const auto i : regions[r]) if (gas_volume(i) > 0) order.push_back(i);
-        if (present.empty() || order.empty()) continue;
+        if (present.empty()) continue;
+        if (order.empty()) {
+            // A region its liquid fills completely: the gas it held waits in
+            // the reservoir (booked) until its pocket gains room.
+            for (const auto i : regions[r]) {
+                const double t = gas[i].capacity > 0 ? gas[i].heat / gas[i].capacity : region_temperature[r];
+                for (const auto& [k, m] : gas[i].masses) if (m > 0) { result.reservoir.push_back({i, k, m, t}); report.reservoir_kg += m; }
+                gas[i] = Gas{};
+            }
+            continue;
+        }
         std::sort(present.begin(), present.end(), [&](std::uint32_t a, std::uint32_t b) {
             return registry[a].molar_mass != registry[b].molar_mass ? registry[a].molar_mass > registry[b].molar_mass : a < b; });
         long double total_heat = 0, total_capacity = 0;

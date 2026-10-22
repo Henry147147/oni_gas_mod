@@ -294,6 +294,7 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
             evaluated.emplace(evaluate_cell(w.thermodynamics(), m, mac_material_volume(st, i)));
         }
         catch (const std::exception&) { if (!fallback) throw; v = previous->views[i]; return; }
+        if (!std::isfinite(evaluated->temperature_k)) { if (!fallback) throw std::runtime_error("A cell reads a non-finite temperature"); v = previous->views[i]; return; }
         const auto& reading = *evaluated;
         double gas = 0, liquid = 0, best_gas = 0, best_liquid = 0; std::size_t gas_k = 0, liquid_k = 0;
         for (std::size_t k = 0; k < registry.size(); ++k) {
@@ -305,7 +306,10 @@ std::vector<MAOniColonyCellView> project(const Session& s, const MacClosedWorld&
         v.element_index = c.materials[liquid_dominant ? liquid_k : gas_k].game.native_index;
         v.flags |= (gas > 0 ? MA_ONI_COLONY_VIEW_GAS : 0U) | (liquid > 0 ? MA_ONI_COLONY_VIEW_LIQUID : 0U);
         v.mass_kg = static_cast<float>(liquid_dominant ? liquid : gas);
-        v.temperature_k = static_cast<float>(reading.temperature_k);
+        // ONI's native heat code asserts on temperatures outside its range; a
+        // trace's formal temperature can lie far beyond it (a sub-resolution
+        // energy over a vanishing heat capacity). ONI sees the nearest bound.
+        v.temperature_k = static_cast<float>(std::clamp(reading.temperature_k, 1.0, 9999.0));
         v.pressure_pa = static_cast<float>(reading.mechanical_pressure_pa);
         v.liquid_fraction = static_cast<float>(reading.liquid_volume_m3 / st.grid.volume_m3());
         const auto germ = dominant_germ(st.cells[i].passive_quantities);
@@ -920,7 +924,10 @@ void write_shadow(const NativeCells& n) noexcept {
                 closes.push_back({static_cast<std::uint32_t>((geometry.offset_x + i % geometry.width) + (geometry.offset_y + i / geometry.width) * geometry.grid_width), MA_ONI_COLONY_CLOSE});
             continue;
         }
-        const auto& v = p->views[i]; const bool empty = !(v.mass_kg > 0);
+        // A trace (under a milligram) is vacuum to ONI's native code: its heat
+        // exchange would give so little mass extreme temperatures. The owner
+        // keeps it; readers use the owner's own view.
+        const auto& v = p->views[i]; const bool empty = !(v.mass_kg >= 1e-6f);
         auto& sh = shadow[i];
         sh.element = static_cast<std::uint16_t>(empty ? vacuum : v.element_index); sh.written = true;
         sh.mass = empty ? 0.f : v.mass_kg; sh.temperature = empty ? 0.f : v.temperature_k;

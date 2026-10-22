@@ -28,7 +28,9 @@ play.
   identities are announced to ONI's grid caches (`Grid.Element` follows only
   these announcements, so a cell the owner leaves is announced back with
   ONI's element). A cell a solid has just replaced shows the solid at once.
-  `Grid.Pressure` returns the owner's mechanical pressure. A reading leaves
+  ONI sees temperatures within 1–9,999 K (a trace's formal temperature can
+  lie far outside), and its native code sees a cell under a milligram as
+  vacuum. `Grid.Pressure` returns the owner's mechanical pressure. A reading leaves
   out constituents below 1e-300 kg (kernel rounding products that the
   reference EOS cannot evaluate); the cell keeps them. A cell whose reading
   still fails keeps its previous view for the frame.
@@ -301,7 +303,8 @@ whole asteroid starts at rest.
    pressure (or zero under a sealed ceiling). The region keeps room for its gas
    at no more than ten times its pressure (at least 1 MPa). Liquid that cannot
    fit stays booked to the region in a **reservoir** entry, with its
-   temperature; it is never deleted. Kept cells keep their temperatures, shifted
+   temperature; it is never deleted. A region its compressed liquid fills
+   completely books its gas to the reservoir too. Kept cells keep their temperatures, shifted
    uniformly so the body's sensible heat is unchanged; flooded cells take the
    body's mean.
 3. **Phase equilibrium.** A region's vapour beyond its saturation pressure

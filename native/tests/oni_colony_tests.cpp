@@ -56,6 +56,22 @@ void projection_control() {
     ma::oni::colony::stop(); set_mac_kernel_default_options(saved);
     std::cout << "PASS multi-block colony projection: view bytes, cold continuation, germs and ledgers\n";
 }
+// A sealed pocket its compressed liquid fills completely (over-full water
+// under a speck of gas): the gas waits in the reservoir, booked.
+void flooded_pocket_control() {
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen", 11, oxygen, true, .032, 1000), material("Water", 13, water, false, .018, 4000, 1000)};
+    MAOniColonyConfig cfg{}; cfg.struct_size = sizeof(cfg); cfg.abi_version = MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index = vacuum; cfg.grid_width = cfg.width = 3; cfg.grid_height = cfg.height = 4; cfg.gravity_m_per_s2 = 9.81;
+    cfg.maximum_timestep_s = .01;
+    std::vector<MAOniColonyCell> cells(12, MAOniColonyCell{0, MA_ONI_COLONY_SOLID, 0, 0, 0, 0});
+    cells[1 + 1 * 3] = {water, MA_ONI_COLONY_FLUID, 2500, 300, 0, 0};
+    cells[1 + 2 * 3] = {oxygen, MA_ONI_COLONY_FLUID, 1e-6f, 300, 0, 0};
+    ma::oni::colony::start(cfg, mats, cells, 1);
+    const auto st = ma::oni::colony::status();
+    std::cout << "flooded pocket: reservoir " << st.reservoir_kg << " kg\n";
+    require(st.state == 1 && st.reservoir_kg > 499, "a flooded pocket starts, its overflow and gas in the reservoir");
+    ma::oni::colony::stop();
+}
 }
 
 int main(int argc, char** argv) {
@@ -63,6 +79,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
         require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only]");
         projection_control();
+        flooded_pocket_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),
             material("Water", 13, water, false, .018, 4000, 1000), material("Steam", 14, steam, true, .018, 4000),
             material("SaltWater", 15, brine, false, .021, 4100, 1100)};
