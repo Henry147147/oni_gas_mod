@@ -35,7 +35,7 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    pressure; 7/8 for opt-in two-moment pressure implementations; 9 for the
    [void phase](MAC_VACUUM.md#void-phase); 10 for carried primary U; 11 for
    [phase change](MAC_PHASE_CHANGE.md); 12 for the [unresolved gas opt-in](MAC_VACUUM.md#unresolved-gas-opt-in);
-   13 for predictive step control; 14 for a configured gas-expansion fraction),
+   13 for predictive step control; 14 for a configured gas-expansion fraction; 15 for regional predictive control),
    and a length-prefixed binary model identity.
 2. Physical time and unsigned 64-bit revision.
 3. Width/height, spacing/depth and two periodicity flags.
@@ -68,22 +68,24 @@ stored by their bits. Counts are unsigned 32-bit values. The image is bounded to
    Version 14 stores that prefix with step control 0 or 1, followed by the
    binary64 gas-expansion volume fraction. It requires unresolved expansion and
    a fraction above the legacy `16 * epsilon`, at most 1. Older versions restore
-   the legacy fraction.
+   the legacy fraction. Version 15 has the version-14 prefix, requires step
+   control 2, and always stores the gas-expansion fraction (including its legacy
+   value). Versions 13/14 reject the regional selector.
 5. Cell count and one boolean wall flag per cell.
 6. Each cell's U, complete ordered constituent masses and passive entries
    (unsigned 64-bit identity and binary64 quantity).
 7. For each axis, the projected face count/values and full face count/values.
    Full fields are empty or complete. A full value has a binary64 significand
    and a length-prefixed canonical decimal exponent.
-8. Versions 9–14: a count (0, or the cell count) and each cell's occupied volume
+8. Versions 9–15: a count (0, or the cell count) and each cell's occupied volume
    (binary64). The count is 0 exactly when every occupied cell fills its grid
    volume; a restored owner that would canonicalize a stored vector rejects.
-9. Versions 10–14: the cell count followed by each correction's projected binary64
+9. Versions 10–15: the cell count followed by each correction's projected binary64
    value and boolean full-value flag. A flagged value adds its normalized binary64
    significand and length-prefixed canonical decimal exponent. The full value is
    required exactly when its projection rounds. High/low overlap, scalar negative
    zero and incomplete coverage reject; so does an entirely zero correction vector
-   in version 10, which versions 11–14 (selected by their opt-in setting) admit.
+   in version 10, which versions 11–15 (selected by their opt-in setting) admit.
 10. Unsigned 64-bit FNV-1a integrity checksum over all previous bytes.
 
 Version 2 is written for the reference kernel whenever both viscosity coefficients
@@ -125,6 +127,11 @@ Version **14 is a configured gas-expansion volume fraction**,
 allocated after a fresh fetch onto `d62ac3a`. The legacy fraction keeps all
 older formats and continuation. Configured owners store the fraction and their
 step controller explicitly; new colony owners select `0.001`.
+
+Version **15 is regional predictive control**, claimed after a fresh fetch of
+`aaef7f8`. It has version 14's complete prefix and fraction, requiring controller
+2. Controllers 0/1 keep their previous versions and bytes. Region topology,
+workspaces and reports are derived on every call and are not saved.
 
 Reference owners write version 2, 3 or 5 according to their settings; production
 owners write version 6, or 7/8 with two-moment pressure. A void-phase owner without

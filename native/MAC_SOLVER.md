@@ -360,3 +360,8 @@ The checkpoint flags write a fixture image on one platform and read it on anothe
 the reader must reserialize the original bytes exactly. Continuation must match
 on the reading platform and binary; trajectories from different compilers need
 not be bit-identical (see [checkpoint controls](MAC_CHECKPOINT.md#verification)).
+
+The opt-in saved regional controller (value 2, version 15) advances sealed
+fluid components independently; see [regional game controller](MAC_KERNEL.md#regional-game-controller)
+for admission, numerical trades and audit coverage. Legacy controllers retain
+their arithmetic and image bytes.

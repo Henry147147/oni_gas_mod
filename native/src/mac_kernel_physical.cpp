@@ -6,6 +6,7 @@
 // Viscosity relaxes the reference rank-one stress modes in multicolour order.
 #include "mac_kernel_detail.hpp"
 #include "mac_kernel_heat_entropy.hpp"
+#include "mac_kernel_regions.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/thermal.hpp"
 #include <numeric>
@@ -92,6 +93,85 @@ double caloric_entropy(double capacity, double temperature, double before, doubl
     if (!std::isfinite(value)) throw ArithmeticRefinement{};
     return value;
 }
+// Coarse unresolved gas may receive a kinetic/transport rounding residual
+// much larger than its own caloric energy. Move only sub-resolution energy,
+// conservatively, inside the same fluid component. Ordinary physics keeps
+// its original path; all final EOS/entropy/conservation audits still run.
+void resolve_caloric(Context& c, Fields& f, EosCache& e, Accounts& acc) {
+    auto& ws = c.ws; const auto& g = c.g; const auto N = g.N;
+    ws.caloric_mask.clear();
+    if (c.settings.step_control != MacStepControl::regional_predictive ||
+        c.settings.subcell_void != MacSubcellVoidPolicy::expand_unresolved_gas ||
+        c.settings.phase_change != MacPhaseChange::none) return;
+    double largest = 0, smallest = std::numeric_limits<double>::infinity();
+    for (std::size_t i = 0; i < N; ++i) {
+        if (e.kind[i] == gas_cell || e.kind[i] == mixed_cell) smallest = std::min(smallest, e.Cv[i]);
+        if (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell) largest = std::max(largest, e.Cv[i]);
+    }
+    if (!(smallest < 16 * eps * largest)) return;
+    if (ws.caloric_labels.empty()) {
+        const auto parts = closed_regions(c.source_grid, ws.caloric_labels);
+        ws.caloric_regions = parts.size();
+    }
+    std::vector<double> capacity(ws.caloric_regions, 0), remaining(ws.caloric_regions, -1);
+    std::vector<std::size_t> reservoir(ws.caloric_regions, std::numeric_limits<std::size_t>::max());
+    for (std::size_t i = 0; i < N; ++i) if (e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell) {
+        const auto region = ws.caloric_labels[i];
+        if (e.Cv[i] > capacity[region]) { capacity[region] = e.Cv[i]; reservoir[region] = i; }
+    }
+    ws.caloric_mask.assign(N, 0);
+    const auto stats = [&](std::size_t i) { return Stats{e.M[i],e.Cv[i],e.off[i],e.nR[i],e.Nl[i],e.kind[i]}; };
+    const auto read = [&](std::size_t i) {
+        State state;
+        if (!evaluate_state(c.model,f,N,i,stats(i),f.U[i],material_volume(f,g.V,i),state))
+            reject("Unresolved caloric redistribution left its EOS domain");
+        return state;
+    };
+    const auto cache = [&](std::size_t i, const State& state) {
+        e.T[i] = state.T; e.p[i] = state.p; e.Vg[i] = state.Vg; e.Eel[i] = state.Eel;
+        e.Ceq[i] = state.Ceq; e.comp[i] = state.comp; e.lcomp[i] = state.liquid_comp;
+    };
+    for (std::size_t i = 0; i < N; ++i) {
+        if (e.kind[i] != gas_cell && e.kind[i] != mixed_cell) continue;
+        const auto region = ws.caloric_labels[i];
+        if (!(e.Cv[i] > 0 && e.Cv[i] < 16 * eps * capacity[region])) continue;
+        ws.caloric_mask[i] = 1; ++acc.unresolved_conduction_cells;
+        // Mixed cells have already passed the complete EOS read above. Their
+        // sub-resolution heat graph is skipped without changing their state.
+        if (e.kind[i] != gas_cell) continue;
+        double low = 0, high = std::numeric_limits<double>::infinity();
+        for (const auto k : c.model.gases) if (f.m[k*N+i] != 0) {
+            low = std::max(low,c.model.species[k].tmin); high = std::min(high,c.model.species[k].tmax);
+        }
+        if (e.T[i] >= low && e.T[i] <= high) continue;
+        const auto target = reservoir[region];
+        require(target < N && target != i, "Unresolved gas has no caloric reservoir");
+        const auto destination = read(target);
+        double temperature = destination.T;
+        const double margin = 256 * eps * std::max(std::abs(low),std::abs(high));
+        if (!(temperature > low + margin && temperature < high - margin)) temperature = std::midpoint(low,high);
+        const double energy = e.off[i] + e.Cv[i] * temperature;
+        const double old = f.U[i], old_low = f.U_remainder[i];
+        DD moved; moved.add(old); moved.add(old_low); moved.add(-energy);
+        const double amount = std::abs(moved.value());
+        if (remaining[region] < 0)
+            remaining[region] = 16 * eps * (std::abs(f.U[target]) + std::abs(f.U_remainder[target]) + e.Cv[target] * destination.T);
+        if (!(amount <= remaining[region])) reject("Caloric residual exceeds the component's energy resolution");
+        remaining[region] -= amount;
+        // Shared scalar atoms keep a cold endpoint that would disappear in
+        // a single rounded (old - target) subtraction.
+        for (const double heat : {old, old_low, -energy}) {
+            if (heat == 0) continue;
+            const double before_source = f.U[i], before_target = f.U[target];
+            if (add_internal_energy(f,i,-heat,acc.energy)) ++acc.unresolved;
+            if (add_internal_energy(f,target,heat,acc.energy)) ++acc.unresolved;
+            acc.operands[c.q_energy()] += std::abs(before_source) + std::abs(before_target) +
+                2 * std::abs(heat) + std::abs(f.U[i]) + std::abs(f.U[target]);
+        }
+        cache(i,read(i)); cache(target,read(target));
+        ++acc.caloric_cells; acc.caloric_redistribution.add(MacEnergy::from_double(amount));
+    }
+}
 double combine_sum(const std::vector<double>& part) { DD s; for (const double v : part) s.add(v); return s.value(); }
 }
 
@@ -107,6 +187,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
     if (!c.settings.thermal_conduction) return;
     auto& ws = c.ws; const auto& g = c.g; const auto N = g.N; const auto& model = c.model;
     evaluate_cells(c, f, ws.eos);
+    resolve_caloric(c, f, ws.eos, acc);
     const auto& e = ws.eos;
     const auto occupied = [&](std::size_t i) { return e.kind[i] == gas_cell || e.kind[i] == liquid_cell || e.kind[i] == mixed_cell; };
     std::vector<double> k(N, 0);
@@ -114,6 +195,7 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
         int found = 0;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
             if (!occupied(i)) continue;
+            if (!ws.caloric_mask.empty() && ws.caloric_mask[i]) continue;
             if (e.kind[i] == mixed_cell) found = 1;
             double moles = 0;
             for (const auto s : model.gases) { const double m = f.m[s * N + i]; if (m != 0) moles += m / model.species[s].molar_mass; }
@@ -354,7 +436,10 @@ void stage_conduction(Context& c, Fields& f, double dt, Accounts& acc) {
                     if (e.kind[i] != mixed_cell || pinned(i)) continue;
                     const double heat = cell_heat(i), energy = f.U[i] + heat;
                     State state;
-                    if (!evaluate_state(model, f, N, i, stats(i), energy, material_volume(f, g.V, i), state) || !(state.Ceq > 0)) { o.outside = true; continue; }
+                    if (!evaluate_state(model, f, N, i, stats(i), energy, material_volume(f, g.V, i), state) || !(state.Ceq > 0)) {
+                        if (kernel_debug()) std::fprintf(stderr,"conduction EOS cell %zu/%zu kind %u mask %u Cv %.17g U %.17g energy %.17g heat %.17g V %.17g T %.17g Ceq %.17g\n",i,N,unsigned(e.kind[i]),unsigned(ws.caloric_mask.empty()?0:ws.caloric_mask[i]),e.Cv[i],f.U[i],energy,heat,material_volume(f,g.V,i),e.T[i],state.Ceq);
+                        o.outside = true; continue;
+                    }
                     const double mismatch = state.T - (start[i] + heat / sys.diag[i]);
                     const double bound = 128 * eps * (state.T + std::abs(energy) / state.Ceq);
                     o.worst = std::max(o.worst, std::abs(mismatch) / bound);

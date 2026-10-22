@@ -191,7 +191,7 @@ void MacClosedSettings::validate() const {
         (subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas &&
             vacuum == MacVacuumRepresentation::void_phase && numerical_kernel == MacNumericalKernel::production && mac_kernel_supports(*this)),
         "Invalid MAC subcell-void policy (unresolved expansion requires supported production void-phase selectors)");
-    require(step_control == MacStepControl::doubling || (step_control == MacStepControl::predictive &&
+    require(step_control == MacStepControl::doubling || ((step_control == MacStepControl::predictive || step_control == MacStepControl::regional_predictive) &&
         numerical_kernel == MacNumericalKernel::production && mac_kernel_supports(*this)),
         "Invalid MAC step control (predictive control requires supported production selectors)");
     require(phase_change == MacPhaseChange::none || (phase_change == MacPhaseChange::saturation &&

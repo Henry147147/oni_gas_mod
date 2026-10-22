@@ -51,8 +51,10 @@ enum class MacPhaseChange { none = 0, saturation = 1 };
 // Persisted production step control. Value 0 tries twice the last accepted
 // step and halves on every rejection. Value 1 (predictive) also limits the
 // next and retried steps by the measured material-volume CFL ratio, so a
-// flowing region does not spend most attempts on CFL rejections.
-enum class MacStepControl { doubling = 0, predictive = 1 };
+// flowing region does not spend most attempts on CFL rejections. Value 2
+// advances closed fluid components independently, with one shared attempt
+// budget and a final full-grid audit. Nonperiodic production void phase only.
+enum class MacStepControl { doubling = 0, predictive = 1, regional_predictive = 2 };
 struct MacClosedSettings {
     // Physical setting additions require updating the checkpoint schema and
     // its complete-identity/continuation controls in mac_checkpoint.cpp.

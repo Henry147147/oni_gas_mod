@@ -65,10 +65,161 @@ void conduction_entropy_control() {
         !quiet.reference_fallback, "conduction diagnostic toggle preserves fields and interval audits");
 }
 
+void regional_control() {
+    const auto& s = setup();
+    MacTransportState state; state.grid = {64,40,1,1,false,false,std::vector<std::uint8_t>(2560,1)};
+    state.cells.assign(2560,{MixtureInventory(s.registry.size()),{}});
+    state.occupied_volumes_m3.assign(2560,0);
+    const auto cell = [&](std::size_t x, std::size_t y, double pressure, double temperature, double water, double volume = 1.) {
+        const auto i = x + 64*y; state.grid.walls[i] = 0;
+        state.cells[i].mixture = s.mixture(volume,pressure,temperature,water); state.occupied_volumes_m3[i] = volume;
+    };
+    for (std::size_t y = 2; y < 10; ++y) for (std::size_t x = 2; x < 10; ++x)
+        cell(x,y,x < 6 ? 101000 : 100000,x < 6 ? 320 : 300,0);
+    for (std::size_t y = 12; y < 20; ++y) for (std::size_t x = 20; x < 28; ++x)
+        cell(x,y,100000,x < 24 ? 310 : 300,.2);
+    cell(40,30,100000,300,0); cell(50,30,100000,300,0,1e-5);
+    for (std::size_t y = 32; y < 36; ++y) for (std::size_t x = 42; x < 46; ++x) state.grid.walls[x+64*y] = 0;
+    state.momentum_x.assign(65*40,0); state.momentum_y.assign(64*41,0); reset_passives(s,state);
+    MacClosedSettings settings; settings.numerical_kernel = MacNumericalKernel::production;
+    settings.step_control = MacStepControl::regional_predictive; settings.vacuum = MacVacuumRepresentation::void_phase;
+    settings.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas; settings.gas_expansion_volume_fraction = .001;
+    settings.thermal_conduction = true; settings.gravity_m_per_s2 = 9.81; settings.maximum_timestep_s = 1./64;
+    const MacClosedWorld source(s.registry,s.eos,state,settings);
+    const auto before = fingerprint(source.state());
+    MacKernelOptions options; options.threads = 1;
+    const auto one = advance_mac_kernel(s.registry,*s.eos,source.state(),settings,0,1./32,256,options);
+    bool same = true, audited = !one.report.audits.empty();
+    for (const auto& audit : one.report.audits) audited = audited && audit.passed;
+    for (const auto threads : {4U,12U}) {
+        options.threads = threads;
+        const auto many = advance_mac_kernel(s.registry,*s.eos,source.state(),settings,0,1./32,256,options);
+        same = same && fingerprint(one.state) == fingerprint(many.state) && one.report.attempts == many.report.attempts;
+    }
+    const auto resting = std::size_t{40+64*30};
+    check(same && audited && one.report.independent_regions == 3 && one.report.empty_regions == 1 &&
+        one.state.cells[resting].mixture.masses == source.state().cells[resting].mixture.masses &&
+        same_mac_cell_internal_energy(one.state.cells[resting],source.state().cells[resting]) &&
+        mac_material_volume(one.state,50+64*30) == 1 && fingerprint(source.state()) == before,
+        "regional threads, audits, exact rest and configured expansion");
+    bool failed = false;
+    try { static_cast<void>(advance_mac_kernel(s.registry,*s.eos,source.state(),settings,0,1./32,1,options)); }
+    catch (const std::runtime_error&) { failed = true; }
+    check(failed && fingerprint(source.state()) == before,"regional shared attempt budget fails atomically");
+    options.threads = 4;
+    const auto advanced = advance_mac_production(source,1./32,256,options);
+    const auto image = advanced.world.checkpoint();
+    const auto restored = MacClosedWorld::from_checkpoint(s.registry,s.eos,image);
+    const auto cold = advance_mac_production(restored,1./32,256,options);
+    const auto continued = advance_mac_production(advanced.world,1./32,256,options);
+    const auto u32 = [](const std::vector<std::uint8_t>& data, std::size_t at) {
+        std::uint32_t value = 0;
+        for (unsigned byte = 0; byte < 4; ++byte) value |= static_cast<std::uint32_t>(data[at+byte]) << (8*byte);
+        return value;
+    };
+    const auto seal = [](std::vector<std::uint8_t>& data) {
+        std::uint64_t hash = UINT64_C(14695981039346656037);
+        for (std::size_t i = 0; i + 8 < data.size(); ++i) hash = (hash ^ data[i]) * UINT64_C(1099511628211);
+        for (unsigned byte = 0; byte < 8; ++byte) data[data.size()-8+byte] = static_cast<std::uint8_t>(hash >> (8*byte));
+    };
+    const auto control_offset = static_cast<std::size_t>(151) + u32(image,12);
+    bool rejected = true;
+    for (const auto control : {0U,1U,3U}) {
+        auto bad = image;
+        for (unsigned byte = 0; byte < 4; ++byte) bad[control_offset+byte] = static_cast<std::uint8_t>(control >> (8*byte));
+        seal(bad); bool failed_control = false;
+        try { static_cast<void>(MacClosedWorld::from_checkpoint(s.registry,s.eos,bad)); }
+        catch (const std::invalid_argument&) { failed_control = true; }
+        rejected = rejected && failed_control;
+    }
+    check(u32(image,8) == 15 && u32(image,control_offset) == 2 && restored.checkpoint() == image &&
+        cold.world.checkpoint() == continued.world.checkpoint() && rejected,
+        "regional version15 canonical selector and cold continuation");
+    auto shut = source.state(); shut.grid.closed_x.assign(shut.momentum_x.size(),0);
+    for (std::size_t y = 2; y < 10; ++y) shut.grid.closed_x[shut.grid.x_face(6,y)] = 1;
+    const auto closed = advance_mac_kernel(s.registry,*s.eos,shut,settings,0,1./32,256,options);
+    bool conserved = true;
+    for (std::size_t k = 0; k < s.registry.size(); ++k) {
+        long double start = 0, end = 0;
+        for (std::size_t y = 2; y < 10; ++y) for (std::size_t x = 2; x < 6; ++x) {
+            start += shut.cells[x+64*y].mixture.masses[k]; end += closed.state.cells[x+64*y].mixture.masses[k];
+        }
+        conserved = conserved && std::abs(end-start) <= 128*std::numeric_limits<double>::epsilon()*std::abs(start);
+    }
+    check(conserved,"regional crops preserve closed-face mass isolation");
+}
+void caloric_resolution_control() {
+    namespace k = ma::experimental::mac_kernel;
+    const auto& s = setup(); const auto index = s.registry.index("nitrogen"); const auto& definition = s.registry[index];
+    const auto& profiles = s.eos->reference().materials();
+    const auto profile = std::find_if(profiles.begin(),profiles.end(),[](const auto& p) { return p.id == "nitrogen"; });
+    k::Model model; model.registry_size = s.registry.size(); k::Species species;
+    species.registry = index; species.gas = true; species.molar_mass = profile->molar_mass_kg_per_mol;
+    species.cv = profile->cv_j_per_kg_k; species.offset = profile->energy_offset_j_per_kg;
+    species.tmin = profile->minimum_temperature_k; species.tmax = profile->maximum_temperature_k;
+    species.conductivity = definition.conductivity; model.species = {species}; model.gases = {0};
+    model.phase_of = {std::numeric_limits<std::size_t>::max()};
+    MacGrid grid{2,1,1,1,false,false,std::vector<std::uint8_t>(2,0)}; k::Grid geometry(grid); k::Workspace workspace;
+    MacClosedSettings settings; settings.numerical_kernel = MacNumericalKernel::production;
+    settings.step_control = MacStepControl::regional_predictive; settings.vacuum = MacVacuumRepresentation::void_phase;
+    settings.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas; settings.thermal_conduction = true;
+    MacKernelOptions options;
+    k::Context context{workspace,grid,model,geometry,settings,options,k::Exec{geometry,k::pool_for(1)},{},{}};
+    k::Fields fields; fields.m = {std::ldexp(1.,-200),1}; fields.U = {std::ldexp(1.,-64),species.offset+species.cv*300};
+    fields.U_remainder = {0,0}; fields.Vo = {1,1}; fields.jx.assign(3,0); fields.jy.assign(4,0);
+    const auto masses = fields.m; MacEnergySum before; for (auto value : fields.U) before.add(MacEnergy::from_double(value));
+    k::Accounts accounts; accounts.resize(context.quantities());
+    k::stage_conduction(context,fields,1./16,accounts);
+    MacEnergySum residual;
+    for (auto value : fields.U) residual.add(MacEnergy::from_double(value));
+    for (auto value : fields.U_remainder) residual.add(MacEnergy::from_double(value));
+    for (std::size_t n = 0; n < before.size(); ++n) residual.add(before.component(n).negated());
+    k::State endpoint;
+    const bool valid = k::evaluate_state(model,fields,2,0,k::cell_stats(model,fields,2,0),fields.U[0],1,endpoint);
+    check(valid && std::abs(endpoint.T-300) < 1e-10 && fields.m == masses && accounts.caloric_cells == 1 &&
+        accounts.unresolved_conduction_cells == 1 &&
+        std::abs(residual.value().project().value) <= accounts.energy.discarded.allowance(),
+        "regional caloric resolution retains mass and counted energy");
+    auto source = s.state(2,1,false);
+    source.cells[0].mixture = s.mixture(1,100000,330,.2);
+    for (auto& mass : source.cells[0].mixture.masses) mass *= 1e-32;
+    source.cells[0].mixture.energy *= 1e-32;
+    for (auto& cell : source.cells) cell.passive_quantities.clear();
+    auto wet_model = model;
+    const auto water_index=s.registry.index("water");
+    const auto water_profile=std::find_if(profiles.begin(),profiles.end(),[](const auto& p) { return p.id=="water"; });
+    k::Species water;water.registry=water_index;water.gas=false;
+    water.molar_mass=water_profile->molar_mass_kg_per_mol;water.cv=water_profile->cv_j_per_kg_k;
+    water.offset=water_profile->energy_offset_j_per_kg;water.rho0=water_profile->zero_pressure_density_kg_per_m3;
+    water.bulk=water_profile->reference_bulk_modulus_pa;water.maximum_ratio=water_profile->maximum_density_ratio;
+    water.tmin=water_profile->minimum_temperature_k;water.tmax=water_profile->maximum_temperature_k;
+    water.conductivity=s.registry[water_index].conductivity;
+    wet_model.species.push_back(water);wet_model.liquids={1};wet_model.phase_of.push_back(0);
+    std::vector<double> tiny_masses(s.registry.size());tiny_masses[index]=1e-32;tiny_masses[water_index]=1e-32;
+    source.cells[0].mixture=s.eos->initialize_at_temperature(tiny_masses,330,1).mixture;
+    source.cells[1].mixture=MixtureInventory(s.registry.size());
+    source.cells[1].mixture.masses[index]=1;source.cells[1].mixture.energy=species.offset+species.cv*300;
+    k::Workspace wet_workspace;
+    k::Context wet{wet_workspace,grid,wet_model,geometry,settings,options,k::Exec{geometry,k::pool_for(1)},{},{}};
+    k::Fields film; film.m.resize(2*wet_model.K());
+    for (std::size_t q=0;q<wet_model.K();++q) for (std::size_t i=0;i<2;++i)
+        film.m[q*2+i]=source.cells[i].mixture.masses[wet_model.species[q].registry];
+    film.U={source.cells[0].mixture.energy,source.cells[1].mixture.energy};
+    film.U_remainder={0,0};film.Vo={1,1};film.jx.assign(3,0);film.jy.assign(4,0);
+    const auto old_film=film; k::Accounts wet_accounts;wet_accounts.resize(wet.quantities());
+    k::stage_conduction(wet,film,1./16,wet_accounts);
+    check(film.m==old_film.m && film.U==old_film.U && wet_accounts.unresolved_conduction_cells==1,
+        "regional sub-resolution mixed cell skips ill-conditioned heat graph");
+}
+
 }
 
 int main(int argc, char** argv) {
     try {
+        if (argc > 1 && std::string(argv[1]) == "--regional-only") {
+            regional_control(); caloric_resolution_control();
+            return failures == 0 ? 0 : 1;
+        }
         if (argc > 1 && std::string(argv[1]) == "--conduction-entropy-only") {
             conduction_entropy_control();
             return failures == 0 ? 0 : 1;
@@ -180,7 +331,7 @@ int main(int argc, char** argv) {
             }
             check(all && k.entropy_change_j_per_k >= -k.entropy_allowance_j_per_k, "interval audit covers every quantity");
         }
-        conduction_entropy_control();
+        conduction_entropy_control(); regional_control(); caloric_resolution_control();
         std::cout << (failures == 0 ? "ALL PASS" : "SOME FAILED") << '\n';
         return failures == 0 ? 0 : 1;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }

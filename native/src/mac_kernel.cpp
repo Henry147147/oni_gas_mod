@@ -2,6 +2,8 @@
 // the reference substep schedule (or calm stepping), retries, the interval
 // audit and atomic publication through MacClosedWorld.
 #include "mac_kernel_detail.hpp"
+#include "mac_kernel_regions.hpp"
+#include <optional>
 #include <string>
 #include "mac_interval_audit.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
@@ -41,6 +43,16 @@ using Clock = std::chrono::steady_clock;
 // A value left the normal binary64 range during the interval: the caller
 // reruns the whole interval through the reference implementation.
 struct RangeFlag { std::size_t consumed_attempts = 0; };
+struct SharedAttempts {
+    std::size_t limit;
+    std::atomic<std::size_t> used{};
+    bool take() {
+        auto n = used.load(std::memory_order_relaxed);
+        while (n < limit) if (used.compare_exchange_weak(n, n + 1, std::memory_order_relaxed)) return true;
+        return false;
+    }
+};
+
 double since(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
 
 // The time-centred sharp-interface gravity weight is implemented for the
@@ -214,10 +226,11 @@ void exact_replay(Context& c, std::size_t q, const Fields& a, const Fields& b, d
 }
 // Total stored-state entropy (reference absolute-entropy expression) and the
 // 128-epsilon allowance term sum |U|/T.
-void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
+void entropy(Context& c, const Fields& f, DD& total, double& allowance,
+    const std::vector<std::uint8_t>* rest = nullptr, double* rest_operand = nullptr) {
     const auto& g = c.g; const auto N = g.N; const auto& model = c.model;
     constexpr double R = experimental::reference_gas_constant;
-    struct Part { DD s; double allowance = 0; };
+    struct Part { DD s; double allowance = 0, rest_allowance = 0; };
     auto parts = c.exec.partials<Part>([&](std::size_t y0, std::size_t y1, std::size_t) {
         Part o;
         for (std::size_t i = y0 * g.W; i < y1 * g.W; ++i) {
@@ -242,15 +255,22 @@ void entropy(Context& c, const Fields& f, DD& total, double& allowance) {
                     reject("Production interval endpoint temperature outside its material range");
                 o.s.add(m * sp.cv * std::log(st.T / experimental::entropy_reference_temperature_k));
                 // Constant per mass: it matters only where phase change moves mass.
-                if (sp.entropy_offset != 0) { o.s.add(m * sp.entropy_offset); o.allowance += std::abs(m * sp.entropy_offset); }
+                if (sp.entropy_offset != 0) {
+                    o.s.add(m * sp.entropy_offset); o.allowance += std::abs(m * sp.entropy_offset);
+                    if (rest && (*rest)[i]) o.rest_allowance += std::abs(m * sp.entropy_offset);
+                }
                 if (sp.gas) { const double n = m / sp.molar_mass; o.s.add(n * R * (std::log(headspace) - std::log(n))); }
             }
             o.s.add(f.U_remainder[i] / st.T);
             o.allowance += (std::abs(f.U[i]) + std::abs(f.U_remainder[i])) / st.T;
+            if (rest && (*rest)[i]) o.rest_allowance += (std::abs(f.U[i]) + std::abs(f.U_remainder[i])) / st.T;
         }
         return o;
     });
-    for (const auto& p : parts) { total.add(p.s); allowance += p.allowance; }
+    for (const auto& p : parts) {
+        total.add(p.s); allowance += p.allowance;
+        if (rest_operand) *rest_operand += p.rest_allowance;
+    }
 }
 void expand_unresolved_gas(Context& c, Fields& f, Accounts& acc) {
     if (c.settings.subcell_void != MacSubcellVoidPolicy::expand_unresolved_gas || f.Vo.empty()) return;
@@ -311,6 +331,8 @@ void substep(Context& c, Fields& f, double dt, Accounts& acc) {
     expand_unresolved_gas(c, f, acc);
 }
 void merge(Accounts& a, const Accounts& b) {
+    a.caloric_cells += b.caloric_cells; a.unresolved_conduction_cells += b.unresolved_conduction_cells;
+    for (std::size_t n = 0; n < b.caloric_redistribution.size(); ++n) a.caloric_redistribution.add(b.caloric_redistribution.component(n));
     for (std::size_t q = 0; q < a.operands.size(); ++q) {
         a.operands[q] += b.operands[q]; a.rounding[q] += b.rounding[q];
         a.transfers[q].merge(b.transfers[q]);
@@ -395,7 +417,7 @@ unsigned threads_for(const Grid& g, const MacKernelOptions& o) {
 // the source state, so per-cell vectors are reused).
 MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& source,
     const MacClosedSettings& settings, double start_time, double seconds, std::size_t budget, const MacKernelOptions& options,
-    MacTransportState& out) {
+    MacTransportState& out, SharedAttempts* shared = nullptr) {
     require_mac_energy_environment();
     options.validate(); require_supported(settings);
     require(std::isfinite(seconds) && seconds > 0 && seconds <= 10 && budget > 0 && budget <= 65536,
@@ -407,9 +429,14 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     require(source.cells.size() == g.N, "Production kernel cell shape differs");
     const Model model = build_model(registry, eos, source);
     auto& w = workspaces();
+    w.ws.caloric_labels.clear(); w.ws.caloric_mask.clear(); w.ws.caloric_regions = 0;
     MacKernelReport report;
     report.threads_used = threads_for(g, options);
-    Context c{w.ws, source.grid, model, g, settings, options, Exec{g, pool_for(report.threads_used)}, {}, {}};
+    // Outer regional workers never dispatch into the same shared pool.
+    std::optional<Pool> local_pool;
+    if (shared && report.threads_used == 1) local_pool.emplace(1);
+    auto& execution_pool = local_pool ? *local_pool : pool_for(report.threads_used);
+    Context c{w.ws, source.grid, model, g, settings, options, Exec{g, execution_pool}, {}, {}};
     if (settings.phase_change == MacPhaseChange::saturation) {
         c.thermodynamics = &eos;
         const auto index = [&](std::size_t registry_index) {
@@ -448,7 +475,7 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     try { entropy(c, w.start, s0, allowance0); } catch (const EosRefinement&) { throw RangeFlag{0}; }
     report.timing.audit_ms += since(audit_start);
     double maximum_dt = settings.maximum_timestep_s;
-    const bool predictive = settings.step_control == MacStepControl::predictive;
+    const bool predictive = settings.step_control != MacStepControl::doubling;
     for (std::size_t audit_attempt = 0;; ++audit_attempt) {
         copy_fields(c.exec, g, model, w.start, w.current);
         Accounts acc; acc.resize(c.quantities());
@@ -466,7 +493,8 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
             double dt = std::min(next_dt, endpoint - time);
             bool accepted = false;
             while (!accepted) {
-                if (report.attempts == budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");
+                if (report.attempts == budget || (shared && !shared->take()))
+                    throw std::runtime_error("Production interval exhausted its shared attempt budget");
                 ++report.attempts;
                 if (!(dt > 0) || time + dt <= time) throw FluidFatalError(FluidFatalCode::numerical_precision, "Production retry time cannot be represented");
                 copy_fields(c.exec, g, model, w.current, w.trial);
@@ -598,6 +626,9 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
                     precision("Production inventory rounding counter overflow");
                 report.rounded_inventory_writes += inventory.count;
             }
+            report.caloric_resolution_cells = acc.caloric_cells;
+            report.unresolved_conduction_cells = acc.unresolved_conduction_cells;
+            report.caloric_redistribution_j = acc.caloric_redistribution.value().project().value;
             report.physical = acc.physical.report();
             break;
         }
@@ -633,12 +664,16 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
     rt.transport_ms += tm.transport_ms; rt.reconstruction_ms += tm.reconstruction_ms; rt.momentum_ms += tm.momentum_ms;
     return report;
 }
+#include "mac_kernel_regional_driver.hpp"
 MacKernelReport& last_report() { static thread_local MacKernelReport r; return r; }
 }
 }
 
 namespace ma::experimental {
 bool mac_kernel_supports(const MacClosedSettings& s) {
+    if (s.step_control == MacStepControl::regional_predictive &&
+        (s.phase_change != MacPhaseChange::none || s.vacuum != MacVacuumRepresentation::void_phase ||
+         s.pressure_integration != MacPressureIntegration::discrete_gradient_midpoint)) return false;
     return (s.preconditioner != PressurePreconditioner::incomplete_cholesky ||
         s.pressure_integration == MacPressureIntegration::discrete_gradient_midpoint) &&
         (s.reconstruction == MacMaterialReconstruction::donor_cell || s.reconstruction == MacMaterialReconstruction::limited_linear ||
@@ -668,7 +703,9 @@ MacKernelAdvance advance_mac_kernel(const SpeciesRegistry& registry, const Fluid
     mac_kernel::require(settings.diffusion.mode == MacDiffusionMode::disabled,
         "The production kernel advances flow only; MacExecutionPolicy::production composes gas diffusion");
     MacKernelAdvance result{state, {}};
-    result.report = mac_kernel::run_interval(registry, eos, state, settings, start_time, seconds, budget, options, result.state);
+    if (settings.step_control == MacStepControl::regional_predictive)
+        result.report = mac_kernel::run_regional(registry,eos,state,settings,start_time,seconds,budget,options,result.state);
+    else result.report = mac_kernel::run_interval(registry, eos, state, settings, start_time, seconds, budget, options, result.state);
     return result;
 }
 const MacKernelReport& last_mac_production_report() { return mac_kernel::last_report(); }
@@ -683,7 +720,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
     mac_kernel::require_supported(MacKernelAccess::settings(world));
     const auto fallback = [&](std::size_t consumed) {
-        if (MacKernelAccess::settings(world).subcell_void != MacSubcellVoidPolicy::exact_geometry) {
+        const bool regional = world.settings().step_control == MacStepControl::regional_predictive;
+        if (MacKernelAccess::settings(world).subcell_void != MacSubcellVoidPolicy::exact_geometry || regional) {
             // Name the trigger (the reference path cannot take this owner).
             const auto& st = MacKernelAccess::state(world);
             std::string why = "an EOS range flag during the interval";
@@ -696,7 +734,8 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
                 if (bad) { why = "an out-of-range energy or mass in cell " + std::to_string(i); break; }
             }
             if (consumed > 0) why += " after " + std::to_string(consumed) + " attempts";
-            throw std::invalid_argument("Unresolved gas expansion cannot continue through reference fallback (" + why + ")");
+            throw std::invalid_argument(std::string(regional ? "Regional stepping" : "Unresolved gas expansion") +
+                " cannot continue through reference fallback (" + why + ")");
         }
         mac_kernel::require(MacKernelAccess::settings(world).pressure_integration == MacPressureIntegration::discrete_gradient_midpoint,
             "Two-moment pressure integration cannot continue through legacy reference fallback");
@@ -719,7 +758,9 @@ MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double
     const auto start = MacKernelAccess::time(world);
     MacKernelReport k;
     try {
-        k = mac_kernel::run_interval(MacKernelAccess::registry(world), MacKernelAccess::eos(world), MacKernelAccess::state(world),
+        if (world.settings().step_control == MacStepControl::regional_predictive)
+            k = mac_kernel::run_regional(world.registry(),world.thermodynamics(),world.state(),world.settings(),start,seconds,budget,options,endpoint);
+        else k = mac_kernel::run_interval(MacKernelAccess::registry(world), MacKernelAccess::eos(world), MacKernelAccess::state(world),
             MacKernelAccess::settings(world), start, seconds, budget, options, endpoint);
     } catch (const mac_kernel::RangeFlag& flag) { return fallback(flag.consumed_attempts); }
     MacKernelAccess::publish_state(result.world, std::move(endpoint));

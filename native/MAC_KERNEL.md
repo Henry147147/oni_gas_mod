@@ -16,8 +16,8 @@ pressure formulation and the shared geometric multigrid preconditioner
 wave schedules. A [pressure-window component](MAC_PRESSURE_WINDOWS.md) now
 streams prescribed fine-cell pressure roots through a coarse interval using
 [shared physical face paths](MAC_TIME_MORTAR.md). It is not connected to the
-owner. Automatic calm-region selection and full local subcycling remain
-open. The midpoint path covers every selector the ONI domain uses. The
+owner. Independent sealed regions have an opt-in controller described below;
+subcycling within a connected region remains open. The midpoint path covers every selector the ONI domain uses. The
 real-time gate is not met; see [performance](#current-active-cell-baseline), the
 [historical comparison](#historical-comparison-with-the-retired-interval-port)
 and [remaining work](#remaining-work).
@@ -61,8 +61,8 @@ value except 2. The [wire contract](MAC_CHECKPOINT.md) specifies disabled and
 enabled diffusion metadata.
 
 The native ONI domain now creates selection-2 owners and explicitly selects
-production on each live frame, requesting twelve workers (small rooms are
-capped by fixed block count). Loading a supported reference save preserves
+production on each live frame, requesting up to sixteen workers, limited by
+available CPU affinity and fixed block count. Loading a supported reference save preserves
 its idle bytes; its first live frame migrates to selection 2/version 6. Frame
 journals record this request in flag 4. Historical unflagged journals and
 stateless checkpoint continuation retain the saved selection. Production gas
@@ -76,6 +76,44 @@ cross-platform trajectory byte identity is not claimed.
 The thread count never changes a result (see [determinism](#determinism)).
 `set_mac_kernel_default_options()` sets the process-wide options used by the
 policy paths.
+
+## Regional game controller
+
+`MacStepControl::regional_predictive` (saved value 2, checkpoint 15) runs
+independent timesteps on four-neighbour fluid components separated by solid
+cells. Closed faces stay in the same component because they still conduct.
+Each component uses the existing kernel on its bounding rectangle with the
+same grid spacing, depth, inventory, primary energy corrections and canonical
+momentum. Empty components and motionless isolated cells need no solve.
+Components run in parallel; large connected components use the regular worker
+pool. One shared attempt budget covers all components. Results publish only
+after every component and the original full-world mass, passive, momentum,
+U+K+G and entropy audits pass. Admission requires nonperiodic boundaries,
+void-phase midpoint pressure and no kernel phase change; unsupported/range
+paths reject rather than use a reference fallback. External phase relaxation
+continues between game frames.
+
+This changes adaptive schedules, floating-point reductions and trajectories;
+controllers 0/1 keep their existing arithmetic and checkpoint bytes. Opening a
+wall recomputes connectivity on the next interval. Regional reports sum child
+steps, attempts and stage times: stage times are worker work, not frame wall
+time. Workspace bytes bound concurrently retained buffers.
+
+With unresolved-gas expansion enabled, gas-bearing cells below 16 epsilon
+times their component's largest heat capacity do not conduct. For gas-only
+cells driven outside material temperature ranges by rounding energy, a
+conservative exchange restores an interior temperature
+using the component's largest-capacity cell. Total exchanged energy is limited
+to 16 epsilon of that reservoir's energy scale per conduction stage. Every
+scalar heat atom is paired, primary rounding is counted, all masses remain,
+and endpoint EOS, entropy and conservation checks still apply. This sacrifices
+thermal detail below component energy resolution; it does not widen EOS ranges
+or audit bounds. Report counters identify skipped conduction cells and energy
+redistribution. Scientific controllers and gate settings do not select it.
+A captured life-support fault advances with this profile but still fails during
+standalone continuation; trace EOS admission remains open. A captured filter
+arena also still forces extreme refinement at a sharp-interface gravity EOS
+boundary. Regional scheduling does not resolve these existing limits.
 
 ## Coverage and admission
 
@@ -860,3 +898,11 @@ The larger limit trades temporal resolution for fewer solves; the existing CFL
 control still shortens fast steps. After-run relative mass/energy errors are
 1.02e-15/3.59e-17. An older 0.05 s save loads and advances with exactly that
 saved limit under the new default; native config/image checks remain strict.
+
+Regional controller whole-lock Terra60 control at the same 0.1 s limit:
+mean owner advance 0.872/0.436 s, observed spacing 1.099/0.566 s and maximum
+advance 2.647/0.491 s. All 60 frames pass without faults or reference fallback;
+after-run relative mass/energy errors are 3.07e-16/2.46e-17. Three alternating
+high-lock offline pairs measure production flow at 0.434/0.103 s on Terra50
+and 0.755/0.099 s on the vacuum-expansion dump. Legacy-controller diagnostics
+retain their numerical output; regional schedules intentionally change trajectories.

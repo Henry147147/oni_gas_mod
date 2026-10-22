@@ -96,6 +96,10 @@ struct MacKernelPhysicalReport {
 };
 struct MacKernelReport {
     std::size_t substeps = 0, attempts = 0, rejected_attempts = 0, audit_retries = 0;
+    // Regional mode sums local steps; empty components require no work.
+    std::size_t independent_regions = 0, empty_regions = 0;
+    std::size_t caloric_resolution_cells = 0, unresolved_conduction_cells = 0;
+    double caloric_redistribution_j = 0;
     std::size_t multigrid_solves = 0, multigrid_cycles = 0, multigrid_fallbacks = 0, multigrid_levels = 0, topology_builds = 0;
     std::size_t incomplete_cholesky_solves = 0, incomplete_cholesky_fallbacks = 0, maximum_linear_components = 0;
     std::size_t newton_iterations = 0, linear_iterations = 0, line_search_backtracks = 0;
@@ -117,6 +121,8 @@ struct MacKernelReport {
     // by the grid's row-block count).
     unsigned threads_used = 1;
     // Retained kernel workspace (field banks and scratch) after the interval.
+    // Regional mode reports an upper bound for active worker workspaces plus
+    // the main thread's audit buffers.
     std::size_t workspace_bytes = 0;
     // The interval ran through the reference implementation because an input
     // or intermediate/endpoint required full-range or material-boundary refinement.

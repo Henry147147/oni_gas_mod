@@ -204,7 +204,7 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c) {
     s.vacuum = MacVacuumRepresentation::void_phase; s.reconstruction = MacMaterialReconstruction::interface_plic;
     s.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;
     s.gas_expansion_volume_fraction = .001;
-    s.step_control = MacStepControl::predictive;
+    s.step_control = MacStepControl::regional_predictive;
     s.preconditioner = PressurePreconditioner::incomplete_cholesky;
     return s;
 }

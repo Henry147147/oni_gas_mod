@@ -301,6 +301,8 @@ struct PhysicalAccounts {
     [[nodiscard]] MacKernelPhysicalReport report() const;
 };
 struct Accounts {
+    std::size_t caloric_cells = 0, unresolved_conduction_cells = 0;
+    MacEnergySum caloric_redistribution;
     // Operand magnitudes for the 128-epsilon interval bound and counted
     // rounding allowances (per quantity: species, passives, jx, jy, energy).
     std::vector<double> operands, rounding;
@@ -348,6 +350,10 @@ struct PressureMomentWorkspace {
 // Scratch arrays reused across substeps of one interval (no per-stage
 // allocation after the first substep).
 struct Workspace {
+    // Geometry only, rebuilt for every interval. No continuation history.
+    std::vector<std::size_t> caloric_labels;
+    std::size_t caloric_regions = 0;
+    std::vector<std::uint8_t> caloric_mask;
     std::unique_ptr<PressureMomentWorkspace> moments;
     // Derived topology and coefficients only. The active mask includes empty
     // cells; a changed mask or geometry replaces the hierarchy before use.
