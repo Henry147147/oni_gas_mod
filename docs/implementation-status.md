@@ -21,7 +21,7 @@ Current state on 2026-10-22. One line per system; details in the linked pages. I
 | [Sensors](colony-owner.md#sensors) | Element sensors read the mixture (element above 0.1% of its phase); pressure sensors read the owner (in game: `sensor`, `plant`). |
 | [Native bodies](colony-owner.md#native-bodies) | Tiles, buildings, items, pipes and element consumers/emitters act on a native shadow of the owner's cells; their heat and mass changes are booked to the owner (standalone control). |
 | Speed | Terra, new colony, whole machine (regional schedules, 0.1 s steps): 0.44 s mean solver time per 0.2 s game frame, 0.57 s between frames; on half the machine the game runs at about 40% of real time. |
-| Open | New Oceania, Verdante and Volcanea colonies end in solver faults within 30 frames (retry time, attempt budget); the ten-cycle run. |
+| Open | The ten-cycle run from the prepared base stops at about 1,070 owner frames (0.45 cycles): Terra's bottom magma sea, partly filled cells under a vanishing rock-vapour headspace, raises an EOS range flag that regional stepping cannot pass to the reference path (the known limit). New Oceania, Verdante and Volcanea colonies end in solver faults within 30 frames (retry time, attempt budget). |
 
 ## Earlier development record
 
