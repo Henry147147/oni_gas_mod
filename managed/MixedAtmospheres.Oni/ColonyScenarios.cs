@@ -859,6 +859,7 @@ namespace MixedAtmospheres.Oni
         // carbon dioxide filter: its filtered port carries only carbon dioxide
         // and its main output only oxygen.
         private static readonly List<int> filteredPipe = new List<int>(), passedPipe = new List<int>();
+        private static GameObject? filterBuilding;
         private static void Filter(int frame)
         {
             if (Once(0, "arena"))
@@ -867,21 +868,29 @@ namespace MixedAtmospheres.Oni
             if (Once(6, "build"))
             {
                 filteredPipe.Clear(); passedPipe.Clear();
-                var pump = Build(GasPumpConfig.ID, Cell(1, 0));
-                var filter = Build(GasFilterConfig.ID, Cell(6, 3));
+                Build(GasPumpConfig.ID, Cell(1, 0));
+                filterBuilding = Build(GasFilterConfig.ID, Cell(6, 3));
+                Build(GasVentConfig.ID, Cell(7, 0)); Build(GasVentConfig.ID, Cell(5, 0));
+            }
+            // The filter knows its port cells once it has spawned (a frame later).
+            if (Once(7, "pipes"))
+            {
+                var filter = filterBuilding!;
                 filter.GetComponent<Filterable>().SelectedTag = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag;
                 var into = (int)AccessTools.Field(typeof(ElementFilter), "inputCell").GetValue(filter.GetComponent<ElementFilter>());
                 var output = (int)AccessTools.Field(typeof(ElementFilter), "outputCell").GetValue(filter.GetComponent<ElementFilter>());
                 var filtered = (int)AccessTools.Field(typeof(ElementFilter), "filteredCell").GetValue(filter.GetComponent<ElementFilter>());
-                var from = Grid.OffsetCell(Cell(1, 0), pump.GetComponent<Building>().Def.UtilityOutputOffset);
-                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(from, into));
-                var a = Build(GasVentConfig.ID, Cell(7, 0)); var b = Build(GasVentConfig.ID, Cell(5, 0));
-                passedPipe.AddRange(Route(output, Grid.OffsetCell(Cell(7, 0), a.GetComponent<Building>().Def.UtilityInputOffset)));
-                filteredPipe.AddRange(Route(filtered, Grid.OffsetCell(Cell(5, 0), b.GetComponent<Building>().Def.UtilityInputOffset)));
+                if (!InArena(into) || !InArena(output) || !InArena(filtered)) throw new InvalidOperationException($"filter ports outside the arena: {into} {output} {filtered}");
+                var pump = powered[0]; var a = powered.Single(b => b != null && b.GetComponent<Vent>() != null && Grid.PosToCell(b) == Cell(7, 0));
+                var b = powered.Single(v => v != null && v.GetComponent<Vent>() != null && Grid.PosToCell(v) == Cell(5, 0));
+                Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(Grid.OffsetCell(Grid.PosToCell(pump), pump.GetComponent<Building>().Def.UtilityOutputOffset), into));
+                passedPipe.AddRange(Route(output, Grid.OffsetCell(Grid.PosToCell(a), a.GetComponent<Building>().Def.UtilityInputOffset)));
+                filteredPipe.AddRange(Route(filtered, Grid.OffsetCell(Grid.PosToCell(b), b.GetComponent<Building>().Def.UtilityInputOffset)));
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, passedPipe);
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, filteredPipe);
             }
-            if (Once(40, "check"))
+            // ONI's pipes move a packet a segment per second.
+            if (Once(100, "check"))
             {
                 var flow = Game.Instance.gasConduitFlow;
                 double co2 = 0, o2InFiltered = 0, o2 = 0, co2InPassed = 0;
@@ -892,6 +901,12 @@ namespace MixedAtmospheres.Oni
                     $"filtered port: CO2 {co2:G3} kg, other {o2InFiltered:G3} kg; output: O2 {o2:G3} kg, other {co2InPassed:G3} kg; vented {vented:G3} kg");
                 Finish();
             }
+        }
+        private static bool InArena(int cell)
+        {
+            if (!Grid.IsValidCell(cell)) return false;
+            Grid.CellToXY(cell, out var x, out var y);
+            return x >= x0 && x < x0 + Width && y >= y0 && y < y0 + Height;
         }
         // An L-shaped pipe route from one cell to another, both included.
         private static List<int> Route(int from, int to)
