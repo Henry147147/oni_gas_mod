@@ -510,6 +510,7 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
                 // A sealed cell's contents go to the reservoir.
                 std::vector<MacFluidTransfer> drain;
                 for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) drain.push_back({i, k, false, m.masses[k], 0});
+                std::stable_sort(drain.begin(), drain.end(), [](const MacFluidTransfer& a, const MacFluidTransfer& b) { return a.mass_kg < b.mass_kg; });
                 auto result = world.with_fluid_transfers(drain, MacFluidTransferTopology::occupied_mixture);
                 world = std::move(result.world);
                 for (const auto& p : result.parcels) {
@@ -518,7 +519,12 @@ MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const M
                 }
                 continue;
             }
-            for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) {
+            // Smallest constituents first: a trace left beside nothing would
+            // keep only rounding residue of the cell's energy.
+            std::vector<std::size_t> held;
+            for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) held.push_back(k);
+            std::stable_sort(held.begin(), held.end(), [&](std::size_t a, std::size_t b) { return m.masses[a] < m.masses[b]; });
+            for (const auto k : held) {
                 double left = m.masses[k];
                 for (std::size_t q = 0; q < open.size(); ++q) {
                     const double share = q + 1 == open.size() ? left : m.masses[k] / static_cast<double>(open.size());
