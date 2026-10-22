@@ -1139,17 +1139,29 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         }
         lap(0); doing = "heat";
         // Heat edits.
+        std::vector<MAOniColonyHeat> deferred;
         for (std::size_t first = 0; first < heat.size(); first += 4096) {
-            std::vector<MacCellHeat> edits;
+            std::vector<MacCellHeat> edits; std::vector<std::size_t> source;
             for (std::size_t k = first; k < std::min(heat.size(), first + 4096); ++k) {
                 const auto i = rect_index(s.config, heat[k].public_cell);
                 if (world.state().grid.walls[i] || !(world.state().cells[i].mixture.mass() > 0) || heat[k].joules == 0) continue;
                 edits.push_back({i, heat[k].joules, heat[k].maximum_temperature_k > 0 ? heat[k].maximum_temperature_k : 1e5});
-                L.heat += heat[k].joules;
+                source.push_back(k); L.heat += heat[k].joules;
             }
-            if (!edits.empty()) world = world.with_cell_heat(edits);
-            s.status.committed_heat += edits.size();
+            if (edits.empty()) continue;
+            const auto kept = deferred.size();
+            try { world = world.with_cell_heat(edits); }
+            catch (const std::exception&) {
+                // A cell the reference EOS cannot evaluate (a liquid trace below
+                // binary64's normal range) keeps its heat queued for the next frame.
+                for (std::size_t q = 0; q < edits.size(); ++q) {
+                    try { world = world.with_cell_heat(std::span(&edits[q], 1)); }
+                    catch (const std::exception&) { L.heat -= edits[q].joules; deferred.push_back(heat[source[q]]); }
+                }
+            }
+            s.status.committed_heat += edits.size() - (deferred.size() - kept);
         }
+        if (!deferred.empty()) { std::lock_guard q(inputs); pending_heat.insert(pending_heat.end(), deferred.begin(), deferred.end()); }
         lap(1); doing = "reservoir";
         // Reservoir release: liquid booked at import (it did not fit its
         // sealed pocket) or from a sealed closing seeps back once there is room

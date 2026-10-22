@@ -316,6 +316,18 @@ int main(int argc, char** argv) {
             require(traced == plain, "a subnormal liquid trace keeps the cell readable");
             ma::oni::colony::stop();
         }
+        // A heat edit the cell cannot take (here more cooling than its gas
+        // holds) stays queued, unbooked, instead of faulting the owner.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const MAOniColonyHeat cold{public_cell(4, 7), 0, -1e12, 0};
+            ma::oni::colony::queue_heat(std::span(&cold, 1));
+            for (std::uint64_t frame = 5; frame <= 6; ++frame) { ma::oni::colony::advance(frame, .2, 2); ma::oni::colony::wait(); }
+            const auto after = ma::oni::colony::status();
+            std::cout << "impossible heat edit: state " << after.state << " " << after.error << "\n";
+            require(after.state == 1 && after.maximum_relative_energy_error < 1e-9, "an untakeable heat edit is deferred, not faulted");
+            ma::oni::colony::stop();
+        }
         // A sealed cell's gas goes to the reservoir and seeps back when the
         // cell reopens.
         {

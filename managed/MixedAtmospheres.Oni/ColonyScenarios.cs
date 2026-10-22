@@ -294,13 +294,14 @@ namespace MixedAtmospheres.Oni
                 Record("the closed door sealed", RightMass() <= recorded["right"] + 1e-9, $"{RightMass():G4} kg beyond the door");
                 recorded["opened"] = status.OpenedCells; SetDoor(Door.ControlState.Opened);
             }
-            if (Once(28, "close"))
+            // The airlock's opening and closing animations take a couple of seconds.
+            if (Once(44, "close"))
             {
                 Record("the open door let gas through", status.OpenedCells >= recorded["opened"] + 2 && RightMass() > .05, $"{RightMass():G4} kg beyond the door");
                 Record("opening conserved the gas", Math.Abs(ArenaMass() - recorded["gas"]) < 1e-6 * recorded["gas"], $"{recorded["gas"]:G9} -> {ArenaMass():G9} kg");
                 recorded["closed"] = status.ClosedCells; SetDoor(Door.ControlState.Locked);
             }
-            if (Once(34, "check"))
+            if (Once(64, "check"))
             {
                 Record("closing the door closed its cells", status.ClosedCells >= recorded["closed"] + 2 && Grid.Solid[Cell(4, 0)] && Grid.Solid[Cell(4, 1)],
                     $"closed {status.ClosedCells - recorded["closed"]}");
@@ -814,16 +815,15 @@ namespace MixedAtmospheres.Oni
             if (Once(4, "mix"))
                 for (var y = 0; y < Height; ++y) for (var x = 0; x < Width; ++x)
                     SimMessages.AddRemoveSubstance(Cell(x, y), SimHashes.CarbonDioxide, CellEventLogger.Instance.OxygenModifierSimUpdate, .05f, 300, byte.MaxValue, 0);
-            if (Once(8, "build"))
-            {
-                sensor = Build(LogicElementSensorGasConfig.ID, Cell(3, 2)).GetComponent<LogicElementSensor>();
-                AccessTools.Method(typeof(LogicElementSensor), "OnElementSelected").Invoke(sensor, new object[] { ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag });
-            }
-            if (Once(24, "check"))
+            if (Once(8, "build")) sensor = Build(LogicElementSensorGasConfig.ID, Cell(3, 2)).GetComponent<LogicElementSensor>();
+            // Spawning applies the sensor's filter, so the element is chosen a frame later.
+            if (Once(9, "select")) sensor!.GetComponent<Filterable>().SelectedTag = ElementLoader.FindElementByHash(SimHashes.CarbonDioxide).tag;
+            if (Once(26, "check"))
             {
                 var on = sensor != null && sensor.IsSwitchedOn;
                 Record("the sensor found the minority carbon dioxide", on && Grid.Element[Cell(3, 2)].id == SimHashes.Oxygen,
-                    $"switched on {on}, cell shows {Grid.Element[Cell(3, 2)].id}, CO2 {SpeciesMass(Cell(3, 2), SimHashes.CarbonDioxide):G3} kg");
+                    $"switched on {on}, cell shows {Grid.Element[Cell(3, 2)].id}, CO2 {SpeciesMass(Cell(3, 2), SimHashes.CarbonDioxide):G3} kg, " +
+                    $"sensing {(sensor != null ? ElementLoader.elements[Traverse.Create(sensor).Field("desiredElementIdx").GetValue<int>()].id.ToString() : "-")}");
                 Finish();
             }
         }
