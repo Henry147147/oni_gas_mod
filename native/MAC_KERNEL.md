@@ -852,3 +852,11 @@ per-stage conduction entropy report. Six offline on/off endpoints and four
 parent/candidate endpoints are byte-identical. Pipes and terrain fault replays
 now complete through production with the report enabled too. These runs use
 the owner inputs preceding the later managed cell-announcement change.
+
+New colonies use a 0.1 s maximum timestep; saved colonies retain their saved
+value. Two whole-lock Terra60 runs at 0.05/0.1 s measured mean owner advance
+1.100/1.025 s, observed spacing 1.378/1.313 s and maximum advance 11.21/5.81 s.
+The larger limit trades temporal resolution for fewer solves; the existing CFL
+control still shortens fast steps. After-run relative mass/energy errors are
+1.02e-15/3.59e-17. An older 0.05 s save loads and advances with exactly that
+saved limit under the new default; native config/image checks remain strict.

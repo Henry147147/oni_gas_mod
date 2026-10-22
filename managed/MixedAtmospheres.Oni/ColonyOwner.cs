@@ -18,7 +18,7 @@ namespace MixedAtmospheres.Oni
         private const byte LiquidImpermeable = 2;
         // Calm asteroids take full steps of this length; flow and the pressure
         // solve shorten them where needed (docs/colony-owner.md#pacing).
-        internal const double MaximumTimestepSeconds = .05;
+        internal const double MaximumTimestepSeconds = .1;
         // Native messages seen while the owner runs, by hash (development census).
         internal static readonly Dictionary<int, long> Census = new Dictionary<int, long>();
         internal static void Count(int message, int count) { if (Active) Census[message] = (Census.TryGetValue(message, out var n) ? n : 0) + count; }
@@ -184,6 +184,8 @@ namespace MixedAtmospheres.Oni
             if (Active) throw new InvalidOperationException("A colony owner is already active.");
             OniNativeColony.CheckLayouts();
             var (live, catalogue) = Describe();
+            // New-colony defaults may change; the native image validates its saved timestep.
+            live.MaximumTimestepSeconds = saved.MaximumTimestepSeconds;
             if (!live.Equals(saved)) throw new NotSupportedException("The saved colony geometry differs from the loaded asteroid.");
             config = saved; materials = catalogue;
             x0 = (int)config.OffsetX; y0 = (int)config.OffsetY; width = (int)config.Width; height = (int)config.Height;
