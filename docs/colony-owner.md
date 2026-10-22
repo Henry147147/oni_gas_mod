@@ -458,5 +458,12 @@ Environment variables of the game process (the harness passes them through):
 - `MA_COLONY_SLOW_DUMP=s` (with the path): also write the world before the
   first flow step still running after s seconds (a watchdog, so a step that
   never finishes is caught).
+- `MA_COLONY_STAGE_LOG=1`: every tenth owner frame, each stage's wall time and
+  the frame's edit counts (in the run's `Player.log`).
+- `MA_COLONY_DUPE_LOG=1`: every 150 owner frames, each duplicant's breath,
+  health, calories and stress with the air at its cell and the cell above
+  (mass, composition, breathability), and the prepared base's machines.
+- `MA_COLONY_GAME_FLOOR=1`: new colonies run the game-floor profile (test runs
+  only until the profile is selected).
 
 A failing transfer names its cell and the cell's contents in the fault.
