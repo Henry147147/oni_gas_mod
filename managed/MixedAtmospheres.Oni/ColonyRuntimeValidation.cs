@@ -423,6 +423,8 @@ namespace MixedAtmospheres.Oni
             File.WriteAllText(Path.Combine(OutputDirectory, "colony-owner.json"), ReportJson.Serialize(owner));
             var loading = configuration.Mode == "colony-owner-load";
             if (loading && ColonyOwnerPersistence.Loads != 1) throw new InvalidOperationException("The loaded colony did not restore its owner.");
+            // ONI loads a colony paused; an unattended load run plays on.
+            if (loading && SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused) SpeedControlScreen.Instance.Unpause(false);
             if (configuration.Scenario.Length != 0)
             {
                 if (!scenarioDone) { if (Time.frameCount % 60 == 0) WriteReport(); return; }

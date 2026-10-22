@@ -624,7 +624,8 @@ namespace MixedAtmospheres.Oni
     internal static class NativeDomainColonyLoadPatch
     {
         private static IEnumerable<MethodBase> TargetMethods()=>new[]{AccessTools.Method(typeof(Sim),nameof(Sim.LoadWorld)),AccessTools.Method(typeof(Sim),nameof(Sim.Load))};
-        private static bool Prefix(IReader __0,ref int __result)=>!NativeSealedDomainValidation.TryLoadPairedColony(__0,ref __result);
+        // A vanilla-load check (validation only) leaves the save to ONI's own loader.
+        private static bool Prefix(IReader __0,ref int __result)=>ColonyRuntimeValidation.Settings?.VanillaLoad==true||!NativeSealedDomainValidation.TryLoadPairedColony(__0,ref __result);
     }
     [HarmonyPatch(typeof(Sim),nameof(Sim.Start))]
     internal static class NativeDomainColonyStartPatch

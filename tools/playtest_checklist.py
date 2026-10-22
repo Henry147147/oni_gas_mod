@@ -84,7 +84,13 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "building-melting": (OWNER, ("building-melt",)),
     "particles": (OWNER, ("falling", "bottle-emptier")),
 }
-PASSED_SCENARIOS: set[str] = set()
+# Passing in the Linux harness (Terra, seed 147147) on the current owner.
+PASSED_SCENARIOS: set[str] = {
+    "terrain", "door", "airflow", "falling", "heat", "phase", "freeze-melt", "deoxidizer", "sublimation", "breathing",
+    "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "germs", "puft", "plant", "wheezewort",
+    "life-support", "oxyfern", "debris-heat", "building-melt", "rocket-exhaust", "meteor", "sensor", "pacu",
+    "liquid-pump", "pipes", "mask-station", "polymer-press", "gas-generator", "geyser",
+}
 # Systems checked by whole-colony runs rather than one scenario.
 RUN_SYSTEMS: dict[str, dict] = {
     "native-hook-coverage": {
