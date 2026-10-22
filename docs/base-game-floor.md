@@ -171,3 +171,23 @@ Their maximum relative mass/energy errors are below 5.9e-16 / 4.9e-17;
 trace totals are 2.82e-8–3.77e-8 kg / 0.01155–0.01350 J. All complete without
 faults or skipped relaxations. None reaches the fast-speed target, and these
 ledger passes do not establish accuracy-floor acceptance.
+
+An exact energy-ledger optimization (`850330d`) reuses each cell's mass and
+reads binary64 momentum directly when no canonical sidecar exists. Summation
+order is unchanged. Alternating high-lock audits on two captures improve
+6.26–9.20 ms to 2.29–3.07 ms; full-sidecar audits improve 6.67–7.25 ms to
+3.50–3.15 ms. Fresh matched whole-lock Terra60 pairs give:
+
+| Requested speed / revision | Owner mean / p95 / max ms | Observed mean / p95 / max ms | Maximum mass / energy error | Trace sink kg / J |
+| --- | ---: | ---: | --- | --- |
+| Fast, parent | 292.3 / 416.0 / 755.5 | 378.6 / 546.6 / 2882.8 | 3.04e-16 / 4.47e-17 | 3.553e-8 / 0.01254 |
+| Fast, optimized | 283.1 / 465.0 / 510.4 | 365.5 / 545.7 / 2863.2 | 2.86e-16 / 4.25e-17 | 3.549e-8 / 0.01290 |
+| 1×, parent | 278.2 / 444.4 / 537.9 | 359.6 / 566.7 / 2903.7 | 3.54e-16 / 3.62e-17 | 3.478e-8 / 0.01238 |
+| 1×, optimized | 290.5 / 520.5 / 597.8 | 379.6 / 627.0 / 2962.8 | 3.55e-16 / 4.15e-17 | 3.540e-8 / 0.01260 |
+
+All four runs have no faults or skipped relaxations. Observed intervals include
+the initial UI hand-off; Claude's managed build overlapped the parent fast
+startup, before measured owner frames. Frames 10–60 at fast speed improve
+owner/observed means 276.7/319.5 to 271.1/314.6 ms. The component gain is clear;
+the frame gain is small and noisy, and the 1× pair regresses. The fast clock
+does not hold 2×. No numerical setting changed.

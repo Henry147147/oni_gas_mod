@@ -93,8 +93,9 @@ std::vector<MacSaturationPair> mac_saturation_pairs(const SpeciesRegistry& regis
     return pairs;
 }
 
-MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, const FluidThermodynamics& model,
-    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction) {
+static MacPhaseChangeAdvance advance_cells(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction,
+    std::span<const std::uint8_t> selected) {
     require_mac_energy_environment(); model.validate_registry(registry);
     require(std::isfinite(fraction) && fraction > 0 && fraction <= 1, "Invalid MAC phase relaxation fraction");
     MacPhaseChangeAdvance result{source, {}}; auto& total_report = result.report;
@@ -152,7 +153,7 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
     const auto blocks = (source.cells.size() + block_size - 1) / block_size;
     std::vector<Partial> partials(blocks);
     const auto advance_cell = [&](std::size_t i, Partial& part) {
-        if (g.walls[i]) return;
+        if (g.walls[i] || (!selected.empty() && !selected[i])) return;
         auto& cell = result.state.cells[i].mixture;
         auto& report = part.report; auto& entropy = part.entropy; auto& allowance = part.allowance;
         for (const auto& entry : prepared) {
@@ -290,5 +291,15 @@ MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, 
     if (admitted.sign() < 0) throw std::domain_error("MAC phase change decreased entropy beyond its roundoff allowance");
     total_report.entropy_change_j_per_k = total_entropy.value().project().value; total_report.entropy_allowance_j_per_k = total_allowance.value().project().value;
     return result;
+}
+MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, bool skip_sharp_interfaces, double fraction) {
+    return advance_cells(registry, model, source, pairs, skip_sharp_interfaces, fraction, {});
+}
+MacPhaseChangeAdvance advance_mac_phase_change_in_cells(const SpeciesRegistry& registry, const FluidThermodynamics& model,
+    const MacTransportState& source, std::span<const MacSaturationPair> pairs, std::span<const std::size_t> cells, double fraction) {
+    std::vector<std::uint8_t> selected(source.cells.size());
+    for (const auto i : cells) { require(i < selected.size(), "Invalid selected phase cell"); selected[i] = 1; }
+    return advance_cells(registry, model, source, pairs, false, fraction, selected);
 }
 }

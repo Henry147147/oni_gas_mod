@@ -320,6 +320,9 @@ public:
     // Momentum and the clock are unchanged; species masses move within pairs.
     // fraction: the share of the way to equilibrium each cell moves.
     [[nodiscard]] MacPhaseRelaxation with_phase_relaxation(std::span<const MacSaturationPair>, double fraction = 1) const;
+    // The same fixed-U equilibrium, restricted to explicit cell indices.
+    [[nodiscard]] MacPhaseRelaxation with_phase_relaxation_in_cells(std::span<const MacSaturationPair>,
+        std::span<const std::size_t> cells, double fraction = 1) const;
     // Buoyant settling of immiscible liquids (MAC_TRANSPORT.md, "Liquid
     // settling"): across each vertical face of two full liquid-bearing cells,
     // the lower cell's lightest liquid phase rises and the upper cell's

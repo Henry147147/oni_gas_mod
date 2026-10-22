@@ -1,5 +1,6 @@
 #include "oni_colony.hpp"
 #include "mac_kernel_detail.hpp"
+#include "mac_phase_flow.hpp"
 #include "oni_catalogue.hpp"
 #include "oni_colony_import.hpp"
 #include "oni_radial_consumption.hpp"
@@ -1568,7 +1569,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         };
         if (const char* frame = std::getenv("MA_COLONY_DUMP_FRAME"); frame && s.status.completed_frames + 1 == std::strtoull(frame, nullptr, 10))
             dump(std::getenv("MA_COLONY_FAULT_DUMP"));
-        std::optional<MacClosedAdvance> flowed;
+        std::optional<MacPhaseFlow> flowed;
         // MA_COLONY_SLOW_DUMP=s also writes the world before the first flow
         // step still running after s seconds (a watchdog, so a step that
         // never finishes is caught too).
@@ -1584,11 +1585,15 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
             { std::lock_guard held(watch); finished = true; }
             flow_done.notify_all(); if (watchdog.joinable()) watchdog.join();
         };
-        try { flowed.emplace(world.advanced(seconds, 65536, MacExecutionPolicy::production)); }
+        try { flowed.emplace(advance_mac_phase_flow(world, seconds, 65536, s.pairs)); }
         catch (...) { stop_watchdog(); dump(std::getenv("MA_COLONY_FAULT_DUMP")); throw; }
         stop_watchdog();
         auto advanced = std::move(*flowed);
-        book_trace(s, advanced.report.trace_sink);
+        book_trace(s, advanced.trace_sink);
+        for (std::size_t k = 0; k < advanced.converted.size(); ++k) {
+            L.converted[k] += advanced.converted[k]; L.converted_gross[k] += advanced.converted_gross[k];
+        }
+        s.status.evaporated_kg += advanced.evaporated_kg; s.status.condensed_kg += advanced.condensed_kg;
         world = std::move(advanced.world);
         // Phase change (the production kernel has none): each cell holding a
         // liquid/vapour pair relaxes toward saturation at fixed U and volume.
@@ -1673,7 +1678,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         (void)registry;
         s.world = std::make_shared<const MacClosedWorld>(std::move(world));
         ++s.status.completed_frames; s.status.native_ticket = ticket; s.status.solver_thread = thread;
-        s.status.substeps += advanced.report.substeps; s.status.rejected_attempts += advanced.report.rejected_attempts;
+        s.status.substeps += advanced.substeps; s.status.rejected_attempts += advanced.rejected_attempts;
         s.status.time_seconds = s.world->time_s(); s.status.last_frame_seconds = seconds;
         s.status.last_advance_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
         s.status.maximum_advance_ms = std::max(s.status.maximum_advance_ms, s.status.last_advance_ms);

@@ -830,6 +830,13 @@ MacPhaseRelaxation MacClosedWorld::with_phase_relaxation(std::span<const MacSatu
     auto candidate=derived(std::move(advanced.state));
     return {std::move(candidate), advanced.report};
 }
+MacPhaseRelaxation MacClosedWorld::with_phase_relaxation_in_cells(std::span<const MacSaturationPair> pairs,
+    std::span<const std::size_t> cells, double fraction) const {
+    require_mac_energy_environment();
+    if (revision_ == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");
+    auto advanced = advance_mac_phase_change_in_cells(registry_, *thermodynamics_, state(), pairs, cells, fraction);
+    return {derived(std::move(advanced.state)), advanced.report};
+}
 MacClosedWorld MacClosedWorld::with_cell_heat(std::span<const MacCellHeat> edits,MacPrimaryRoundingCounts* accepted_rounding) const {
     require_mac_energy_environment();
     require(!edits.empty() && edits.size() <= 4096, "MAC heat batch must contain 1..4096 edits");

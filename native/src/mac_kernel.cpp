@@ -2,6 +2,7 @@
 // the reference substep schedule (or calm stepping), retries, the interval
 // audit and atomic publication through MacClosedWorld.
 #include "mac_kernel_detail.hpp"
+#include "mac_kernel_failure.hpp"
 #include "mac_kernel_regions.hpp"
 #include <optional>
 #include <string>
@@ -713,6 +714,7 @@ bool mac_kernel_normal_range(const MacTransportState& state) {
 }
 MacKernelAdvance advance_mac_kernel(const SpeciesRegistry& registry, const FluidThermodynamics& eos, const MacTransportState& state,
     const MacClosedSettings& settings, double start_time, double seconds, std::size_t budget, const MacKernelOptions& options) {
+    mac_kernel::failed_flow_attempts = 0;
     mac_kernel::require(settings.diffusion.mode == MacDiffusionMode::disabled,
         "The production kernel advances flow only; MacExecutionPolicy::production composes gas diffusion");
     MacKernelAdvance result{state, {}};
@@ -728,6 +730,7 @@ MacClosedAdvance advance_mac_production(const MacClosedWorld& world, double seco
     return advance_mac_production_flow(world, seconds, budget, options);
 }
 MacClosedAdvance advance_mac_production_flow(const MacClosedWorld& world, double seconds, std::size_t budget, const MacKernelOptions& options) {
+    mac_kernel::failed_flow_attempts = 0;
     mac_kernel::last_report() = {};
     const auto revision = MacKernelAccess::revision(world);
     if (revision == std::numeric_limits<std::uint64_t>::max()) throw std::overflow_error("MAC closed revision overflow");

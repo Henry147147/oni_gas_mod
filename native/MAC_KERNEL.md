@@ -210,6 +210,22 @@ identical one/twelve-worker endpoints and a total trace sink of 1.8314e-10 kg /
 past its zero-RHS preconditioner error but a subsequent range failure is still
 under investigation; ten-cycle acceptance is open.
 
+The colony owner also repairs a failed flow interval whose rarefaction reaches
+the EOS temperature floor before the following phase relaxation. It bisects
+the interval and applies the same fixed-U equilibrium only in vapour-bearing
+cells within twice their EOS minimum temperature. Failed work and both children
+share the original attempt budget; conversion and trace receipts are published
+only when the whole interval succeeds. Successful old intervals and every gate
+retain their original arithmetic and bytes. This also covers previously failing
+legacy owner intervals; no new setting or checkpoint format is involved.
+Four captured scenario failures and the matching legacy failure pass three
+cold-restored frames with identical one/twelve-worker checkpoints. Condensation
+is 2.663–3.052 g; profile trace totals are 1.42–1.84e-9 kg / 0.000442–0.000515 J,
+and the legacy sink is zero. Maximum relative mass/energy errors are
+7.02e-16 / 1.10e-17. A synthetic control checks unchanged successful flow,
+the unchanged EOS domain, conversion and energy ledgers, workers, continuation
+and shared-budget rollback. The ten-cycle trace capture remains unresolved.
+
 At a provisional `1e-60 kg` threshold, five captured fault worlds complete
 30 cold-restored intervals: total sink masses are `5.49e-59`, `6.63e-59`,
 `2.63e-58`, `5.46e-58` and `1.53e-58 kg`. The largest booked energy magnitude

@@ -4,6 +4,8 @@
 #include "mac_fixture.hpp"
 #include "mixed_atmospheres/mac_phase_change.hpp"
 #include "mixed_atmospheres/mac_kernel.hpp"
+#include "mixed_atmospheres/mac_primary.hpp"
+#include "../src/mac_phase_flow.hpp"
 #include <array>
 #include <cstring>
 #include <iomanip>
@@ -67,8 +69,101 @@ void parallel_control() {
         "Phase state or report depends on worker count");
     check(parallel.report.evaporating_cells > 0 && parallel.report.condensing_cells > 0 &&
         parallel.report.unevaluable_cells == 0 && image(st) == held, "Phase control did not convert both ways atomically");
+    const std::array<std::size_t, 3> cells{{1, 1024, 1025}};
+    auto expected = serial.state;
+    for (std::size_t i = 0; i < st.cells.size(); ++i)
+        if (std::find(cells.begin(), cells.end(), i) == cells.end()) expected.cells[i] = st.cells[i];
+    const auto selected = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18);
+    check(ma::testing::fingerprint(selected.state) == ma::testing::fingerprint(expected),
+        "Selected-cell phase change touched another cell, U or momentum");
+    options.threads = 1; set_mac_kernel_default_options(options);
+    const auto selected_serial = advance_mac_phase_change_in_cells(s.registry, *s.eos, st, pairs, cells, .18);
+    check(image(selected.state) == image(selected_serial.state) && fields(selected.report) == fields(selected_serial.report),
+        "Selected-cell phase state or report depends on worker count");
+    const auto owner = MacClosedWorld(s.registry, s.eos, st).with_phase_relaxation_in_cells(pairs, cells, .18).world;
+    const auto restored = MacClosedWorld::from_checkpoint(s.registry, s.eos, owner.checkpoint());
+    check(restored.with_phase_relaxation_in_cells(pairs, cells, .18).world.checkpoint() ==
+        owner.with_phase_relaxation_in_cells(pairs, cells, .18).world.checkpoint(), "Selected-cell phase cold continuation changed");
+    bool invalid = false;
+    try { const std::size_t outside = st.cells.size(); (void)owner.with_phase_relaxation_in_cells(pairs, std::span(&outside, 1)); }
+    catch (const std::invalid_argument&) { invalid = true; }
+    check(invalid && image(st) == held, "Selected-cell phase admission or source atomicity failed");
     set_mac_kernel_default_options(saved_options);
     std::cout << "PASS ordered phase pairs: primary bytes, reports and one/many workers\n";
+    std::cout << "PASS selected phase cells: other cells and U/J unchanged, workers, admission and cold continuation\n";
+}
+void cold_phase_flow_control() {
+    const Water s;
+    auto materials = s.eos->reference().materials();
+    for (auto& material : materials) material.minimum_temperature_k = 270;
+    const auto eos = std::make_shared<const FluidThermodynamics>(s.registry, "cold-phase-flow-control", materials);
+    MacTransportState st; st.grid = {8, 1, 1, 1, false, false, std::vector<std::uint8_t>(8)};
+    std::vector<double> masses(3); masses[s.steam] = .8;
+    st.cells.assign(8, {MixtureInventory(3), {}});
+    st.cells[0].mixture = eos->initialize_at_temperature(masses, 280, 1).mixture;
+    st.occupied_volumes_m3.assign(8, 0); st.occupied_volumes_m3[0] = 1;
+    st.momentum_x.assign(9, 0); st.momentum_y.assign(16, 0);
+    MacClosedSettings settings; settings.vacuum = MacVacuumRepresentation::void_phase;
+    settings.numerical_kernel = MacNumericalKernel::production;
+    settings.subcell_void = MacSubcellVoidPolicy::expand_unresolved_gas;
+    settings.step_control = MacStepControl::regional_predictive; settings.maximum_timestep_s = .005;
+    settings.reconstruction = MacMaterialReconstruction::interface_plic;
+    MacClosedWorld world(s.registry, eos, st, settings);
+    const std::array<MacSaturationPair, 1> pairs{{{s.water, s.steam}}};
+    const auto held = world.checkpoint();
+    const auto ordinary = world.advanced(1e-6, 65536, MacExecutionPolicy::production);
+    const auto same = advance_mac_phase_flow(world, 1e-6, 65536, pairs);
+    check(same.world.checkpoint() == ordinary.world.checkpoint() && same.converted.empty(),
+        "Phase-assisted flow changed an ordinary successful interval");
+    bool failed = false;
+    try { (void)world.advanced(.05, 65536, MacExecutionPolicy::production); }
+    catch (const std::exception&) { failed = mac_kernel::failed_flow_attempts > 0; }
+    check(failed, "Cold phase control did not reach the flow EOS floor");
+    const auto serial = advance_mac_phase_flow(world, .05, 65536, pairs);
+    check(serial.condensed_kg > 0 && world.checkpoint() == held,
+        "Cold phase flow did not condense atomically");
+    long double total = 0;
+    for (const auto& cell : serial.world.state().cells) {
+        total += cell.mixture.masses[s.water] + cell.mixture.masses[s.steam];
+        if (cell.mixture.mass() > 0)
+            check(eos->evaluate(cell.mixture, mac_material_volume(serial.world.state(), &cell - serial.world.state().cells.data())).temperature_k >= 270,
+                "Cold phase recovery left the unchanged EOS domain");
+    }
+    check(std::abs(total - .8L) < 1e-14L, "Cold phase flow lost pair mass");
+    const auto energy = [&](const MacClosedWorld& w) {
+        MacEnergySum sum;
+        for (const auto& cell : w.state().cells) account_mac_cell_internal_energy(sum, cell);
+        const auto inertia = mac_face_inertias(s.registry, w.state(), *eos);
+        const auto x = mac_field_values(w.state().momentum_x, w.state().full_momentum_x);
+        const auto y = mac_field_values(w.state().momentum_y, w.state().full_momentum_y);
+        for (std::size_t f = 0; f < x.size(); ++f) if (inertia.x[f] > 0) sum.add(MacEnergy::kinetic(inertia.x[f], x[f]));
+        for (std::size_t f = 0; f < y.size(); ++f) if (inertia.y[f] > 0) sum.add(MacEnergy::kinetic(inertia.y[f], y[f]));
+        return mac_energy_long_double(sum.value());
+    };
+    check(std::abs(energy(serial.world) - energy(world)) <= 0x1p-45L * std::abs(energy(world)),
+        "Cold phase flow energy ledger did not close");
+    for (std::size_t k = 0; k < masses.size(); ++k) {
+        long double held_mass = 0;
+        for (const auto& cell : serial.world.state().cells) held_mass += cell.mixture.masses[k];
+        const auto scale = masses[k] + serial.converted_gross[k];
+        check(std::abs(held_mass - masses[k] - serial.converted[k]) <= 0x1p-45L * scale,
+            "Cold phase flow constituent conversion ledger did not close");
+    }
+    const auto options = mac_kernel_default_options(); auto many = options; many.threads = 12;
+    set_mac_kernel_default_options(many);
+    const auto parallel = advance_mac_phase_flow(world, .05, 65536, pairs);
+    set_mac_kernel_default_options(options);
+    check(parallel.world.checkpoint() == serial.world.checkpoint() && parallel.converted == serial.converted &&
+        parallel.converted_gross == serial.converted_gross && parallel.substeps == serial.substeps &&
+        parallel.rejected_attempts == serial.rejected_attempts, "Cold phase flow depends on worker count");
+    const auto restored = MacClosedWorld::from_checkpoint(s.registry, eos, serial.world.checkpoint());
+    check(advance_mac_phase_flow(restored, .01, 65536, pairs).world.checkpoint() ==
+        advance_mac_phase_flow(serial.world, .01, 65536, pairs).world.checkpoint(), "Cold phase flow continuation changed");
+    bool exhausted = false;
+    try { (void)advance_mac_phase_flow(world, .05, serial.substeps + serial.rejected_attempts - 1, pairs); }
+    catch (const std::exception&) { exhausted = true; }
+    check(exhausted && world.checkpoint() == held, "Cold phase flow exceeded its shared budget or changed its source");
+    std::cout << "PASS cold phase flow: unchanged success, EOS floor, species/energy ledgers, workers, cold continuation and shared budget\n";
 }
 double vapour_pressure(const Water& s, const MixtureInventory& m, double volume) {
     const auto e = s.eos->evaluate(m, volume); return e.gas_pressure_pa * e.partial_volumes_m3[1] / e.gas_volume_m3;
@@ -188,6 +283,7 @@ void vacuum_boiling(const Water& s) {
 }
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--cold-flow-only") == 0) { cold_phase_flow_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--parallel-only") == 0) { parallel_control(); return 0; }
         check(argc == 1, "Usage: ma_mac_phase_change_tests [--parallel-only]");
         const Water s; saturation_curve(s);
@@ -202,6 +298,7 @@ int main(int argc, char** argv) {
         production_column(s);
         vacuum_boiling(s);
         parallel_control();
+        cold_phase_flow_control();
         std::cout << "MAC phase-change tests passed\n"; return 0;
     } catch (const std::exception& e) { std::cerr << "FAIL " << e.what() << '\n'; return 1; }
 }

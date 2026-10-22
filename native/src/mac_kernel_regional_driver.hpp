@@ -154,7 +154,12 @@ MacKernelReport run_regional(const SpeciesRegistry& registry, const FluidThermod
     report.attempts = shared.used.load(std::memory_order_relaxed);
     for (const auto& error : errors) if (error) {
         if (report.attempts == budget) throw std::runtime_error("Production interval exhausted its shared attempt budget");
-        try { std::rethrow_exception(error); } catch (const RangeFlag&) { throw RangeFlag{report.attempts}; }
+        try { std::rethrow_exception(error); }
+        catch (const RangeFlag&) { failed_flow_attempts = report.attempts; throw RangeFlag{report.attempts}; }
+        catch (const FluidFatalError& failed) {
+            if (failed.code() == FluidFatalCode::numerical_precision) failed_flow_attempts = report.attempts;
+            throw;
+        }
     }
     if (options.collect_stage_timing) report.timing.conversion_ms += geometry_ms;
     const auto assemble_start = Clock::now();

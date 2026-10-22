@@ -61,4 +61,7 @@ struct MacPhaseChangeAdvance { MacTransportState state; MacPhaseChangeReport rep
 // equilibrium (a first-order relaxation over the caller's interval).
 [[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change(const SpeciesRegistry&, const FluidThermodynamics&,
     const MacTransportState&, std::span<const MacSaturationPair>, bool skip_sharp_interfaces = false, double fraction = 1);
+// Restrict that operation to these cells; an empty list changes no cells.
+[[nodiscard]] MacPhaseChangeAdvance advance_mac_phase_change_in_cells(const SpeciesRegistry&, const FluidThermodynamics&,
+    const MacTransportState&, std::span<const MacSaturationPair>, std::span<const std::size_t> cells, double fraction = 1);
 }
