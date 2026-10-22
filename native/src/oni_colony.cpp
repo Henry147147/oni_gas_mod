@@ -231,8 +231,13 @@ std::size_t rect_index(const MAOniColonyConfig& c, std::uint32_t public_cell) {
 }
 std::vector<long double> totals(const MacClosedWorld& w) {
     std::vector<long double> out(w.registry().size());
-    // Zero masses add nothing; skipping them leaves every sum unchanged.
-    for (const auto& cell : w.state().cells) for (std::size_t k = 0; k < out.size(); ++k) if (const double m = cell.mixture.masses[k]; m != 0) out[k] += m;
+    // Walls and zero masses add nothing; skipping them leaves every sum unchanged.
+    const auto& st = w.state();
+    for (std::size_t i = 0; i < st.cells.size(); ++i) {
+        if (st.grid.walls[i]) continue;
+        const auto& masses = st.cells[i].mixture.masses;
+        for (std::size_t k = 0; k < out.size(); ++k) if (const double m = masses[k]; m != 0) out[k] += m;
+    }
     return out;
 }
 // A cell's reading. A trace far below binary64's normal range (a rounding
@@ -255,6 +260,7 @@ long double energy_of(const MacClosedWorld& w) {
     const auto& st = w.state(); const auto& grid = st.grid; long double value = 0;
     const double g = w.settings().gravity_m_per_s2;
     for (std::size_t i = 0; i < st.cells.size(); ++i) {
+        if (grid.walls[i]) continue; // a wall holds no fluid and adds nothing
         const auto& cell = st.cells[i];
         value += static_cast<long double>(cell.mixture.energy) + cell.energy_remainder_j.projected + mac_energy_long_double(cell.energy_remainder_j.full);
         value += static_cast<long double>(cell.mixture.mass()) * g * ((static_cast<double>(i / grid.width) + .5) * grid.spacing_m);
