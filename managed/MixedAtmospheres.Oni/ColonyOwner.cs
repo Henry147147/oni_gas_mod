@@ -21,9 +21,10 @@ namespace MixedAtmospheres.Oni
         // Two steps exactly cover the native binary32 0.2 s frame.
         internal const double MaximumTimestepSeconds = .1f;
         // New colonies run the saved base-game accuracy-floor profile
-        // (docs/base-game-floor.md) once its threshold is selected; a restored
+        // (docs/base-game-floor.md) once its threshold is selected; until
+        // then only a test run selects it (MA_COLONY_GAME_FLOOR=1). A restored
         // colony keeps the profile its save holds.
-        internal const bool NewColoniesUseGameFloor = false;
+        internal static bool NewColoniesUseGameFloor => Environment.GetEnvironmentVariable("MA_COLONY_GAME_FLOOR") == "1";
         // Native messages seen while the owner runs, by hash (development census).
         internal static readonly Dictionary<int, long> Census = new Dictionary<int, long>();
         internal static void Count(int message, int count) { if (Active) Census[message] = (Census.TryGetValue(message, out var n) ? n : 0) + count; }
