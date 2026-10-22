@@ -841,6 +841,30 @@ follow separately.
 The older Terra dump's flow probe improves 4.30 to 3.51 s. The phase probe's
 regression on the newer capture remains visible in the table; no numerical
 setting or accuracy tradeoff accompanies the storage change.
+
+Fresh matched whole-lock Terra60 runs, identical managed DLLs, GPU rendering
+and opt-in profile 17 measure the complete storage change:
+
+| Requested speed | Owner mean / p95 / max ms, before → after | Observed mean / p95 / max ms, before → after |
+| --- | --- | --- |
+| Fast (2×) | 289.0 / 421.0 / 741.3 → 211.9 / 367.1 / 463.8 | 375.0 / 727.6 / 2963.1 → 303.4 / 445.6 / 2902.2 |
+| 1× | 273.0 / 408.6 / 724.6 → 204.3 / 279.0 / 431.1 | 355.2 / 527.2 / 2863.6 → 294.6 / 405.0 / 2922.2 |
+
+Observed means/maxima include the initial UI pause. Frames 10–60 observed
+means improve 308.9→249.0 ms (fast) and 295.9→242.6 ms (1×); these 50-interval
+subsets do not establish the required 60-frame fast-clock acceptance. Every
+run has zero faults/skipped relaxations and closed ledgers:
+
+| Run | Maximum relative mass / energy error | Trace sink kg / J |
+| --- | --- | --- |
+| Parent fast | 2.94e-16 / 4.44e-17 | 3.561e-8 / 0.01239 |
+| Storage fast | 7.63e-16 / 3.76e-17 | 3.474e-8 / 0.01238 |
+| Parent 1× | 3.22e-16 / 3.38e-17 | 3.473e-8 / 0.01220 |
+| Storage 1× | 2.76e-16 / 4.05e-17 | 3.701e-8 / 0.01250 |
+
+The 2× target remains open. The separate base-v6 check faults at frame 1621
+after slowing to about 10 s/frame and exhausting its attempt budget; life
+support and ledgers held before the fault. Its captured flow is under study.
 Whole-lock Terra60 owner mean is 0.649 s → 0.638 s; observed frame interval
 is 0.848 s → 0.830 s. Both pass; candidate relative mass/energy errors are
 `5.25e-16` / `3.35e-17`.
