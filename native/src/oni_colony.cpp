@@ -478,7 +478,9 @@ MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
     return moves.empty() ? world : move_material(std::move(world), moves, s.ledger, s.status);
 }
 // Terrain edits at the start of a frame (docs/colony-owner.md#terrain).
+std::atomic<std::uint32_t> refused_terrain{UINT32_MAX}; // control hook: a public cell whose terrain edit throws
 MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits) {
+    for (const auto& e : edits) if (e.public_cell == refused_terrain.load(std::memory_order_relaxed)) throw std::runtime_error("Terrain edit refused (control)");
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
     std::vector<std::size_t> opening, closing;
     std::vector<std::uint8_t> touched(st0.cells.size());
@@ -797,6 +799,7 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
     }
     return n;
 }
+void refuse_terrain(std::int64_t public_cell) { refused_terrain.store(public_cell < 0 ? UINT32_MAX : static_cast<std::uint32_t>(public_cell), std::memory_order_relaxed); }
 void refuse_reading(std::int64_t public_cell) {
     refused_reading.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
@@ -1141,19 +1144,20 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
         }
         doing = "terrain";
         if (!terrain.empty()) {
-            const auto before_terrain = world;
+            const auto before_terrain = world; const Session before_session = s;
             try { world = apply_terrain(s, std::move(world), terrain); }
-            catch (const std::exception& error) {
-                // Name the edits and the cells they touch.
-                std::string where; const auto& st = before_terrain.state(); const auto W = st.grid.width;
-                for (std::size_t q = 0; q < terrain.size() && q < 12; ++q) {
-                    const auto i = rect_index(s.config, terrain[q].public_cell); const auto& m = st.cells[i].mixture;
-                    where += " [" + std::to_string(terrain[q].kind) + " at " + std::to_string(s.config.offset_x + i % W) + "," + std::to_string(s.config.offset_y + i / W) +
-                        (st.grid.walls[i] ? " wall" : "") + ":";
-                    for (std::size_t k = 0; k < m.masses.size(); ++k) if (m.masses[k] > 0) { char b[64]; std::snprintf(b, sizeof b, " %s %.3g", cat.materials[k].game.id.c_str(), m.masses[k]); where += b; }
-                    where += "]";
+            catch (const std::exception&) {
+                // One edit at a time: an edit the reference EOS refuses (a
+                // displacement into a cell it cannot evaluate) waits, unbooked,
+                // for the next frame; the others apply.
+                world = before_terrain; s = before_session;
+                std::vector<MAOniColonyTerrain> waiting;
+                for (const auto& e : terrain) {
+                    const auto world_before = world; const Session session_before = s;
+                    try { world = apply_terrain(s, std::move(world), std::span(&e, 1)); }
+                    catch (const std::exception&) { world = world_before; s = session_before; waiting.push_back(e); }
                 }
-                throw std::runtime_error(std::string(error.what()) + " (" + std::to_string(terrain.size()) + " edits:" + where + ")");
+                if (!waiting.empty()) { std::lock_guard q(inputs); pending_terrain.insert(pending_terrain.end(), waiting.begin(), waiting.end()); }
             }
         }
         world = close_blocked_faces(s, std::move(world));

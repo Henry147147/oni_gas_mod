@@ -363,6 +363,24 @@ int main(int argc, char** argv) {
             require(after.state == 1 && zero && after.maximum_relative_mass_error < 1e-12, "an unrepresentable injection is dropped with a zero receipt");
             ma::oni::colony::stop();
         }
+        // A terrain edit the owner cannot apply waits for the next frame
+        // while the others in its batch apply.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const auto start = ma::oni::colony::status();
+            const MAOniColonyTerrain tiles[] = {{public_cell(9, 6), MA_ONI_COLONY_CLOSE}, {public_cell(12, 6), MA_ONI_COLONY_CLOSE}};
+            ma::oni::colony::refuse_terrain(public_cell(12, 6));
+            ma::oni::colony::queue_terrain(tiles);
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            const auto refused = ma::oni::colony::status();
+            ma::oni::colony::refuse_terrain(-1);
+            ma::oni::colony::advance(6, .2, 2); ma::oni::colony::wait();
+            const auto later = ma::oni::colony::status();
+            std::cout << "refused terrain: closed " << refused.closed_cells - start.closed_cells << " then " << later.closed_cells - start.closed_cells << ", state " << later.state << " " << later.error << "\n";
+            require(refused.state == 1 && refused.closed_cells == start.closed_cells + 1 && later.state == 1 && later.closed_cells == start.closed_cells + 2 &&
+                later.maximum_relative_mass_error < 1e-12, "a refused terrain edit waits a frame, the rest of its batch applies");
+            ma::oni::colony::stop();
+        }
         // A heat edit the cell cannot take (here more cooling than its gas
         // holds) stays queued, unbooked, instead of faulting the owner.
         {

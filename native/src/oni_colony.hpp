@@ -29,6 +29,8 @@ std::uint64_t readings(std::vector<MAOniColonyReading>&, std::vector<MAOniColony
 double trace_reading_temperature(std::uint32_t public_cell, std::uint32_t native_index, double trace_kg);
 // Control hook: the projection treats this cell's reading as refused (-1 clears).
 void refuse_reading(std::int64_t public_cell);
+// Control hook: a terrain edit at this cell throws (-1 clears).
+void refuse_terrain(std::int64_t public_cell);
 // Native cell arrays of one SimData: [0] the frame's old cells, [1] updated.
 struct NativeCells {
     std::uint16_t* element[2]{}; float* mass[2]{}; float* temperature[2]{};
