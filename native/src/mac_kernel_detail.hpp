@@ -462,6 +462,8 @@ void stage_diffusion(Context&, Fields&, double seconds, Accounts&);
 // momentum/K transport with the selected reconstruction, heat deposition and
 // the gravity internal-energy adjustment. Reads ws.qx/qy/Vmat/body_work_y.
 void transport_after_pressure(Context&, Fields&, double seconds, Accounts&);
+double gravity_entropy_temperature(const Model&, const Fields&, std::size_t N, std::size_t i,
+    const Stats&, double energy, double volume, double caloric_capacity);
 // Void phase: each cell's material contact with its left, right, bottom and
 // top faces (1 for filled cells), from its PLIC line. Empty while no cell is
 // partly filled.

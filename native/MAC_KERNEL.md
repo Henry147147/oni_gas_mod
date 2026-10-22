@@ -110,6 +110,20 @@ and endpoint EOS, entropy and conservation checks still apply. This sacrifices
 thermal detail below component energy resolution; it does not widen EOS ranges
 or audit bounds. Report counters identify skipped conduction cells and energy
 redistribution. Scientific controllers and gate settings do not select it.
+Under the same profile, a gas-only trace below that capacity threshold may use
+its positive analytic ideal-gas temperature for the intermediate gravity
+entropy account. This lets the subsequent conservative heat exchange restore
+an admissible endpoint rather than forcing vanishing timesteps at a material
+temperature boundary. The intermediate temperature may leave the declared
+range; no conserved state changes in the entropy account, and final EOS,
+entropy and ledger bounds remain unchanged. Without enabled conduction, the
+original strict intermediate EOS check still applies.
+A captured Terra magma/headspace failure now passes its first interval with
+identical one/twelve-thread checkpoint bytes, and 30 raw flow intervals pass.
+Constructing a fresh owner from the later state still reports a thermodynamic
+underflow; cold EOS compatibility remains open. Whole-lock Terra60 passes at
+0.452 s mean owner time (including one checkpoint capture), with maximum
+relative mass/energy errors 2.91e-16/2.07e-17 and no fault or reference fallback.
 A captured life-support fault advances with this profile but still fails during
 standalone continuation; trace EOS admission remains open. A captured filter
 arena also still forces extreme refinement at a sharp-interface gravity EOS

@@ -195,6 +195,21 @@ void interface_gravity_weights(Context& c, const Fields& f, bool cached, std::ve
         }
     });
 }
+double gravity_entropy_temperature(const Model& model, const Fields& f, std::size_t N, std::size_t i,
+    const Stats& stats, double energy, double volume, double caloric_capacity) {
+    // The game profile resolves this trace by conservative heat exchange after
+    // transport. Its intermediate entropy account needs only positive ideal-gas T;
+    // all final EOS, entropy and conservation audits still apply.
+    if (stats.kind == gas_cell && stats.Cv > 0 && stats.Cv < caloric_capacity) {
+        const double temperature = (energy - stats.off) / stats.Cv;
+        if (temperature > 0 && std::isfinite(temperature)) return temperature;
+        reject("Unresolved gravity entropy has no positive temperature");
+    }
+    State state;
+    if (!evaluate_state(model, f, N, i, stats, energy, volume, state))
+        reject("Production gravity reconciliation left its EOS domain");
+    return state.T;
+}
 void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     prepare_primary_remainders(f);
     (void)dt;
@@ -1050,6 +1065,13 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
     }
     // ---- heat deposition by new mass shares, plus the gravity adjustment.
     const double gravity = c.settings.gravity_m_per_s2;
+    double caloric_capacity = 0;
+    if (c.settings.step_control == MacStepControl::regional_predictive &&
+        c.settings.subcell_void == MacSubcellVoidPolicy::expand_unresolved_gas &&
+        c.settings.phase_change == MacPhaseChange::none && c.settings.thermal_conduction)
+        for (std::size_t i = 0; i < N; ++i)
+            if (ws.eos.kind[i] == gas_cell || ws.eos.kind[i] == liquid_cell || ws.eos.kind[i] == mixed_cell)
+                caloric_capacity = std::max(caloric_capacity, 16 * eps * ws.eos.Cv[i]);
     struct Deposit { std::size_t unresolved = 0; double gravity = 0; MacEnergySum gravity_change; DD gravity_entropy; double gravity_entropy_operands = 0; EnergyRounding energy; };
     auto deposited = c.exec.partials<Deposit>([&](std::size_t y0, std::size_t y1, std::size_t blk) {
         Deposit d;
@@ -1084,11 +1106,10 @@ void transport_after_pressure(Context& c, Fields& f, double dt, Accounts& acc) {
                 DD actual; actual.add(f.U[i]); actual.add(-pivot); actual.add(f.U_remainder[i]); actual.add(-pivot_low);
                 d.gravity_change.add(actual.hi); d.gravity_change.add(actual.lo);
                 if (gravity_share != 0 || actual.value() != 0) {
-                    State st;
-                    if (!evaluate_state(model, f, N, i, cell_stats(model, f, N, i), pivot, material_volume(f, g.V, i), st))
-                        reject("Production gravity reconciliation left its EOS domain");
-                    d.gravity_entropy.add(actual.value() / st.T);
-                    d.gravity_entropy_operands += std::abs(actual.value()) / st.T;
+                    const double temperature = gravity_entropy_temperature(model, f, N, i,
+                        cell_stats(model, f, N, i), pivot, material_volume(f, g.V, i), caloric_capacity);
+                    d.gravity_entropy.add(actual.value() / temperature);
+                    d.gravity_entropy_operands += std::abs(actual.value()) / temperature;
                 }
             }
         }

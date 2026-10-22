@@ -180,6 +180,25 @@ void caloric_resolution_control() {
         accounts.unresolved_conduction_cells == 1 &&
         std::abs(residual.value().project().value) <= accounts.energy.discarded.allowance(),
         "regional caloric resolution retains mass and counted energy");
+    fields.U[0] = fields.m[0] * (species.offset + species.cv * .5);
+    fields.U_remainder = {0,0};
+    const auto stats = k::cell_stats(model,fields,2,0);
+    const double temperature = k::gravity_entropy_temperature(model,fields,2,0,stats,fields.U[0],1,16*k::eps*species.cv);
+    bool strict_rejected = false;
+    try { (void)k::gravity_entropy_temperature(model,fields,2,0,stats,fields.U[0],1,0); }
+    catch (const std::domain_error&) { strict_rejected = true; }
+    before = {}; for (auto value : fields.U) before.add(MacEnergy::from_double(value));
+    k::Accounts gravity_accounts; gravity_accounts.resize(context.quantities());
+    k::stage_conduction(context,fields,1./16,gravity_accounts);
+    residual = {};
+    for (auto value : fields.U) residual.add(MacEnergy::from_double(value));
+    for (auto value : fields.U_remainder) residual.add(MacEnergy::from_double(value));
+    for (std::size_t n = 0; n < before.size(); ++n) residual.add(before.component(n).negated());
+    const bool repaired = k::evaluate_state(model,fields,2,0,k::cell_stats(model,fields,2,0),fields.U[0],1,endpoint);
+    check(std::abs(temperature-.5)<1e-12 && strict_rejected && repaired && endpoint.T>species.tmin &&
+        fields.m==masses && gravity_accounts.caloric_cells==1 &&
+        std::abs(residual.value().project().value)<=gravity_accounts.energy.discarded.allowance(),
+        "regional gravity entropy trace reaches conservative caloric repair");
     auto source = s.state(2,1,false);
     source.cells[0].mixture = s.mixture(1,100000,330,.2);
     for (auto& mass : source.cells[0].mixture.masses) mass *= 1e-32;
