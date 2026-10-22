@@ -33,6 +33,8 @@ void refuse_reading(std::int64_t public_cell);
 void refuse_terrain(std::int64_t public_cell);
 // Control hook: heat edits at this cell are refused (-1 clears).
 void refuse_heat(std::int64_t public_cell);
+// Control hook: the phase relaxation throws while set.
+void refuse_relaxation(bool refused);
 // Native cell arrays of one SimData: [0] the frame's old cells, [1] updated.
 struct NativeCells {
     std::uint16_t* element[2]{}; float* mass[2]{}; float* temperature[2]{};

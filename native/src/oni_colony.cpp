@@ -480,6 +480,7 @@ MacClosedWorld expel_blocked_liquid(Session& s, MacClosedWorld world) {
 // Terrain edits at the start of a frame (docs/colony-owner.md#terrain).
 std::atomic<std::uint32_t> refused_terrain{UINT32_MAX}; // control hook: a public cell whose terrain edit throws
 std::atomic<std::size_t> refused_heat{SIZE_MAX};       // control hook: a rect cell whose heat edit is refused
+std::atomic<bool> refused_relaxation{false};           // control hook: phase relaxation throws
 MacClosedWorld apply_terrain(Session& s, MacClosedWorld world, std::span<const MAOniColonyTerrain> edits) {
     for (const auto& e : edits) if (e.public_cell == refused_terrain.load(std::memory_order_relaxed)) throw std::runtime_error("Terrain edit refused (control)");
     const auto& st0 = world.state(); const auto w = st0.grid.width, h = st0.grid.height;
@@ -800,6 +801,7 @@ std::uint32_t species(MAOniColonySpecies* out, std::uint32_t capacity) {
     }
     return n;
 }
+void refuse_relaxation(bool refused) { refused_relaxation.store(refused, std::memory_order_relaxed); }
 void refuse_heat(std::int64_t public_cell) {
     refused_heat.store(public_cell < 0 ? SIZE_MAX : rect_index(geometry, static_cast<std::uint32_t>(public_cell)), std::memory_order_relaxed);
 }
@@ -1443,6 +1445,7 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 // First-order relaxation with a 1 s time constant: a cell moves
                 // 1 - exp(-dt / 1 s) of the way to equilibrium per frame, so a
                 // superheated pool boils over seconds instead of flashing.
+                if (refused_relaxation.load(std::memory_order_relaxed)) throw std::runtime_error("Phase relaxation refused (control)");
                 auto relaxed = world.with_phase_relaxation(s.pairs, 1 - std::exp(-seconds / phase_relaxation_time_s));
                 if (relaxed.report.evaporated_kg + relaxed.report.condensed_kg > 0) {
                     const auto after = totals(relaxed.world);
@@ -1451,6 +1454,17 @@ void run_frame(std::uint64_t ticket, double seconds, const char* refusal, std::u
                 }
                 world = std::move(relaxed.world);
             } catch (const std::domain_error&) { ++s.status.skipped_relaxations; }
+            catch (const std::exception& error) {
+                // A cell the reference EOS cannot evaluate stops the frame's
+                // relaxation (the frame skips it, as for a domain error). The
+                // first such world is dumped for replay (MA_COLONY_FAULT_DUMP).
+                ++s.status.skipped_relaxations;
+                static std::atomic<bool> dumped{false};
+                if (!dumped.exchange(true)) {
+                    if (const char* path = std::getenv("MA_COLONY_FAULT_DUMP")) dump((std::string(path) + ".relaxation").c_str());
+                    if (std::getenv("MA_COLONY_LEDGER_LOG")) { std::fprintf(stderr, "[Mixed Atmospheres] phase relaxation skipped: %s\n", error.what()); std::fflush(stderr); }
+                }
+            }
         }
         doing = "settling";
         try {

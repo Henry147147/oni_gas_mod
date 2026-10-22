@@ -397,6 +397,17 @@ int main(int argc, char** argv) {
                 "a refused heat edit goes to an open neighbour");
             ma::oni::colony::stop();
         }
+        // A phase relaxation the reference EOS refuses skips the frame.
+        {
+            ma::oni::colony::restore(config, materials, image, 1);
+            const auto before = ma::oni::colony::status();
+            ma::oni::colony::refuse_relaxation(true);
+            ma::oni::colony::advance(5, .2, 2); ma::oni::colony::wait();
+            ma::oni::colony::refuse_relaxation(false);
+            const auto after = ma::oni::colony::status();
+            require(after.state == 1 && after.skipped_relaxations == before.skipped_relaxations + 1, "a refused phase relaxation skips its frame");
+            ma::oni::colony::stop();
+        }
         // A heat edit the cell cannot take (here more cooling than its gas
         // holds) stays queued, unbooked, instead of faulting the owner.
         {
