@@ -906,3 +906,14 @@ after-run relative mass/energy errors are 3.07e-16/2.46e-17. Three alternating
 high-lock offline pairs measure production flow at 0.434/0.103 s on Terra50
 and 0.755/0.099 s on the vacuum-expansion dump. Legacy-controller diagnostics
 retain their numerical output; regional schedules intentionally change trajectories.
+
+New colonies use the binary32 value `0.1f` promoted to double, so two calm
+steps exactly cover the game's promoted `0.2f` frame instead of leaving a tiny
+third step. The owner admission cap allows this value; saved limits stay exact.
+Matched whole-lock Terra60 runs at double/float 0.1 s measured mean owner
+advance 0.457/0.449 s and observed spacing 0.575/0.565 s. Component substeps
+fell from 154,779 to 103,477; after-run relative mass/energy errors were
+2.91e-16/1.92e-17, without faults or reference fallback. A focused owner control
+checks two-step advancement and cap rejection; an old 0.05 s save retains its
+limit and closed ledgers. Solver formulas and checkpoint format are unchanged;
+new-colony schedules and saved timestep bits change.

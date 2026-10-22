@@ -22,6 +22,27 @@ MAOniColonyMaterial material(const char* id, std::int32_t hash, std::uint32_t in
 constexpr std::uint32_t oxygen = 3, carbon = 4, water = 5, steam = 6, brine = 7, vacuum = 9, W = 16, H = 12, GW = 20, GH = 15, X0 = 2, Y0 = 1;
 std::uint32_t public_cell(std::uint32_t x, std::uint32_t y) { return (X0 + x) + (Y0 + y) * GW; }
 int native_cell(std::uint32_t x, std::uint32_t y) { return static_cast<int>((X0 + x + 1) + (Y0 + y + 1) * (GW + 2)); }
+void timestep_control() {
+    std::vector<MAOniColonyMaterial> mats{material("Oxygen",11,oxygen,true,.016,1000)};
+    MAOniColonyConfig cfg{};cfg.struct_size=sizeof(cfg);cfg.abi_version=MA_ONI_COLONY_ABI_VERSION;
+    cfg.vacuum_index=vacuum;cfg.grid_width=cfg.width=8;cfg.grid_height=cfg.height=4;
+    cfg.maximum_timestep_s=static_cast<double>(.1f);
+    std::vector<MAOniColonyCell> cells(32);
+    for(std::size_t i=0;i<cells.size();++i)
+        cells[i]={oxygen,MA_ONI_COLONY_FLUID,i%8<4?1.2f:std::nextafter(1.2f,2.f),300,0,0};
+    ma::oni::colony::start(cfg,mats,cells,1);
+    ma::oni::colony::advance(1,static_cast<double>(.2f),2);ma::oni::colony::wait();
+    MAOniColonyStatus st{};ma::oni::colony::copy(st,nullptr,0);
+    require(st.state==1 && st.completed_frames==1 && st.substeps==2 &&
+        st.maximum_relative_mass_error<1e-12 && st.maximum_relative_energy_error<1e-12,
+        "frame-aligned timestep must advance in two steps with closed ledgers");
+    ma::oni::colony::stop();
+    cfg.maximum_timestep_s=std::nextafter(cfg.maximum_timestep_s,1.);
+    bool rejected=false;
+    try{ma::oni::colony::start(cfg,mats,cells,1);}catch(const std::invalid_argument&){rejected=true;}
+    require(rejected && !ma::oni::colony::active(),"timestep beyond native frame-aligned cap must reject");
+    std::cout<<"PASS native frame-aligned timestep: two steps, ledgers and admission cap\n";
+}
 void projection_control() {
     using namespace ma::experimental;
     constexpr std::uint32_t width = 64, height = 35;
@@ -76,8 +97,10 @@ void flooded_pocket_control() {
 
 int main(int argc, char** argv) {
     try {
+        if (argc == 2 && std::strcmp(argv[1], "--timestep-only") == 0) { timestep_control(); return 0; }
         if (argc == 2 && std::strcmp(argv[1], "--projection-only") == 0) { projection_control(); return 0; }
-        require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only]");
+        require(argc == 1, "Usage: ma_oni_colony_tests [--projection-only|--timestep-only]");
+        timestep_control();
         projection_control();
         flooded_pocket_control();
         std::vector<MAOniColonyMaterial> materials{material("Oxygen", 11, oxygen, true, .016, 1000), material("CarbonDioxide", 12, carbon, true, .044, 850),

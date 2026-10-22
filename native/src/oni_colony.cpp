@@ -177,7 +177,7 @@ void validate(const MAOniColonyConfig& c) {
     require(static_cast<std::uint64_t>(c.offset_x) + c.width <= c.grid_width && static_cast<std::uint64_t>(c.offset_y) + c.height <= c.grid_height,
         "Colony rectangle leaves the grid");
     require(std::isfinite(c.gravity_m_per_s2) && c.gravity_m_per_s2 >= 0 && c.gravity_m_per_s2 <= 100, "Invalid colony gravity");
-    require(std::isfinite(c.maximum_timestep_s) && c.maximum_timestep_s > 0 && c.maximum_timestep_s <= .1, "Invalid colony maximum timestep");
+    require(std::isfinite(c.maximum_timestep_s) && c.maximum_timestep_s > 0 && c.maximum_timestep_s <= static_cast<double>(.1f), "Invalid colony maximum timestep");
 }
 std::shared_ptr<const Catalogue> catalogue_of(std::span<const MAOniColonyMaterial> materials) {
     require(!materials.empty() && materials.size() <= 4096, "A colony needs 1..4096 materials");

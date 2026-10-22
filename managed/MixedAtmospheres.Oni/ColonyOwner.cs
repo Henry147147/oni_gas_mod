@@ -18,7 +18,8 @@ namespace MixedAtmospheres.Oni
         private const byte LiquidImpermeable = 2;
         // Calm asteroids take full steps of this length; flow and the pressure
         // solve shorten them where needed (docs/colony-owner.md#pacing).
-        internal const double MaximumTimestepSeconds = .1;
+        // Two steps exactly cover the native binary32 0.2 s frame.
+        internal const double MaximumTimestepSeconds = .1f;
         // Native messages seen while the owner runs, by hash (development census).
         internal static readonly Dictionary<int, long> Census = new Dictionary<int, long>();
         internal static void Count(int message, int count) { if (Active) Census[message] = (Census.TryGetValue(message, out var n) ? n : 0) + count; }
