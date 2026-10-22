@@ -263,22 +263,25 @@ experimental::ReferenceEquilibriumState evaluate_cell(const FluidThermodynamics&
 long double energy_of(const MacClosedWorld& w) {
     const auto& st = w.state(); const auto& grid = st.grid; long double value = 0;
     const double g = w.settings().gravity_m_per_s2;
+    // Reuse each exact mass; retain the original energy summation order.
+    std::vector<double> mass(st.cells.size());
     for (std::size_t i = 0; i < st.cells.size(); ++i) {
         if (grid.walls[i]) continue; // a wall holds no fluid and adds nothing
-        const auto& cell = st.cells[i];
+        const auto& cell = st.cells[i]; mass[i]=cell.mixture.mass();
         value += static_cast<long double>(cell.mixture.energy) + cell.energy_remainder_j.projected + mac_energy_long_double(cell.energy_remainder_j.full);
-        value += static_cast<long double>(cell.mixture.mass()) * g * ((static_cast<double>(i / grid.width) + .5) * grid.spacing_m);
+        value += static_cast<long double>(mass[i]) * g * ((static_cast<double>(i / grid.width) + .5) * grid.spacing_m);
     }
-    const auto half = [&](std::size_t cell) { return cell < st.cells.size() && !grid.walls[cell] ? .5L * st.cells[cell].mixture.mass() : 0.L; };
-    const auto jx = mac_field_values(st.momentum_x, st.full_momentum_x), jy = mac_field_values(st.momentum_y, st.full_momentum_y);
+    const auto half = [&](std::size_t cell) { return cell < st.cells.size() && !grid.walls[cell] ? .5L * mass[cell] : 0.L; };
+    const auto jx = st.full_momentum_x.empty() ? std::vector<MacScaled>{} : mac_field_values(st.momentum_x, st.full_momentum_x);
+    const auto jy = st.full_momentum_y.empty() ? std::vector<MacScaled>{} : mac_field_values(st.momentum_y, st.full_momentum_y);
     for (std::size_t y = 0; y < grid.height; ++y) for (std::size_t x = 0; x < grid.x_width(); ++x) {
-        const auto f = grid.x_face(x, y); const long double j = jx[f].project().value;
+        const auto f = grid.x_face(x, y); const long double j = jx.empty() ? st.momentum_x[f] : jx[f].project().value;
         if (j == 0) continue;
         const long double inertia = (x > 0 || grid.periodic_x ? half((x + grid.width - 1) % grid.width + y * grid.width) : 0.L) + (x < grid.width ? half(x + y * grid.width) : 0.L);
         if (inertia > 0) value += .5L * j * j / inertia;
     }
     for (std::size_t y = 0; y < grid.y_height(); ++y) for (std::size_t x = 0; x < grid.width; ++x) {
-        const auto f = grid.y_face(x, y); const long double j = jy[f].project().value;
+        const auto f = grid.y_face(x, y); const long double j = jy.empty() ? st.momentum_y[f] : jy[f].project().value;
         if (j == 0) continue;
         const long double inertia = (y > 0 || grid.periodic_y ? half(x + ((y + grid.height - 1) % grid.height) * grid.width) : 0.L) + (y < grid.height ? half(x + y * grid.width) : 0.L);
         if (inertia > 0) value += .5L * j * j / inertia;
