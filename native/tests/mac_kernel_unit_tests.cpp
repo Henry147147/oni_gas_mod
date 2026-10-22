@@ -5,6 +5,7 @@
 #include "mac_kernel_fixture.hpp"
 #include "../src/mac_kernel_heat_entropy.hpp"
 #include <cstdlib>
+#include <tuple>
 
 using namespace ma::testing;
 using namespace ma::testing::kernel;
@@ -231,7 +232,45 @@ void caloric_resolution_control() {
         "regional sub-resolution mixed cell skips ill-conditioned heat graph");
 }
 
+void zero_rhs_component_control() {
+    namespace k=ma::experimental::mac_kernel;
+    MacGrid grid{2,1,1,1,false,false,std::vector<std::uint8_t>(2)}; k::Grid geometry(grid);
+    k::LinearSystem sys; sys.g=&geometry; sys.diag={0x1p-1040,4}; sys.active={1,1};
+    sys.wx.assign(geometry.NX,0); sys.wy.assign(geometry.NY,0);
+    for (const unsigned threads : {1u,12u}) {
+        k::Model model; k::Workspace workspace; MacClosedSettings settings;
+        settings.preconditioner=PressurePreconditioner::incomplete_cholesky;
+        MacKernelOptions options; options.threads=threads;
+        k::Context context{workspace,grid,model,geometry,settings,options,k::Exec{geometry,k::pool_for(threads)},{},{}};
+        std::vector<double> x; bool legacy_rejected=false;
+        try { (void)k::solve_linear(context,sys,{0,8},x,1e-13,1e-15,100); }
+        catch (const std::invalid_argument&) { legacy_rejected=true; }
+        settings.game_profile=MacGameProfile::base_game_floor;
+        const auto solved=k::solve_linear(context,sys,{0,8},x,1e-13,1e-15,100);
+        check(legacy_rejected && solved.converged && solved.iterations==1 && solved.residual==0 &&
+            x==std::vector<double>({0,2}),"game zero-RHS subnormal component keeps the analytic root and other component");
+        bool bad_rejected=true;
+        for (const double bad : {0.,-1.,std::numeric_limits<double>::infinity()}) {
+            auto invalid=sys; invalid.diag[0]=bad; bool rejected=false;
+            try { (void)k::solve_linear(context,invalid,{0,8},x,1e-13,1e-15,100); }
+            catch (const std::invalid_argument&) { rejected=true; }
+            bad_rejected=bad_rejected && rejected;
+        }
+        check(bad_rejected,"game zero-RHS scalar keeps matrix admission");
+        auto scalar=sys; scalar.diag={4,4}; const std::vector<double> zero{0,0};
+        bool limits_rejected=true;
+        for (const auto [relative,absolute,maximum] : {std::tuple{0.,0.,std::size_t{1}},
+             std::tuple{-1.,1e-15,std::size_t{1}},std::tuple{1e-13,1e-15,std::size_t{0}}}) {
+            bool rejected=false;
+            try { (void)k::solve_linear(context,scalar,zero,x,relative,absolute,maximum); }
+            catch (const std::invalid_argument&) { rejected=true; }
+            limits_rejected=limits_rejected && rejected;
+        }
+        check(limits_rejected,"game zero-RHS scalar keeps solve-limit admission");
+    }
+}
 void game_numerics_control() {
+    zero_rhs_component_control();
     namespace k = ma::experimental::mac_kernel;
     k::Model model; k::Species liquid;
     liquid.registry=0; liquid.gas=false; liquid.cv=1; liquid.rho0=1; liquid.bulk=0x1p20;

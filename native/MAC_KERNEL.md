@@ -197,6 +197,19 @@ temperature admission stays enforced. Cold continuation across 1/12 workers
 is byte-identical. These controls establish correctness of the policies,
 not a Terra speed claim or a floor pass.
 
+Two floor-profile failure paths retain their existing equations and audit
+bounds. An isolated positive pressure scalar with exactly zero RHS returns
+its exact zero solution without constructing an overflowing reciprocal.
+An endpoint with a cancelled momentum remainder on an evacuated face is
+rejected and retried with a smaller step, within the existing shared attempt
+budget and eight audit retries. Previously successful intervals retain their
+arithmetic and checkpoints; legacy and gate profiles keep their original paths.
+The captured arena F5 frame passes thirty cold-restored flow intervals with
+identical one/twelve-worker endpoints and a total trace sink of 1.8314e-10 kg /
+0.0003705 J. The full arena run remains unverified. The ten-cycle capture gets
+past its zero-RHS preconditioner error but a subsequent range failure is still
+under investigation; ten-cycle acceptance is open.
+
 At a provisional `1e-60 kg` threshold, five captured fault worlds complete
 30 cold-restored intervals: total sink masses are `5.49e-59`, `6.63e-59`,
 `2.63e-58`, `5.46e-58` and `1.53e-58 kg`. The largest booked energy magnitude
@@ -233,6 +246,18 @@ errors and affected floor metrics are unresolved. The current maximum is
 already 0.1f s; 0.05f s was a finer control, not a speedup. Full timings, ledger
 errors and trace totals are in the floor report. Physics gates retain their
 original settings and outputs.
+
+The exact sterile conversion batching change at `be2a841` measured
+298.6 → 291.5 ms mean owner time and 391.1 → 382.9 ms observed interval in
+matched whole-lock fast Terra60 runs. The gain is small and noisy; the path
+rarely joins a positive product on Terra. Parent/new mass errors were
+2.32e-16/2.51e-16 and energy errors 4.69e-17/3.84e-17; trace totals were
+3.536e-8/3.577e-8 kg and 0.01250/0.01283 J. Both had no faults or skips.
+The new 1× control measured 281.2 ms owner / 364.5 ms observed, mass/energy
+errors 7.63e-16/3.82e-17 and trace sink 3.517e-8 kg / 0.01258 J.
+Fast observed p95/max were 545.6/2942.5 ms; at 1×, 586.9/2942.1 ms. The maxima
+include the initial UI hand-off gap; fast frames 10–60 averaged 325.0 ms
+(p95 446.5, max 545.6). No fast-speed target pass is claimed.
 
 ## Coverage and admission
 

@@ -190,6 +190,14 @@ LinearSolveResult solve_component_ic(Context& c, const LinearSystem& sys, const 
         std::vector<double> diagonal, rhs; diagonal.reserve(part.cells.size()); rhs.reserve(part.cells.size());
         for (const auto cell : part.cells) { diagonal.push_back(sys.diag[cell]); rhs.push_back(b[cell]); }
         for (const auto& [node, weight] : part.boundary) diagonal[node] += weight;
+        // A positive isolated scalar with zero RHS has the exact zero root.
+        // No reciprocal is needed, including when 1/diagonal overflows.
+        if (c.settings.game_profile==MacGameProfile::base_game_floor && part.faces.empty() &&
+            diagonal.size()==1 && std::isfinite(diagonal[0]) && diagonal[0]>0 && rhs[0]==0 &&
+            std::isfinite(rtol) && rtol>=0 && std::isfinite(local_atol) && local_atol>=0 &&
+            (.5*rtol>0 || local_atol>0) && maximum>0) {
+            results[index]={{0,0,true},false,false}; return;
+        }
         PressureSystem matrix(std::move(diagonal), part.faces, PressurePreconditioner::incomplete_cholesky);
         PressureSolveResult solved;
         try { solved = matrix.solve(rhs, std::vector<double>(rhs.size(), 0), .5 * rtol, local_atol, maximum); }

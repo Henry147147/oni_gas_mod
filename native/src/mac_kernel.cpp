@@ -530,7 +530,19 @@ MacKernelReport run_interval(const SpeciesRegistry& registry, const FluidThermod
         // ---- interval audit
         const auto audit_time = Clock::now();
         const auto t1 = totals(c, w.current, 1);
-        for (const auto& q : t1) if (!q.ordinary) throw RangeFlag{report.attempts};
+        if (std::any_of(t1.begin(),t1.end(),[](const auto& q) { return !q.ordinary; })) {
+            bool evacuated=false;
+            if (settings.game_profile==MacGameProfile::base_game_floor && settings.step_control==MacStepControl::regional_predictive) {
+                std::vector<double> mass,ix,iy; cell_masses(c,w.current,mass); face_inertias(c,mass,ix,iy);
+                for (std::size_t i=0;i<ix.size();++i) evacuated=evacuated || (ix[i]==0 && w.current.jx[i]!=0);
+                for (std::size_t i=0;i<iy.size();++i) evacuated=evacuated || (iy[i]==0 && w.current.jy[i]!=0);
+            }
+            if (!evacuated || audit_attempt>=8 || report.attempts>=budget) throw RangeFlag{report.attempts};
+            // A cancelled momentum remainder cannot live on an emptied face.
+            // Discard the whole endpoint and retry; all original audits still run.
+            report.timing.audit_ms+=since(audit_time);
+            ++report.audit_retries; maximum_dt*=.5; continue;
+        }
         bool passed = true;
         report.audits.clear();
         for (std::size_t q = 0; q < c.quantities(); ++q) {
