@@ -112,7 +112,7 @@ RUN_EVIDENCE: dict[str, dict] = {
         "check": "the prepared base saves through ONI's ordinary save, loads in a fresh process with its owner, overwrites in place, "
                  "and ONI's own loader refuses it (docs/colony-owner.md#saves)"},
 }
-PASSED_RUNS: set[str] = set()
+PASSED_RUNS: set[str] = {"colony-save", "backwalls"}
 SYSTEMS.update(RUN_SYSTEMS)
 SYSTEMS.update({name: entry for name, entry in RUN_EVIDENCE.items() if name in PASSED_RUNS})
 for _system, (_files, _scenarios) in SCENARIO_SYSTEMS.items():
